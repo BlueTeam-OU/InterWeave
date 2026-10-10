@@ -238,10 +238,11 @@ jobs:
 
   android-check:
     # CONTEXT NAME: `android check (aarch64-linux-android)`. Required (the
-    # ruleset; CLAUDE.md §9): Stage 17 §20 step 1 cites it as the record
-    # that the phone's crates build for their target (architect-cto-01,
-    # relay 01a12048). No account on develop-qzapp has an Android std, so
-    # this job is the only place they are compiled for aarch64-linux-android.
+    # ruleset; CLAUDE.md §9), so renaming it un-gates main. Stage 17 §20
+    # step 1 cites it as the record that the phone's crates build for
+    # their target (architect-cto-01, relay 01a12048). No account on
+    # develop-qzapp has an Android std, so this job is the only place they
+    # are compiled for aarch64-linux-android.
     # Every version is tools/host/android/android-toolchain.pins' — the
     # scripts read them there; this job only says which components it needs.
     name: android check (aarch64-linux-android)

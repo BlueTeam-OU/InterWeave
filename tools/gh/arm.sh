@@ -14,8 +14,9 @@
 # commits), and the count rule (under eight work commits only on the
 # owner's word). InterWeave's
 # security-boundary paths are agent-fabric's
-# projects/interweave/integration/gh/arm.json, found from this clone's
-# remote; a path it misses is a change there, proposed to
+# projects/interweave/integration/gh/arm.json, which this forwarder names
+# (AGENT_FABRIC_ARM_CONFIG overrides it); a path it misses is a change
+# there, proposed to
 # fabric-coordinator.
 #
 #   tools/gh/arm.sh <n> --basis "<one line>"
