@@ -131,6 +131,12 @@ workflow "$R" "rust" "tree checks"
 contract "$R" "rust" "tree checks"
 advisory "$R" "android check (aarch64-linux-android)"
 [ "$(run_code "$R")" = "1" ] && ok "an advisory context no job reports fails" || bad "should exit 1: $(run "$R")"
+R="$TMP/advisory-two-lines"; mkdir -p "$R"
+workflow "$R" "rust" "a check" "b check"
+contract "$R" "rust"
+advisory "$R" "a check"
+advisory "$R" "b check"
+[ "$(run_code "$R")" = "0" ] && ok "advisory jobs named on two separate lines both count" || bad "second advisory line ignored: $(run "$R")"
 bash "$GUARD" --help >/dev/null 2>&1 && ok "--help exits 0" || bad "--help should exit 0"
 
 echo
