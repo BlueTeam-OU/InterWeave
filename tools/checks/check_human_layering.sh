@@ -33,6 +33,14 @@
 #      cannot meet while it depends on human-store; architect-cto ruled
 #      for decision (2) and is amending P1's text to match on a branch
 #      of its own, folded beside this rule (relay 01a10614, 2026-10-04).
+#   6. apps/human-android, the release library, reaches no test-only
+#      crate (interweave-android-e2e-cases): the instrumentation builds
+#      that crate into the androidTest APK only, and the release APK's
+#      graph names it nowhere (architect-cto's DECISION 01a12770, plan
+#      §20 gate (c)). This is the Rust half; the test-only JNI entry
+#      (org.interweave.human.test.E2eCase) is a Java class this walk
+#      cannot see, checked on the APK once the instrumentation build
+#      exists.
 # check_ipc_layering.sh is the precedent; this is its shape, wider.
 #
 # WHAT IS FOLLOWED: the normal and build dependencies cargo resolves with
@@ -190,6 +198,13 @@ GUARDED = [
     ("crates/human/app-core", headless_free),
 ]
 APP_CORE = "crates/human/app-core"
+HUMAN_ANDROID = "apps/human-android"
+TEST_ONLY = {"interweave-android-e2e-cases"}
+
+def release_free(pkg):
+    if pkg["name"] in TEST_ONLY:
+        return "a test-only crate (the androidTest APK's, never the release one)"
+    return None
 
 
 def main():
@@ -228,12 +243,19 @@ def main():
             if is_slint(packages[dep]["name"]):
                 print(f"FAIL: {d} declares {packages[dep]['name']} itself — only {UI_SLINT} may; an app reaches Slint through it")
                 bad += 1
+    # Rule 6: the release library reaches no test-only crate.
+    start = member_at.get(HUMAN_ANDROID)
+    if start is not None:
+        n, found = walk(start, release_free)
+        if not found:
+            print(f"{me}: {HUMAN_ANDROID} reaches no test-only crate ({n} runtime dependencies walked)")
     if bad:
         print()
         print("The human application layers: core, chat-protocol, store, transport-client,")
         print("ui-model and client-api know no transport runtime, no libp2p and no Slint;")
         print("ui-model and client-api hold no storage; app-core runs on no tokio and")
-        print("declares no rusqlite; Slint is ui-slint's alone, and an app composes ui-slint.")
+        print("declares no rusqlite; Slint is ui-slint's alone, and an app composes ui-slint;")
+        print("the release Android library reaches no test-only crate.")
         sys.exit(1)
 
 # Exit 1 means a breach and nothing else: an error the load or the walk did

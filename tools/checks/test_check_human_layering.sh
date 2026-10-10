@@ -99,7 +99,9 @@ lpid libp2p-identity registry/libp2p-identity
 slint slint registry/slint
 islint i-slint-core registry/i-slint-core
 sbuild slint-build registry/slint-build
-sql rusqlite registry/rusqlite'
+sql rusqlite registry/rusqlite
+happ interweave-human-android apps/human-android
+e2e interweave-android-e2e-cases tests/android-e2e-cases'
 EDGES='core api normal
 proto serde normal
 store sql normal
@@ -216,6 +218,22 @@ expect 1 "an app declaring slint itself fails" "apps/human-desktop declares slin
 graph "$NOW daemon" "$PKGS" "$EDGES
 daemon islint build"
 expect 1 "any other member declaring a Slint crate fails" "apps/transport-daemon declares i-slint-core itself"
+
+# Rule 6: the release Android library and the instrumentation's test crate.
+graph "$NOW happ e2e" "$PKGS" "$EDGES
+happ api normal
+e2e api normal"
+expect 0 "the release library beside the test crate, not depending on it, passes" "apps/human-android reaches no test-only crate"
+graph "$NOW happ e2e" "$PKGS" "$EDGES
+happ e2e dev"
+expect 0 "the test crate as a dev-dependency of the release library passes (not compiled into it)"
+graph "$NOW happ e2e" "$PKGS" "$EDGES
+happ api normal
+api e2e normal"
+expect 1 "the release library reaching the test crate transitively fails, with the path" "apps/human-android depends on a test-only crate (the androidTest APK's, never the release one): interweave-human-android -> interweave-local-client-api -> interweave-android-e2e-cases"
+graph "$NOW happ e2e" "$PKGS" "$EDGES
+happ e2e build"
+expect 1 "the test crate as a build dependency fails" "apps/human-android depends on a test-only crate"
 
 # Absent crates: planned is a skip, anything else a failure to check.
 planned crates/human/ui-model crates/human/ui-slint
