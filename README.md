@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/interweave-icon.svg" width="128" alt="InterWeave logo"></p>
+
 # InterWeave
 
 **InterWeave** is a peer-to-peer transport for agent harnesses that speak MCP and for first-party human clients: the agent bridge delivers by Claude Code's channel extension, or to any MCP host through a `receive` tool. One configured profile owns one persistent peer identity; many local applications share it through configured endpoints. On the wire it combines signed GossipSub broadcast, a dedicated directed-message protocol, an endpoint directory, replaceable discovery, Kademlia peer routing, and mandatory Internet reachability through AutoNAT v2, Circuit Relay v2 and DCUtR. The design is under [`architecture/`](./architecture/); the code is built one stage at a time in the order that design fixes.
