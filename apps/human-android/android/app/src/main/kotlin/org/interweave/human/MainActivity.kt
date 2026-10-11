@@ -37,11 +37,17 @@ class MainActivity : NativeActivity() {
         shown = true
         Thread({ relayAsks() }, "interweave-network-ask").start()
         if (bound) return
-        if (networkGranted()) {
-            bind()
-            askNotifications()
-        } else {
-            ask()
+        when {
+            networkGranted() -> {
+                bind()
+                askNotifications()
+            }
+            // The first launch asks before it binds (step 1). Every later
+            // one opens the window in the posture, and only the window's
+            // own action asks again: a settings page opened from here
+            // would cover the window at every return to it.
+            !askedNetwork() -> ask()
+            else -> bind()
         }
     }
 
@@ -91,11 +97,15 @@ class MainActivity : NativeActivity() {
      * ask, or while it says a rationale may be shown. After a refusal it
      * stops offering it, and only the settings page can grant.
      */
+    private fun askedNetwork(): Boolean =
+        getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean(ASKED_NETWORK, false)
+
     private fun ask() {
-        val preferences = getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-        val askedBefore = preferences.getBoolean(ASKED_NETWORK, false)
-        if (!askedBefore || shouldShowRequestPermissionRationale(Manifest.permission.INTERNET)) {
-            preferences.edit().putBoolean(ASKED_NETWORK, true).apply()
+        if (!askedNetwork() || shouldShowRequestPermissionRationale(Manifest.permission.INTERNET)) {
+            getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(ASKED_NETWORK, true)
+                .apply()
             requestPermissions(arrayOf(Manifest.permission.INTERNET), NETWORK_REQUEST)
         } else {
             if (!bound) bind()
