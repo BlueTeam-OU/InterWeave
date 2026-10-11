@@ -64,6 +64,5 @@ ignored = [
   "interweave-discovery-api",
   "interweave-kademlia-control-api",
   "interweave-test-support",
-  "futures",
   "rand",
 ]
