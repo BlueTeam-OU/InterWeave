@@ -14,6 +14,7 @@
 
 pub mod facade;
 pub mod hub;
+pub mod identity;
 pub mod notice;
 pub mod offline;
 pub mod service;
@@ -22,6 +23,7 @@ pub mod stand_in;
 pub mod view_side;
 
 pub use hub::{Hub, TO_VIEW, ToView, ViewLink};
+pub use identity::{IdentityRefused, start_identity};
 pub use interweave_transport_embedded::StayReachable;
 pub use notice::Notices;
 pub use service::{
