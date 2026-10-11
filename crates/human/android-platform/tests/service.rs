@@ -51,7 +51,7 @@ fn launch(app: &App) -> ServiceLaunch {
     ServiceLaunch {
         app_data_dir: app.dir.clone(),
         profile: PROFILE.to_owned(),
-        identity: stand_in::identity(),
+        identity: interweave_profile_identity::ProfileIdentity::generate(),
     }
 }
 

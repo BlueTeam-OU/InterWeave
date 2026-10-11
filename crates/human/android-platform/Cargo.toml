@@ -33,10 +33,11 @@ interweave-transport-embedded = { path = "../../transport/embedded" }
 tokio = { workspace = true, features = ["sync", "time", "macros"] }
 
 [features]
-# The first-run profile and in-memory identity steps 2-4 run on until
-# profile-config's provisioning and step 6's Keystore key land
-# (src/stand_in.rs). Off by default; the app turns it on for its debug
-# build alone.
+# The first-run profile, until profile-config's provisioning lands
+# (src/stand_in.rs), and a first run's identity created and provisioned
+# without asking, until step 7's onboarding lets the person choose
+# (src/identity.rs). Off by default; the app's Gradle build turns it on
+# for the debug variant.
 dev-stand-ins = []
 # TEST-ONLY: end the runtime from a test (ServiceHost::end_runtime_for_test),
 # through the embedded host's own hook; this crate's tests turn it on.
