@@ -40,5 +40,6 @@ The direction was chosen by the owner the same day.
 
 **Licence.** Apache-2.0, first-party, like the rest of the repository;
 no attribution is owed. This covers every file in the table, the binary
-PNG included: an image cannot carry an SPDX header, so this register is
-where its licence is stated.
+PNG included: the PNG carries no SPDX text, and
+`tools/checks/check_license_headers.sh` does not require one of an
+image, so this register is where its licence is stated.
