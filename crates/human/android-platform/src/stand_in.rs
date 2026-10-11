@@ -73,6 +73,26 @@ pub fn provision(app_data_dir: &Path, profile: &str) -> Result<(), PersistError>
     std::fs::write(paths.config_file(), document(profile)).map_err(PersistError::Io)
 }
 
+/// Write `document` as `profile`'s configuration under `app_data_dir`,
+/// replacing what is there: what the android-e2e cases' `provision`
+/// asks of the app, since the host cannot reach the app's private
+/// directories (the seam agreed with p2p-network-dev-02, 01a127b3).
+/// Only that instrumentation calls it; the app's own start keeps
+/// [`provision`]'s never-rewrite rule.
+///
+/// # Errors
+/// The directory or the file could not be made, or is refused by the
+/// app's trust boundary.
+pub fn provision_replacing(
+    app_data_dir: &Path,
+    profile: &str,
+    document: &str,
+) -> Result<(), PersistError> {
+    let paths = ProfilePaths::resolve_embedded(profile, TrustBoundary::new(app_data_dir)?)?;
+    create_private_dir_within(paths.config_dir(), paths.boundary())?;
+    std::fs::write(paths.config_file(), document).map_err(PersistError::Io)
+}
+
 /// A fresh identity, held in memory only: a new `PeerId` at every start.
 #[must_use]
 pub fn identity() -> ProfileIdentity {

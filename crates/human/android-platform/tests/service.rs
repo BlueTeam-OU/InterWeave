@@ -377,6 +377,36 @@ fn the_stand_in_profile_is_written_once_and_never_rewritten() {
     );
 }
 
+/// The android-e2e cases' provisioning replaces what is there -- the
+/// host names each start's profile -- where the app's own never does,
+/// and it writes under the same private directory.
+#[test]
+fn the_cases_provisioning_replaces_the_profile_where_the_apps_keeps_it() {
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    stand_in::provision_replacing(&app.dir, PROFILE, "# the host's profile\n").expect("replaced");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("read"),
+        "# the host's profile\n"
+    );
+
+    let fresh = self::app();
+    stand_in::provision_replacing(&fresh.dir, PROFILE, "# first\n").expect("on nothing");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&fresh.dir).expect("b"))
+        .expect("paths");
+    let mode = std::fs::metadata(paths.config_dir())
+        .expect("stat")
+        .permissions()
+        .mode();
+    assert_eq!(
+        mode & 0o777,
+        0o700,
+        "the configuration directory is private"
+    );
+}
+
 /// The network-denied posture (human-client-android.md, "Runtime
 /// permissions and the network-denied state"): the store opens and a view
 /// gets its listing, told access is withheld; no runtime runs, so there is
