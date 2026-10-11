@@ -54,8 +54,9 @@ test-hooks = []
 
 [dev-dependencies]
 # TEST-ONLY: this crate with its own `test-hooks` on, for the tests that
-# inject a trust overlay write or publish failure
-# (`tests/trust_overlay.rs` and `tests/trust_overlay_ahead.rs`).
+# inject an overlay write or publish failure (`tests/trust_overlay.rs`,
+# `tests/trust_overlay_ahead.rs`, `tests/endpoint_overlay.rs` and
+# `tests/endpoint_overlay_ahead.rs`).
 interweave-transport-composition = { path = ".", features = ["test-hooks"] }
 # TEST-ONLY: the host's private address for tests between real peers
 # (ADR-0052 refuses a peer's loopback). Never a production dependency.
