@@ -42,7 +42,7 @@ def d(pts):
 def put(rel, text):
     path = os.path.join(ROOT, rel)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'w') as f:
+    with open(path, 'w', newline='\n') as f:  # LF on every platform, so a rerun matches the commit
         f.write(text)
     return path
 
@@ -86,9 +86,12 @@ def main():
     os.makedirs(os.path.dirname(png), exist_ok=True)
     subprocess.run(['rsvg-convert', '-w', '256', '-h', '256', master, '-o', png], check=True)
 
-    # Launcher: the strands, casing included, about 60 dp wide in a 108 dp layer, inside the 66 dp safe zone.
+    # Launcher: every point of the mark, casing included, inside the 66 dp safe-zone circle of the 108 dp
+    # layer. Sized from the farthest point, not the width: the round caps at the four ends lie on the
+    # diagonal, and a width-sized mark puts them outside the circle.
+    reach = max(math.hypot(x - 256, y - 256) for x, y in UP + DN) + CASE / 2
+    launcher = (33 * 512 / 108) / reach
     span = (X1 - X0) + CASE
-    launcher = (60 / 108 * 512) / span
     cx, cy = CROSS_OVER
     fg = (vpath(UP, NAVY1, CASE) + vpath(UP, TEAL, W) + vpath(DN, NAVY1, CASE) + vpath(DN, AMBER, W)
           + f'        <group>\n        <clip-path android:pathData="{circle(cx, cy, R_CASE)}"/>\n'
