@@ -132,6 +132,11 @@ rm "$S/sdk/platforms/android-36/android.jar"
 out="$(FAKE_PKGS="$ALL" NDK="" SDK="$S/sdk" run JAVA_HOME="$S/jdk")"; rc=$?
 [[ $rc -eq 2 && "$out" == *"needs $S/sdk/platforms/android-36/android.jar"* ]] && ok "the compileSdk platform missing: exit 2, the jar named" || bad "rc $rc" "$out"
 
+echo "check_android_target: the instrumentation's test crate joins the default set"
+rm -f "$S/log"; out="$(FAKE_PKGS="interweave-profile-config interweave-android-e2e-cases" run)"; rc=$?
+[[ $rc -eq 0 ]] && grep -q -- '-p interweave-profile-config -p interweave-android-e2e-cases$' "$S/log" \
+    && ok "interweave-android-e2e-cases is checked for the target, with no JDK needed" || bad "rc $rc" "$(cat "$S/log" 2>/dev/null; echo "$out")"
+
 echo "check_android_target: a failing cargo check is exit 1"
 out="$(FAKE_PKGS="interweave-profile-config" run FAKE_CHECK_FAIL=1)"; rc=$?
 [[ $rc -eq 1 && "$out" == *"cargo check failed"* ]] && ok "exit 1, said" || bad "rc $rc" "$out"

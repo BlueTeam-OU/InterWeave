@@ -35,7 +35,7 @@ interweave_fabric_python() {  # interweave_fabric_python <caller's name, for the
     # hand-overs call agent-fabric's commands (bin/fabric-pr <verb>, or a
     # module here), never its runtime/github/*.sh shims, which are being
     # removed. AGENT_FABRIC_PYTHON points elsewhere for a test or a host
-    # without it. Missing: the shim's own message and its exit, 127.
+    # without it. Missing: the install message and exit 127.
     local py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
     if [[ ! -x "$py" ]]; then
         echo "$1: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2
