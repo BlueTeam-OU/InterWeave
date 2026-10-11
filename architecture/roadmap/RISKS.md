@@ -40,4 +40,4 @@
 
 - Android recovery UI can expose the full transport private key through screenshots/recents/IME/clipboard if platform bindings regress; secure-window + in-app mnemonic picker + no-clipboard rules are release-tested under SPIKE-008/009.
 - Android system backup/device transfer can create privacy leakage or unusable half-restores if sensitive/app state is included; standard v1 disables system backup and excludes identity/config/human-store from cloud and D2D extraction. Any future explicit message backup includes only unread/receiver-kept inbound content, never pending outbound.
-- `stay-reachable + user-presence` cannot automatically recover after process death; the mandatory diagnostic/UI copy prevents availability overclaiming.
+- `stay-reachable + user-presence` cannot automatically recover after process death, except within `USER_PRESENCE_WINDOW_S` (60 s) of the person's last authentication (ADR-0042 A 2026-10-11); the mandatory diagnostic/UI copy prevents availability overclaiming.
