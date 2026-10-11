@@ -24,7 +24,11 @@ pub mod view_side;
 
 pub use hub::{Hub, TO_VIEW, ToView, ViewLink};
 pub use identity::{IdentityRefused, start_identity};
+pub use interweave_profile_config::runtime::KeyUnlockPolicy;
 pub use interweave_transport_embedded::StayReachable;
+/// The embedded custody path, for the app's Keystore adapter of its
+/// `SeedCipher` seam.
+pub use interweave_transport_embedded::custody;
 pub use notice::Notices;
 pub use service::{
     AvailabilityMode, CLIENT_KIND, Ended, ServiceHost, ServiceLaunch, StartRefused, Stopped,
