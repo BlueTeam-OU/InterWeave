@@ -297,6 +297,8 @@ The same clause's positive half is measured on the inbound side too: the destina
 
 **Decision unlocked:** retain split-socket OS-boundary trust for same-UID deployments or add a stronger local authentication/authorization mechanism without merging the sockets.
 
+**Not run in Stage 18 (the owner's word, 2026-10-11; the plan's §21 decided (3)).** The spike stays conditional: `threat-model.md` lists fully malicious same-OS-user code among the non-goals, and ADR-0037's Security implications keep this spike as the explicit path should a deployment need same-user hardening — that deployment is the trigger. Stage 18's gate proves the boundary that is claimed (the data socket never grants `admin.*`; a foreign uid is refused before `hello`) and records this residual in its matrix.
+
 ## SPIKE-006 — identity-recovery portability
 
 **Objective:** verify that the pinned rust-libp2p identity API can export/import the exact Ed25519 32-byte secret boundary assumed by `interweave-ed25519-bip39-entropy-v1` and reproduce the same PeerId across backup/restore.

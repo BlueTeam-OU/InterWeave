@@ -5109,8 +5109,9 @@ are what is measured; the row states N and M. This makes
 `kademlia-integration.md`'s "disjoint paths/diverse seeds measured" and
 "bounded resource use and documented residual risk" exact.
 
-**(3) SPIKE-005 — awaiting the owner; recommended: not run, stays
-conditional.** SPIKES.md marks it conditional, ADR-0037 (Security
+**(3) SPIKE-005 is not run in Stage 18 and stays conditional** (the
+owner's word, 2026-10-11, relayed by fabric-coordinator in message
+01a12ad2-398b-7d93-802d-8c4aa9b22dc3). SPIKES.md marks it conditional, ADR-0037 (Security
 implications) keeps it as the explicit path for stronger same-user authentication, and
 `threat-model.md`'s non-goals exclude fully malicious same-OS-user code.
 Stage 18 proves the boundary that IS claimed (S9: the data socket never
@@ -5118,8 +5119,7 @@ grants `admin.*`, `client.kind` spoofed or not; a foreign uid is closed
 before `hello` and counted) and the matrix row records the residual,
 citing `threat-model.md`'s "Local IPC attack" and "Admin confused deputy"
 rows, with the spike's trigger named: a deployment that needs same-user
-hardening. Until the owner's word the row reads "awaits the owner's
-word"; S9 is built as if ruled so.
+hardening — the trigger that would run the spike later.
 
 **(4) The real-OS foreign uid runs in CI under a second uid.** The hosted
 runner runs passwordless `sudo` already (`ci.yml`'s AppArmor and apt
@@ -5140,14 +5140,14 @@ repository's rule: fail by name, never skip — ADR-0053 rule 9,
 stays the standing proof. No second account on a development host is
 needed.
 
-**(5) Windows — awaiting the owner; recommended: carried to Stage 19 as
-a named limit with its consequence stated.** No Windows runner exists, so
-this stage can build neither the named pipe nor its spoofing tests. The
-consequence is a release-scope decision: the standard-v1 matrix is then
-Linux, macOS and Android; §22's `packaging/windows` is conditional on a
+**(5) Windows is carried to Stage 19 as a named limit** (the owner's
+word, 2026-10-11, the same message): no Windows runner exists, so this
+stage builds neither the named pipe nor its spoofing tests. The
+consequence, decided with it: the standard-v1 release matrix is Linux,
+macOS and Android; §22's `packaging/windows` is conditional on a Windows
 runner and the binding; BSL-1.0 stays admitted nowhere. The alternative
-is a Windows runner now, and this stage taking the binding plus S9's
-Windows rows.
+— a runner now, and this stage taking the binding plus S9's Windows rows
+— was put to the owner and not taken. §22 carries the item.
 
 **(6) `HandshakeSlot::source` is wired, not removed**, at the one
 production point that holds a slot. The gate has no deadline sweep by
@@ -5287,9 +5287,9 @@ the Android↔desktop path (§20 gate (c)).
 - **P3 — placement.** Each new test sits at the lowest layer that
   completely proves it (§25); a mock-only unit test replaces no required
   real-socket, real-peer or platform test.
-- **P4 — the owner's two words.** Decided (3) and (5) carry "awaits the
-  owner's word" until it is in the tree or in a message to architect-cto;
-  the close does not wait on them for S9's build, only for their rows.
+- **P4 — the owner's two words.** Met 2026-10-11: decided (3) and (5)
+  carry them (message 01a12ad2-398b-7d93-802d-8c4aa9b22dc3); their matrix
+  rows record a residual and a carry, not work.
 
 ### Exit gate
 
@@ -5299,8 +5299,8 @@ No standard-v1 release while any threat-model regression test is failing.
 names exists and is green on `main`, no row is empty, and the existence
 guard is a required check; (b) every `threat-model.md` row and every item
 above has a row; (c) the eclipse row states N, M and the measured ratio;
-(d) the SPIKE-005 and Windows rows carry the owner's word, as a residual
-or as work done; (e) every limit the steps recorded — a device row
+(d) the SPIKE-005 row records the residual and the Windows row the carry
+to Stage 19, each citing decided (3) and (5); (e) every limit the steps recorded — a device row
 waiting on §20, a measurement the harness could not reach — is a `limit`
 cell naming the reason, re-carried in the closing record, and a missing
 second uid or user namespace is a red gate, not a limit; (f) the ledger
@@ -5338,6 +5338,8 @@ The packaging layer must not invent new trust/network/application semantics.
 Carried here from Stage 13 (§16): hot reload (SIGHUP) and which leases survive it; supervision units; flock on NFS homes.
 
 Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
+
+Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16, §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both.
 
 Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release.
 
