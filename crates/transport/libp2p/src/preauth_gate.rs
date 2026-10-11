@@ -1133,11 +1133,17 @@ mod tests {
     /// The listen-failure line names the bucket the gate counted and
     /// the elapsed time, and nothing else (R6, 2026-10-11): an IPv4
     /// address, an IPv6 /64, and a relayed inbound's relay. Never the
-    /// remote's port or a `PeerId` the circuit carries. An established
-    /// release, the control, writes no line at all.
+    /// remote's port or a `PeerId` the circuit carries. The elapsed
+    /// time is the slot's own, not the gate's age: the gate is aged
+    /// `BEFORE` first, so a line reading the gate's clock or the slot's
+    /// start alone exceeds the wall time the handshake took. An
+    /// established release, the control, writes no line at all.
     #[test]
     fn a_handshake_that_ends_unestablished_is_logged_by_its_bucket_alone() {
         use libp2p::swarm::{ListenError, ListenFailure};
+
+        const BEFORE: std::time::Duration = std::time::Duration::from_millis(200);
+        const HELD: std::time::Duration = std::time::Duration::from_millis(30);
 
         let local = addr("/ip4/0.0.0.0/tcp/4001");
         let relayed_local = addr(&format!("/ip4/192.0.2.5/tcp/4001/p2p/{RELAY}/p2p-circuit"));
@@ -1162,10 +1168,13 @@ mod tests {
         for (n, (local, remote, bucket)) in cases.into_iter().enumerate() {
             let recorded = Recorded::default();
             let mut gate = PreAuthAdmission::new(PreAuthLimits::default());
+            std::thread::sleep(BEFORE);
             let id = ConnectionId::new_unchecked(n);
+            let wall = std::time::Instant::now();
             tracing::subscriber::with_default(recorded.clone(), || {
                 gate.handle_pending_inbound_connection(id, &local, &remote)
                     .expect("admitted");
+                std::thread::sleep(HELD);
                 gate.on_swarm_event(FromSwarm::ListenFailure(ListenFailure {
                     local_addr: &local,
                     send_back_addr: &remote,
@@ -1174,6 +1183,7 @@ mod tests {
                     peer_id: None,
                 }));
             });
+            let wall_ms = wall.elapsed().as_millis();
             let lines = recorded.0.lock().expect("not poisoned").clone();
             assert_eq!(
                 lines.len(),
@@ -1183,6 +1193,13 @@ mod tests {
             let names: Vec<&str> = lines[0].iter().map(|(name, _)| name.as_str()).collect();
             assert_eq!(names, ["message", "bucket", "elapsed_ms"], "nothing more");
             assert_eq!(lines[0][1].1, bucket);
+            let elapsed_ms: u128 = lines[0][2].1.parse().expect("a number of milliseconds");
+            // Both ends of the slot's span are whole milliseconds rounded
+            // down, so their difference can exceed the wall reading by one.
+            assert!(
+                HELD.as_millis() <= elapsed_ms && elapsed_ms <= wall_ms + 1,
+                "the slot's own elapsed time: {elapsed_ms} ms, held {HELD:?}, {wall_ms} ms of wall time"
+            );
             for (_, value) in &lines[0] {
                 assert!(!value.contains("5001"), "never the remote's port: {value}");
                 assert!(

@@ -35,6 +35,9 @@ use libp2p::swarm::NetworkBehaviour;
 use libp2p::{Multiaddr, identify, identity, relay};
 
 const PATIENCE: Duration = Duration::from_secs(20);
+/// Long enough for the relay client's first retry, 30 s after a failed
+/// dial.
+const RESERVATION_PATIENCE: Duration = Duration::from_secs(60);
 
 #[derive(NetworkBehaviour)]
 struct RelayBehaviour {
@@ -177,18 +180,28 @@ async fn fresh_identities_through_one_relay_share_its_bucket_and_a_direct_peer_f
     )
     .parse()
     .expect("a circuit address");
-    let deadline = tokio::time::Instant::now() + PATIENCE;
+    // What the target reported while waiting goes into the failure, so
+    // a reservation that never comes says why: refused, retried, or
+    // never asked for. The wait covers one retry of the dial to the
+    // relay: on a busy runner the first one failed with EADDRINUSE on
+    // loopback, and the retry under peer backoff comes 30 s later
+    // (CI run 38165150729). This test is about the bucket, not about
+    // a first dial's luck.
+    let deadline = tokio::time::Instant::now() + RESERVATION_PATIENCE;
+    let mut waited = Vec::new();
     loop {
-        match tokio::time::timeout_at(deadline, target.next_event())
-            .await
-            .expect("the reservation is accepted")
-        {
+        let Ok(event) = tokio::time::timeout_at(deadline, target.next_event()).await else {
+            panic!(
+                "no reservation accepted within {RESERVATION_PATIENCE:?}; the target saw {waited:#?}"
+            )
+        };
+        match event {
             Some(SwarmEvent::RelayReservationChanged {
                 outcome: RelayReservationOutcome::Accepted,
                 ..
             }) => break,
-            Some(_) => {}
-            None => panic!("the target stopped"),
+            Some(other) => waited.push(other),
+            None => panic!("the target stopped; it saw {waited:#?}"),
         }
     }
 
