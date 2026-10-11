@@ -524,6 +524,159 @@ async fn an_addition_redials_a_held_off_peer_at_once_and_without_one_it_waits() 
     }
 }
 
+/// SPIKE-008 L7, plan §20 step 5: a Wi-Fi reconnect brings the SAME
+/// network back as a new one, and it must re-bind the dials. The
+/// platform's view loses the private IP (offline), a dial made while
+/// offline fails and holds the peer off for its 30 s retry; the view then
+/// names that same IP and nothing else, which is reported as an ADDITION
+/// of it alone, and the held-off peer is redialled at once. The control:
+/// the same window with the empty view still in force, in which the peer
+/// waits -- longer than conntrack's 10 s CLOSE state for the failed
+/// dial's port pair, so the redial is not dropped before TCP sees it. The
+/// return carries no second address, as on a device in L7, so a detector
+/// that kept the IP across the empty view would report no addition and
+/// leave the peer waiting out its backoff.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_same_ip_returning_after_offline_redials_a_peer_that_failed_while_offline() {
+    const CONTROL: Duration = Duration::from_secs(12);
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (subject_id, far_id) = (ProfileIdentity::generate(), ProfileIdentity::generate());
+    let subject_peer = subject_id.transport_identity().expect("peer id");
+    let far_peer = far_id.transport_identity().expect("peer id");
+    let mut subject = node(&[&far_peer], &subject_id);
+    let mut far = node(&[&subject_peer], &far_id);
+    let _private = subject
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the subject's private listener");
+    let far_addr = far
+        .runtime
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("the far peer listens");
+    assert!(
+        far.runtime
+            .stop_listening(far_addr.clone())
+            .await
+            .expect("reaches the task")
+    );
+    let changed = |pred: fn(&[std::net::IpAddr], &[std::net::IpAddr]) -> bool| {
+        move |events: &[SwarmEvent]| {
+            events.iter().any(|e| {
+                matches!(e,
+                SwarmEvent::NetworkChanged { removed, added } if pred(removed, added))
+            })
+        }
+    };
+    let mut others = [&mut far.runtime];
+
+    // ONLINE, then OFFLINE: each view read before the next is handed in
+    // (the latest view replaces one not yet read).
+    let lo: std::net::IpAddr = "127.0.0.1".parse().expect("an ip");
+    let extra = std::net::IpAddr::from(std::net::Ipv4Addr::new(10, 255, 0, 7));
+    let online = NetworkView {
+        addresses: vec![ip.into(), lo, extra],
+    };
+    subject.runtime.network_changed(online.clone());
+    drive(
+        &mut subject.runtime,
+        &mut others,
+        "the first view read",
+        PATIENCE,
+        Some(changed(|_, added| !added.is_empty())),
+    )
+    .await;
+    subject.runtime.network_changed(NetworkView::default());
+    drive(
+        &mut subject.runtime,
+        &mut others,
+        "offline read",
+        PATIENCE,
+        Some(|events: &[SwarmEvent]| {
+            events.iter().any(|e| {
+                matches!(e,
+                SwarmEvent::NetworkChanged { removed, .. }
+                if removed.contains(&std::net::IpAddr::from(ip)))
+            })
+        }),
+    )
+    .await;
+
+    // A DIAL WHILE OFFLINE fails: the far peer is not there either, and
+    // the peer is held off for the first retry's 30 s.
+    subject
+        .runtime
+        .dial(far_peer.clone(), far_addr.clone())
+        .await
+        .expect("reaches the task")
+        .expect("admitted");
+    drive(
+        &mut subject.runtime,
+        &mut others,
+        "the dial to fail",
+        PATIENCE,
+        Some(|events: &[SwarmEvent]| {
+            events.iter().any(
+                |e| matches!(e, SwarmEvent::DialFailed { peer: Some(p), .. } if *p == far_peer),
+            )
+        }),
+    )
+    .await;
+    let failed_at = tokio::time::Instant::now();
+    let _ = others[0]
+        .listen(far_addr.clone())
+        .await
+        .expect("the far peer listens again on the same address");
+    let connected = |events: &[SwarmEvent]| {
+        events
+            .iter()
+            .any(|e| matches!(e, SwarmEvent::Connected { peer, .. } if *peer == far_peer))
+    };
+
+    // THE CONTROL: still offline, and the peer waits its backoff.
+    let events = drive(
+        &mut subject.runtime,
+        &mut others,
+        "the control window",
+        CONTROL,
+        None::<fn(&[SwarmEvent]) -> bool>,
+    )
+    .await;
+    assert!(!connected(&events), "offline, the peer waits: {events:?}");
+
+    // BACK ON THE SAME NETWORK: the same IP alone, reported as added,
+    // and the peer redialled at once -- nothing else returns to carry the
+    // lift.
+    subject.runtime.network_changed(NetworkView {
+        addresses: vec![ip.into()],
+    });
+    let events = drive(
+        &mut subject.runtime,
+        &mut others,
+        "the held-off peer redialled",
+        PATIENCE,
+        Some(connected),
+    )
+    .await;
+    assert!(
+        failed_at.elapsed() < Duration::from_secs(30),
+        "connected inside the backoff, so the return made it due: {:?}",
+        failed_at.elapsed()
+    );
+    assert!(
+        events.iter().any(
+            |e| matches!(e, SwarmEvent::NetworkChanged { removed, added }
+            if removed.is_empty() && *added == vec![std::net::IpAddr::from(ip)])
+        ),
+        "the same IP returning is an addition: {events:?}"
+    );
+
+    for n in [subject, far] {
+        n.runtime.shutdown().await.expect("shutdown");
+    }
+}
+
 /// The view is a snapshot slot, not a queue: two views handed in before
 /// the runtime reads either count as the LATEST one, so the change is
 /// computed against it alone -- the first view's address is never
