@@ -35,6 +35,8 @@ HEAD='| id | guards | step | tests | limit |
 root() {
     local dir="$TMP/$1"; shift
     mkdir -p "$dir/tests/security/tests"
+    printf '%s\n' '//! A whole test file compiled out by its inner attribute.' '#![cfg(false)]' '' '#[test]' 'fn whole_file_guard() {}' \
+        > "$dir/tests/security/tests/off.rs"
     cat > "$dir/tests/security/tests/flood.rs" <<'RS'
 #[test]
 fn a_guard() {}
@@ -57,8 +59,25 @@ fn cfg_false_guard() {}
 
 #[cfg(any())]
 mod dead {
+    fn helper() {
+        if true {
+        }
+    }
     #[test]
     fn in_dead_mod_guard() { if true { } }
+}
+
+#[cfg(false)]
+mod dead_late_brace
+{
+    #[test]
+    fn late_brace_guard() {}
+}
+
+mod dead_inner {
+    #![cfg(any())]
+    #[test]
+    fn inner_cfg_guard() {}
 }
 
 #[cfg(test)]
@@ -159,6 +178,9 @@ expect_fail "a disabled test after a quote character literal does not vouch" "de
 expect_fail "a test compiled out by #[cfg(any())] does not vouch" "defines no test fn compiled_out_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::compiled_out_guard\` | — |"
 expect_fail "a test compiled out by #[cfg(false)] does not vouch" "defines no test fn cfg_false_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::cfg_false_guard\` | — |"
 expect_fail "a test inside a mod compiled out by #[cfg(any())] does not vouch" "defines no test fn in_dead_mod_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::in_dead_mod_guard\` | — |"
+expect_fail "a test inside a compiled-out mod whose brace is on a later line does not vouch" "defines no test fn late_brace_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::late_brace_guard\` | — |"
+expect_fail "a test inside a mod compiled out by its inner #![cfg(any())] does not vouch" "defines no test fn inner_cfg_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::inner_cfg_guard\` | — |"
+expect_fail "a test in a file compiled out by its inner #![cfg(false)] does not vouch" "defines no test fn whole_file_guard" "| S21-01 | floods | S1 | \`tests/security/tests/off.rs::whole_file_guard\` | — |"
 expect_fail "a test inside a raw string does not vouch" "defines no test fn raw_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::raw_guard\` | — |"
 expect_fail "a prefix of a real name does not vouch" "defines no test fn a_gu" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::a_gu\` | — |"
 expect_fail "a path outside the repository fails" "not a path inside the repository" "| S21-01 | floods | S1 | \`../../etc/passwd::root\` | — |"

@@ -26,7 +26,8 @@
 #     block comment, a name in a string or comment, and a helper of the
 #     same name vouch for nothing.
 # A test compiled out by #[cfg(any())] or #[cfg(false)], on the fn or on
-# an enclosing inline item (a `mod t { ... }`), does not vouch; an
+# an enclosing inline item (a `mod t { ... }`, its brace on any line), or
+# by the inner #![cfg(...)] of its mod or file, does not vouch; an
 # #[ignore]d one does (CI runs ignored tests). Limits: any other cfg that
 # can never be true is not evaluated, and an out-of-line `mod t;` is not
 # followed, so a test there still vouches.
@@ -60,9 +61,10 @@ OWED = re.compile(r"owed\b.*|—")
 TEST_ATTRIBUTE = re.compile(r"#\[\s*(test\s*\]|tokio::test\b)")
 # A test compiled out never runs anywhere, so it proves nothing: cfg(any())
 # and cfg(false) are the always-false cfgs. A general cfg that can never be
-# true needs a cfg evaluator, which this is not (--help names the limit).
+# true needs a cfg evaluator, which this is not (the help block above names the limit).
 # #[ignore] still vouches: ignored tests run in CI with --include-ignored.
 COMPILED_OUT = re.compile(r"#\[\s*cfg\s*\(\s*(?:any\s*\(\s*\)|false)\s*\)\s*\]")
+INNER_COMPILED_OUT = re.compile(r"#!\[\s*cfg\s*\(\s*(?:any\s*\(\s*\)|false)\s*\)\s*\]")
 CHAR = re.compile(r"'(?:\\.|[^\\'\n])'")
 RAW_OPEN = re.compile(r'(?:b|c)?r(#*)"')
 
@@ -135,6 +137,7 @@ def test_fns(source: str, fn: str) -> bool:
     depth = 0
     braces = 0
     dead_at: int | None = None  # the brace level a compiled-out item's body closes back to
+    pending = False  # a compiled-out item whose body has not opened yet
     for line in code_only(source):
         rest = line.strip()
         while rest:
@@ -148,6 +151,13 @@ def test_fns(source: str, fn: str) -> bool:
                 attributes[-1] += " " + (rest[:close] if close else rest)
                 rest = rest[close:].strip() if close else ""
                 continue
+            if rest.startswith("#!["):
+                # An inner attribute compiles out the item it sits in (the whole file at the top level), back
+                # to the brace that closes it: one level up from here, or never for a file.
+                if INNER_COMPILED_OUT.match(rest) and dead_at is None:
+                    dead_at = braces - 1
+                rest = ""
+                continue
             if rest.startswith("#["):
                 depth, end = 0, len(rest)
                 for k, ch in enumerate(rest[1:], 1):  # from the opening [
@@ -158,12 +168,18 @@ def test_fns(source: str, fn: str) -> bool:
                 attributes.append(rest[:end])
                 rest = rest[end:].strip()
                 continue
-            compiled_out = any(COMPILED_OUT.match(a) for a in attributes)
+            compiled_out = pending or any(COMPILED_OUT.match(a) for a in attributes)
             if (dead_at is None and not compiled_out and pattern.search(rest)
                     and any(TEST_ATTRIBUTE.match(a) for a in attributes)):
                 return True
-            if compiled_out and dead_at is None and "{" in rest:
-                dead_at = braces
+            # A compiled-out item's body may open on a later line (a where clause, a brace on its own line):
+            # it stays pending until its first `{`, or a `;` that ends a bodiless or out-of-line item.
+            pending = False
+            if compiled_out and dead_at is None:
+                if "{" in rest:
+                    dead_at = braces
+                elif ";" not in rest:
+                    pending = True
             braces += rest.count("{") - rest.count("}")
             if dead_at is not None and braces <= dead_at:
                 dead_at = None
