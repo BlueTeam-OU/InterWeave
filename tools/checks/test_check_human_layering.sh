@@ -64,6 +64,11 @@ PYEOF
 cat > "$SANDBOX/bin/cargo" <<EOF
 #!/usr/bin/env bash
 echo "    Updating crates.io index" >&2
+if [[ "\$1" == tree ]]; then
+    printf '%s\n' "\$*" > "$SANDBOX/tree-args"
+    [[ -e "$SANDBOX/tree-fails" ]] && { echo "error: tree failed" >&2; exit 101; }
+    cat "$SANDBOX/tree.txt"; exit 0
+fi
 printf '%s\n' "\$*" > "$SANDBOX/cargo-args"
 [[ -e "$SANDBOX/cargo-fails" ]] && { echo "error: failed to load manifest" >&2; exit 101; }
 cat "$SANDBOX/meta.json"
@@ -220,20 +225,38 @@ daemon islint build"
 expect 1 "any other member declaring a Slint crate fails" "apps/transport-daemon declares i-slint-core itself"
 
 # Rule 6: the release Android library and the instrumentation's test crate.
+# It reads cargo tree -p for the library's own build (the stub prints
+# tree.txt); the all-features graph only names the path.
+release() { printf '%s v0.1.0\n' "$@" > "$SANDBOX/tree.txt"; }
+release interweave-human-android interweave-local-client-api
 graph "$NOW happ e2e" "$PKGS" "$EDGES
 happ api normal
 e2e api normal"
-expect 0 "the release library beside the test crate, not depending on it, passes" "apps/human-android reaches no test-only crate"
-graph "$NOW happ e2e" "$PKGS" "$EDGES
-happ e2e dev"
-expect 0 "the test crate as a dev-dependency of the release library passes (not compiled into it)"
+expect 0 "the release library beside the test crate, not depending on it, passes" "apps/human-android reaches no test-only crate (2 crates in its own build)"
+[[ "$(cat "$SANDBOX/tree-args")" == "tree -p interweave-human-android -e normal,build --target all --locked --prefix none -f {p}" ]] \
+    && pass "  asking cargo tree for the library's own build, every target" || fail "cargo tree args" "$(cat "$SANDBOX/tree-args")"
+release interweave-human-android interweave-local-client-api
 graph "$NOW happ e2e" "$PKGS" "$EDGES
 happ api normal
 api e2e normal"
-expect 1 "the release library reaching the test crate transitively fails, with the path" "apps/human-android depends on a test-only crate (the androidTest APK's, never the release one): interweave-human-android -> interweave-local-client-api -> interweave-android-e2e-cases"
+expect 0 "an optional test dependency another crate turns on, not in the library's own build, passes (the all-features graph alone would fail it)" "apps/human-android reaches no test-only crate"
+release interweave-human-android interweave-local-client-api interweave-android-e2e-cases
+graph "$NOW happ e2e" "$PKGS" "$EDGES
+happ api normal
+api e2e normal"
+expect 1 "the test crate in the library's own build fails, with the path" "apps/human-android depends on a test-only crate (the androidTest APK's, never the release one): interweave-human-android -> interweave-local-client-api -> interweave-android-e2e-cases"
+release interweave-human-android interweave-android-e2e-cases
 graph "$NOW happ e2e" "$PKGS" "$EDGES
 happ e2e build"
 expect 1 "the test crate as a build dependency fails" "apps/human-android depends on a test-only crate"
+release interweave-human-android
+graph "$NOW happ" "$(grep -v '^e2e ' <<<"$PKGS")" "$EDGES"
+expect 2 "no package named as the test crate (renamed?) is exit 2, not a pass" "no package named interweave-android-e2e-cases"
+release interweave-human-android
+touch "$SANDBOX/tree-fails"
+graph "$NOW happ e2e" "$PKGS" "$EDGES"
+expect 2 "cargo tree failing is exit 2, not a pass" "cargo tree -p interweave-human-android failed"
+rm -f "$SANDBOX/tree-fails"
 
 # Absent crates: planned is a skip, anything else a failure to check.
 planned crates/human/ui-model crates/human/ui-slint

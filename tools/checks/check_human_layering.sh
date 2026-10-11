@@ -90,7 +90,7 @@ meta="$(cargo metadata --format-version 1 --locked --all-features 2>"$err")" || 
 }
 
 read -r -d '' walk <<'PYEOF'
-import os, sys
+import os, subprocess, sys
 
 me = "check_human_layering"
 
@@ -207,6 +207,23 @@ def release_free(pkg):
     return None
 
 
+def release_build(name):
+    """The crate names a build of `name` itself compiles, as cargo resolves
+    its features for that package alone (cargo tree -p, every target,
+    normal and build edges). The all-features graph the other rules walk
+    cannot answer this: there an optional test dependency another crate
+    turns on (android-platform's e2e-cases, which tests/android-e2e enables)
+    looks linked into the release library when it is not."""
+    out = subprocess.run(
+        ["cargo", "tree", "-p", name, "-e", "normal,build", "--target", "all",
+         "--locked", "--prefix", "none", "-f", "{p}"],
+        capture_output=True, text=True, timeout=600)
+    if out.returncode != 0:
+        print(f"{me}: cargo tree -p {name} failed:\n{out.stderr.strip()}", file=sys.stderr)
+        sys.exit(2)
+    return {line.split()[0] for line in out.stdout.splitlines() if line.strip()}
+
+
 def main():
     global bad
     # Rules 1, 2 and 5: the listed crates.
@@ -243,12 +260,22 @@ def main():
             if is_slint(packages[dep]["name"]):
                 print(f"FAIL: {d} declares {packages[dep]['name']} itself — only {UI_SLINT} may; an app reaches Slint through it")
                 bad += 1
-    # Rule 6: the release library reaches no test-only crate.
+    # Rule 6: the release library's own build reaches no test-only crate.
     start = member_at.get(HUMAN_ANDROID)
     if start is not None:
-        n, found = walk(start, release_free)
-        if not found:
-            print(f"{me}: {HUMAN_ANDROID} reaches no test-only crate ({n} runtime dependencies walked)")
+        unknown = TEST_ONLY - {p["name"] for p in packages.values()}
+        if unknown:
+            print(f"{me}: no package named {', '.join(sorted(unknown))} — renamed? rule 6 would check nothing", file=sys.stderr)
+            sys.exit(2)
+        built = release_build(packages[start]["name"])
+        if built & TEST_ONLY:
+            # It is in the build: name the path through the graph.
+            n, found = walk(start, release_free)
+            if not found:
+                print(f"FAIL: {HUMAN_ANDROID}'s build compiles {', '.join(sorted(built & TEST_ONLY))}")
+                bad += 1
+        else:
+            print(f"{me}: {HUMAN_ANDROID} reaches no test-only crate ({len(built)} crates in its own build)")
     if bad:
         print()
         print("The human application layers: core, chat-protocol, store, transport-client,")
