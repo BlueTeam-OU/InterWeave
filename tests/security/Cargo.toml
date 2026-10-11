@@ -62,6 +62,5 @@ ignored = [
   "interweave-transport-composition",
   "interweave-discovery-api",
   "interweave-kademlia-control-api",
-  "interweave-test-support",
   "rand",
 ]
