@@ -15,3 +15,62 @@
 **Restore keeps a same-policy record that still opens (2026-10-10, #256's second re-review, pre-existing against the retire-after-write sentence).** A restore under the policy the record already had sealed over the key that record opened under, so a failed write stranded a healthy record. 3f2f5414: restore first tries such a record — kept if it opens to the expected PeerId (bytes rewritten owner-only if readable by others), the seal losing nothing if its key is invalidated, missing or another's, `CustodyRefused::Cipher` and no write if the key cannot be asked; test `a_same_policy_restore_keeps_a_record_that_still_opens`, four mutations each caught. The seam is seal, open, retire (S3).
 
 **Alias versus key (2026-10-10, #256's third re-review, P3).** "Never reuses the invalidated alias" said the wrong noun: the alias `interweave.iwk1.<profile>.<policy>` is kept across a restore; what is never reused is the invalidated key under it, deleted and regenerated at that alias. Corrected in both documents. The same review's risk for step 7 is recorded in the custody doc: a restore of a healthy user-presence record opens it first and so needs an authentication window.
+
+### Amendment 2026-10-11 — The user-presence key is a timed key with a 60 s window
+
+**Trigger.** Plan §20 step 6 builds the Keystore adapter
+(`KeystoreCipher.kt`, rust-ui-dev's batch-2 branch). SPIKE-009 ran its
+user-presence key as a timed key with the window as a parameter (D1:
+"credential or Class-3 biometric, 60 s"); the Decision, the custody
+document and the spike's Result named no value, and the adapter carried
+a 30 s placeholder. rust-ui-dev asked what window the key carries and
+whether `AUTH_DEVICE_CREDENTIAL | AUTH_BIOMETRIC_STRONG` is the set
+(QUESTION 01a129e3-376e-7c6c-b6bc-d476f2f016ee).
+
+**What changed.**
+
+- The Decision names the mode: a timed key,
+  `setUserAuthenticationRequired(true)` and
+  `setUserAuthenticationParameters(USER_PRESENCE_WINDOW_S,
+  AUTH_DEVICE_CREDENTIAL | AUTH_BIOMETRIC_STRONG)`. The set was already
+  the custody document's "current device credential/strong biometric
+  authorization"; it is now in the record. A Class 2 biometric
+  (`BiometricManager.Authenticators.BIOMETRIC_WEAK`) has no Keystore
+  authenticator type, and the custody document never admitted it.
+- `USER_PRESENCE_WINDOW_S` = 60 s, the value SPIKE-009 exercised on the
+  device: D1 generated it, D4 (process) showed a killed and restarted
+  process unwrapping inside it, D4 (reboot) showed it surviving a
+  reboot and refusing once the window had passed, D5 refused at 75 s
+  with the background key as the control; no start duration was
+  measured, and 30 s was never exercised. The
+  constant is named once by the Keystore adapter and is not a
+  configuration setting: `key_unlock_policy` chooses the mode, the
+  record chooses the time.
+- What the window is for, stated so a later change has something to
+  argue with: it lets the key operation that follows an authentication
+  complete — the start's unwrap, a provisioning seal, a restore (the
+  custody document already has step 7 prompting before a restore), a
+  reseal. It is not a convenience window. A
+  Keystore key belongs to the app uid, so the window grants no other
+  application anything; what it grants is an unattended restart of this
+  app's own service within the window of an unlock, which the
+  `background_restart_requires_user_authentication` diagnostic already
+  describes.
+- The prompt: the Service never prompts. A `UserNotAuthenticatedException`
+  is answered by the Activity with a device-credential or Class-3
+  biometric prompt bound to no operation — any success opens the window
+  — followed by the operation; a denied or cancelled prompt leaves the
+  person offline (the custody document's failure row, unchanged).
+- The per-operation mode (`t = 0`, a `BiometricPrompt` `CryptoObject`
+  per use; as SPIKE-009 D1 built it, Class 3 only and invalidated by
+  every biometric enrollment, D6b) is not used: it needs a prompt bound to each operation,
+  which the Service cannot show, and it is the "require biometric on
+  every network operation" alternative the record already rejects.
+- Security implications: the unattended restart inside the window is
+  named as the one exception to "sacrifices unattended restart", and
+  60 s bounds it.
+
+Propagated to `android-key-custody.md` §user-presence (its two
+"cannot resume/become reachable until the user authenticates" sentences
+gain the within-the-window exception), `RISKS.md` and the digest.
+Landing with the pull request rust-ui-dev's batch 2 opens.
