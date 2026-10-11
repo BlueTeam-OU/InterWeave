@@ -41,11 +41,13 @@ internal object KeystoreCipher {
 
     /**
      * How long, in seconds, a user-presence key stays usable after the
-     * person authenticates (SPIKE-009 D1's `t > 0` mode). A placeholder
-     * until architect-cto rules the window; the default policy,
-     * background-compatible, has none.
+     * person authenticates: the window for the key operation that follows
+     * an authentication and nothing else (ADR-0042 A 2026-10-11, the value
+     * SPIKE-009 exercised). A constant, never a setting: the profile's
+     * key_unlock_policy picks the mode, the record the time. The default
+     * policy, background-compatible, has none.
      */
-    private const val USER_PRESENCE_WINDOW_S = 30
+    private const val USER_PRESENCE_WINDOW_S = 60
 
     /**
      * Generate a fresh key at [alias], deleting what was there first, and
