@@ -488,3 +488,132 @@ fn without_network_a_missing_profile_is_refused_and_nothing_runs() {
     );
     assert!(!service.is_running());
 }
+
+/// The posture's promise, step 3: reading and Keep are LOCAL writes and
+/// work exactly as ADR-0044 defines them with no runtime -- a read
+/// deletes the unread row unless it is kept, and a kept read becomes a
+/// kept row.
+#[test]
+fn without_network_a_message_is_read_and_kept_as_with_one() {
+    use interweave_human_app_core::Command;
+    use interweave_human_chat_protocol::{HumanChatV2, MessageKind, encode_outbound};
+    use interweave_human_store::{
+        AppMessageId, HumanStore, InboundOrigin, NewInbound, StoreOptions,
+    };
+    use interweave_human_ui_model::{Intent, UiModel};
+    use interweave_transport_api::MediaType;
+
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    // A first posture start lays the profile's directories out; the store
+    // is then seeded with two unread messages while nothing holds it.
+    let service = ServiceHost::new();
+    service
+        .start_without_network(&app.dir, PROFILE)
+        .expect("the posture starts");
+    service.stop(GRACE).expect("it ran");
+    {
+        let mut store =
+            HumanStore::open_profile(&paths, StoreOptions::default()).expect("the store");
+        let peer = interweave_profile_identity::ProfileIdentity::generate()
+            .transport_identity()
+            .expect("a PeerId");
+        for serial in [1_u8, 2] {
+            let envelope = HumanChatV2 {
+                v: 2,
+                kind: MessageKind::Text,
+                app_message_id: format!("{serial:032x}"),
+                text: format!("message {serial}"),
+                reply_to: None,
+                sent_at_ms: None,
+                from_endpoint: None,
+            };
+            let encoded = encode_outbound(&envelope, interweave_transport_api::MAX_PAYLOAD_BYTES)
+                .expect("encodes");
+            store
+                .commit_unread_inbound(&NewInbound {
+                    app_message_id: AppMessageId::parse(envelope.app_message_id.clone())
+                        .expect("id"),
+                    // A direct row records the endpoint its sender asserted,
+                    // as the facade writes one.
+                    origin: InboundOrigin {
+                        peer: peer.clone(),
+                        endpoint: Some(
+                            interweave_transport_api::EndpointId::parse("human").expect("endpoint"),
+                        ),
+                        channel: None,
+                    },
+                    media_type: Some(MediaType::parse(&encoded.media_type).expect("media type")),
+                    payload: encoded.bytes,
+                    received_at: u64::from(serial),
+                })
+                .expect("committed unread");
+        }
+    }
+
+    service
+        .start_without_network(&app.dir, PROFILE)
+        .expect("the posture starts again");
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    let mut model = UiModel::new();
+    let mut listing = None;
+    until(&mut link, &mut held, "the listing", |m| match m {
+        ToView::Update(u) => match &**u {
+            Update::Listed(l) => {
+                listing = Some(l.clone());
+                true
+            }
+            _ => false,
+        },
+        _ => false,
+    });
+    let listing = listing.expect("listed");
+    assert_eq!(listing.unread.len(), 2, "both unread rows listed");
+    let (kept_row, read_row) = (listing.unread[0].row, listing.unread[1].row);
+    model.unread_listed(listing.unread);
+
+    // Read both; keep one.
+    for row in [kept_row, read_row] {
+        assert!(
+            service.hub().command(Command::MarkRead(row)),
+            "a facade takes commands"
+        );
+        until(
+            &mut link,
+            &mut held,
+            "the read",
+            |m| matches!(m, ToView::Update(u) if matches!(**u, Update::Read(r) if r == row)),
+        );
+        model.read(row);
+    }
+    let keep = model
+        .conversations()
+        .iter()
+        .flat_map(|c| model.messages(&c.key))
+        .flat_map(|item| model.actions(item.key))
+        .find_map(|intent| match intent {
+            Intent::Keep { item, from } if from.1 == kept_row => Some(Command::Keep { item, from }),
+            _ => None,
+        })
+        .expect("Keep offered on the read message");
+    assert!(service.hub().command(keep));
+    until(
+        &mut link,
+        &mut held,
+        "the keep",
+        |m| matches!(m, ToView::Update(u) if matches!(**u, Update::Kept { .. })),
+    );
+    service.stop(GRACE).expect("it ran");
+
+    let store = HumanStore::open_profile(&paths, StoreOptions::default()).expect("the store");
+    assert!(
+        store.unread_inbound().expect("unread").is_empty(),
+        "a read deletes the unread row"
+    );
+    let kept = store.kept_inbound().expect("kept");
+    assert_eq!(kept.len(), 1, "only the kept read survives");
+    assert_eq!(kept[0].app_message_id.as_str(), format!("{:032x}", 1));
+}
