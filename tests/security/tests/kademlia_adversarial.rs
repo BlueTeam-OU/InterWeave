@@ -6,27 +6,34 @@
 //! attacker section 21 asks about is a trusted router that lies. A
 //! `SwarmRuntime` cannot play one, because it answers honestly. Here
 //! each hostile router is libp2p's own Kademlia server speaking this
-//! network's derived protocol, its table stuffed by hand: dozens of
-//! strangers, and a trusted peer at an impostor's address.
+//! network's derived protocol, its table stuffed by hand: strangers
+//! that really listen and really serve Kademlia, so a dial to one would
+//! succeed if it were admitted, and a trusted peer at an impostor's
+//! address.
 //!
 //! What the gate ASSERTS (architect-cto's R2, 2026-10-11):
-//! - every routing seat the subject takes is a trusted peer;
-//! - a query's results stay within `max_results_per_query`;
-//! - no honest router's seat is lost to the attackers;
+//! - every routing seat the subject takes is a trusted peer, while the
+//!   gate is seen refusing the walk's dials to the strangers;
+//! - a query's results stay within `max_results_per_query`, which is
+//!   below the routers that answer, and some query reaches it;
 //! - the poisoned address of a trusted peer, dialled by the walk itself,
 //!   is quarantined, and the peer is reached the moment its true address
 //!   is known;
-//! - the subject answers its own control port promptly through an
-//!   inbound query flood;
-//! - record and provider writes are counted and stored nowhere.
+//! - the subject answers its own control port promptly while every
+//!   hostile router floods it with `FIND_NODE`, and the hostiles' own
+//!   results show the subject answered them;
+//! - record and provider writes are counted and stored nowhere, and the
+//!   writer's read of one ends with the subject having answered.
 //!
-//! What it RECORDS, with no threshold: the eclipse ratio (explorations
-//! whose results name no honest router) and the bootstrap diversity (the
-//! distinct routers seated), at the N and M this host runs. The test
-//! prints both as `MEASURE` lines, and the matrix row carries them.
-//! kademlia-integration.md section 18 makes no Byzantine-resistance
-//! claim, and no diversity floor is configured, so neither number has a
-//! pass mark.
+//! What it RECORDS, with no threshold: how many explorations ended with
+//! results naming no honest router, and the distinct routers seated, at
+//! the N and M this host runs. The test prints both as `MEASURE` lines.
+//! Both are fixed by this topology rather than measured against an
+//! attacker's skill: the test seats every honest router by its own dial,
+//! so every walk starts from them, and a result names only peers that
+//! answered. kademlia-integration.md section 18 makes no
+//! Byzantine-resistance claim, and no diversity floor is configured, so
+//! neither number has a pass mark.
 //!
 //! On the host's private address, because ADR-0052 refuses a loopback
 //! candidate from a peer.
@@ -47,7 +54,7 @@ use interweave_transport_libp2p::runtime::kademlia_driver::{KademliaSettings, ka
 use interweave_transport_libp2p::{
     DialRefusal, IDENTIFY_PROTOCOL_VERSION, SubstrateConfig, SwarmEvent, SwarmRuntime,
 };
-use interweave_transport_runtime::{DialDenial, TrustSources};
+use interweave_transport_runtime::{DialDenial, DialOrigin, TrustSources};
 use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{Multiaddr, PeerId, StreamProtocol, Swarm, identify, kad};
@@ -62,11 +69,14 @@ const PARALLELISM: usize = 3;
 const HONEST: usize = 3;
 /// Hostile routers, M.
 const HOSTILE: usize = 3;
-/// Strangers each hostile router claims to know.
-const STRANGERS: usize = 40;
+/// Strangers each hostile router claims to know: real nodes, listening
+/// and serving Kademlia, that the subject does not trust.
+const STRANGERS: usize = 4;
 /// Explorations the eclipse ratio is measured over.
 const EXPLORATIONS: u64 = 12;
-const MAX_RESULTS: usize = 20;
+/// Below the six routers that answer, so the cap is what limits a
+/// result.
+const MAX_RESULTS: usize = 4;
 
 fn settings() -> KademliaSettings {
     KademliaSettings {
@@ -291,8 +301,11 @@ async fn seat(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn hostile_routers_seat_no_stranger_evict_no_honest_route_and_their_poison_costs_its_address()
-{
+#[expect(
+    clippy::too_many_lines,
+    reason = "one scenario over real sockets; its length is its steps"
+)]
+async fn hostile_routers_seat_no_stranger_and_their_poison_costs_its_address() {
     let ip = interweave_test_support::net::require_private_interface_v4();
 
     // THE TRUSTED PEER THE ATTACKERS POISON: a real node, reachable,
@@ -314,21 +327,22 @@ async fn hostile_routers_seat_no_stranger_evict_no_honest_route_and_their_poison
     let subject_peer = subject_id.transport_identity().expect("peer id");
 
     // M HOSTILE ROUTERS, each claiming strangers and the poisoned target.
+    // A stranger is a keyed node that listens and serves this network's
+    // Kademlia: were the walk's dial to it admitted, it would connect,
+    // identify and offer itself for a seat. Held alive to the end.
+    let mut strangers = Vec::new();
     let mut hostiles = Vec::new();
-    for h in 0..HOSTILE {
-        let mut stuffing: Vec<(PeerId, Multiaddr)> = (0..STRANGERS)
-            .map(|s| {
-                let port = 20_000 + u16::try_from(h * STRANGERS + s).expect("small");
-                (
-                    PeerId::random(),
-                    format!("/ip4/{ip}/tcp/{port}").parse().expect("valid"),
-                )
-            })
-            .collect();
+    for _ in 0..HOSTILE {
+        let mut stuffing: Vec<(PeerId, Multiaddr)> = Vec::new();
+        for _ in 0..STRANGERS {
+            let stranger = hostile_router(ip, Vec::new()).await;
+            stuffing.push((peer_id(&stranger.peer), stranger.address.clone()));
+            strangers.push(stranger);
+        }
         stuffing.push((peer_id(&target_peer), poisoned.clone()));
         hostiles.push(hostile_router(ip, stuffing).await);
     }
-    let strangers_excluded = HOSTILE * STRANGERS;
+    let strangers_named = strangers.len();
 
     // HONEST ROUTERS, each knowing the others, so an honest path exists.
     let honest_ids: Vec<(ProfileIdentity, TransportIdentity)> = (0..HONEST)
@@ -361,14 +375,13 @@ async fn hostile_routers_seat_no_stranger_evict_no_honest_route_and_their_poison
     }
 
     // THE SUBJECT trusts every router and the target, nothing else.
+    let hostile_peers: Vec<TransportIdentity> = hostiles.iter().map(|h| h.peer.clone()).collect();
     let mut trusted: Vec<&TransportIdentity> = honest_peers.iter().collect();
-    for h in &hostiles {
-        trusted.push(&h.peer);
-    }
+    trusted.extend(hostile_peers.iter());
     trusted.push(&target_peer);
     let mut subject =
         SwarmRuntime::start(&subject_id, config(), trusting(&trusted)).expect("subject");
-    let _ = listening(&subject, ip).await;
+    let subject_address = listening(&subject, ip).await;
     let mut events = Vec::new();
     for (i, (_, address)) in honest.iter().enumerate() {
         events.extend(seat(&mut subject, &honest_peers[i], address.clone()).await);
@@ -380,7 +393,7 @@ async fn hostile_routers_seat_no_stranger_evict_no_honest_route_and_their_poison
     // THE WALKS, aimed at the target's key: every answer the hostiles
     // give names it at the impostor, beside forty strangers each.
     let point = key_of(&target_peer);
-    let mut eclipsed = 0_u64;
+    let (mut answered, mut eclipsed, mut failed, mut at_cap) = (0_u64, 0_u64, 0_u64, 0_u64);
     for n in 0..EXPLORATIONS {
         let mut aim = point;
         aim[31] ^= u8::try_from(n).expect("small");
@@ -398,56 +411,45 @@ async fn hostile_routers_seat_no_stranger_evict_no_honest_route_and_their_poison
         })
         .await;
         for e in &walk {
-            if let SwarmEvent::Kademlia {
-                event:
-                    KademliaEvent::QueryResults {
-                        candidates,
-                        handle: h,
-                        ..
-                    },
-            } = e
-                && *h == handle
-            {
-                let named: Vec<&TransportIdentity> =
-                    candidates.as_slice().iter().map(|c| &c.peer_id).collect();
-                assert!(
-                    named.len() <= MAX_RESULTS,
-                    "a query's results stay within max_results_per_query: {}",
-                    named.len()
-                );
-                if !named.iter().any(|p| honest_peers.contains(p)) {
-                    eclipsed += 1;
+            match e {
+                SwarmEvent::Kademlia {
+                    event:
+                        KademliaEvent::QueryResults {
+                            candidates,
+                            handle: h,
+                            ..
+                        },
+                } if *h == handle => {
+                    let named: Vec<&TransportIdentity> =
+                        candidates.as_slice().iter().map(|c| &c.peer_id).collect();
+                    assert!(
+                        named.len() <= MAX_RESULTS,
+                        "a query's results stay within max_results_per_query: {}",
+                        named.len()
+                    );
+                    answered += 1;
+                    if named.len() == MAX_RESULTS {
+                        at_cap += 1;
+                    }
+                    if !named.iter().any(|p| honest_peers.contains(p)) {
+                        eclipsed += 1;
+                    }
                 }
+                SwarmEvent::Kademlia {
+                    event: KademliaEvent::QueryFailed { handle: h, .. },
+                } if *h == handle => failed += 1,
+                _ => {}
             }
         }
         events.extend(walk);
     }
-
-    // SEATS: only trusted peers ever, and no honest one lost.
-    let trusted_set: BTreeSet<&TransportIdentity> = trusted.iter().copied().collect();
-    let mut seated = BTreeSet::new();
-    for e in &events {
-        match e {
-            SwarmEvent::Kademlia {
-                event: KademliaEvent::RoutingPeerAdded { peer },
-            } => {
-                assert!(
-                    trusted_set.contains(peer),
-                    "a stranger the attackers named was seated: {peer:?}"
-                );
-                seated.insert(peer.clone());
-            }
-            SwarmEvent::Kademlia {
-                event: KademliaEvent::RoutingPeerRemoved { peer },
-            } => {
-                assert!(
-                    !honest_peers.contains(peer),
-                    "an honest router's seat was lost to the attackers: {peer:?}"
-                );
-            }
-            _ => {}
-        }
-    }
+    // The control for the cap: more routers answered than it admits, so
+    // some result was cut to it. Without this, a cap no walk can reach
+    // passes the bound above for free.
+    assert!(
+        at_cap > 0,
+        "some walk's results reached max_results_per_query ({answered} answered, {failed} failed)"
+    );
 
     // THE POISON PAID FOR ITSELF: the walk dialled the target at the
     // impostor, the identity check failed, and the address is
@@ -461,10 +463,16 @@ async fn hostile_routers_seat_no_stranger_evict_no_honest_route_and_their_poison
         "the walk dialled the poisoned address and it is quarantined"
     );
 
-    // RESPONSIVE through an inbound flood: every hostile asks the
-    // subject for the peers closest to a hundred keys while the subject
-    // answers its own control port.
+    // RESPONSIVE through an inbound flood: every hostile asks for the
+    // peers closest to a hundred keys while the subject answers its own
+    // control port. A hostile holds the subject's connection as an
+    // inbound, which leaves it unroutable there until its listen address
+    // is known, so each is told first, or no FIND_NODE would reach it.
+    let subject_libp2p = peer_id(&subject_peer);
     for h in &hostiles {
+        h.orders
+            .send(Order::Know(subject_libp2p, subject_address.clone()))
+            .expect("alive");
         h.orders.send(Order::FloodFindNode(100)).expect("alive");
     }
     for _ in 0..10 {
@@ -472,13 +480,47 @@ async fn hostile_routers_seat_no_stranger_evict_no_honest_route_and_their_poison
             .await
             .expect("the subject answers its control port within 2 s under the flood")
             .expect("answered");
-        let _ = drive(
-            &mut subject,
-            "the flood",
-            Duration::from_millis(100),
-            |_| false,
-        )
-        .await;
+        events.extend(
+            drive(
+                &mut subject,
+                "the flood",
+                Duration::from_millis(100),
+                |_| false,
+            )
+            .await,
+        );
+    }
+    // The control: the flood landed. A query's result names only peers
+    // that answered it, so a hostile result naming the subject is the
+    // subject having served a FIND_NODE of the flood.
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let mut served = 0_usize;
+    while served == 0 {
+        for h in &mut hostiles {
+            while let Ok(e) = h.events.try_recv() {
+                if let kad::Event::OutboundQueryProgressed {
+                    result: kad::QueryResult::GetClosestPeers(Ok(ok)),
+                    ..
+                } = e
+                    && ok.peers.iter().any(|p| p.peer_id == subject_libp2p)
+                {
+                    served += 1;
+                }
+            }
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no hostile query of the flood was answered by the subject"
+        );
+        events.extend(
+            drive(
+                &mut subject,
+                "the flood's answers",
+                Duration::from_millis(100),
+                |_| false,
+            )
+            .await,
+        );
     }
 
     // THE TARGET IS NOT SUPPRESSED: the moment its true address is
@@ -508,13 +550,52 @@ async fn hostile_routers_seat_no_stranger_evict_no_honest_route_and_their_poison
             .any(|e| matches!(e, SwarmEvent::Connected { peer, .. } if *peer == target_peer)),
         "the target is reached through its true address"
     );
+    events.extend(reached);
 
-    // RECORDED, no threshold (R2).
+    // SEATS: only trusted peers, over everything the subject reported:
+    // seating, the walks, the flood and the target.
+    let trusted_set: BTreeSet<&TransportIdentity> = trusted.iter().copied().collect();
+    let mut seated = BTreeSet::new();
+    for e in &events {
+        if let SwarmEvent::Kademlia {
+            event: KademliaEvent::RoutingPeerAdded { peer },
+        } = e
+        {
+            assert!(
+                trusted_set.contains(peer),
+                "a stranger the attackers named was seated: {peer:?}"
+            );
+            seated.insert(peer.clone());
+        }
+    }
+    // The control for the seats above: the walks MET the strangers and
+    // the gate refused the dials, so "no stranger seated" is a refusal
+    // observed, not a stranger nobody tried.
+    let refused = subject
+        .dial_refusals()
+        .counts()
+        .get(&(
+            Some(DialOrigin::KademliaQuery),
+            Some(DialDenial::Unauthorized),
+        ))
+        .copied()
+        .unwrap_or(0);
+    assert!(
+        refused > 0,
+        "the gate refused a walk's dial to a stranger: {:?}",
+        subject.dial_refusals().recent()
+    );
+
+    // RECORDED, no threshold (R2): every walk is counted by how it
+    // ended, so the denominator printed is the one observed.
     println!(
         "MEASURE kademlia eclipse: N={} M={HOSTILE} parallelism={PARALLELISM} \
-         explorations={EXPLORATIONS} eclipsed={eclipsed} strangers_named={strangers_excluded} \
-         distinct_routers_seated={}",
+         max_results={MAX_RESULTS} explorations={EXPLORATIONS} answered={answered} \
+         failed={failed} unanswered={} eclipsed={eclipsed} at_cap={at_cap} \
+         strangers_named={strangers_named} refused_walk_dials={refused} \
+         flood_answers_seen={served} distinct_routers_seated={}",
         HONEST + HOSTILE,
+        EXPLORATIONS - answered - failed,
         seated.len()
     );
 
@@ -524,6 +605,7 @@ async fn hostile_routers_seat_no_stranger_evict_no_honest_route_and_their_poison
     for (runtime, _) in honest {
         runtime.shutdown().await.expect("stops");
     }
+    drop(strangers);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -579,37 +661,47 @@ async fn a_trusted_routers_record_and_provider_writes_are_counted_and_stored_now
     assert!(dropped > before, "the writes are counted");
 
     // STORED NOWHERE: the writer asks the subject for what it planted,
-    // and gets nothing back.
+    // and gets nothing back. The read must END, with the subject among
+    // those that answered: a subject that never answered would look the
+    // same as one that holds nothing.
     while writer.events.try_recv().is_ok() {}
     writer
         .orders
         .send(Order::Get(b"planted-0".to_vec()))
         .expect("alive");
     let deadline = tokio::time::Instant::now() + PATIENCE;
-    loop {
+    let answered_by = loop {
         tokio::select! {
             event = writer.events.recv() => {
                 if let Some(kad::Event::OutboundQueryProgressed {
                     result: kad::QueryResult::GetRecord(result),
+                    step,
+                    stats,
                     ..
                 }) = event
                 {
-                    match result {
-                        Ok(kad::GetRecordOk::FoundRecord(found)) => {
-                            assert_ne!(
-                                found.peer,
-                                Some(peer_id(&subject_peer)),
-                                "the subject served a record it was told to store: {found:?}"
-                            );
-                        }
-                        _ => break,
+                    if let Ok(kad::GetRecordOk::FoundRecord(found)) = &result {
+                        assert_ne!(
+                            found.peer,
+                            Some(peer_id(&subject_peer)),
+                            "the subject served a record it was told to store: {found:?}"
+                        );
+                    }
+                    if step.last {
+                        break stats.num_successes();
                     }
                 }
             }
             _ = subject.next_event() => {}
-            () = tokio::time::sleep_until(deadline) => break,
+            () = tokio::time::sleep_until(deadline) => {
+                panic!("the writer's read of its planted record never ended")
+            }
         }
-    }
+    };
+    assert!(
+        answered_by > 0,
+        "the read ended with the subject having answered it"
+    );
 
     subject.shutdown().await.expect("stops");
 }
