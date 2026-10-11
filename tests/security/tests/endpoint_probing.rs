@@ -34,6 +34,7 @@ use interweave_transport_api::{
 use interweave_transport_libp2p::direct_codec::{DIRECT_PROTOCOL, DirectResponse, decode_response};
 use interweave_transport_libp2p::runtime::{DirectEndpoints, SubstrateConfig, SwarmRuntime};
 use interweave_transport_runtime::TrustSources;
+use interweave_transport_runtime::ingress::DEFAULT_PER_PEER_BURST;
 use interweave_trust_api::{EndpointTrustPolicy, InfrastructureSet, PeerTrustPolicy};
 use libp2p::request_response::{self, Codec, ProtocolSupport};
 use libp2p::swarm::SwarmEvent as Libp2pSwarmEvent;
@@ -166,21 +167,28 @@ fn masked(response: &[u8], id: u8) -> Vec<u8> {
     out
 }
 
-#[tokio::test]
-async fn the_four_no_route_causes_are_byte_identical_on_the_wire() {
+/// A receiver on the shipped config whose endpoints cover every cause,
+/// and a raw prober it trusts, connected to it.
+///
+/// - `human` is configured, enabled and leased: the control.
+/// - `claude` is configured and enabled, but nothing holds it: offline.
+/// - `off` is configured and disabled.
+/// - `narrow` is leased, but its inbound policy admits nobody, the
+///   profile-trusted prober included: policy-denied.
+/// - anything else is not configured at all: unknown.
+struct Probing {
+    receiver: SwarmRuntime,
+    prober: libp2p::Swarm<request_response::Behaviour<RawCodec>>,
+    receiver_peer: libp2p::PeerId,
+}
+
+async fn probing() -> Probing {
     let receiver_id = ProfileIdentity::generate();
     let receiver_peer = receiver_id.transport_identity().expect("peer id");
     let prober_keys = libp2p::identity::Keypair::generate_ed25519();
     let prober_peer = TransportIdentity::parse(prober_keys.public().to_peer_id().to_string())
         .expect("a valid peer id");
 
-    // The receiver's endpoints, one per cause:
-    // - `human` is configured, enabled and leased: the control.
-    // - `claude` is configured and enabled, but nothing holds it: offline.
-    // - `off` is configured and disabled.
-    // - `narrow` is leased, but its inbound policy admits nobody, the
-    //   profile-trusted prober included: policy-denied.
-    // - `nonexistent` is not configured at all: unknown.
     let mut off = entry("off");
     off.enabled = false;
     let mut narrow = entry("narrow");
@@ -198,8 +206,10 @@ async fn the_four_no_route_causes_are_byte_identical_on_the_wire() {
         ),
     )
     .expect("the receiver starts");
+    // A queue far above any burst here, so the queue is never the one
+    // refusing.
     receiver
-        .configure_direct(DirectEndpoints::from_profile(&profile, 8).expect("a valid profile"))
+        .configure_direct(DirectEndpoints::from_profile(&profile, 512).expect("a valid profile"))
         .await
         .expect("endpoints install");
     for name in ["human", "narrow"] {
@@ -230,12 +240,71 @@ async fn the_four_no_route_causes_are_byte_identical_on_the_wire() {
         })
         .expect("behaviour")
         .build();
-    let receiver_peer_id: libp2p::PeerId = receiver_peer.as_str().parse().expect("a peer id");
     prober.dial(address).expect("the dial starts");
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        tokio::select! {
+            event = prober.select_next_some() => {
+                if matches!(event, Libp2pSwarmEvent::ConnectionEstablished { .. }) {
+                    break;
+                }
+            }
+            _ = receiver.next_event() => {}
+            () = tokio::time::sleep_until(deadline) => panic!("the prober never connected"),
+        }
+    }
+    Probing {
+        receiver,
+        prober,
+        receiver_peer: receiver_peer.as_str().parse().expect("a peer id"),
+    }
+}
 
-    // One request per destination, each under its own id.
-    // Ids far from the response's one-byte tag and reason codes, so the
-    // mask below finds each one exactly where it is echoed.
+/// Send every frame at once and return the raw answers in send order.
+async fn ask(probing: &mut Probing, frames: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    let mut order = std::collections::HashMap::new();
+    for (index, frame) in frames.into_iter().enumerate() {
+        let request = probing
+            .prober
+            .behaviour_mut()
+            .send_request(&probing.receiver_peer, frame);
+        order.insert(request, index);
+    }
+    let mut answers = vec![None; order.len()];
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while answers.iter().any(Option::is_none) {
+        tokio::select! {
+            event = probing.prober.select_next_some() => match event {
+                Libp2pSwarmEvent::Behaviour(request_response::Event::Message {
+                    message: request_response::Message::Response { request_id, response },
+                    ..
+                }) => answers[order[&request_id]] = Some(response),
+                Libp2pSwarmEvent::Behaviour(request_response::Event::OutboundFailure {
+                    error, ..
+                }) => panic!("a probe was not answered: {error:?}"),
+                _ => {}
+            },
+            _ = probing.receiver.next_event() => {}
+            () = tokio::time::sleep_until(deadline) => panic!("not every probe was answered"),
+        }
+    }
+    answers.into_iter().map(|a| a.expect("answered")).collect()
+}
+
+fn reason(answer: &[u8]) -> Option<DirectRejectReason> {
+    match decode_response(answer).expect("the frozen shape") {
+        DirectResponse::Accepted { .. } => None,
+        DirectResponse::Rejected { reason, .. } => Some(reason),
+    }
+}
+
+#[tokio::test]
+async fn the_four_no_route_causes_are_byte_identical_on_the_wire() {
+    let mut probing = probing().await;
+
+    // One request per destination, each under its own id. The ids are
+    // far from the response's one-byte tag and reason codes, so the mask
+    // below finds each one exactly where it is echoed.
     let destinations = [
         ("human", 0xa1_u8),
         ("claude", 0xa2),
@@ -243,67 +312,26 @@ async fn the_four_no_route_causes_are_byte_identical_on_the_wire() {
         ("narrow", 0xa4),
         ("nonexistent", 0xa5),
     ];
-    let mut answers: std::collections::HashMap<request_response::OutboundRequestId, (&str, u8)> =
-        std::collections::HashMap::new();
-    let mut raw: std::collections::BTreeMap<&str, (u8, Vec<u8>)> =
-        std::collections::BTreeMap::new();
-    let deadline = tokio::time::Instant::now() + PATIENCE;
-    while raw.len() < destinations.len() {
-        tokio::select! {
-            event = prober.select_next_some() => match event {
-                Libp2pSwarmEvent::ConnectionEstablished { .. } if answers.is_empty() => {
-                    for (destination, id) in destinations {
-                        let request = prober
-                            .behaviour_mut()
-                            .send_request(&receiver_peer_id, probe(destination, id));
-                        answers.insert(request, (destination, id));
-                    }
-                }
-                Libp2pSwarmEvent::Behaviour(request_response::Event::Message {
-                    message: request_response::Message::Response { request_id, response },
-                    ..
-                }) => {
-                    let (destination, id) = answers[&request_id];
-                    raw.insert(destination, (id, response));
-                }
-                Libp2pSwarmEvent::Behaviour(request_response::Event::OutboundFailure {
-                    error, ..
-                }) => panic!("a probe was not answered: {error:?}"),
-                _ => {}
-            },
-            _ = receiver.next_event() => {}
-            () = tokio::time::sleep_until(deadline) => panic!("not every probe was answered: {raw:?}"),
-        }
-    }
+    let answers = ask(
+        &mut probing,
+        destinations.iter().map(|(d, id)| probe(d, *id)).collect(),
+    )
+    .await;
 
     // THE CONTROL: the leased endpoint accepts, so the prober reached
     // the routing layer.
-    let (_, accepted) = &raw["human"];
-    assert!(
-        matches!(
-            decode_response(accepted).expect("the frozen shape"),
-            DirectResponse::Accepted { .. }
-        ),
-        "the control is accepted"
-    );
+    assert_eq!(reason(&answers[0]), None, "the control is accepted");
 
     // THE ORACLE: four causes, one answer.
-    let refusals: Vec<(&str, Vec<u8>)> = ["claude", "off", "narrow", "nonexistent"]
-        .into_iter()
-        .map(|d| {
-            let (id, bytes) = &raw[d];
-            (d, masked(bytes, *id))
-        })
+    let refusals: Vec<(&str, Vec<u8>)> = destinations[1..]
+        .iter()
+        .zip(&answers[1..])
+        .map(|((d, id), bytes)| (*d, masked(bytes, *id)))
         .collect();
     for (destination, bytes) in &refusals {
-        assert!(
-            matches!(
-                decode_response(bytes).expect("the frozen shape"),
-                DirectResponse::Rejected {
-                    reason: DirectRejectReason::NoRoute,
-                    ..
-                }
-            ),
+        assert_eq!(
+            reason(bytes),
+            Some(DirectRejectReason::NoRoute),
             "{destination} is refused as no_route"
         );
         assert_eq!(
@@ -313,5 +341,58 @@ async fn the_four_no_route_causes_are_byte_identical_on_the_wire() {
         );
     }
 
-    receiver.shutdown().await.expect("shuts down");
+    probing.receiver.shutdown().await.expect("shuts down");
+}
+
+#[tokio::test]
+async fn a_probe_sweep_spends_the_probers_direct_allowance() {
+    // A refusal that cost nothing would make enumeration free: the
+    // prober could ask after every name it can spell. The per-peer
+    // bucket runs before the frame is parsed, so a probe spends a token
+    // whether or not it routes. Twice the shipped burst of probes for
+    // names that do not exist: the first burst is answered `no_route`,
+    // and past it the prober is told `overloaded`, which says nothing
+    // about the endpoint.
+    let mut probing = probing().await;
+    let burst = usize::try_from(DEFAULT_PER_PEER_BURST).expect("fits");
+    let sweep: Vec<Vec<u8>> = (0..2 * burst)
+        .map(|n| probe(&format!("guess-{n}"), u8::try_from(n).expect("small")))
+        .collect();
+    let answers = ask(&mut probing, sweep).await;
+    let reasons: Vec<Option<DirectRejectReason>> = answers.iter().map(|a| reason(a)).collect();
+
+    let no_route = reasons
+        .iter()
+        .filter(|r| **r == Some(DirectRejectReason::NoRoute))
+        .count();
+    let overloaded = reasons
+        .iter()
+        .filter(|r| **r == Some(DirectRejectReason::Overloaded))
+        .count();
+    assert_eq!(
+        no_route + overloaded,
+        reasons.len(),
+        "nothing else: {reasons:?}"
+    );
+    assert!(
+        no_route >= burst,
+        "the whole burst is spendable on probes, got {no_route}"
+    );
+    // One refill boundary of tolerance: the sweep takes milliseconds,
+    // and the shipped rate earns a token every half second.
+    assert!(
+        no_route <= burst + 1,
+        "past the burst, probes are refused for the rate and learn nothing, got {no_route}"
+    );
+
+    // And the sweep spent real allowance: a legitimate frame from the
+    // same peer, to the endpoint that would accept it, is refused too.
+    let after = ask(&mut probing, vec![probe("human", 0xee)]).await;
+    assert_eq!(
+        reason(&after[0]),
+        Some(DirectRejectReason::Overloaded),
+        "the prober's own allowance is what the sweep spent"
+    );
+
+    probing.receiver.shutdown().await.expect("shuts down");
 }
