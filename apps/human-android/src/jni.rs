@@ -24,7 +24,7 @@ use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jint, jlong};
 
 /// The profile the app runs, as the android-e2e harness names it.
-const PROFILE: &str = "human-android";
+pub(crate) const PROFILE: &str = "human-android";
 
 /// How long a stop lets exchanges in flight settle: what the runtime's
 /// own tests use, and p2p-network-dev-01's word that it is enough (relay

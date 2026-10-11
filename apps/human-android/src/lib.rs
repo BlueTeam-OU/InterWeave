@@ -8,6 +8,8 @@
 
 #[cfg(target_os = "android")]
 mod activity;
+#[cfg(all(target_os = "android", feature = "e2e-cases"))]
+mod e2e;
 #[cfg(target_os = "android")]
 mod jni;
 #[cfg(target_os = "android")]

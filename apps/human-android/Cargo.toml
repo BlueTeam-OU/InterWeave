@@ -40,6 +40,11 @@ jni = { workspace = true }
 # The platform's log, which a started Service without an Activity
 # reaches only directly.
 ndk-sys = { workspace = true }
+# TEST BUILDS ONLY, under `e2e-cases`: the android-e2e cases the
+# instrumentation runs in the app's process (src/e2e.rs), and the JSON
+# their results travel as.
+interweave-android-e2e-cases = { path = "../../tests/android-e2e-cases", optional = true }
+serde_json = { workspace = true, optional = true }
 
 [features]
 # The first-run profile of crates/human/android-platform's stand_in, and
@@ -48,3 +53,13 @@ ndk-sys = { workspace = true }
 # on for the debug APK: without it a profile with no identity starts
 # nothing.
 dev-stand-ins = ["interweave-human-android-platform/dev-stand-ins"]
+# TEST-ONLY: the instrumentation's case entry (src/e2e.rs,
+# org.interweave.human.test.E2eCase.run). The Gradle build turns it on
+# for the debug APK beside dev-stand-ins, whose first-run profile and
+# identity a case starts on; the release build turns on neither.
+e2e-cases = [
+    "dev-stand-ins",
+    "dep:interweave-android-e2e-cases",
+    "dep:serde_json",
+    "interweave-human-android-platform/e2e-cases",
+]
