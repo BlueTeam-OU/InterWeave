@@ -71,8 +71,13 @@ impl AppClient for HubClient {
                 ToView::Running(false) if self.running => {
                     return Err("the app's service stopped".to_owned());
                 }
-                ToView::Running(false) => {}
+                ToView::Running(false) | ToView::NetworkAccess(true) => {}
                 ToView::Update(update) => updates.push(*update),
+                // The service runs the network-denied posture: the case's
+                // exchange cannot happen, so it ends, saying why.
+                ToView::NetworkAccess(false) => {
+                    return Err("the platform withholds network access".to_owned());
+                }
                 ToView::ListingFailed => {
                     return Err("the store could not be listed for the view".to_owned());
                 }

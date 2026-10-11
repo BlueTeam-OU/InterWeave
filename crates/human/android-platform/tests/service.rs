@@ -51,7 +51,7 @@ fn launch(app: &App) -> ServiceLaunch {
     ServiceLaunch {
         app_data_dir: app.dir.clone(),
         profile: PROFILE.to_owned(),
-        identity: stand_in::identity(),
+        identity: interweave_profile_identity::ProfileIdentity::generate(),
     }
 }
 
@@ -375,4 +375,245 @@ fn the_stand_in_profile_is_written_once_and_never_rewritten() {
         std::fs::read_to_string(paths.config_file()).expect("read"),
         changed
     );
+}
+
+/// The android-e2e cases' provisioning replaces what is there -- the
+/// host names each start's profile -- where the app's own never does,
+/// and it writes under the same private directory.
+#[test]
+fn the_cases_provisioning_replaces_the_profile_where_the_apps_keeps_it() {
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    stand_in::provision_replacing(&app.dir, PROFILE, "# the host's profile\n").expect("replaced");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).expect("read"),
+        "# the host's profile\n"
+    );
+
+    let fresh = self::app();
+    stand_in::provision_replacing(&fresh.dir, PROFILE, "# first\n").expect("on nothing");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&fresh.dir).expect("b"))
+        .expect("paths");
+    let mode = std::fs::metadata(paths.config_dir())
+        .expect("stat")
+        .permissions()
+        .mode();
+    assert_eq!(
+        mode & 0o777,
+        0o700,
+        "the configuration directory is private"
+    );
+}
+
+/// The network-denied posture (human-client-android.md, "Runtime
+/// permissions and the network-denied state"): the store opens and a view
+/// gets its listing, told access is withheld; no runtime runs, so there is
+/// no availability and no wait, and no session ever opens. A stop, then a
+/// full start, is how a grant is answered: the view hears access again
+/// and the session opens.
+#[test]
+fn without_network_the_store_opens_and_no_runtime_runs() {
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let service = ServiceHost::new();
+    service
+        .start_without_network(&app.dir, PROFILE)
+        .expect("the posture starts");
+    assert!(service.is_running());
+    assert!(service.is_network_denied());
+    assert_eq!(service.availability(), None, "no runtime: no availability");
+    assert_eq!(
+        service.wait_ended(),
+        Ended::NotRunning,
+        "no runtime to wait on"
+    );
+    assert_eq!(
+        service.start_without_network(&app.dir, PROFILE),
+        Ok(()),
+        "a second start changes nothing"
+    );
+
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    until(&mut link, &mut held, "running", |m| {
+        matches!(m, ToView::Running(true))
+    });
+    until(&mut link, &mut held, "access withheld", |m| {
+        matches!(m, ToView::NetworkAccess(false))
+    });
+    until(&mut link, &mut held, "the listing", is_listing);
+    // Long enough for a facade with a runtime behind it to be Ready (the
+    // first test's start reaches it well inside this).
+    let watched = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < watched {
+        held.extend(link.take());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        !held.iter().any(is_ready),
+        "no session opens without a runtime: {held:?}"
+    );
+
+    let stopped = service.stop(GRACE).expect("it ran");
+    assert_eq!(stopped.runtime, Ok(0), "no runtime to stop");
+    assert!(!service.is_running());
+
+    service
+        .start(launch(&app))
+        .expect("the full start after a grant");
+    assert!(!service.is_network_denied(), "the control: a runtime runs");
+    let mut held = Vec::new();
+    until(&mut link, &mut held, "access again", |m| {
+        matches!(m, ToView::NetworkAccess(true))
+    });
+    until(&mut link, &mut held, "a ready session", is_ready);
+    let _ = service.stop(GRACE);
+}
+
+/// The posture refuses what the runtime would have refused, before it
+/// opens anything: here a profile that was never written.
+#[test]
+fn without_network_a_missing_profile_is_refused_and_nothing_runs() {
+    let app = app();
+    let service = ServiceHost::new();
+    let refused = service.start_without_network(&app.dir, PROFILE);
+    assert!(
+        matches!(
+            refused,
+            Err(StartRefused::Runtime(EmbeddedRefused::ProfileInvalid(_)))
+        ),
+        "{refused:?}"
+    );
+    assert!(!service.is_running());
+}
+
+/// The posture's promise, step 3: reading and Keep are LOCAL writes and
+/// work exactly as ADR-0044 defines them with no runtime -- a read
+/// deletes the unread row unless it is kept, and a kept read becomes a
+/// kept row.
+#[test]
+fn without_network_a_message_is_read_and_kept_as_with_one() {
+    use interweave_human_app_core::Command;
+    use interweave_human_chat_protocol::{HumanChatV2, MessageKind, encode_outbound};
+    use interweave_human_store::{
+        AppMessageId, HumanStore, InboundOrigin, NewInbound, StoreOptions,
+    };
+    use interweave_human_ui_model::{Intent, UiModel};
+    use interweave_transport_api::MediaType;
+
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    // A first posture start lays the profile's directories out; the store
+    // is then seeded with two unread messages while nothing holds it.
+    let service = ServiceHost::new();
+    service
+        .start_without_network(&app.dir, PROFILE)
+        .expect("the posture starts");
+    service.stop(GRACE).expect("it ran");
+    {
+        let mut store =
+            HumanStore::open_profile(&paths, StoreOptions::default()).expect("the store");
+        let peer = interweave_profile_identity::ProfileIdentity::generate()
+            .transport_identity()
+            .expect("a PeerId");
+        for serial in [1_u8, 2] {
+            let envelope = HumanChatV2 {
+                v: 2,
+                kind: MessageKind::Text,
+                app_message_id: format!("{serial:032x}"),
+                text: format!("message {serial}"),
+                reply_to: None,
+                sent_at_ms: None,
+                from_endpoint: None,
+            };
+            let encoded = encode_outbound(&envelope, interweave_transport_api::MAX_PAYLOAD_BYTES)
+                .expect("encodes");
+            store
+                .commit_unread_inbound(&NewInbound {
+                    app_message_id: AppMessageId::parse(envelope.app_message_id.clone())
+                        .expect("id"),
+                    // A direct row records the endpoint its sender asserted,
+                    // as the facade writes one.
+                    origin: InboundOrigin {
+                        peer: peer.clone(),
+                        endpoint: Some(
+                            interweave_transport_api::EndpointId::parse("human").expect("endpoint"),
+                        ),
+                        channel: None,
+                    },
+                    media_type: Some(MediaType::parse(&encoded.media_type).expect("media type")),
+                    payload: encoded.bytes,
+                    received_at: u64::from(serial),
+                })
+                .expect("committed unread");
+        }
+    }
+
+    service
+        .start_without_network(&app.dir, PROFILE)
+        .expect("the posture starts again");
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    let mut model = UiModel::new();
+    let mut listing = None;
+    until(&mut link, &mut held, "the listing", |m| match m {
+        ToView::Update(u) => match &**u {
+            Update::Listed(l) => {
+                listing = Some(l.clone());
+                true
+            }
+            _ => false,
+        },
+        _ => false,
+    });
+    let listing = listing.expect("listed");
+    assert_eq!(listing.unread.len(), 2, "both unread rows listed");
+    let (kept_row, read_row) = (listing.unread[0].row, listing.unread[1].row);
+    model.unread_listed(listing.unread);
+
+    // Read both; keep one.
+    for row in [kept_row, read_row] {
+        assert!(
+            service.hub().command(Command::MarkRead(row)),
+            "a facade takes commands"
+        );
+        until(
+            &mut link,
+            &mut held,
+            "the read",
+            |m| matches!(m, ToView::Update(u) if matches!(**u, Update::Read(r) if r == row)),
+        );
+        model.read(row);
+    }
+    let keep = model
+        .conversations()
+        .iter()
+        .flat_map(|c| model.messages(&c.key))
+        .flat_map(|item| model.actions(item.key))
+        .find_map(|intent| match intent {
+            Intent::Keep { item, from } if from.1 == kept_row => Some(Command::Keep { item, from }),
+            _ => None,
+        })
+        .expect("Keep offered on the read message");
+    assert!(service.hub().command(keep));
+    until(
+        &mut link,
+        &mut held,
+        "the keep",
+        |m| matches!(m, ToView::Update(u) if matches!(**u, Update::Kept { .. })),
+    );
+    service.stop(GRACE).expect("it ran");
+
+    let store = HumanStore::open_profile(&paths, StoreOptions::default()).expect("the store");
+    assert!(
+        store.unread_inbound().expect("unread").is_empty(),
+        "a read deletes the unread row"
+    );
+    let kept = store.kept_inbound().expect("kept");
+    assert_eq!(kept.len(), 1, "only the kept read survives");
+    assert_eq!(kept[0].app_message_id.as_str(), format!("{:032x}", 1));
 }

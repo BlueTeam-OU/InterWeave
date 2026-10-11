@@ -28,19 +28,19 @@ interweave-profile-config = { path = "../../config/profile-config" }
 interweave-profile-identity = { path = "../../identity/profile-identity" }
 interweave-transport-api = { path = "../../api/transport-api" }
 interweave-transport-embedded = { path = "../../transport/embedded" }
-# TEST BUILDS ONLY, under `e2e-cases`: the android-e2e cases' recorder
-# and client handle (src/e2e.rs): a test crate, behind a feature off by
-# default.
+# Under `e2e-cases`, off by default: the android-e2e cases' recorder and
+# client handle (src/e2e.rs), a test crate. Nothing yet checks that no
+# release build turns the feature on; devex-tooling's check_human_layering
+# rule 6, pending on their batch, is to fail if apps/human-android's graph
+# reaches the case crate.
 interweave-android-e2e-cases = { path = "../../../tests/android-e2e-cases", optional = true }
 # The facade's command channel and its turn timer, on the embedded
 # runtime's executor.
 tokio = { workspace = true, features = ["sync", "time", "macros"] }
 
 [features]
-# The first-run profile and in-memory identity steps 2-4 run on until
-# profile-config's provisioning and step 6's Keystore key land
-# (src/stand_in.rs). Off by default; the app turns it on for its debug
-# build alone.
+# The first-run profile, until profile-config's provisioning lands
+# (src/stand_in.rs). Off by default; the app's debug build turns it on.
 dev-stand-ins = []
 # TEST-ONLY: end the runtime from a test (ServiceHost::end_runtime_for_test),
 # through the embedded host's own hook; this crate's tests turn it on.

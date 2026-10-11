@@ -10,10 +10,15 @@ use std::ffi::CString;
 use std::time::Duration;
 
 use interweave_human_android_platform::AvailabilityMode;
-use interweave_human_android_platform::{Ended, ServiceHost, ServiceLaunch, StartRefused};
+use interweave_human_android_platform::{
+    EmbeddedRefused, Ended, FirstRun, IdentityRefused, ServiceHost, ServiceLaunch, StartRefused,
+    start_identity,
+};
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
 use interweave_profile_identity::ProfileIdentity;
-use jni::EnvUnowned;
+use jni::{Env, EnvUnowned};
+
+use crate::keystore::KeystoreCipher;
 use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jint, jlong};
@@ -41,6 +46,12 @@ mod refused {
     pub(super) const STORE_PRIVATE: jint = -6;
     pub(super) const STORE_UNAVAILABLE: jint = -7;
     pub(super) const THREAD: jint = -8;
+    pub(super) const RECOVERY_REQUIRED: jint = -9;
+    pub(super) const USER_NOT_AUTHENTICATED: jint = -10;
+    pub(super) const IDENTITY_UNAVAILABLE: jint = -11;
+    /// Native.kt's `REFUSED_NETWORK_DENIED`: the Service answers it with
+    /// the network-denied posture.
+    pub(super) const NETWORK_DENIED: jint = -12;
 }
 
 /// One line to the platform's log, under the app's tag. A started
@@ -66,36 +77,101 @@ pub(crate) fn log(line: &str) {
     }
 }
 
-/// The identity the runtime starts with. Until step 6's Keystore key
-/// lands, the debug build's stand-in; without it, none.
-#[allow(
-    clippy::unnecessary_wraps,
-    reason = "None in a build without dev-stand-ins, which has no identity source yet"
-)]
-fn identity() -> Option<ProfileIdentity> {
-    #[cfg(feature = "dev-stand-ins")]
-    {
-        Some(interweave_human_android_platform::stand_in::identity())
-    }
-    #[cfg(not(feature = "dev-stand-ins"))]
-    {
-        None
-    }
+/// The identity the runtime starts with: the profile's record, unwrapped
+/// by the Keystore through the embedded custody path (step 6) -- or the
+/// refusal code of why there is none, after logging it. A first run is
+/// provisioned in the debug build alone (android-platform's `identity`).
+fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, jint> {
+    let cipher = KeystoreCipher::new(env).map_err(|e| {
+        log(&format!("the Keystore cipher could not be reached: {e}"));
+        refused::IDENTITY_UNAVAILABLE
+    })?;
+    // A first run creates its identity in the debug build alone, until
+    // step 7's onboarding lets the person choose.
+    let first_run = if cfg!(feature = "dev-stand-ins") {
+        FirstRun::Create
+    } else {
+        FirstRun::Refuse
+    };
+    start_identity(
+        std::path::Path::new(app_data_dir),
+        PROFILE,
+        &cipher,
+        first_run,
+    )
+    .map_err(|why| {
+        log(&format!("no identity: {why:?}"));
+        match why {
+            IdentityRefused::Unprovisioned => refused::NO_IDENTITY,
+            IdentityRefused::RecoveryRequired(_) => refused::RECOVERY_REQUIRED,
+            IdentityRefused::UserNotAuthenticated => refused::USER_NOT_AUTHENTICATED,
+            IdentityRefused::Paths(_)
+            | IdentityRefused::Unavailable(_)
+            | IdentityRefused::Provisioning(_) => refused::IDENTITY_UNAVAILABLE,
+        }
+    })
 }
 
-fn start(app_data_dir: String) -> jint {
-    let Some(identity) = identity() else {
-        log("no identity source in this build: the network service does not start");
-        return refused::NO_IDENTITY;
-    };
+/// `Native.startWithoutNetwork`'s answer when the posture runs: neither
+/// mode, since no runtime runs to have one (Native.kt's `NETWORK_DENIED`).
+const NETWORK_DENIED: jint = 2;
+
+/// Write the stand-in profile where the debug build needs one.
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "Ok in a build without dev-stand-ins, which writes no profile"
+)]
+fn provision(app_data_dir: &str) -> Result<(), jint> {
     #[cfg(feature = "dev-stand-ins")]
     if let Err(e) = interweave_human_android_platform::stand_in::provision(
-        std::path::Path::new(&app_data_dir),
+        std::path::Path::new(app_data_dir),
         PROFILE,
     ) {
         log(&format!("the stand-in profile could not be written: {e}"));
-        return refused::PROFILE;
+        return Err(refused::PROFILE);
     }
+    #[cfg(not(feature = "dev-stand-ins"))]
+    let _ = app_data_dir;
+    Ok(())
+}
+
+/// The code a refusal answers Java with, after logging it.
+fn refusal(why: &StartRefused) -> jint {
+    log(&format!("the network service did not start: {why:?}"));
+    match why {
+        StartRefused::Runtime(EmbeddedRefused::NetworkDenied(_)) => refused::NETWORK_DENIED,
+        StartRefused::Runtime(_) => refused::RUNTIME,
+        StartRefused::NoHumanEndpoint => refused::ENDPOINT,
+        StartRefused::StoreNeedsRecovery => refused::STORE_RECOVERY,
+        StartRefused::StoreNotPrivate(_) => refused::STORE_PRIVATE,
+        StartRefused::StoreUnavailable(_) => refused::STORE_UNAVAILABLE,
+        StartRefused::Thread(_) => refused::THREAD,
+    }
+}
+
+fn start_without_network(app_data_dir: &str) -> jint {
+    if let Err(code) = provision(app_data_dir) {
+        return code;
+    }
+    match ServiceHost::global().start_without_network(std::path::Path::new(app_data_dir), PROFILE) {
+        Ok(()) => {
+            log("no network access: the store is open and no runtime runs");
+            NETWORK_DENIED
+        }
+        Err(why) => refusal(&why),
+    }
+}
+
+fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
+    // The profile first: a first run's identity is provisioned under the
+    // unlock policy it configures.
+    if let Err(code) = provision(&app_data_dir) {
+        return code;
+    }
+    let identity = match identity(env, &app_data_dir) {
+        Ok(identity) => identity,
+        Err(code) => return code,
+    };
     let host = ServiceHost::global();
     match host.start(ServiceLaunch {
         app_data_dir: app_data_dir.into(),
@@ -106,17 +182,7 @@ fn start(app_data_dir: String) -> jint {
             Some(AvailabilityMode::StayReachable) => 1,
             _ => 0,
         },
-        Err(why) => {
-            log(&format!("the network service did not start: {why:?}"));
-            match why {
-                StartRefused::Runtime(_) => refused::RUNTIME,
-                StartRefused::NoHumanEndpoint => refused::ENDPOINT,
-                StartRefused::StoreNeedsRecovery => refused::STORE_RECOVERY,
-                StartRefused::StoreNotPrivate(_) => refused::STORE_PRIVATE,
-                StartRefused::StoreUnavailable(_) => refused::STORE_UNAVAILABLE,
-                StartRefused::Thread(_) => refused::THREAD,
-            }
-        }
+        Err(why) => refusal(&why),
     }
 }
 
@@ -132,7 +198,44 @@ extern "system" fn Java_org_interweave_human_Native_start<'caller>(
     app_data_dir: JString<'caller>,
 ) -> jint {
     env.with_env(|env| -> Result<jint, jni::errors::Error> {
-        Ok(start(app_data_dir.try_to_string(env)?))
+        let app_data_dir = app_data_dir.try_to_string(env)?;
+        Ok(start(env, app_data_dir))
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// `Native.startWithoutNetwork(appDataDir)`.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_startWithoutNetwork<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    app_data_dir: JString<'caller>,
+) -> jint {
+    env.with_env(|env| -> Result<jint, jni::errors::Error> {
+        Ok(start_without_network(&app_data_dir.try_to_string(env)?))
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// `Native.waitNetworkAsk(timeoutMs)`: whether the person asked, from
+/// the window, for the network access the platform withholds.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_waitNetworkAsk<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    timeout_ms: jlong,
+) -> jboolean {
+    env.with_env(|_| -> Result<jboolean, jni::errors::Error> {
+        let timeout = Duration::from_millis(u64::try_from(timeout_ms).unwrap_or(0));
+        Ok(crate::activity::NETWORK_ASK.wait(timeout))
     })
     .resolve::<ThrowRuntimeExAndDefault>()
 }
@@ -211,6 +314,8 @@ fn text(key: jint, count: jint) -> String {
         1 => UiText::ReachableTitle,
         2 => UiText::ReachableBody,
         3 => UiText::MessagesChannel,
+        5 => UiText::NetworkOffTitle,
+        6 => UiText::NetworkOffBody,
         _ if count == 1 => UiText::NewMessage,
         _ => UiText::NewMessages,
     };

@@ -10,3 +10,5 @@
 mod activity;
 #[cfg(target_os = "android")]
 mod jni;
+#[cfg(target_os = "android")]
+mod keystore;

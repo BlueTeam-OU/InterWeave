@@ -13,8 +13,13 @@ service hosts the runtime, store and facade; the Activity attaches to it;
 unread arrivals raise a count-only notification. On a device the APK
 draws the views and the service starts, and the embedded runtime does not
 yet bind its listener there, so no session has run on a phone. The debug
-APK runs on a stand-in profile and in-memory identity; a release build
-starts nothing until step 6's Keystore key lands.
+APK runs on a stand-in profile. Its identity is the profile's seed
+wrapped by an AndroidKeyStore key (step 6, `src/keystore.rs` and
+`KeystoreCipher.kt`), unlocked at each start, so a restart keeps the
+`PeerId`. On a first run the debug APK creates and provisions that
+identity itself, until step 7's onboarding lets the person create or
+restore it; a release build starts nothing on a profile with no
+identity. No run on a device has exercised the Keystore yet.
 
 Build, on a host set up by `tools/host/android` (its README):
 

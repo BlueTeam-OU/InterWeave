@@ -39,7 +39,7 @@ fn a_case_on_the_hub_hears_the_listing_commands_the_facade_and_hears_the_stop() 
             ServiceLaunch {
                 app_data_dir: dir.clone(),
                 profile: PROFILE.to_owned(),
-                identity: stand_in::identity(),
+                identity: interweave_profile_identity::ProfileIdentity::generate(),
             },
             Arc::clone(&tap),
         )
