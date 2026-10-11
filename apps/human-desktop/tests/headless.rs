@@ -55,7 +55,7 @@ fn facade(node: FakeNode) -> FacadeSide<FakeNode, FakeNode> {
         0,
     )
     .expect("facade");
-    FacadeSide::new(client, Some(human()), || 1_786_600_000_000)
+    FacadeSide::new(client, || 1_786_600_000_000)
 }
 
 struct NoLinks;

@@ -244,11 +244,11 @@ impl ServiceHost {
             Err(e) => return refuse(host, classify(&e)),
         };
         let (data, admin) = (data(&host), host.binding());
-        let client_config = client_config(&config, endpoint.clone());
+        let client_config = client_config(&config, endpoint);
         let make = move || {
             let client =
                 TransportClient::new(data, admin, store, client_config, Box::new(wall_ms), 0)?;
-            Ok(FacadeSide::new(client, Some(endpoint), wall_ms))
+            Ok(FacadeSide::new(client, wall_ms))
         };
         let facade = match FacadeLoop::spawn(host.runtime(), make, &self.hub) {
             Ok(facade) => facade,
@@ -301,7 +301,7 @@ impl ServiceHost {
             .enable_time()
             .build()
             .map_err(|e| StartRefused::Thread(e.to_string()))?;
-        let client_config = client_config(&config, endpoint.clone());
+        let client_config = client_config(&config, endpoint);
         let make = move || {
             let client = TransportClient::new(
                 offline_embedded(),
@@ -311,7 +311,7 @@ impl ServiceHost {
                 Box::new(wall_ms),
                 0,
             )?;
-            Ok(FacadeSide::new(client, Some(endpoint), wall_ms))
+            Ok(FacadeSide::new(client, wall_ms))
         };
         // Said before the facade runs, so a view never shows this posture
         // as a service that can send.
