@@ -57,7 +57,7 @@ holder can add rows without entering the other's crate.
 
 | id | guards | step | tests | limit |
 |---|---|---|---|---|
-| C-01 | `HandshakeSlot::source`: the bucket a reclaimed handshake was counted under, attributable in a log (Stage 13, R6) | S1 (01) | owed: the debug line on the timeout release, and the test that it names the bucket and nothing more | — |
+| C-01 | `HandshakeSlot::source`: the bucket a reclaimed handshake was counted under, attributable in a log (Stage 13, R6) | — | `crates/transport/libp2p/src/preauth_gate.rs::a_handshake_that_ends_unestablished_is_logged_by_its_bucket_alone`; `crates/transport/runtime/src/preauth.rs::ipv6_is_bucketed_by_prefix_so_an_address_range_is_not_free` | The line is debug level, so an operator sees it only with the profile's log level at debug. |
 | C-02 | SPIKE-005, a hostile same-uid process (Stage 13) | owner | owed: the owner's word on R3 | — |
 | C-03 | the foreign-uid peer refused on a real OS (Stage 13) | S9 (02) | `crates/local/ipc-server/src/server.rs::a_peer_of_another_uid_is_closed_before_hello_and_counted`; owed: the real-uid run (R4) | The existing test injects the uid. |
 | C-04 | the Windows binding: named pipe, ACL, peer identity; BSL-1.0 through `arboard` (Stage 15) | owner | owed: the owner's word on R5 | No Windows runner exists. |
