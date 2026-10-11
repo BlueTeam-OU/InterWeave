@@ -181,7 +181,7 @@ fn over_the_real_binding_with_no_daemon_the_window_says_so() {
     };
     let paths = ProfilePaths::resolve("desk", &roots).expect("paths");
     let profile = Profile {
-        endpoint: human(),
+        endpoints: vec![human()],
         channels: vec![],
         data_socket: paths.data_socket().expect("data socket"),
         admin_socket: paths.admin_socket().expect("admin socket"),

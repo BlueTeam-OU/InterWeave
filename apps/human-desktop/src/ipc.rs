@@ -40,7 +40,7 @@ pub fn facade_over_ipc(
     );
     let config = ClientConfig {
         client_kind: CLIENT_KIND.to_owned(),
-        endpoints: vec![profile.endpoint.clone()],
+        endpoints: profile.endpoints.clone(),
         channels: profile.channels.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
     };
