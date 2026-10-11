@@ -25,8 +25,9 @@ holder can add rows without entering the other's crate.
   stage. An id is never reused or renumbered.
 - **guards**: the threat-model row or section 21 item, in its own words.
 - **step**: the plan step that owns the row's open work, and its
-  holder (`01` / `02` for the two p2p-network-dev holders), or `—`
-  once nothing is owed.
+  holder (`01` / `02` for the two p2p-network-dev holders); `owner`
+  where the open work waits on the owner's word; `unassigned` where
+  work is owed and no step holds it yet; or `—` once nothing is owed.
 - **tests**: every guarding test as `` `path::fn` ``, the path relative
   to the repository root, separated by `; `. A test inside a
   `#[cfg(test)]` module is named by its source file. `owed: <what>`
@@ -100,9 +101,9 @@ empty.
 | TM-27 | Topic enumeration/confidentiality | — | `tests/pubsub/tests/frozen_derivation_vectors.rs::every_frozen_topic_key_vector_reproduces`; `tests/pubsub/tests/stage7_broadcast_over_the_wire.rs::an_unauthorized_publisher_is_ignored_not_delivered_and_not_relayed_further`; `tests/pubsub/tests/stage7_broadcast_over_the_wire.rs::an_infrastructure_only_peer_cannot_join_the_mesh` | A trusted forwarding peer reads the payload: no group E2EE (ADR-0014, a non-goal). |
 | TM-28 | GossipSub message-ID suppression | — | `tests/security/tests/gossipsub_poisoning.rs::a_second_publisher_sending_the_same_envelope_is_not_taken_for_a_duplicate` | A publisher can still suppress or replace its own repeated ids (threat-model.md). |
 | TM-29 | GossipSub trust asymmetry | — | `tests/pubsub/tests/stage7_broadcast_over_the_wire.rs::an_unauthorized_publisher_is_ignored_not_delivered_and_not_relayed_further`; `tests/pubsub/tests/stage7_broadcast_over_the_wire.rs::a_signed_but_malformed_envelope_is_reject_and_does_not_wedge_later_valid_traffic`; `crates/transport/runtime/src/broadcast_inbound.rs::an_unauthorized_publisher_is_ignore_and_a_valid_one_is_accept` | Downstream route loss where trust is asymmetric (threat-model.md). |
-| TM-30 | Prompt injection | — | owed | — |
+| TM-30 | Prompt injection | S13 (02) | owed | — |
 | TM-31 | Address SSRF-like abuse | — | `crates/transport/libp2p/tests/learn_door.rs::a_discovered_address_outside_the_boundary_is_refused_counted_and_never_operator`; `crates/transport/runtime/src/reachability.rs::every_address_the_probe_boundary_refuses_the_discovery_boundary_refuses_too`; `tests/security/tests/autonat_ssrf.rs::no_dial_back_target_class_opens_a_socket`; `crates/transport/libp2p/tests/root_funnel.rs::the_root_funnel_prunes_a_stacked_address`; `crates/transport/libp2p/tests/root_funnel.rs::the_control_tcp_dials_the_last_host_of_a_stacked_address` | A trusted peer can still point at private ranges where this host has a private listener of that family (ADR-0052 rule 3; threat-model.md). |
-| TM-32 | Log leakage | — | owed | — |
+| TM-32 | Log leakage | S11 (02) | owed | — |
 | TM-33 | malicious/compromised relay | — | `tests/connectivity/tests/relay_failover.rs::two_reservations_are_held_the_peer_is_reached_through_either_and_a_lost_relay_is_replaced`; `tests/connectivity/tests/relayed_paths.rs::a_circuit_is_dialled_under_relay_circuit_and_carries_the_data_plane_at_both_ends` | The relay observes connection metadata and can deny service (threat-model.md). |
 | TM-34 | malicious AutoNAT observer | — | `crates/transport/runtime/src/reachability.rs::verified_needs_distinct_servers_and_one_server_twice_is_one_observer`; `crates/transport/runtime/src/reachability.rs::reports_about_untracked_addresses_and_from_stranger_servers_are_refused_by_name`; `crates/transport/runtime/src/reachability.rs::verified_lapses_at_the_evidence_ttl_without_refresh`; `crates/transport/runtime/src/reachability.rs::removing_a_server_withdraws_its_evidence`; `crates/transport/libp2p/src/runtime/autonat_driver.rs::two_distinct_servers_verify_and_the_swarm_advertises_the_address_from_the_verdict` | Colluding observers can bias the classification (threat-model.md). The verdict is unit-level; phase B's rows are SPIKE-004's. |
 | TM-35 | infrastructure privilege escalation | — | `crates/transport/libp2p/src/class_gate.rs::an_infrastructure_only_peer_is_offered_nothing_and_the_inner_behaviour_is_never_asked`; `tests/connectivity/tests/advertised_protocol_set.rs::an_infrastructure_only_peer_gets_a_connection_established_before_it_is_refused`; `tests/connectivity/tests/advertised_protocol_set.rs::a_peer_downgraded_to_infrastructure_only_loses_its_connection`; `tests/pubsub/tests/stage7_broadcast_over_the_wire.rs::an_infrastructure_only_peer_cannot_join_the_mesh`; `tests/connectivity/tests/relayed_paths.rs::an_infrastructure_only_source_over_a_circuit_is_refused_at_the_destination_with_the_servers_on` | A defect in the shared Swarm policy remains security-critical (threat-model.md). |
@@ -123,6 +124,6 @@ empty.
 | TM-50 | durable trust overlay tampered with or deleted | S10 (02) | owed | — |
 | TM-51 | durable endpoint overlay tampered with or deleted | S10 (02) | owed | — |
 
-Rows with `—` in the step column are covered by no S1-S13 step yet.
-They go to architect-cto, who assigns each one or records it as met by
-a lower stage.
+A row marked `unassigned` goes to architect-cto, who assigns it to a
+step or records it as met by a lower stage. TM-30 and TM-32 were
+placed that way, in S13 and S11.
