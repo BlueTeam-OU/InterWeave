@@ -53,8 +53,15 @@ class NetworkService : Service() {
          * prompt or the settings page: if the posture runs and network
          * access is now held, start again as the app does.
          */
+        @Synchronized
         fun recheck() {
+            // Claimed once: a grant arrives as a permission result and a
+            // resume together, and two restarts would let the first
+            // start's end-waiter stop the second runtime. `mode` leaves
+            // NETWORK_DENIED here, before the restart is queued, and the
+            // start writes its own answer.
             if (mode == Native.NETWORK_DENIED && networkGranted()) {
+                mode = UNANSWERED
                 Log.i(TAG, "network access granted: restarting with the runtime")
                 lifecycle.execute { Native.stop() }
                 startClient()
