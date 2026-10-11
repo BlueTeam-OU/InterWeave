@@ -27,6 +27,32 @@ internal object Native {
      */
     @JvmStatic external fun start(appDataDir: String): Int
 
+    /**
+     * start's refusal when the platform refuses the runtime its sockets
+     * (`EmbeddedRefused::NetworkDenied`): a race with the grant or another
+     * restriction, answered with the network-denied posture as a withheld
+     * permission is (human-client-android.md, "Runtime permissions and
+     * the network-denied state", step 6).
+     */
+    const val REFUSED_NETWORK_DENIED = -12
+
+    /** startWithoutNetwork's answer: the posture runs. */
+    const val NETWORK_DENIED = 2
+
+    /**
+     * Start the network-denied posture under [appDataDir]: the store and
+     * the view hub, no runtime and no endpoint lease. BLOCKS. Answers
+     * [NETWORK_DENIED], or a negative refusal (in the log).
+     */
+    @JvmStatic external fun startWithoutNetwork(appDataDir: String): Int
+
+    /**
+     * Wait at most [timeoutMs] for the person to ask, from the window, for
+     * the network access the platform withholds; true when they did.
+     * BLOCKS.
+     */
+    @JvmStatic external fun waitNetworkAsk(timeoutMs: Long): Boolean
+
     /** waitEnded: nothing runs. */
     const val ENDED_NOT_RUNNING = 0
 
@@ -66,4 +92,6 @@ internal object Text {
     const val REACHABLE_BODY = 2
     const val MESSAGES_CHANNEL = 3
     const val MESSAGES_WAITING = 4
+    const val NETWORK_OFF_TITLE = 5
+    const val NETWORK_OFF_BODY = 6
 }

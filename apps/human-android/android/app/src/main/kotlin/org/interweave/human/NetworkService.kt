@@ -7,7 +7,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Handler
@@ -16,6 +18,7 @@ import android.os.Looper
 import android.util.Log
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The network service: it owns the embedded runtime, the store and the
@@ -31,13 +34,33 @@ import java.util.concurrent.Executors
  * Activity until the person turns it off or the platform stops it.
  */
 class NetworkService : Service() {
-    private val binder = Binder()
+    private val binder = Local()
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var alive = false
     @Volatile private var relaying = false
     // UNANSWERED until the start answers: no answer, refusal or mode, is
     // ever this value (review of #255: -1 was also NO_IDENTITY).
     @Volatile private var mode = UNANSWERED
+    // A start command reached this Service: only Stay reachable sends one,
+    // so a posture answer then is step 5's broken promise.
+    @Volatile private var startCommanded = false
+    private val networkOffPosted = AtomicBoolean(false)
+
+    /** What the bound Activity calls on the Service. */
+    inner class Local : Binder() {
+        /**
+         * The person came back to the window, perhaps from the permission
+         * prompt or the settings page: if the posture runs and network
+         * access is now held, start again as the app does.
+         */
+        fun recheck() {
+            if (mode == Native.NETWORK_DENIED && networkGranted()) {
+                Log.i(TAG, "network access granted: restarting with the runtime")
+                lifecycle.execute { Native.stop() }
+                startClient()
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -51,15 +74,20 @@ class NetworkService : Service() {
         lifecycle.execute {
             // A start that throws counts as a refusal: it must still end
             // the foreground state below, not leave it to nobody.
-            val answer =
-                try {
-                    Native.start(dataDir.absolutePath)
-                } catch (e: RuntimeException) {
-                    Log.e(TAG, "start threw", e)
-                    START_THREW
-                }
+            // Without network access (API 37+ makes INTERNET a runtime
+            // permission) the store still opens: the network-denied
+            // posture, and the same for a runtime the platform refused its
+            // sockets (human-client-android.md, "Runtime permissions and
+            // the network-denied state", steps 3 and 6).
+            var answer =
+                if (networkGranted()) call("start") { Native.start(dataDir.absolutePath) }
+                else Native.REFUSED_NETWORK_DENIED
+            if (answer == Native.REFUSED_NETWORK_DENIED) {
+                answer = call("startWithoutNetwork") { Native.startWithoutNetwork(dataDir.absolutePath) }
+            }
             mode = answer
             Log.i(TAG, "start answered $answer")
+            if (answer == Native.NETWORK_DENIED && startCommanded) networkOff()
             if (answer == Native.STAY_REACHABLE) {
                 // Started, so that it outlives the Activity's binding.
                 startForegroundService(Intent(this, NetworkService::class.java))
@@ -95,7 +123,9 @@ class NetworkService : Service() {
         // to withdraw, so withdraw here (review of #255, F1's ordering).
         // The platform requires startForeground once a foreground start was
         // asked, so it goes up first either way.
+        startCommanded = true
         val answer = mode
+        if (answer == Native.NETWORK_DENIED) networkOff()
         if (answer != UNANSWERED && answer != Native.STAY_REACHABLE) {
             leaveForeground()
             return START_NOT_STICKY
@@ -111,6 +141,40 @@ class NetworkService : Service() {
         // waits for the grace, and a start after it finds the lock free.
         lifecycle.execute { Log.i(TAG, "stop answered ${Native.stop()}") }
         super.onDestroy()
+    }
+
+    /** [body]'s answer, a throw counting as a refusal that is logged. */
+    private inline fun call(what: String, body: () -> Int): Int =
+        try {
+            body()
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "$what threw", e)
+            START_THREW
+        }
+
+    /** Whether the platform gives this app network access. */
+    private fun networkGranted(): Boolean =
+        checkSelfPermission(Manifest.permission.INTERNET) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Step 5: Stay reachable restarted without network access. Post ONE
+     * notification -- network access is off, open the app -- and end the
+     * started state; no retry loop, no silent end.
+     */
+    private fun networkOff() {
+        if (!networkOffPosted.compareAndSet(false, true)) return
+        Log.i(TAG, "Stay reachable restarted without network access: one notice, then end")
+        getSystemService(NotificationManager::class.java).notify(
+            NETWORK_OFF_ID,
+            Notification.Builder(this, REACHABLE_CHANNEL)
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentTitle(Native.text(Text.NETWORK_OFF_TITLE, 0))
+                .setContentText(Native.text(Text.NETWORK_OFF_BODY, 0))
+                .setContentIntent(opening())
+                .setAutoCancel(true)
+                .build(),
+        )
+        main.post { leaveForeground() }
     }
 
     /** Withdraw the Stay-reachable notification and the started state. */
@@ -212,6 +276,7 @@ class NetworkService : Service() {
         private const val MESSAGES_CHANNEL = "messages"
         private const val ONGOING_ID = 1
         private const val MESSAGES_ID = 2
+        private const val NETWORK_OFF_ID = 3
         private const val NOTICE_WAIT_MS = 1000L
 
         /** `mode` before the start answers; never an answer. */
