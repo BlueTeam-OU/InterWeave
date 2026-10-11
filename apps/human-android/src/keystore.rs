@@ -7,10 +7,12 @@
 //! exception reaches this side; the status maps one to one onto custody's
 //! closed failure set.
 //!
-//! The seed's wiping is best-effort, as the seam says: the Keystore hands
-//! the plaintext over as a Java `byte[]`, which this side copies into a
-//! stack buffer and then overwrites with zeros -- the only wipe Java
-//! allows; what the collector copied meanwhile is out of reach.
+//! The seed's wiping is best-effort, as the seam says. Opening, the
+//! Keystore hands the plaintext over as a Java `byte[]`, which this side
+//! copies into a stack buffer and then overwrites with zeros; sealing, the
+//! `byte[]` this side passes is cleared by `KeystoreCipher.seal` before it
+//! returns. Either is the only wipe Java allows; what the collector
+//! copied meanwhile is out of reach.
 
 use interweave_human_android_platform::KeyUnlockPolicy;
 use interweave_human_android_platform::custody::{

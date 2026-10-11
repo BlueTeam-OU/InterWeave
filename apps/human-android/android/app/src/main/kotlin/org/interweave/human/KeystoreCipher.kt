@@ -50,19 +50,25 @@ internal object KeystoreCipher {
     /**
      * Generate a fresh key at [alias], deleting what was there first, and
      * encrypt [seed] with [aad] under it. Answers [OK], the 12-byte IV,
-     * then the ciphertext with its tag.
+     * then the ciphertext with its tag. [seed] is cleared before this
+     * returns, whatever it answers: the plaintext's one call in the Java
+     * heap, as for [open].
      */
     @JvmStatic
     fun seal(alias: String, userPresence: Boolean, aad: ByteArray, seed: ByteArray): ByteArray =
-        framed {
-            val store = store()
-            if (store.containsAlias(alias)) store.deleteEntry(alias)
-            val key = generate(alias, userPresence)
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, key)
-            cipher.updateAAD(aad)
-            val sealed = cipher.doFinal(seed)
-            byteArrayOf(OK) + cipher.iv + sealed
+        try {
+            framed {
+                val store = store()
+                if (store.containsAlias(alias)) store.deleteEntry(alias)
+                val key = generate(alias, userPresence)
+                val cipher = Cipher.getInstance(TRANSFORMATION)
+                cipher.init(Cipher.ENCRYPT_MODE, key)
+                cipher.updateAAD(aad)
+                val sealed = cipher.doFinal(seed)
+                byteArrayOf(OK) + cipher.iv + sealed
+            }
+        } finally {
+            seed.fill(0)
         }
 
     /**
