@@ -11,7 +11,8 @@ use std::time::Duration;
 
 use interweave_human_android_platform::AvailabilityMode;
 use interweave_human_android_platform::{
-    Ended, IdentityRefused, ServiceHost, ServiceLaunch, StartRefused, start_identity,
+    EmbeddedRefused, Ended, IdentityRefused, ServiceHost, ServiceLaunch, StartRefused,
+    start_identity,
 };
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
 use interweave_profile_identity::ProfileIdentity;
@@ -48,6 +49,9 @@ mod refused {
     pub(super) const RECOVERY_REQUIRED: jint = -9;
     pub(super) const USER_NOT_AUTHENTICATED: jint = -10;
     pub(super) const IDENTITY_UNAVAILABLE: jint = -11;
+    /// Native.kt's `REFUSED_NETWORK_DENIED`: the Service answers it with
+    /// the network-denied posture.
+    pub(super) const NETWORK_DENIED: jint = -12;
 }
 
 /// One line to the platform's log, under the app's tag. A started
@@ -122,6 +126,7 @@ fn provision(app_data_dir: &str) -> Result<(), jint> {
 fn refusal(why: &StartRefused) -> jint {
     log(&format!("the network service did not start: {why:?}"));
     match why {
+        StartRefused::Runtime(EmbeddedRefused::NetworkDenied(_)) => refused::NETWORK_DENIED,
         StartRefused::Runtime(_) => refused::RUNTIME,
         StartRefused::NoHumanEndpoint => refused::ENDPOINT,
         StartRefused::StoreNeedsRecovery => refused::STORE_RECOVERY,
