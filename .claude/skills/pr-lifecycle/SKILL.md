@@ -51,16 +51,16 @@ terms that rode in with copied material.
 ```
 17.  gh pr create --base main --head "$BRANCH"
 17a. Agent(code-review, fable, "Review PR <n> …", no isolation)  # THE review of the finished head
-17b. tools/gh/post-review.sh <n> <<'EOF' … EOF   # post it at the head; pr-review-status.sh counts it
-17c. tools/gh/pr-review-status.sh <n>            # blind reviews against the CURRENT head; unresolved threads
-18.  tools/gh/arm.sh <n> --basis "<why>"   # ONLY when done; never `gh pr merge --auto` by hand —
-                                #   arm.sh applies the gates of CLAUDE.md §9 (review, threads,
+17b. fabric-pr post-review <n> <<'EOF' … EOF   # post it at the head; fabric-pr review-status counts it
+17c. fabric-pr review-status <n>            # blind reviews against the CURRENT head; unresolved threads
+18.  fabric-pr arm <n> --basis "<why>"   # ONLY when done; never `gh pr merge --auto` by hand —
+                                #   fabric-pr arm applies the gates of CLAUDE.md §9 (review, threads,
                                 #   or architect-cto's --waiver for those two — and, under eight, the owner's word) before it arms.
-19.  tools/gh/wait-merged.sh <n> &      # background; its exit is the callback
+19.  fabric-pr wait-merged <n> &      # background; its exit is the callback
 ```
 
 **17a is the review, and 17b is what makes it count** — a review that is
-not posted at the head is coverage of nothing, and `pr-review-status.sh`
+not posted at the head is coverage of nothing, and `fabric-pr review-status`
 reads the posted object, not the transcript; CLAUDE.md §9 says why the
 session dispatches it (the automated reviewer this repository once asked
 for by comment is retired; the section there keeps the record). **18 sits
@@ -77,9 +77,9 @@ a background watcher move your tree.
 **Phase 6 — after**
 
 ```
-20. tools/gh/pr-sessions.sh /unresolved        # what still owes a reply
-21. tools/gh/pr-review-status.sh <n>           # was it REALLY reviewed, and against which head
-22. tools/gh/pr-reply.sh … <<'EOF'             # reply + resolve one thread; body on STDIN
+20. fabric-pr sessions /unresolved        # what still owes a reply
+21. fabric-pr review-status <n>           # was it REALLY reviewed, and against which head
+22. fabric-pr reply … <<'EOF'             # reply + resolve one thread; body on STDIN
 ```
 
 Phase 6 is not optional and nothing reminds you: no red check, no blocked
@@ -93,7 +93,7 @@ the replies go to the old PR.
 
 Never post a reply body through `gh api -f body="…"`: replies quote code,
 and a double-quoted body has its backticks command-substituted and its
-`$vars` expanded before `gh` sees them. `pr-reply.sh` takes the body on
+`$vars` expanded before `gh` sees them. `fabric-pr reply` takes the body on
 STDIN for exactly this reason — the same hazard as the heredoc rule for
 commit messages.
 
@@ -107,19 +107,19 @@ self-test beside it (`test_*.sh`) that must stay green.
 
 | script | what it answers |
 |---|---|
-| `wait-merged.sh <n>` | blocks until the PR reaches a terminal state; run it in the **background**, its exit IS the callback |
-| `pr-review-status.sh <n>` | was this PR *actually* reviewed, by whom, and against which head — a head is reviewed when a blind review (the class's, posted with `post-review.sh`) or an independent review targets it |
-| `post-review.sh <n>` | post the review class's review as a review object at the head, body on STDIN, marked so the reader counts it |
-| `pr-sessions.sh` | which session owns which PR; `/unresolved` lists PRs still owing a reply |
-| `pr-reply.sh` | reply to and resolve one review thread, body on STDIN |
+| `fabric-pr wait-merged <n>` | blocks until the PR reaches a terminal state; run it in the **background**, its exit IS the callback |
+| `fabric-pr review-status <n>` | was this PR *actually* reviewed, by whom, and against which head — a head is reviewed when a blind review (the class's, posted with `fabric-pr post-review`) or an independent review targets it |
+| `fabric-pr post-review <n>` | post the review class's review as a review object at the head, body on STDIN, marked so the reader counts it |
+| `fabric-pr sessions` | which session owns which PR; `/unresolved` lists PRs still owing a reply |
+| `fabric-pr reply` | reply to and resolve one review thread, body on STDIN |
 | `actions-health.sh` | is Actions healthy enough to be worth spending a run on |
 
 Two things about those exit codes that are easy to misread, and are not
 obvious from a single run:
 
-- `BLOCKED` from `wait-merged.sh` while checks are merely pending is the
+- `BLOCKED` from `fabric-pr wait-merged` while checks are merely pending is the
   normal waiting state, not a verdict.
-- `pr-review-status.sh` reports a review of an earlier head as not on head:
+- `fabric-pr review-status` reports a review of an earlier head as not on head:
   a fix range is re-reviewed before the arm, however small.
 
 ## CodeQL alerts on a PR
@@ -173,7 +173,7 @@ review — a landing another task depends on, a file another branch
 refactors, another session's lane.
 
 **Track what is outstanding.** With several PRs open,
-`tools/gh/pr-sessions.sh /unresolved` is the list of what still owes a
+`fabric-pr sessions /unresolved` is the list of what still owes a
 reply, and Phase 6 applies to every one of them.
 
 ## Dequeuing a PR that is already queued
@@ -200,7 +200,7 @@ different hosts. **Isolation is required**, and the model is **one full
 - **Never push to, rebase, or delete a branch another session created.**
   The `<host>/<login>/…` prefix tells you whose it is (older branches carry the clone directory there; the forwarded tools read both). Same for their PRs:
   do not retarget, re-title, or merge them. Only answer review comments on
-  PRs you opened — `pr-reply.sh` refuses another session's PR, but the rule
+  PRs you opened — `fabric-pr reply` refuses another session's PR, but the rule
   is yours to keep, not the script's.
 - **Never resolve a review thread you have not actually addressed.**
   Resolving signals "this was handled"; a false resolve buries the finding
