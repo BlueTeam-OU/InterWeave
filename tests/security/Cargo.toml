@@ -61,5 +61,4 @@ ignored = [
   "interweave-local-client-api",
   "interweave-transport-composition",
   "interweave-discovery-api",
-  "interweave-kademlia-control-api",
 ]
