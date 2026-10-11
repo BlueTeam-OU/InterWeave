@@ -196,6 +196,19 @@ fn the_endpoint_overlay_loads_absent_as_a_no_op_under_the_root() {
 
     let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
     let overlay = EndpointOverlay::path_for(host.paths());
+    // A set disabling the endpoint the profile must lease is refused, as
+    // the next start would refuse the composed profile; nothing written.
+    let port = host
+        .runtime()
+        .block_on(host.binding().admin([AdminCapability::Endpoints].into()))
+        .expect("an admin port");
+    let human = interweave_transport_api::EndpointId::parse("human").expect("an id");
+    assert_eq!(
+        host.runtime()
+            .block_on(port.set_endpoint_enabled(human, false)),
+        Err(interweave_transport_api::TransportError::InvalidArgument)
+    );
+    drop(port);
     assert!(
         overlay.starts_with(app.dir.join("interweave")),
         "{}",
