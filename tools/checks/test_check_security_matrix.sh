@@ -40,7 +40,56 @@ root() {
 fn a_guard() {}
 
 #[test]
+/// A doc comment between the attribute and the fn.
+
+#[ignore = "a second attribute, past a blank line"]
 fn b_guard() {}
+
+#[test] fn one_line_guard() {}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[expect(
+    clippy::many_single_char_names,
+    reason = "a multi-line attribute, an unbalanced ] in its string"
+)]
+async fn tokio_guard() {}
+
+fn helper_guard() {}
+
+#[test]
+fn mentions() { let _ = "fn string_guard()"; } // fn trailing_guard()
+
+#[test]
+// fn swapped_guard() {}
+fn the_real_one() {}
+
+/*
+#[test]
+fn disabled_guard() {}
+/* a nested comment */
+#[test]
+fn nested_disabled_guard() {}
+*/
+
+// A quote as a character literal: read as a string opener, it would close
+// at the quote inside the comment and leave the disabled test as code.
+const Q: char = '"'; /* "
+#[test]
+fn char_hidden_guard() {}
+*/
+
+// An escaped quote: ended there, the string would let its /* open a
+// comment that hides the live test below.
+const E: &str = "a\" /* ";
+#[test]
+fn escape_guard() {}
+
+// An odd quote inside: read as a plain string, the raw string would end
+// there and leave the test below it as code.
+const RAW: &str = r#"say "hi
+#[test]
+fn raw_guard() {}
+"#;
 
 // fn commented_out() {}
 /// fn doc_only() names a test in a doc comment
@@ -51,13 +100,16 @@ RS
 
 T='`tests/security/tests/flood.rs::a_guard`'
 U='`tests/security/tests/flood.rs::b_guard`'
+K='`tests/security/tests/flood.rs::tokio_guard`'
+O='`tests/security/tests/flood.rs::one_line_guard`'
+X='`tests/security/tests/flood.rs::escape_guard`'
 
 echo "check_security_matrix — every named test exists"
 
-good="$(root good "| S21-01 | floods | S1 | $T; $U | — |" "| TM-01 | probing | S2 | $T; owed: S3 lands the rest | — |" "| C-01 | debug line | S4 | owed (S21-05's tests) | — |" "| C-02 | spoofing | S4 | owed | — |" "| C-03 | replay | S4 | — | — |" "C-04 | no leading pipe | S4 | $U | — |")"
+good="$(root good "| S21-01 | floods | S1 | $T; $U; $K; $O; $X | — |" "| TM-01 | probing | S2 | $T; owed: S3 lands the rest | — |" "| C-01 | debug line | S4 | owed (S21-05's tests) | — |" "| C-02 | spoofing | S4 | owed | — |" "| C-03 | replay | S4 | — | — |" "C-04 | no leading pipe | S4 | $U | — |")"
 out="$(run "$good")"; code="$(run_code "$good")"
 [[ "$code" == 0 ]] && ok "a matrix whose tests exist passes" || bad "control: expected 0, got $code: $out"
-[[ "$out" == *"4 named test(s) exist"* ]] && ok "  counting the named tests, a row without its leading pipe included" || bad "count: $out"
+[[ "$out" == *"7 named test(s) exist"* ]] && ok "  counting the named tests, a row without its leading pipe included" || bad "count: $out"
 [[ "$out" == *"C-01 names no test"* && "$out" == *"C-02 names no test"* && "$out" == *"C-03 names no test"* ]] \
     && ok "  and reporting each empty row (owed (...), bare owed, —) without failing" || bad "empty report: $out"
 [[ "$(run_code "$good" --strict)" == 1 ]] && ok "--strict fails the same empty row" || bad "--strict did not fail"
@@ -73,10 +125,18 @@ expect_fail() {  # <label> <needle> <rows...>
 }
 
 expect_fail "a deleted test file fails" "does not exist" "| S21-01 | floods | S1 | \`tests/security/tests/gone.rs::a_guard\` | — |"
-expect_fail "a renamed test fails" "defines no fn renamed_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::renamed_guard\` | — |"
-expect_fail "a name only in a // comment does not vouch" "defines no fn commented_out" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::commented_out\` | — |"
-expect_fail "a name only in a /// doc comment does not vouch" "defines no fn doc_only" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::doc_only\` | — |"
-expect_fail "a prefix of a real name does not vouch" "defines no fn a_gu" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::a_gu\` | — |"
+expect_fail "a renamed test fails" "defines no test fn renamed_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::renamed_guard\` | — |"
+expect_fail "a name only in a // comment does not vouch" "defines no test fn commented_out" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::commented_out\` | — |"
+expect_fail "a name only in a /// doc comment does not vouch" "defines no test fn doc_only" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::doc_only\` | — |"
+expect_fail "a helper without a test attribute does not vouch" "defines no test fn helper_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::helper_guard\` | — |"
+expect_fail "a name inside a string does not vouch" "defines no test fn string_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::string_guard\` | — |"
+expect_fail "a name in a trailing comment does not vouch" "defines no test fn trailing_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::trailing_guard\` | — |"
+expect_fail "a name in a // line between #[test] and another fn does not vouch" "defines no test fn swapped_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::swapped_guard\` | — |"
+expect_fail "a test disabled in a /* */ block does not vouch" "defines no test fn disabled_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::disabled_guard\` | — |"
+expect_fail "a test after a nested /* */ inside the block does not vouch" "defines no test fn nested_disabled_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::nested_disabled_guard\` | — |"
+expect_fail "a disabled test after a quote character literal does not vouch" "defines no test fn char_hidden_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::char_hidden_guard\` | — |"
+expect_fail "a test inside a raw string does not vouch" "defines no test fn raw_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::raw_guard\` | — |"
+expect_fail "a prefix of a real name does not vouch" "defines no test fn a_gu" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::a_gu\` | — |"
 expect_fail "a path outside the repository fails" "not a path inside the repository" "| S21-01 | floods | S1 | \`../../etc/passwd::root\` | — |"
 expect_fail "a repeated id fails" "id S21-01 repeats" "| S21-01 | floods | S1 | $T | — |" "| S21-01 | again | S1 | $U | — |"
 expect_fail "an id outside the three families fails" "is not S21-NN, TM-NN or C-NN" "| SX-01 | floods | S1 | $T | — |"

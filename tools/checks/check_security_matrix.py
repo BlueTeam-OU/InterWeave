@@ -17,10 +17,14 @@
 #   - the row has the five cells | id | guards | step | tests | limit |;
 #   - every tests item is `path::fn` or an owed marker ("owed",
 #     "owed: <text>", "owed (<text>)", "—"), items separated by "; ";
-#   - each path is a file inside the repository, and it defines fn on a
-#     line that is not a comment: `\bfn <name>\b` on a line whose first
-#     non-blank characters are not `//`, so neither a doc comment nor a
-#     commented-out function vouches for a deleted test.
+#   - each path is a file inside the repository, and it defines fn as a
+#     test: `\bfn <name>\b` on a line whose first non-blank characters are
+#     not `//`, carrying `#[test]` or `#[tokio::test...]` among the
+#     attributes above it (past doc comments and blank lines). The file is
+#     read as code: comments (`//`, nested `/* */`) and string, raw-string
+#     and character literals are blanked first, so a test disabled in a
+#     block comment, a name in a string or comment, and a helper of the
+#     same name vouch for nothing.
 # A row with no `path::fn` at all is empty: reported always, and a
 # failure only under --strict, which Stage 18's close runs.
 #
@@ -48,10 +52,107 @@ ITEM = re.compile(r"`?(?P<path>[^`:\s][^`:]*)::(?P<fn>[A-Za-z_][A-Za-z0-9_]*)`?"
 OWED = re.compile(r"owed\b.*|—")
 
 
+TEST_ATTRIBUTE = re.compile(r"#\[\s*(test\s*\]|tokio::test\b)")
+CHAR = re.compile(r"'(?:\\.|[^\\'\n])'")
+RAW_OPEN = re.compile(r'(?:b|c)?r(#*)"')
+
+
+def code_only(source: str) -> list[str]:
+    """The source's lines with every comment and literal blanked out, line
+    breaks kept: `//` and `/* */` comments (nested, as Rust nests them),
+    "..." strings, r"..." / r#"..."# raw strings and 'x' character literals.
+    What remains is code, so a name inside a disabled /* test */, a string
+    or a trailing comment is not there to be found."""
+    out: list[str] = []
+    i, n, depth = 0, len(source), 0
+    while i < n:
+        c = source[i]
+        if depth:  # inside a block comment
+            if source.startswith("/*", i):
+                depth, i = depth + 1, i + 2
+            elif source.startswith("*/", i):
+                depth, i = depth - 1, i + 2
+            else:
+                out.append("\n" if c == "\n" else " ")
+                i += 1
+            continue
+        if source.startswith("/*", i):
+            depth, i = 1, i + 2
+            continue
+        if source.startswith("//", i):
+            end = source.find("\n", i)
+            i = n if end < 0 else end
+            continue
+        raw = RAW_OPEN.match(source, i) if c in "bcr" and (i == 0 or not (source[i - 1].isalnum() or source[i - 1] == "_")) else None
+        if raw:
+            close = '"' + raw.group(1)
+            end = source.find(close, raw.end())
+            end = n if end < 0 else end + len(close)
+            out.append('""' + "\n" * source.count("\n", i, end))
+            i = end
+            continue
+        if c == '"':
+            j = i + 1
+            while j < n and source[j] != '"':
+                j += 2 if source[j] == "\\" else 1
+            out.append('""' + "\n" * source.count("\n", i, j))
+            i = j + 1
+            continue
+        if c == "'":
+            literal = CHAR.match(source, i)
+            if literal:
+                out.append("' '")
+                i = literal.end()
+                continue
+        out.append(c)
+        i += 1
+    return "".join(out).split("\n")
+
+
+def test_fns(source: str, fn: str) -> bool:
+    """Whether fn is defined as a test: in code (comments and literals
+    blanked by code_only), an item `fn <fn>` with #[test] or
+    #[tokio::test...] among the attributes above it. Attributes are read
+    whole, a multi-line one included, by balancing brackets, past blank
+    lines; an attribute and its fn may share a line. Any other code clears
+    the attributes collected so far, so a helper of the same name, or a
+    name in a string or comment, vouches for nothing."""
+    pattern = re.compile(rf"\bfn\s+{re.escape(fn)}\b")
+    attributes: list[str] = []
+    depth = 0
+    for line in code_only(source):
+        rest = line.strip()
+        while rest:
+            if depth:  # inside a multi-line attribute
+                close = 0
+                for k, ch in enumerate(rest):
+                    depth += {"[": 1, "]": -1}.get(ch, 0)
+                    if depth == 0:
+                        close = k + 1
+                        break
+                attributes[-1] += " " + (rest[:close] if close else rest)
+                rest = rest[close:].strip() if close else ""
+                continue
+            if rest.startswith("#["):
+                depth, end = 0, len(rest)
+                for k, ch in enumerate(rest[1:], 1):  # from the opening [
+                    depth += {"[": 1, "]": -1}.get(ch, 0)
+                    if depth == 0:
+                        end = k + 1
+                        break
+                attributes.append(rest[:end])
+                rest = rest[end:].strip()
+                continue
+            if pattern.search(rest) and any(TEST_ATTRIBUTE.match(a) for a in attributes):
+                return True
+            attributes = []
+            rest = ""
+    return False
+
+
 def defines(path: str, fn: str) -> bool:
-    pattern = re.compile(rf"\bfn {re.escape(fn)}\b")
     with open(path, encoding="utf-8", errors="replace") as handle:
-        return any(pattern.search(line) and not line.lstrip().startswith("//") for line in handle)
+        return test_fns(handle.read(), fn)
 
 
 def check(root: str, strict: bool) -> tuple[list[str], list[str], int]:
@@ -109,7 +210,7 @@ def check(root: str, strict: bool) -> tuple[list[str], list[str], int]:
             elif not os.path.isfile(full):
                 problems.append(f"{where}: {first}: {path} does not exist (named for {fn})")
             elif not defines(full, fn):
-                problems.append(f"{where}: {first}: {path} defines no fn {fn} outside a comment")
+                problems.append(f"{where}: {first}: {path} defines no test fn {fn} (#[test] or #[tokio::test])")
         named += tests
         if tests == 0:
             empty.append(f"{where}: {first} names no test")
