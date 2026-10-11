@@ -99,13 +99,13 @@ commit messages.
 
 ## The tooling
 
-`tools/gh/` scripts are the supported way to observe a PR. **Each carries
-its own `--help`, and that is where the flags, semantics and exit codes
-live** — read it rather than trusting a table written elsewhere, because a
-table in prose goes stale and `--help` ships with the script. Each has a
-self-test beside it (`test_*.sh`) that must stay green.
+The `fabric-pr` verbs are the supported way to observe a PR, run by name.
+**Each carries its own `--help`, and that is where the flags, semantics and
+exit codes live** — read it rather than trusting a table written
+elsewhere, because a table in prose goes stale and `--help` ships with the
+command. Their tests live in agent-fabric, with the code.
 
-| script | what it answers |
+| command | what it answers |
 |---|---|
 | `fabric-pr wait-merged <n>` | blocks until the PR reaches a terminal state; run it in the **background**, its exit IS the callback |
 | `fabric-pr review-status <n>` | was this PR *actually* reviewed, by whom, and against which head — a head is reviewed when a blind review (the class's, posted with `fabric-pr post-review`) or an independent review targets it |
