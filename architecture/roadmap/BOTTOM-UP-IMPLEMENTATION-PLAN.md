@@ -5024,7 +5024,18 @@ and a new contract this stage finds it needs lands `approved` first.
 
 Security tests are added continuously at each lower stage. This stage runs the complete release matrix together.
 
-Under `tests/security`, cover at minimum:
+### Objective
+
+Every row of `threat-model.md` and every item below is guarded by a
+named test that is green on `main`, in one matrix the release gate
+reads; what no lower layer can completely prove (§25) is built here,
+against real sockets, real peers and a second network, and what the
+records do not claim (Byzantine resistance, protection from fully
+malicious same-user code) is measured or recorded as the residual it is,
+never asserted.
+
+Under `tests/security` (the network items) and `tests/security-local`
+(the local items; the split is decided paragraph (8)), cover at minimum:
 
 ```text
 pre-Noise handshake floods
@@ -5047,11 +5058,255 @@ Carried here from Stage 15 (§18): the Windows binding behind the non-Unix stub 
 
 Carried here from Stage 16 (§19): the Claude Code Channel bridge proved on one host's private address only — a second network, and the bridge exchanging with the human client's facade as the far end, plain and `;ce=br` (both §19 proofs used plain IPC sessions with untyped payloads there — step 4's recorded deviation), are this gate's integration proofs.
 
+### Decided 2026-10-11 (architect-cto, on p2p-network-dev-01's step plan, message 01a12ab7-29c6-7374-9bf1-56d482a08dff; the rulings are DECISION 01a12abc-5a02-77aa-95cb-0e5493394302)
 
+**(0) Stage 18 runs beside Stage 17**, under ADR-0046's allowance for
+parallel workstreams once neutral contracts and persistence are stable,
+by this record and not by the status value, as §19 did for Stage 16 on
+2026-10-03: `workspace.metadata.interweave.status` stays
+`stage-17-android-human-client` until §20's closing record moves it,
+because three guards read it as a number (`check_stage_status.sh`,
+`check_domain_fns_are_called.sh`'s deadlines, `error_contract_matrix.rs`'s
+`open_stage`). The same two constraints follow: no `Proof::Stage(18)`
+deferral is written while 18 runs beside 17 (the matrix expires a
+deferral only when the status passes its stage), and the Cargo.toml
+status comment names both stages — S0 writes that comment line in the
+change that adds the members, the three prose status sites keep naming
+Stage 17 as open. Nothing of Stage 18 is Android-device evidence: the
+device rows of S12 wait on §20's instrumentation and are re-carried in
+this gate's record if §20 closes without them.
+
+**(1) The gate suite is the matrix, not a copy.** One row per
+`threat-model.md` row and per item above, each naming every test that
+guards it by `path::fn`, lower-stage and new alike. The two suites hold
+only what no lower layer can completely prove (§25); a test that
+re-proves a lower-stage test is refused in review, because a duplicate
+drifts from its original. The matrix lives in neither crate,
+`tests/SECURITY-MATRIX.md` beside `tests/README.md`, so both holders
+append rows without entering the other's crate; S0 fixes its row grammar
+(row id | threat-model row or §21 item | tests by `path::fn` | limit). The
+existence check — every named test exists, no row is empty, so a renamed
+test cannot silently empty a row — is a `tools/checks` guard and
+devex-tooling's lane; S0 sends them the REQUEST with the grammar, and the
+gate requires the guard by the close, not by S0's PR.
+
+**(2) Kademlia eclipse: bounds pass or fail, capture is measured.** With
+N trusted routers of which M are attacker-controlled on one host, the
+gate ASSERTS that the candidate/address caps and query budgets hold, the
+routing table stays within its bound, the Swarm stays responsive, no
+honest route is evicted by the attackers' observations; it RECORDS, with
+no threshold, the eclipse ratio (queries whose every disjoint path ends
+at an attacker) at that N and M and the bootstrap diversity the run
+reached, in the matrix row — no diversity floor is configured anywhere
+(`kademlia-integration.md` §13 has no such setting; the only bootstrap
+bound is a ceiling of 64 static peers), so diversity is measured, as
+`testing.md` already says. `kademlia-integration.md` §18 states it in
+words ("No claim of Byzantine resistance is made"), and ADR-0009's
+Security implications and ADR-0034 promise reduction, not elimination; a
+pass/fail on the ratio would be a claim the records do not make. M is at least the query parallelism
+(`kademlia-integration.md` §13, `parallelism` 3) so disjoint paths
+are what is measured; the row states N and M. This makes
+`kademlia-integration.md`'s "disjoint paths/diverse seeds measured" and
+"bounded resource use and documented residual risk" exact.
+
+**(3) SPIKE-005 is not run in Stage 18 and stays conditional** (the
+owner's word, 2026-10-11, relayed by fabric-coordinator in message
+01a12ad2-398b-7d93-802d-8c4aa9b22dc3). SPIKES.md marks it conditional, ADR-0037 (Security
+implications) keeps it as the explicit path for stronger same-user authentication, and
+`threat-model.md`'s non-goals exclude fully malicious same-OS-user code.
+Stage 18 proves the boundary that IS claimed (S9: the data socket never
+grants `admin.*`, `client.kind` spoofed or not; a foreign uid is closed
+before `hello` and counted) and the matrix row records the residual,
+citing `threat-model.md`'s "Local IPC attack" and "Admin confused deputy"
+rows, with the spike's trigger named: a deployment that needs same-user
+hardening — the trigger that would run the spike later.
+
+**(4) The real-OS foreign uid runs in CI under a second uid.** The hosted
+runner runs passwordless `sudo` already (`ci.yml`'s AppArmor and apt
+steps); the test spawns the connecting client under `sudo -u nobody` (or
+a user the job creates). Two layers, asserted in order: under the modes
+the daemon creates (`LOCAL-IPC.md`: the runtime directory `0700`, both
+sockets `0600`) the foreign uid is refused by the filesystem with
+`EACCES` and the daemon never sees it; then the test, as the owner,
+widens the directory and socket modes so the connection reaches the
+daemon, which closes it before `hello` and counts it — the peer-credential
+check, which the first layer alone would never exercise. The test is
+`#[ignore]`d with the helper-user variable named in its reason, as the
+`on_a_device_*` tests are, and PANICS when run without it; the CI job runs
+it with `--include-ignored` and the variable exported, so a missing
+variable fails the job rather than passing a test that did not run (the
+repository's rule: fail by name, never skip — ADR-0053 rule 9,
+`tests/support`'s e2e harness). The Stage 13 injected-uid unit test
+stays the standing proof. No second account on a development host is
+needed.
+
+**(5) Windows is carried to Stage 19 as a named limit** (the owner's
+word, 2026-10-11, the same message): no Windows runner exists, so this
+stage builds neither the named pipe nor its spoofing tests. The
+consequence, decided with it: the standard-v1 release matrix is Linux,
+macOS and Android; §22's `packaging/windows` is conditional on a Windows
+runner and the binding; BSL-1.0 stays admitted nowhere. The alternative
+— a runner now, and this stage taking the binding plus S9's Windows rows
+— was put to the owner and not taken. §22 carries the item.
+
+**(6) `HandshakeSlot::source` is wired, not removed**, at the one
+production point that holds a slot. The gate has no deadline sweep by
+design (`preauth_gate.rs`, `handle_pending_inbound_connection`): a
+handshake that never establishes ends in the transport's connection
+timeout and is released on `ListenFailure`. There, a `tracing::debug!`
+names the slot's bucket (`slot.source()`, the key the gate counted
+under, in one of its three shapes: an IPv4 address, an IPv6 /64, or
+`relay:<relay PeerId>` / `relay:<relay address or /64>` for a relayed
+inbound — never a port, and never the remote's PeerId, which does not
+exist yet) and the elapsed milliseconds from the slot's start; an
+established release says nothing. Without it an operator sees the 65th
+refused and nothing attributable. The line's rate is bounded by the
+gate's global start window (600 admitted starts per minute by default,
+`DEFAULT_MAX_GLOBAL_ATTEMPTS_PER_WINDOW`), since every line needs an
+admitted start; the pending cap (64) bounds concurrency, not the rate. S1
+asserts the line names the bucket counted, in each of the three shapes,
+and nothing more.
+
+**(7) A "second network" is two network namespaces, each behind its own
+NAT, with the relay in a third**, all inside one unprivileged user
+namespace (`unshare -rn`, the domain ADR-0053 rule 9's mDNS tests
+already run in), so the test needs no capability in the host's
+namespace. One NAT between a namespace and the host would leave the
+inner daemon able to dial the host daemon directly; two NATs make the
+property symmetric: the test asserts that a direct dial of either
+daemon's listen address from the other FAILS and that the relayed or
+hole-punched path then carries the exchange. A second host is Stage 19's
+install and recovery drill, not this gate's. Where user namespaces are
+unavailable the test FAILS, never skips (ADR-0053 rule 9); `ci.yml`
+already lifts Ubuntu's AppArmor restriction on them.
+
+**(8) Two crates, S0 adds both.** `tests/security` (network, S1–S8,
+p2p-network-dev-01) and `tests/security-local` (sockets, `transportctl`,
+stores, S9–S11, p2p-network-dev-02). S0's PR adds both workspace members
+with their complete dependency lists and both skeleton manifests, removes
+`tests/security` from `planned_members`, and adds `tests/SECURITY-MATRIX.md`
+with the S0 rows — so `Cargo.toml` and `Cargo.lock` change once, inside
+the role remit's rule that two open pull requests never change the same
+crate nor both the workspace manifests. After S0 each holder stays in its
+crate; a dependency one later needs waits for the other's open PR to
+merge, or is supplied onto it. S12 lives in the Android instrumented
+tests and S13 in the e2e crate that holds the bridge proof; the matrix
+names them, nothing moves. S10's store cases are written by whichever
+lane agrees them with rust-ui-dev (`crates/human/store` is rust-ui-dev's);
+the rows name the author's crate.
+
+### The split and the steps
+
+p2p-network-dev-01 holds S0–S8, p2p-network-dev-02 holds S9–S13 (their
+agreement, 2026-10-11); the stage's record stays architect-cto's. Every
+item has lower-stage tests today (`testing.md` §Security/load,
+§Security review additions, §Desktop and Android human-client
+architecture tests); none is in a gate suite. Each step names what is
+NEW; the matrix names the rest.
+
+- **S0 (01) — the suites and the matrix.** Both crates as members with
+  a shared harness over `tests/support`; `tests/SECURITY-MATRIX.md` with
+  one row per `threat-model.md` row and per item above, the lower-stage
+  tests named by `path::fn`; the REQUEST to devex-tooling for the
+  existence guard; the Cargo.toml status comment naming both stages
+  (decided (0)); `tests/security/README.md` rewritten from its eight-suite
+  placeholder (`check_component_status.sh` applies); `tests/README.md`'s
+  member count and "README only" sentence, and `testing.md`'s list of
+  pre-created root suites, updated for the two members.
+- **S1 (01) — pre-Noise floods on real sockets.** Raw TCP that never
+  starts multistream or Noise; the 65th pending refused; the 10 s timeout
+  frees a slot; per-source and global windows; a relayed inbound charged
+  to the relay at the wire (a unit test today). Positive control: a
+  well-formed dial is admitted after the flood drains. The decided (6)
+  diagnostic line.
+- **S2 (01) — trusted-peer direct floods** at the shipped defaults
+  (120/min, burst 32 per peer; 1200/min, burst 256 global); several
+  trusted peers from one IP; a broadcast flood beside a direct one.
+- **S3 (01) — GossipSub poisoning over the wire.** One publisher reusing
+  another's envelope id and sequence; a forged source; an invalid
+  signature arriving before the authentic copy (exists in `tests/pubsub`);
+  cross-publisher suppression is the new part.
+- **S4 (01) — EndpointId probing, squatting and metadata.** `no_route`
+  byte-identical on the wire for unknown, offline, disabled and denied;
+  an untrusted peer refused the directory at the wire; a probe sweep
+  bounded by the direct rate; hostile `AcceptedV2` and directory fields
+  refused before they surface.
+- **S5 (01) — address poisoning of a trusted PeerId** from each learning
+  source (Identify, Kademlia, mDNS, cache, static): the bad address is
+  quarantined, the good route kept and not advanced. Only the static case
+  is at the wire today.
+- **S6 (01) — Kademlia with real peers.** A PUT_VALUE/ADD_PROVIDER flood
+  stores nothing; query-flood budgets; a driver event flood leaves the
+  Swarm responsive; repeated bootstrap failure causes no restart storm;
+  the eclipse/Sybil measurement of decided (2).
+- **S7 (01) — relay smuggling, protocol class.** Unauthorized and
+  anonymous reservations refused; a non-hop protocol over a circuit; a
+  circuit to an infrastructure-only far end refused (exists in
+  `tests/connectivity`); an infrastructure peer offered only its class's
+  protocols.
+- **S8 (01) — AutoNAT dial-back SSRF at the wire, the whole matrix.**
+  Loopback (exists), private, ULA, link-local, multicast, an unrelated
+  public IP, DNS, and the source-equality rule, each refused before any
+  socket, with a probeable control.
+- **S9 (02) — admin/data socket spoofing.** `client.kind=transportctl` on
+  the data socket; the real foreign uid of decided (4); SPIKE-005 as
+  decided (3); socket file modes under a hostile umask.
+- **S10 (02, store cases with rust-ui-dev) — storage failure.**
+  `human-store` and profile state under ENOSPC or an injected fault, a
+  corrupt SQLite file, a failed migration: fails safe, degrades the human
+  endpoint, never silently drops (ADR-0044). 02 takes the profile-state
+  half and the harness.
+- **S11 (02) — identity recovery.** A tampered phrase and a wrong PeerId
+  through the `transportctl` path; the phrase absent from logs, IPC, crash
+  output and Channel events — a scan of every captured stream.
+- **S12 (02) — Android key, backup and recovery.** Keystore invalidation,
+  the secure window, backup exclusion, a half-restored install,
+  user-presence offline until authentication: the device lane, waiting on
+  §20's instrumentation, named by the matrix where it lives.
+- **S13 (02) — the Stage 16 carry.** The bridge on a second network as
+  decided (7); the bridge against the human client's facade as the far
+  end, plain and `;ce=br`.
+
+Rust-ui-dev's carries stay theirs: the rendered relayed-path indicator and
+the Android↔desktop path (§20 gate (c)).
+
+### Preconditions (each met by a named check)
+
+- **P0 — the record.** This section on `main` before S0's PR opens
+  (decided (0)); `check_stage_status.sh` green with the status still
+  `stage-17-android-human-client`.
+- **P1 — the matrix before the tests.** S0 merged, every row naming at
+  least one existing test, before any S1–S13 PR opens; the existence guard
+  (decided (1)) merged before the close.
+- **P2 — the second uid and the second network exist where the gate
+  runs.** The CI job proves the `sudo -u` switch and the unprivileged
+  user namespace once, in S0's PR, by a step that fails when either is
+  refused, and runs the ignored tests of decided (4) with
+  `--include-ignored` and their variable exported — so a test that did
+  not run is a red job, never a green row.
+- **P3 — placement.** Each new test sits at the lowest layer that
+  completely proves it (§25); a mock-only unit test replaces no required
+  real-socket, real-peer or platform test.
+- **P4 — the owner's two words.** Met 2026-10-11: decided (3) and (5)
+  carry them (message 01a12ad2-398b-7d93-802d-8c4aa9b22dc3); their matrix
+  rows record a residual and a carry, not work.
 
 ### Exit gate
 
 No standard-v1 release while any threat-model regression test is failing.
+
+**This stage does not close until:** (a) every test `tests/SECURITY-MATRIX.md`
+names exists and is green on `main`, no row is empty, and the existence
+guard is a required check; (b) every `threat-model.md` row and every item
+above has a row; (c) the eclipse row states N, M and the measured ratio;
+(d) the SPIKE-005 row records the residual, citing decided (3), and the
+Windows row the carry to Stage 19, citing decided (5); (e) every limit the steps recorded — a device row
+waiting on §20, a measurement the harness could not reach — is a `limit`
+cell naming the reason, re-carried in the closing record, and a missing
+second uid or user namespace is a red gate, not a limit; (f) the ledger
+holds no `stage-18` entry; the closing record then moves the status to
+`stage-19-…` once §20 has closed, or records Stage 18 closed beside an
+open Stage 17 if it closes first.
 
 ## 22. Stage 19 — packaging, migration, and release
 
@@ -5085,6 +5340,8 @@ Carried here from Stage 13 (§16): hot reload (SIGHUP) and which leases survive 
 Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
 Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release.
+
+Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both. macOS is IN that matrix and owes this stage two things before it ships, neither decided yet: a macOS runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a macOS runner, the v1 build claim being Linux until both exist. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows rows are conditional on the carry above.
 
 ## 23. Parallel workstreams
 
