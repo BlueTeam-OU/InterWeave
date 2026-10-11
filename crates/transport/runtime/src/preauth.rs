@@ -495,6 +495,14 @@ impl HandshakeSlot {
     pub fn source(&self) -> &str {
         &self.source
     }
+
+    /// When the gate admitted this handshake, on the clock the caller
+    /// passed to [`PreAuthGate::admit`]. Diagnostics only, as
+    /// [`Self::source`] is.
+    #[must_use]
+    pub const fn started_at_ms(&self) -> u64 {
+        self.started_at_ms
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -1074,6 +1082,10 @@ mod tests {
         let mut g = gate();
         let slot = g.admit("2001:db8:1:2::abcd", 0).expect("admitted");
         assert_eq!(slot.source(), "2001:db8:1:2::/64");
+        // And the time it was admitted at, which is the clock the
+        // caller passed and nothing the gate made up.
+        let slot = g.admit("198.51.100.9", 1_234).expect("admitted");
+        assert_eq!(slot.started_at_ms(), 1_234);
 
         // Bucketing twice changes nothing, so a caller that already
         // applied the helper is not penalised.

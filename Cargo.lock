@@ -3876,6 +3876,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "interweave-security-local-tests"
+version = "0.0.0"
+dependencies = [
+ "interweave-human-store",
+ "interweave-ipc-client",
+ "interweave-ipc-protocol",
+ "interweave-local-client-api",
+ "interweave-profile-config",
+ "interweave-profile-identity",
+ "interweave-test-support",
+ "interweave-transport-api",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "interweave-security-tests"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "interweave-discovery-api",
+ "interweave-kademlia-control-api",
+ "interweave-local-client-api",
+ "interweave-profile-config",
+ "interweave-profile-identity",
+ "interweave-test-support",
+ "interweave-transport-api",
+ "interweave-transport-composition",
+ "interweave-transport-libp2p",
+ "interweave-transport-runtime",
+ "interweave-trust-api",
+ "libp2p",
+ "rand 0.10.3",
+ "tokio",
+]
+
+[[package]]
 name = "interweave-test-support"
 version = "0.0.0"
 dependencies = [
@@ -4011,6 +4049,7 @@ dependencies = [
  "socket2",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

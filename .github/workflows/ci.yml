@@ -695,6 +695,12 @@ jobs:
       - name: Every accepted OSV finding of the Gradle graph is dated, explained and build-only
         run: python3 tools/checks/check_osv_exemptions.py
 
+      # Plan §21 ruling R1: a renamed or deleted test must not silently
+      # empty a row of tests/SECURITY-MATRIX.md. Empty rows are reported
+      # here; Stage 18's close runs the check with --strict.
+      - name: Every test the security matrix names exists
+        run: python3 tools/checks/check_security_matrix.py
+
       - name: Every guard is reachable from a workflow
         run: bash tools/checks/check_guards_are_wired.sh
 

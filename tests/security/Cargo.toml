@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# Stage 18: the adversarial/security gate over real sockets between
+# real peers. TEST-ONLY; nothing depends on this package.
+#
+# Each test here plays the attacker against a shipped default, with a
+# positive control beside it. The lower stages narrowed limits to make
+# one mechanism visible. This suite asks whether the configuration a
+# user actually runs holds.
+[package]
+name = "interweave-security-tests"
+version = "0.0.0"
+publish = false
+description = "InterWeave adversarial/security gate suite."
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+# The list is complete for S1-S8 ahead of their tests (architect-cto's
+# R8, 2026-10-11): the workspace manifest and the lockfile change once,
+# in the PR that adds both security crates.
+[dev-dependencies]
+interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
+interweave-transport-api = { path = "../../crates/api/transport-api" }
+interweave-transport-libp2p = { path = "../../crates/transport/libp2p" }
+interweave-transport-runtime = { path = "../../crates/transport/runtime" }
+interweave-trust-api = { path = "../../crates/api/trust-api" }
+# S4 configures endpoints and sends as a claimed lease.
+interweave-profile-config = { path = "../../crates/config/profile-config" }
+interweave-local-client-api = { path = "../../crates/api/local-client-api" }
+# S5 poisons a trusted PeerId through each discovery source, composed as
+# the daemon composes them.
+interweave-transport-composition = { path = "../../crates/transport/composition" }
+interweave-discovery-api = { path = "../../crates/api/discovery-api" }
+# S6 drives the Kademlia control port.
+interweave-kademlia-control-api = { path = "../../crates/api/kademlia-control-api" }
+interweave-test-support = { path = "../support", features = ["silent-peer"] }
+libp2p = { workspace = true }
+# S3, S7 and S8 play the attacker with bare libp2p swarms (a forging
+# GossipSub publisher, a relay client, an AutoNAT client), which are
+# `Stream`s, and the AutoNAT client needs an `RngCore` for its nonces.
+futures = { workspace = true }
+rand = { workspace = true }
+# `net` beyond the workspace defaults: a flood is raw TCP sockets that
+# never start a handshake, bound to chosen loopback sources. A
+# SwarmRuntime would complete the handshake and so cannot play the
+# attacker.
+tokio = { workspace = true, features = ["net", "io-util"] }
+
+# Every dependency below waits for the S1-S8 test that uses it. Take
+# each one off this list in the commit that adds its first use.
+[package.metadata.cargo-machete]
+ignored = [
+  "interweave-local-client-api",
+  "interweave-transport-composition",
+  "interweave-discovery-api",
+  "interweave-kademlia-control-api",
+  "interweave-test-support",
+  "rand",
+]

@@ -2,7 +2,7 @@
 
 > Activation and dependency order is governed by [`architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md`](../architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md) and ADR-0046.
 
-Cross-crate/system tests live here. Each suite is an independent test package from the stage that implements what it proves; sixteen are members today, and `android-e2e` and `security` hold a README only until Stage 17 and Stage 18. Keep a test at the **lowest layer that completely proves the behavior**:
+Cross-crate/system tests live here. Each suite is an independent test package from the stage that implements what it proves; Stage 18's two security suites are among them, and its exit gate is [`SECURITY-MATRIX.md`](SECURITY-MATRIX.md), which names every test that guards each threat, wherever that test lives. Keep a test at the **lowest layer that completely proves the behavior**:
 
 1. pure/local logic -> `#[cfg(test)]` beside the crate's source;
 2. public crate API behavior -> `<crate>/tests/`;

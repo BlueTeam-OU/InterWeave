@@ -100,6 +100,10 @@ hickory-resolver = { workspace = true }
 libp2p = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true }
+# The pre-auth funnel's one debug line, on a handshake that ended
+# without establishing (architect-cto's R6, 2026-10-11). Already in the
+# graph through libp2p itself, so it adds no crate and no licence term.
+tracing = { workspace = true }
 
 [dev-dependencies]
 # The mDNS bounds test's observer on the multicast group needs address
