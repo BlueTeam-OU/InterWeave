@@ -47,7 +47,7 @@ fn facade(node: FakeNode) -> FacadeSide<FakeNode, FakeNode> {
         HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
         ClientConfig {
             client_kind: "human-client".to_owned(),
-            endpoint: Some(human()),
+            endpoints: vec![human()],
             channels: vec![],
             max_payload_bytes: 49_152,
         },

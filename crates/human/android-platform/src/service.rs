@@ -481,7 +481,7 @@ fn client_config(
 ) -> ClientConfig {
     ClientConfig {
         client_kind: CLIENT_KIND.to_owned(),
-        endpoint: Some(endpoint),
+        endpoints: vec![endpoint],
         channels: config.channels.desired.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
     }

@@ -62,7 +62,7 @@ fn node() -> FakeConfig {
 fn config(endpoint: EndpointId) -> ClientConfig {
     ClientConfig {
         client_kind: "human-client".to_owned(),
-        endpoint: Some(endpoint),
+        endpoints: vec![endpoint],
         channels: vec![],
         max_payload_bytes: LIMIT,
     }

@@ -350,7 +350,7 @@ mod tests {
             store,
             ClientConfig {
                 client_kind: "human-client".to_owned(),
-                endpoint: Some(human.clone()),
+                endpoints: vec![human.clone()],
                 channels: vec![],
                 max_payload_bytes: 49_152,
             },

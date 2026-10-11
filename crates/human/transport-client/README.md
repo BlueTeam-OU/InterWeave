@@ -34,7 +34,7 @@ A row that survived a restart into a configuration that cannot send it becomes `
 **Send problems** (`SendProblem`), as `human-client-ui.md` §12 lists them. The transient ones are `NoNetworkPath`, `Busy`, `ServiceUnavailable` and `RouteUnavailable`.
 
 **Session** (`SessionState`):
-- `Ready`;
+- `Ready { endpoint }`, naming the endpoint this open leased. The configuration lists the endpoints the client may lease, in order, and each open takes the first the runtime does not refuse as disabled: whether one is enabled is the runtime's effective state, which an administrator's change kept across restarts makes differ from the profile (ADR-0028 A 2026-10-11). Only a disabled endpoint is passed over; any other refusal, one in use included, stops there. Every one disabled is `Refused(NotAvailableToThisClient)`;
 - `Reconnecting`;
 - `Refused { SessionProblem }`, left only through `reopen`, so a refusal never loops;
 - `StorageDegraded`: the lease is released and joins are suspended until a re-check finds the store healthy;
@@ -73,4 +73,4 @@ Events come out of one queue coalesced per row, session, connectivity, peer disc
 
 - **Read, keep and unkeep** stay on the store (`store_mut`).
 - **Hiding a late duplicate is ui-model's job.** A duplicate that arrives after the first copy was read, and outside the transport's dedup window, is returned again; hiding it is ui-model's, within a session. After a restart it shows again as unread. Closing that means retaining bounded, content-free read (origin, application id) pairs, which `RETENTION.md` §5 allows. Plan §18 carries it to Stage 15.
-- **A retry is deduplicated only inside the receiver's window.** A retry is deduplicated by the receiver only while the re-opened session holds the same endpoint lease, and only inside ADR-0019's window.
+- **A retry is deduplicated only inside the receiver's window.** A retry is deduplicated by the receiver only while the re-opened session holds the same endpoint lease, and only inside ADR-0019's window. A re-open that passed a newly disabled endpoint for the next one does not hold the same lease.
