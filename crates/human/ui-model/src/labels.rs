@@ -723,6 +723,19 @@ pub const fn session_problem_class(problem: SessionProblem) -> ErrorClass {
 mod tests {
     use super::*;
 
+    /// The network-off notice tells the person which button to tap by its
+    /// label: the two texts are one wording, so an edit to the button's
+    /// label that leaves the notice behind fails here.
+    #[test]
+    fn the_network_off_notice_names_the_button_as_it_reads() {
+        let button = placeholder_en::text(UiText::AllowNetwork);
+        assert!(
+            placeholder_en::text(UiText::NetworkOffBody).contains(button),
+            "{:?} does not name {button:?}",
+            placeholder_en::text(UiText::NetworkOffBody)
+        );
+    }
+
     #[test]
     fn every_label_appears_once_in_all() {
         let mut keys: Vec<&str> = LabelKey::ALL.iter().map(|l| l.key()).collect();
