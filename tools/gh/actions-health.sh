@@ -14,10 +14,11 @@
 # documented invocation (tools/gh/actions-health.sh, --quiet, --json,
 # --included N, --org NAME) keeps working.
 #
-# InterWeave's allowance setting is INTERWEAVE_ACTIONS_INCLUDED_MINUTES.
-# It is passed on as the fabric's AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES
-# (an explicit value of that wins), and the fabric's lines name
-# INTERWEAVE_ACTIONS_INCLUDED_MINUTES as the setting to change. This
+# The allowance setting is the fabric's own name,
+# AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES, which fabric-pr wait-merged reads
+# too; nothing here maps or renames it (InterWeave's former
+# INTERWEAVE_ACTIONS_INCLUDED_MINUTES is retired with the forwarders). It
+# stays a script because fabric-pr has no verb for it. This
 # repository is public: its own runs on standard runners bill nothing,
 # which the fabric's check reports as such.
 #
@@ -37,10 +38,6 @@ target="$fabric/tools/fabric/github/actions_health.py"
     echo "actions-health: agent-fabric not found at $fabric (expected beside this working copy, as projects/agent-fabric, carrying tools/fabric/github/actions_health.py); set AGENT_FABRIC_ROOT or update it. See CLAUDE.md §9, agent-fabric beside the checkout." >&2
     exit 2
 }
-if [[ -z "${AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES:-}" && -n "${INTERWEAVE_ACTIONS_INCLUDED_MINUTES:-}" ]]; then
-    export AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES="$INTERWEAVE_ACTIONS_INCLUDED_MINUTES"
-fi
-export AGENT_FABRIC_ACTIONS_INCLUDED_SETTING=INTERWEAVE_ACTIONS_INCLUDED_MINUTES
 py="$(interweave_fabric_python actions-health)" || exit 2
 rc=0; "$py" "$target" "$@" || rc=$?
 [[ $rc -eq 127 ]] && exit 2
