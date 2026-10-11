@@ -72,7 +72,7 @@ const HOSTILE: usize = 3;
 /// Strangers each hostile router claims to know: real nodes, listening
 /// and serving Kademlia, that the subject does not trust.
 const STRANGERS: usize = 4;
-/// Explorations the eclipse ratio is measured over.
+/// Explorations the walk counts are taken over.
 const EXPLORATIONS: u64 = 12;
 /// Below the six routers that answer, so the cap is what limits a
 /// result.
@@ -391,7 +391,7 @@ async fn hostile_routers_seat_no_stranger_and_their_poison_costs_its_address() {
     }
 
     // THE WALKS, aimed at the target's key: every answer the hostiles
-    // give names it at the impostor, beside forty strangers each.
+    // give names it at the impostor, beside its strangers.
     let point = key_of(&target_peer);
     let (mut answered, mut eclipsed, mut failed, mut at_cap) = (0_u64, 0_u64, 0_u64, 0_u64);
     for n in 0..EXPLORATIONS {
