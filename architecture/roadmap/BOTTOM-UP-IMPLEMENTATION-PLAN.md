@@ -5299,8 +5299,8 @@ No standard-v1 release while any threat-model regression test is failing.
 names exists and is green on `main`, no row is empty, and the existence
 guard is a required check; (b) every `threat-model.md` row and every item
 above has a row; (c) the eclipse row states N, M and the measured ratio;
-(d) the SPIKE-005 row records the residual and the Windows row the carry
-to Stage 19, each citing decided (3) and (5); (e) every limit the steps recorded — a device row
+(d) the SPIKE-005 row records the residual, citing decided (3), and the
+Windows row the carry to Stage 19, citing decided (5); (e) every limit the steps recorded — a device row
 waiting on §20, a measurement the harness could not reach — is a `limit`
 cell naming the reason, re-carried in the closing record, and a missing
 second uid or user namespace is a red gate, not a limit; (f) the ledger
@@ -5339,9 +5339,9 @@ Carried here from Stage 13 (§16): hot reload (SIGHUP) and which leases survive 
 
 Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
-Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16, §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both.
-
 Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release.
+
+Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both. macOS is IN that matrix and owes this stage two things before it ships, neither decided yet: a macOS runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a macOS runner, the v1 build claim being Linux until both exist. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows rows are conditional on the carry above.
 
 ## 23. Parallel workstreams
 
