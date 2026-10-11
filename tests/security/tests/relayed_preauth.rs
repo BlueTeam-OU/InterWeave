@@ -177,18 +177,22 @@ async fn fresh_identities_through_one_relay_share_its_bucket_and_a_direct_peer_f
     )
     .parse()
     .expect("a circuit address");
+    // What the target reported while waiting goes into the failure, so
+    // a reservation that never comes says why: refused, retried, or
+    // never asked for.
     let deadline = tokio::time::Instant::now() + PATIENCE;
+    let mut waited = Vec::new();
     loop {
-        match tokio::time::timeout_at(deadline, target.next_event())
-            .await
-            .expect("the reservation is accepted")
-        {
+        let Ok(event) = tokio::time::timeout_at(deadline, target.next_event()).await else {
+            panic!("no reservation accepted within {PATIENCE:?}; the target saw {waited:#?}")
+        };
+        match event {
             Some(SwarmEvent::RelayReservationChanged {
                 outcome: RelayReservationOutcome::Accepted,
                 ..
             }) => break,
-            Some(_) => {}
-            None => panic!("the target stopped"),
+            Some(other) => waited.push(other),
+            None => panic!("the target stopped; it saw {waited:#?}"),
         }
     }
 
