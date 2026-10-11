@@ -80,6 +80,15 @@ mod dead_inner {
     fn inner_cfg_guard() {}
 }
 
+struct Wire {
+    #[cfg(false)]
+    gone: u8,
+    kept: u8,
+}
+
+#[test]
+fn after_dead_field_guard() {}
+
 #[cfg(test)]
 mod live {
     #[test]
@@ -143,13 +152,14 @@ K='`tests/security/tests/flood.rs::tokio_guard`'
 O='`tests/security/tests/flood.rs::one_line_guard`'
 X='`tests/security/tests/flood.rs::escape_guard`'
 A='`tests/security/tests/flood.rs::after_dead_mod_guard`'
+F='`tests/security/tests/flood.rs::after_dead_field_guard`'
 
 echo "check_security_matrix — every named test exists"
 
-good="$(root good "| S21-01 | floods | S1 | $T; $U; $K; $O; $X; $A | — |" "| TM-01 | probing | S2 | $T; owed: S3 lands the rest | — |" "| C-01 | debug line | S4 | owed (S21-05's tests) | — |" "| C-02 | spoofing | S4 | owed | — |" "| C-03 | replay | S4 | — | — |" "C-04 | no leading pipe | S4 | $U | — |")"
+good="$(root good "| S21-01 | floods | S1 | $T; $U; $K; $O; $X; $A; $F | — |" "| TM-01 | probing | S2 | $T; owed: S3 lands the rest | — |" "| C-01 | debug line | S4 | owed (S21-05's tests) | — |" "| C-02 | spoofing | S4 | owed | — |" "| C-03 | replay | S4 | — | — |" "C-04 | no leading pipe | S4 | $U | — |")"
 out="$(run "$good")"; code="$(run_code "$good")"
 [[ "$code" == 0 ]] && ok "a matrix whose tests exist passes" || bad "control: expected 0, got $code: $out"
-[[ "$out" == *"8 named test(s) exist"* ]] && ok "  counting the named tests, a row without its leading pipe included" || bad "count: $out"
+[[ "$out" == *"9 named test(s) exist"* ]] && ok "  counting the named tests, a row without its leading pipe included" || bad "count: $out"
 [[ "$out" == *"C-01 names no test"* && "$out" == *"C-02 names no test"* && "$out" == *"C-03 names no test"* ]] \
     && ok "  and reporting each empty row (owed (...), bare owed, —) without failing" || bad "empty report: $out"
 [[ "$(run_code "$good" --strict)" == 1 ]] && ok "--strict fails the same empty row" || bad "--strict did not fail"

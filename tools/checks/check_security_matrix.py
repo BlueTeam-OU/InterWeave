@@ -29,8 +29,11 @@
 # an enclosing inline item (a `mod t { ... }`, its brace on any line), or
 # by the inner #![cfg(...)] of its mod or file, does not vouch; an
 # #[ignore]d one does (CI runs ignored tests). Limits: any other cfg that
-# can never be true is not evaluated, and an out-of-line `mod t;` is not
-# followed, so a test there still vouches.
+# can never be true is not evaluated; an out-of-line `mod t;` is not
+# followed; an inner #![cfg(...)] is read only on a line of its own and
+# whole (not after `mod t {` on the same line, nor split across lines);
+# and a `;` inside a compiled-out item's header (`fn f(x: [u8;`) ends it
+# early. A test in any of those still vouches.
 # A row with no `path::fn` at all is empty: reported always, and a
 # failure only under --strict, which Stage 18's close runs.
 #
@@ -64,6 +67,7 @@ TEST_ATTRIBUTE = re.compile(r"#\[\s*(test\s*\]|tokio::test\b)")
 # true needs a cfg evaluator, which this is not (the help block above names the limit).
 # #[ignore] still vouches: ignored tests run in CI with --include-ignored.
 COMPILED_OUT = re.compile(r"#\[\s*cfg\s*\(\s*(?:any\s*\(\s*\)|false)\s*\)\s*\]")
+HOLDS_TESTS = re.compile(r"(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+|async\s+|const\s+|extern\s+\S*\s*)*(?:mod|fn|impl|trait)\b")
 INNER_COMPILED_OUT = re.compile(r"#!\[\s*cfg\s*\(\s*(?:any\s*\(\s*\)|false)\s*\)\s*\]")
 CHAR = re.compile(r"'(?:\\.|[^\\'\n])'")
 RAW_OPEN = re.compile(r'(?:b|c)?r(#*)"')
@@ -168,17 +172,20 @@ def test_fns(source: str, fn: str) -> bool:
                 attributes.append(rest[:end])
                 rest = rest[end:].strip()
                 continue
-            compiled_out = pending or any(COMPILED_OUT.match(a) for a in attributes)
+            own = any(COMPILED_OUT.match(a) for a in attributes)
+            compiled_out = pending or own
             if (dead_at is None and not compiled_out and pattern.search(rest)
                     and any(TEST_ATTRIBUTE.match(a) for a in attributes)):
                 return True
             # A compiled-out item's body may open on a later line (a where clause, a brace on its own line):
-            # it stays pending until its first `{`, or a `;` that ends a bodiless or out-of-line item.
-            pending = False
+            # an item that can hold a test (mod, fn, impl, trait) stays pending until its first `{`, or a `;`
+            # that ends it. Only the item's own attributes start it, so a compiled-out field or variant (ending
+            # in `,`) never reaches the next live item.
+            was_pending, pending = pending, False
             if compiled_out and dead_at is None:
                 if "{" in rest:
                     dead_at = braces
-                elif ";" not in rest:
+                elif ";" not in rest and (was_pending or (own and HOLDS_TESTS.match(rest))):
                     pending = True
             braces += rest.count("{") - rest.count("}")
             if dead_at is not None and braces <= dead_at:
