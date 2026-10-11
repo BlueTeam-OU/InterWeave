@@ -92,14 +92,15 @@ class MainActivity : NativeActivity() {
         }
     }
 
+    /** Whether the platform's prompt for network access was shown before. */
+    private fun askedNetwork(): Boolean =
+        getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean(ASKED_NETWORK, false)
+
     /**
      * The platform's prompt while it still offers one: before the first
      * ask, or while it says a rationale may be shown. After a refusal it
      * stops offering it, and only the settings page can grant.
      */
-    private fun askedNetwork(): Boolean =
-        getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean(ASKED_NETWORK, false)
-
     private fun ask() {
         if (!askedNetwork() || shouldShowRequestPermissionRationale(Manifest.permission.INTERNET)) {
             getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
