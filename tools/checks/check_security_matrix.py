@@ -67,7 +67,10 @@ TEST_ATTRIBUTE = re.compile(r"#\[\s*(test\s*\]|tokio::test\b)")
 # true needs a cfg evaluator, which this is not (the help block above names the limit).
 # #[ignore] still vouches: ignored tests run in CI with --include-ignored.
 COMPILED_OUT = re.compile(r"#\[\s*cfg\s*\(\s*(?:any\s*\(\s*\)|false)\s*\)\s*\]")
-HOLDS_TESTS = re.compile(r"(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+|async\s+|const\s+|extern\s+\S*\s*)*(?:mod|fn|impl|trait)\b")
+# Each qualifier is a distinct word followed by required space, so the repetition cannot split one input two
+# ways (an `extern\s+\S*\s*` alternative could, and backtracked exponentially: CodeQL on #268). An `extern "C" fn`
+# is left out: it holds no test.
+HOLDS_TESTS = re.compile(r"(?:pub(?:\([^)]*\))?\s+)?(?:(?:unsafe|async|const)\s+)*(?:mod|fn|impl|trait)\b")
 INNER_COMPILED_OUT = re.compile(r"#!\[\s*cfg\s*\(\s*(?:any\s*\(\s*\)|false)\s*\)\s*\]")
 CHAR = re.compile(r"'(?:\\.|[^\\'\n])'")
 RAW_OPEN = re.compile(r'(?:b|c)?r(#*)"')
@@ -267,7 +270,11 @@ def check(root: str, strict: bool) -> tuple[list[str], list[str], int]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Does every test tests/SECURITY-MATRIX.md names still exist?")
+    # --help prints the rules block at the top of this file, where what vouches and the limits are written down.
+    with open(__file__, encoding="utf-8") as handle:
+        block = handle.read().split("# >>> help\n", 1)[1].split("# <<< help", 1)[0]
+    parser = argparse.ArgumentParser(description="\n".join(line[2:] for line in block.splitlines()),
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", default=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     parser.add_argument("--strict", action="store_true", help="fail on a row that names no test (Stage 18's close)")
     args = parser.parse_args(argv)
