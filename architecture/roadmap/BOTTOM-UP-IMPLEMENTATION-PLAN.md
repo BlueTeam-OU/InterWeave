@@ -5094,20 +5094,24 @@ gate requires the guard by the close, not by S0's PR.
 N trusted routers of which M are attacker-controlled on one host, the
 gate ASSERTS that the candidate/address caps and query budgets hold, the
 routing table stays within its bound, the Swarm stays responsive, no
-honest route is evicted by the attackers' observations, and bootstrap
-diversity stays at its configured floor; it RECORDS, with no threshold,
-the eclipse ratio (queries whose every disjoint path ends at an attacker)
-at that N and M, in the matrix row. ADR-0009 (Consequences) and ADR-0034
-claim no Byzantine resistance; a pass/fail on the ratio would be a claim
-the records do not make. M is at least the query parallelism
+honest route is evicted by the attackers' observations; it RECORDS, with
+no threshold, the eclipse ratio (queries whose every disjoint path ends
+at an attacker) at that N and M and the bootstrap diversity the run
+reached, in the matrix row — no diversity floor is configured anywhere
+(`kademlia-integration.md` §13 has no such setting; the only bootstrap
+bound is a ceiling of 64 static peers), so diversity is measured, as
+`testing.md` already says. `kademlia-integration.md` §18 states it in
+words ("No claim of Byzantine resistance is made"), and ADR-0009's
+Security implications and ADR-0034 promise reduction, not elimination; a
+pass/fail on the ratio would be a claim the records do not make. M is at least the query parallelism
 (`kademlia-integration.md` §13, `parallelism` 3) so disjoint paths
 are what is measured; the row states N and M. This makes
 `kademlia-integration.md`'s "disjoint paths/diverse seeds measured" and
 "bounded resource use and documented residual risk" exact.
 
 **(3) SPIKE-005 — awaiting the owner; recommended: not run, stays
-conditional.** SPIKES.md marks it conditional, ADR-0037 (Consequences)
-keeps it as the explicit path for stronger same-user authentication, and
+conditional.** SPIKES.md marks it conditional, ADR-0037 (Security
+implications) keeps it as the explicit path for stronger same-user authentication, and
 `threat-model.md`'s non-goals exclude fully malicious same-OS-user code.
 Stage 18 proves the boundary that IS claimed (S9: the data socket never
 grants `admin.*`, `client.kind` spoofed or not; a foreign uid is closed
@@ -5120,13 +5124,21 @@ word"; S9 is built as if ruled so.
 **(4) The real-OS foreign uid runs in CI under a second uid.** The hosted
 runner runs passwordless `sudo` already (`ci.yml`'s AppArmor and apt
 steps); the test spawns the connecting client under `sudo -u nobody` (or
-a user the job creates), connects to both sockets and asserts the close
-before `hello` and the counter. Locally, with no environment variable
-naming the helper user, the test prints the reason and returns, as the
-`on_a_device_*` tests do without a device. The Stage 13 injected-uid unit
-test stays the standing proof; a recorded limit only if the runner
-refuses the uid switch, and then the row says so. No second account on a
-development host is needed.
+a user the job creates). Two layers, asserted in order: under the modes
+the daemon creates (`LOCAL-IPC.md`: the runtime directory `0700`, both
+sockets `0600`) the foreign uid is refused by the filesystem with
+`EACCES` and the daemon never sees it; then the test, as the owner,
+widens the directory and socket modes so the connection reaches the
+daemon, which closes it before `hello` and counts it — the peer-credential
+check, which the first layer alone would never exercise. The test is
+`#[ignore]`d with the helper-user variable named in its reason, as the
+`on_a_device_*` tests are, and PANICS when run without it; the CI job runs
+it with `--include-ignored` and the variable exported, so a missing
+variable fails the job rather than passing a test that did not run (the
+repository's rule: fail by name, never skip — ADR-0053 rule 9,
+`tests/support`'s e2e harness). The Stage 13 injected-uid unit test
+stays the standing proof. No second account on a development host is
+needed.
 
 **(5) Windows — awaiting the owner; recommended: carried to Stage 19 as
 a named limit with its consequence stated.** No Windows runner exists, so
@@ -5142,23 +5154,31 @@ production point that holds a slot. The gate has no deadline sweep by
 design (`preauth_gate.rs`, `handle_pending_inbound_connection`): a
 handshake that never establishes ends in the transport's connection
 timeout and is released on `ListenFailure`. There, a `tracing::debug!`
-names the slot's bucket (`slot.source()`: the /64 or address the gate
-counted, never the raw remote address; there is no PeerId yet) and the
-elapsed milliseconds from the slot's start; an established release says
-nothing. Without it an operator sees the 65th refused and nothing
-attributable; the line is bounded by the pending cap (64), so a flood
-cannot write faster than the cap. S1 asserts the line names the bucket
-counted and nothing more.
+names the slot's bucket (`slot.source()`, the key the gate counted
+under, in one of its three shapes: an IPv4 address, an IPv6 /64, or
+`relay:<relay PeerId>` / `relay:<relay address or /64>` for a relayed
+inbound — never a port, and never the remote's PeerId, which does not
+exist yet) and the elapsed milliseconds from the slot's start; an
+established release says nothing. Without it an operator sees the 65th
+refused and nothing attributable. The line's rate is bounded by the
+gate's global start window (600 admitted starts per minute by default,
+`DEFAULT_MAX_GLOBAL_ATTEMPTS_PER_WINDOW`), since every line needs an
+admitted start; the pending cap (64) bounds concurrency, not the rate. S1
+asserts the line names the bucket counted, in each of the three shapes,
+and nothing more.
 
-**(7) A "second network" is a network namespace with its own veth pair
-and NAT between it and the host namespace**, on one host: two L3
-networks, neither daemon sees the other's address directly, so the path
-exercised is the real relay/hole-punch one; the test asserts the two
-daemons' listen addresses share no interface. A second host is Stage
-19's install and recovery drill, not this gate's. Where the runner
-refuses an unprivileged namespace the test prints the reason and the row
-says so (`ci.yml` already relaxes AppArmor for user namespaces, so CI is
-expected to run it).
+**(7) A "second network" is two network namespaces, each behind its own
+NAT, with the relay in a third**, all inside one unprivileged user
+namespace (`unshare -rn`, the domain ADR-0053 rule 9's mDNS tests
+already run in), so the test needs no capability in the host's
+namespace. One NAT between a namespace and the host would leave the
+inner daemon able to dial the host daemon directly; two NATs make the
+property symmetric: the test asserts that a direct dial of either
+daemon's listen address from the other FAILS and that the relayed or
+hole-punched path then carries the exchange. A second host is Stage 19's
+install and recovery drill, not this gate's. Where user namespaces are
+unavailable the test FAILS, never skips (ADR-0053 rule 9); `ci.yml`
+already lifts Ubuntu's AppArmor restriction on them.
 
 **(8) Two crates, S0 adds both.** `tests/security` (network, S1–S8,
 p2p-network-dev-01) and `tests/security-local` (sockets, `transportctl`,
@@ -5190,7 +5210,9 @@ NEW; the matrix names the rest.
   tests named by `path::fn`; the REQUEST to devex-tooling for the
   existence guard; the Cargo.toml status comment naming both stages
   (decided (0)); `tests/security/README.md` rewritten from its eight-suite
-  placeholder (`check_component_status.sh` applies).
+  placeholder (`check_component_status.sh` applies); `tests/README.md`'s
+  member count and "README only" sentence, and `testing.md`'s list of
+  pre-created root suites, updated for the two members.
 - **S1 (01) — pre-Noise floods on real sockets.** Raw TCP that never
   starts multistream or Noise; the 65th pending refused; the 10 s timeout
   frees a slot; per-source and global windows; a relayed inbound charged
@@ -5258,9 +5280,10 @@ the Android↔desktop path (§20 gate (c)).
   (decided (1)) merged before the close.
 - **P2 — the second uid and the second network exist where the gate
   runs.** The CI job proves the `sudo -u` switch and the unprivileged
-  namespace once, in S0's PR, by a step that fails loudly when either is
-  refused — so decided (4) and (7) are not discovered to be recorded
-  limits at the close.
+  user namespace once, in S0's PR, by a step that fails when either is
+  refused, and runs the ignored tests of decided (4) with
+  `--include-ignored` and their variable exported — so a test that did
+  not run is a red job, never a green row.
 - **P3 — placement.** Each new test sits at the lowest layer that
   completely proves it (§25); a mock-only unit test replaces no required
   real-socket, real-peer or platform test.
@@ -5277,9 +5300,10 @@ names exists and is green on `main`, no row is empty, and the existence
 guard is a required check; (b) every `threat-model.md` row and every item
 above has a row; (c) the eclipse row states N, M and the measured ratio;
 (d) the SPIKE-005 and Windows rows carry the owner's word, as a residual
-or as work done; (e) every limit the steps recorded — a refused uid
-switch, a refused namespace, a device row waiting on §20 — is a `limit`
-cell naming the reason, re-carried in the closing record; (f) the ledger
+or as work done; (e) every limit the steps recorded — a device row
+waiting on §20, a measurement the harness could not reach — is a `limit`
+cell naming the reason, re-carried in the closing record, and a missing
+second uid or user namespace is a red gate, not a limit; (f) the ledger
 holds no `stage-18` entry; the closing record then moves the status to
 `stage-19-…` once §20 has closed, or records Stage 18 closed beside an
 open Stage 17 if it closes first.
