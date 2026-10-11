@@ -182,11 +182,11 @@ fn every_endpoint_open_to_this_client_is_offered_whatever_the_file_says_of_enabl
         )
     };
     home.write_entries(
-        "human-b",
+        "human-a",
         &[
-            entry("human-a", false, "human-client"),
+            entry("human-z", false, "human-client"),
             entry("agent", true, "claude-channel"),
-            entry("human-b", true, "human-client"),
+            entry("human-a", true, "human-client"),
         ]
         .concat(),
     );
@@ -197,7 +197,8 @@ fn every_endpoint_open_to_this_client_is_offered_whatever_the_file_says_of_enabl
     let profile =
         interweave_human_desktop::startup::resolve(&launch, &home.roots()).expect("resolves");
     let ids: Vec<&str> = profile.endpoints.iter().map(EndpointId::as_str).collect();
-    assert_eq!(ids, ["human-a", "human-b"]);
+    // Reverse alphabetical in the file, so a sort would show.
+    assert_eq!(ids, ["human-z", "human-a"]);
 }
 
 #[test]

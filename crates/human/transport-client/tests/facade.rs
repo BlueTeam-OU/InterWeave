@@ -596,7 +596,8 @@ async fn an_endpoint_in_use_is_refused_and_not_retried_until_the_person_asks() {
 }
 
 fn spare() -> EndpointId {
-    EndpointId::parse("human-spare").expect("valid")
+    // Sorts before `human`, so a preference order lost to sorting shows.
+    EndpointId::parse("backup").expect("valid")
 }
 
 /// A node with a second endpoint this client may lease, and a client
