@@ -39,4 +39,6 @@ teal `#2ec4b6`), its rounded tile and its cased, over-and-under strands.
 The direction was chosen by the owner the same day.
 
 **Licence.** Apache-2.0, first-party, like the rest of the repository;
-no attribution is owed.
+no attribution is owed. This covers every file in the table, the binary
+PNG included: an image cannot carry an SPDX header, so this register is
+where its licence is stated.
