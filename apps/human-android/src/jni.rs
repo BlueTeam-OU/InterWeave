@@ -96,7 +96,7 @@ fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, ji
 }
 
 /// `Native.startWithoutNetwork`'s answer when the posture runs: neither
-/// mode, since no runtime runs to have one (Native.kt's NETWORK_DENIED).
+/// mode, since no runtime runs to have one (Native.kt's `NETWORK_DENIED`).
 const NETWORK_DENIED: jint = 2;
 
 /// Write the stand-in profile where the debug build needs one.
