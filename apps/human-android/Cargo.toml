@@ -44,6 +44,7 @@ ndk-sys = { workspace = true }
 [features]
 # The first-run profile of crates/human/android-platform's stand_in, and
 # a first run's identity created and Keystore-provisioned without asking
-# (its identity module), which the Gradle build turns on for the debug
-# APK: without it a profile with no identity starts nothing.
+# (jni.rs passes FirstRun::Create under it), which the Gradle build turns
+# on for the debug APK: without it a profile with no identity starts
+# nothing.
 dev-stand-ins = ["interweave-human-android-platform/dev-stand-ins"]

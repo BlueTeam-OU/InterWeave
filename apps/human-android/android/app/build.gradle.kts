@@ -70,8 +70,8 @@ listOf("Debug", "Release").forEach { variant ->
         }
         // The release build is optimised; the debug build carries the
         // stand-in profile (crates/human/android-platform's stand_in) and
-        // creates a first run's identity without asking (its identity
-        // module), until profile-config's provisioning and step 7's
+        // creates a first run's identity without asking (jni.rs's
+        // FirstRun::Create), until profile-config's provisioning and step 7's
         // onboarding land, and only it does.
         val profile =
             if (variant == "Release") listOf("--release") else listOf("--features", "dev-stand-ins")

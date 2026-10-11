@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use interweave_human_android_platform::AvailabilityMode;
 use interweave_human_android_platform::{
-    EmbeddedRefused, Ended, IdentityRefused, ServiceHost, ServiceLaunch, StartRefused,
+    EmbeddedRefused, Ended, FirstRun, IdentityRefused, ServiceHost, ServiceLaunch, StartRefused,
     start_identity,
 };
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
@@ -86,7 +86,20 @@ fn identity(env: &mut Env<'_>, app_data_dir: &str) -> Result<ProfileIdentity, ji
         log(&format!("the Keystore cipher could not be reached: {e}"));
         refused::IDENTITY_UNAVAILABLE
     })?;
-    start_identity(std::path::Path::new(app_data_dir), PROFILE, &cipher).map_err(|why| {
+    // A first run creates its identity in the debug build alone, until
+    // step 7's onboarding lets the person choose.
+    let first_run = if cfg!(feature = "dev-stand-ins") {
+        FirstRun::Create
+    } else {
+        FirstRun::Refuse
+    };
+    start_identity(
+        std::path::Path::new(app_data_dir),
+        PROFILE,
+        &cipher,
+        first_run,
+    )
+    .map_err(|why| {
         log(&format!("no identity: {why:?}"));
         match why {
             IdentityRefused::Unprovisioned => refused::NO_IDENTITY,

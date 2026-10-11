@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt as _;
 use std::sync::Mutex;
 
-use interweave_human_android_platform::{IdentityRefused, stand_in, start_identity};
+use interweave_human_android_platform::{FirstRun, IdentityRefused, stand_in, start_identity};
 use interweave_profile_config::{ProfilePaths, TrustBoundary};
 use interweave_transport_embedded::custody::{
     self, CipherFailure, IV_LEN, KeyRef, RecoveryCause, SEALED_LEN, SEED_LEN, Sealed, Seed,
@@ -36,6 +36,7 @@ struct FakeKeystore {
     keys: Mutex<HashMap<String, [u8; 32]>>,
     generated: Mutex<Vec<String>>,
     fail: Mutex<Option<CipherFailure>>,
+    retire_fails: Mutex<bool>,
 }
 
 fn tag(key: &[u8; 32], aad: &[u8], ct: &[u8]) -> [u8; 16] {
@@ -70,6 +71,9 @@ impl SeedCipher for FakeKeystore {
     }
 
     fn retire(&self, key: &KeyRef) -> Result<(), CipherFailure> {
+        if *self.retire_fails.lock().unwrap() {
+            return Err(CipherFailure::Unavailable("busy".to_owned()));
+        }
         self.keys.lock().unwrap().remove(&key.alias());
         Ok(())
     }
@@ -129,7 +133,8 @@ fn record(app: &App) -> Vec<u8> {
 fn the_first_run_provisions_and_every_later_start_unlocks_the_same_peer() {
     let app = app();
     let keystore = FakeKeystore::default();
-    let first = start_identity(&app.dir, PROFILE, &keystore).expect("the first run");
+    let first =
+        start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("the first run");
     let peer = first.transport_identity().expect("a PeerId");
     assert_eq!(
         *keystore.generated.lock().unwrap(),
@@ -138,7 +143,8 @@ fn the_first_run_provisions_and_every_later_start_unlocks_the_same_peer() {
     );
     let stored = record(&app);
     for _ in 0..2 {
-        let again = start_identity(&app.dir, PROFILE, &keystore).expect("a later start");
+        let again =
+            start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("a later start");
         assert_eq!(again.transport_identity().expect("a PeerId"), peer);
     }
     assert_eq!(
@@ -153,7 +159,7 @@ fn the_first_run_provisions_and_every_later_start_unlocks_the_same_peer() {
 fn a_record_that_cannot_give_its_identity_back_is_refused_left_as_it_was_and_never_replaced() {
     let app = app();
     let keystore = FakeKeystore::default();
-    let peer = start_identity(&app.dir, PROFILE, &keystore)
+    let peer = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create)
         .expect("provisioned")
         .transport_identity()
         .expect("a PeerId");
@@ -182,7 +188,7 @@ fn a_record_that_cannot_give_its_identity_back_is_refused_left_as_it_was_and_nev
     ] {
         *keystore.fail.lock().unwrap() = Some(failure.clone());
         assert_eq!(
-            start_identity(&app.dir, PROFILE, &keystore).map(|_| ()),
+            start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).map(|_| ()),
             Err(refused),
             "{failure:?}"
         );
@@ -197,23 +203,60 @@ fn a_record_that_cannot_give_its_identity_back_is_refused_left_as_it_was_and_nev
             "{failure:?} seals nothing"
         );
     }
-    let again = start_identity(&app.dir, PROFILE, &keystore).expect("the key answers again");
+    let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create)
+        .expect("the key answers again");
     assert_eq!(again.transport_identity().expect("a PeerId"), peer);
 }
 
 #[test]
 fn a_record_a_new_key_does_not_open_is_recovery_never_a_second_identity() {
     let app = app();
-    start_identity(&app.dir, PROFILE, &FakeKeystore::default()).expect("provisioned");
+    start_identity(
+        &app.dir,
+        PROFILE,
+        &FakeKeystore::default(),
+        FirstRun::Create,
+    )
+    .expect("provisioned");
     // A keystore that holds none of this record's keys: the app reinstalled
     // over its old data, or the key deleted under it.
     let empty = FakeKeystore::default();
     assert_eq!(
-        start_identity(&app.dir, PROFILE, &empty).map(|_| ()),
+        start_identity(&app.dir, PROFILE, &empty, FirstRun::Create).map(|_| ()),
         Err(IdentityRefused::RecoveryRequired(RecoveryCause::KeyMissing))
     );
     assert!(
         empty.generated.lock().unwrap().is_empty(),
         "nothing generated"
     );
+}
+
+#[test]
+fn a_build_that_refuses_first_runs_answers_unprovisioned_and_writes_nothing() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    assert_eq!(
+        start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).map(|_| ()),
+        Err(IdentityRefused::Unprovisioned)
+    );
+    assert!(
+        keystore.generated.lock().unwrap().is_empty(),
+        "nothing generated"
+    );
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("p");
+    assert!(!custody::custody_file(&paths).exists(), "no record written");
+}
+
+#[test]
+fn a_first_run_whose_old_key_could_not_be_retired_is_provisioned_and_starts() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    *keystore.retire_fails.lock().unwrap() = true;
+    let first = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create)
+        .expect("the record is written, so the first run starts");
+    let peer = first.transport_identity().expect("a PeerId");
+    *keystore.retire_fails.lock().unwrap() = false;
+    let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("unlocks");
+    assert_eq!(again.transport_identity().expect("a PeerId"), peer);
 }

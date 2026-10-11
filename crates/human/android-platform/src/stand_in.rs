@@ -7,13 +7,10 @@
 //! - the first-run profile: profile-config's own provisioning
 //!   (`provision_embedded`, p2p-network-dev-01's, agreed in relay
 //!   01a12499-ee78) replaces [`provision`];
-//! - the first-run identity: step 7's onboarding, where the person
-//!   creates or restores it, replaces the creation the same feature turns
-//!   on in [`crate::identity`]. The identity itself is no stand-in: it is
-//!   Keystore-wrapped through the embedded custody path (step 6).
 //!
-//! What a run on them proves stops short of both: a stand-in profile
-//! trusts nobody, and its identity is made without the person's choice.
+//! A stand-in profile trusts nobody. The identity is no stand-in: it is
+//! Keystore-wrapped through the embedded custody path (step 6), and what
+//! a first run does is the caller's [`crate::FirstRun`].
 
 use std::path::Path;
 

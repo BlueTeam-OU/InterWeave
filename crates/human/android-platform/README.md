@@ -13,11 +13,10 @@ host:
   arrivals no focused window reads become notices.
 - `identity`: the start's identity, unlocked from its Keystore-wrapped
   record through the embedded custody path and the app's `SeedCipher`,
-  never replaced when the record cannot give it back.
+  never replaced when the record cannot give it back; a profile with no
+  record is created or refused as the caller says (`FirstRun`).
 - `stand_in` (feature `dev-stand-ins`, the debug APK's): the first-run
-  profile until profile-config's provisioning lands. The same feature
-  makes `identity` create a first run's identity until step 7's onboarding
-  does.
+  profile until profile-config's provisioning lands.
 
 The JNI entry points, the Kotlin Service and the views are
 `apps/human-android`'s. The Keystore cipher itself is the app's

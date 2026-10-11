@@ -13,17 +13,19 @@
 //!
 //! A profile with no record at all is a first run. Creating its identity
 //! or restoring one from a phrase is the person's choice in step 7's
-//! onboarding, which does not exist yet; until it does, the debug build
-//! (`dev-stand-ins`) creates one and provisions it under the profile's
-//! configured unlock policy, so the debug app keeps one `PeerId` across
-//! restarts, and a build without the stand-ins answers
-//! [`IdentityRefused::Unprovisioned`].
+//! onboarding, which does not exist yet. Until it does the caller says
+//! which ([`FirstRun`]): the app's debug build (`dev-stand-ins`) creates
+//! one and provisions it under the profile's configured unlock policy, so
+//! the debug app keeps one `PeerId` across restarts, and its release build
+//! answers [`IdentityRefused::Unprovisioned`].
 
 use std::path::Path;
 
 use interweave_profile_config::{ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
-use interweave_transport_embedded::custody::{self, RecoveryCause, SeedCipher, UnlockRefused};
+use interweave_transport_embedded::custody::{
+    self, CustodyRefused, RecoveryCause, SeedCipher, UnlockRefused,
+};
 
 /// Why a start has no identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,7 +49,20 @@ pub enum IdentityRefused {
     Provisioning(String),
 }
 
-/// The identity `profile` starts with, under `app_data_dir`.
+/// What a start does with a profile that has no record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FirstRun {
+    /// Create its identity and provision it under the profile's
+    /// configured unlock policy: the debug build's stand-in for step 7's
+    /// onboarding.
+    Create,
+    /// Answer [`IdentityRefused::Unprovisioned`]: creating or restoring
+    /// is the person's choice, which step 7 asks for.
+    Refuse,
+}
+
+/// The identity `profile` starts with, under `app_data_dir`, a profile
+/// with no record being handled as `first_run` says.
 ///
 /// # Errors
 /// [`IdentityRefused`].
@@ -55,13 +70,17 @@ pub fn start_identity(
     app_data_dir: &Path,
     profile: &str,
     cipher: &dyn SeedCipher,
+    first_run: FirstRun,
 ) -> Result<ProfileIdentity, IdentityRefused> {
     let paths = TrustBoundary::new(app_data_dir)
         .and_then(|boundary| ProfilePaths::resolve_embedded(profile, boundary))
         .map_err(|e| IdentityRefused::Paths(e.to_string()))?;
     match custody::unlock(&paths, cipher) {
         Ok(identity) => Ok(identity),
-        Err(UnlockRefused::Unprovisioned) => first_run(&paths, cipher),
+        Err(UnlockRefused::Unprovisioned) => match first_run {
+            FirstRun::Create => create(&paths, cipher),
+            FirstRun::Refuse => Err(IdentityRefused::Unprovisioned),
+        },
         Err(UnlockRefused::RecoveryRequired(cause)) => {
             Err(IdentityRefused::RecoveryRequired(cause))
         }
@@ -70,10 +89,12 @@ pub fn start_identity(
     }
 }
 
-/// A profile with no record: the debug build's stand-in for step 7's
-/// onboarding creates its identity and provisions it.
-#[cfg(feature = "dev-stand-ins")]
-fn first_run(
+/// A first run's identity, created and provisioned. Custody's
+/// `OldKeyRemains` comes AFTER the record is written: the profile is
+/// provisioned and unlocks, and only a stale key of the other policy
+/// remains for `reseal` to retire -- so it is this start's identity, not
+/// a refusal.
+fn create(
     paths: &ProfilePaths,
     cipher: &dyn SeedCipher,
 ) -> Result<ProfileIdentity, IdentityRefused> {
@@ -83,16 +104,8 @@ fn first_run(
         .android
         .key_unlock_policy;
     let identity = ProfileIdentity::generate();
-    custody::provision(paths, cipher, &identity, policy)
-        .map_err(|e| IdentityRefused::Provisioning(format!("{e:?}")))?;
-    Ok(identity)
-}
-
-/// A profile with no record, in a build that creates none.
-#[cfg(not(feature = "dev-stand-ins"))]
-fn first_run(
-    _paths: &ProfilePaths,
-    _cipher: &dyn SeedCipher,
-) -> Result<ProfileIdentity, IdentityRefused> {
-    Err(IdentityRefused::Unprovisioned)
+    match custody::provision(paths, cipher, &identity, policy) {
+        Ok(_) | Err(CustodyRefused::OldKeyRemains(_)) => Ok(identity),
+        Err(e) => Err(IdentityRefused::Provisioning(format!("{e:?}"))),
+    }
 }
