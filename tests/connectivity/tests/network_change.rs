@@ -528,12 +528,14 @@ async fn an_addition_redials_a_held_off_peer_at_once_and_without_one_it_waits() 
 /// network back as a new one, and it must re-bind the dials. The
 /// platform's view loses the private IP (offline), a dial made while
 /// offline fails and holds the peer off for its 30 s retry; the view then
-/// names that same IP again, which is reported as an ADDITION of it, and
-/// the held-off peer is redialled at once. The control: the same window
-/// with no view, in which the peer waits -- longer than conntrack's 10 s
-/// CLOSE state for the failed dial's port pair, so the redial is not
-/// dropped before TCP sees it. A detector that kept the IP across the
-/// empty view would report no addition here and leave the peer waiting.
+/// names that same IP and nothing else, which is reported as an ADDITION
+/// of it alone, and the held-off peer is redialled at once. The control:
+/// the same window with the empty view still in force, in which the peer
+/// waits -- longer than conntrack's 10 s CLOSE state for the failed
+/// dial's port pair, so the redial is not dropped before TCP sees it. The
+/// return carries no second address, as on a device in L7, so a detector
+/// that kept the IP across the empty view would report no addition and
+/// leave the peer waiting out its backoff.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_same_ip_returning_after_offline_redials_a_peer_that_failed_while_offline() {
     const CONTROL: Duration = Duration::from_secs(12);
@@ -591,7 +593,13 @@ async fn the_same_ip_returning_after_offline_redials_a_peer_that_failed_while_of
         &mut others,
         "offline read",
         PATIENCE,
-        Some(changed(|removed, _| !removed.is_empty())),
+        Some(|events: &[SwarmEvent]| {
+            events.iter().any(|e| {
+                matches!(e,
+                SwarmEvent::NetworkChanged { removed, .. }
+                if removed.contains(&std::net::IpAddr::from(ip)))
+            })
+        }),
     )
     .await;
 
@@ -637,9 +645,12 @@ async fn the_same_ip_returning_after_offline_redials_a_peer_that_failed_while_of
     .await;
     assert!(!connected(&events), "offline, the peer waits: {events:?}");
 
-    // BACK ON THE SAME NETWORK: the same IP, reported as added, and the
-    // peer redialled at once.
-    subject.runtime.network_changed(online);
+    // BACK ON THE SAME NETWORK: the same IP alone, reported as added,
+    // and the peer redialled at once -- nothing else returns to carry the
+    // lift.
+    subject.runtime.network_changed(NetworkView {
+        addresses: vec![ip.into()],
+    });
     let events = drive(
         &mut subject.runtime,
         &mut others,
@@ -656,7 +667,7 @@ async fn the_same_ip_returning_after_offline_redials_a_peer_that_failed_while_of
     assert!(
         events.iter().any(
             |e| matches!(e, SwarmEvent::NetworkChanged { removed, added }
-            if removed.is_empty() && added.contains(&std::net::IpAddr::from(ip)))
+            if removed.is_empty() && *added == vec![std::net::IpAddr::from(ip)])
         ),
         "the same IP returning is an addition: {events:?}"
     );
