@@ -30,6 +30,10 @@ slint = { workspace = true }
 # manifest says why); and, under `desktop`, the font stack `code_font`
 # asks for the platform's monospaced family.
 i-slint-common = { workspace = true }
+# The image decoder the embedded window icon needs in every build of
+# this crate, not only those a backend feature selects (the workspace
+# manifest says why). Named for its feature; no code calls it.
+i-slint-core = { workspace = true }
 # The font stack's own loader, asked by `platform_check`.
 yeslogic-fontconfig-sys = { workspace = true }
 
@@ -74,4 +78,5 @@ serde_json = { workspace = true }
 [package.metadata.cargo-machete]
 # slint-build is a BUILD dependency, called from build.rs to compile
 # ui/app.slint; `cargo-machete --with-metadata` reports it unused.
-ignored = ["slint-build"]
+# i-slint-core is named only to turn on its image decoder.
+ignored = ["slint-build", "i-slint-core"]
