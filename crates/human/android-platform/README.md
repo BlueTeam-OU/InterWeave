@@ -11,10 +11,15 @@ host:
 - `Hub`: where the facade's output meets the Activity's view, which
   attaches and detaches while the Service holds the session, and where
   arrivals no focused window reads become notices.
+- `identity`: the start's identity, unlocked from its Keystore-wrapped
+  record through the embedded custody path and the app's `SeedCipher`,
+  never replaced when the record cannot give it back.
 - `stand_in` (feature `dev-stand-ins`, the debug APK's): the first-run
-  profile and an in-memory identity, until profile-config's provisioning
-  and step 6's Keystore key land.
+  profile until profile-config's provisioning lands. The same feature
+  makes `identity` create a first run's identity until step 7's onboarding
+  does.
 
 The JNI entry points, the Kotlin Service and the views are
-`apps/human-android`'s. Keystore wrapping, secure recovery and backup
-exclusion (steps 6-9) are not here yet.
+`apps/human-android`'s. The Keystore cipher itself is the app's
+(step 6); secure recovery and backup exclusion (steps 7-9) are not here
+yet.
