@@ -1194,8 +1194,10 @@ mod tests {
             assert_eq!(names, ["message", "bucket", "elapsed_ms"], "nothing more");
             assert_eq!(lines[0][1].1, bucket);
             let elapsed_ms: u128 = lines[0][2].1.parse().expect("a number of milliseconds");
+            // Both ends of the slot's span are whole milliseconds rounded
+            // down, so their difference can exceed the wall reading by one.
             assert!(
-                HELD.as_millis() <= elapsed_ms && elapsed_ms <= wall_ms,
+                HELD.as_millis() <= elapsed_ms && elapsed_ms <= wall_ms + 1,
                 "the slot's own elapsed time: {elapsed_ms} ms, held {HELD:?}, {wall_ms} ms of wall time"
             );
             for (_, value) in &lines[0] {
