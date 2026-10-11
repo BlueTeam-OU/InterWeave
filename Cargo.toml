@@ -221,6 +221,12 @@ i-slint-backend-testing = { version = "=1.18.1", default-features = false }
 # feature) to name the platform's monospaced family, which the toolkit's
 # `font-family` cannot ask for by its generic name.
 i-slint-common = { version = "=1.18.1", default-features = false, features = ["fontconfig-dlopen"] }
+# Named to turn on `image-decoders`, which `slint` does not forward: the
+# views embed the window icon (a PNG), and without a decoder ui-slint
+# compiles only when a backend feature (desktop, android, or the testing
+# backend) brings one along. Every backend already enables it, so this
+# adds no crate to the graph. Same exact pin as the toolkit.
+i-slint-core = { version = "=1.18.1", default-features = false, features = ["image-decoders"] }
 # The loader the font stack above uses, named so the desktop app can ask
 # it at start whether fontconfig loaded: a host without the library
 # otherwise runs with no fonts, silently (plan section 18, carried from

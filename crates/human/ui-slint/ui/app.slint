@@ -188,6 +188,11 @@ global Palette {
 export component AppWindow inherits Window {
     in property <string> window-title;
     title: root.window-title;
+    // Generated with the rest of the icon set (assets/README.md). winit
+    // shows it on X11; a Wayland compositor takes the icon from the app's
+    // .desktop entry instead, which packaging/linux does not ship yet. On
+    // Android the launcher icon is the manifest's.
+    icon: @image-url("assets/interweave-icon-256.png");
     preferred-width: 900px;
     preferred-height: 640px;
 

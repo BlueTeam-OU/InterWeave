@@ -3645,6 +3645,7 @@ version = "0.0.0"
 dependencies = [
  "i-slint-backend-testing",
  "i-slint-common",
+ "i-slint-core",
  "interweave-human-chat-protocol",
  "interweave-human-client-api",
  "interweave-human-core",

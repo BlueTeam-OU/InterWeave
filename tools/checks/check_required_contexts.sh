@@ -95,8 +95,11 @@ fi
 # check whose subject is not on main yet, say). CLAUDE.md names them in a
 # sentence of their own, so the required list stays exactly what gates
 # main; a job must be in one list or the other, never neither.
-adv_line="$(grep -n 'advisory contexts* the ruleset does not require' "$CONTRACT" | head -1)"
-advisory="$(printf '%s' "$adv_line" | grep -o '\*\*`[^`]*`\*\*' | tr -d '*`' | sort -u)"
+# Every line in that wording counts, not only the first: an advisory job
+# named in a second sentence would otherwise sit in neither list and fail
+# with a message about a job "missing" from the document that names it.
+adv_lines="$(grep 'advisory contexts* the ruleset does not require' "$CONTRACT" || true)"
+advisory="$(printf '%s' "$adv_lines" | grep -o '\*\*`[^`]*`\*\*' | tr -d '*`' | sort -u)"
 both="$(printf '%s\n' "$claimed" "$advisory" | sed '/^$/d' | sort | uniq -d)"
 if [ -n "$both" ]; then
     echo "check_required_contexts: CLAUDE.md names $(printf '%s' "$both" | tr '\n' ' ')as both required and advisory" >&2
