@@ -25,6 +25,9 @@
 #     and character literals are blanked first, so a test disabled in a
 #     block comment, a name in a string or comment, and a helper of the
 #     same name vouch for nothing.
+# A test under #[cfg(any())] is compiled out and does not vouch; an
+# #[ignore]d one does (CI runs ignored tests). Limit: any other cfg that
+# can never be true is not evaluated, so such a test still vouches.
 # A row with no `path::fn` at all is empty: reported always, and a
 # failure only under --strict, which Stage 18's close runs.
 #
@@ -53,6 +56,11 @@ OWED = re.compile(r"owed\b.*|—")
 
 
 TEST_ATTRIBUTE = re.compile(r"#\[\s*(test\s*\]|tokio::test\b)")
+# A test compiled out never runs anywhere, so it proves nothing: cfg(any())
+# is the always-false cfg. A general cfg that can never be true needs a cfg
+# evaluator, which this is not (--help names the limit). #[ignore] still
+# vouches: ignored tests run in CI with --include-ignored.
+COMPILED_OUT = re.compile(r"#\[\s*cfg\s*\(\s*any\s*\(\s*\)\s*\)\s*\]")
 CHAR = re.compile(r"'(?:\\.|[^\\'\n])'")
 RAW_OPEN = re.compile(r'(?:b|c)?r(#*)"')
 
@@ -143,7 +151,8 @@ def test_fns(source: str, fn: str) -> bool:
                 attributes.append(rest[:end])
                 rest = rest[end:].strip()
                 continue
-            if pattern.search(rest) and any(TEST_ATTRIBUTE.match(a) for a in attributes):
+            if (pattern.search(rest) and any(TEST_ATTRIBUTE.match(a) for a in attributes)
+                    and not any(COMPILED_OUT.match(a) for a in attributes)):
                 return True
             attributes = []
             rest = ""

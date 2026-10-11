@@ -47,6 +47,10 @@ fn b_guard() {}
 
 #[test] fn one_line_guard() {}
 
+#[test]
+#[cfg(any())]
+fn compiled_out_guard() {}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[expect(
     clippy::many_single_char_names,
@@ -135,6 +139,7 @@ expect_fail "a name in a // line between #[test] and another fn does not vouch" 
 expect_fail "a test disabled in a /* */ block does not vouch" "defines no test fn disabled_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::disabled_guard\` | — |"
 expect_fail "a test after a nested /* */ inside the block does not vouch" "defines no test fn nested_disabled_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::nested_disabled_guard\` | — |"
 expect_fail "a disabled test after a quote character literal does not vouch" "defines no test fn char_hidden_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::char_hidden_guard\` | — |"
+expect_fail "a test compiled out by #[cfg(any())] does not vouch" "defines no test fn compiled_out_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::compiled_out_guard\` | — |"
 expect_fail "a test inside a raw string does not vouch" "defines no test fn raw_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::raw_guard\` | — |"
 expect_fail "a prefix of a real name does not vouch" "defines no test fn a_gu" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::a_gu\` | — |"
 expect_fail "a path outside the repository fails" "not a path inside the repository" "| S21-01 | floods | S1 | \`../../etc/passwd::root\` | — |"
