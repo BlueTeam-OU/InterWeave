@@ -98,6 +98,11 @@ members = [
     # Stage 9: DiscoveryProvider conformance and the composition proof
     # that discovery cannot bypass trust or ConnectionManager.
     "tests/discovery-conformance",
+    # Stage 18: the adversarial/security gate, over real sockets
+    # between real peers.
+    "tests/security",
+    # Its local half: the daemon's sockets, transportctl and the stores.
+    "tests/security-local",
     "xtask",
 ]
 
@@ -589,7 +594,12 @@ overflow-checks = true
 # stage's record lands. Nothing here is server-mode reachability
 # evidence for ADR-0034 §7's release gate: that decision is separate.
 # Read architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md §20
-# (Stage 17) before creating a package.
+# (Stage 17) before creating a package. STAGE 18 RUNS BESIDE STAGE 17
+# by the plan's section 21 record (paragraph 0, under ADR-0046's
+# allowance): the adversarial/security gate, whose packages are
+# tests/security and tests/security-local and whose exit gate is
+# tests/SECURITY-MATRIX.md. This value stays Stage 17 until section 20's
+# closing record moves it, because the guards read it as one number.
 status = "stage-17-android-human-client"
 architecture_root = "architecture"
 
@@ -639,6 +649,7 @@ planned_test_packages = [
   "tests/human-chat",
   "tests/human-retention",
   "tests/security",
+  "tests/security-local",
   "tests/desktop-e2e",
   "tests/android-e2e",
   "tests/android-e2e-cases",
