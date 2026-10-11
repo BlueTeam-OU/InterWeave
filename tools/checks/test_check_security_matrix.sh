@@ -35,7 +35,7 @@ HEAD='| id | guards | step | tests | limit |
 root() {
     local dir="$TMP/$1"; shift
     mkdir -p "$dir/tests/security/tests"
-    printf '%s\n' '//! A whole test file compiled out by its inner attribute.' '#![cfg(false)]' '' '#[test]' 'fn whole_file_guard() {}' \
+    printf '%s\n' '//! A whole test file compiled out by its inner attribute.' '#![cfg(false)]' '' '#[test]' 'fn whole_file_guard() {}' '#[test]' 'fn second_off_guard() {}' \
         > "$dir/tests/security/tests/off.rs"
     cat > "$dir/tests/security/tests/flood.rs" <<'RS'
 #[test]
@@ -78,6 +78,8 @@ mod dead_inner {
     #![cfg(any())]
     #[test]
     fn inner_cfg_guard() {}
+    #[test]
+    fn second_inner_guard() {}
 }
 
 struct Wire {
@@ -164,6 +166,8 @@ out="$(run "$good")"; code="$(run_code "$good")"
     && ok "  and reporting each empty row (owed (...), bare owed, —) without failing" || bad "empty report: $out"
 [[ "$(run_code "$good" --strict)" == 1 ]] && ok "--strict fails the same empty row" || bad "--strict did not fail"
 full="$(root full "| S21-01 | floods | S1 | $T | — |")"
+help="$(python3 "$CHECK" --help 2>&1)"
+[[ "$help" == *"does not vouch"* && "$help" == *"--strict"* ]] && ok "--help prints the rules block and the options" || bad "--help: $help"
 [[ "$(run_code "$full" --strict)" == 0 ]] && ok "--strict passes a matrix with no empty row" || bad "--strict control failed: $(run "$full" --strict)"
 
 expect_fail() {  # <label> <needle> <rows...>
@@ -191,6 +195,8 @@ expect_fail "a test inside a mod compiled out by #[cfg(any())] does not vouch" "
 expect_fail "a test inside a compiled-out mod whose brace is on a later line does not vouch" "defines no test fn late_brace_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::late_brace_guard\` | — |"
 expect_fail "a test inside a mod compiled out by its inner #![cfg(any())] does not vouch" "defines no test fn inner_cfg_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::inner_cfg_guard\` | — |"
 expect_fail "a test in a file compiled out by its inner #![cfg(false)] does not vouch" "defines no test fn whole_file_guard" "| S21-01 | floods | S1 | \`tests/security/tests/off.rs::whole_file_guard\` | — |"
+expect_fail "a second test in a file compiled out by #![cfg(false)] does not vouch" "defines no test fn second_off_guard" "| S21-01 | floods | S1 | \`tests/security/tests/off.rs::second_off_guard\` | — |"
+expect_fail "a second test in a mod compiled out by #![cfg(any())] does not vouch" "defines no test fn second_inner_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::second_inner_guard\` | — |"
 expect_fail "a test inside a raw string does not vouch" "defines no test fn raw_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::raw_guard\` | — |"
 expect_fail "a prefix of a real name does not vouch" "defines no test fn a_gu" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::a_gu\` | — |"
 expect_fail "a path outside the repository fails" "not a path inside the repository" "| S21-01 | floods | S1 | \`../../etc/passwd::root\` | — |"
