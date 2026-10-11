@@ -11,7 +11,7 @@ ADR-0045 materializes the test landing zones at repository root. Put a test at t
 - mutable topology/malformed/scenario inputs -> repository-root `test-data/`;
 - Android OS guarantees -> future Android instrumented tests, with cross-peer orchestration in `tests/android-e2e/`.
 
-The pre-created root suites are `transport-contract`, `discovery-conformance`, `local-client-conformance`, `ipc-v2`, `direct-v2`, `pubsub`, `kademlia`, `connectivity`, `endpoint-routing`, `human-chat`, `human-retention`, `security`, `desktop-e2e`, `android-e2e`, and `interoperability`. Shared harness code lives in `tests/support` and is forbidden as a production dependency.
+The pre-created root suites are `transport-contract`, `discovery-conformance`, `local-client-conformance`, `ipc-v2`, `direct-v2`, `pubsub`, `kademlia`, `connectivity`, `endpoint-routing`, `human-chat`, `human-retention`, `security` and `security-local` (Stage 18's network and local adversarial suites, gated by `tests/SECURITY-MATRIX.md`), `desktop-e2e`, `android-e2e`, and `interoperability`. Shared harness code lives in `tests/support` and is forbidden as a production dependency.
 
 Frozen fixtures must not be hidden only inside a Rust test module; they are protocol assets shared with Android and future independent clients.
 
