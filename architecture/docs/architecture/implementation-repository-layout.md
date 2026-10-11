@@ -17,6 +17,9 @@ interweave/
 ├── spikes/          # empirical non-production experiments
 ├── packaging/       # platform release/service/package material
 ├── xtask/           # future developer/test orchestration
+├── assets/          # images: the icon, its generator, the image register
+├── third_party/     # vendored dependency sources, each with its ADR
+├── tools/           # repository tooling and tree checks, with self-tests
 ├── Cargo.toml       # zero-member virtual workspace skeleton
 └── IMPLEMENTATION.md
 ```
