@@ -73,7 +73,8 @@ pub fn provision(app_data_dir: &Path, profile: &str) -> Result<(), PersistError>
 /// replacing what is there: what the android-e2e cases' `provision`
 /// asks of the app, since the host cannot reach the app's private
 /// directories (the seam agreed with p2p-network-dev-02, 01a127b3).
-/// Only that instrumentation calls it; the app's own start keeps
+/// The app's instrumentation is to supply it as the cases' `provision`
+/// (j66); no runner calls it yet. The app's own start keeps
 /// [`provision`]'s never-rewrite rule.
 ///
 /// # Errors
