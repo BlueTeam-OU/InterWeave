@@ -9,7 +9,8 @@ plugins {
 val workspace: File = rootDir.resolve("../../..").canonicalFile
 // Where that build's libraries land, one directory per variant and in it
 // one per ABI: a variant's own, so a release APK can never package the
-// debug library, which carries the stand-in identity (review of #255).
+// debug library, which creates a first run's identity without asking
+// (review of #255).
 fun rustJniLibs(variant: String): Provider<Directory> =
     layout.buildDirectory.dir("rustJniLibs/${variant.lowercase()}")
 
@@ -68,9 +69,10 @@ listOf("Debug", "Release").forEach { variant ->
             )
         }
         // The release build is optimised; the debug build carries the
-        // stand-in profile and identity (crates/human/android-platform's
-        // stand_in) until profile-config's provisioning and step 6's
-        // Keystore key land, and only it does.
+        // stand-in profile (crates/human/android-platform's stand_in) and
+        // creates a first run's identity without asking (jni.rs's
+        // FirstRun::Create), until profile-config's provisioning and step 7's
+        // onboarding land, and only it does.
         val profile =
             if (variant == "Release") listOf("--release") else listOf("--features", "dev-stand-ins")
         // --locked: the library is built from the reviewed Cargo.lock, as

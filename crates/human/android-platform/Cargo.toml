@@ -28,19 +28,30 @@ interweave-profile-config = { path = "../../config/profile-config" }
 interweave-profile-identity = { path = "../../identity/profile-identity" }
 interweave-transport-api = { path = "../../api/transport-api" }
 interweave-transport-embedded = { path = "../../transport/embedded" }
+# Under `e2e-cases`, off by default: the android-e2e cases' recorder and
+# client handle (src/e2e.rs), a test crate. Nothing yet checks that no
+# release build turns the feature on; devex-tooling's check_human_layering
+# rule 6, pending on their batch, is to fail if apps/human-android's graph
+# reaches the case crate.
+interweave-android-e2e-cases = { path = "../../../tests/android-e2e-cases", optional = true }
 # The facade's command channel and its turn timer, on the embedded
 # runtime's executor.
 tokio = { workspace = true, features = ["sync", "time", "macros"] }
 
 [features]
-# The first-run profile and in-memory identity steps 2-4 run on until
-# profile-config's provisioning and step 6's Keystore key land
-# (src/stand_in.rs). Off by default; the app turns it on for its debug
-# build alone.
+# The first-run profile, until profile-config's provisioning lands
+# (src/stand_in.rs). Off by default; the app's debug build turns it on.
 dev-stand-ins = []
 # TEST-ONLY: end the runtime from a test (ServiceHost::end_runtime_for_test),
 # through the embedded host's own hook; this crate's tests turn it on.
 test-hooks = ["interweave-transport-embedded/test-hooks"]
+# TEST-ONLY: the app's service started with a payload recorder
+# (ServiceHost::start_recording) and the hub as a case's client
+# (e2e::HubClient), for tests/android-e2e's human_chat on the phone's
+# instrumentation and on the host. Off by default: today this crate's own
+# tests and tests/android-e2e turn it on, and no build of the app does yet
+# -- its instrumentation build is to, and its release build is not to.
+e2e-cases = ["dep:interweave-android-e2e-cases"]
 
 [dev-dependencies]
 interweave-human-chat-protocol = { path = "../chat-protocol" }
@@ -49,5 +60,5 @@ interweave-human-core = { path = "../core" }
 interweave-human-ui-model = { path = "../ui-model" }
 # The stand-ins on for this crate's own tests, as composition's test hooks
 # are: the service is started the way the debug APK starts it.
-interweave-human-android-platform = { path = ".", features = ["dev-stand-ins", "test-hooks"] }
+interweave-human-android-platform = { path = ".", features = ["dev-stand-ins", "e2e-cases", "test-hooks"] }
 tempfile = { workspace = true }

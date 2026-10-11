@@ -12,16 +12,25 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "e2e-cases")]
+pub mod e2e;
 pub mod facade;
 pub mod hub;
+pub mod identity;
 pub mod notice;
+pub mod offline;
 pub mod service;
 #[cfg(feature = "dev-stand-ins")]
 pub mod stand_in;
 pub mod view_side;
 
 pub use hub::{Hub, TO_VIEW, ToView, ViewLink};
-pub use interweave_transport_embedded::StayReachable;
+pub use identity::{FirstRun, IdentityRefused, start_identity};
+pub use interweave_profile_config::runtime::KeyUnlockPolicy;
+/// The embedded custody path, for the app's Keystore adapter of its
+/// `SeedCipher` seam.
+pub use interweave_transport_embedded::custody;
+pub use interweave_transport_embedded::{EmbeddedRefused, StayReachable};
 pub use notice::Notices;
 pub use service::{
     AvailabilityMode, CLIENT_KIND, Ended, ServiceHost, ServiceLaunch, StartRefused, Stopped,

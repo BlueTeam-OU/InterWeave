@@ -79,6 +79,11 @@ impl Node {
 
     /// Write this app's `config.yaml`, trusting `trusted` and bootstrapping
     /// from `statics`, as the app provisions it before its first start.
+    ///
+    /// The endpoint the embedded profile must lease is `phone`, apart from
+    /// the suite's `human` and `agent`: the suite disables those, and a set
+    /// disabling the lease endpoint is refused, since the next start would
+    /// refuse the composed profile (ADR-0028 A 2026-10-11).
     fn provision(&self, trusted: &TransportIdentity, statics: &[String]) {
         let peers: Vec<String> = statics.iter().map(|s| format!("\"{s}\"")).collect();
         let document = format!(
@@ -87,6 +92,8 @@ profile:
   name: {PROFILE}
 runtime:
   deployment: embedded-android
+  android:
+    endpoint: phone
 ipc:
   enabled: false
   client_event_queue: {QUEUE_BOUND}
@@ -105,6 +112,9 @@ endpoints:
     - id: agent
       enabled: true
       advertise: true
+    - id: phone
+      enabled: true
+      advertise: false
 channels:
   desired: [general]
 discovery:
