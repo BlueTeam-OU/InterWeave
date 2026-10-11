@@ -8,6 +8,7 @@ import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
 import android.security.keystore.UserNotAuthenticatedException
 import java.security.KeyStore
+import java.security.UnrecoverableKeyException
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -143,6 +144,12 @@ internal object KeystoreCipher {
         try {
             body()
         } catch (e: KeyPermanentlyInvalidatedException) {
+            failure(KEY_INVALIDATED, e.javaClass.simpleName)
+        } catch (e: UnrecoverableKeyException) {
+            // A credential change surfaces here, from getKey, on some
+            // devices rather than as KeyPermanentlyInvalidatedException
+            // (SPIKE-009 D6a): the key is gone for good, so recovery, never
+            // "try again".
             failure(KEY_INVALIDATED, e.javaClass.simpleName)
         } catch (e: UserNotAuthenticatedException) {
             failure(USER_NOT_AUTHENTICATED, e.javaClass.simpleName)
