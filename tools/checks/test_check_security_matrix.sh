@@ -35,6 +35,8 @@ HEAD='| id | guards | step | tests | limit |
 root() {
     local dir="$TMP/$1"; shift
     mkdir -p "$dir/tests/security/tests"
+    printf '%s\n' '//! A whole test file compiled out by its inner attribute.' '#![cfg(false)]' '' '#[test]' 'fn whole_file_guard() {}' \
+        > "$dir/tests/security/tests/off.rs"
     cat > "$dir/tests/security/tests/flood.rs" <<'RS'
 #[test]
 fn a_guard() {}
@@ -50,6 +52,48 @@ fn b_guard() {}
 #[test]
 #[cfg(any())]
 fn compiled_out_guard() {}
+
+#[test]
+#[cfg(false)]
+fn cfg_false_guard() {}
+
+#[cfg(any())]
+mod dead {
+    fn helper() {
+        if true {
+        }
+    }
+    #[test]
+    fn in_dead_mod_guard() { if true { } }
+}
+
+#[cfg(false)]
+mod dead_late_brace
+{
+    #[test]
+    fn late_brace_guard() {}
+}
+
+mod dead_inner {
+    #![cfg(any())]
+    #[test]
+    fn inner_cfg_guard() {}
+}
+
+struct Wire {
+    #[cfg(false)]
+    gone: u8,
+    kept: u8,
+}
+
+#[test]
+fn after_dead_field_guard() {}
+
+#[cfg(test)]
+mod live {
+    #[test]
+    fn after_dead_mod_guard() {}
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[expect(
@@ -107,13 +151,15 @@ U='`tests/security/tests/flood.rs::b_guard`'
 K='`tests/security/tests/flood.rs::tokio_guard`'
 O='`tests/security/tests/flood.rs::one_line_guard`'
 X='`tests/security/tests/flood.rs::escape_guard`'
+A='`tests/security/tests/flood.rs::after_dead_mod_guard`'
+F='`tests/security/tests/flood.rs::after_dead_field_guard`'
 
 echo "check_security_matrix — every named test exists"
 
-good="$(root good "| S21-01 | floods | S1 | $T; $U; $K; $O; $X | — |" "| TM-01 | probing | S2 | $T; owed: S3 lands the rest | — |" "| C-01 | debug line | S4 | owed (S21-05's tests) | — |" "| C-02 | spoofing | S4 | owed | — |" "| C-03 | replay | S4 | — | — |" "C-04 | no leading pipe | S4 | $U | — |")"
+good="$(root good "| S21-01 | floods | S1 | $T; $U; $K; $O; $X; $A; $F | — |" "| TM-01 | probing | S2 | $T; owed: S3 lands the rest | — |" "| C-01 | debug line | S4 | owed (S21-05's tests) | — |" "| C-02 | spoofing | S4 | owed | — |" "| C-03 | replay | S4 | — | — |" "C-04 | no leading pipe | S4 | $U | — |")"
 out="$(run "$good")"; code="$(run_code "$good")"
 [[ "$code" == 0 ]] && ok "a matrix whose tests exist passes" || bad "control: expected 0, got $code: $out"
-[[ "$out" == *"7 named test(s) exist"* ]] && ok "  counting the named tests, a row without its leading pipe included" || bad "count: $out"
+[[ "$out" == *"9 named test(s) exist"* ]] && ok "  counting the named tests, a row without its leading pipe included" || bad "count: $out"
 [[ "$out" == *"C-01 names no test"* && "$out" == *"C-02 names no test"* && "$out" == *"C-03 names no test"* ]] \
     && ok "  and reporting each empty row (owed (...), bare owed, —) without failing" || bad "empty report: $out"
 [[ "$(run_code "$good" --strict)" == 1 ]] && ok "--strict fails the same empty row" || bad "--strict did not fail"
@@ -140,6 +186,11 @@ expect_fail "a test disabled in a /* */ block does not vouch" "defines no test f
 expect_fail "a test after a nested /* */ inside the block does not vouch" "defines no test fn nested_disabled_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::nested_disabled_guard\` | — |"
 expect_fail "a disabled test after a quote character literal does not vouch" "defines no test fn char_hidden_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::char_hidden_guard\` | — |"
 expect_fail "a test compiled out by #[cfg(any())] does not vouch" "defines no test fn compiled_out_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::compiled_out_guard\` | — |"
+expect_fail "a test compiled out by #[cfg(false)] does not vouch" "defines no test fn cfg_false_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::cfg_false_guard\` | — |"
+expect_fail "a test inside a mod compiled out by #[cfg(any())] does not vouch" "defines no test fn in_dead_mod_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::in_dead_mod_guard\` | — |"
+expect_fail "a test inside a compiled-out mod whose brace is on a later line does not vouch" "defines no test fn late_brace_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::late_brace_guard\` | — |"
+expect_fail "a test inside a mod compiled out by its inner #![cfg(any())] does not vouch" "defines no test fn inner_cfg_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::inner_cfg_guard\` | — |"
+expect_fail "a test in a file compiled out by its inner #![cfg(false)] does not vouch" "defines no test fn whole_file_guard" "| S21-01 | floods | S1 | \`tests/security/tests/off.rs::whole_file_guard\` | — |"
 expect_fail "a test inside a raw string does not vouch" "defines no test fn raw_guard" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::raw_guard\` | — |"
 expect_fail "a prefix of a real name does not vouch" "defines no test fn a_gu" "| S21-01 | floods | S1 | \`tests/security/tests/flood.rs::a_gu\` | — |"
 expect_fail "a path outside the repository fails" "not a path inside the repository" "| S21-01 | floods | S1 | \`../../etc/passwd::root\` | — |"

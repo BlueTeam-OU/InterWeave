@@ -25,9 +25,15 @@
 #     and character literals are blanked first, so a test disabled in a
 #     block comment, a name in a string or comment, and a helper of the
 #     same name vouch for nothing.
-# A test under #[cfg(any())] is compiled out and does not vouch; an
-# #[ignore]d one does (CI runs ignored tests). Limit: any other cfg that
-# can never be true is not evaluated, so such a test still vouches.
+# A test compiled out by #[cfg(any())] or #[cfg(false)], on the fn or on
+# an enclosing inline item (a `mod t { ... }`, its brace on any line), or
+# by the inner #![cfg(...)] of its mod or file, does not vouch; an
+# #[ignore]d one does (CI runs ignored tests). Limits: any other cfg that
+# can never be true is not evaluated; an out-of-line `mod t;` is not
+# followed; an inner #![cfg(...)] is read only on a line of its own and
+# whole (not after `mod t {` on the same line, nor split across lines);
+# and a `;` inside a compiled-out item's header (`fn f(x: [u8;`) ends it
+# early. A test in any of those still vouches.
 # A row with no `path::fn` at all is empty: reported always, and a
 # failure only under --strict, which Stage 18's close runs.
 #
@@ -57,10 +63,12 @@ OWED = re.compile(r"owed\b.*|—")
 
 TEST_ATTRIBUTE = re.compile(r"#\[\s*(test\s*\]|tokio::test\b)")
 # A test compiled out never runs anywhere, so it proves nothing: cfg(any())
-# is the always-false cfg. A general cfg that can never be true needs a cfg
-# evaluator, which this is not (--help names the limit). #[ignore] still
-# vouches: ignored tests run in CI with --include-ignored.
-COMPILED_OUT = re.compile(r"#\[\s*cfg\s*\(\s*any\s*\(\s*\)\s*\)\s*\]")
+# and cfg(false) are the always-false cfgs. A general cfg that can never be
+# true needs a cfg evaluator, which this is not (the help block above names the limit).
+# #[ignore] still vouches: ignored tests run in CI with --include-ignored.
+COMPILED_OUT = re.compile(r"#\[\s*cfg\s*\(\s*(?:any\s*\(\s*\)|false)\s*\)\s*\]")
+HOLDS_TESTS = re.compile(r"(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+|async\s+|const\s+|extern\s+\S*\s*)*(?:mod|fn|impl|trait)\b")
+INNER_COMPILED_OUT = re.compile(r"#!\[\s*cfg\s*\(\s*(?:any\s*\(\s*\)|false)\s*\)\s*\]")
 CHAR = re.compile(r"'(?:\\.|[^\\'\n])'")
 RAW_OPEN = re.compile(r'(?:b|c)?r(#*)"')
 
@@ -124,10 +132,16 @@ def test_fns(source: str, fn: str) -> bool:
     whole, a multi-line one included, by balancing brackets, past blank
     lines; an attribute and its fn may share a line. Any other code clears
     the attributes collected so far, so a helper of the same name, or a
-    name in a string or comment, vouches for nothing."""
+    name in a string or comment, vouches for nothing. An item compiled out
+    (COMPILED_OUT among its attributes) takes everything inside its braces
+    with it: braces are counted in code, and nothing vouches until the one
+    that closes it."""
     pattern = re.compile(rf"\bfn\s+{re.escape(fn)}\b")
     attributes: list[str] = []
     depth = 0
+    braces = 0
+    dead_at: int | None = None  # the brace level a compiled-out item's body closes back to
+    pending = False  # a compiled-out item whose body has not opened yet
     for line in code_only(source):
         rest = line.strip()
         while rest:
@@ -141,6 +155,13 @@ def test_fns(source: str, fn: str) -> bool:
                 attributes[-1] += " " + (rest[:close] if close else rest)
                 rest = rest[close:].strip() if close else ""
                 continue
+            if rest.startswith("#!["):
+                # An inner attribute compiles out the item it sits in (the whole file at the top level), back
+                # to the brace that closes it: one level up from here, or never for a file.
+                if INNER_COMPILED_OUT.match(rest) and dead_at is None:
+                    dead_at = braces - 1
+                rest = ""
+                continue
             if rest.startswith("#["):
                 depth, end = 0, len(rest)
                 for k, ch in enumerate(rest[1:], 1):  # from the opening [
@@ -151,9 +172,24 @@ def test_fns(source: str, fn: str) -> bool:
                 attributes.append(rest[:end])
                 rest = rest[end:].strip()
                 continue
-            if (pattern.search(rest) and any(TEST_ATTRIBUTE.match(a) for a in attributes)
-                    and not any(COMPILED_OUT.match(a) for a in attributes)):
+            own = any(COMPILED_OUT.match(a) for a in attributes)
+            compiled_out = pending or own
+            if (dead_at is None and not compiled_out and pattern.search(rest)
+                    and any(TEST_ATTRIBUTE.match(a) for a in attributes)):
                 return True
+            # A compiled-out item's body may open on a later line (a where clause, a brace on its own line):
+            # an item that can hold a test (mod, fn, impl, trait) stays pending until its first `{`, or a `;`
+            # that ends it. Only the item's own attributes start it, so a compiled-out field or variant (ending
+            # in `,`) never reaches the next live item.
+            was_pending, pending = pending, False
+            if compiled_out and dead_at is None:
+                if "{" in rest:
+                    dead_at = braces
+                elif ";" not in rest and (was_pending or (own and HOLDS_TESTS.match(rest))):
+                    pending = True
+            braces += rest.count("{") - rest.count("}")
+            if dead_at is not None and braces <= dead_at:
+                dead_at = None
             attributes = []
             rest = ""
     return False
