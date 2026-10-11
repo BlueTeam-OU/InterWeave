@@ -174,7 +174,7 @@ class NetworkService : Service() {
         getSystemService(NotificationManager::class.java).notify(
             NETWORK_OFF_ID,
             Notification.Builder(this, REACHABLE_CHANNEL)
-                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setSmallIcon(R.drawable.ic_stat_interweave)
                 .setContentTitle(Native.text(Text.NETWORK_OFF_TITLE, 0))
                 .setContentText(Native.text(Text.NETWORK_OFF_BODY, 0))
                 .setContentIntent(opening())
@@ -261,7 +261,7 @@ class NetworkService : Service() {
 
     private fun ongoing(): Notification =
         Notification.Builder(this, REACHABLE_CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setSmallIcon(R.drawable.ic_stat_interweave)
             .setContentTitle(Native.text(Text.REACHABLE_TITLE, 0))
             .setContentText(Native.text(Text.REACHABLE_BODY, 0))
             .setContentIntent(opening())
@@ -270,7 +270,7 @@ class NetworkService : Service() {
 
     private fun messages(count: Int): Notification =
         Notification.Builder(this, MESSAGES_CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setSmallIcon(R.drawable.ic_stat_interweave)
             .setContentTitle(Native.text(Text.MESSAGES_WAITING, count))
             .setContentIntent(opening())
             .setAutoCancel(true)
