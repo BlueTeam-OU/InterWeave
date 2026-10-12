@@ -46,16 +46,17 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 
 [features]
-# TEST BUILDS ONLY: `ComposedRuntime::inject_path_change`, which posts a
-# path change through the driver's own handling so a test between real
-# runtimes reaches it without a relay. Enabled by test crates as a
-# dev-dependency feature; nothing that ships turns it on.
+# TEST BUILDS ONLY: the runtime's test hooks -- `ComposedRuntime`'s
+# `inject_path_change` (a path change through the driver's own handling,
+# so a test between real runtimes reaches it without a relay),
+# `end_driver`, `fail_publishes` and `fail_overlay_writes`, and
+# `OverlayFault`. Enabled by test crates as a dev-dependency feature;
+# nothing that ships turns it on.
 test-hooks = []
 
 [dev-dependencies]
-# TEST-ONLY: this crate with its own `test-hooks` on, for the tests that
-# inject a trust overlay write or publish failure
-# (`tests/trust_overlay.rs` and `tests/trust_overlay_ahead.rs`).
+# TEST-ONLY: this crate with its own `test-hooks` on, for this crate's
+# own tests that call the hooks the feature gates (listed above).
 interweave-transport-composition = { path = ".", features = ["test-hooks"] }
 # TEST-ONLY: the host's private address for tests between real peers
 # (ADR-0052 refuses a peer's loopback). Never a production dependency.

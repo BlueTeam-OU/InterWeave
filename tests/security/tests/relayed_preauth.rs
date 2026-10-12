@@ -35,8 +35,12 @@ use libp2p::swarm::NetworkBehaviour;
 use libp2p::{Multiaddr, identify, identity, relay};
 
 const PATIENCE: Duration = Duration::from_secs(20);
-/// Long enough for the relay client's first retry, 30 s after a failed
-/// dial.
+/// Long enough for a reservation after one failed dial to the relay:
+/// the dial gate then holds the relay for `RETRY_BASE_MS` (30 s), the
+/// relay client's own ladder (5 s, doubling, up to 5 s of jitter) asks
+/// at about 5-10 s and 15-25 s and is refused at the gate each time, and
+/// the first ask the gate admits is the rung after its floor, at most
+/// about 50 s in. One more failed dial doubles the gate's hold past this.
 const RESERVATION_PATIENCE: Duration = Duration::from_secs(60);
 
 #[derive(NetworkBehaviour)]
@@ -182,11 +186,11 @@ async fn fresh_identities_through_one_relay_share_its_bucket_and_a_direct_peer_f
     .expect("a circuit address");
     // What the target reported while waiting goes into the failure, so
     // a reservation that never comes says why: refused, retried, or
-    // never asked for. The wait covers one retry of the dial to the
-    // relay: on a busy runner the first one failed with EADDRINUSE on
-    // loopback, and the retry under peer backoff comes 30 s later
-    // (CI run 38165150729). This test is about the bucket, not about
-    // a first dial's luck.
+    // never asked for. The wait covers one failed dial to the relay
+    // (`RESERVATION_PATIENCE` says how it plays out): on a busy runner
+    // the first one failed with EADDRINUSE on loopback (CI run
+    // 38165150729). This test is about the bucket, not about a first
+    // dial's luck.
     let deadline = tokio::time::Instant::now() + RESERVATION_PATIENCE;
     let mut waited = Vec::new();
     loop {

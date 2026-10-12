@@ -10,144 +10,17 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use interweave_local_client_api::{AdminBinding, AdminCapability, AdminPort, EndpointAdminView};
-use interweave_profile_config::endpoint_overlay::{ENDPOINT_OVERLAY_FILE, EndpointOverlay};
-use interweave_profile_config::{ProfileConfig, TrustBoundary};
-use interweave_transport_api::{EndpointId, TransportError};
-use interweave_transport_composition::{ComposedRuntime, CompositionError, CompositionOptions};
+use interweave_profile_config::ProfileConfig;
+use interweave_transport_api::TransportError;
+use interweave_transport_composition::{ComposedRuntime, CompositionError};
 
 mod common;
+mod endpoint_common;
 
 use common::{chmod, id};
-
-/// `human`, the configured default, and `agent`, both enabled.
-fn profile() -> ProfileConfig {
-    serde_norway::from_str(
-        "schema_version: 2
-trust:
-  policy: static-allowlist
-  allowed_peers: []
-endpoints:
-  default_direct_endpoint: human
-  entries:
-    - id: human
-      enabled: true
-      advertise: false
-    - id: agent
-      enabled: true
-      advertise: false
-discovery:
-  providers:
-    - type: static-bootstrap
-      enabled: true
-      priority: 10
-      config:
-        peers: []
-",
-    )
-    .expect("the document parses")
-}
-
-fn ep(s: &str) -> EndpointId {
-    EndpointId::parse(s).expect("an endpoint id")
-}
-
-/// A private state directory and the endpoint overlay's path in it.
-fn state() -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().expect("a temporary directory");
-    chmod(dir.path(), 0o700);
-    let path = dir.path().join(ENDPOINT_OVERLAY_FILE);
-    (dir, path)
-}
-
-fn options(overlay: Option<&Path>) -> CompositionOptions {
-    CompositionOptions {
-        endpoint_overlay_file: overlay.map(Path::to_path_buf),
-        ..CompositionOptions::default()
-    }
-}
-
-async fn start(overlay: Option<&Path>) -> Result<ComposedRuntime, CompositionError> {
-    let (identity, _) = id();
-    ComposedRuntime::start(&identity, &profile(), options(overlay)).await
-}
-
-/// `(enabled, default, persisted)` of each endpoint, in id order.
-async fn rows(runtime: &ComposedRuntime) -> Vec<(String, bool, bool, bool)> {
-    let rows: Vec<EndpointAdminView> = runtime
-        .sessions()
-        .admin([AdminCapability::Endpoints].into())
-        .await
-        .expect("a port")
-        .leases()
-        .await
-        .expect("the list");
-    rows.into_iter()
-        .map(|r| {
-            (
-                r.endpoint.as_str().to_owned(),
-                r.enabled,
-                r.default,
-                r.persisted,
-            )
-        })
-        .collect()
-}
-
-async fn set_enabled(
-    runtime: &ComposedRuntime,
-    endpoint: &str,
-    enabled: bool,
-) -> Result<(), TransportError> {
-    runtime
-        .sessions()
-        .admin([AdminCapability::Endpoints].into())
-        .await
-        .expect("a port")
-        .set_endpoint_enabled(ep(endpoint), enabled)
-        .await
-        .map(drop)
-}
-
-async fn set_default(
-    runtime: &ComposedRuntime,
-    endpoint: Option<&str>,
-) -> Result<(), TransportError> {
-    runtime
-        .sessions()
-        .admin([AdminCapability::Endpoints].into())
-        .await
-        .expect("a port")
-        .set_default_endpoint(endpoint.map(ep))
-        .await
-}
-
-/// What the next start would compose from the file at `path`, as rows
-/// `(id, enabled, default)` in id order.
-fn on_disk(path: &Path) -> Vec<(String, bool, bool)> {
-    let config = profile().endpoints;
-    let (overlay, _) =
-        EndpointOverlay::load_within(path, &config, &TrustBoundary::root()).expect("loads");
-    let effective = overlay.effective(&config);
-    effective
-        .enabled
-        .iter()
-        .map(|(id, on)| {
-            (
-                id.as_str().to_owned(),
-                *on,
-                effective.default.as_ref() == Some(id),
-            )
-        })
-        .collect()
-}
-
-fn row(id: &str, enabled: bool, default: bool, persisted: bool) -> (String, bool, bool, bool) {
-    (id.to_owned(), enabled, default, persisted)
-}
+use endpoint_common::{on_disk, options, row, rows, set_default, set_enabled, start, state};
 
 /// THE GATE (e) EVIDENCE: a composed runtime has its default endpoint
 /// disabled -- which clears the default -- and is dropped and rebuilt
@@ -373,34 +246,6 @@ async fn a_failed_publish_restores_the_previous_overlay() {
     runtime.stop().await.expect("stops");
 }
 
-/// A failed publish whose restore then fails before its rename leaves
-/// the overlay AHEAD: answered `Internal`, never the publish's own
-/// `BackendUnavailable`, since the set does take effect at the next
-/// start -- the file says so and the runtime does not.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_failed_publish_whose_restore_fails_is_left_ahead() {
-    use interweave_transport_composition::OverlayFault::{BeforeRename, Clean};
-
-    let (_dir, path) = state();
-    let runtime = start(Some(&path)).await.expect("composes");
-    runtime.fail_publishes(1).await.expect("queued");
-    // The set's own write is clean; the restore's meets the fault.
-    runtime
-        .fail_overlay_writes(vec![Clean, BeforeRename])
-        .await
-        .expect("queued");
-    assert_eq!(
-        set_enabled(&runtime, "agent", false).await,
-        Err(TransportError::Internal)
-    );
-    assert!(
-        rows(&runtime).await[0].1,
-        "not published: agent still enabled"
-    );
-    assert!(!on_disk(&path)[0].1, "ahead: disabled on disk");
-    runtime.stop().await.expect("stops");
-}
-
 /// A present overlay that cannot be trusted stops the start, never
 /// skipped; the same contents, private, start with them in force.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -552,6 +397,9 @@ async fn an_overlay_the_composed_profile_refuses_stops_the_start_by_name() {
 }
 
 /// How many ahead warnings the runtimes in this binary have logged.
+/// The warning names no runtime, so a count is this case's only while
+/// no other test in the binary can log it: the ahead test that does is a
+/// binary of its own (`endpoint_overlay_ahead.rs`).
 fn ahead_warnings() -> usize {
     logged()
         .matches("the endpoint overlay is ahead of the runtime")
