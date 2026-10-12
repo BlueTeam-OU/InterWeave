@@ -24,6 +24,9 @@
 //!   results show the subject answered them;
 //! - record and provider writes are counted and stored nowhere, and the
 //!   writer's read of one ends with the subject having answered.
+//! - a bucket full of connected honest seats gives no seat to a trusted
+//!   newcomer in it, nor to a peer its answers name, and gives up none,
+//!   while a seat freed by a revocation is taken by the next peer.
 //!
 //! What it RECORDS, with no threshold: how many explorations ended with
 //! results naming no honest router, and the distinct routers seated, at
