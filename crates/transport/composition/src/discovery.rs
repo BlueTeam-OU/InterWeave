@@ -672,10 +672,12 @@ mod tests {
     /// No restart storm (plan section 21 S6): for two hours the only
     /// routing seat flaps every second and every bootstrap query fails,
     /// yet bootstraps start at most once per `bootstrap_min_interval`
-    /// (five minutes by default) -- re-arming on every refill and every
-    /// failure is paced by the provider, not by how often the trigger
-    /// fires. The control: they keep coming, about once an interval, so
-    /// the bound is not met by never trying again.
+    /// (five minutes by default) -- the re-arm on every refill is paced
+    /// by the provider, not by how often the trigger fires. A failure
+    /// re-arms nothing; it only gives the query's budget back, so the
+    /// next paced bootstrap is not refused for want of a permit. The
+    /// control: they keep coming, about once an interval, so the bound
+    /// is not met by never trying again.
     #[test]
     fn a_flapping_seat_and_failing_bootstraps_start_no_more_than_one_per_interval() {
         use interweave_kademlia_control_api::QueryFailure;

@@ -727,6 +727,9 @@ async fn a_trusted_routers_record_and_provider_writes_are_counted_and_stored_now
 const BUCKET: usize = 8;
 const NEWCOMERS: usize = 2;
 const OBSERVED: usize = 2;
+/// How long a seat a full bucket refused has to show up anyway. The
+/// control's seat, through the same path with room, must land inside it.
+const SETTLE: Duration = Duration::from_secs(3);
 
 /// Fresh keys whose `PeerId` falls in `subject`'s bucket 255, the half
 /// of the key space farthest from it, so every one competes for the
@@ -856,8 +859,8 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
         );
     }
     // Time for any seat the newcomers or the observed could take to be
-    // reported; the control below takes one in far less.
-    events.extend(drive(&mut subject, "settling", Duration::from_secs(3), |_| false).await);
+    // reported; the control below is held to taking one inside it.
+    events.extend(drive(&mut subject, "settling", SETTLE, |_| false).await);
 
     // The controls: the observations reached the subject's seat path,
     // since the walk connected to every observed peer, and the flood
@@ -887,9 +890,15 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
     assert!(served, "the subject answered the newcomers' flood");
 
     // THE BOUND: no honest seat was given up, and no newcomer or
-    // observed peer took one.
+    // observed peer took one. And the premise: every occupant stayed
+    // connected. A disconnected one is replaced only after libp2p-kad's
+    // 60 s pending timeout, far past this run, so without this check the
+    // bound would pass for a bucket of disconnected seats as well.
     for e in &events {
         match e {
+            SwarmEvent::Disconnected { peer, .. } if honest_peers.contains(peer) => {
+                panic!("occupant {peer:?} disconnected, so its seat was not a connected one")
+            }
             SwarmEvent::Kademlia {
                 event: KademliaEvent::RoutingPeerRemoved { peer },
             } => panic!("seat {peer:?} was given up under a full bucket"),
@@ -918,7 +927,14 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
         removal.iter().any(|e| matches!(e, SwarmEvent::Kademlia { event: KademliaEvent::RoutingPeerRemoved { peer } } if *peer == freed)),
         "revoking {freed:?} frees its seat: {removal:?}"
     );
+    let started = tokio::time::Instant::now();
     let _ = seat(&mut subject, &late.peer, late.address.clone()).await;
+    assert!(
+        started.elapsed() < SETTLE,
+        "a seat with room lands inside the settling window, so the window could have seen one: \
+         {:?}",
+        started.elapsed()
+    );
 
     subject.shutdown().await.expect("stops");
     drop((honest, newcomers, observed, late));
