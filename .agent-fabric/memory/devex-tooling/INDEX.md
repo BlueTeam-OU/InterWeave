@@ -3,7 +3,7 @@ role: "devex-tooling"
 class: index
 description: "What devex-tooling knows and where it lives."
 tier: 1
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 ---
 
 # devex-tooling — knowledge index

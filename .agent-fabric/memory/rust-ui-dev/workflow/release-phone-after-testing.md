@@ -5,7 +5,7 @@ topic: "release-phone-after-testing"
 description: "when device testing ends, run adb disconnect and adb kill-server so the shared Android phone is free"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

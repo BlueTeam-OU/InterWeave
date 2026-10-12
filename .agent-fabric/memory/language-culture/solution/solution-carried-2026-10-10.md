@@ -1,10 +1,11 @@
 ---
 role: "language-culture"
 class: solution
+topic: "solution-carried-2026-10-10"
 description: "The English conventions and glossary the InterWeave human client's copy holds (labels.rs), set at the first read 2026-10-09"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

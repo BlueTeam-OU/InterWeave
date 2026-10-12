@@ -5,7 +5,7 @@ topic: "j49-network-change-binding-ruled"
 description: "§20 step 5 runtime side (j49) ruled by architect-cto seq 33736: NetworkView snapshot of IPs into the ONE detector, one redial per allowlisted peer on an addition, wildcard-only listeners for embedded-android"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - b161f747fef3243f
+  - dffda13589a9ec1e
 ---
 
 ## §20 step 5 runtime side (j49) ruled by architect-cto seq 33736: NetworkView snapshot of IPs into the ONE detector, one redial per allowlisted peer on an addition, wildcard-only listeners for embedded-android
@@ -39,5 +40,7 @@ RESUMED 2026-10-10: gap A/B mutations caught; gap C done 7c1eaf7b (HeldListeners
 2026-10-10: merged main (1ee90a9c, ADR same-day amendments kept both; 0011 body order network-addition before relay-hop, architect agreed); re-review 2 fixes b2f154c5/22d6498f (funnel wiring test kademlia_driver a_walk_after...)/a605e63a; xtask ci GREEN on a605e63a. PR #250 OPEN (21 work, 10 fix), body has supply range lines + AWAITING-SUPPLY: architect-cto-01 (their j75: strike "owed/at this writing" clauses; they cut from a605e63a when their pause lifts) -- add its range line when folded, then re-review that range before arming. Blind review dispatched in two parts (A substrate, B surroundings) on a605e63a; post both with post-review.sh, answer findings on the PR.
 2026-10-10 later: two-part blind review of a605e63a posted on #250 (no P1; B-F1 P2 = architect j75). Judged and fixed: B-F2 expired backoff not a lift + B-F3 claimed retry guard (f5730cb1), A-F1/A-F3/B-F4/A-F2 docstring (8f95064a, 8c752c68, 22f31edb, ccfb645e, 11ffc4ad); dispositions comment posted; PR body limits gained the DCUtR crate candidate-cache gap (pre-existing follow-up: rebuild dcutr inner on removal). Re-review of a605e63a..11ffc4ad dispatched. Still: architect j75 supply -> add range line, re-review it, then arm via arm.sh.
 Re-review of a605e63a..11ffc4ad posted (no P1/P2); its P3 fixed in code (network_lifts pruned by class too) + LRU nit, pushed a8bed51b. #250 (21 work, 18 fix) unarmed. NEXT: when architect's j75 supply lands -> fold, add range line under the AWAITING-SUPPLY in the PR body, dispatch ONE re-review of 11ffc4ad..<new head>, post, then arm.sh once checks are all SUCCESS.
+ARMED 2026-10-10 ~07:00Z: #250 (22 work, 18 fix) at 388f2bda via arm.sh, queued at 1; all 9 checks SUCCESS; final re-review clean. arm.sh noted 22 > 16: smaller batches next time. On merge: fabric-jobs deliver/done j49, clean target, start j53 (branch off origin/main).
+LANDED 2026-10-10 07:22Z: #250 merged ef73b0b1; j49 done; architect told (seq 95393) with proved/not-proved list. Follow-up owed: DCUtR crate candidate cache (rebuild inner on removal).
 
-*Observed 2026-10-09 (p2p-network-dev)*
+*Observed 2026-10-10 (p2p-network-dev)*
