@@ -66,9 +66,14 @@ pub type WallClock = Box<dyn Fn() -> u64 + Send + Sync>;
 pub struct ClientConfig {
     /// The client kind the session declares.
     pub client_kind: String,
-    /// The endpoint to lease, or `None` for a session that sends only
-    /// broadcasts and receives none directly.
-    pub endpoint: Option<EndpointId>,
+    /// The endpoints this client may lease, in the order it prefers them;
+    /// empty for a session that sends only broadcasts and receives none
+    /// directly. Each open leases the first the runtime does not refuse
+    /// as disabled: whether an endpoint is enabled is the runtime's
+    /// effective state, which an administrator's change kept across
+    /// restarts makes differ from the profile's file (ADR-0028 A
+    /// 2026-10-11), so the client never decides it from configuration.
+    pub endpoints: Vec<EndpointId>,
     /// The channels to join while the session is ready: the only ones a
     /// broadcast may go to.
     pub channels: Vec<ChannelId>,
@@ -81,7 +86,7 @@ impl ClientConfig {
     /// to `destination` at all (agreed amendment A2).
     fn allows(&self, destination: &OutboundDestination) -> bool {
         match destination {
-            OutboundDestination::Direct(_) => self.endpoint.is_some(),
+            OutboundDestination::Direct(_) => !self.endpoints.is_empty(),
             OutboundDestination::Broadcast(channel) => self.channels.contains(channel),
         }
     }
@@ -132,6 +137,9 @@ pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     config: ClientConfig,
     wall: WallClock,
     session: Option<B::Session>,
+    /// The endpoint the last open leased: what a sent message names as
+    /// its own until another open leases a different one.
+    leased: Option<EndpointId>,
     admin: Option<A::Admin>,
     state: SessionState,
     /// Where a degrade came from, if it was `Refused`: a recovered store
@@ -178,6 +186,7 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             config,
             wall,
             session: None,
+            leased: None,
             admin: None,
             state: SessionState::Reconnecting {
                 attempt: 0,
@@ -240,6 +249,18 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
     #[must_use]
     pub const fn connectivity(&self) -> Connectivity {
         self.connectivity
+    }
+
+    /// The endpoint a message sent now names as its own: the one the last
+    /// open leased, or before any lease the first this client prefers.
+    /// A message queued while no session holds may leave on a different
+    /// endpoint if the next open's walk lands elsewhere; the field is the
+    /// sender's assertion, never the route (`HUMAN-CHAT.md`).
+    #[must_use]
+    pub fn endpoint(&self) -> Option<&EndpointId> {
+        self.leased
+            .as_ref()
+            .or_else(|| self.config.endpoints.first())
     }
 
     /// The diagnostic counts.
@@ -556,10 +577,10 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             return;
         }
         match self.open().await {
-            Ok(session) => {
+            Ok((session, endpoint)) => {
                 self.session = Some(session);
                 self.reopen_attempt = 0;
-                let endpoint = self.config.endpoint.clone();
+                self.leased.clone_from(&endpoint);
                 self.set_state(SessionState::Ready { endpoint });
             }
             Err(e) => match classify_open(e) {
@@ -578,22 +599,43 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
         }
     }
 
-    /// Open a session and make its joins; a join that fails closes it.
-    async fn open(&self) -> Result<B::Session, TransportError> {
-        let request = SessionRequest::new(
-            self.config.client_kind.clone(),
-            self.config.endpoint.clone(),
-            [DataCapability::Commands, DataCapability::Events],
-        )
-        .map_err(|_| TransportError::InvalidArgument)?;
-        let session = self.binding.open(request).await?;
-        for channel in &self.config.channels {
-            if let Err(e) = session.join(channel.clone()).await {
-                let _ = session.close().await;
-                return Err(e);
+    /// Open a session on the first configured endpoint the runtime does
+    /// not refuse as disabled, and make its joins; a join that fails
+    /// closes it. Answers the session and the endpoint it leased.
+    ///
+    /// Only `EndpointDisabled` moves on to the next endpoint: it is the
+    /// one refusal an administrator's kept change makes, and the next
+    /// endpoint is as much this client's. Any other refusal -- one in
+    /// use, say, held by another window -- stops the walk, so a client
+    /// never takes a second endpoint because its own is busy. All of them
+    /// disabled answers `EndpointDisabled`.
+    async fn open(&self) -> Result<(B::Session, Option<EndpointId>), TransportError> {
+        let candidates: Vec<Option<EndpointId>> = if self.config.endpoints.is_empty() {
+            vec![None]
+        } else {
+            self.config.endpoints.iter().cloned().map(Some).collect()
+        };
+        for endpoint in candidates {
+            let request = SessionRequest::new(
+                self.config.client_kind.clone(),
+                endpoint.clone(),
+                [DataCapability::Commands, DataCapability::Events],
+            )
+            .map_err(|_| TransportError::InvalidArgument)?;
+            let session = match self.binding.open(request).await {
+                Ok(session) => session,
+                Err(TransportError::EndpointDisabled) => continue,
+                Err(e) => return Err(e),
+            };
+            for channel in &self.config.channels {
+                if let Err(e) = session.join(channel.clone()).await {
+                    let _ = session.close().await;
+                    return Err(e);
+                }
             }
+            return Ok((session, endpoint));
         }
-        Ok(session)
+        Err(TransportError::EndpointDisabled)
     }
 
     async fn tick_connectivity(&mut self, now: u64) {

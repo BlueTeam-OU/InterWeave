@@ -20,6 +20,7 @@ use interweave_human_desktop::run::{
 };
 use interweave_profile_config::{HumanClientLock, ProfilePaths, XdgRoots};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_transport_api::EndpointId;
 
 const PROFILE: &str = "desk";
 
@@ -61,6 +62,17 @@ impl Home {
     /// A valid profile document; `kinds` is the human endpoint's allowed
     /// client kinds.
     fn write_config(&self, kinds: &str) {
+        self.write_entries(
+            "human",
+            &format!(
+                "    - {{ id: human, enabled: true, advertise: true, allowed_client_kinds: [{kinds}], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}\n"
+            ),
+        );
+    }
+
+    /// A valid profile document whose endpoint entries are `entries`, one
+    /// YAML list item a line, and whose default is `default`.
+    fn write_entries(&self, default: &str, entries: &str) {
         let peer = ProfileIdentity::generate()
             .transport_identity()
             .expect("peer");
@@ -75,11 +87,10 @@ identity: {{ algorithm: ed25519 }}
 trust: {{ policy: static-allowlist, allowed_peers: [\"{peer}\"] }}
 endpoints:
   registration_policy: configured-only
-  default_direct_endpoint: human
+  default_direct_endpoint: {default}
   directory: {{ enabled: true }}
   entries:
-    - {{ id: human, enabled: true, advertise: true, allowed_client_kinds: [{kinds}], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}
-ipc: {{ enabled: true, socket_layout: split-data-admin }}
+{entries}ipc: {{ enabled: true, socket_layout: split-data-admin }}
 channels: {{ desired: [] }}
 ",
             peer = peer.as_str()
@@ -156,6 +167,38 @@ fn a_profile_with_no_endpoint_for_this_client_is_refused() {
     assert_eq!(code, i32::from(EX_CONFIG), "{message}");
     assert!(message.contains("human-client"), "{message}");
     assert!(!home.store().exists(), "no store is created");
+}
+
+/// Every entry open to this client is offered, in the file's order, a
+/// disabled one too: whether it is enabled is the daemon's effective
+/// state, which an administrator's kept change makes differ from the file
+/// (ADR-0028 A 2026-10-11), and the facade's open asks it.
+#[test]
+fn every_endpoint_open_to_this_client_is_offered_whatever_the_file_says_of_enabled() {
+    let home = Home::new();
+    let entry = |id: &str, enabled: bool, kinds: &str| {
+        format!(
+            "    - {{ id: {id}, enabled: {enabled}, advertise: true, allowed_client_kinds: [{kinds}], inbound: inherit_profile_trust, outbound: inherit_profile_trust }}\n"
+        )
+    };
+    home.write_entries(
+        "human-a",
+        &[
+            entry("human-z", false, "human-client"),
+            entry("agent", true, "claude-channel"),
+            entry("human-a", true, "human-client"),
+        ]
+        .concat(),
+    );
+    let launch = interweave_human_desktop::startup::Launch {
+        profile: PROFILE.to_owned(),
+        store_max_pages: None,
+    };
+    let profile =
+        interweave_human_desktop::startup::resolve(&launch, &home.roots()).expect("resolves");
+    let ids: Vec<&str> = profile.endpoints.iter().map(EndpointId::as_str).collect();
+    // Reverse alphabetical in the file, so a sort would show.
+    assert_eq!(ids, ["human-z", "human-a"]);
 }
 
 #[test]

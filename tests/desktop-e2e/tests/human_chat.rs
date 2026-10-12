@@ -239,7 +239,7 @@ impl Side {
             store,
             ClientConfig {
                 client_kind: "human-client".to_owned(),
-                endpoint: Some(human()),
+                endpoints: vec![human()],
                 channels: vec![general()],
                 max_payload_bytes: MAX_PAYLOAD_BYTES,
             },

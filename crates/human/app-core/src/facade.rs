@@ -17,7 +17,6 @@ use interweave_human_store::{ReadEphemeral, RowId, StoreError};
 use interweave_human_transport_client::TransportClient;
 use interweave_human_ui_model::{ConversationKey, Table};
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
-use interweave_transport_api::EndpointId;
 
 use crate::listing;
 use crate::protocol::{Command, Failure, Listing, Update};
@@ -36,24 +35,21 @@ const DRAIN_PER_TURN: usize = 64;
 /// The facade side of the root.
 pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     client: TransportClient<B, A>,
-    endpoint: Option<EndpointId>,
     wall: Box<dyn Fn() -> u64 + Send + Sync>,
     copies: ReadCopies<ReadEphemeral>,
     reported: Option<Diagnostics>,
 }
 
 impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
-    /// Wrap a facade. `endpoint` is the local endpoint a sent message
-    /// names as its `from_endpoint` -- the one the facade leases -- and
-    /// `wall` the wall clock in Unix milliseconds.
+    /// Wrap a facade, `wall` the wall clock in Unix milliseconds. A sent
+    /// message names as its `from_endpoint` the endpoint the facade
+    /// leases ([`TransportClient::endpoint`]), which an open may move.
     pub fn new(
         client: TransportClient<B, A>,
-        endpoint: Option<EndpointId>,
         wall: impl Fn() -> u64 + Send + Sync + 'static,
     ) -> Self {
         Self {
             client,
-            endpoint,
             wall: Box::new(wall),
             copies: ReadCopies::default(),
             reported: None,
@@ -209,7 +205,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             text: draft.to_owned(),
             reply_to: None,
             sent_at_ms: Some(at),
-            from_endpoint: self.endpoint.clone(),
+            from_endpoint: self.client.endpoint().cloned(),
         };
         match Box::pin(self.client.send(destination.clone(), &envelope, now)).await {
             Ok(row) => Update::Sent {
@@ -312,7 +308,7 @@ mod tests {
     /// undecodable ones counted.
     #[test]
     fn unread_in_store_lists_the_unread_rows_again() {
-        let human = EndpointId::parse("human").expect("endpoint");
+        let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
         let config = || FakeConfig {
             peer: ProfileIdentity::generate()
                 .transport_identity()
@@ -350,7 +346,7 @@ mod tests {
             store,
             ClientConfig {
                 client_kind: "human-client".to_owned(),
-                endpoint: Some(human.clone()),
+                endpoints: vec![human.clone()],
                 channels: vec![],
                 max_payload_bytes: 49_152,
             },
@@ -358,7 +354,7 @@ mod tests {
             0,
         )
         .expect("facade");
-        let mut side = FacadeSide::new(client, Some(human), || 1);
+        let mut side = FacadeSide::new(client, || 1);
 
         let mut updates = Vec::new();
         side.on_event(
