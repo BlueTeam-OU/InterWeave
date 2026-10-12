@@ -1,10 +1,11 @@
 ---
 role: "language-culture"
 class: workflow
+topic: "workflow-carried-2026-10-10"
 description: How the English cold read behaves when given only the text and the rules — what it catches and what to check before taking a finding
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

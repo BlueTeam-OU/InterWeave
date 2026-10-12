@@ -3,7 +3,7 @@ role: "rust-ui-dev"
 class: index
 description: "What rust-ui-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 ---
 
 # rust-ui-dev — knowledge index
@@ -32,18 +32,34 @@ control plane checked out beside it.
 ## solution
 
 - [`.agent-fabric/memory/rust-ui-dev/solution/android-network-change-contract.md`](.agent-fabric/memory/rust-ui-dev/solution/android-network-change-contract.md) — §20 step 5 (j44): what the Android Service's network callback owes EmbeddedHost::network_changed, and the wildcard-listener rule
+- [`.agent-fabric/memory/rust-ui-dev/solution/android-shell-build.md`](.agent-fabric/memory/rust-ui-dev/solution/android-shell-build.md) — how the j51 Android app shell builds (Gradle+cargo-ndk+Slint NativeActivity), the env it needs, and first on-device findings
 - [`.agent-fabric/memory/rust-ui-dev/solution/android-spike-device.md`](.agent-fabric/memory/rust-ui-dev/solution/android-spike-device.md) — SPIKE-008/009 test device: no StrongBox, Smart Switch path, no emulator (no /dev/kvm), release after use; the owner unlocks it
+- [`.agent-fabric/memory/rust-ui-dev/solution/android17-internet-runtime-permission.md`](.agent-fabric/memory/rust-ui-dev/solution/android17-internet-runtime-permission.md) — On the Pixel 9a (Android 17, API 37) INTERNET is a runtime permission; ungranted, EmbeddedHost::start fails with EPERM
 - [`.agent-fabric/memory/rust-ui-dev/solution/desktop-e2e-load-flakes.md`](.agent-fabric/memory/rust-ui-dev/solution/desktop-e2e-load-flakes.md) — j15 -- how to reproduce desktop-e2e timeouts under load, and the send-without-step defect found (Peer::deliver)
 - [`.agent-fabric/memory/rust-ui-dev/solution/embedded-host-seam.md`](.agent-fabric/memory/rust-ui-dev/solution/embedded-host-seam.md) — the agreed seam between p2p-network-dev's embedded runtime (§20 step 1) and my Android Service, the human store and the audit sink
+- [`.agent-fabric/memory/rust-ui-dev/solution/endpoint-walk-effective-state.md`](.agent-fabric/memory/rust-ui-dev/solution/endpoint-walk-effective-state.md) — How the human client picks its endpoint since #261's persisted endpoint overlay — facade walks config order past EndpointDisabled; no admin.endpoints read (j70)
+- [`.agent-fabric/memory/rust-ui-dev/solution/j53-keystore-adapter.md`](.agent-fabric/memory/rust-ui-dev/solution/j53-keystore-adapter.md) — j53 (§20 step 6) Keystore SeedCipher built on batch-2 branch; design, what is unverified, open ruling on the user-presence window
+- [`.agent-fabric/memory/rust-ui-dev/solution/j71-fleetdeck-linux-only.md`](.agent-fabric/memory/rust-ui-dev/solution/j71-fleetdeck-linux-only.md) — j71 FleetDeck Debian/Fedora-only: part 1 (release manifest test) merged as #20; part 2 is removing macOS/Windows code, scripts and docs
+- [`.agent-fabric/memory/rust-ui-dev/solution/labels-platform-values.md`](.agent-fabric/memory/rust-ui-dev/solution/labels-platform-values.md) — decided key shape for the eight labels.rs values naming the transport daemon (Android has none) — implement on the j51 app-shell branch
 - [`.agent-fabric/memory/rust-ui-dev/solution/stage-15-b2-pr178.md`](.agent-fabric/memory/rust-ui-dev/solution/stage-15-b2-pr178.md) — Stage 15 B2+B3 = PR #178 (branch develop-qzapp/rust-ui-dev-01/feat/stage-15-desktop): app start-up/running + store v7 read_pairs; review history and SQLite lessons
 - [`.agent-fabric/memory/rust-ui-dev/solution/stage-15-client-reading-notes.md`](.agent-fabric/memory/rust-ui-dev/solution/stage-15-client-reading-notes.md) — What the remit's reading list (ADR-0039/0040, clients/human/*, plan §17-§18) means for the desktop client work from Stage 15 — the non-obvious points
 - [`.agent-fabric/memory/rust-ui-dev/solution/stage17-spikes-merged.md`](.agent-fabric/memory/rust-ui-dev/solution/stage17-spikes-merged.md) — SPIKE-008/009 device halves merged (#210, #214) and the human store's RETENTION 8 fix -- what landed and what each did not establish
 - [`.agent-fabric/memory/rust-ui-dev/solution/ui-slint-body-cache-tests.md`](.agent-fabric/memory/rust-ui-dev/solution/ui-slint-body-cache-tests.md) — A views.rs test that loops over sources with one View must give each a distinct row — the view caches drawn bodies by ItemKey
+- [`.agent-fabric/memory/rust-ui-dev/solution/ui-slint-embedded-image-decoder.md`](.agent-fabric/memory/rust-ui-dev/solution/ui-slint-embedded-image-decoder.md) — An @image-url in InterWeave's app.slint needs i-slint-core image-decoders, which only backends turn on; workspace CI hides a featureless ui-slint build failure
+
+## intersection
+
+- [`.agent-fabric/memory/rust-ui-dev/intersection.md`](.agent-fabric/memory/rust-ui-dev/intersection.md) — j55 (herdr Fleet Deck needs-you views) — the attention section shape agreed with python-dev-01, 2026-10-10
+
+## rationale
+
+- [`.agent-fabric/memory/rust-ui-dev/rationale.md`](.agent-fabric/memory/rust-ui-dev/rationale.md) — where Android's Stay reachable choice lives (architect-cto DECISION 01a124ed, 2026-10-10) and what the shell must do with it
 
 ## workflow
 
-- [`.agent-fabric/memory/rust-ui-dev/workflow/arming-tool.md`](.agent-fabric/memory/rust-ui-dev/workflow/arming-tool.md) — How to arm a PR in InterWeave since 2026-10-04: tools/gh/arm.sh, not gh pr merge --auto by hand
+- [`.agent-fabric/memory/rust-ui-dev/workflow/arming-tool.md`](.agent-fabric/memory/rust-ui-dev/workflow/arming-tool.md) — How to arm, gate, post reviews in InterWeave — fabric-pr verbs since the tools/gh forwarders were retired (4a010c6b)
 - [`.agent-fabric/memory/rust-ui-dev/workflow/desktop-e2e-stale-binary.md`](.agent-fabric/memory/rust-ui-dev/workflow/desktop-e2e-stale-binary.md) — desktop-e2e runs whatever human-desktop binary sits in target/ -- rebuild it before a package-only test run or a mutation check
+- [`.agent-fabric/memory/rust-ui-dev/workflow/herdr-conventional-commits.md`](.agent-fabric/memory/rust-ui-dev/workflow/herdr-conventional-commits.md) — agent-fabric-herdr (FleetDeck) CI requires conventional-commit PR titles AND commit subjects; title edits do not retrigger CI
 - [`.agent-fabric/memory/rust-ui-dev/workflow/labels-english-supplier.md`](.agent-fabric/memory/rust-ui-dev/workflow/labels-english-supplier.md) — who finalises English for crates/human/ui-model/src/labels.rs values, how it reaches my PR, and the conventions a new placeholder should follow
 - [`.agent-fabric/memory/rust-ui-dev/workflow/prose-sweep-siblings.md`](.agent-fabric/memory/rust-ui-dev/workflow/prose-sweep-siblings.md) — before committing a human-client behaviour or copy change, sweep the sibling crate READMEs, .slint comments, the parity golden, and every test that asserts the old event behaviour (apps/human-* included)
 - [`.agent-fabric/memory/rust-ui-dev/workflow/release-phone-after-testing.md`](.agent-fabric/memory/rust-ui-dev/workflow/release-phone-after-testing.md) — when device testing ends, run adb disconnect and adb kill-server so the shared Android phone is free
