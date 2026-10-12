@@ -57,7 +57,7 @@ use interweave_transport_libp2p::{
 use interweave_transport_runtime::{DialDenial, DialOrigin, TrustSources};
 use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
 use libp2p::swarm::NetworkBehaviour;
-use libp2p::{Multiaddr, PeerId, StreamProtocol, Swarm, identify, kad};
+use libp2p::{Multiaddr, PeerId, StreamProtocol, Swarm, identify, identity, kad};
 use tokio::sync::mpsc;
 
 const NETWORK: &str = "stage-18-adversarial";
@@ -155,8 +155,18 @@ async fn hostile_router(
     ip: std::net::Ipv4Addr,
     stuffing: Vec<(PeerId, Multiaddr)>,
 ) -> HostileRouter {
+    hostile_router_as(identity::Keypair::generate_ed25519(), ip, stuffing).await
+}
+
+/// `hostile_router` under keys the caller chose, so its place in the
+/// subject's routing table is known in advance.
+async fn hostile_router_as(
+    keys: identity::Keypair,
+    ip: std::net::Ipv4Addr,
+    stuffing: Vec<(PeerId, Multiaddr)>,
+) -> HostileRouter {
     let protocol = StreamProtocol::try_from_owned(kad_protocol(NETWORK)).expect("a protocol");
-    let mut swarm: Swarm<Hostile> = libp2p::SwarmBuilder::with_new_identity()
+    let mut swarm: Swarm<Hostile> = libp2p::SwarmBuilder::with_existing_identity(keys)
         .with_tokio()
         .with_tcp(
             libp2p::tcp::Config::default(),
@@ -704,4 +714,206 @@ async fn a_trusted_routers_record_and_provider_writes_are_counted_and_stored_now
     );
 
     subject.shutdown().await.expect("stops");
+}
+
+/// Routers in the subject's farthest bucket: one bucket's worth of
+/// honest seats, and the peers that would take one.
+const BUCKET: usize = 8;
+const NEWCOMERS: usize = 2;
+const OBSERVED: usize = 2;
+
+/// Fresh keys whose `PeerId` falls in `subject`'s bucket 255, the half
+/// of the key space farthest from it, so every one competes for the
+/// same `BUCKET` slots.
+fn far_keys(subject: &PeerId, n: usize) -> Vec<identity::Keypair> {
+    let me = kad::KBucketKey::from(*subject);
+    std::iter::repeat_with(identity::Keypair::generate_ed25519)
+        .filter(|k| {
+            kad::KBucketKey::from(k.public().to_peer_id())
+                .distance(&me)
+                .ilog2()
+                == Some(255)
+        })
+        .take(n)
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations_no_seat() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let subject_id = ProfileIdentity::generate();
+    let subject_peer = subject_id.transport_identity().expect("peer id");
+    let subject_libp2p = peer_id(&subject_peer);
+    let mut keys = far_keys(&subject_libp2p, BUCKET + NEWCOMERS + OBSERVED + 1).into_iter();
+
+    // OBSERVED: trusted, listening, serving Kademlia, and known to the
+    // subject only through what the newcomers answer its walks.
+    let mut observed = Vec::new();
+    for k in keys.by_ref().take(OBSERVED) {
+        observed.push(hostile_router_as(k, ip, Vec::new()).await);
+    }
+    // NEWCOMERS: trusted routers that connect and flood, and whose
+    // answers name the observed.
+    let named: Vec<(PeerId, Multiaddr)> = observed
+        .iter()
+        .map(|o| (peer_id(&o.peer), o.address.clone()))
+        .collect();
+    let mut newcomers = Vec::new();
+    for k in keys.by_ref().take(NEWCOMERS) {
+        newcomers.push(hostile_router_as(k, ip, named.clone()).await);
+    }
+    // HONEST: one full bucket, each naming the newcomers, so a walk that
+    // starts at an honest seat goes on to ask a newcomer.
+    let newcomers_named: Vec<(PeerId, Multiaddr)> = newcomers
+        .iter()
+        .map(|n| (peer_id(&n.peer), n.address.clone()))
+        .collect();
+    let mut honest = Vec::new();
+    for k in keys.by_ref().take(BUCKET) {
+        honest.push(hostile_router_as(k, ip, newcomers_named.clone()).await);
+    }
+    // LATE: the control's newcomer, held back until a seat is free.
+    let late = hostile_router_as(keys.next().expect("one more far key"), ip, Vec::new()).await;
+
+    let honest_peers: Vec<TransportIdentity> = honest.iter().map(|h| h.peer.clone()).collect();
+    let mut outsiders: Vec<TransportIdentity> = newcomers.iter().map(|n| n.peer.clone()).collect();
+    outsiders.extend(observed.iter().map(|o| o.peer.clone()));
+    let mut everyone: Vec<&TransportIdentity> = honest_peers.iter().collect();
+    everyone.extend(outsiders.iter());
+    everyone.push(&late.peer);
+    let mut subject = SwarmRuntime::start(
+        &subject_id,
+        SubstrateConfig {
+            kademlia: Some(KademliaSettings {
+                kbucket_size: NonZeroUsize::new(BUCKET).expect("nonzero"),
+                ..settings()
+            }),
+            // A seat is evictable once its connection is gone (libp2p-kad
+            // queues a newcomer behind a disconnected occupant), so the
+            // honest connections are kept for the whole run: what is
+            // under test is the connected seat.
+            idle_timeout: Duration::from_secs(600),
+            ..SubstrateConfig::default()
+        },
+        trusting(&everyone),
+    )
+    .expect("subject");
+    let subject_address = listening(&subject, ip).await;
+
+    let mut events = Vec::new();
+    for h in &honest {
+        events.extend(seat(&mut subject, &h.peer, h.address.clone()).await);
+    }
+
+    // THE NEWCOMERS CONNECT and identify as servers of this network,
+    // with every seat in their bucket held by a connected peer.
+    for n in &newcomers {
+        subject
+            .dial(n.peer.clone(), n.address.clone())
+            .await
+            .expect("delivered")
+            .expect("a trusted router is admitted");
+        events.extend(
+            drive(
+                &mut subject,
+                "a newcomer connecting",
+                PATIENCE,
+                |e| matches!(e, SwarmEvent::Connected { peer, .. } if *peer == n.peer),
+            )
+            .await,
+        );
+        n.orders
+            .send(Order::Know(subject_libp2p, subject_address.clone()))
+            .expect("alive");
+        n.orders.send(Order::FloodFindNode(50)).expect("alive");
+    }
+
+    // THE WALKS: the honest seats name the newcomers, the newcomers
+    // name the observed, and the walk dials them.
+    for n in 0..4_u64 {
+        let mut aim = key_of(&outsiders[usize::try_from(n).expect("small") % outsiders.len()]);
+        aim[31] ^= u8::try_from(n).expect("small");
+        let handle = QueryHandle::commanded(n + 1);
+        subject
+            .kademlia(KademliaCommand::StartQuery {
+                handle,
+                class: QueryClass::Exploration,
+                key: LookupKey::KeySpacePoint { point: aim },
+            })
+            .await
+            .expect("delivered");
+        events.extend(
+            drive(&mut subject, "an exploration", PATIENCE, |e| {
+                matches!(e, SwarmEvent::Kademlia { event: KademliaEvent::QueryResults { handle: h, .. } | KademliaEvent::QueryFailed { handle: h, .. } } if *h == handle)
+            })
+            .await,
+        );
+    }
+    // Time for any seat the newcomers or the observed could take to be
+    // reported; the control below takes one in far less.
+    events.extend(drive(&mut subject, "settling", Duration::from_secs(3), |_| false).await);
+
+    // The controls: the observations reached the subject's seat path,
+    // since the walk connected to every observed peer, and the flood
+    // was answered.
+    for o in &observed {
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, SwarmEvent::Connected { peer, .. } if *peer == o.peer)),
+            "the walk never connected to observed {:?}: {events:?}",
+            o.peer
+        );
+    }
+    let mut served = false;
+    for n in &mut newcomers {
+        while let Ok(e) = n.events.try_recv() {
+            if let kad::Event::OutboundQueryProgressed {
+                result: kad::QueryResult::GetClosestPeers(Ok(ok)),
+                ..
+            } = e
+                && ok.peers.iter().any(|p| p.peer_id == subject_libp2p)
+            {
+                served = true;
+            }
+        }
+    }
+    assert!(served, "the subject answered the newcomers' flood");
+
+    // THE BOUND: no honest seat was given up, and no newcomer or
+    // observed peer took one.
+    for e in &events {
+        match e {
+            SwarmEvent::Kademlia {
+                event: KademliaEvent::RoutingPeerRemoved { peer },
+            } => panic!("seat {peer:?} was given up under a full bucket"),
+            SwarmEvent::Kademlia {
+                event: KademliaEvent::RoutingPeerAdded { peer },
+            } if outsiders.contains(peer) => {
+                panic!("{peer:?} took a seat in a full bucket of connected peers")
+            }
+            _ => {}
+        }
+    }
+
+    // THE CONTROL FOR THE BOUND: a seat freed by revoking one honest
+    // router's trust goes to the next peer in that bucket that asks, so
+    // the newcomers were kept out by the full bucket and not by a seat
+    // path this run never reached.
+    let freed = honest_peers[0].clone();
+    let mut kept: Vec<&TransportIdentity> = everyone.clone();
+    kept.retain(|p| **p != freed);
+    subject.set_trust(trusting(&kept)).await.expect("applied");
+    let removal = drive(&mut subject, "the revocation", PATIENCE, |e| {
+        matches!(e, SwarmEvent::Kademlia { event: KademliaEvent::RoutingPeerRemoved { peer } } if *peer == freed)
+    })
+    .await;
+    assert!(
+        removal.iter().any(|e| matches!(e, SwarmEvent::Kademlia { event: KademliaEvent::RoutingPeerRemoved { peer } } if *peer == freed)),
+        "revoking {freed:?} frees its seat: {removal:?}"
+    );
+    let _ = seat(&mut subject, &late.peer, late.address.clone()).await;
+
+    subject.shutdown().await.expect("stops");
+    drop((honest, newcomers, observed, late));
 }
