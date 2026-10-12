@@ -26,7 +26,10 @@
 //!   writer's read of one ends with the subject having answered.
 //! - a bucket full of connected honest seats gives no seat to a trusted
 //!   newcomer in it, nor to a peer its answers name, and gives up none,
-//!   while a seat freed by a revocation is taken by the next peer.
+//!   while a seat freed by a revocation is taken by the next peer;
+//! - a trusted router opening far more Kademlia streams than libp2p-kad
+//!   serves on one connection has exactly that many kept, one of them
+//!   answering a `FIND_NODE`, while another router is still answered.
 //!
 //! What it RECORDS, with no threshold: how many explorations ended with
 //! results naming no honest router, and the distinct routers seated, at
@@ -919,4 +922,333 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
 
     subject.shutdown().await.expect("stops");
     drop((honest, newcomers, observed, late));
+}
+
+/// libp2p-kad's inbound stream ceiling per connection (`MAX_NUM_STREAMS`
+/// in `handler.rs`, read at 0.49.0). Not configurable, and the driver
+/// has no inbound budget of its own, so this is the bound the stack has.
+const KAD_INBOUND_STREAMS: usize = 32;
+const FLOOD_STREAMS: usize = 100;
+
+/// A raw stream opener: on its connection to `target` it opens `count`
+/// outbound streams on `protocol` and hands each over unused. A stock
+/// Kademlia peer cannot do this, since its own outbound is capped at the
+/// same 32 streams; a hostile router is not a stock peer.
+mod stream_flood {
+    use std::collections::VecDeque;
+    use std::task::{Context, Poll};
+
+    use libp2p::core::transport::PortUse;
+    use libp2p::core::upgrade::{DeniedUpgrade, ReadyUpgrade};
+    use libp2p::core::{Endpoint, Multiaddr};
+    use libp2p::swarm::handler::{ConnectionEvent, DialUpgradeError, FullyNegotiatedOutbound};
+    use libp2p::swarm::{
+        ConnectionDenied, ConnectionHandler, ConnectionHandlerEvent, ConnectionId, FromSwarm,
+        NetworkBehaviour, Stream, SubstreamProtocol, THandler, THandlerInEvent, THandlerOutEvent,
+        ToSwarm,
+    };
+    use libp2p::{PeerId, StreamProtocol};
+
+    #[derive(Debug)]
+    pub(super) enum Opened {
+        Stream(Stream),
+        Failed(String),
+    }
+
+    pub(super) struct Behaviour {
+        target: PeerId,
+        protocol: StreamProtocol,
+        count: usize,
+        events: VecDeque<Opened>,
+    }
+
+    impl Behaviour {
+        pub(super) fn new(target: PeerId, protocol: StreamProtocol, count: usize) -> Self {
+            Self {
+                target,
+                protocol,
+                count,
+                events: VecDeque::new(),
+            }
+        }
+
+        fn handler(&mut self, peer: PeerId) -> Handler {
+            // One connection's worth: a second connection to the target
+            // opens nothing, so the count is one connection's.
+            let to_open = if peer == self.target {
+                std::mem::take(&mut self.count)
+            } else {
+                0
+            };
+            Handler {
+                protocol: self.protocol.clone(),
+                to_open,
+                opened: VecDeque::new(),
+            }
+        }
+    }
+
+    impl NetworkBehaviour for Behaviour {
+        type ConnectionHandler = Handler;
+        type ToSwarm = Opened;
+
+        fn handle_established_inbound_connection(
+            &mut self,
+            _: ConnectionId,
+            peer: PeerId,
+            _: &Multiaddr,
+            _: &Multiaddr,
+        ) -> Result<THandler<Self>, ConnectionDenied> {
+            Ok(self.handler(peer))
+        }
+
+        fn handle_established_outbound_connection(
+            &mut self,
+            _: ConnectionId,
+            peer: PeerId,
+            _: &Multiaddr,
+            _: Endpoint,
+            _: PortUse,
+        ) -> Result<THandler<Self>, ConnectionDenied> {
+            Ok(self.handler(peer))
+        }
+
+        fn on_connection_handler_event(
+            &mut self,
+            _: PeerId,
+            _: ConnectionId,
+            event: THandlerOutEvent<Self>,
+        ) {
+            self.events.push_back(event);
+        }
+
+        fn poll(
+            &mut self,
+            _: &mut Context<'_>,
+        ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+            self.events
+                .pop_front()
+                .map_or(Poll::Pending, |e| Poll::Ready(ToSwarm::GenerateEvent(e)))
+        }
+
+        fn on_swarm_event(&mut self, _: FromSwarm<'_>) {}
+    }
+
+    pub(super) struct Handler {
+        protocol: StreamProtocol,
+        to_open: usize,
+        opened: VecDeque<Opened>,
+    }
+
+    impl ConnectionHandler for Handler {
+        type FromBehaviour = std::convert::Infallible;
+        type ToBehaviour = Opened;
+        type InboundProtocol = DeniedUpgrade;
+        type OutboundProtocol = ReadyUpgrade<StreamProtocol>;
+        type InboundOpenInfo = ();
+        type OutboundOpenInfo = ();
+
+        fn listen_protocol(&self) -> SubstreamProtocol<DeniedUpgrade> {
+            SubstreamProtocol::new(DeniedUpgrade, ())
+        }
+
+        fn connection_keep_alive(&self) -> bool {
+            true
+        }
+
+        fn poll(
+            &mut self,
+            _: &mut Context<'_>,
+        ) -> Poll<ConnectionHandlerEvent<ReadyUpgrade<StreamProtocol>, (), Opened>> {
+            if let Some(opened) = self.opened.pop_front() {
+                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(opened));
+            }
+            if self.to_open > 0 {
+                self.to_open -= 1;
+                return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest {
+                    protocol: SubstreamProtocol::new(ReadyUpgrade::new(self.protocol.clone()), ()),
+                });
+            }
+            Poll::Pending
+        }
+
+        fn on_behaviour_event(&mut self, event: Self::FromBehaviour) {
+            match event {}
+        }
+
+        fn on_connection_event(
+            &mut self,
+            event: ConnectionEvent<'_, DeniedUpgrade, ReadyUpgrade<StreamProtocol>>,
+        ) {
+            match event {
+                ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
+                    protocol: stream,
+                    ..
+                }) => self.opened.push_back(Opened::Stream(stream)),
+                ConnectionEvent::DialUpgradeError(DialUpgradeError { error, .. }) => {
+                    self.opened.push_back(Opened::Failed(error.to_string()));
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+#[derive(NetworkBehaviour)]
+struct Flooder {
+    identify: identify::Behaviour,
+    flood: stream_flood::Behaviour,
+}
+
+/// Whether `stream` is still open: a read the subject's end has not
+/// closed stays pending, so `window` passing without one is "open".
+async fn still_open(stream: &mut libp2p::Stream, window: Duration) -> bool {
+    use futures::AsyncReadExt as _;
+    let mut byte = [0_u8; 1];
+    tokio::time::timeout(window, stream.read(&mut byte))
+        .await
+        .is_err()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_inbound_stream_flood_keeps_libp2p_kads_ceiling_and_the_subject_answers() {
+    use futures::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let subject_id = ProfileIdentity::generate();
+    let subject_peer = subject_id.transport_identity().expect("peer id");
+    let subject_libp2p = peer_id(&subject_peer);
+    let protocol = StreamProtocol::try_from_owned(kad_protocol(NETWORK)).expect("a protocol");
+
+    let mut flooder: Swarm<Flooder> = libp2p::SwarmBuilder::with_new_identity()
+        .with_tokio()
+        .with_tcp(
+            libp2p::tcp::Config::default(),
+            libp2p::noise::Config::new,
+            libp2p::yamux::Config::default,
+        )
+        .expect("the same transport stack the subject uses")
+        .with_behaviour(|k| Flooder {
+            identify: identify::Behaviour::new(identify::Config::new(
+                IDENTIFY_PROTOCOL_VERSION.to_owned(),
+                k.public(),
+            )),
+            flood: stream_flood::Behaviour::new(subject_libp2p, protocol.clone(), FLOOD_STREAMS),
+        })
+        .expect("behaviour")
+        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))
+        .build();
+    let flooder_peer = identity_of(flooder.local_peer_id());
+    // The witness: a second trusted router on a connection of its own.
+    let mut witness = hostile_router(ip, Vec::new()).await;
+
+    let mut subject = SwarmRuntime::start(
+        &subject_id,
+        config(),
+        trusting(&[&flooder_peer, &witness.peer]),
+    )
+    .expect("subject");
+    let subject_address = listening(&subject, ip).await;
+    let _ = seat(&mut subject, &witness.peer, witness.address.clone()).await;
+    witness
+        .orders
+        .send(Order::Know(subject_libp2p, subject_address.clone()))
+        .expect("alive");
+
+    // THE FLOOD: one connection, a hundred Kademlia streams, none of
+    // which ever sends a request. The subject is driven meanwhile.
+    flooder
+        .dial(subject_address.clone())
+        .expect("the flooder dials");
+    let mut streams = Vec::new();
+    let mut failed = Vec::new();
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while streams.len() + failed.len() < FLOOD_STREAMS {
+        tokio::select! {
+            event = flooder.select_next_some() => {
+                if let libp2p::swarm::SwarmEvent::Behaviour(FlooderEvent::Flood(opened)) = event {
+                    match opened {
+                        stream_flood::Opened::Stream(s) => streams.push(s),
+                        stream_flood::Opened::Failed(e) => failed.push(e),
+                    }
+                }
+            }
+            _ = subject.next_event() => {}
+            () = tokio::time::sleep_until(deadline) => panic!(
+                "{} of {FLOOD_STREAMS} streams opened, {} failed: {failed:?}",
+                streams.len(),
+                failed.len()
+            ),
+        }
+    }
+    assert!(failed.is_empty(), "every stream was opened: {failed:?}");
+    let flooder_task = tokio::spawn(async move {
+        loop {
+            flooder.select_next_some().await;
+        }
+    });
+
+    // RESPONSIVE: the control port, and the witness's query answered on
+    // its own connection while the flood's streams are held.
+    tokio::time::timeout(Duration::from_secs(2), subject.status(None))
+        .await
+        .expect("the subject answers its control port within 2 s of the flood")
+        .expect("answered");
+    witness.orders.send(Order::FloodFindNode(1)).expect("alive");
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        tokio::select! {
+            event = witness.events.recv() => {
+                if let Some(kad::Event::OutboundQueryProgressed {
+                    result: kad::QueryResult::GetClosestPeers(Ok(ok)),
+                    ..
+                }) = event
+                    && ok.peers.iter().any(|p| p.peer_id == subject_libp2p)
+                {
+                    break;
+                }
+            }
+            _ = subject.next_event() => {}
+            () = tokio::time::sleep_until(deadline) => {
+                panic!("the witness's query was not answered by the subject during the flood")
+            }
+        }
+    }
+
+    // THE CEILING: what the subject kept of the hundred. A stream it
+    // dropped reads end-of-stream; one it holds waits for a request.
+    let mut kept = Vec::new();
+    for mut stream in streams {
+        if still_open(&mut stream, Duration::from_millis(50)).await {
+            kept.push(stream);
+        }
+    }
+    assert_eq!(
+        kept.len(),
+        KAD_INBOUND_STREAMS,
+        "one connection keeps libp2p-kad's ceiling of inbound streams and no more"
+    );
+
+    // THE CONTROL: a kept stream is Kademlia's, serving. A FIND_NODE
+    // (type 4, a 32-byte key), length-prefixed, gets an answer back.
+    let request: Vec<u8> = [0x08, 0x04, 0x12, 0x20]
+        .into_iter()
+        .chain(std::iter::repeat_n(0x5a, 32))
+        .collect();
+    let stream = &mut kept[0];
+    stream
+        .write_all(&[u8::try_from(request.len()).expect("one varint byte")])
+        .await
+        .expect("written");
+    stream.write_all(&request).await.expect("written");
+    stream.flush().await.expect("flushed");
+    let mut answer = [0_u8; 1];
+    let read = tokio::time::timeout(PATIENCE, stream.read(&mut answer))
+        .await
+        .expect("a kept stream answers its FIND_NODE")
+        .expect("read");
+    assert_eq!(read, 1, "the answer has a length prefix");
+
+    flooder_task.abort();
+    subject.shutdown().await.expect("stops");
 }
