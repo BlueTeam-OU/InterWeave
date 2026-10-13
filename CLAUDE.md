@@ -882,7 +882,7 @@ review and threads — and is taken only with `--waiver
 agent-fabric #92). The waiver is architect-cto's — the holder of
 `arm.json`'s `waiver_role` — a DECISION or REPLY addressed to this
 session and carrying the line `WAIVES: BlueTeam-OU/InterWeave#<n>@<head
-sha>` (the repository as `gh` names it now; the old org is refused) for this PR's CURRENT head; `fabric-pr arm` reads it from the relay and
+sha>` (`fabric-pr arm` compares it with the repository GH_REPO or, unset, `origin` names, so a clone re-pointed as above waives only with BlueTeam-OU) for this PR's CURRENT head; `fabric-pr arm` reads it from the relay and
 checks the sender, the role it holds, the PR and the head, and records
 who waived it and why in the arming comment. Ask architect-cto with the
 PR, the head and the reason — for a path that matched by a word alone
