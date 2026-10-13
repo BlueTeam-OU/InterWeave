@@ -677,7 +677,7 @@ material is therefore an **exemption with recorded provenance** in
 
 ### Repository git configuration
 
-- `origin` is `git@github.com:gzapi-org/InterWeave.git`; the integration branch is `main`. The repository is **public** — everything committed here is published.
+- `origin` is `git@github.com:BlueTeam-OU/InterWeave.git` (moved from gzapi-org on 2026-10-12: git follows the redirect, API writes through the old name fail with HTTP 307, so a clone still on the old origin is re-pointed with `git remote set-url origin` before it opens or arms a PR); the integration branch is `main`. The repository is **public** — everything committed here is published.
 - Commit identity is pinned **repository-locally** (`user.name`, `user.email`), so it does not depend on the machine's global config. Commit and tag signing are likewise pinned local (`user.signingkey`, `commit.gpgsign`, `tag.gpgsign`, `gpg.program`). Do not disable signing per-commit.
 - `.gitattributes` pins `* text=auto eol=lf` and marks binary classes, so the index stays canonical across machines. `fixtures/**` is `-text`: frozen vectors are byte-compared, so EOL renormalisation there is a protocol change, not a whitespace one.
 - `.claude/settings.json` is **committed** shared configuration — the push gate, the worktree base ref, the subagent dispatch hook (agent-fabric's guard, run from the sibling checkout — §"agent-fabric beside the checkout" below), and the status line (agent-fabric's `runtime/claude-code/hooks/statusline.sh`: harness version · model · effort, then agent@host, the branch's PR, the working copy and the branch — the agent and the branch being what tell you whose branch you stand on) all live in it. `.claude/settings.local.json` and `CLAUDE.local.md` are per-developer and gitignored.
@@ -881,8 +881,8 @@ review and threads — and is taken only with `--waiver
 <message-id|seq>`, never alone (the owner's ruling of 2026-10-04,
 agent-fabric #92). The waiver is architect-cto's — the holder of
 `arm.json`'s `waiver_role` — a DECISION or REPLY addressed to this
-session and carrying the line `WAIVES: gzapi-org/InterWeave#<n>@<head
-sha>` for this PR's CURRENT head; `fabric-pr arm` reads it from the relay and
+session and carrying the line `WAIVES: BlueTeam-OU/InterWeave#<n>@<head
+sha>` (the repository as `gh` names it now; the old org is refused) for this PR's CURRENT head; `fabric-pr arm` reads it from the relay and
 checks the sender, the role it holds, the PR and the head, and records
 who waived it and why in the arming comment. Ask architect-cto with the
 PR, the head and the reason — for a path that matched by a word alone
