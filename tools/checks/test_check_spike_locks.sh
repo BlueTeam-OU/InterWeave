@@ -826,13 +826,17 @@ rm -rf "$SANDBOX"; SANDBOX=""
 # there; and `$short` was a PREFIX of `$PIN`, so its assertion was true
 # whenever the other was (audit, PR #110: both survived the mutation
 # their own comment named).
-for spelling in unspaced literal upper lowercase-url; do
+#
+# THE NEW ORG IS A SPELLING TOO. The repository moved to BlueTeam-OU;
+# a pin re-pointed there, matched on the old org alone, went untraced.
+for spelling in unspaced literal upper lowercase-url new-org; do
     new_provenance_sandbox yes yes
     case "$spelling" in
         unspaced)      pin_line="dep = { git=\"https://github.com/gzapi-org/InterWeave.git\", rev=\"${PIN:0:10}\" }" ;;
         literal)       pin_line="dep = { git = 'https://github.com/gzapi-org/InterWeave.git', rev = '$PIN' }" ;;
         upper)         pin_line="dep = { git = \"https://github.com/gzapi-org/InterWeave.git\", rev = \"$( printf '%s' "$PIN" | tr 'a-f' 'A-F' )\" }" ;;
         lowercase-url) pin_line="dep = { git = \"https://github.com/gzapi-org/interweave.git\", rev = \"$PIN\" }" ;;
+        new-org)       pin_line="dep = { git = \"https://github.com/BlueTeam-OU/InterWeave.git\", rev = \"$PIN\" }" ;;
     esac
     # REPLACE the fixture's own pin rather than adding to it, so this
     # spelling is the only thing that can produce a trace.
@@ -1027,8 +1031,8 @@ rm -rf "$SANDBOX"; SANDBOX=""
 # above uses `example.invalid/other/thing.git`, which never matched any
 # version of the pattern, so deleting the org from it left the suite
 # green. These two DO match a loose pattern: a sibling repository in the
-# same org whose name merely starts with ours, and a same-named
-# repository in another org. Both carry revisions this clone does not
+# same org whose name merely starts with ours (in either of our orgs),
+# and a same-named repository in another org. Both carry revisions this clone does not
 # have, so if either is traced as ours the run exits 2 (audit, PR #110).
 new_provenance_sandbox yes yes
 cat >> "$SANDBOX/spikes/spike-test/harness/Cargo.toml" <<'EOF'
@@ -1036,10 +1040,11 @@ cat >> "$SANDBOX/spikes/spike-test/harness/Cargo.toml" <<'EOF'
 [package.metadata.near-misses]
 sibling = { git = "https://github.com/gzapi-org/interweave-tools.git", rev = "aaaaaaa1234567890123456789012345678901ab" }
 other-org = { git = "https://github.com/other-org/InterWeave.git", rev = "bbbbbbb1234567890123456789012345678901ab" }
+new-org-sibling = { git = "https://github.com/BlueTeam-OU/interweave-tools.git", rev = "ccccccc1234567890123456789012345678901ab" }
 EOF
 run_provenance_guard
 assert_rc "a sibling repo and a same-named one in another org are not ours" 0
-if [[ "$RUN_OUT" != *"aaaaaaa"* && "$RUN_OUT" != *"bbbbbbb"* ]]; then
+if [[ "$RUN_OUT" != *"aaaaaaa"* && "$RUN_OUT" != *"bbbbbbb"* && "$RUN_OUT" != *"ccccccc"* ]]; then
     pass "and neither revision is traced"
 else
     fail "and neither revision is traced" "$RUN_OUT"
