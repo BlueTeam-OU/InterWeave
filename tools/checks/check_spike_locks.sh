@@ -338,13 +338,18 @@ function strip(line,   i, c, q, out) {
     }
     return out
 }
-# Anchored past the name: `gzapi-org/interweave-tools` is a different
-# repository, and so is `other-org/InterWeave`. TWO ORGS ARE OURS: the
-# repository moved from gzapi-org to BlueTeam-OU (2026-10-12), the
-# committed pins still name the old org, and a manifest re-pointed to
-# the new one must not stop being traced -- a matcher on one org alone
-# reports such a harness as pinning nothing of ours.
-function ours(t) { return tolower(t) ~ /git[ \t]*=[ \t]*["'][^"']*(gzapi-org|blueteam-ou)\/interweave([^a-z0-9_-]|$)/ }
+# ANCHORED AT BOTH ENDS OF THE PATH. On the left, the host and org are
+# matched whole -- `github.com`, reached as `https://`, `ssh://git@` or
+# `git@`, then `/` or `:`, then the org -- so `not-blueteam-ou/InterWeave`
+# and another host's `blueteam-ou/interweave` are not us. On the right,
+# the name may be followed only by `.git`, a `/` and the closing quote,
+# so `gzapi-org/interweave-tools` and `InterWeave.rs` are not us either.
+# TWO ORGS ARE OURS: the repository moved from gzapi-org to BlueTeam-OU
+# (2026-10-12), the committed pins still name the old org, and a
+# manifest re-pointed to the new one must not stop being traced -- a
+# matcher on one org alone reports such a harness as pinning nothing of
+# ours.
+function ours(t) { return tolower(t) ~ /git[ \t]*=[ \t]*["'](https?:\/\/|ssh:\/\/git@|git@)(www\.)?github\.com[\/:](gzapi-org|blueteam-ou)\/interweave(\.git)?\/?["']/ }
 function revof(t,   m) {
     if (match(t, /[Rr][Ee][Vv][ \t]*=[ \t]*["'][0-9a-fA-F]{7,40}["']/)) {
         m = substr(t, RSTART, RLENGTH)
@@ -615,10 +620,11 @@ if (( PROVENANCE == 1 )); then
             # It reads both dependency forms -- an inline table on one
             # line, and a `[...dependencies.NAME]` block whose `git` and
             # `rev` are on separate lines -- strips comments with the
-            # quote state tracked, and anchors the URL on `gzapi-org/
-            # interweave` or `BlueTeam-OU/interweave` followed by a
-            # non-name character, so `gzapi-org/interweave-tools` is NOT
-            # us and `other-org/InterWeave` is NOT us.
+            # quote state tracked, and anchors the URL at both ends of
+            # `github.com/<gzapi-org or BlueTeam-OU>/interweave(.git)`
+            # (see `ours`), so `gzapi-org/interweave-tools`,
+            # `other-org/InterWeave` and `not-blueteam-ou/InterWeave`
+            # are NOT us.
             done < <( printf '%s\n' "${seen_revs[@]}" | grep -v '^$' | sort -u )
             # ONE HARNESS, ONE TREE. Several dependencies pinned at
             # DIFFERENT revisions were each traced individually and the

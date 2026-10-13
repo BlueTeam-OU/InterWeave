@@ -829,7 +829,9 @@ rm -rf "$SANDBOX"; SANDBOX=""
 #
 # THE NEW ORG IS A SPELLING TOO. The repository moved to BlueTeam-OU;
 # a pin re-pointed there, matched on the old org alone, went untraced.
-for spelling in unspaced literal upper lowercase-url new-org; do
+# And a URL is anchored at both ends now, so the forms Cargo takes for
+# the same repository -- over ssh, and with no `.git` -- are spellings.
+for spelling in unspaced literal upper lowercase-url new-org ssh bare; do
     new_provenance_sandbox yes yes
     case "$spelling" in
         unspaced)      pin_line="dep = { git=\"https://github.com/gzapi-org/InterWeave.git\", rev=\"${PIN:0:10}\" }" ;;
@@ -837,6 +839,8 @@ for spelling in unspaced literal upper lowercase-url new-org; do
         upper)         pin_line="dep = { git = \"https://github.com/gzapi-org/InterWeave.git\", rev = \"$( printf '%s' "$PIN" | tr 'a-f' 'A-F' )\" }" ;;
         lowercase-url) pin_line="dep = { git = \"https://github.com/gzapi-org/interweave.git\", rev = \"$PIN\" }" ;;
         new-org)       pin_line="dep = { git = \"https://github.com/BlueTeam-OU/InterWeave.git\", rev = \"$PIN\" }" ;;
+        ssh)           pin_line="dep = { git = \"ssh://git@github.com/BlueTeam-OU/InterWeave.git\", rev = \"$PIN\" }" ;;
+        bare)          pin_line="dep = { git = \"https://github.com/gzapi-org/InterWeave\", rev = \"$PIN\" }" ;;
     esac
     # REPLACE the fixture's own pin rather than adding to it, so this
     # spelling is the only thing that can produce a trace.
@@ -1030,10 +1034,14 @@ rm -rf "$SANDBOX"; SANDBOX=""
 # THE ANCHOR IS BOTH ENDS, AND NEITHER WAS TESTED. The foreign-repo case
 # above uses `example.invalid/other/thing.git`, which never matched any
 # version of the pattern, so deleting the org from it left the suite
-# green. These two DO match a loose pattern: a sibling repository in the
-# same org whose name merely starts with ours (in either of our orgs),
-# and a same-named repository in another org. Both carry revisions this clone does not
-# have, so if either is traced as ours the run exits 2 (audit, PR #110).
+# green. Each of these DOES match a looser pattern: on the right, a
+# sibling repository whose name merely starts with ours (in either of
+# our orgs) or carries a suffix after a dot; on the left, a same-named
+# repository in another org, in an org whose name ends with ours, and
+# under our org's name on another host (audit, PR #110; review, PR #274).
+# Each carries a revision this clone does not have, so if any is traced
+# as ours the run exits 2, and each revision's prefix is distinct so the
+# one that leaked is named.
 new_provenance_sandbox yes yes
 cat >> "$SANDBOX/spikes/spike-test/harness/Cargo.toml" <<'EOF'
 
@@ -1041,14 +1049,20 @@ cat >> "$SANDBOX/spikes/spike-test/harness/Cargo.toml" <<'EOF'
 sibling = { git = "https://github.com/gzapi-org/interweave-tools.git", rev = "aaaaaaa1234567890123456789012345678901ab" }
 other-org = { git = "https://github.com/other-org/InterWeave.git", rev = "bbbbbbb1234567890123456789012345678901ab" }
 new-org-sibling = { git = "https://github.com/BlueTeam-OU/interweave-tools.git", rev = "ccccccc1234567890123456789012345678901ab" }
+org-suffix = { git = "https://github.com/not-blueteam-ou/InterWeave.git", rev = "ddddddd1234567890123456789012345678901ab" }
+old-org-suffix = { git = "https://github.com/xgzapi-org/InterWeave.git", rev = "eeeeeee1234567890123456789012345678901ab" }
+other-host = { git = "https://gitlab.com/BlueTeam-OU/InterWeave.git", rev = "fffffff1234567890123456789012345678901ab" }
+dotted-name = { git = "https://github.com/gzapi-org/InterWeave.rs.git", rev = "abcdef01234567890123456789012345678901ab" }
 EOF
 run_provenance_guard
-assert_rc "a sibling repo and a same-named one in another org are not ours" 0
-if [[ "$RUN_OUT" != *"aaaaaaa"* && "$RUN_OUT" != *"bbbbbbb"* && "$RUN_OUT" != *"ccccccc"* ]]; then
-    pass "and neither revision is traced"
-else
-    fail "and neither revision is traced" "$RUN_OUT"
-fi
+assert_rc "no near-miss of either org's repository is ours" 0
+for leaked in aaaaaaa bbbbbbb ccccccc ddddddd eeeeeee fffffff abcdef0; do
+    if [[ "$RUN_OUT" != *"$leaked"* ]]; then
+        pass "  and the near-miss at $leaked is not traced"
+    else
+        fail "  and the near-miss at $leaked is not traced" "$RUN_OUT"
+    fi
+done
 rm -rf "$SANDBOX"; SANDBOX=""
 
 
