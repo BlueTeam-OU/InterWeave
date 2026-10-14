@@ -64,7 +64,9 @@ pub mod keys {
     /// file's shape is [`crate::parse_payloads`]'s).
     pub const PAYLOADS: &str = "payloads";
     /// The envelopes this side sent, as its facade committed them
-    /// (`human_chat`): a JSON array.
+    /// (`human_chat`): a JSON array, as TEXT -- every value crosses the
+    /// instrumentation's status as a string, so a structured one would
+    /// arrive as a string on a device and as structure on the stand-in.
     pub const SENT: &str = "sent";
     /// The runtime root the embedded runtime's private directories lie
     /// under (`trust_boundary`).

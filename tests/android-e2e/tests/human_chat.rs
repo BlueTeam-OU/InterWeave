@@ -484,6 +484,11 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         })
         .await;
         let out = run.passed(log);
+        // The instrumentation's status carries strings alone: a value the
+        // stand-in hands back structured would arrive as text on a phone.
+        for (key, value) in &out {
+            assert!(value.is_string(), "{name}'s {key} is not text: {value}");
+        }
         side.until(
             clock,
             &log,
@@ -493,10 +498,10 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         .await;
 
         // What D was handed is what the Android side's facade composed.
-        let sent: Vec<HumanChatV2> = out
-            .get(keys::SENT)
-            .and_then(Value::as_array)
-            .expect("sent")
+        let sent: Vec<Value> =
+            serde_json::from_str(out.get(keys::SENT).and_then(Value::as_str).expect("sent"))
+                .expect("sent is a JSON array");
+        let sent: Vec<HumanChatV2> = sent
             .iter()
             .map(|v| HumanChatV2::parse(&v.to_string()).expect("an envelope"))
             .collect();
