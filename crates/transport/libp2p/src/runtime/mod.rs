@@ -1014,6 +1014,9 @@ pub struct SwarmRuntime {
     /// The root funnel's counters. Not an `Option`: every Swarm this
     /// runtime builds has the funnel, whatever the profile enables.
     root_funnel_counters: crate::root_funnel::RootFunnelCounterHandle,
+    /// The listen-port dials the transport made again from a fresh
+    /// port, and the punches it refused (`port_fallback`).
+    port_fallbacks: crate::port_fallback::PortFallbacks,
     /// The operator's door (ADR-0052 rule 9): what `add_address` records
     /// here is admitted at every learn site and at the root funnel
     /// whatever its class. The same set the Swarm task reads.
@@ -1399,13 +1402,29 @@ impl SwarmRuntime {
                 .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
             };
         let (resolver_config, resolver_opts, resolver_unavailable) = resolver_or_empty(resolver);
+        // The TCP transport `with_tcp` builds, composed by hand so a
+        // listen-port dial the kernel refuses is made again from a fresh
+        // port (`port_fallback`, `CONNECTIVITY.md` §12 A 2026-10-14).
+        // The same upgrade chain: V1Lazy, Noise, the default Yamux.
+        let port_fallbacks = crate::port_fallback::PortFallbacks::default();
+        let transport_fallbacks = port_fallbacks.clone();
         let builder = libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
-            .with_tcp(
-                tcp::Config::default().nodelay(true),
-                noise::Config::new,
-                yamux::Config::default,
-            )
+            .with_other_transport(|key| {
+                use libp2p::Transport as _;
+                let tcp = crate::port_fallback::PortFallback::new(
+                    tcp::tokio::Transport::new(tcp::Config::default().nodelay(true)),
+                    transport_fallbacks,
+                );
+                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
+                    tcp.upgrade(libp2p::core::upgrade::Version::V1Lazy)
+                        .authenticate(noise::Config::new(key)?)
+                        .multiplex(yamux::Config::default())
+                        .map(|(peer, muxer), _| {
+                            (peer, libp2p::core::muxing::StreamMuxerBox::new(muxer))
+                        }),
+                )
+            })
             .map_err(|e| SubstrateError::Transport(e.to_string()))?
             // THE DNS TRANSPORT, and the feature flag alone was never
             // this. `static-bootstrap.md` §DNS ownership says resolution
@@ -3214,6 +3233,7 @@ impl SwarmRuntime {
             dcutr_counters,
             relay_hop_counters,
             root_funnel_counters,
+            port_fallbacks,
             operator,
             stores,
             mdns_drop_counts,
@@ -3284,6 +3304,15 @@ impl SwarmRuntime {
     #[must_use]
     pub fn root_funnel_counters(&self) -> crate::root_funnel::RootFunnelCounters {
         self.root_funnel_counters.snapshot()
+    }
+
+    /// The relay dials the kernel refused on the listen port and the
+    /// transport made again from a fresh port, and the hole punches it
+    /// refused there (`CONNECTIVITY.md` §12, A 2026-10-14). Counts only:
+    /// the transport cannot tell a reservation from a circuit.
+    #[must_use]
+    pub fn port_fallbacks(&self) -> crate::port_fallback::PortFallbackCounts {
+        self.port_fallbacks.snapshot()
     }
 
     /// What ADR-0053's bounds dropped inside the mDNS crate (rule 7):
