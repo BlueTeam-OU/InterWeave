@@ -132,18 +132,22 @@ async fn connect(client: &mut Swarm<RawClient>, server: &mut Swarm<RawServer>, a
     let deadline = tokio::time::Instant::now() + PATIENCE;
     // What both sides saw, for the failure message: a connect that never
     // completes otherwise fails with no cause (three merge-queue runs of
-    // #276, 2026-10-14). Bounded, so a storm cannot grow it.
+    // #276, 2026-10-14). The first 64 are kept and the rest counted, so
+    // a cut list says so.
     let mut seen: Vec<String> = Vec::new();
+    let mut unshown = 0_usize;
     let mut note = |side: &str, event: String| {
         if seen.len() < 64 {
             seen.push(format!("{side}: {event}"));
+        } else {
+            unshown += 1;
         }
     };
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         assert!(
             !remaining.is_zero(),
-            "not connected within {PATIENCE:?}; events seen: {seen:#?}"
+            "not connected within {PATIENCE:?}; events seen: {seen:#?}, {unshown} more not shown"
         );
         tokio::select! {
             event = client.select_next_some() => match event {
@@ -151,7 +155,7 @@ async fn connect(client: &mut Swarm<RawClient>, server: &mut Swarm<RawServer>, a
                 // A failed dial is the answer, not a reason to wait out
                 // the patience: say which error, at once.
                 SwarmEvent::OutgoingConnectionError { error, .. } => {
-                    panic!("the dial failed: {error}; events seen: {seen:#?}")
+                    panic!("the dial failed: {error}; events seen: {seen:#?}, {unshown} more not shown")
                 }
                 other => note("client", format!("{other:?}")),
             },
