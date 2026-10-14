@@ -89,6 +89,30 @@ impl Links {
     }
 }
 
+/// A network's addresses as the bridge passes them across JNI: each one
+/// its length (4 or 16) then its bytes in network order, as Java's
+/// `InetAddress.getAddress` gives them -- no scope, no text to parse. A
+/// length that is neither, or bytes cut short, ends the reading there:
+/// what came before it stands, nothing after it is guessed at.
+#[must_use]
+pub fn addresses_from_wire(mut wire: &[u8]) -> Vec<IpAddr> {
+    let mut addresses = Vec::new();
+    while let Some((&len, rest)) = wire.split_first() {
+        let address = match (len, rest) {
+            (4, [a, b, c, d, ..]) => IpAddr::from([*a, *b, *c, *d]),
+            (16, rest) if rest.len() >= 16 => {
+                let mut octets = [0_u8; 16];
+                octets.copy_from_slice(&rest[..16]);
+                IpAddr::from(octets)
+            }
+            _ => break,
+        };
+        addresses.push(address);
+        wire = &rest[usize::from(len)..];
+    }
+    addresses
+}
+
 /// The callback's reports and the runtime that hears them, under one lock
 /// of their own: never the start's, which a start holds for seconds while
 /// the callback must not wait.
@@ -210,6 +234,34 @@ mod tests {
         let mut slot = NetworkSlot::default();
         slot.attach(heard.clone());
         (slot, heard)
+    }
+
+    #[test]
+    fn the_wire_gives_each_address_by_its_length_and_stops_at_a_malformed_one() {
+        let v6 = ip("2001:db8::7");
+        let IpAddr::V6(v6_octets) = v6 else {
+            unreachable!()
+        };
+        let mut wire = vec![4, 10, 0, 0, 5, 16];
+        wire.extend_from_slice(&v6_octets.octets());
+        assert_eq!(addresses_from_wire(&wire), vec![ip("10.0.0.5"), v6]);
+        assert!(
+            addresses_from_wire(&[]).is_empty(),
+            "no address: offline for that network"
+        );
+
+        let mut cut = wire.clone();
+        cut.truncate(wire.len() - 1);
+        assert_eq!(
+            addresses_from_wire(&cut),
+            vec![ip("10.0.0.5")],
+            "a cut v6 is dropped"
+        );
+        assert_eq!(
+            addresses_from_wire(&[4, 10, 0, 0, 5, 6, 1, 2, 3, 4, 5, 6, 4, 10, 0, 0, 6]),
+            vec![ip("10.0.0.5")],
+            "an unknown length ends the reading: nothing after it is guessed"
+        );
     }
 
     #[test]

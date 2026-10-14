@@ -33,7 +33,7 @@ pub use interweave_profile_config::runtime::KeyUnlockPolicy;
 /// `SeedCipher` seam.
 pub use interweave_transport_embedded::custody;
 pub use interweave_transport_embedded::{EmbeddedRefused, StayReachable};
-pub use network::NetworkReport;
+pub use network::{NetworkReport, addresses_from_wire};
 pub use notice::Notices;
 pub use service::{
     AvailabilityMode, CLIENT_KIND, Ended, ServiceHost, ServiceLaunch, StartRefused, Stopped,
