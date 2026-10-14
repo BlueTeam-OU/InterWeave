@@ -371,4 +371,169 @@ mod tests {
         assert_eq!(attribution.resolve(id(5)), Some(DialOrigin::AutonatProbe));
         assert_eq!(attribution.resolve(id(4)), None);
     }
+
+    /// A behaviour that emits one dial it was handed, as Kademlia does.
+    struct OneDial(Option<libp2p::swarm::dial_opts::DialOpts>);
+
+    impl NetworkBehaviour for OneDial {
+        type ConnectionHandler = dummy::ConnectionHandler;
+        type ToSwarm = std::convert::Infallible;
+        fn handle_established_inbound_connection(
+            &mut self,
+            _: ConnectionId,
+            _: PeerId,
+            _: &Multiaddr,
+            _: &Multiaddr,
+        ) -> Result<THandler<Self>, ConnectionDenied> {
+            Ok(dummy::ConnectionHandler)
+        }
+        fn handle_established_outbound_connection(
+            &mut self,
+            _: ConnectionId,
+            _: PeerId,
+            _: &Multiaddr,
+            _: Endpoint,
+            _: PortUse,
+        ) -> Result<THandler<Self>, ConnectionDenied> {
+            Ok(dummy::ConnectionHandler)
+        }
+        fn on_swarm_event(&mut self, _: FromSwarm<'_>) {}
+        fn on_connection_handler_event(
+            &mut self,
+            _: PeerId,
+            _: ConnectionId,
+            event: THandlerOutEvent<Self>,
+        ) {
+            match event {}
+        }
+        fn poll(
+            &mut self,
+            _: &mut Context<'_>,
+        ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+            self.0
+                .take()
+                .map_or(Poll::Pending, |opts| Poll::Ready(ToSwarm::Dial { opts }))
+        }
+    }
+
+    fn polled_dial(wrapper: &mut Attributing<OneDial>) -> libp2p::swarm::dial_opts::DialOpts {
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        match wrapper.poll(&mut cx) {
+            Poll::Ready(ToSwarm::Dial { opts }) => opts,
+            other => panic!("expected the dial, got {other:?}"),
+        }
+    }
+
+    /// The Kademlia rebuild: a peer dial in the crate's shape leaves the
+    /// wrapper as the same peer dial on a FRESH port, and the origin is
+    /// announced under the rebuilt dial's `ConnectionId`, which is the
+    /// one the gate will be handed. Without the opt-in the dial passes
+    /// untouched (the control): the listen port, its own id.
+    #[test]
+    fn an_opted_in_wrapper_rebuilds_a_peer_dial_on_a_fresh_port() {
+        let peer: PeerId = PEER.parse().expect("valid PeerId");
+        let crate_shape = || libp2p::swarm::dial_opts::DialOpts::peer_id(peer).build();
+
+        let attribution = DialAttribution::default();
+        let original = crate_shape();
+        let original_id = original.connection_id();
+        let mut wrapper = Attributing::new(
+            OneDial(Some(original)),
+            always(DialOrigin::KademliaQuery),
+            attribution.clone(),
+        )
+        .dialling_peers_from_a_fresh_port();
+        let rebuilt = polled_dial(&mut wrapper);
+        assert_eq!(rebuilt.get_peer_id(), Some(peer));
+        assert_ne!(rebuilt.connection_id(), original_id);
+        let shown = format!("{rebuilt:?}");
+        assert!(shown.contains("port_use: New"), "{shown}");
+        let fresh = format!(
+            "{:?}",
+            libp2p::swarm::dial_opts::DialOpts::peer_id(peer)
+                .allocate_new_port()
+                .build()
+        );
+        let without_id = |s: &str| s.split("connection_id").next().map(str::to_owned);
+        assert_eq!(
+            without_id(&shown),
+            without_id(&fresh),
+            "nothing but the port use differs from the crate's shape"
+        );
+        assert_eq!(
+            attribution.resolve(rebuilt.connection_id()),
+            Some(DialOrigin::KademliaQuery)
+        );
+        assert_eq!(attribution.resolve(original_id), None);
+
+        let attribution = DialAttribution::default();
+        let original = crate_shape();
+        let original_id = original.connection_id();
+        let mut wrapper = Attributing::new(
+            OneDial(Some(original)),
+            always(DialOrigin::KademliaQuery),
+            attribution.clone(),
+        );
+        let untouched = polled_dial(&mut wrapper);
+        assert_eq!(untouched.connection_id(), original_id);
+        assert!(format!("{untouched:?}").contains("port_use: Reuse"));
+        assert_eq!(
+            attribution.resolve(original_id),
+            Some(DialOrigin::KademliaQuery)
+        );
+    }
+
+    /// Why the rebuild may drop everything but the peer: it was read
+    /// against libp2p-kad 0.49.0, whose every dial is
+    /// `DialOpts::peer_id(peer).build()`. A bump fails here until those
+    /// dial sites are read again. And only Kademlia's wrapper opts in:
+    /// one call, beside `DialOrigin::KademliaQuery`.
+    #[test]
+    fn the_rebuild_is_kademlia_s_alone_and_was_read_at_the_pinned_version() {
+        fn rust_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).expect("read_dir") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    rust_files(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let lock = std::fs::read_to_string(root.join("Cargo.lock")).expect("Cargo.lock");
+        assert!(
+            lock.contains("name = \"libp2p-kad\"\nversion = \"0.49.0\"\n"),
+            "libp2p-kad moved: re-read its ToSwarm::Dial sites before keeping \
+             `dialling_peers_from_a_fresh_port`"
+        );
+
+        let mut files = Vec::new();
+        rust_files(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut files,
+        );
+        let call = concat!(".dialling_peers", "_from_a_fresh_port()");
+        let mut sites = Vec::new();
+        for f in &files {
+            let text = std::fs::read_to_string(f).expect("read");
+            for (at, _) in text.match_indices(call) {
+                sites.push((f.clone(), text[at.saturating_sub(400)..at].to_owned()));
+            }
+        }
+        let production: Vec<_> = sites
+            .iter()
+            .filter(|(f, _)| !f.ends_with("attribution.rs"))
+            .collect();
+        assert_eq!(
+            production.len(),
+            1,
+            "one opt-in: {:?}",
+            production.iter().map(|s| &s.0).collect::<Vec<_>>()
+        );
+        assert!(
+            production[0].1.contains("DialOrigin::KademliaQuery"),
+            "and it is Kademlia's"
+        );
+    }
 }
