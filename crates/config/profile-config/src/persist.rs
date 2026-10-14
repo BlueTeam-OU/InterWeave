@@ -500,11 +500,11 @@ impl Drop for Unpublished<'_> {
 /// silently replaces an identity the winner had already established.
 /// Here the filesystem decides, in the operation that installs the file.
 ///
-/// [`publish_no_replace`] is what makes that one operation: it fails
-/// with `EEXIST` if the target exists and never replaces it. The content
-/// is still written and fsynced to a private temporary first, so the
-/// file is whole before it has a name and a crash cannot publish a
-/// partial key.
+/// A no-replace rename (`renameat2`, or `link` where that is absent) is
+/// what makes that one operation: it fails with `EEXIST` if the target
+/// exists and never replaces it. The content is still written and
+/// fsynced to a private temporary first, so the file is whole before it
+/// has a name and a crash cannot publish a partial key.
 ///
 /// # Errors
 /// Returns [`PersistError::AlreadyExists`] if `path` is taken,
@@ -570,8 +570,11 @@ pub fn create_private_exclusive_within(
 }
 
 /// Give the file at `temp` the name `path`, unless `path` exists, in one
-/// operation that never replaces. On success `temp` is gone; on failure
-/// it is left for the caller to remove.
+/// operation that never replaces. On failure `temp` is left for the
+/// caller to remove. On success the rename consumed it; the `link`
+/// fallback removes it after the fact, and a removal that fails leaves
+/// it as a second name of the file, in the same owner-only directory --
+/// unreported, as the file is published either way.
 ///
 /// `renameat2(RENAME_NOREPLACE)` first, not `link`: Android's `SELinux`
 /// policy denies `link` on an app's own data files (`untrusted_app` on
