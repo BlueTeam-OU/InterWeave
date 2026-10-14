@@ -57,6 +57,34 @@ mod refused {
 /// One line to the platform's log, under the app's tag. A started
 /// Service has no Activity, so nothing has redirected stderr there.
 pub(crate) fn log(line: &str) {
+    log_at(ndk_sys::android_LogPriority::ANDROID_LOG_INFO, line);
+}
+
+/// The runtime's events to the platform's log, at their own priority
+/// (`crate::platform_log` filters them).
+fn log_event(level: tracing::Level, line: &str) {
+    use ndk_sys::android_LogPriority as P;
+    let priority = match level {
+        tracing::Level::ERROR => P::ANDROID_LOG_ERROR,
+        tracing::Level::WARN => P::ANDROID_LOG_WARN,
+        tracing::Level::INFO => P::ANDROID_LOG_INFO,
+        tracing::Level::DEBUG => P::ANDROID_LOG_DEBUG,
+        tracing::Level::TRACE => P::ANDROID_LOG_VERBOSE,
+    };
+    log_at(priority, line);
+}
+
+/// Filter the runtime's log at the level `app_data_dir`'s profile names,
+/// before a start runs it: the default's when the profile cannot be
+/// read, and the start then says why.
+pub(crate) fn log_level_from(app_data_dir: &std::path::Path) {
+    crate::platform_log::set_level(
+        interweave_human_android_platform::profile_log_level(app_data_dir, PROFILE)
+            .unwrap_or(interweave_human_android_platform::LogLevel::Info),
+    );
+}
+
+fn log_at(priority: ndk_sys::android_LogPriority, line: &str) {
     let (Ok(tag), Ok(text)) = (
         CString::new("interweave"),
         CString::new(line.replace('\0', " ")),
@@ -70,7 +98,7 @@ pub(crate) fn log(line: &str) {
     // SAFETY: both pointers are to NUL-terminated strings that outlive the call.
     unsafe {
         ndk_sys::__android_log_write(
-            i32::try_from(ndk_sys::android_LogPriority::ANDROID_LOG_INFO.0).unwrap_or(4),
+            i32::try_from(priority.0).unwrap_or(4),
             tag.as_ptr(),
             text.as_ptr(),
         );
@@ -117,6 +145,9 @@ extern "system" fn JNI_OnLoad(
     _reserved: *mut std::ffi::c_void,
 ) -> jint {
     log_panics();
+    // The runtime's log, once per process: the Service's and the
+    // instrumentation's alike load the library.
+    let _ = crate::platform_log::install(log_event);
     jni::sys::JNI_VERSION_1_6
 }
 
@@ -215,6 +246,7 @@ fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
         Ok(identity) => identity,
         Err(code) => return code,
     };
+    log_level_from(std::path::Path::new(&app_data_dir));
     let host = ServiceHost::global();
     match host.start(ServiceLaunch {
         app_data_dir: app_data_dir.into(),

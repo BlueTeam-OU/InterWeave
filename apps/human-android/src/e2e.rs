@@ -84,6 +84,7 @@ fn run(env: &mut Env<'_>, case: &str, args: &str, app_data_dir: &str) -> String 
         identity,
     };
     let mut client: Option<Box<dyn interweave_android_e2e_cases::AppClient>> = None;
+    crate::jni::log_level_from(&dir);
     let started = if cases::NEED_A_RUNTIME.contains(&case) {
         service.start_runtime_alone(launch)
     } else if cases::NEED_THE_CLIENT.contains(&case) {

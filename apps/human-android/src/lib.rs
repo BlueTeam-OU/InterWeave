@@ -14,3 +14,12 @@ mod e2e;
 mod jni;
 #[cfg(target_os = "android")]
 mod keystore;
+// On every target, so the host tests the filter the phone writes with.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; jni.rs installs it on Android"
+    )
+)]
+mod platform_log;
