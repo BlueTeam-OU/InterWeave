@@ -77,6 +77,49 @@ pub(crate) fn log(line: &str) {
     }
 }
 
+/// Send every panic's message and location to the platform's log, once
+/// per process. Without it a panic leaves no trace: the default hook
+/// writes to stderr, which Android discards, and the boundary's
+/// `ThrowRuntimeExAndDefault` keeps a `&'static str` payload alone, so a
+/// formatted panic reached Java as "non-string panic payload" (the j66
+/// device run of 2026-10-14). The default hook still runs after it.
+pub(crate) fn log_panics() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let default = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let payload = info.payload();
+            let message = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("a panic with no message");
+            let at = info
+                .location()
+                .map(|l| format!(" at {}:{}", l.file(), l.line()))
+                .unwrap_or_default();
+            let thread = std::thread::current();
+            log(&format!(
+                "panic on thread {}{at}: {message}",
+                thread.name().unwrap_or("unnamed")
+            ));
+            default(info);
+        }));
+    });
+}
+
+/// The JVM calls it when `System.loadLibrary` loads this library: from
+/// `Native.kt` for the Service, and from the instrumentation.
+#[allow(unsafe_code, reason = "the JVM finds JNI_OnLoad by its unmangled name")]
+#[unsafe(no_mangle)]
+extern "system" fn JNI_OnLoad(
+    _vm: *mut jni::sys::JavaVM,
+    _reserved: *mut std::ffi::c_void,
+) -> jint {
+    log_panics();
+    jni::sys::JNI_VERSION_1_6
+}
+
 /// The identity the runtime starts with: the profile's record, unwrapped
 /// by the Keystore through the embedded custody path (step 6) -- or the
 /// refusal code of why there is none, after logging it. A first run is
