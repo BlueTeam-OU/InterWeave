@@ -126,8 +126,16 @@ fn candidate(swarm: &mut Swarm<RawClient>, addr: &Multiaddr) {
 
 async fn connect(client: &mut Swarm<RawClient>, server: &mut Swarm<RawServer>, at: &Multiaddr) {
     let id: PeerId = *server.local_peer_id();
+    // From a FRESH port: a listen-port dial is what a CI runner refused
+    // EADDRINUSE (§12, A 2026-10-14). The control's candidate still
+    // arrives through Identify (below).
     client
-        .dial(at.clone().with_p2p(id).expect("a peer address"))
+        .dial(
+            libp2p::swarm::dial_opts::DialOpts::peer_id(id)
+                .addresses(vec![at.clone()])
+                .allocate_new_port()
+                .build(),
+        )
         .expect("dials");
     let deadline = tokio::time::Instant::now() + PATIENCE;
     // What both sides saw, for the failure message: a connect that never
@@ -242,9 +250,10 @@ async fn a_real_dial_back_failure_is_an_unreachable_outcome_and_a_real_success_a
     );
 
     // THE CONTROL: the client's own listener, dialled back to and
-    // confirmed. Not injected -- the client dials the server from its
-    // listen port (`PortUse::Reuse`), so the server observes it AT that
-    // address and Identify hands the client `client_addr` as a
+    // confirmed. Not injected -- the client dials from a fresh port, the
+    // server observes that port, and the pinned libp2p-identify
+    // translates an observed port that matches no listen port onto the
+    // listen port (§12), so Identify hands the client `client_addr` as a
     // candidate before the first sweep. Reachable, and a genuine
     // `Pending` was crossed to get there, which is ADR-0051 Decision
     // 3's owed test.
