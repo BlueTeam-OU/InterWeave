@@ -1847,11 +1847,11 @@ mod tests {
         assert_eq!(punches.held(), 1);
         let toward = |address: Multiaddr| address.with_p2p(a).expect("no other peer");
         assert!(
-            punches.take(&toward(direct())),
+            punches.contains(&toward(direct())),
             "its survivor is the punch's"
         );
         assert!(
-            !punches.take(&toward(loopback())),
+            !punches.contains(&toward(loopback())),
             "the refused candidate is not"
         );
     }
