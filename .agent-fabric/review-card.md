@@ -6,7 +6,7 @@
 - Tool self-tests: `cargo xtask selftests` (one: `bash tools/checks/run_suite.sh tools/checks/test_<name>.sh`); fixture vectors: `tools/checks/verify_fixture_vectors.py` (a drifted vector under `fixtures/` is a protocol break).
 
 ## Contracts (shape and behaviour)
-- The schemas in the family directories under `architecture/contracts/schemas/` (listed in its `manifest.json`) are normative for shape, scoped by `x-contract.status` (`approved` is a target, never a claim); `tools/checks/validate_contracts.py` checks schema, manifest and provenance. The prose under `architecture/contracts/`, `transport/`, `discovery/`, `clients/` is normative for behaviour (ADR-0049).
+- The schemas in the family directories under `architecture/contracts/schemas/` are normative for shape, scoped by `x-contract.status` (`approved` is a target, never a claim); `tools/checks/validate_contracts.py` checks schema, manifest and provenance. The prose under `architecture/contracts/`, `transport/`, `discovery/`, `clients/` is normative for behaviour (ADR-0049).
 - ADRs under `architecture/adr/` with `ADR-DIGEST.md` and the README row in the same range (`tools/checks/validate_adr_index.sh`).
 - `third_party/` is vendored: a file not in `tools/checks/license_exempt.txt` is an unreviewed import; `spikes/` never vouches for first-party code.
 
