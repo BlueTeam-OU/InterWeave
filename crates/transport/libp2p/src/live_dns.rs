@@ -37,8 +37,10 @@ use libp2p::dns::{ResolverConfig, ResolverOpts};
 /// one that replaces it.
 ///
 /// libp2p-dns takes its inner transport by value; this is the value, and
-/// a clone of it is the same transport. Only one DNS transport holds it
-/// at a time, so the lock is never contended across a rebuild.
+/// a clone of it is the same transport. The lock is shared: a dial the
+/// replaced DNS transport started takes it after resolving, beside the
+/// Swarm's own polls. Each holder takes libp2p-dns's lock first and this
+/// one second, so a rebuild adds no lock order.
 pub struct Shared<T>(Arc<Mutex<T>>);
 
 impl<T> Clone for Shared<T> {

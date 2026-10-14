@@ -368,9 +368,12 @@ impl EmbeddedHost {
     /// What the platform's network callbacks hand in
     /// (`human-client-android.md` "network callbacks", §20 step 5): a
     /// SNAPSHOT of every usable address the platform reports, never a
-    /// delta, and an empty view when it reports none -- offline. Pass a
-    /// view when the addresses change; a new network whose addresses
-    /// equal the old ones is no change, and the connections that
+    /// delta, and an empty view when it reports none -- offline, with the
+    /// active network's DNS facts (`dns_servers`, `private_dns`). Pass a
+    /// view when the addresses or the DNS facts change; a DNS-only change
+    /// rebuilds the resolver and is no network change, and a new network
+    /// whose addresses equal the old ones is no change, and the
+    /// connections that
     /// survived it prove themselves by their own keepalives. Until the
     /// first view the runtime knows the host's addresses from its
     /// wildcard listeners alone, which on Android poll every 10 s and may

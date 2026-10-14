@@ -554,6 +554,9 @@ impl ComposedRuntime {
     /// what ran from a departed IP closes, and an addition makes the
     /// peers held off by their dial backoff dialable, once per lift floor
     /// (ADR-0011 A 2026-10-09); the same addresses again are no change.
+    /// The view's DNS facts (`dns_servers`, `private_dns`, §14 A
+    /// 2026-10-14) rebuild the resolver when they differ from the last
+    /// applied ones, and are no network change.
     pub fn network_changed(&self, view: NetworkView) {
         self.network.report(view);
     }
