@@ -176,6 +176,13 @@ impl<S: NetworkSink> NetworkSlot<S> {
         let _ = self.tell();
     }
 
+    /// How many addresses the attached runtime was last told; `None`
+    /// when it was told nothing yet, or none is attached.
+    #[must_use]
+    pub fn told(&self) -> Option<usize> {
+        self.told.as_ref().map(|view| view.addresses.len())
+    }
+
     /// The runtime stops: it hears nothing more, and the slot lets go of
     /// it so its stop is not held up by this hold.
     pub fn detach(&mut self) -> Option<S> {
@@ -319,8 +326,12 @@ mod tests {
         let _ = slot.report(NetworkReport::Watching);
         let _ = slot.report(link(4, &["10.0.0.5"]));
         let heard = Heard::default();
+        assert_eq!(slot.told(), None);
         slot.attach(heard.clone());
         assert_eq!(heard.take(), vec![vec![ip("10.0.0.5")]]);
+        assert_eq!(slot.told(), Some(1), "what the start told is readable");
+        let _ = slot.detach();
+        assert_eq!(slot.told(), None);
     }
 
     #[test]

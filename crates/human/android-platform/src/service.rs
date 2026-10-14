@@ -419,6 +419,14 @@ impl ServiceHost {
         self.network().report(report)
     }
 
+    /// How many addresses the running runtime was last told of the
+    /// platform's networks -- at its start, when the callback reported
+    /// before it existed; `None` while it was told nothing.
+    #[must_use]
+    pub fn network_told(&self) -> Option<usize> {
+        self.network().told()
+    }
+
     /// Stop the client: the facade closes its session (releasing the
     /// lease), then the runtime stops within `grace` and releases the
     /// profile lock. `None` when nothing ran.
