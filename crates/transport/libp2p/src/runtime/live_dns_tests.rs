@@ -100,7 +100,7 @@ where
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         match tokio::time::timeout(remaining, runtime.next_event()).await {
-            Err(_) => panic!("timed out waiting for {what}"),
+            Err(elapsed) => panic!("timed out waiting for {what} ({elapsed})"),
             Ok(None) => panic!("the runtime stopped while waiting for {what}"),
             Ok(Some(event)) if predicate(&event) => return event,
             Ok(Some(_)) => {}
