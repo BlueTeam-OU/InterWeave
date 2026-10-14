@@ -500,11 +500,11 @@ impl Drop for Unpublished<'_> {
 /// silently replaces an identity the winner had already established.
 /// Here the filesystem decides, in the operation that installs the file.
 ///
-/// `link` is what makes that one operation: it fails with `EEXIST` if
-/// the target exists, and unlike `rename` it never replaces. The content
-/// is still written and fsynced to a private temporary first, so the
-/// file is whole before it has a name and a crash cannot publish a
-/// partial key.
+/// A no-replace rename (`renameat2`, or `link` where that is absent) is
+/// what makes that one operation: it fails with `EEXIST` if the target
+/// exists and never replaces it. The content is still written and
+/// fsynced to a private temporary first, so the file is whole before it
+/// has a name and a crash cannot publish a partial key.
 ///
 /// # Errors
 /// Returns [`PersistError::AlreadyExists`] if `path` is taken,
@@ -512,7 +512,7 @@ impl Drop for Unpublished<'_> {
 /// [`PersistError::UnsupportedPlatform`] where owner-only permissions
 /// cannot be enforced. Nothing at `path` is touched in any of those
 /// cases. The exception is the directory fsync, which runs after the
-/// link is published: that error means `path` EXISTS and its name may
+/// file is published: that error means `path` EXISTS and its name may
 /// not survive a crash.
 pub fn create_private_exclusive(path: &Path, contents: &[u8]) -> Result<(), PersistError> {
     create_private_exclusive_within(path, contents, &TrustBoundary::root())
@@ -551,23 +551,88 @@ pub fn create_private_exclusive_within(
         return Err(e);
     }
 
-    let outcome = match fs::hard_link(&temp, path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(PersistError::AlreadyExists),
-        Err(e) => Err(PersistError::Io(e)),
-    };
+    if let Err(e) = publish_no_replace(&temp, path) {
+        // Unpublished key material: the temporary goes.
+        let _ = fs::remove_file(&temp);
+        return Err(if e.kind() == std::io::ErrorKind::AlreadyExists {
+            PersistError::AlreadyExists
+        } else {
+            PersistError::Io(e)
+        });
+    }
 
-    // The temporary is always removed: on success the link is the file,
-    // and on failure it is unpublished key material.
-    let _ = fs::remove_file(&temp);
-    outcome?;
-
-    // As in `save`: the link is published, and whether that name
+    // As in `save`: the file is published, and whether that name
     // survives a crash is reported rather than assumed.
     #[cfg(unix)]
     fsync_dir(parent)?;
 
     Ok(())
+}
+
+/// Give the file at `temp` the name `path`, unless `path` exists, in one
+/// operation that never replaces. On failure `temp` is left for the
+/// caller to remove. On success the rename consumed it; the `link`
+/// fallback removes it after the fact, and a removal that fails leaves
+/// it as a second name of the file, in the same owner-only directory --
+/// unreported, as the file is published either way.
+///
+/// `renameat2(RENAME_NOREPLACE)` first, not `link`: Android's `SELinux`
+/// policy denies `link` on an app's own data files (`untrusted_app` on
+/// `app_data_file`, EACCES -- measured on a Pixel 9a, Android 17) while
+/// granting `rename`, so a link-based publish left a fresh install with
+/// no identity. The app's `minSdk` is 30, where bionic and the app
+/// seccomp allowlist both carry `renameat2`.
+fn publish_no_replace(temp: &Path, path: &Path) -> std::io::Result<()> {
+    publish_with(temp, path, rename_no_replace)
+}
+
+/// [`publish_no_replace`] with the rename as a parameter, so the `link`
+/// fallback -- which no filesystem this suite runs on reaches -- is
+/// tested by injecting the errno that selects it.
+///
+/// `link` answers only [`wants_link_fallback`]'s errors, a kernel or
+/// filesystem without the flag (NFS, some FUSE mounts): it fails with
+/// `EEXIST` the same way and never replaces either, so the rule holds on
+/// both paths. Every other error is returned as it came -- on Android
+/// `link` is the call that is denied. A plain `rename` is never a
+/// fallback: it replaces.
+fn publish_with(
+    temp: &Path,
+    path: &Path,
+    rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    match rename(temp, path) {
+        Err(e) if wants_link_fallback(&e) => {}
+        answer => return answer,
+    }
+    fs::hard_link(temp, path)?;
+    // The link is the file now; the temporary is a second name for it.
+    let _ = fs::remove_file(temp);
+    Ok(())
+}
+
+/// `renameat2` with `RENAME_NOREPLACE`, where the kernel has it.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn rename_no_replace(temp: &Path, path: &Path) -> std::io::Result<()> {
+    use rustix::fs::{CWD, RenameFlags, renameat_with};
+    renameat_with(CWD, temp, CWD, path, RenameFlags::NOREPLACE).map_err(Into::into)
+}
+
+/// No no-replace rename is wired here: `link` publishes.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn rename_no_replace(_temp: &Path, _path: &Path) -> std::io::Result<()> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// The no-replace rename is absent, not refused: `EINVAL` (a filesystem
+/// without the flag) and `ENOSYS` (a kernel without the call, or a
+/// seccomp filter answering so), or a platform where none is wired.
+fn wants_link_fallback(e: &std::io::Error) -> bool {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if matches!(e.raw_os_error(), Some(libc::EINVAL | libc::ENOSYS)) {
+        return true;
+    }
+    e.kind() == std::io::ErrorKind::Unsupported
 }
 
 /// fsync a directory, so a rename or link into it survives a crash.
@@ -2872,7 +2937,8 @@ mod tests {
     #[test]
     fn an_exclusive_create_whose_directory_cannot_be_synced_says_so() {
         // The THIRD door, which the two above do not reach: this one
-        // publishes by hard link rather than rename, and `0o300` passes
+        // publishes by a no-replace rename (or, where the filesystem
+        // lacks the flag, a hard link) rather than a plain rename, and `0o300` passes
         // `require_private_dir` — it checks that group and other have no
         // bits, not that the owner can read.
         use std::os::unix::fs::PermissionsExt;
@@ -2896,7 +2962,7 @@ mod tests {
         );
         assert!(
             path.exists(),
-            "the link was published; what is in doubt is whether its name survives"
+            "the file was published; what is in doubt is whether its name survives"
         );
     }
 
@@ -3266,5 +3332,111 @@ mod tests {
                 .expect("the control: a detour through a private directory"),
             real
         );
+    }
+
+    /// The `link` fallback, reached by injecting the errno a filesystem
+    /// without `RENAME_NOREPLACE` answers: it publishes into a free name
+    /// (the control), never replaces a taken one, and leaves the
+    /// temporary to the caller only when it failed.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn the_link_fallback_publishes_and_never_replaces() {
+        let dir = private_tempdir().expect("tempdir");
+        for errno in [libc::EINVAL, libc::ENOSYS] {
+            let absent = || Err(std::io::Error::from_raw_os_error(errno));
+
+            let temp = dir.path().join(format!("free.{errno}.tmp"));
+            let path = dir.path().join(format!("free.{errno}"));
+            std::fs::write(&temp, b"new").expect("write");
+            publish_with(&temp, &path, |_, _| absent()).expect("a free name is published");
+            assert_eq!(std::fs::read(&path).expect("read"), b"new");
+            assert!(!temp.exists(), "the temporary is not left as a second name");
+
+            let temp = dir.path().join(format!("taken.{errno}.tmp"));
+            let path = dir.path().join(format!("taken.{errno}"));
+            std::fs::write(&temp, b"new").expect("write");
+            std::fs::write(&path, b"precious").expect("write");
+            let refused = publish_with(&temp, &path, |_, _| absent()).expect_err("taken");
+            assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
+            assert_eq!(std::fs::read(&path).expect("read"), b"precious");
+            assert!(
+                temp.exists(),
+                "a failed publish leaves the temporary to the caller"
+            );
+        }
+    }
+
+    /// A refusal is not an absence: `EACCES` -- what Android's `SELinux`
+    /// answers -- comes back as it came, and `link` is not tried. The
+    /// name stays free, which a `link` attempt would have filled.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn a_refused_rename_is_returned_without_the_link_fallback() {
+        let dir = private_tempdir().expect("tempdir");
+        let temp = dir.path().join("key.tmp");
+        let path = dir.path().join("key");
+        std::fs::write(&temp, b"new").expect("write");
+        let refused = publish_with(&temp, &path, |_, _| {
+            Err(std::io::Error::from_raw_os_error(libc::EACCES))
+        })
+        .expect_err("refused");
+        assert_eq!(refused.raw_os_error(), Some(libc::EACCES));
+        assert!(!path.exists(), "no link was made");
+    }
+
+    /// The rename the platform runs: a free name is published and the
+    /// temporary is gone (the control), and a taken name -- a file, or a
+    /// symbolic link to one -- is refused with the file untouched.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn the_no_replace_rename_never_replaces() {
+        let dir = private_tempdir().expect("tempdir");
+        let temp = dir.path().join("key.tmp");
+        let path = dir.path().join("key");
+        std::fs::write(&temp, b"first").expect("write");
+        rename_no_replace(&temp, &path).expect("a free name is published");
+        assert!(!temp.exists());
+
+        std::fs::write(&temp, b"second").expect("write");
+        let refused = rename_no_replace(&temp, &path).expect_err("taken");
+        assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&path).expect("read"), b"first");
+
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&path, &link).expect("symlink");
+        let refused = rename_no_replace(&temp, &link).expect_err("a link is a name");
+        assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&path).expect("read"), b"first");
+    }
+
+    /// No temporary outlives a create, refused or not: the directory
+    /// holds the target and nothing else after a publish (the control)
+    /// and after an `AlreadyExists` refusal.
+    #[test]
+    fn an_exclusive_create_leaves_no_temporary_behind() {
+        let dir = private_tempdir().expect("tempdir");
+        let path = dir.path().join("identity.key");
+        let names = || {
+            let mut names: Vec<_> = fs::read_dir(dir.path())
+                .expect("read_dir")
+                .map(|e| e.expect("entry").file_name())
+                .collect();
+            names.sort();
+            names
+        };
+
+        create_private_exclusive(&path, b"first").expect("a free name");
+        assert_eq!(names(), ["identity.key"]);
+
+        assert!(matches!(
+            create_private_exclusive(&path, b"second"),
+            Err(PersistError::AlreadyExists)
+        ));
+        assert_eq!(
+            names(),
+            ["identity.key"],
+            "the refused temporary is removed"
+        );
+        assert_eq!(fs::read(&path).expect("read"), b"first");
     }
 }

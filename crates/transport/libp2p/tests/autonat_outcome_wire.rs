@@ -130,15 +130,36 @@ async fn connect(client: &mut Swarm<RawClient>, server: &mut Swarm<RawServer>, a
         .dial(at.clone().with_p2p(id).expect("a peer address"))
         .expect("dials");
     let deadline = tokio::time::Instant::now() + PATIENCE;
-    let mut established = false;
-    while !established {
+    // What both sides saw, for the failure message: a connect that never
+    // completes otherwise fails with no cause (three merge-queue runs of
+    // #276, 2026-10-14). The first 64 are kept and the rest counted, so
+    // a cut list says so.
+    let mut seen: Vec<String> = Vec::new();
+    let mut unshown = 0_usize;
+    let mut note = |side: &str, event: String| {
+        if seen.len() < 64 {
+            seen.push(format!("{side}: {event}"));
+        } else {
+            unshown += 1;
+        }
+    };
+    loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(!remaining.is_zero(), "not connected within {PATIENCE:?}");
+        assert!(
+            !remaining.is_zero(),
+            "not connected within {PATIENCE:?}; events seen: {seen:#?}, {unshown} more not shown"
+        );
         tokio::select! {
-            event = client.select_next_some() => {
-                established = matches!(event, SwarmEvent::ConnectionEstablished { .. });
-            }
-            _ = server.select_next_some() => {}
+            event = client.select_next_some() => match event {
+                SwarmEvent::ConnectionEstablished { .. } => return,
+                // A failed dial is the answer, not a reason to wait out
+                // the patience: say which error, at once.
+                SwarmEvent::OutgoingConnectionError { error, .. } => {
+                    panic!("the dial failed: {error}; events seen: {seen:#?}, {unshown} more not shown")
+                }
+                other => note("client", format!("{other:?}")),
+            },
+            event = server.select_next_some() => note("server", format!("{event:?}")),
             () = tokio::time::sleep(remaining) => {}
         }
     }
