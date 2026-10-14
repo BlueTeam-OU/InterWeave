@@ -92,7 +92,7 @@ use direct::{DirectHandled, DirectTick, handle_direct};
 pub use broadcast::{BroadcastChannels, BroadcastState};
 pub use direct::{DirectEndpoints, DirectState};
 pub use endpoints::DirectoryResult;
-pub use status::{DialGateStatus, IngressStatus, PreAuthStatus, RuntimeStatus};
+pub use status::{DialGateStatus, IngressStatus, PreAuthStatus, ResolverSource, RuntimeStatus};
 
 pub use handle::{NetworkMonitor, ShutdownReport, SwarmCommander};
 pub use messages::{
@@ -848,6 +848,55 @@ fn host_resolver_conf() -> Result<(libp2p::dns::ResolverConfig, libp2p::dns::Res
     Err("no host resolver configuration is read on Android".to_owned())
 }
 
+/// The platform view's DNS facts, applied: a resolver installed through
+/// `switch` and the event that says so, or nothing (`CONNECTIVITY.md`
+/// §14, A 2026-10-14).
+///
+/// Nothing when the view names no nameserver and no strict mode (unknown:
+/// the resolver in use is kept), or when its facts are the ones last
+/// applied -- so a view that changes only addresses builds nothing, and
+/// the event comes once per build. Strict Private DNS installs the empty
+/// resolver and reports `ResolverUnavailable` with the ruling's
+/// diagnostic. The event carries a count or a fixed text, never a
+/// nameserver or the Private DNS host.
+fn apply_platform_dns(
+    view: &NetworkView,
+    port: u16,
+    switch: &crate::live_dns::ResolverSwitch,
+    applied: &mut Option<crate::live_dns::PlatformDns>,
+    source: &mut ResolverSource,
+) -> Option<SwarmEvent> {
+    use crate::live_dns::PlatformDns;
+    let dns = PlatformDns::from_view(&view.dns_servers, view.private_dns.as_deref());
+    if applied.as_ref() == Some(&dns) {
+        return None;
+    }
+    let (next, event) = match &dns {
+        PlatformDns::Unknown => return None,
+        PlatformDns::Plain(servers) => (
+            ResolverSource::Platform,
+            SwarmEvent::ResolverConfigured {
+                nameservers: servers.len(),
+            },
+        ),
+        PlatformDns::PrivateDnsStrict => (
+            ResolverSource::PrivateDnsStrict,
+            SwarmEvent::ResolverUnavailable {
+                detail: PRIVATE_DNS_STRICT.to_owned(),
+            },
+        ),
+    };
+    let (resolver_config, resolver_opts) = dns.resolver_config(port)?;
+    switch.install(resolver_config, resolver_opts);
+    *source = next;
+    *applied = Some(dns);
+    Some(event)
+}
+
+/// What strict Private DNS reports, in architect-cto's words (`GZCoord`
+/// 01a13bb7): the cause, and that the name was not resolved.
+const PRIVATE_DNS_STRICT: &str = "private DNS strict mode: plain DNS refused; name not resolved";
+
 /// The host resolver configuration, or an empty one and the reason.
 ///
 /// An empty configuration names no nameserver, so every lookup fails at
@@ -1052,6 +1101,22 @@ impl SwarmRuntime {
     /// invariant rested on one untested line of `start` (#111 re-review,
     /// risk 1). `a_runtime_whose_resolver_read_fails_starts_and_says_so`
     /// starts a real runtime through it.
+    fn start_with_resolver<E: std::fmt::Display>(
+        identity: &ProfileIdentity,
+        config: SubstrateConfig,
+        trust: TrustSources,
+        resolver: Result<(libp2p::dns::ResolverConfig, libp2p::dns::ResolverOpts), E>,
+    ) -> Result<Self, SubstrateError> {
+        Self::start_with_seams(identity, config, trust, resolver, crate::live_dns::DNS_PORT)
+    }
+
+    /// [`Self::start_with_resolver`], with the port a platform view's
+    /// nameservers are asked on.
+    ///
+    /// THE SEAM FOR THE LIVE SWAP'S TEST: a view names nameservers by IP
+    /// only, so they are asked on port 53, which a test cannot bind;
+    /// `a_platform_view_installs_a_resolver_on_a_running_swarm` hands a
+    /// loopback responder's port here. Production passes `DNS_PORT`.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "SwarmRuntime::start takes the trust it enforces by value, as a hand-over; this is its body"
@@ -1060,11 +1125,12 @@ impl SwarmRuntime {
         clippy::too_many_lines,
         reason = "the Swarm task: construction, then one select over every event, command and timer the task owns"
     )]
-    fn start_with_resolver<E: std::fmt::Display>(
+    fn start_with_seams<E: std::fmt::Display>(
         identity: &ProfileIdentity,
         config: SubstrateConfig,
         trust: TrustSources,
         resolver: Result<(libp2p::dns::ResolverConfig, libp2p::dns::ResolverOpts), E>,
+        dns_port: u16,
     ) -> Result<Self, SubstrateError> {
         // BEFORE anything is built. `mpsc::channel(0)` panics, and a
         // half-constructed Swarm would still have opened sockets.
@@ -1410,6 +1476,15 @@ impl SwarmRuntime {
                 .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
             };
         let (resolver_config, resolver_opts, resolver_unavailable) = resolver_or_empty(resolver);
+        let mut resolver_source = if resolver_unavailable.is_some() {
+            ResolverSource::None
+        } else {
+            ResolverSource::Host
+        };
+        // Where the platform's view hands the transport a new resolver
+        // (`live_dns`); the task keeps one end, the transport the other.
+        let resolver_switch = crate::live_dns::ResolverSwitch::default();
+        let transport_switch = resolver_switch.clone();
         // The TCP transport `with_tcp` builds, composed by hand so a
         // listen-port dial the kernel refuses is made again from a fresh
         // port (`port_fallback`, `CONNECTIVITY.md` §12 A 2026-10-14).
@@ -1426,35 +1501,45 @@ impl SwarmRuntime {
                     transport_fallbacks,
                     transport_punches,
                 );
-                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
-                    tcp.upgrade(libp2p::core::upgrade::Version::V1Lazy)
-                        .authenticate(noise::Config::new(key)?)
-                        .multiplex(yamux::Config::default())
-                        .map(|(peer, muxer), _| {
-                            (peer, libp2p::core::muxing::StreamMuxerBox::new(muxer))
-                        }),
-                )
+                let upgraded = tcp
+                    .upgrade(libp2p::core::upgrade::Version::V1Lazy)
+                    .authenticate(noise::Config::new(key)?)
+                    .multiplex(yamux::Config::default())
+                    .map(|(peer, muxer), _| {
+                        (peer, libp2p::core::muxing::StreamMuxerBox::new(muxer))
+                    });
+                // THE DNS TRANSPORT, and the feature flag alone was never
+                // this. `static-bootstrap.md` §DNS ownership says
+                // resolution happens when the dial path consumes the
+                // multiaddress, so until the builder wrapped the base
+                // transport a `/dns4` address failed
+                // `MultiaddrNotSupported` -- classified structural,
+                // correctly for a build that would fail it the same way
+                // every time, so `record_permanent_failure` dropped the
+                // address from the book instead of retrying it. Wrapping
+                // it is what turns a lookup failure back into an ordinary
+                // dial diagnostic the ConnectionManager retries, which is
+                // what ADR-0010 and that contract both say.
+                //
+                // Wrapped HERE, where the builder's `with_dns_config`
+                // stood, and by `live_dns` rather than by the builder,
+                // because the builder's resolver is fixed at
+                // construction: the host configuration is read once, at
+                // start (a DHCP or VPN change on a desktop is not seen
+                // until restart, #111 DNS review P3-5), and a host with
+                // none gets an empty resolver and `ResolverUnavailable`
+                // (`resolver_or_empty`); the platform's view replaces it
+                // live (`CONNECTIVITY.md` §14, A 2026-10-14). The relay
+                // transport is composed beside this one, as the builder
+                // composed it beside its DNS phase.
+                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(crate::live_dns::LiveDns::new(
+                    upgraded,
+                    resolver_config,
+                    resolver_opts,
+                    transport_switch,
+                ))
             })
-            .map_err(|e| SubstrateError::Transport(e.to_string()))?
-            // THE DNS TRANSPORT, and the feature flag alone was never
-            // this. `static-bootstrap.md` §DNS ownership says resolution
-            // happens when the dial path consumes the multiaddress, so
-            // until the builder wrapped the base transport a `/dns4`
-            // address failed `MultiaddrNotSupported` -- classified
-            // structural, correctly for a build that would fail it the
-            // same way every time, so `record_permanent_failure` dropped
-            // the address from the book instead of retrying it. Wrapping
-            // it here is what turns a lookup failure back into an
-            // ordinary dial diagnostic the ConnectionManager retries,
-            // which is what ADR-0010 and that contract both say.
-            //
-            //
-            // The host resolver configuration is read ONCE, here: a
-            // DHCP or VPN change that moves the nameserver is not seen
-            // until restart (#111 DNS review P3-5). And a host with none
-            // gets an empty resolver and `ResolverUnavailable` rather than
-            // a node that refuses to start -- see `resolver_or_empty`.
-            .with_dns_config(resolver_config, resolver_opts);
+            .map_err(|e| SubstrateError::Transport(e.to_string()))?;
         // THE HANDSHAKE TIMEOUT, taken from the same limits the
         // pre-auth gate enforces rather than left to libp2p's
         // default. The two happen to agree at ten seconds today,
@@ -1674,8 +1759,18 @@ impl SwarmRuntime {
             if let Some(event) = resolver_unavailable {
                 outbox.push_back(event);
             }
+            // The platform DNS facts last applied (`apply_platform_dns`),
+            // and the resolver event the outbox had no room for: one, the
+            // latest.
+            let mut applied_dns: Option<crate::live_dns::PlatformDns> = None;
+            let mut held_resolver: Option<SwarmEvent> = None;
 
             loop {
+                if held_resolver.is_some()
+                    && may_buffer_delivery(outbox.len(), config.event_capacity)
+                {
+                    outbox.extend(held_resolver.take());
+                }
                 // mDNS STATE CHANGES HELD UNDER BACKPRESSURE go out as soon
                 // as there is room, before anything this iteration adds.
                 // Held rather than dropped because a lost `Discovered` is
@@ -1868,6 +1963,24 @@ impl SwarmRuntime {
                     // for this turn only, and nothing is reported.
                     Ok(()) = network_view.changed() => {
                         let view = network_view.borrow_and_update().clone();
+                        // The DNS facts first, and apart: they rebuild the
+                        // resolver and never feed the address detector.
+                        if let Some(event) = apply_platform_dns(
+                            &view,
+                            dns_port,
+                            &resolver_switch,
+                            &mut applied_dns,
+                            &mut resolver_source,
+                        ) {
+                            // Latest wins: the resolver's state now, not
+                            // its history, is what a consumer needs.
+                            if may_buffer_delivery(outbox.len(), config.event_capacity) {
+                                outbox.push_back(event);
+                                held_resolver = None;
+                            } else {
+                                held_resolver = Some(event);
+                            }
+                        }
                         let change = network.observe_view(&view.addresses);
                         on_network_change(
                             change,
@@ -2391,6 +2504,7 @@ impl SwarmRuntime {
                                     broadcast_join_references: join_references,
                                     pre_auth: funnel_counts,
                                     ingress,
+                                    resolver: resolver_source,
                                 });
                             }
                             Some(SwarmCommand::Shutdown { grace, reply }) => {
@@ -3595,6 +3709,9 @@ mod outbound_bound_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod live_dns_tests;
 
 #[cfg(test)]
 mod backpressure_tests {

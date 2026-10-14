@@ -578,9 +578,9 @@ fn a_platform_view_reaches_the_runtime_and_offline_closes_what_ran_from_the_addr
         })
     };
 
-    pair.a.host().network_changed(NetworkView {
-        addresses: vec![ip.into()],
-    });
+    pair.a
+        .host()
+        .network_changed(NetworkView::new(vec![ip.into()]));
     let quiet = pair.run(suite::arriving_within(&watcher, Duration::from_secs(2)));
     assert!(!told(&quiet), "a view that agrees is no change: {quiet:?}");
 

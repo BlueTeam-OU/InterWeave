@@ -352,9 +352,11 @@ async fn a_view_without_the_ip_closes_what_ran_from_it_while_its_listener_is_sti
     // it: an addition invalidates nothing. (A view that only agrees with
     // the listeners is no change: `the_two_sources_report_one_move_once`.)
     let extra = std::net::IpAddr::from(std::net::Ipv4Addr::new(10, 255, 0, 6));
-    subject.runtime.network_changed(NetworkView {
-        addresses: vec![ip.into(), "127.0.0.1".parse().expect("an ip"), extra],
-    });
+    subject.runtime.network_changed(NetworkView::new(vec![
+        ip.into(),
+        "127.0.0.1".parse().expect("an ip"),
+        extra,
+    ]));
     let events = drive(
         &mut subject.runtime,
         &mut others,
@@ -491,9 +493,9 @@ async fn an_addition_redials_a_held_off_peer_at_once_and_without_one_it_waits() 
 
     // THE ADDITION: redialled at once.
     let added = std::net::IpAddr::from(std::net::Ipv4Addr::new(10, 255, 0, 1));
-    subject.runtime.network_changed(NetworkView {
-        addresses: vec![ip.into(), added],
-    });
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into(), added]));
     let events = drive(
         &mut subject.runtime,
         &mut others,
@@ -575,9 +577,7 @@ async fn the_same_ip_returning_after_offline_redials_a_peer_that_failed_while_of
     // (the latest view replaces one not yet read).
     let lo: std::net::IpAddr = "127.0.0.1".parse().expect("an ip");
     let extra = std::net::IpAddr::from(std::net::Ipv4Addr::new(10, 255, 0, 7));
-    let online = NetworkView {
-        addresses: vec![ip.into(), lo, extra],
-    };
+    let online = NetworkView::new(vec![ip.into(), lo, extra]);
     subject.runtime.network_changed(online.clone());
     drive(
         &mut subject.runtime,
@@ -648,9 +648,9 @@ async fn the_same_ip_returning_after_offline_redials_a_peer_that_failed_while_of
     // BACK ON THE SAME NETWORK: the same IP alone, reported as added,
     // and the peer redialled at once -- nothing else returns to carry the
     // lift.
-    subject.runtime.network_changed(NetworkView {
-        addresses: vec![ip.into()],
-    });
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into()]));
     let events = drive(
         &mut subject.runtime,
         &mut others,
@@ -696,12 +696,12 @@ async fn the_latest_view_replaces_one_not_yet_read() {
         std::net::IpAddr::from(std::net::Ipv4Addr::new(10, 255, 0, 1)),
         std::net::IpAddr::from(std::net::Ipv4Addr::new(10, 255, 0, 2)),
     );
-    subject.runtime.network_changed(NetworkView {
-        addresses: vec![ip.into(), superseded],
-    });
-    subject.runtime.network_changed(NetworkView {
-        addresses: vec![ip.into(), latest],
-    });
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into(), superseded]));
+    subject
+        .runtime
+        .network_changed(NetworkView::new(vec![ip.into(), latest]));
     let mut events = Vec::new();
     let deadline = tokio::time::Instant::now() + WINDOW;
     while let Ok(Some(event)) =
@@ -755,9 +755,10 @@ async fn a_departed_ips_listener_admits_no_private_candidate() {
     // view replaces one not yet read, and a first view removes nothing it
     // never named -- so it names an address the listeners do not, and its
     // reading is the change it reports.
-    subject.runtime.network_changed(NetworkView {
-        addresses: vec![ip.into(), std::net::Ipv4Addr::new(10, 255, 0, 4).into()],
-    });
+    subject.runtime.network_changed(NetworkView::new(vec![
+        ip.into(),
+        std::net::Ipv4Addr::new(10, 255, 0, 4).into(),
+    ]));
     until_changed(&mut subject.runtime, |_| true).await;
     let admitted = subject
         .runtime

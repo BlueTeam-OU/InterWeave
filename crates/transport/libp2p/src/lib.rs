@@ -136,4 +136,4 @@ pub use runtime::{
     PathChange, PeerGate, PeerPath, RelayReservationOutcome, RelayServerOutcome, ShutdownReport,
     SubstrateConfig, SubstrateError, SwarmCommand, SwarmCommander, SwarmEvent, SwarmRuntime,
 };
-pub use runtime::{DialGateStatus, IngressStatus, PreAuthStatus, RuntimeStatus};
+pub use runtime::{DialGateStatus, IngressStatus, PreAuthStatus, ResolverSource, RuntimeStatus};
