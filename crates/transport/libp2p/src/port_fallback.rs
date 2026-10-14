@@ -26,9 +26,9 @@
 //! responding end's punch is an ordinary dialer's dial (libp2p-dcutr
 //! 0.15.0 `behaviour.rs`, `InboundConnectNegotiated`), indistinguishable
 //! here by role or port use. So the hole-punch scope records, at its
-//! pending hook, the addresses each punch dial carries
-//! ([`PunchAddresses`]), and a listen-port dial to one of them is a
-//! punch whichever its role.
+//! pending hook, the addresses each punch dial carries with the peer it
+//! punches toward ([`PunchAddresses`]), and a listen-port dial to one of
+//! them is a punch whichever its role.
 //!
 //! Two counts, because two is what this layer can tell apart: `DialOpts`
 //! carries a role and a port use and no origin, so a reservation's
@@ -49,7 +49,6 @@ use libp2p::core::Endpoint;
 use libp2p::core::transport::{
     DialOpts, ListenerId, PortUse, Transport, TransportError, TransportEvent,
 };
-use libp2p::multiaddr::Protocol;
 use libp2p::swarm::ConnectionId;
 
 /// The two counts, shared with whoever reads them.
@@ -86,36 +85,61 @@ impl PortFallbacks {
     }
 }
 
-/// The addresses each hole-punch dial in flight carries, keyed by the
-/// dial's `ConnectionId`: written by the hole-punch scope when a punch
-/// dial passes its pending hook, removed when that dial fails or
-/// establishes -- one of which the Swarm reports for every dial past the
-/// hook -- so it holds what is on the wire now and nothing older.
+/// The addresses each hole-punch dial in flight carries, each with the
+/// peer it punches toward, keyed by the dial's `ConnectionId`.
+///
+/// Written by the hole-punch scope when a punch dial passes its pending
+/// hook; each address is CONSUMED by the transport when it dials it --
+/// the Swarm dials every address of a dial synchronously, right after
+/// the hooks -- and what is left (an address the Swarm dropped before
+/// dialling: one this node listens on, a duplicate) goes when the dial
+/// fails, which the scope sees, or establishes, which the runtime sees
+/// (the data-plane class gate hides a gated punch's establishment from
+/// the scope, never from the runtime). Peer-keyed, because the Swarm
+/// appends `/p2p/<peer>` before the transport dials: a relay dial to an
+/// address a peer's CONNECT also named is not that peer's punch.
 #[derive(Debug, Clone, Default)]
 pub struct PunchAddresses(Arc<Mutex<HashMap<ConnectionId, Vec<Multiaddr>>>>);
 
 impl PunchAddresses {
-    /// `id` is a punch dial to `addresses`.
-    pub fn hold(&self, id: ConnectionId, addresses: Vec<Multiaddr>) {
-        self.lock()
-            .insert(id, addresses.into_iter().map(without_peer).collect());
+    /// `id` is a punch dial toward `peer`, to `addresses`.
+    pub fn hold(&self, id: ConnectionId, peer: libp2p::PeerId, addresses: &[Multiaddr]) {
+        let held: Vec<Multiaddr> = addresses
+            .iter()
+            .filter_map(|a| a.clone().with_p2p(peer).ok())
+            .collect();
+        if !held.is_empty() {
+            self.lock().insert(id, held);
+        }
     }
 
-    /// `id` is off the wire.
+    /// `id` is off the wire; whatever it still holds goes.
     pub fn release(&self, id: ConnectionId) {
         self.lock().remove(&id);
     }
 
-    /// Whether a punch dial in flight carries `address`, the peer
-    /// component aside: the Swarm appends `/p2p/<peer>` before the
-    /// transport sees it.
-    #[must_use]
-    pub fn contains(&self, address: &Multiaddr) -> bool {
-        let address = without_peer(address.clone());
-        self.lock().values().any(|held| held.contains(&address))
+    /// Whether `address`, as the transport is asked to dial it, is a
+    /// punch's -- consuming it, since the Swarm dials each address of a
+    /// dial once.
+    pub fn take(&self, address: &Multiaddr) -> bool {
+        let mut held = self.lock();
+        let Some(id) = held
+            .iter()
+            .find_map(|(id, addresses)| addresses.contains(address).then_some(*id))
+        else {
+            return false;
+        };
+        if let Some(addresses) = held.get_mut(&id) {
+            addresses.retain(|a| a != address);
+            if addresses.is_empty() {
+                held.remove(&id);
+            }
+        }
+        true
     }
 
-    /// Dials held. Zero except while punches are on the wire.
+    /// Dials holding an address. Zero except while punches are being
+    /// dialled.
     #[must_use]
     pub fn held(&self) -> usize {
         self.lock().len()
@@ -128,13 +152,6 @@ impl PunchAddresses {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
-}
-
-fn without_peer(mut address: Multiaddr) -> Multiaddr {
-    if matches!(address.iter().last(), Some(Protocol::P2p(_))) {
-        address.pop();
-    }
-    address
 }
 
 /// `inner`, with a refused listen-port dial made again from a fresh
@@ -170,14 +187,18 @@ enum Kind {
 }
 
 /// A punch is a dial made as the connection's listener (the initiating
-/// end) or one to an address a punch in flight carries (the responding
-/// end, which dials as an ordinary dialer).
+/// end) or one to an address a punch in flight carries toward that peer
+/// (the responding end, which dials as an ordinary dialer). The held
+/// address is consumed whichever end dials it.
 fn kind(opts: DialOpts, address: &Multiaddr, punches: &PunchAddresses) -> Kind {
-    match (opts.port_use, opts.role) {
-        (PortUse::New, _) => Kind::Fresh,
-        (PortUse::Reuse, Endpoint::Listener) => Kind::Punch,
-        (PortUse::Reuse, Endpoint::Dialer) if punches.contains(address) => Kind::Punch,
-        (PortUse::Reuse, Endpoint::Dialer) => Kind::ListenPort,
+    if matches!(opts.port_use, PortUse::New) {
+        return Kind::Fresh;
+    }
+    let held = punches.take(address);
+    if held || matches!(opts.role, Endpoint::Listener) {
+        Kind::Punch
+    } else {
+        Kind::ListenPort
     }
 }
 
@@ -285,6 +306,9 @@ mod tests {
         answers: VecDeque<Result<u8, io::ErrorKind>>,
         dialled: Vec<PortUse>,
         polled: Arc<Mutex<Vec<PortUse>>>,
+        /// The dial (counted from 1) refused synchronously, before any
+        /// future exists.
+        refuse_dial_number: Option<usize>,
     }
 
     impl Scripted {
@@ -318,6 +342,11 @@ mod tests {
         ) -> Result<Self::Dial, TransportError<io::Error>> {
             self.dialled.push(opts.port_use);
             let answer = self.answers.pop_front().expect("a scripted answer");
+            if self.refuse_dial_number == Some(self.dialled.len()) {
+                return Err(TransportError::Other(io::Error::from(
+                    io::ErrorKind::OutOfMemory,
+                )));
+            }
             let polled = Arc::clone(&self.polled);
             Ok(async move {
                 polled.lock().expect("unpoisoned").push(opts.port_use);
@@ -409,52 +438,55 @@ mod tests {
     }
 
     /// The RESPONDING end's punch dials as an ordinary dialer (libp2p-
-    /// dcutr 0.15.0, `InboundConnectNegotiated`); a dial to an address a
-    /// punch in flight holds is a punch all the same -- counted, never
-    /// redialled -- and once that punch is released, the same dial is an
-    /// ordinary listen-port dial again (the control).
+    /// dcutr 0.15.0, `InboundConnectNegotiated`). A dial to an address a
+    /// punch holds TOWARD THAT PEER is the punch -- counted, never
+    /// redialled, and the address consumed -- while a dial to the same
+    /// IP and port for ANOTHER peer (a relay a CONNECT happened to name)
+    /// is an ordinary listen-port dial and falls back; and once consumed,
+    /// the punch's own address is ordinary again (the control).
     #[tokio::test]
     async fn a_dial_to_a_held_punch_address_is_a_punch_whatever_its_role() {
+        const PUNCHED: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+        const RELAY: &str = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
+        let toward =
+            |peer: &str| -> Multiaddr { format!("{}/p2p/{peer}", addr()).parse().expect("valid") };
         let punches = PunchAddresses::default();
-        let id = ConnectionId::new_unchecked(7);
-        punches.hold(id, vec![addr()]);
-        let peer: Multiaddr = format!(
-            "{}/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
-            addr()
-        )
-        .parse()
-        .expect("valid");
+        punches.hold(
+            ConnectionId::new_unchecked(7),
+            PUNCHED.parse().expect("peer id"),
+            &[addr()],
+        );
         let mut t = PortFallback::new(
             Scripted {
-                answers: [Err(io::ErrorKind::AddrInUse)].into_iter().collect(),
+                answers: [
+                    Err(io::ErrorKind::AddrInUse),
+                    Ok(4),
+                    Err(io::ErrorKind::AddrInUse),
+                    Err(io::ErrorKind::AddrInUse),
+                    Ok(5),
+                ]
+                .into_iter()
+                .collect(),
                 ..Scripted::default()
             },
             PortFallbacks::default(),
             punches.clone(),
         );
-        let dial = t
-            .dial(peer.clone(), opts(PortUse::Reuse, Endpoint::Dialer))
+
+        let relay = t
+            .dial(toward(RELAY), opts(PortUse::Reuse, Endpoint::Dialer))
+            .expect("dials");
+        assert_eq!(relay.await.expect("another peer's dial falls back"), 4);
+        assert_eq!(punches.held(), 1, "and takes nothing from the punch");
+
+        let punch = t
+            .dial(toward(PUNCHED), opts(PortUse::Reuse, Endpoint::Dialer))
             .expect("dials");
         assert_eq!(
-            dial.await.expect_err("the punch fails").kind(),
+            punch.await.expect_err("the punch fails").kind(),
             io::ErrorKind::AddrInUse
         );
-        assert_eq!(t.inner.dialled, [PortUse::Reuse], "no fresh dial is made");
-        assert_eq!(
-            t.fallbacks.snapshot(),
-            PortFallbackCounts {
-                relay_fell_back: 0,
-                punch_refused: 1
-            }
-        );
-
-        punches.release(id);
-        assert_eq!(punches.held(), 0);
-        t.inner.answers = [Err(io::ErrorKind::AddrInUse), Ok(5)].into_iter().collect();
-        let dial = t
-            .dial(peer, opts(PortUse::Reuse, Endpoint::Dialer))
-            .expect("dials");
-        assert_eq!(dial.await.expect("released, it falls back"), 5);
+        assert_eq!(punches.held(), 0, "the punch's address is consumed");
         assert_eq!(
             t.fallbacks.snapshot(),
             PortFallbackCounts {
@@ -462,40 +494,58 @@ mod tests {
                 punch_refused: 1
             }
         );
+
+        let again = t
+            .dial(toward(PUNCHED), opts(PortUse::Reuse, Endpoint::Dialer))
+            .expect("dials");
+        assert_eq!(again.await.expect("consumed, it falls back"), 5);
+        assert_eq!(
+            t.inner.dialled,
+            [
+                PortUse::Reuse,
+                PortUse::New,
+                PortUse::Reuse,
+                PortUse::Reuse,
+                PortUse::New
+            ],
+            "the punch alone made no fresh dial"
+        );
     }
 
-    /// A hole punch -- a listen-port dial made as the connection's
-    /// listener -- refused `EADDRINUSE` fails as it came and is counted
-    /// as a punch; a fresh-port dial is passed through. Neither makes a
-    /// second dial.
+    /// A fresh dial that cannot even be made leaves the listen-port dial
+    /// as it was: its own answer, with no fallback behind it.
     #[tokio::test]
-    async fn a_hole_punch_and_a_fresh_port_dial_are_dialled_once() {
-        let mut t = wrapped(&[Err(io::ErrorKind::AddrInUse)]);
+    async fn a_fresh_dial_that_cannot_be_made_leaves_the_first_alone() {
+        let mut t = PortFallback::new(
+            Scripted {
+                answers: [Ok(3), Err(io::ErrorKind::AddrInUse)].into_iter().collect(),
+                refuse_dial_number: Some(2),
+                ..Scripted::default()
+            },
+            PortFallbacks::default(),
+            PunchAddresses::default(),
+        );
         let dial = t
-            .dial(addr(), opts(PortUse::Reuse, Endpoint::Listener))
-            .expect("dials");
-        assert_eq!(
-            dial.await.expect_err("the punch fails").kind(),
-            io::ErrorKind::AddrInUse
-        );
-        assert_eq!(t.inner.dialled, [PortUse::Reuse]);
-        assert_eq!(
-            t.fallbacks.snapshot(),
-            PortFallbackCounts {
-                relay_fell_back: 0,
-                punch_refused: 1
-            }
-        );
+            .dial(addr(), opts(PortUse::Reuse, Endpoint::Dialer))
+            .expect("the first dial is made");
+        assert_eq!(dial.await.expect("connects"), 3);
 
-        let mut t = wrapped(&[Err(io::ErrorKind::AddrInUse)]);
+        let mut t = PortFallback::new(
+            Scripted {
+                answers: [Err(io::ErrorKind::AddrInUse), Ok(9)].into_iter().collect(),
+                refuse_dial_number: Some(2),
+                ..Scripted::default()
+            },
+            PortFallbacks::default(),
+            PunchAddresses::default(),
+        );
         let dial = t
-            .dial(addr(), opts(PortUse::New, Endpoint::Dialer))
-            .expect("dials");
+            .dial(addr(), opts(PortUse::Reuse, Endpoint::Dialer))
+            .expect("the first dial is made");
         assert_eq!(
-            dial.await.expect_err("refused").kind(),
+            dial.await.expect_err("nothing to fall back to").kind(),
             io::ErrorKind::AddrInUse
         );
-        assert_eq!(t.inner.dialled, [PortUse::New]);
         assert_eq!(t.fallbacks.snapshot(), PortFallbackCounts::default());
     }
 

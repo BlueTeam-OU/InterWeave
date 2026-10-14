@@ -502,6 +502,11 @@ mod tests {
         }
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let lock = std::fs::read_to_string(root.join("Cargo.lock")).expect("Cargo.lock");
+        assert_eq!(
+            lock.matches("name = \"libp2p-kad\"\n").count(),
+            1,
+            "one libp2p-kad in the graph, the one read"
+        );
         assert!(
             lock.contains("name = \"libp2p-kad\"\nversion = \"0.49.0\"\n"),
             "libp2p-kad moved: re-read its ToSwarm::Dial sites before keeping \

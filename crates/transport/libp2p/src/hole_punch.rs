@@ -1018,8 +1018,8 @@ impl NetworkBehaviour for HolePunchScope {
                 let extended = self
                     .inner
                     .handle_pending_outbound_connection(id, peer, addresses, role)?;
-                self.punches
-                    .hold(id, addresses.iter().chain(&extended).cloned().collect());
+                let dialled: Vec<Multiaddr> = addresses.iter().chain(&extended).cloned().collect();
+                self.punches.hold(id, target, &dialled);
                 return Ok(extended);
             };
             if kept.is_empty() {
@@ -1066,7 +1066,7 @@ impl NetworkBehaviour for HolePunchScope {
             // not asked about it, as it would not be asked about any
             // other behaviour's.
             self.reissued_in_flight.insert(id, target);
-            self.punches.hold(id, addresses.to_vec());
+            self.punches.hold(id, target, addresses);
             return Ok(Vec::new());
         }
         self.inner
@@ -1787,7 +1787,7 @@ mod tests {
             s.punch_dials.insert(dial, a);
             s.handle_pending_outbound_connection(dial, Some(a), &[direct()], Endpoint::Dialer)
                 .expect("the responder's punch is admitted");
-            assert!(punches.contains(&direct()), "held while on the wire");
+            assert_eq!(punches.held(), 1, "held while on the wire");
             if ends_by_failure {
                 let error = libp2p::swarm::DialError::Aborted;
                 s.on_swarm_event(FromSwarm::DialFailure(
@@ -1815,6 +1815,45 @@ mod tests {
             }
             assert_eq!(punches.held(), 0, "released when it fails or establishes");
         }
+    }
+
+    /// A punch dial REISSUED without a refused candidate holds its
+    /// surviving addresses toward the punched peer when the reissued dial
+    /// passes the hook -- on the responding end that dial is a dialer's,
+    /// and only the record makes it a punch to the transport -- and the
+    /// refused candidate is held by nothing.
+    #[test]
+    fn a_reissued_punch_dial_holds_its_surviving_addresses() {
+        let punches = crate::port_fallback::PunchAddresses::default();
+        let mut s = scope(HolePunchBudgets::default()).recording_punches(punches.clone());
+        let a = peer();
+        assert!(matches!(relayed_inbound(&mut s, 1, a), Either::Left(_)));
+        let dial = ConnectionId::new_unchecked(2);
+        s.punch_dials.insert(dial, a);
+        assert!(
+            s.handle_pending_outbound_connection(
+                dial,
+                Some(a),
+                &[direct(), loopback()],
+                Endpoint::Dialer
+            )
+            .is_err(),
+            "the crate's dial is denied and reissued"
+        );
+        assert_eq!(punches.held(), 0, "the denied dial holds nothing");
+        let reissued = next_dial(&mut s).connection_id();
+        s.handle_pending_outbound_connection(reissued, Some(a), &[direct()], Endpoint::Dialer)
+            .expect("the reissued dial is admitted");
+        assert_eq!(punches.held(), 1);
+        let toward = |address: Multiaddr| address.with_p2p(a).expect("no other peer");
+        assert!(
+            punches.take(&toward(direct())),
+            "its survivor is the punch's"
+        );
+        assert!(
+            !punches.take(&toward(loopback())),
+            "the refused candidate is not"
+        );
     }
 
     /// The boundary at the pending hook as a FILTER: a punch dial whose
