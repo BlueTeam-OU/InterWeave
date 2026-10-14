@@ -178,10 +178,20 @@ fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
         profile: PROFILE.to_owned(),
         identity,
     }) {
-        Ok(()) => match host.availability() {
-            Some(AvailabilityMode::StayReachable) => 1,
-            _ => 0,
-        },
+        Ok(()) => {
+            // The networks reported before the runtime existed, which it
+            // heard at its start: a count, no address.
+            match host.network_told() {
+                Some(count) => log(&format!(
+                    "the runtime started with the networks: {count} addresses"
+                )),
+                None => log("the runtime started before any network was reported"),
+            }
+            match host.availability() {
+                Some(AvailabilityMode::StayReachable) => 1,
+                _ => 0,
+            }
+        }
         Err(why) => refusal(&why),
     }
 }
