@@ -33,6 +33,7 @@ pub use interweave_transport_embedded::custody;
 pub use interweave_transport_embedded::{EmbeddedRefused, StayReachable};
 pub use notice::Notices;
 pub use service::{
-    AvailabilityMode, CLIENT_KIND, Ended, ServiceHost, ServiceLaunch, StartRefused, Stopped,
+    AvailabilityMode, CLIENT_KIND, Ended, LogLevel, ServiceHost, ServiceLaunch, StartRefused,
+    Stopped, profile_log_level,
 };
 pub use view_side::{ListingFailed, ViewSide};

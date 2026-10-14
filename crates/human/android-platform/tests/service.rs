@@ -191,6 +191,39 @@ fn a_stop_releases_the_waiter_tells_the_view_and_frees_the_profile() {
     let _ = service.stop(GRACE);
 }
 
+/// The level the app's platform log is set to before a start is the
+/// profile's own, as the start will read it.
+#[test]
+fn the_log_level_is_the_profiles_and_none_without_one() {
+    let app = app();
+    assert_eq!(
+        interweave_human_android_platform::profile_log_level(&app.dir, PROFILE),
+        None,
+        "no profile yet"
+    );
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let paths = ProfilePaths::resolve_embedded(
+        PROFILE,
+        TrustBoundary::new(&app.dir).expect("the boundary"),
+    )
+    .expect("the paths");
+    let config = std::fs::read_to_string(paths.config_file()).expect("the config");
+    assert_eq!(
+        interweave_human_android_platform::profile_log_level(&app.dir, PROFILE),
+        Some(interweave_human_android_platform::LogLevel::Info),
+        "the stand-in names none: the default"
+    );
+    std::fs::write(
+        paths.config_file(),
+        format!("{config}\nobservability: {{ log_level: warn }}\n"),
+    )
+    .expect("the config written");
+    assert_eq!(
+        interweave_human_android_platform::profile_log_level(&app.dir, PROFILE),
+        Some(interweave_human_android_platform::LogLevel::Warn)
+    );
+}
+
 #[test]
 fn a_profile_no_endpoint_admits_is_refused_and_leaves_nothing_running() {
     let app = app();

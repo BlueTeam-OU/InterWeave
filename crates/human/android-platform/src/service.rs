@@ -17,6 +17,7 @@ use interweave_human_store::{HumanStore, StoreError, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_local_client_api::DataSessionBinding;
 pub use interweave_profile_config::runtime::AvailabilityMode;
+pub use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
@@ -510,6 +511,19 @@ impl ServiceHost {
             runtime,
         })
     }
+}
+
+/// The log level `profile`'s `config.yaml` names under `app_data_dir`
+/// (`observability.log_level`), read as a start reads the profile -- so
+/// the app's platform log can be filtered at it before the runtime logs
+/// its first line (plan section 20, the audit sink carried from section
+/// 18). `None` when the profile cannot be read: the start that follows
+/// refuses and says why.
+#[must_use]
+pub fn profile_log_level(app_data_dir: &std::path::Path, profile: &str) -> Option<LogLevel> {
+    let boundary = TrustBoundary::new(app_data_dir).ok()?;
+    let paths = ProfilePaths::resolve_embedded(profile, boundary).ok()?;
+    Some(ProfileConfig::load(&paths).ok()?.observability.log_level)
 }
 
 /// The endpoint the Android profile names for its service
