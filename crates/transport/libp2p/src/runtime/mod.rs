@@ -1171,12 +1171,15 @@ impl SwarmRuntime {
         let local_pid = libp2p::PeerId::from_public_key(&keypair.public());
         let (kad_toggle, mut kademlia_state) = match &config.kademlia {
             Some(settings) => (
-                libp2p::swarm::behaviour::toggle::Toggle::from(Some(Attributing::new(
-                    kademlia_driver::build_behaviour(settings, local_pid)
-                        .map_err(SubstrateError::Kademlia)?,
-                    always(DialOrigin::KademliaQuery),
-                    attribution.clone(),
-                ))),
+                libp2p::swarm::behaviour::toggle::Toggle::from(Some(
+                    Attributing::new(
+                        kademlia_driver::build_behaviour(settings, local_pid)
+                            .map_err(SubstrateError::Kademlia)?,
+                        always(DialOrigin::KademliaQuery),
+                        attribution.clone(),
+                    )
+                    .dialling_peers_from_a_fresh_port(),
+                )),
                 Some({
                     let mut state = kademlia_driver::KademliaState::new(settings);
                     state.set_boundary(operator.clone(), stores.clone());
