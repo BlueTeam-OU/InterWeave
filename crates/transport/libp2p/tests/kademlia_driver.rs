@@ -61,15 +61,31 @@ where
     F: FnMut(&SwarmEvent) -> bool,
 {
     let deadline = tokio::time::Instant::now() + PATIENCE;
+    // What the runtime said meanwhile, for the failure message: a walk
+    // that never converges otherwise fails with no cause (CI runs of
+    // 2026-10-11 and 2026-10-14). The first 64 are kept and the rest
+    // counted, so a cut list says so.
+    let mut seen: Vec<String> = Vec::new();
+    let mut unshown = 0_usize;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(!remaining.is_zero(), "timed out waiting for {what}");
+        assert!(
+            !remaining.is_zero(),
+            "timed out waiting for {what}; events seen: {seen:#?}, {unshown} more not shown"
+        );
         match tokio::time::timeout(remaining, runtime.next_event()).await {
-            Err(elapsed) => panic!("timed out waiting for {what} ({elapsed})"),
+            Err(elapsed) => panic!(
+                "timed out waiting for {what} ({elapsed}); events seen: {seen:#?}, {unshown} more not shown"
+            ),
             Ok(None) => panic!("the substrate stopped while waiting for {what}"),
             Ok(Some(event)) => {
                 if predicate(&event) {
                     return event;
+                }
+                if seen.len() < 64 {
+                    seen.push(format!("{event:?}"));
+                } else {
+                    unshown += 1;
                 }
             }
         }
