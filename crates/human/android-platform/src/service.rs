@@ -414,9 +414,9 @@ impl ServiceHost {
     /// step 5): the runtime hears the snapshot the reports make, when it
     /// moved, and a runtime that starts later hears it at its start
     /// ([`crate::network`]). Does not wait, whatever a start or a stop is
-    /// doing.
-    pub fn network_report(&self, report: NetworkReport) {
-        self.network().report(report);
+    /// doing. How many addresses the runtime was told, `None` for nothing.
+    pub fn network_report(&self, report: NetworkReport) -> Option<usize> {
+        self.network().report(report)
     }
 
     /// Stop the client: the facade closes its session (releasing the

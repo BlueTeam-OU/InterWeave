@@ -200,7 +200,7 @@ fn a_network_report_never_waits_on_a_start() {
     let app = app();
     stand_in::provision(&app.dir, PROFILE).expect("provisioned");
     let service = Arc::new(ServiceHost::new());
-    service.network_report(NetworkReport::Watching);
+    let _ = service.network_report(NetworkReport::Watching);
     let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let begun = Arc::new(std::sync::Barrier::new(2));
     let starting = {
@@ -221,7 +221,7 @@ fn a_network_report_never_waits_on_a_start() {
     let mut during_the_start = 0_u32;
     let network = 1;
     while !done.load(std::sync::atomic::Ordering::SeqCst) {
-        service.network_report(NetworkReport::Link {
+        let _ = service.network_report(NetworkReport::Link {
             network,
             addresses: vec![std::net::Ipv4Addr::new(10, 0, 0, 5).into()],
         });
@@ -237,7 +237,7 @@ fn a_network_report_never_waits_on_a_start() {
     // The slot's hold on the runtime does not keep it from its stop.
     let stopped = service.stop(GRACE).expect("it ran");
     assert!(stopped.runtime.is_ok(), "{:?}", stopped.runtime);
-    service.network_report(NetworkReport::Lost { network });
+    let _ = service.network_report(NetworkReport::Lost { network });
 }
 
 #[test]

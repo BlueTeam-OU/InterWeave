@@ -156,15 +156,16 @@ pub enum NetworkReport {
 
 impl<S: NetworkSink> NetworkSlot<S> {
     /// Take one report, and tell the attached runtime when the snapshot
-    /// moved.
-    pub fn report(&mut self, report: NetworkReport) {
+    /// moved: how many addresses it was told, `None` when it was told
+    /// nothing. A count, so a log of it names no address.
+    pub fn report(&mut self, report: NetworkReport) -> Option<usize> {
         match report {
             NetworkReport::Watching => self.links.watch(),
             NetworkReport::Link { network, addresses } => self.links.link(network, addresses),
             NetworkReport::Lost { network } => self.links.lost(network),
             NetworkReport::Unwatched => self.links.unwatch(),
         }
-        self.tell();
+        self.tell()
     }
 
     /// A runtime started: it hears the current snapshot now, if one is
@@ -172,7 +173,7 @@ impl<S: NetworkSink> NetworkSlot<S> {
     pub fn attach(&mut self, sink: S) {
         self.sink = Some(sink);
         self.told = None;
-        self.tell();
+        let _ = self.tell();
     }
 
     /// The runtime stops: it hears nothing more, and the slot lets go of
@@ -185,15 +186,17 @@ impl<S: NetworkSink> NetworkSlot<S> {
     /// The snapshot, to the attached runtime, unless it was told it last.
     /// An unknown view is never sent: an unregistered callback is not
     /// offline, and the runtime keeps the last view it had.
-    fn tell(&mut self) {
+    fn tell(&mut self) -> Option<usize> {
         let (Some(sink), Some(view)) = (self.sink.as_ref(), self.links.view()) else {
-            return;
+            return None;
         };
         if self.told.as_ref() == Some(&view) {
-            return;
+            return None;
         }
+        let count = view.addresses.len();
         sink.network_changed(view.clone());
         self.told = Some(view);
+        Some(count)
     }
 }
 
@@ -267,9 +270,9 @@ mod tests {
     #[test]
     fn the_view_is_every_address_of_every_network_once_and_sorted() {
         let (mut slot, heard) = attached();
-        slot.report(NetworkReport::Watching);
-        slot.report(link(7, &["192.168.1.20", "fe80::1"]));
-        slot.report(link(9, &["10.0.0.5", "192.168.1.20"]));
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(link(7, &["192.168.1.20", "fe80::1"]));
+        let _ = slot.report(link(9, &["10.0.0.5", "192.168.1.20"]));
         assert_eq!(
             heard.take().last().cloned(),
             Some(vec![ip("10.0.0.5"), ip("192.168.1.20"), ip("fe80::1")]),
@@ -280,36 +283,41 @@ mod tests {
     #[test]
     fn a_registered_callback_with_no_network_is_offline_and_a_lost_last_network_is_too() {
         let (mut slot, heard) = attached();
-        slot.report(NetworkReport::Watching);
+        assert_eq!(slot.report(NetworkReport::Watching), Some(0));
         assert_eq!(
             heard.take(),
             vec![Vec::<IpAddr>::new()],
             "registered, nothing yet: offline"
         );
-        slot.report(link(3, &["10.0.0.5"]));
-        slot.report(NetworkReport::Lost { network: 3 });
+        assert_eq!(slot.report(link(3, &["10.0.0.5"])), Some(1));
+        assert_eq!(
+            slot.report(link(3, &["10.0.0.5"])),
+            None,
+            "told nothing new"
+        );
+        assert_eq!(slot.report(NetworkReport::Lost { network: 3 }), Some(0));
         assert_eq!(heard.take(), vec![vec![ip("10.0.0.5")], vec![]]);
     }
 
     #[test]
     fn a_report_that_leaves_the_addresses_as_they_were_tells_the_runtime_nothing() {
         let (mut slot, heard) = attached();
-        slot.report(NetworkReport::Watching);
-        slot.report(link(1, &["10.0.0.5"]));
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(link(1, &["10.0.0.5"]));
         heard.take();
         // A Wi-Fi reconnect with the same lease: a new handle, the same
         // address; and the same set in another order.
-        slot.report(link(2, &["10.0.0.5"]));
-        slot.report(NetworkReport::Lost { network: 1 });
-        slot.report(link(2, &["10.0.0.5"]));
+        let _ = slot.report(link(2, &["10.0.0.5"]));
+        let _ = slot.report(NetworkReport::Lost { network: 1 });
+        let _ = slot.report(link(2, &["10.0.0.5"]));
         assert!(heard.take().is_empty(), "the addresses never changed");
     }
 
     #[test]
     fn a_runtime_that_starts_hears_the_networks_reported_before_it_existed() {
         let mut slot = NetworkSlot::default();
-        slot.report(NetworkReport::Watching);
-        slot.report(link(4, &["10.0.0.5"]));
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(link(4, &["10.0.0.5"]));
         let heard = Heard::default();
         slot.attach(heard.clone());
         assert_eq!(heard.take(), vec![vec![ip("10.0.0.5")]]);
@@ -318,8 +326,8 @@ mod tests {
     #[test]
     fn a_restarted_runtime_hears_the_view_even_when_its_predecessor_was_told_it() {
         let (mut slot, first) = attached();
-        slot.report(NetworkReport::Watching);
-        slot.report(link(4, &["10.0.0.5"]));
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(link(4, &["10.0.0.5"]));
         assert_eq!(first.take(), vec![vec![], vec![ip("10.0.0.5")]]);
         assert!(slot.detach().is_some());
         let second = Heard::default();
@@ -330,12 +338,12 @@ mod tests {
     #[test]
     fn a_detached_slot_holds_no_runtime_and_tells_none() {
         let (mut slot, heard) = attached();
-        slot.report(NetworkReport::Watching);
+        let _ = slot.report(NetworkReport::Watching);
         heard.take();
         let held = slot.detach();
         assert!(held.is_some());
         assert!(slot.detach().is_none(), "nothing kept after the detach");
-        slot.report(link(5, &["10.0.0.5"]));
+        let _ = slot.report(link(5, &["10.0.0.5"]));
         assert!(heard.take().is_empty());
     }
 
@@ -343,13 +351,13 @@ mod tests {
     fn an_unknown_view_is_never_sent_as_offline() {
         let (mut slot, heard) = attached();
         // Before registration, and a report racing the unregistration.
-        slot.report(link(1, &["10.0.0.5"]));
+        let _ = slot.report(link(1, &["10.0.0.5"]));
         assert!(heard.take().is_empty(), "no callback registered: unknown");
-        slot.report(NetworkReport::Watching);
-        slot.report(link(1, &["10.0.0.5"]));
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(link(1, &["10.0.0.5"]));
         heard.take();
-        slot.report(NetworkReport::Unwatched);
-        slot.report(NetworkReport::Lost { network: 1 });
+        let _ = slot.report(NetworkReport::Unwatched);
+        let _ = slot.report(NetworkReport::Lost { network: 1 });
         assert!(
             heard.take().is_empty(),
             "unregistered is unknown, not offline"
