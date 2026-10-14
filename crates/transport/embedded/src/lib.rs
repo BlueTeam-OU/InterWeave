@@ -371,13 +371,14 @@ impl EmbeddedHost {
     /// delta, and an empty view when it reports none -- offline, with the
     /// active network's DNS facts (`dns_servers`, `private_dns`). Pass a
     /// view when the addresses or the DNS facts change; a DNS-only change
-    /// rebuilds the resolver and is no network change, and a new network
-    /// whose addresses equal the old ones is no change, and the
-    /// connections that
-    /// survived it prove themselves by their own keepalives. Until the
-    /// first view the runtime knows the host's addresses from its
-    /// wildcard listeners alone, which on Android poll every 10 s and may
-    /// see nothing at all; with a view, a hand-over is seen at once.
+    /// rebuilds the resolver unless it names no nameserver and no strict
+    /// Private DNS (unknown: the resolver in use is kept), and is no
+    /// network change. A new network whose addresses equal the old ones
+    /// is no change, and the connections that survived it prove
+    /// themselves by their own keepalives. Until the first view the
+    /// runtime knows the host's addresses from its wildcard listeners
+    /// alone, which on Android poll every 10 s and may see nothing at
+    /// all; with a view, a hand-over is seen at once.
     ///
     /// Callable from any thread, and does not wait: it is
     /// `ComposedRuntime::network_changed`, a snapshot slot where the
