@@ -21,11 +21,12 @@ use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
 use interweave_transport_embedded::{
-    EmbeddedHost, EmbeddedLaunch, EmbeddedRefused, Ended as HostEnded, NetworkView, StayReachable,
+    EmbeddedHost, EmbeddedLaunch, EmbeddedRefused, Ended as HostEnded, StayReachable,
 };
 
 use crate::facade::{FacadeLoop, SpawnError};
 use crate::hub::Hub;
+use crate::network::{NetworkReport, NetworkSlot};
 use crate::offline::offline_embedded;
 
 /// The client kind the session declares, as on the desktop: the profile's
@@ -116,6 +117,9 @@ struct Running {
 pub struct ServiceHost {
     hub: Arc<Hub>,
     running: Mutex<Option<Running>>,
+    /// The platform's networks and the runtime that hears them: a lock of
+    /// their own, so the callback never waits on a start.
+    network: Mutex<NetworkSlot<Arc<EmbeddedHost>>>,
 }
 
 impl Default for ServiceHost {
@@ -139,6 +143,7 @@ impl ServiceHost {
         Self {
             hub: Arc::new(Hub::new()),
             running: Mutex::new(None),
+            network: Mutex::new(NetworkSlot::default()),
         }
     }
 
@@ -165,6 +170,11 @@ impl ServiceHost {
         // Each field is replaced whole, so a panic that poisoned the lock
         // left nothing half-written.
         self.running.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn network(&self) -> std::sync::MutexGuard<'_, NetworkSlot<Arc<EmbeddedHost>>> {
+        // A report is taken whole or not at all.
+        self.network.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Start the runtime, open the store under the runtime's paths and run
@@ -256,8 +266,12 @@ impl ServiceHost {
             Err(SpawnError::Thread(e)) => return refuse(host, StartRefused::Thread(e.to_string())),
         };
         self.hub.set_network_access(true);
+        let host = Arc::new(host);
+        // The callback reported the networks before this runtime existed
+        // and does not report them again: it hears them now.
+        self.network().attach(Arc::clone(&host));
         *running = Some(Running {
-            host: Some(Arc::new(host)),
+            host: Some(host),
             executor: None,
             facade,
         });
@@ -396,12 +410,13 @@ impl ServiceHost {
         }
     }
 
-    /// Hand the platform's view of the network to the runtime: every
-    /// change, a Wi-Fi reconnect included (plan section 20 step 5).
-    pub fn network_changed(&self, view: NetworkView) {
-        if let Some(host) = self.lock().as_ref().and_then(|r| r.host.as_ref()) {
-            host.network_changed(view);
-        }
+    /// One report from the Service's network callback (plan section 20
+    /// step 5): the runtime hears the snapshot the reports make, when it
+    /// moved, and a runtime that starts later hears it at its start
+    /// ([`crate::network`]). Does not wait, whatever a start or a stop is
+    /// doing.
+    pub fn network_report(&self, report: NetworkReport) {
+        self.network().report(report);
     }
 
     /// Stop the client: the facade closes its session (releasing the
@@ -416,6 +431,8 @@ impl ServiceHost {
             executor,
             facade,
         } = self.lock().take()?;
+        // Before the stop: the slot's hold would keep the host from it.
+        drop(self.network().detach());
         let Some(host) = host else {
             // The network-denied posture: the facade and its executor are
             // all there is. Access is said again at the next start.

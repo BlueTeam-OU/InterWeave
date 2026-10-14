@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 
 use interweave_human_android_platform::stand_in;
 use interweave_human_android_platform::{
-    AvailabilityMode, Ended, ServiceHost, ServiceLaunch, StartRefused, StayReachable, ToView,
-    ViewLink,
+    AvailabilityMode, Ended, NetworkReport, ServiceHost, ServiceLaunch, StartRefused,
+    StayReachable, ToView, ViewLink,
 };
 use interweave_human_app_core::Update;
 use interweave_human_client_api::{ClientEvent, SessionState};
@@ -189,6 +189,55 @@ fn a_stop_releases_the_waiter_tells_the_view_and_frees_the_profile() {
     });
     until(&mut link, &mut held, "a fresh listing", is_listing);
     let _ = service.stop(GRACE);
+}
+
+/// The network callback's reports (plan section 20 step 5) are taken
+/// while a start runs, without waiting for it: the callback runs on the
+/// platform's thread, and a start holds the client for as long as the
+/// runtime, the store and the facade take to come up.
+#[test]
+fn a_network_report_never_waits_on_a_start() {
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let service = Arc::new(ServiceHost::new());
+    service.network_report(NetworkReport::Watching);
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let begun = Arc::new(std::sync::Barrier::new(2));
+    let starting = {
+        let (service, done, launch) = (Arc::clone(&service), Arc::clone(&done), launch(&app));
+        let begun = Arc::clone(&begun);
+        std::thread::spawn(move || {
+            begun.wait();
+            service.start(launch).expect("started");
+            done.store(true, std::sync::atomic::Ordering::SeqCst);
+        })
+    };
+    // The start takes the client first thing and holds it for tens of
+    // milliseconds at the least, and a report takes microseconds: counted
+    // from a moment the start surely holds it, a report that waited on
+    // the start lets none through.
+    begun.wait();
+    std::thread::sleep(Duration::from_millis(5));
+    let mut during_the_start = 0_u32;
+    let network = 1;
+    while !done.load(std::sync::atomic::Ordering::SeqCst) {
+        service.network_report(NetworkReport::Link {
+            network,
+            addresses: vec![std::net::Ipv4Addr::new(10, 0, 0, 5).into()],
+        });
+        if !done.load(std::sync::atomic::Ordering::SeqCst) {
+            during_the_start += 1;
+        }
+    }
+    starting.join().expect("the start returned");
+    assert!(
+        during_the_start >= 100,
+        "{during_the_start} reports overlapped the start: one waited on it"
+    );
+    // The slot's hold on the runtime does not keep it from its stop.
+    let stopped = service.stop(GRACE).expect("it ran");
+    assert!(stopped.runtime.is_ok(), "{:?}", stopped.runtime);
+    service.network_report(NetworkReport::Lost { network });
 }
 
 #[test]
