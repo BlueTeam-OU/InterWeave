@@ -3408,4 +3408,35 @@ mod tests {
         assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read(&path).expect("read"), b"first");
     }
+
+    /// No temporary outlives a create, refused or not: the directory
+    /// holds the target and nothing else after a publish (the control)
+    /// and after an `AlreadyExists` refusal.
+    #[test]
+    fn an_exclusive_create_leaves_no_temporary_behind() {
+        let dir = private_tempdir().expect("tempdir");
+        let path = dir.path().join("identity.key");
+        let names = || {
+            let mut names: Vec<_> = fs::read_dir(dir.path())
+                .expect("read_dir")
+                .map(|e| e.expect("entry").file_name())
+                .collect();
+            names.sort();
+            names
+        };
+
+        create_private_exclusive(&path, b"first").expect("a free name");
+        assert_eq!(names(), ["identity.key"]);
+
+        assert!(matches!(
+            create_private_exclusive(&path, b"second"),
+            Err(PersistError::AlreadyExists)
+        ));
+        assert_eq!(
+            names(),
+            ["identity.key"],
+            "the refused temporary is removed"
+        );
+        assert_eq!(fs::read(&path).expect("read"), b"first");
+    }
 }
