@@ -217,12 +217,16 @@ async fn connect<S: NetworkBehaviour>(
 ) where
     S::ToSwarm: std::fmt::Debug,
 {
+    // From a FRESH port: every candidate these tests probe is injected,
+    // so nothing here rests on the server observing the listen port, and
+    // a listen-port dial is what a CI runner refused EADDRINUSE (§12, A
+    // 2026-10-14).
     client_swarm
         .dial(
-            server_addr
-                .clone()
-                .with_p2p(server_id)
-                .expect("a peer address"),
+            libp2p::swarm::dial_opts::DialOpts::peer_id(server_id)
+                .addresses(vec![server_addr.clone()])
+                .allocate_new_port()
+                .build(),
         )
         .expect("dials");
     let deadline = tokio::time::Instant::now() + PATIENCE;
