@@ -339,4 +339,122 @@ mod tests {
         assert_eq!(t.inner.dialled, [PortUse::New]);
         assert_eq!(t.fallbacks.snapshot(), PortFallbackCounts::default());
     }
+
+    /// The real TCP transport inside, over real sockets: a listen-port
+    /// dial connects FROM the listen port (the control -- nothing
+    /// refused it, nothing counted), and the same dial whose listen-port
+    /// attempt is refused `EADDRINUSE` at the seam connects from a fresh
+    /// port and is counted. The kernel refusal itself is not reproducible
+    /// on a 6.17 kernel (§12, A 2026-10-14); the seam stands in for it.
+    #[tokio::test]
+    async fn over_real_sockets_the_listen_port_is_kept_and_a_refusal_moves_off_it() {
+        use libp2p::tcp;
+
+        /// The real transport, its listen-port dials refused as the
+        /// runner's kernel refused them.
+        struct RefusingReuse(tcp::tokio::Transport);
+        impl Transport for RefusingReuse {
+            type Output = tcp::tokio::TcpStream;
+            type Error = io::Error;
+            type ListenerUpgrade = <tcp::tokio::Transport as Transport>::ListenerUpgrade;
+            type Dial = BoxFuture<'static, Result<Self::Output, io::Error>>;
+            fn listen_on(
+                &mut self,
+                id: ListenerId,
+                a: Multiaddr,
+            ) -> Result<(), TransportError<io::Error>> {
+                self.0.listen_on(id, a)
+            }
+            fn remove_listener(&mut self, id: ListenerId) -> bool {
+                self.0.remove_listener(id)
+            }
+            fn dial(
+                &mut self,
+                a: Multiaddr,
+                opts: DialOpts,
+            ) -> Result<Self::Dial, TransportError<io::Error>> {
+                let dial = self.0.dial(a, opts)?;
+                Ok(match opts.port_use {
+                    PortUse::Reuse => {
+                        async { Err(io::Error::from(io::ErrorKind::AddrInUse)) }.boxed()
+                    }
+                    PortUse::New => dial,
+                })
+            }
+            fn poll(
+                mut self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+            ) -> Poll<TransportEvent<Self::ListenerUpgrade, io::Error>> {
+                Pin::new(&mut self.0).poll(cx)
+            }
+        }
+
+        /// Listen on loopback, then dial `far` from the listen port and
+        /// answer the source port `far` saw beside the listen port.
+        async fn dial_through<T>(mut t: PortFallback<T>) -> (u16, u16, PortFallbackCounts)
+        where
+            T: Transport<Error = io::Error> + Unpin,
+            T::Dial: Send + 'static,
+            T::Output: Send + 'static,
+        {
+            t.listen_on(
+                ListenerId::next(),
+                "/ip4/127.0.0.1/tcp/0".parse().expect("valid"),
+            )
+            .expect("listens");
+            let listen_port = loop {
+                if let TransportEvent::NewAddress { listen_addr, .. } =
+                    futures::future::poll_fn(|cx| Pin::new(&mut t).poll(cx)).await
+                {
+                    break listen_addr
+                        .iter()
+                        .find_map(|p| match p {
+                            libp2p::multiaddr::Protocol::Tcp(port) => Some(port),
+                            _ => None,
+                        })
+                        .expect("a tcp port");
+                }
+            };
+            let far = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .expect("binds");
+            let far_addr: Multiaddr = format!(
+                "/ip4/127.0.0.1/tcp/{}",
+                far.local_addr().expect("addr").port()
+            )
+            .parse()
+            .expect("valid");
+            let dial = t
+                .dial(far_addr, opts(PortUse::Reuse, Endpoint::Dialer))
+                .expect("dials");
+            // The kernel completes the handshake into `far`'s backlog, so
+            // the dial is awaited alone: a refused one fails here rather
+            // than leaving `accept` waiting.
+            let _stream = dial.await.expect("connects");
+            let (_far_end, source) = far.accept().await.expect("accepted");
+            (source.port(), listen_port, t.fallbacks.snapshot())
+        }
+
+        let (source, listen, counts) = dial_through(PortFallback::new(
+            tcp::tokio::Transport::new(tcp::Config::default()),
+            PortFallbacks::default(),
+        ))
+        .await;
+        assert_eq!(source, listen, "unrefused, the dial keeps the listen port");
+        assert_eq!(counts, PortFallbackCounts::default());
+
+        let (source, listen, counts) = dial_through(PortFallback::new(
+            RefusingReuse(tcp::tokio::Transport::new(tcp::Config::default())),
+            PortFallbacks::default(),
+        ))
+        .await;
+        assert_ne!(source, listen, "refused, it connects from a fresh port");
+        assert_eq!(
+            counts,
+            PortFallbackCounts {
+                relay_fell_back: 1,
+                punch_refused: 0
+            }
+        );
+    }
 }
