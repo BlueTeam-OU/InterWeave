@@ -819,6 +819,35 @@ fn mdns_tick<P: libp2p::mdns::Provider>(
     }
 }
 
+/// The host's resolver configuration, as `start` reads it.
+#[cfg(not(target_os = "android"))]
+fn host_resolver_conf() -> Result<(libp2p::dns::ResolverConfig, libp2p::dns::ResolverOpts), String>
+{
+    hickory_resolver::system_conf::read_system_conf().map_err(|e| e.to_string())
+}
+
+/// No read on Android: the answer is that there is no configuration.
+///
+/// hickory's Android `read_system_conf` asks `ndk_context` for the JVM,
+/// and `ndk_context::android_context` PANICS -- it does not return an
+/// error -- unless something initialised the context first. Only
+/// android-activity does, on the Activity's first `android_main`, so a
+/// runtime started before any Activity (the instrumentation process; a
+/// service the system restarts after the process died) panicked at
+/// start, measured on a Pixel 9a. The app cannot initialise the context
+/// itself either: android-activity asserts nothing did so before it.
+///
+/// So `start` takes the degraded path the read's failure already takes
+/// (`resolver_or_empty`): an empty configuration and
+/// `ResolverUnavailable`, said, never silent. Catching the panic was
+/// rejected -- the panic hook still runs, and the context it depends on
+/// is one another component owns.
+#[cfg(target_os = "android")]
+fn host_resolver_conf() -> Result<(libp2p::dns::ResolverConfig, libp2p::dns::ResolverOpts), String>
+{
+    Err("no host resolver configuration is read on Android".to_owned())
+}
+
 /// The host resolver configuration, or an empty one and the reason.
 ///
 /// An empty configuration names no nameserver, so every lookup fails at
@@ -1010,12 +1039,7 @@ impl SwarmRuntime {
         config: SubstrateConfig,
         trust: TrustSources,
     ) -> Result<Self, SubstrateError> {
-        Self::start_with_resolver(
-            identity,
-            config,
-            trust,
-            hickory_resolver::system_conf::read_system_conf(),
-        )
+        Self::start_with_resolver(identity, config, trust, host_resolver_conf())
     }
 
     /// [`Self::start`], with the host resolver configuration handed in.
@@ -3553,6 +3577,62 @@ mod backpressure_tests {
         let (_, _, none) =
             super::resolver_or_empty::<&str>(Ok((readable, libp2p::dns::ResolverOpts::default())));
         assert!(none.is_none(), "a readable configuration reports nothing");
+    }
+
+    /// Android's start never reaches hickory's system read, which panics
+    /// there without an initialised `ndk_context`. The cfg cannot run on
+    /// this host, so the claim is pinned on the source: the crate calls
+    /// `read_system_conf` exactly once, in the `host_resolver_conf` gated
+    /// off Android, and `start` reads through that function. A second
+    /// call site, or the gate removed, fails here.
+    #[test]
+    fn the_system_resolver_read_is_gated_off_android() {
+        fn rust_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).expect("read_dir") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    rust_files(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        rust_files(&src, &mut files);
+        let call = concat!("read_system", "_conf(");
+        let sites: Vec<_> = files
+            .iter()
+            .flat_map(|f| {
+                let text = std::fs::read_to_string(f).expect("read");
+                text.match_indices(call)
+                    .map(|(at, _)| (f.clone(), text[..at].to_owned()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(
+            sites.len(),
+            1,
+            "one read of the system resolver: {:?}",
+            sites.iter().map(|s| &s.0).collect::<Vec<_>>()
+        );
+        let before = &sites[0].1;
+        let fn_at = before
+            .rfind("fn host_resolver_conf()")
+            .expect("inside host_resolver_conf");
+        assert!(
+            before[..fn_at]
+                .trim_end()
+                .ends_with(r#"#[cfg(not(target_os = "android"))]"#),
+            "the function holding the read is gated off Android"
+        );
+        let text = std::fs::read_to_string(src.join("runtime/mod.rs")).expect("read");
+        assert!(
+            text.contains(
+                "Self::start_with_resolver(identity, config, trust, host_resolver_conf())"
+            ),
+            "start reads through the gated function"
+        );
     }
 
     /// The invariant itself, on a real runtime: a failed resolver read
