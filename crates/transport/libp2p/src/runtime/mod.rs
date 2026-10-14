@@ -1352,6 +1352,10 @@ impl SwarmRuntime {
         // DCUtR, under the same ruling and the same switch shape: the
         // crate under the attempt lifecycle, the attribution and the
         // data-plane class gate (`dcutr_driver.rs`).
+        // What a punch dial in flight carries, shared with the transport:
+        // the responding end's punch dials as an ordinary dialer, so the
+        // port fallback learns it is a punch from here (`port_fallback`).
+        let punch_addresses = crate::port_fallback::PunchAddresses::default();
         let (dcutr_toggle, dcutr_counters) = match &config.dcutr {
             Some(settings) => {
                 let (field, counters) = dcutr_driver::build_behaviour(
@@ -1359,6 +1363,7 @@ impl SwarmRuntime {
                     local_pid,
                     attribution.clone(),
                     manager.handle(),
+                    punch_addresses.clone(),
                 );
                 (field, Some(counters))
             }
@@ -1418,6 +1423,7 @@ impl SwarmRuntime {
                 let tcp = crate::port_fallback::PortFallback::new(
                     tcp::tokio::Transport::new(tcp::Config::default().nodelay(true)),
                     transport_fallbacks,
+                    punch_addresses,
                 );
                 Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
                     tcp.upgrade(libp2p::core::upgrade::Version::V1Lazy)
@@ -3609,6 +3615,39 @@ mod backpressure_tests {
         let (_, _, none) =
             super::resolver_or_empty::<&str>(Ok((readable, libp2p::dns::ResolverOpts::default())));
         assert!(none.is_none(), "a readable configuration reports nothing");
+    }
+
+    /// The runtime's transport is the port fallback's, and its counts and
+    /// punch record are the ones the runtime reads and the hole-punch
+    /// scope writes. No socket here can make the kernel refuse a
+    /// listen-port dial (§12, A 2026-10-14), so the wiring is pinned on
+    /// the source: the transport is built through `PortFallback::new`
+    /// with the clone of the counts `SwarmRuntime` keeps and the punch
+    /// record DCUtR was given, and `with_tcp` is gone from `start`.
+    #[test]
+    fn the_runtime_transport_is_the_port_fallback_s() {
+        let text = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/runtime/mod.rs"),
+        )
+        .expect("read");
+        let start = text
+            .find("fn start_with_resolver")
+            .expect("the start function");
+        let end = start + text[start..].find("\n    }\n").expect("its end");
+        let body = &text[start..end];
+        for needle in [
+            "let transport_fallbacks = port_fallbacks.clone();",
+            "transport_fallbacks,\n                    punch_addresses,",
+            "punch_addresses.clone(),",
+            concat!("crate::port_fallback::", "PortFallback::new("),
+            "            port_fallbacks,\n",
+        ] {
+            assert!(body.contains(needle), "start composes: {needle:?}");
+        }
+        assert!(
+            !body.contains(concat!(".with", "_tcp(")),
+            "no unwrapped TCP transport"
+        );
     }
 
     /// Android's start never reaches hickory's system read, which panics

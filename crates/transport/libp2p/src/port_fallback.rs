@@ -21,15 +21,25 @@
 //! listen port, which the far end and the NAT's mapping both name, so a
 //! fresh-port punch is not a punch; it fails at once, and is counted.
 //!
-//! Two counts, because two is what this layer can tell apart: libp2p's
-//! `DialOpts` carries a role and a port use and no origin, so a
-//! reservation's fallback and a circuit's are one count, and the local
-//! port a connection was made from is reported nowhere.
+//! A punch is not what libp2p's `DialOpts` says it is. The initiating
+//! end dials as the connection's listener (`override_role`), but the
+//! responding end's punch is an ordinary dialer's dial (libp2p-dcutr
+//! 0.15.0 `behaviour.rs`, `InboundConnectNegotiated`), indistinguishable
+//! here by role or port use. So the hole-punch scope records, at its
+//! pending hook, the addresses each punch dial carries
+//! ([`PunchAddresses`]), and a listen-port dial to one of them is a
+//! punch whichever its role.
+//!
+//! Two counts, because two is what this layer can tell apart: `DialOpts`
+//! carries a role and a port use and no origin, so a reservation's
+//! fallback and a circuit's are one count, and the local port a
+//! connection was made from is reported nowhere.
 
+use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use futures::FutureExt as _;
@@ -39,6 +49,8 @@ use libp2p::core::Endpoint;
 use libp2p::core::transport::{
     DialOpts, ListenerId, PortUse, Transport, TransportError, TransportEvent,
 };
+use libp2p::multiaddr::Protocol;
+use libp2p::swarm::ConnectionId;
 
 /// The two counts, shared with whoever reads them.
 #[derive(Debug, Clone, Default)]
@@ -74,23 +86,79 @@ impl PortFallbacks {
     }
 }
 
+/// The addresses each hole-punch dial in flight carries, keyed by the
+/// dial's `ConnectionId`: written by the hole-punch scope when a punch
+/// dial passes its pending hook, removed when that dial fails or
+/// establishes -- one of which the Swarm reports for every dial past the
+/// hook -- so it holds what is on the wire now and nothing older.
+#[derive(Debug, Clone, Default)]
+pub struct PunchAddresses(Arc<Mutex<HashMap<ConnectionId, Vec<Multiaddr>>>>);
+
+impl PunchAddresses {
+    /// `id` is a punch dial to `addresses`.
+    pub fn hold(&self, id: ConnectionId, addresses: Vec<Multiaddr>) {
+        self.lock()
+            .insert(id, addresses.into_iter().map(without_peer).collect());
+    }
+
+    /// `id` is off the wire.
+    pub fn release(&self, id: ConnectionId) {
+        self.lock().remove(&id);
+    }
+
+    /// Whether a punch dial in flight carries `address`, the peer
+    /// component aside: the Swarm appends `/p2p/<peer>` before the
+    /// transport sees it.
+    #[must_use]
+    pub fn contains(&self, address: &Multiaddr) -> bool {
+        let address = without_peer(address.clone());
+        self.lock().values().any(|held| held.contains(&address))
+    }
+
+    /// Dials held. Zero except while punches are on the wire.
+    #[must_use]
+    pub fn held(&self) -> usize {
+        self.lock().len()
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<ConnectionId, Vec<Multiaddr>>> {
+        // Recovered, as in `DialAttribution`: a map with no invariant
+        // spanning two operations.
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+fn without_peer(mut address: Multiaddr) -> Multiaddr {
+    if matches!(address.iter().last(), Some(Protocol::P2p(_))) {
+        address.pop();
+    }
+    address
+}
+
 /// `inner`, with a refused listen-port dial made again from a fresh
 /// port. Everything else passes through.
 #[derive(Debug)]
 pub struct PortFallback<T> {
     inner: T,
     fallbacks: PortFallbacks,
+    punches: PunchAddresses,
 }
 
 impl<T> PortFallback<T> {
-    /// Wrap `inner`, counting each fallback into `fallbacks`.
-    pub const fn new(inner: T, fallbacks: PortFallbacks) -> Self {
-        Self { inner, fallbacks }
+    /// Wrap `inner`, counting each fallback into `fallbacks`; a dial to
+    /// an address in `punches` is a hole punch.
+    pub const fn new(inner: T, fallbacks: PortFallbacks, punches: PunchAddresses) -> Self {
+        Self {
+            inner,
+            fallbacks,
+            punches,
+        }
     }
 }
 
-/// What a dial is to this wrapper. A hole punch is the dial libp2p
-/// makes as the connection's listener (`DialOpts::role`).
+/// What a dial is to this wrapper.
 enum Kind {
     /// From the listen port, and not a punch: redialled when refused.
     ListenPort,
@@ -101,11 +169,15 @@ enum Kind {
     Fresh,
 }
 
-const fn kind(opts: DialOpts) -> Kind {
+/// A punch is a dial made as the connection's listener (the initiating
+/// end) or one to an address a punch in flight carries (the responding
+/// end, which dials as an ordinary dialer).
+fn kind(opts: DialOpts, address: &Multiaddr, punches: &PunchAddresses) -> Kind {
     match (opts.port_use, opts.role) {
-        (PortUse::Reuse, Endpoint::Dialer) => Kind::ListenPort,
-        (PortUse::Reuse, Endpoint::Listener) => Kind::Punch,
         (PortUse::New, _) => Kind::Fresh,
+        (PortUse::Reuse, Endpoint::Listener) => Kind::Punch,
+        (PortUse::Reuse, Endpoint::Dialer) if punches.contains(address) => Kind::Punch,
+        (PortUse::Reuse, Endpoint::Dialer) => Kind::ListenPort,
     }
 }
 
@@ -137,7 +209,7 @@ where
         addr: Multiaddr,
         opts: DialOpts,
     ) -> Result<Self::Dial, TransportError<Self::Error>> {
-        match kind(opts) {
+        match kind(opts, &addr, &self.punches) {
             Kind::Fresh => Ok(self.inner.dial(addr, opts)?.boxed()),
             Kind::Punch => {
                 let punch = self.inner.dial(addr, opts)?;
@@ -159,23 +231,28 @@ where
                 // Made now, polled only if the first is refused: `dial`
                 // cannot reach the transport again from inside the
                 // future, and an unpolled TCP dial is a socket that has
-                // not connected, closed when the future is dropped.
-                let fresh = self.inner.dial(
-                    addr,
-                    DialOpts {
-                        port_use: PortUse::New,
-                        ..opts
-                    },
-                )?;
+                // not connected, closed when the future is dropped. One
+                // that cannot even be made leaves the first dial as it
+                // was, with no fallback behind it.
+                let fresh = self
+                    .inner
+                    .dial(
+                        addr,
+                        DialOpts {
+                            port_use: PortUse::New,
+                            ..opts
+                        },
+                    )
+                    .ok();
                 let fallbacks = self.fallbacks.clone();
                 Ok(async move {
-                    match first.await {
-                        Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
+                    match (first.await, fresh) {
+                        (Err(e), Some(fresh)) if e.kind() == io::ErrorKind::AddrInUse => {
                             fallbacks.relay_fell_back();
                             tracing::info!(error = %e, "a listen-port dial was refused; dialling from a fresh port");
                             fresh.await
                         }
-                        answer => answer,
+                        (answer, _) => answer,
                     }
                 }
                 .boxed())
@@ -195,23 +272,32 @@ where
 mod tests {
     use std::collections::VecDeque;
 
-    use futures::future::{Ready, ready};
+    use futures::future::Ready;
 
     use super::*;
 
     /// A transport whose dials answer from a script, recording each
-    /// dial's port use.
+    /// dial's port use when it is made and again when it is POLLED: a
+    /// fallback that awaited the fresh dial it should have dropped shows
+    /// in `polled`.
     #[derive(Default)]
     struct Scripted {
         answers: VecDeque<Result<u8, io::ErrorKind>>,
         dialled: Vec<PortUse>,
+        polled: Arc<Mutex<Vec<PortUse>>>,
+    }
+
+    impl Scripted {
+        fn polled(&self) -> Vec<PortUse> {
+            self.polled.lock().expect("unpoisoned").clone()
+        }
     }
 
     impl Transport for Scripted {
         type Output = u8;
         type Error = io::Error;
         type ListenerUpgrade = Ready<Result<u8, io::Error>>;
-        type Dial = Ready<Result<u8, io::Error>>;
+        type Dial = BoxFuture<'static, Result<u8, io::Error>>;
 
         fn listen_on(
             &mut self,
@@ -232,7 +318,12 @@ mod tests {
         ) -> Result<Self::Dial, TransportError<io::Error>> {
             self.dialled.push(opts.port_use);
             let answer = self.answers.pop_front().expect("a scripted answer");
-            Ok(ready(answer.map_err(io::Error::from)))
+            let polled = Arc::clone(&self.polled);
+            Ok(async move {
+                polled.lock().expect("unpoisoned").push(opts.port_use);
+                answer.map_err(io::Error::from)
+            }
+            .boxed())
         }
 
         fn poll(
@@ -255,9 +346,10 @@ mod tests {
         PortFallback::new(
             Scripted {
                 answers: answers.iter().copied().collect(),
-                dialled: Vec::new(),
+                ..Scripted::default()
             },
             PortFallbacks::default(),
+            PunchAddresses::default(),
         )
     }
 
@@ -272,6 +364,7 @@ mod tests {
             .expect("dials");
         assert_eq!(dial.await.expect("the fresh port connects"), 7);
         assert_eq!(t.inner.dialled, [PortUse::Reuse, PortUse::New]);
+        assert_eq!(t.inner.polled(), [PortUse::Reuse, PortUse::New]);
         assert_eq!(
             t.fallbacks.snapshot(),
             PortFallbackCounts {
@@ -289,6 +382,11 @@ mod tests {
             3,
             "the listen-port dial's own answer"
         );
+        assert_eq!(
+            t.inner.polled(),
+            [PortUse::Reuse],
+            "the fresh dial is never polled"
+        );
         assert_eq!(t.fallbacks.snapshot(), PortFallbackCounts::default());
     }
 
@@ -302,7 +400,68 @@ mod tests {
             .expect("dials");
         let refused = dial.await.expect_err("refused");
         assert_eq!(refused.kind(), io::ErrorKind::ConnectionRefused);
+        assert_eq!(
+            t.inner.polled(),
+            [PortUse::Reuse],
+            "the fresh dial is never polled"
+        );
         assert_eq!(t.fallbacks.snapshot(), PortFallbackCounts::default());
+    }
+
+    /// The RESPONDING end's punch dials as an ordinary dialer (libp2p-
+    /// dcutr 0.15.0, `InboundConnectNegotiated`); a dial to an address a
+    /// punch in flight holds is a punch all the same -- counted, never
+    /// redialled -- and once that punch is released, the same dial is an
+    /// ordinary listen-port dial again (the control).
+    #[tokio::test]
+    async fn a_dial_to_a_held_punch_address_is_a_punch_whatever_its_role() {
+        let punches = PunchAddresses::default();
+        let id = ConnectionId::new_unchecked(7);
+        punches.hold(id, vec![addr()]);
+        let peer: Multiaddr = format!(
+            "{}/p2p/12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+            addr()
+        )
+        .parse()
+        .expect("valid");
+        let mut t = PortFallback::new(
+            Scripted {
+                answers: [Err(io::ErrorKind::AddrInUse)].into_iter().collect(),
+                ..Scripted::default()
+            },
+            PortFallbacks::default(),
+            punches.clone(),
+        );
+        let dial = t
+            .dial(peer.clone(), opts(PortUse::Reuse, Endpoint::Dialer))
+            .expect("dials");
+        assert_eq!(
+            dial.await.expect_err("the punch fails").kind(),
+            io::ErrorKind::AddrInUse
+        );
+        assert_eq!(t.inner.dialled, [PortUse::Reuse], "no fresh dial is made");
+        assert_eq!(
+            t.fallbacks.snapshot(),
+            PortFallbackCounts {
+                relay_fell_back: 0,
+                punch_refused: 1
+            }
+        );
+
+        punches.release(id);
+        assert_eq!(punches.held(), 0);
+        t.inner.answers = [Err(io::ErrorKind::AddrInUse), Ok(5)].into_iter().collect();
+        let dial = t
+            .dial(peer, opts(PortUse::Reuse, Endpoint::Dialer))
+            .expect("dials");
+        assert_eq!(dial.await.expect("released, it falls back"), 5);
+        assert_eq!(
+            t.fallbacks.snapshot(),
+            PortFallbackCounts {
+                relay_fell_back: 1,
+                punch_refused: 1
+            }
+        );
     }
 
     /// A hole punch -- a listen-port dial made as the connection's
@@ -438,6 +597,7 @@ mod tests {
         let (source, listen, counts) = dial_through(PortFallback::new(
             tcp::tokio::Transport::new(tcp::Config::default()),
             PortFallbacks::default(),
+            PunchAddresses::default(),
         ))
         .await;
         assert_eq!(source, listen, "unrefused, the dial keeps the listen port");
@@ -446,6 +606,7 @@ mod tests {
         let (source, listen, counts) = dial_through(PortFallback::new(
             RefusingReuse(tcp::tokio::Transport::new(tcp::Config::default())),
             PortFallbacks::default(),
+            PunchAddresses::default(),
         ))
         .await;
         assert_ne!(source, listen, "refused, it connects from a fresh port");

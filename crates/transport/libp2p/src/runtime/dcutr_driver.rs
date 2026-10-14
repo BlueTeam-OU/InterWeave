@@ -120,8 +120,9 @@ pub fn build_behaviour(
     local_peer: PeerId,
     attribution: DialAttribution,
     policy: SnapshotHandle,
+    punches: crate::port_fallback::PunchAddresses,
 ) -> (DcutrField, HolePunchCounterHandle) {
-    let scope = HolePunchScope::new(local_peer, settings.budgets());
+    let scope = HolePunchScope::new(local_peer, settings.budgets()).recording_punches(punches);
     let counters = scope.counter_handle();
     (
         Toggle::from(Some(ClassGated::new(

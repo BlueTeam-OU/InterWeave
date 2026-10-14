@@ -469,6 +469,9 @@ pub struct HolePunchScope {
     /// `DialFailure` (`a_punch_dial_the_swarm_refused_before_the_hook_
     /// is_forgotten` pins it).
     punch_dials: HashMap<ConnectionId, PeerId>,
+    /// The addresses each punch dial on the wire carries, for the
+    /// transport's port fallback (`port_fallback::PunchAddresses`).
+    punches: crate::port_fallback::PunchAddresses,
     /// The crate's dials this wrapper denied and reissued without the
     /// refused candidates: their `DialFailure` is the denial's own and
     /// is not the crate's to retry. Forgotten on that failure.
@@ -509,11 +512,21 @@ impl HolePunchScope {
             punched: HashSet::new(),
             stabilising: HashMap::new(),
             punch_dials: HashMap::new(),
+            punches: crate::port_fallback::PunchAddresses::default(),
             replaced: HashSet::new(),
             replacement_dials: HashMap::new(),
             reissued_in_flight: HashMap::new(),
             actions: VecDeque::new(),
         }
+    }
+
+    /// Record each punch dial's addresses into `punches` while it is on
+    /// the wire, for the transport that must not move a punch off the
+    /// listen port.
+    #[must_use]
+    pub fn recording_punches(mut self, punches: crate::port_fallback::PunchAddresses) -> Self {
+        self.punches = punches;
+        self
     }
 
     /// IPs that joined this host: no longer departed, so an observation
@@ -1002,9 +1015,12 @@ impl NetworkBehaviour for HolePunchScope {
                 }
             }
             let Some(first) = refused.first().copied() else {
-                return self
+                let extended = self
                     .inner
-                    .handle_pending_outbound_connection(id, peer, addresses, role);
+                    .handle_pending_outbound_connection(id, peer, addresses, role)?;
+                self.punches
+                    .hold(id, addresses.iter().chain(&extended).cloned().collect());
+                return Ok(extended);
             };
             if kept.is_empty() {
                 if let Some(relayed) = self.attempt_toward(&target) {
@@ -1050,6 +1066,7 @@ impl NetworkBehaviour for HolePunchScope {
             // not asked about it, as it would not be asked about any
             // other behaviour's.
             self.reissued_in_flight.insert(id, target);
+            self.punches.hold(id, addresses.to_vec());
             return Ok(Vec::new());
         }
         self.inner
@@ -1093,8 +1110,12 @@ impl NetworkBehaviour for HolePunchScope {
                 .or_default() += 1;
             return;
         }
+        if let FromSwarm::ConnectionEstablished(established) = &event {
+            self.punches.release(established.connection_id);
+        }
         if let FromSwarm::DialFailure(failure) = &event {
             self.punch_dials.remove(&failure.connection_id);
+            self.punches.release(failure.connection_id);
             // THE DENIAL OF A DIAL THIS WRAPPER REISSUED is not the
             // crate's to answer with another CONNECT round: its
             // survivors are on the wire under the wrapper's own dial.
@@ -1738,6 +1759,62 @@ mod tests {
                 .get("private_without_private_listener"),
             Some(&1)
         );
+    }
+
+    /// The responding end's punch dials as an ordinary dialer, so the
+    /// transport learns it is a punch from what the scope holds
+    /// (`port_fallback::PunchAddresses`): a punch dial's addresses are
+    /// held from its pending hook until it fails or establishes, and a
+    /// dial that is not a punch holds nothing (the control).
+    #[test]
+    fn a_punch_dial_holds_its_addresses_while_it_is_on_the_wire() {
+        let punches = crate::port_fallback::PunchAddresses::default();
+        let mut s = scope(HolePunchBudgets::default()).recording_punches(punches.clone());
+        let a = peer();
+        assert!(matches!(relayed_inbound(&mut s, 1, a), Either::Left(_)));
+
+        let other = ConnectionId::new_unchecked(9);
+        s.handle_pending_outbound_connection(other, Some(a), &[direct()], Endpoint::Dialer)
+            .expect("not a punch; passes");
+        assert_eq!(
+            punches.held(),
+            0,
+            "a dial that is not a punch holds nothing"
+        );
+
+        for (n, ends_by_failure) in [(2, true), (3, false)] {
+            let dial = ConnectionId::new_unchecked(n);
+            s.punch_dials.insert(dial, a);
+            s.handle_pending_outbound_connection(dial, Some(a), &[direct()], Endpoint::Dialer)
+                .expect("the responder's punch is admitted");
+            assert!(punches.contains(&direct()), "held while on the wire");
+            if ends_by_failure {
+                let error = libp2p::swarm::DialError::Aborted;
+                s.on_swarm_event(FromSwarm::DialFailure(
+                    libp2p::swarm::behaviour::DialFailure {
+                        peer_id: Some(a),
+                        error: &error,
+                        connection_id: dial,
+                    },
+                ));
+            } else {
+                let endpoint = ConnectedPoint::Dialer {
+                    address: direct(),
+                    role_override: Endpoint::Dialer,
+                    port_use: libp2p::core::transport::PortUse::Reuse,
+                };
+                s.on_swarm_event(FromSwarm::ConnectionEstablished(
+                    libp2p::swarm::behaviour::ConnectionEstablished {
+                        peer_id: a,
+                        connection_id: dial,
+                        endpoint: &endpoint,
+                        failed_addresses: &[],
+                        other_established: 1,
+                    },
+                ));
+            }
+            assert_eq!(punches.held(), 0, "released when it fails or establishes");
+        }
     }
 
     /// The boundary at the pending hook as a FILTER: a punch dial whose
