@@ -2,7 +2,7 @@
 // Copyright 2026 Andrea Benetton
 //! The entry points the Kotlin side calls (`Native.kt`): the network
 //! service's start, its wait for the end, its stop, the notices it posts,
-//! and the texts it shows. Each catches a panic at the boundary
+//! the texts it shows, and what its network callback reports. Each catches a panic at the boundary
 //! (`EnvUnowned::with_env`) and answers Java with a value, or a
 //! `RuntimeException` on a JNI failure, never an unwind.
 
@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use interweave_human_android_platform::AvailabilityMode;
 use interweave_human_android_platform::{
-    EmbeddedRefused, Ended, FirstRun, IdentityRefused, ServiceHost, ServiceLaunch, StartRefused,
-    start_identity,
+    EmbeddedRefused, Ended, FirstRun, IdentityRefused, NetworkReport, ServiceHost, ServiceLaunch,
+    StartRefused, addresses_from_wire, start_identity,
 };
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
 use interweave_profile_identity::ProfileIdentity;
@@ -20,7 +20,7 @@ use jni::{Env, EnvUnowned};
 
 use crate::keystore::KeystoreCipher;
 use jni::errors::ThrowRuntimeExAndDefault;
-use jni::objects::{JClass, JString};
+use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jboolean, jint, jlong};
 
 /// The profile the app runs, as the android-e2e harness names it.
@@ -338,4 +338,94 @@ extern "system" fn Java_org_interweave_human_Native_text<'caller>(
         JString::from_str(env, text(key, count))
     })
     .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// One report of the Service's network callback, to the runtime
+/// (`network` in android-platform). Never waits on a start
+/// (`a_network_report_never_waits_on_a_start` pins it).
+fn network(report: NetworkReport) {
+    if let Some(count) = ServiceHost::global().network_report(report) {
+        // A count alone: the log names no address.
+        log(&format!(
+            "the runtime was told the networks: {count} addresses"
+        ));
+    }
+}
+
+/// `Native.networkWatching()`: the callback was registered.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_networkWatching<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        network(NetworkReport::Watching);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.networkLink(network, addresses)`: a network's whole address
+/// set, each address its length then its bytes.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_networkLink<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    handle: jlong,
+    addresses: JByteArray<'caller>,
+) {
+    env.with_env(|env| -> Result<(), jni::errors::Error> {
+        let wire = env.convert_byte_array(&addresses)?;
+        network(NetworkReport::Link {
+            network: handle.cast_unsigned(),
+            addresses: addresses_from_wire(&wire),
+        });
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.networkLost(network)`.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_networkLost<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    handle: jlong,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        network(NetworkReport::Lost {
+            network: handle.cast_unsigned(),
+        });
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.networkUnwatched()`: the callback was unregistered.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_networkUnwatched<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        network(NetworkReport::Unwatched);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
 }

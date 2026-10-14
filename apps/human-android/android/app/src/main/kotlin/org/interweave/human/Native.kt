@@ -81,6 +81,26 @@ internal object Native {
      */
     @JvmStatic external fun waitNotice(timeoutMs: Long): Int
 
+    /**
+     * The Service's network callback was registered: no network is known
+     * yet, which is offline until one is reported (plan section 20 step
+     * 5). Never waits; so with the three below.
+     */
+    @JvmStatic external fun networkWatching()
+
+    /**
+     * The network [network] (its `Network.getNetworkHandle`) has these
+     * addresses, the whole set: each address its length (4 or 16), then
+     * its `InetAddress.getAddress` bytes.
+     */
+    @JvmStatic external fun networkLink(network: Long, addresses: ByteArray)
+
+    /** The network [network] is gone. */
+    @JvmStatic external fun networkLost(network: Long)
+
+    /** The callback was unregistered: the platform's view is unknown. */
+    @JvmStatic external fun networkUnwatched()
+
     /** A person-facing text by its key ([Text]), with [count] filled in. */
     @JvmStatic external fun text(key: Int, count: Int): String
 }

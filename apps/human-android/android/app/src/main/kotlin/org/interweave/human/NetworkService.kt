@@ -11,11 +11,18 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Binder
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -45,6 +52,10 @@ class NetworkService : Service() {
     // so a posture answer then is step 5's broken promise.
     @Volatile private var startCommanded = false
     private val networkOffPosted = AtomicBoolean(false)
+    // The network callback's own thread: its reports, and the
+    // unregistration's, reach the runtime in the order they were made.
+    private val networkThread = HandlerThread("interweave-network")
+    private val networks = Networks()
 
     /** What the bound Activity calls on the Service. */
     inner class Local : Binder() {
@@ -73,7 +84,57 @@ class NetworkService : Service() {
         super.onCreate()
         alive = true
         channels()
+        watchNetworks()
         startClient()
+    }
+
+    /**
+     * Report the platform's networks to the runtime (plan section 20 step
+     * 5): registered before the start, so the runtime hears them at its
+     * start, and a restarted runtime too, though the callback reports
+     * each network only once (android-platform's `network`).
+     */
+    private fun watchNetworks() {
+        networkThread.start()
+        val handler = Handler(networkThread.looper)
+        // A usable network is one the platform says reaches the Internet,
+        // a VPN included: the runtime's sockets leave from its addresses
+        // too, and the default request would leave it out.
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        handler.post { Native.networkWatching() }
+        getSystemService(ConnectivityManager::class.java)
+            .registerNetworkCallback(request, networks, handler)
+    }
+
+    /** The callback, unregistered; its last report, then the thread, end. */
+    private fun unwatchNetworks() {
+        getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networks)
+        Handler(networkThread.looper).post {
+            Native.networkUnwatched()
+            networkThread.quitSafely()
+        }
+    }
+
+    /** Each network's addresses as it reports them, and its loss. */
+    private class Networks : ConnectivityManager.NetworkCallback() {
+        // The platform calls this right after onAvailable, and on every
+        // change of the network's addresses: the whole set each time.
+        override fun onLinkPropertiesChanged(network: Network, link: LinkProperties) {
+            val wire = ByteArrayOutputStream()
+            for (address in link.linkAddresses) {
+                val bytes = address.address.address
+                wire.write(bytes.size)
+                wire.write(bytes)
+            }
+            Native.networkLink(network.networkHandle, wire.toByteArray())
+        }
+
+        override fun onLost(network: Network) {
+            Native.networkLost(network.networkHandle)
+        }
     }
 
     /** Start the client on the lifecycle executor, and act on its answer. */
@@ -144,6 +205,7 @@ class NetworkService : Service() {
 
     override fun onDestroy() {
         alive = false
+        unwatchNetworks()
         // Off the main thread, and after any start still running: stop
         // waits for the grace, and a start after it finds the lock free.
         lifecycle.execute { Log.i(TAG, "stop answered ${Native.stop()}") }
