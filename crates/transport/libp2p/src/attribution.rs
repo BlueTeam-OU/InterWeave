@@ -143,6 +143,7 @@ pub struct Attributing<B> {
     inner: B,
     classify: Classifier,
     attribution: DialAttribution,
+    fresh_port_peer_dials: bool,
 }
 
 impl<B> Attributing<B> {
@@ -152,7 +153,27 @@ impl<B> Attributing<B> {
             inner,
             classify,
             attribution,
+            fresh_port_peer_dials: false,
         }
+    }
+
+    /// Rebuild each peer dial the inner behaviour emits on a FRESH local
+    /// port (`CONNECTIVITY.md` §12, A 2026-10-14: a Kademlia query binds
+    /// a fresh port).
+    ///
+    /// For Kademlia only, and because of what its dials are: libp2p-kad
+    /// 0.49.0 builds every one as `DialOpts::peer_id(peer).build()`
+    /// (`src/behaviour.rs`, the three `ToSwarm::Dial` sites), and a built
+    /// `DialOpts` cannot change its port use, so the dial is rebuilt as
+    /// the same peer dial with `allocate_new_port`. The rebuilt dial has
+    /// a new `ConnectionId`, which is the one announced; Kademlia keys
+    /// its dial failures on the peer, not the id. A behaviour whose dials
+    /// carry addresses, a condition or a role must never get this:
+    /// they would be dropped.
+    #[must_use]
+    pub const fn dialling_peers_from_a_fresh_port(mut self) -> Self {
+        self.fresh_port_peer_dials = true;
+        self
     }
 
     /// The wrapped behaviour, read-only.
@@ -246,7 +267,15 @@ impl<B: NetworkBehaviour> NetworkBehaviour for Attributing<B> {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        let polled = self.inner.poll(cx);
+        let mut polled = self.inner.poll(cx);
+        if self.fresh_port_peer_dials
+            && let Poll::Ready(ToSwarm::Dial { opts }) = &mut polled
+            && let Some(peer) = opts.get_peer_id()
+        {
+            *opts = libp2p::swarm::dial_opts::DialOpts::peer_id(peer)
+                .allocate_new_port()
+                .build();
+        }
         if let Poll::Ready(ToSwarm::Dial { opts }) = &polled {
             let origin = (self.classify)(opts.get_peer_id());
             self.attribution.announce(opts.connection_id(), origin);

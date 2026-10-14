@@ -242,27 +242,33 @@ impl AdmittedDial {
 /// Which local port a dial of `origin` binds (`CONNECTIVITY.md` §12,
 /// "Which local port a dial uses", A 2026-10-07).
 ///
-/// A redial, a retry, a send's dial-once and a manual dial bind a FRESH
-/// port. Bound to the listen port -- libp2p's default -- the dial back
-/// to a peer restarted on its old port carries the reverse 4-tuple of
-/// the old connection, which a stateful firewall still tracks as closing
-/// and drops as invalid: measured as a SYN never answered for the host's
+/// A redial, a retry, a send's dial-once, a manual dial, a Kademlia
+/// query and an AutoNAT probe bind a FRESH port. Bound to the listen
+/// port -- libp2p's default -- the dial back to a peer restarted on its
+/// old port carries the reverse 4-tuple of the old connection, which a
+/// stateful firewall still tracks as closing and drops as invalid:
+/// measured as a SYN never answered for the host's
 /// `nf_conntrack_tcp_timeout_close` (10 s here), with nothing in TCP's
 /// own counters (j23). A hole punch and a relay dial keep the listen
 /// port, which is what a NAT's mapping and a peer's observation of it
-/// are made of. Every origin is named, so a new one is a decision.
+/// are made of; neither a Kademlia query nor an AutoNAT probe needs that
+/// tuple (A 2026-10-14: AutoNAT v2's dial-back targets the advertised
+/// address, not the probe's source port, and a Kademlia peer learns the
+/// port through Identify). A relay dial the kernel refuses on the listen
+/// port is made again from a fresh one; a punch is not
+/// (`port_fallback`). Every origin is named, so a new one is a decision.
 /// `each_dial_origin_binds_the_port_section_12_says`.
 #[must_use]
 pub const fn port_use_for(origin: DialOrigin) -> PortUse {
     match origin {
-        DialOrigin::Manual | DialOrigin::ConnectionManager | DialOrigin::DiscoveryReconnect => {
-            PortUse::New
+        DialOrigin::Manual
+        | DialOrigin::ConnectionManager
+        | DialOrigin::DiscoveryReconnect
+        | DialOrigin::KademliaQuery
+        | DialOrigin::AutonatProbe => PortUse::New,
+        DialOrigin::RelayReservation | DialOrigin::RelayCircuit | DialOrigin::DcutrHolePunch => {
+            PortUse::Reuse
         }
-        DialOrigin::KademliaQuery
-        | DialOrigin::RelayReservation
-        | DialOrigin::RelayCircuit
-        | DialOrigin::AutonatProbe
-        | DialOrigin::DcutrHolePunch => PortUse::Reuse,
     }
 }
 
@@ -815,10 +821,10 @@ mod tests {
             (O::Manual, New),
             (O::ConnectionManager, New),
             (O::DiscoveryReconnect, New),
-            (O::KademliaQuery, Reuse),
+            (O::KademliaQuery, New),
             (O::RelayReservation, Reuse),
             (O::RelayCircuit, Reuse),
-            (O::AutonatProbe, Reuse),
+            (O::AutonatProbe, New),
             (O::DcutrHolePunch, Reuse),
         ] {
             assert_eq!(port_use_for(origin), port, "{origin:?}");

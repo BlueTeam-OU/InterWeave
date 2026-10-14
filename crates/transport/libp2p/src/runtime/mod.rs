@@ -819,6 +819,35 @@ fn mdns_tick<P: libp2p::mdns::Provider>(
     }
 }
 
+/// The host's resolver configuration, as `start` reads it.
+#[cfg(not(target_os = "android"))]
+fn host_resolver_conf() -> Result<(libp2p::dns::ResolverConfig, libp2p::dns::ResolverOpts), String>
+{
+    hickory_resolver::system_conf::read_system_conf().map_err(|e| e.to_string())
+}
+
+/// No read on Android: the answer is that there is no configuration.
+///
+/// hickory's Android `read_system_conf` asks `ndk_context` for the JVM,
+/// and `ndk_context::android_context` PANICS -- it does not return an
+/// error -- unless something initialised the context first. Only
+/// android-activity does, on the Activity's first `android_main`, so a
+/// runtime started before any Activity (the instrumentation process; a
+/// service the system restarts after the process died) panicked at
+/// start, measured on a Pixel 9a. The app cannot initialise the context
+/// itself either: android-activity asserts nothing did so before it.
+///
+/// So `start` takes the degraded path the read's failure already takes
+/// (`resolver_or_empty`): an empty configuration and
+/// `ResolverUnavailable`, said, never silent. Catching the panic was
+/// rejected -- the panic hook still runs, and the context it depends on
+/// is one another component owns.
+#[cfg(target_os = "android")]
+fn host_resolver_conf() -> Result<(libp2p::dns::ResolverConfig, libp2p::dns::ResolverOpts), String>
+{
+    Err("no host resolver configuration is read on Android".to_owned())
+}
+
 /// The host resolver configuration, or an empty one and the reason.
 ///
 /// An empty configuration names no nameserver, so every lookup fails at
@@ -985,6 +1014,9 @@ pub struct SwarmRuntime {
     /// The root funnel's counters. Not an `Option`: every Swarm this
     /// runtime builds has the funnel, whatever the profile enables.
     root_funnel_counters: crate::root_funnel::RootFunnelCounterHandle,
+    /// The listen-port dials the transport made again from a fresh
+    /// port, and the punches it refused (`port_fallback`).
+    port_fallbacks: crate::port_fallback::PortFallbacks,
     /// The operator's door (ADR-0052 rule 9): what `add_address` records
     /// here is admitted at every learn site and at the root funnel
     /// whatever its class. The same set the Swarm task reads.
@@ -1010,12 +1042,7 @@ impl SwarmRuntime {
         config: SubstrateConfig,
         trust: TrustSources,
     ) -> Result<Self, SubstrateError> {
-        Self::start_with_resolver(
-            identity,
-            config,
-            trust,
-            hickory_resolver::system_conf::read_system_conf(),
-        )
+        Self::start_with_resolver(identity, config, trust, host_resolver_conf())
     }
 
     /// [`Self::start`], with the host resolver configuration handed in.
@@ -1144,12 +1171,15 @@ impl SwarmRuntime {
         let local_pid = libp2p::PeerId::from_public_key(&keypair.public());
         let (kad_toggle, mut kademlia_state) = match &config.kademlia {
             Some(settings) => (
-                libp2p::swarm::behaviour::toggle::Toggle::from(Some(Attributing::new(
-                    kademlia_driver::build_behaviour(settings, local_pid)
-                        .map_err(SubstrateError::Kademlia)?,
-                    always(DialOrigin::KademliaQuery),
-                    attribution.clone(),
-                ))),
+                libp2p::swarm::behaviour::toggle::Toggle::from(Some(
+                    Attributing::new(
+                        kademlia_driver::build_behaviour(settings, local_pid)
+                            .map_err(SubstrateError::Kademlia)?,
+                        always(DialOrigin::KademliaQuery),
+                        attribution.clone(),
+                    )
+                    .dialling_peers_from_a_fresh_port(),
+                )),
                 Some({
                     let mut state = kademlia_driver::KademliaState::new(settings);
                     state.set_boundary(operator.clone(), stores.clone());
@@ -1375,13 +1405,29 @@ impl SwarmRuntime {
                 .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
             };
         let (resolver_config, resolver_opts, resolver_unavailable) = resolver_or_empty(resolver);
+        // The TCP transport `with_tcp` builds, composed by hand so a
+        // listen-port dial the kernel refuses is made again from a fresh
+        // port (`port_fallback`, `CONNECTIVITY.md` §12 A 2026-10-14).
+        // The same upgrade chain: V1Lazy, Noise, the default Yamux.
+        let port_fallbacks = crate::port_fallback::PortFallbacks::default();
+        let transport_fallbacks = port_fallbacks.clone();
         let builder = libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
-            .with_tcp(
-                tcp::Config::default().nodelay(true),
-                noise::Config::new,
-                yamux::Config::default,
-            )
+            .with_other_transport(|key| {
+                use libp2p::Transport as _;
+                let tcp = crate::port_fallback::PortFallback::new(
+                    tcp::tokio::Transport::new(tcp::Config::default().nodelay(true)),
+                    transport_fallbacks,
+                );
+                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
+                    tcp.upgrade(libp2p::core::upgrade::Version::V1Lazy)
+                        .authenticate(noise::Config::new(key)?)
+                        .multiplex(yamux::Config::default())
+                        .map(|(peer, muxer), _| {
+                            (peer, libp2p::core::muxing::StreamMuxerBox::new(muxer))
+                        }),
+                )
+            })
             .map_err(|e| SubstrateError::Transport(e.to_string()))?
             // THE DNS TRANSPORT, and the feature flag alone was never
             // this. `static-bootstrap.md` §DNS ownership says resolution
@@ -3190,6 +3236,7 @@ impl SwarmRuntime {
             dcutr_counters,
             relay_hop_counters,
             root_funnel_counters,
+            port_fallbacks,
             operator,
             stores,
             mdns_drop_counts,
@@ -3260,6 +3307,15 @@ impl SwarmRuntime {
     #[must_use]
     pub fn root_funnel_counters(&self) -> crate::root_funnel::RootFunnelCounters {
         self.root_funnel_counters.snapshot()
+    }
+
+    /// The relay dials the kernel refused on the listen port and the
+    /// transport made again from a fresh port, and the hole punches it
+    /// refused there (`CONNECTIVITY.md` §12, A 2026-10-14). Counts only:
+    /// the transport cannot tell a reservation from a circuit.
+    #[must_use]
+    pub fn port_fallbacks(&self) -> crate::port_fallback::PortFallbackCounts {
+        self.port_fallbacks.snapshot()
     }
 
     /// What ADR-0053's bounds dropped inside the mDNS crate (rule 7):
@@ -3553,6 +3609,62 @@ mod backpressure_tests {
         let (_, _, none) =
             super::resolver_or_empty::<&str>(Ok((readable, libp2p::dns::ResolverOpts::default())));
         assert!(none.is_none(), "a readable configuration reports nothing");
+    }
+
+    /// Android's start never reaches hickory's system read, which panics
+    /// there without an initialised `ndk_context`. The cfg cannot run on
+    /// this host, so the claim is pinned on the source: the crate calls
+    /// `read_system_conf` exactly once, in the `host_resolver_conf` gated
+    /// off Android, and `start` reads through that function. A second
+    /// call site, or the gate removed, fails here.
+    #[test]
+    fn the_system_resolver_read_is_gated_off_android() {
+        fn rust_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).expect("read_dir") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    rust_files(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        rust_files(&src, &mut files);
+        let call = concat!("read_system", "_conf(");
+        let sites: Vec<_> = files
+            .iter()
+            .flat_map(|f| {
+                let text = std::fs::read_to_string(f).expect("read");
+                text.match_indices(call)
+                    .map(|(at, _)| (f.clone(), text[..at].to_owned()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(
+            sites.len(),
+            1,
+            "one read of the system resolver: {:?}",
+            sites.iter().map(|s| &s.0).collect::<Vec<_>>()
+        );
+        let before = &sites[0].1;
+        let fn_at = before
+            .rfind("fn host_resolver_conf()")
+            .expect("inside host_resolver_conf");
+        assert!(
+            before[..fn_at]
+                .trim_end()
+                .ends_with(r#"#[cfg(not(target_os = "android"))]"#),
+            "the function holding the read is gated off Android"
+        );
+        let text = std::fs::read_to_string(src.join("runtime/mod.rs")).expect("read");
+        assert!(
+            text.contains(
+                "Self::start_with_resolver(identity, config, trust, host_resolver_conf())"
+            ),
+            "start reads through the gated function"
+        );
     }
 
     /// The invariant itself, on a real runtime: a failed resolver read

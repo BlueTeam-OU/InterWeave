@@ -112,6 +112,7 @@ pub mod hop_gate;
 pub mod mdns_scope;
 pub mod operator_set;
 pub mod outbound_gate;
+pub mod port_fallback;
 pub mod preauth_gate;
 pub mod probe_server;
 pub mod refusals;
