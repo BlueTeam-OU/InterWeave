@@ -15,7 +15,7 @@ use interweave_profile_config::{LoadError, PersistError, ProfileConfig, ProfileP
 use interweave_transport_api::{ChannelId, EndpointId};
 
 /// The client kind this app presents, and the one the profile must allow
-/// on the endpoint it leases.
+/// on an endpoint for it to be one this client may lease.
 pub const CLIENT_KIND: &str = "human-client";
 
 /// What the command line asked for.
@@ -91,10 +91,14 @@ impl fmt::Display for Usage {
 pub struct Profile {
     /// The profile's paths.
     pub paths: ProfilePaths,
-    /// The endpoint this client leases: the profile's entry that allows
-    /// the `human-client` kind. Configuration, never chosen in the UI
-    /// (ADR-0032; architect-cto's Q8 ruling).
-    pub endpoint: EndpointId,
+    /// The endpoints this client may lease: every profile entry that
+    /// allows the `human-client` kind, in the file's order, whatever its
+    /// `enabled` says. Configuration, never chosen in the UI (ADR-0032;
+    /// architect-cto's Q8 ruling); which of them is enabled is the
+    /// daemon's effective state, which an administrator's change kept
+    /// across restarts makes differ from the file (ADR-0028 A
+    /// 2026-10-11), so the facade's open decides it, never this list.
+    pub endpoints: Vec<EndpointId>,
     /// The channels the profile wants joined.
     pub channels: Vec<ChannelId>,
     /// The data socket.
@@ -128,7 +132,7 @@ pub enum StartError {
     RolesOverlap,
     /// The profile's configuration could not be loaded.
     Config(LoadError),
-    /// No enabled endpoint in the profile allows this client's kind.
+    /// No endpoint in the profile allows this client's kind.
     NoHumanEndpoint,
     /// The socket paths could not be derived.
     Sockets(PersistError),
@@ -146,15 +150,15 @@ impl fmt::Display for StartError {
             Self::Config(e) => write!(f, "the profile's configuration could not be loaded: {e}"),
             Self::NoHumanEndpoint => write!(
                 f,
-                "no enabled endpoint in the profile allows the {CLIENT_KIND} client kind"
+                "no endpoint in the profile allows the {CLIENT_KIND} client kind"
             ),
             Self::Sockets(e) => write!(f, "the daemon's socket paths could not be derived: {e}"),
         }
     }
 }
 
-/// Resolve `launch`'s profile: its paths, the endpoint this client
-/// leases, its channels and its sockets. Nothing is created here.
+/// Resolve `launch`'s profile: its paths, the endpoints this client may
+/// lease, its channels and its sockets. Nothing is created here.
 ///
 /// # Errors
 /// [`StartError`], naming the step that refused.
@@ -164,20 +168,22 @@ pub fn resolve(launch: &Launch, roots: &XdgRoots) -> Result<Profile, StartError>
         return Err(StartError::RolesOverlap);
     }
     let config = ProfileConfig::load(&paths).map_err(StartError::Config)?;
-    let endpoint = config
+    let endpoints: Vec<EndpointId> = config
         .endpoints
         .entries
         .iter()
-        .find(|e| {
-            e.enabled
-                && e.allowed_client_kinds
-                    .iter()
-                    .any(|k| k.as_str() == CLIENT_KIND)
+        .filter(|e| {
+            e.allowed_client_kinds
+                .iter()
+                .any(|k| k.as_str() == CLIENT_KIND)
         })
         .map(|e| e.id.clone())
-        .ok_or(StartError::NoHumanEndpoint)?;
+        .collect();
+    if endpoints.is_empty() {
+        return Err(StartError::NoHumanEndpoint);
+    }
     Ok(Profile {
-        endpoint,
+        endpoints,
         channels: config.channels.desired.clone(),
         data_socket: paths.data_socket().map_err(StartError::Sockets)?,
         admin_socket: paths.admin_socket().map_err(StartError::Sockets)?,

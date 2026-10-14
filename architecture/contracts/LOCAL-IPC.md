@@ -619,7 +619,8 @@ The first production build implements the Unix domain socket binding on
 Linux. macOS is not decided: `ProfilePaths::resolve` fails without
 `XDG_RUNTIME_DIR` by design and no macOS runtime-directory rule exists. The Windows named-pipe equivalent named throughout this
 contract is the design, not the build: its ACL model and peer identity
-are carried by name to the desktop-client stage.
+are carried by name in the implementation plan (§22, Stage 19, since
+2026-10-11; §18 and §21 before it).
 
 ## IPC v1 compatibility
 

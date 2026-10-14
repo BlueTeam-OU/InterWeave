@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/interweave-icon.svg" width="128" alt="InterWeave logo"></p>
+
 # InterWeave
 
 **InterWeave** is a peer-to-peer transport for agent harnesses that speak MCP and for first-party human clients: the agent bridge delivers by Claude Code's channel extension, or to any MCP host through a `receive` tool. One configured profile owns one persistent peer identity; many local applications share it through configured endpoints. On the wire it combines signed GossipSub broadcast, a dedicated directed-message protocol, an endpoint directory, replaceable discovery, Kademlia peer routing, and mandatory Internet reachability through AutoNAT v2, Circuit Relay v2 and DCUtR. The design is under [`architecture/`](./architecture/); the code is built one stage at a time in the order that design fixes.
@@ -92,6 +94,7 @@ The accepted details live in the contracts and ADRs; this README is an orientati
 | [`test-data/`](./test-data/README.md) | Mutable non-normative scenario data |
 | [`spikes/`](./spikes/README.md) | Empirical investigations and their evidence harnesses; never production dependencies |
 | [`third_party/`](./third_party/README.md) | Vendored dependency sources, each under its own licence and each with an ADR; a patched one also records its diff |
+| [`assets/`](./assets/README.md) | The InterWeave icon, its generator and the register of every image in the repository and where it is used |
 | [`packaging/`](./packaging/README.md) | The Claude Code plugin that starts the Channel bridge (`claude-plugin/`); Linux/macOS/Windows/Android landing zones, implemented with Stage 19 |
 | [`xtask/`](./xtask/README.md) | Repository/test orchestration — `cargo xtask checks` / `cargo xtask ci` |
 | [`tools/`](./tools/) | Repository tooling — PR/review scripts and tree checks, each with a self-test beside it |

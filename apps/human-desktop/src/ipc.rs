@@ -40,11 +40,10 @@ pub fn facade_over_ipc(
     );
     let config = ClientConfig {
         client_kind: CLIENT_KIND.to_owned(),
-        endpoint: Some(profile.endpoint.clone()),
+        endpoints: profile.endpoints.clone(),
         channels: profile.channels.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
     };
-    let endpoint = profile.endpoint.clone();
     move || {
         let client = TransportClient::new(
             binding.clone(),
@@ -54,6 +53,6 @@ pub fn facade_over_ipc(
             Box::new(wall_ms),
             0,
         )?;
-        Ok(FacadeSide::new(client, Some(endpoint), wall_ms))
+        Ok(FacadeSide::new(client, wall_ms))
     }
 }

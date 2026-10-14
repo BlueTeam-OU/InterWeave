@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# Stage 18: the adversarial/security gate's local half: the daemon's
+# two sockets, transportctl and the stores, driven as an attacker on
+# the same host would (plan section 21, S9-S11). TEST-ONLY; nothing
+# depends on this package. The network half is `tests/security`.
+#
+# Its dependency list is complete ahead of its tests (architect-cto's
+# R8, 2026-10-11): the workspace manifest and the lockfile change once,
+# in the PR that adds both security crates, and after that each
+# holder's PR stays inside its own crate.
+[package]
+name = "interweave-security-local-tests"
+version = "0.0.0"
+publish = false
+description = "InterWeave adversarial/security gate suite, local boundaries."
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+interweave-ipc-client = { path = "../../crates/local/ipc-client" }
+# S9 writes a raw spoofed hello.
+interweave-ipc-protocol = { path = "../../crates/api/ipc-protocol" }
+interweave-local-client-api = { path = "../../crates/api/local-client-api" }
+interweave-transport-api = { path = "../../crates/api/transport-api" }
+# S10's profile state, and `effective_uid`.
+interweave-profile-config = { path = "../../crates/config/profile-config" }
+# S11.
+interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
+# S10's store cases, agreed with the human client's owner first.
+interweave-human-store = { path = "../../crates/human/store" }
+# The daemon, transportctl and the bridge come from the workspace build
+# through `workspace_binary`, as in desktop-e2e. None is a dependency.
+interweave-test-support = { path = "../support", features = ["e2e"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "io-util", "process", "rt-multi-thread", "time"] }
+
+# Every dependency above waits for the S9-S11 test that uses it. Take
+# each one off this list in the commit that adds its first use, so the
+# list empties as the suite fills.
+[package.metadata.cargo-machete]
+ignored = [
+  "interweave-ipc-client",
+  "interweave-ipc-protocol",
+  "interweave-local-client-api",
+  "interweave-transport-api",
+  "interweave-profile-config",
+  "interweave-profile-identity",
+  "interweave-human-store",
+  "interweave-test-support",
+  "serde_json",
+  "tempfile",
+  "tokio",
+]

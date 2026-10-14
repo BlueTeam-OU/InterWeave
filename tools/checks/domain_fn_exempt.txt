@@ -175,7 +175,6 @@ ReservationMap::outstanding                      call  direct_state.reservations
 # --- plan carries it to by name; what nothing read was narrowed to
 # --- #[cfg(test)] or removed in the same audit.
 LocalDataSession::event_queue                    call  let lane = session.session().event_queue();
-HandshakeSlot::source                            stage-18  pre-auth source attribution in the adversarial gate; plan §16 carries it to Stage 18 by name
 Payload::at_ceiling                              call  Self::at_ceiling(raw.media_type, bytes)
 RequestedCapability::as_admin                    call  .any(|c| c.as_admin().is_some());
 RequestedCapability::as_data                     call  .filter_map(|c| c.as_data())

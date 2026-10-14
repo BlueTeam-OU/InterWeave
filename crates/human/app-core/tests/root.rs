@@ -57,7 +57,7 @@ fn facade(node: &FakeNode, store: HumanStore) -> FacadeSide<FakeNode, FakeNode> 
         store,
         ClientConfig {
             client_kind: "human-client".to_owned(),
-            endpoint: Some(endpoint("human")),
+            endpoints: vec![endpoint("human")],
             channels: vec![],
             max_payload_bytes: 49_152,
         },
@@ -65,7 +65,7 @@ fn facade(node: &FakeNode, store: HumanStore) -> FacadeSide<FakeNode, FakeNode> 
         0,
     )
     .expect("facade");
-    FacadeSide::new(client, Some(endpoint("human")), || WALL)
+    FacadeSide::new(client, || WALL)
 }
 
 fn memory() -> HumanStore {
@@ -208,6 +208,54 @@ async fn a_send_goes_out_and_reads_as_accepted_never_as_read() {
         .map(|m| m.source)
         .collect();
     assert_eq!(from_alice, ["hello bob"]);
+}
+
+/// A sent message names the endpoint the facade leases, not the first it
+/// was configured with: here the runtime has the first disabled, so the
+/// open leased the second (ADR-0028 A 2026-10-11).
+#[tokio::test]
+async fn a_send_names_the_endpoint_leased_not_the_first_configured() {
+    use interweave_local_client_api::{AdminBinding, AdminCapability, AdminPort};
+    let mut config = node();
+    config
+        .endpoints
+        .push(FakeEndpoint::open(endpoint("human-spare"), false));
+    let (a, b) = FakeNetwork::pair(config, node());
+    a.admin(std::collections::BTreeSet::from([
+        AdminCapability::Endpoints,
+    ]))
+    .await
+    .expect("admin")
+    .set_endpoint_enabled(endpoint("human"), false)
+    .await
+    .expect("disabled");
+    let client = TransportClient::new(
+        a.clone(),
+        a.clone(),
+        memory(),
+        ClientConfig {
+            client_kind: "human-client".to_owned(),
+            endpoints: vec![endpoint("human"), endpoint("human-spare")],
+            channels: vec![],
+            max_payload_bytes: 49_152,
+        },
+        Box::new(|| WALL),
+        0,
+    )
+    .expect("facade");
+    let (mut alice, _) = Root::new(FacadeSide::new(client, || WALL));
+    alice.pump(0).await;
+    alice.will(vec![send(&direct(b.peer()), "from the spare")]);
+    alice.pump(1).await;
+    let named: Vec<Option<EndpointId>> = alice
+        .updates
+        .iter()
+        .filter_map(|u| match u {
+            Update::Sent { envelope, .. } => Some(envelope.from_endpoint.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(named, [Some(endpoint("human-spare"))]);
 }
 
 #[tokio::test]

@@ -98,6 +98,11 @@ members = [
     # Stage 9: DiscoveryProvider conformance and the composition proof
     # that discovery cannot bypass trust or ConnectionManager.
     "tests/discovery-conformance",
+    # Stage 18: the adversarial/security gate, over real sockets
+    # between real peers.
+    "tests/security",
+    # Its local half: the daemon's sockets, transportctl and the stores.
+    "tests/security-local",
     "xtask",
 ]
 
@@ -108,7 +113,7 @@ edition = "2024"
 # compiler does not match is worse than stating none: it reads as a tested
 # floor while nothing ever builds against it.
 rust-version = "1.98.1"
-repository = "https://github.com/gzapi-org/InterWeave"
+repository = "https://github.com/BlueTeam-OU/InterWeave"
 
 # Lints are declared once and inherited with `[lints] workspace = true`, so a
 # new crate cannot quietly opt out of the policy by omitting a directive.
@@ -216,6 +221,12 @@ i-slint-backend-testing = { version = "=1.18.1", default-features = false }
 # feature) to name the platform's monospaced family, which the toolkit's
 # `font-family` cannot ask for by its generic name.
 i-slint-common = { version = "=1.18.1", default-features = false, features = ["fontconfig-dlopen"] }
+# Named to turn on `image-decoders`, which `slint` does not forward: the
+# views embed the window icon (a PNG), and without a decoder ui-slint
+# compiles only when a backend feature (desktop, android, or the testing
+# backend) brings one along. Every backend already enables it, so this
+# adds no crate to the graph. Same exact pin as the toolkit.
+i-slint-core = { version = "=1.18.1", default-features = false, features = ["image-decoders"] }
 # The loader the font stack above uses, named so the desktop app can ask
 # it at start whether fontconfig loaded: a host without the library
 # otherwise runs with no fonts, silently (plan section 18, carried from
@@ -589,7 +600,12 @@ overflow-checks = true
 # stage's record lands. Nothing here is server-mode reachability
 # evidence for ADR-0034 §7's release gate: that decision is separate.
 # Read architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md §20
-# (Stage 17) before creating a package.
+# (Stage 17) before creating a package. STAGE 18 RUNS BESIDE STAGE 17
+# by the plan's section 21 record (paragraph 0, under ADR-0046's
+# allowance): the adversarial/security gate, whose packages are
+# tests/security and tests/security-local and whose exit gate is
+# tests/SECURITY-MATRIX.md. This value stays Stage 17 until section 20's
+# closing record moves it, because the guards read it as one number.
 status = "stage-17-android-human-client"
 architecture_root = "architecture"
 
@@ -639,6 +655,7 @@ planned_test_packages = [
   "tests/human-chat",
   "tests/human-retention",
   "tests/security",
+  "tests/security-local",
   "tests/desktop-e2e",
   "tests/android-e2e",
   "tests/android-e2e-cases",

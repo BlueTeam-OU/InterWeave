@@ -418,7 +418,7 @@ fn facade(node: &FakeNode, store: HumanStore) -> TransportClient<FakeNode, FakeN
         store,
         ClientConfig {
             client_kind: "human-client".to_owned(),
-            endpoint: Some(endpoint("human")),
+            endpoints: vec![endpoint("human")],
             channels: vec![],
             max_payload_bytes: 49_152,
         },

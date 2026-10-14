@@ -442,8 +442,27 @@ impl NetworkBehaviour for PreAuthAdmission {
         // the slot would be held until the timeout swept it -- and an
         // attacker who opens connections and drops them would hold the
         // budget for the length of the timeout, every time, for free.
-        if let FromSwarm::ListenFailure(failure) = event {
-            self.release(failure.connection_id);
+        //
+        // It is also the one point an operator can see a handshake that
+        // held a slot and never finished, so it says which bucket the
+        // gate counted it under (R6, 2026-10-11): the slot's bucket,
+        // never the remote address, its port or a PeerId the circuit
+        // carries -- a relayed inbound's bucket names its RELAY. The
+        // line is bounded by the gate itself: every one needs an
+        // admitted start, so the global start window caps its rate.
+        // An established release says nothing. The fields and the
+        // silence are pinned by
+        // `a_handshake_that_ends_unestablished_is_logged_by_its_bucket_alone`,
+        // and the start window by tests/security's `preauth_flood`.
+        if let FromSwarm::ListenFailure(failure) = event
+            && let Some(slot) = self.in_flight.remove(&failure.connection_id)
+        {
+            tracing::debug!(
+                bucket = slot.source(),
+                elapsed_ms = self.now_ms().saturating_sub(slot.started_at_ms()),
+                "a pre-auth handshake ended without establishing; its slot is released"
+            );
+            self.gate.completed(&slot);
         }
     }
 
@@ -1071,5 +1090,137 @@ mod tests {
             "neither source identity appears in the bucket ({one}), which is the metadata \
              §10 forbids bucketing on"
         );
+    }
+
+    /// Every event a [`tracing`] subscriber sees, as its field names and
+    /// their values, so a test can say what a line carries and that it
+    /// carries nothing else.
+    type Line = Vec<(String, String)>;
+
+    #[derive(Default, Clone)]
+    struct Recorded(std::sync::Arc<std::sync::Mutex<Vec<Line>>>);
+
+    struct Fields(Vec<(String, String)>);
+
+    impl tracing::field::Visit for Fields {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            self.0.push((field.name().to_owned(), format!("{value:?}")));
+        }
+
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            self.0.push((field.name().to_owned(), value.to_owned()));
+        }
+    }
+
+    impl tracing::Subscriber for Recorded {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            let mut fields = Fields(Vec::new());
+            event.record(&mut fields);
+            self.0.lock().expect("not poisoned").push(fields.0);
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    /// The listen-failure line names the bucket the gate counted and
+    /// the elapsed time, and nothing else (R6, 2026-10-11): an IPv4
+    /// address, an IPv6 /64, and a relayed inbound's relay. Never the
+    /// remote's port or a `PeerId` the circuit carries. The elapsed
+    /// time is the slot's own, not the gate's age: the gate is aged
+    /// `BEFORE` first, so a line reading the gate's clock or the slot's
+    /// start alone exceeds the wall time the handshake took. An
+    /// established release, the control, writes no line at all.
+    #[test]
+    fn a_handshake_that_ends_unestablished_is_logged_by_its_bucket_alone() {
+        use libp2p::swarm::{ListenError, ListenFailure};
+
+        const BEFORE: std::time::Duration = std::time::Duration::from_millis(200);
+        const HELD: std::time::Duration = std::time::Duration::from_millis(30);
+
+        let local = addr("/ip4/0.0.0.0/tcp/4001");
+        let relayed_local = addr(&format!("/ip4/192.0.2.5/tcp/4001/p2p/{RELAY}/p2p-circuit"));
+        let cases = [
+            (
+                local.clone(),
+                addr("/ip4/198.51.100.7/tcp/5001"),
+                "198.51.100.7".to_owned(),
+            ),
+            (
+                local.clone(),
+                addr("/ip6/2001:db8:1:2::abcd/tcp/5001"),
+                "2001:db8:1:2::/64".to_owned(),
+            ),
+            (
+                relayed_local,
+                addr(&format!("/p2p/{SOURCE_A}")),
+                format!("relay:{RELAY}"),
+            ),
+        ];
+
+        for (n, (local, remote, bucket)) in cases.into_iter().enumerate() {
+            let recorded = Recorded::default();
+            let mut gate = PreAuthAdmission::new(PreAuthLimits::default());
+            std::thread::sleep(BEFORE);
+            let id = ConnectionId::new_unchecked(n);
+            let wall = std::time::Instant::now();
+            tracing::subscriber::with_default(recorded.clone(), || {
+                gate.handle_pending_inbound_connection(id, &local, &remote)
+                    .expect("admitted");
+                std::thread::sleep(HELD);
+                gate.on_swarm_event(FromSwarm::ListenFailure(ListenFailure {
+                    local_addr: &local,
+                    send_back_addr: &remote,
+                    error: &ListenError::Aborted,
+                    connection_id: id,
+                    peer_id: None,
+                }));
+            });
+            let wall_ms = wall.elapsed().as_millis();
+            let lines = recorded.0.lock().expect("not poisoned").clone();
+            assert_eq!(
+                lines.len(),
+                1,
+                "one line per unestablished handshake: {lines:?}"
+            );
+            let names: Vec<&str> = lines[0].iter().map(|(name, _)| name.as_str()).collect();
+            assert_eq!(names, ["message", "bucket", "elapsed_ms"], "nothing more");
+            assert_eq!(lines[0][1].1, bucket);
+            let elapsed_ms: u128 = lines[0][2].1.parse().expect("a number of milliseconds");
+            // Both ends of the slot's span are whole milliseconds rounded
+            // down, so their difference can exceed the wall reading by one.
+            assert!(
+                HELD.as_millis() <= elapsed_ms && elapsed_ms <= wall_ms + 1,
+                "the slot's own elapsed time: {elapsed_ms} ms, held {HELD:?}, {wall_ms} ms of wall time"
+            );
+            for (_, value) in &lines[0] {
+                assert!(!value.contains("5001"), "never the remote's port: {value}");
+                assert!(
+                    !value.contains(SOURCE_A),
+                    "never the source the circuit carries"
+                );
+            }
+            assert!(gate.in_flight.is_empty(), "the slot is released");
+
+            // The control: the same handshake ESTABLISHED is released
+            // with no line.
+            let quiet = Recorded::default();
+            let peer: PeerId = SOURCE_B.parse().expect("a peer id");
+            tracing::subscriber::with_default(quiet.clone(), || {
+                gate.handle_pending_inbound_connection(id, &local, &remote)
+                    .expect("admitted");
+                gate.handle_established_inbound_connection(id, peer, &local, &remote)
+                    .expect("established");
+            });
+            assert!(quiet.0.lock().expect("not poisoned").is_empty());
+            assert!(gate.in_flight.is_empty());
+        }
     }
 }

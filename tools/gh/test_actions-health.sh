@@ -10,10 +10,9 @@
 #
 #   1. the fabric script runs with the arguments untouched, and its
 #      output and exit status are the caller's
-#   2. INTERWEAVE_ACTIONS_INCLUDED_MINUTES reaches it as
-#      AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES, an explicit value of the
-#      fabric's own variable wins, and the setting it names to a person
-#      is INTERWEAVE_ACTIONS_INCLUDED_MINUTES
+#   2. AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES reaches it untouched, the
+#      retired INTERWEAVE_ACTIONS_INCLUDED_MINUTES is no longer read, and
+#      no setting name is imposed on the fabric's lines
 #   3. AGENT_FABRIC_ROOT wins over the sibling-checkout default
 #   4. when agent-fabric (or its actions-health) is not there it refuses
 #      with exit 2 — "could not find out", never 1, which says GitHub is
@@ -72,17 +71,14 @@ mapfile -d '' argv < "$SANDBOX/r1.argv"
 [[ "$(cat "$SANDBOX/r1.argc")" == 3 && "${argv[0]}" == --included && "${argv[1]}" == "two words" && "${argv[2]}" == --json ]] \
     && pass "three arguments, a space-containing one still one argument" || fail "argv" "$(printf '[%s]' "${argv[@]}")"
 
-echo "the allowance: InterWeave's setting, under the fabric's name"
-run "$SANDBOX/r2" INTERWEAVE_ACTIONS_INCLUDED_MINUTES=50000 -- --quiet
-[[ "$(cat "$SANDBOX/r2.minutes")" == 50000 ]] && pass "INTERWEAVE_ACTIONS_INCLUDED_MINUTES reaches it as AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES" || fail "mapping" "$(cat "$SANDBOX/r2.minutes")"
-[[ "$(cat "$SANDBOX/r2.setting")" == INTERWEAVE_ACTIONS_INCLUDED_MINUTES ]] && pass "and the setting it names to a person is InterWeave's" || fail "setting name" "$(cat "$SANDBOX/r2.setting")"
-run "$SANDBOX/r3" INTERWEAVE_ACTIONS_INCLUDED_MINUTES=50000 AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES=3000 -- --quiet
-[[ "$(cat "$SANDBOX/r3.minutes")" == 3000 ]] && pass "an explicit AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES wins" || fail "explicit value" "$(cat "$SANDBOX/r3.minutes")"
+echo "the allowance: the fabric's own name, passed untouched"
+run "$SANDBOX/r2" AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES=50000 -- --quiet
+[[ "$(cat "$SANDBOX/r2.minutes")" == 50000 ]] && pass "AGENT_FABRIC_ACTIONS_INCLUDED_MINUTES reaches it unchanged" || fail "value" "$(cat "$SANDBOX/r2.minutes")"
+[[ "$(cat "$SANDBOX/r2.setting")" == "<unset>" ]] && pass "and no setting name is imposed: the fabric names its own" || fail "setting name" "$(cat "$SANDBOX/r2.setting")"
+run "$SANDBOX/r3" INTERWEAVE_ACTIONS_INCLUDED_MINUTES=50000 -- --quiet
+[[ "$(cat "$SANDBOX/r3.minutes")" == "<unset>" ]] && pass "the retired INTERWEAVE_ACTIONS_INCLUDED_MINUTES is not read" || fail "retired name read" "$(cat "$SANDBOX/r3.minutes")"
 run "$SANDBOX/r4" -- --quiet
-[[ "$(cat "$SANDBOX/r4.minutes")" == "<unset>" && "$(cat "$SANDBOX/r4.setting")" == INTERWEAVE_ACTIONS_INCLUDED_MINUTES ]] \
-    && pass "no setting: none is invented, and the setting is still named" || fail "no setting" "$(cat "$SANDBOX/r4.minutes") / $(cat "$SANDBOX/r4.setting")"
-run "$SANDBOX/r5" INTERWEAVE_ACTIONS_INCLUDED_MINUTES= -- --quiet
-[[ "$(cat "$SANDBOX/r5.minutes")" == "<unset>" ]] && pass "an empty setting is no setting" || fail "empty setting" "$(cat "$SANDBOX/r5.minutes")"
+[[ "$(cat "$SANDBOX/r4.minutes")" == "<unset>" ]] && pass "no setting: none is invented" || fail "no setting" "$(cat "$SANDBOX/r4.minutes")"
 
 echo "resolution: AGENT_FABRIC_ROOT wins; otherwise the sibling of this working copy"
 SIB="$SANDBOX/projects"; mkdir -p "$SIB/interweave/tools/gh"

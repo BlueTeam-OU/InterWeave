@@ -9,6 +9,7 @@ InterWeave is currently an **accepted architecture plus implementation/test skel
 - `architecture/` is the normative design source.
 - `apps/`, `crates/`, `tests/`, `fixtures/`, `test-data/`, `spikes/`, `packaging/`, and `xtask/` are tracked landing zones created by ADR-0045.
 - `third_party/` holds **vendored dependency sources**, each under its own licence and each the subject of an ADR saying why a registry release would not do (ADR-0051 for `libp2p-autonat`; ADR-0053 for `libp2p-mdns`; ADR-0054 for `wasm-bindgen-futures`, decided 2026-10-03 and vendored before Stage 15's batch 4: a wasm-only crate whose three exact pins are relaxed so the desktop client's windowing backend resolves, compiled on no target this repository builds). Every vendored file is listed with its provenance in `tools/checks/license_exempt.txt`; a subdirectory without entries is an unreviewed import, which for a Rust tree `check_license_headers.sh` catches mechanically and for other shapes a reviewer has to. **The guards split two ways** (ADR-0051): those deciding whether FIRST-PARTY code is wired exclude it, for the reason they exclude `spikes/` — a vendored dependency is not a consumer and must never vouch for this repository's own code; those asking what the shipped binary CONTAINS do not, because a `[patch.crates-io]` tree is compiled in and editable here. And a vendored crate is invisible to `cargo-deny` and to Dependabot alike, so `check_vendored_advisories.sh` is the only warning one will ever get.
+- `assets/` holds the project's images: the InterWeave icon, the script that generates every size of it, and `assets/README.md`, the register of every image in the repository and where each is used. A new image is added to that register in the same change; a generated file is never edited by hand. It is not a code landing zone.
 - `tools/` is repository tooling — PR/review scripts (`gh/`), tree checks (`checks/`) and the session wrappers CI jobs run under (`ci/`) — not an implementation landing zone. It is live now and not gated by stage discipline. Each script has a self-test beside it (`test_*.sh`) that must stay green, run through `tools/checks/run_suite.sh` (bare, a call to an undefined helper passes silently).
 - `.claude/` is committed shared agent configuration: `settings.json` (§9), plus `skills/` — task-scoped procedures loaded on demand, see §10. Only `settings.local.json` and `CLAUDE.local.md` are per-developer and gitignored.
 - Stages 0-16 are **complete** and **Stage 17 is open**
@@ -676,7 +677,7 @@ material is therefore an **exemption with recorded provenance** in
 
 ### Repository git configuration
 
-- `origin` is `git@github.com:gzapi-org/InterWeave.git`; the integration branch is `main`. The repository is **public** — everything committed here is published.
+- `origin` is `git@github.com:BlueTeam-OU/InterWeave.git` (moved from gzapi-org on 2026-10-12: git follows the redirect, API writes through the old name fail with HTTP 307, so a clone still on the old origin is re-pointed with `git remote set-url origin` before it opens or arms a PR); the integration branch is `main`. The repository is **public** — everything committed here is published.
 - Commit identity is pinned **repository-locally** (`user.name`, `user.email`), so it does not depend on the machine's global config. Commit and tag signing are likewise pinned local (`user.signingkey`, `commit.gpgsign`, `tag.gpgsign`, `gpg.program`). Do not disable signing per-commit.
 - `.gitattributes` pins `* text=auto eol=lf` and marks binary classes, so the index stays canonical across machines. `fixtures/**` is `-text`: frozen vectors are byte-compared, so EOL renormalisation there is a protocol change, not a whitespace one.
 - `.claude/settings.json` is **committed** shared configuration — the push gate, the worktree base ref, the subagent dispatch hook (agent-fabric's guard, run from the sibling checkout — §"agent-fabric beside the checkout" below), and the status line (agent-fabric's `runtime/claude-code/hooks/statusline.sh`: harness version · model · effort, then agent@host, the branch's PR, the working copy and the branch — the agent and the branch being what tell you whose branch you stand on) all live in it. `.claude/settings.local.json` and `CLAUDE.local.md` are per-developer and gitignored.
@@ -710,10 +711,10 @@ Commit messages are project files for the purposes of §7 — do not cite unrela
 ### One branch per batch of work
 
 - One short-lived branch off fresh `origin/main` per BATCH of work, not per task and not per session. A PR is a review unit, and a review costs the same for one commit as for ten, so small pieces of work that are ready together — a step's code and its prose, a follow-up note in the plan, the previous review's carried P3s — go into one branch and one PR rather than several small ones (2026-09-19: two PRs of one and four commits, both touching the plan, were folded into one). The floor is **eight work commits** before arming without a fresh ask; a PR under it is armed only on the owner's word given in the session, and a batch past about sixteen is landed and the rest starts a new batch. Review-fix commits do not count toward the floor. What stays separate is work that cannot share a review: a change whose landing another task depends on, a refactor of a file another branch touches, or another session's lane. Commit boundaries are unchanged — the multi-fix / multi-package unit below is what a COMMIT is, not what a PR is.
-- Branch name `<hostname -s>/<login>/<type>/<short-desc>`, the login being the agent (`fabric-whoami`), e.g. `develop-qzapp/architect-cto-01/docs/dial-admission-gate`, so every branch traces to its session by host and agent. Older branches carry the clone directory in that segment (`develop-qzapp/InterWeave/…`); the forwarded `tools/gh` scripts read both.
+- Branch name `<hostname -s>/<login>/<type>/<short-desc>`, the login being the agent (`fabric-whoami`), e.g. `develop-qzapp/architect-cto-01/docs/dial-admission-gate`, so every branch traces to its session by host and agent. Older branches carry the clone directory in that segment (`develop-qzapp/InterWeave/…`); `fabric-pr` reads both.
 - **Check where you are BEFORE the first commit of a new task**, not after a push is rejected. The default state at the start of a task is standing on the *previous* task's branch, which by then is pushed, queued, or merged — and every one of those failure modes is silent.
 - Scan for the work before doing the work: `git fetch` and read `origin/main` for the same change already landed or in flight. Adopt or coordinate instead of racing.
-- **Check what EVERY open PR touches before choosing this task — other sessions' as well as your own.** `tools/gh/pr-sessions.sh /all /OPEN` lists them; `gh pr view <n> --json files` says what each one holds. Steps 2 and 3 below do not answer this: step 2 asks only about the branch you are standing on, and step 3 sees `origin/main`, where work sitting in an unmerged PR by definition is not. Partition by FILE SET, not by intent: two open PRs touching the same file will conflict, and the second to land pays for it with an unplanned rebase and a re-review of a tree neither review saw. A refactor of a file is a hard exclusion — nothing else may touch that file until it lands. And a task that depends on another being **merged** waits for the merge, not for it to be written; building on an unmerged branch means duplicating its commits or standing on a base nobody reviewed. Whose PR it is changes the RESPONSE, never the check: around your own you re-plan freely, around another session's you partition or coordinate — never push to its branch, rebase it, or answer its reviews. These are start-of-task decisions, which is why they are here and not in the lifecycle skill.
+- **Check what EVERY open PR touches before choosing this task — other sessions' as well as your own.** `fabric-pr sessions /all /OPEN` lists them; `gh pr view <n> --json files` says what each one holds. Steps 2 and 3 below do not answer this: step 2 asks only about the branch you are standing on, and step 3 sees `origin/main`, where work sitting in an unmerged PR by definition is not. Partition by FILE SET, not by intent: two open PRs touching the same file will conflict, and the second to land pays for it with an unplanned rebase and a re-review of a tree neither review saw. A refactor of a file is a hard exclusion — nothing else may touch that file until it lands. And a task that depends on another being **merged** waits for the merge, not for it to be written; building on an unmerged branch means duplicating its commits or standing on a base nobody reviewed. Whose PR it is changes the RESPONSE, never the check: around your own you re-plan freely, around another session's you partition or coordinate — never push to its branch, rebase it, or answer its reviews. These are start-of-task decisions, which is why they are here and not in the lifecycle skill.
 
 ```
 1. git rev-parse --abbrev-ref HEAD            # where am I?
@@ -836,13 +837,13 @@ authorisation below): the repository path and the exact `base..head`,
 briefed with `fabric-review brief` — facts, no session context — as
 `subagent_type: "code-review"`, `model: "fable"`, a description beginning
 `review`, no `isolation`. Post each finding to the PR, fix, reply and
-resolve there; post the review itself with `tools/gh/post-review.sh <n>`
+resolve there; post the review itself with `fabric-pr post-review <n>`
 (a clean review is posted too — it is the coverage). A review covers only
 the head it targets, so a fix range is re-reviewed (`re-review`, the
 previous report as its findings file) before the arm. Then
 
 ```
-tools/gh/pr-review-status.sh <n>
+fabric-pr review-status <n>
 ```
 
 reports it on the `blind reviews` line against the current head; arm when
@@ -859,12 +860,12 @@ still yours to read: the row's commit is this branch's head
 (`git rev-parse --short HEAD`) — a review of an earlier head covers
 nothing pushed since.
 
-**Arm with `tools/gh/arm.sh <n> --basis "<one line>"`, never by hand.**
+**Arm with `fabric-pr arm <n> --basis "<one line>"`, never by hand.**
 It applies the gates above before `gh pr merge --auto`: the PR is open,
 not a draft and this session's; no `AWAITING-SUPPLY` lacks its range
 line; a security-boundary change has the review class's review of the current
 head and no unresolved thread; and under eight work commits
-(`tools/gh/pr-gate.sh` counts them) — boundary or not — only on the
+(`fabric-pr gate` counts them) — boundary or not — only on the
 owner's word, the phrase `owner's word` in the basis (agent-fabric #99,
 2026-10-06; before it the tool asked the phrase on every boundary PR).
 It posts the basis as a comment and prints
@@ -880,13 +881,13 @@ review and threads — and is taken only with `--waiver
 <message-id|seq>`, never alone (the owner's ruling of 2026-10-04,
 agent-fabric #92). The waiver is architect-cto's — the holder of
 `arm.json`'s `waiver_role` — a DECISION or REPLY addressed to this
-session and carrying the line `WAIVES: gzapi-org/InterWeave#<n>@<head
-sha>` for this PR's CURRENT head; `arm.sh` reads it from the relay and
+session and carrying the line `WAIVES: BlueTeam-OU/InterWeave#<n>@<head
+sha>` (`fabric-pr arm` compares it with the repository GH_REPO or, unset, `origin` names, so a clone re-pointed as above waives only with BlueTeam-OU) for this PR's CURRENT head; `fabric-pr arm` reads it from the relay and
 checks the sender, the role it holds, the PR and the head, and records
 who waived it and why in the arming comment. Ask architect-cto with the
 PR, the head and the reason — for a path that matched by a word alone
 and is not on the list — and never waive on your own reading or on the
-owner's word alone. `tools/gh/arm.sh --help` has every refusal.
+owner's word alone. `fabric-pr arm --help` has every refusal.
 
 **There is no automated reviewer to summon.** The one this repository once
 asked for by comment is retired (agent-fabric ADR-020, the review class
@@ -953,8 +954,8 @@ and only here:
   let `Address review feedback` through — a WRITING dispatch that would
   then have run unisolated in the session clone.
 - **The review goes ON THE PR, not into the transcript.** Post it with
-  `tools/gh/post-review.sh <n>`, body on stdin — a review object at the
-  head, marked so `pr-review-status.sh` counts it. The agent's report is
+  `fabric-pr post-review <n>`, body on stdin — a review object at the
+  head, marked so `fabric-pr review-status` counts it. The agent's report is
   not the deliverable — post the findings to the pull request, fix them,
   and answer there. A finding that lives only in a session is a finding
   nobody can audit.
@@ -995,22 +996,23 @@ trade by a wide margin.
 
 #### agent-fabric beside the checkout
 
-The review tools, the dispatch hook and the status line are
-agent-fabric's, reached as a SIBLING checkout of the clone (from a git
-worktree too: `tools/gh/fabric-root.sh` finds it beside the clone the
-worktree shares its `.git` with):
-`tools/gh/pr-review-status.sh`,
-`tools/gh/post-review.sh`, `tools/gh/pr-reply.sh`,
-`tools/gh/pr-sessions.sh`, `tools/gh/pr-gate.sh` and `tools/gh/arm.sh`
-forward to `../agent-fabric/bin/fabric-pr <verb>`,
-and the `PreToolUse` Agent hook in `.claude/settings.json` runs
+The review and PR tools are `fabric-pr <verb>` — `review-status`,
+`post-review`, `reply`, `sessions`, `gate`, `arm`, `wait-merged` — from
+the account's PATH, a link into its `agent-fabric/bin` (the
+`tools/gh/<name>.sh` forwarders that once stood for them are gone; a
+worktree needs nothing of its own for them). The dispatch hook, the
+status line and the remaining forwarders are agent-fabric's, reached as
+a SIBLING checkout of the clone (from a git worktree too:
+`tools/gh/fabric-root.sh` finds it beside the clone the worktree shares
+its `.git` with):
+the `PreToolUse` Agent hook in `.claude/settings.json` runs
 `../agent-fabric/runtime/claude-code/hooks/agent-dispatch-guard.sh`
 (`AGENT_FABRIC_ROOT` overrides the sibling path for the forwarders only
 — the fabric's session-start hook puts it in the session shell; the
 `.claude/settings.json` hooks take the sibling path literally and have
 no override); the `statusLine` entry runs
 `../agent-fabric/runtime/claude-code/hooks/statusline.sh` the same way,
-with no override. Without that checkout the forwarders exit 2 naming the
+with no override. Without that checkout the remaining forwarders exit 2 naming the
 path they looked in and the three guard hooks (dispatch, clone, model
 switch) ASK on every call instead of deciding — loud, by design — while
 the status line renders nothing and the `[ -f … ] && …; true` hooks
@@ -1018,9 +1020,9 @@ the status line renders nothing and the `[ -f … ] && …; true` hooks
 note) run nothing, quietly — the inbox entry still prints its "start the
 watch" line, for a watch that has no script to run. A session in such a
 clone has no fabric context and no inbox; the empty status line and that
-orphaned instruction are the two visible signs. `actions-health.sh` and
-`wait-merged.sh` (to `fabric-pr wait-merged`) forward too. So do five
-tools/checks scripts: `run_suite.sh`, `scan_semantic_collisions.sh`,
+orphaned instruction are the two visible signs. `actions-health.sh` (a
+forwarder) and `fabric-root.sh` (the locator it sources) stay in
+`tools/gh`, and five tools/checks scripts forward: `run_suite.sh`, `scan_semantic_collisions.sh`,
 `check_guards_are_wired.sh` and `check_workflows_lint.sh` to their
 `tools/fabric/github` modules with InterWeave's root and configuration,
 and `check_actions_pinned_by_sha.sh` to the fabric's
@@ -1113,7 +1115,7 @@ Task-scoped context loads on demand. Do not paste it back into this file.
 - **Writing a new ADR, amending one, or propagating an ADR change** → the `adr-authoring` skill, with `architecture/adr/ADR-TEMPLATE.md` as the structure and ADR-0048 as the model.
 - **Why an ADR changed** → `architecture/adr/history/`. Research only; the body already says what the decision is today.
 - **Committing, pushing, opening a PR, arming a merge, answering findings, or dispatching a subagent** → the `pr-lifecycle` skill. §9 keeps only what you need before that skill applies: where a branch comes from, that nothing prompts before code lands, and the security-boundary review gate.
-- **What a `tools/gh/` script does, its flags and exit codes** → `tools/gh/<script>.sh --help`. Each ships its own, and a table written elsewhere goes stale while the script does not.
+- **What a PR tool does, its flags and exit codes** → `fabric-pr <verb> --help`; a remaining `tools/gh/` script, `tools/gh/<script>.sh --help`. Each ships its own, and a table written elsewhere goes stale while the script does not.
 - **The construction order and what may be built next** → `architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md` and ADR-0046 (§1, §3).
 
 ## 11. Working principle

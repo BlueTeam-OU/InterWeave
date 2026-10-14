@@ -27,4 +27,4 @@ CI still invokes those scripts by name, and that is not duplication. `tools/chec
 
 `cargo xtask checks` is kept in step with the directory by a test, not by discipline: `every_tree_check_is_run` reads `tools/checks/` from disk and fails when a guard exists that the local run would skip.
 
-Self-tests run through `tools/checks/run_suite.sh`, here and in CI's self-test loop alike: run bare, a suite whose assertion calls an undefined helper prints "command not found" and passes. To run one suite by hand, `bash tools/checks/run_suite.sh tools/gh/test_arm.sh`. The runner is not a guard, so `every_tree_check_is_run` does not ask `checks` to run it; `self_tests_are_discovered` pins that every suite goes through it.
+Self-tests run through `tools/checks/run_suite.sh`, here and in CI's self-test loop alike: run bare, a suite whose assertion calls an undefined helper prints "command not found" and passes. To run one suite by hand, `bash tools/checks/run_suite.sh tools/gh/test_actions-health.sh`. The runner is not a guard, so `every_tree_check_is_run` does not ask `checks` to run it; `self_tests_are_discovered` pins that every suite goes through it.

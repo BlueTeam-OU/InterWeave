@@ -33,6 +33,14 @@
 #      cannot meet while it depends on human-store; architect-cto ruled
 #      for decision (2) and is amending P1's text to match on a branch
 #      of its own, folded beside this rule (relay 01a10614, 2026-10-04).
+#   6. apps/human-android, the release library, reaches no test-only
+#      crate (interweave-android-e2e-cases): the instrumentation builds
+#      that crate into the androidTest APK only, and the release APK's
+#      graph names it nowhere (architect-cto's DECISION 01a12770, plan
+#      §20 gate (c)). This is the Rust half; the test-only JNI entry
+#      (org.interweave.human.test.E2eCase) is a Java class this walk
+#      cannot see, checked on the APK once the instrumentation build
+#      exists.
 # check_ipc_layering.sh is the precedent; this is its shape, wider.
 #
 # WHAT IS FOLLOWED: the normal and build dependencies cargo resolves with
@@ -82,7 +90,7 @@ meta="$(cargo metadata --format-version 1 --locked --all-features 2>"$err")" || 
 }
 
 read -r -d '' walk <<'PYEOF'
-import os, sys
+import os, subprocess, sys
 
 me = "check_human_layering"
 
@@ -190,6 +198,30 @@ GUARDED = [
     ("crates/human/app-core", headless_free),
 ]
 APP_CORE = "crates/human/app-core"
+HUMAN_ANDROID = "apps/human-android"
+TEST_ONLY = {"interweave-android-e2e-cases"}
+
+def release_free(pkg):
+    if pkg["name"] in TEST_ONLY:
+        return "a test-only crate (the androidTest APK's, never the release one)"
+    return None
+
+
+def release_build(name):
+    """The crate names a build of `name` itself compiles, as cargo resolves
+    its features for that package alone (cargo tree -p, every target,
+    normal and build edges). The all-features graph the other rules walk
+    cannot answer this: there an optional test dependency another crate
+    turns on (android-platform's e2e-cases, which tests/android-e2e enables)
+    looks linked into the release library when it is not."""
+    out = subprocess.run(
+        ["cargo", "tree", "-p", name, "-e", "normal,build", "--target", "all",
+         "--locked", "--prefix", "none", "-f", "{p}"],
+        capture_output=True, text=True, timeout=600)
+    if out.returncode != 0:
+        print(f"{me}: cargo tree -p {name} failed:\n{out.stderr.strip()}", file=sys.stderr)
+        sys.exit(2)
+    return {line.split()[0] for line in out.stdout.splitlines() if line.strip()}
 
 
 def main():
@@ -228,12 +260,29 @@ def main():
             if is_slint(packages[dep]["name"]):
                 print(f"FAIL: {d} declares {packages[dep]['name']} itself — only {UI_SLINT} may; an app reaches Slint through it")
                 bad += 1
+    # Rule 6: the release library's own build reaches no test-only crate.
+    start = member_at.get(HUMAN_ANDROID)
+    if start is not None:
+        unknown = TEST_ONLY - {p["name"] for p in packages.values()}
+        if unknown:
+            print(f"{me}: no package named {', '.join(sorted(unknown))} — renamed? rule 6 would check nothing", file=sys.stderr)
+            sys.exit(2)
+        built = release_build(packages[start]["name"])
+        if built & TEST_ONLY:
+            # It is in the build: name the path through the graph.
+            n, found = walk(start, release_free)
+            if not found:
+                print(f"FAIL: {HUMAN_ANDROID}'s build compiles {', '.join(sorted(built & TEST_ONLY))}")
+                bad += 1
+        else:
+            print(f"{me}: {HUMAN_ANDROID} reaches no test-only crate ({len(built)} crates in its own build)")
     if bad:
         print()
         print("The human application layers: core, chat-protocol, store, transport-client,")
         print("ui-model and client-api know no transport runtime, no libp2p and no Slint;")
         print("ui-model and client-api hold no storage; app-core runs on no tokio and")
-        print("declares no rusqlite; Slint is ui-slint's alone, and an app composes ui-slint.")
+        print("declares no rusqlite; Slint is ui-slint's alone, and an app composes ui-slint;")
+        print("the release Android library reaches no test-only crate.")
         sys.exit(1)
 
 # Exit 1 means a breach and nothing else: an error the load or the walk did

@@ -68,7 +68,7 @@ fn client(node: &FakeNode, endpoint: EndpointId, store: HumanStore) -> Client {
         store,
         ClientConfig {
             client_kind: "human-client".to_owned(),
-            endpoint: Some(endpoint),
+            endpoints: vec![endpoint],
             channels: vec![room()],
             max_payload_bytes: LIMIT,
         },
@@ -595,6 +595,127 @@ async fn an_endpoint_in_use_is_refused_and_not_retried_until_the_person_asks() {
     ready(&mut receiver, 60_001).await;
 }
 
+fn spare() -> EndpointId {
+    // Sorts before `human`, so a preference order lost to sorting shows.
+    EndpointId::parse("backup").expect("valid")
+}
+
+/// A node with a second endpoint this client may lease, and a client
+/// preferring `human` then `spare`.
+fn two_endpoints() -> (FakeNode, Client) {
+    let mut config = node_config();
+    config.endpoints.push(FakeEndpoint::open(spare(), false));
+    let (_a, b) = FakeNetwork::pair(node_config(), config);
+    let client = TransportClient::new(
+        b.clone(),
+        b.clone(),
+        memory(),
+        ClientConfig {
+            client_kind: "human-client".to_owned(),
+            endpoints: vec![human(), spare()],
+            channels: vec![room()],
+            max_payload_bytes: LIMIT,
+        },
+        wall(),
+        0,
+    )
+    .expect("pending rows read");
+    (b, client)
+}
+
+async fn set_enabled(node: &FakeNode, endpoint: EndpointId, enabled: bool) {
+    node.admin(BTreeSet::from([AdminCapability::Endpoints]))
+        .await
+        .expect("admin")
+        .set_endpoint_enabled(endpoint, enabled)
+        .await
+        .expect("set");
+}
+
+/// What the runtime says is enabled decides, never the configuration: an
+/// endpoint an administrator disabled is passed over for the next one
+/// the client may lease, and what a send names follows the lease.
+#[tokio::test]
+async fn an_open_passes_a_disabled_endpoint_for_the_next() {
+    let (node, mut c) = two_endpoints();
+    assert_eq!(c.endpoint(), Some(&human()), "before any lease: the first");
+    set_enabled(&node, human(), false).await;
+    c.tick(0).await;
+    assert_eq!(
+        c.session_state(),
+        &SessionState::Ready {
+            endpoint: Some(spare())
+        }
+    );
+    assert_eq!(c.endpoint(), Some(&spare()), "a send names the lease");
+}
+
+#[tokio::test]
+async fn every_endpoint_disabled_is_refused() {
+    let (node, mut c) = two_endpoints();
+    set_enabled(&node, human(), false).await;
+    set_enabled(&node, spare(), false).await;
+    c.tick(0).await;
+    assert_eq!(
+        c.session_state(),
+        &SessionState::Refused {
+            problem: SessionProblem::NotAvailableToThisClient
+        }
+    );
+    set_enabled(&node, human(), true).await;
+    c.reopen(1);
+    c.tick(1).await;
+    assert_eq!(
+        c.session_state(),
+        &SessionState::Ready {
+            endpoint: Some(human())
+        },
+        "re-enabled, the first is preferred again"
+    );
+}
+
+/// The walk moves on for a disabled endpoint only: one another window
+/// holds is this client's own, busy, and taking the next would split one
+/// person's conversations across two endpoints.
+#[tokio::test]
+async fn an_endpoint_in_use_stops_the_walk() {
+    let (node, mut c) = two_endpoints();
+    let _holder = raw(&node, Some(human())).await;
+    c.tick(0).await;
+    assert_eq!(
+        c.session_state(),
+        &SessionState::Refused {
+            problem: SessionProblem::EndpointInUse
+        }
+    );
+}
+
+/// Disabling the leased endpoint revokes the lease (`LOCAL-CLIENT.md`);
+/// the re-open leases the next.
+#[tokio::test]
+async fn a_disable_while_leased_moves_the_next_open() {
+    let (node, mut c) = two_endpoints();
+    c.tick(0).await;
+    assert_eq!(
+        c.session_state(),
+        &SessionState::Ready {
+            endpoint: Some(human())
+        }
+    );
+    set_enabled(&node, human(), false).await;
+    c.drain(16, 10).await;
+    let SessionState::Reconnecting { next_at, .. } = c.session_state().clone() else {
+        panic!("reconnecting: {:?}", c.session_state());
+    };
+    c.tick(next_at).await;
+    assert_eq!(
+        c.session_state(),
+        &SessionState::Ready {
+            endpoint: Some(spare())
+        }
+    );
+}
+
 #[tokio::test]
 async fn a_revoked_lease_is_reclaimed() {
     let (_a, b) = FakeNetwork::pair(node_config(), node_config());
@@ -727,7 +848,7 @@ async fn a_send_this_client_cannot_make_is_refused_with_no_row() {
         memory(),
         ClientConfig {
             client_kind: "human-client".to_owned(),
-            endpoint: None,
+            endpoints: Vec::new(),
             channels: vec![room()],
             max_payload_bytes: LIMIT,
         },
@@ -781,7 +902,7 @@ async fn a_restarted_row_the_config_no_longer_allows_needs_attention_and_keeps_t
         HumanStore::open(&path, StoreOptions::default()).expect("reopen"),
         ClientConfig {
             client_kind: "human-client".to_owned(),
-            endpoint: Some(human()),
+            endpoints: vec![human()],
             channels: vec![],
             max_payload_bytes: LIMIT,
         },
@@ -1462,7 +1583,7 @@ fn trusting(node: &FakeNode) -> (TransportClient<FakeNode, Recording>, Recording
         memory(),
         ClientConfig {
             client_kind: "human-client".to_owned(),
-            endpoint: Some(human()),
+            endpoints: vec![human()],
             channels: Vec::new(),
             max_payload_bytes: LIMIT,
         },
@@ -1698,7 +1819,7 @@ async fn a_trust_failure_says_whether_the_change_was_made() {
             memory(),
             ClientConfig {
                 client_kind: "human-client".to_owned(),
-                endpoint: Some(human()),
+                endpoints: vec![human()],
                 channels: Vec::new(),
                 max_payload_bytes: LIMIT,
             },
@@ -1739,7 +1860,7 @@ async fn a_daemon_without_trusts_version_reads_as_incompatible() {
         memory(),
         ClientConfig {
             client_kind: "human-client".to_owned(),
-            endpoint: Some(human()),
+            endpoints: vec![human()],
             channels: Vec::new(),
             max_payload_bytes: LIMIT,
         },

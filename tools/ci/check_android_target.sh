@@ -52,7 +52,8 @@ me="check_android_target"
 die() { echo "$me: $*" >&2; exit 2; }
 
 ANDROID_CHECK_PACKAGES=(interweave-profile-config interweave-transport-embedded
-                        interweave-human-android-platform interweave-human-android)
+                        interweave-human-android-platform interweave-human-android
+                        interweave-android-e2e-cases)
 ANDROID_CHECK_FEATURES=(interweave-human-android-platform/dev-stand-ins)
 
 [[ -r "$PINS" ]] || die "cannot read the pins file $PINS"

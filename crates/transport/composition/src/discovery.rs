@@ -669,6 +669,73 @@ mod tests {
         );
     }
 
+    /// No restart storm (plan section 21 S6): for two hours the only
+    /// routing seat flaps every second and every bootstrap query fails,
+    /// yet bootstraps start at most once per `bootstrap_min_interval`
+    /// (five minutes by default) -- the re-arm on every refill is paced
+    /// by the provider, not by how often the trigger fires. A failure
+    /// re-arms nothing; it only gives the query's budget back, so the
+    /// next paced bootstrap is not refused for want of a permit. The
+    /// control: they keep coming, about once an interval, so the bound
+    /// is not met by never trying again.
+    #[test]
+    fn a_flapping_seat_and_failing_bootstraps_start_no_more_than_one_per_interval() {
+        use interweave_kademlia_control_api::QueryFailure;
+
+        const MIN_INTERVAL_MS: u64 = 5 * 60 * 1_000;
+        const RUN_MS: u64 = 2 * 60 * 60 * 1_000;
+        let (mut d, seed) = discovery("[]");
+        let event = |e| SwarmEvent::Kademlia { event: e };
+        let mut started: Vec<u64> = Vec::new();
+        let mut seated = false;
+        let mut now = 1_000;
+        while now <= RUN_MS {
+            seated = !seated;
+            let flap = if seated {
+                KademliaEvent::RoutingPeerAdded { peer: seed.clone() }
+            } else {
+                KademliaEvent::RoutingPeerRemoved { peer: seed.clone() }
+            };
+            assert!(d.on_swarm_event(&event(flap), now));
+            for command in d.kademlia_commands(now) {
+                if let KademliaCommand::StartQuery {
+                    handle,
+                    class: QueryClass::Bootstrap,
+                    ..
+                } = command
+                {
+                    started.push(now);
+                    assert!(d.on_swarm_event(
+                        &event(KademliaEvent::QueryFailed {
+                            handle,
+                            class: QueryClass::Bootstrap,
+                            reason: QueryFailure::TimedOut,
+                        }),
+                        now
+                    ));
+                }
+            }
+            now += 1_000;
+        }
+        for pair in started.windows(2) {
+            assert!(
+                pair[1] - pair[0] >= MIN_INTERVAL_MS,
+                "two bootstraps {} ms apart: {started:?}",
+                pair[1] - pair[0]
+            );
+        }
+        let most = usize::try_from(RUN_MS / MIN_INTERVAL_MS).expect("small") + 1;
+        assert!(
+            started.len() <= most,
+            "{} bootstraps in two hours",
+            started.len()
+        );
+        assert!(
+            started.len() >= most - 2,
+            "bootstraps kept coming about once an interval: {started:?}"
+        );
+    }
+
     #[test]
     fn a_non_empty_routing_table_is_bootstrapped_and_an_empty_one_is_not() {
         let (mut d, seed) = discovery("[]");

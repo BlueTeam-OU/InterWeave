@@ -5,13 +5,14 @@ topic: "embedded-host-seam"
 description: "the agreed seam between p2p-network-dev's embedded runtime (§20 step 1) and my Android Service, the human store and the audit sink"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-12"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 337816f4ed17ca5b
   - ea03efc59bfe4fdb
 ---
 
@@ -27,7 +28,7 @@ The crate is `crates/transport/embedded` (interweave-transport-embedded). It hol
 - `runtime()` returns the tokio Handle that drives the facade's futures. app-core has no tokio.
 - `wait_shutdown_requested()` blocks. admin.shutdown uses it to ask the Service to stop.
 - `stop(grace)` returns a u64: the neutral events dropped over the runtime's life. It is a diagnostic only.
-- `EmbeddedRefused` is closed, not non_exhaustive: LockHeld, NotEmbedded, ProfileInvalid, DirectoryRefused, IdentityRejected, Internal. Each has a log-only detail string, and the UI shows the variant through a stable key.
+- `EmbeddedRefused` is closed, not non_exhaustive: LockHeld, NotEmbedded, ProfileInvalid, DirectoryRefused, IdentityRejected, Internal, and a seventh, NetworkDenied(String), on gzapi-org/InterWeave#257 (head 3f4f52e9, in review 2026-10-10): start answers it when a listener's socket/bind/listen gets PermissionDenied (ungranted Android INTERNET, or a port below 1024; the Service checks the permission to tell them apart); verify on main before relying on it. Each has a log-only detail string, and the UI shows the variant through a stable key.
 - A second start() in one process is refused with LockHeld (flock is per open file description). So the Service keeps ONE process-wide handle and finds it again after a START_STICKY restart.
 - Process death releases the lock.
 
@@ -47,6 +48,24 @@ Landed on #241's branch, 2026-10-09 (relay 01a12046):
 - The Service opens the store with `HumanStore::open_profile(host.paths(), ..)`. `EmbeddedHost::paths()` is the host's own ProfilePaths, so the two cannot drift.
 - Also available: `EmbeddedHost::listening()`, `log_level()`, and `interweave_transport_embedded::log_admits(target, level, profile)`, the logcat writer's filter (d4c4f9d2, 0e4b22a9).
 - `HumanStore::open(path)` stays public: it fails closed on Android, and p2p-network-dev-01 ruled the change not worth it.
+
+**§20 steps 2-4 split (2026-10-10, their REPLY 01a12498-d1dd, mine 01a12499-54b8):**
+- The cdylib with the JNI entry points is MINE, in apps/human-android. It composes EmbeddedHost, the store, app-core and ui-slint.
+- p2p-network-dev-01 owns crates/transport/embedded and the runtime crates' aarch64 build, and supplies the cargo-ndk invocation my Gradle calls.
+- Step 6 (Keystore/IWK1) goes to p2p-network-dev-02.
+- stop grace: the Service's choice, 1 s. The trust overlay is written at set_trust, never during stop.
+- Process death: I prove the Service returns and starts a fresh host. They prove what the runtime rebuilds.
+- Open asks to them: (A) a wait that also returns when the runtime ends on its own; (B) who provisions config.yaml on first run.
+- A and B are both taken by p2p-network-dev-01 in their j53, branched after #250 (01a12499-ee78).
+  - A: `wait_shutdown_requested() -> Ended { ShutdownRequested(ShutdownRequest), RuntimeEnded }`. After RuntimeEnded the Service still calls stop(), then may start a fresh host. The notification must not claim reachability once the runtime has ended.
+  - B: `profile_config::provision_embedded(&ProfilePaths) -> Result<(), PersistError>`. It writes the human-android.yaml shape and refuses if config.yaml exists. The profile has no trust entries, relays or identity.
+  - Until those land, I build steps 2-4 on a provisioned test profile. They send the signatures as built.
+- Step 6/7 custody (p2p-network-dev-02, 61941264 on feat/android-keystore-custody; not on main):
+  - The SeedCipher trait is Send + Sync; seal makes a new key; the Java plaintext buffer is zeroed by the adapter.
+  - restore(paths, cipher, &RecoveryPhrase, &expected TransportIdentity, policy). RecoveryPhrase::parse; the phrase is redacted. recorded_identity(paths) gives the expected PeerId.
+  - Refusals: OtherIdentity, RecordNamesOther, Unreadable.
+  - CipherFailure::Unavailable(String) means "try again".
+  - My adapter (j53) waits for their trait and my #255 on main.
 
 *References: stage17-spikes-merged, store-ancestor-rule-pr226*
 

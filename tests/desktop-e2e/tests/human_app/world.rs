@@ -195,7 +195,7 @@ impl Peer {
             store,
             ClientConfig {
                 client_kind: "human-client".to_owned(),
-                endpoint: Some(human()),
+                endpoints: vec![human()],
                 channels: Vec::new(),
                 max_payload_bytes: MAX_PAYLOAD_BYTES,
             },

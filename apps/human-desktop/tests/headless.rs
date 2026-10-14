@@ -47,7 +47,7 @@ fn facade(node: FakeNode) -> FacadeSide<FakeNode, FakeNode> {
         HumanStore::open_in_memory(StoreOptions::default()).expect("store"),
         ClientConfig {
             client_kind: "human-client".to_owned(),
-            endpoint: Some(human()),
+            endpoints: vec![human()],
             channels: vec![],
             max_payload_bytes: 49_152,
         },
@@ -55,7 +55,7 @@ fn facade(node: FakeNode) -> FacadeSide<FakeNode, FakeNode> {
         0,
     )
     .expect("facade");
-    FacadeSide::new(client, Some(human()), || 1_786_600_000_000)
+    FacadeSide::new(client, || 1_786_600_000_000)
 }
 
 struct NoLinks;
@@ -181,7 +181,7 @@ fn over_the_real_binding_with_no_daemon_the_window_says_so() {
     };
     let paths = ProfilePaths::resolve("desk", &roots).expect("paths");
     let profile = Profile {
-        endpoint: human(),
+        endpoints: vec![human()],
         channels: vec![],
         data_socket: paths.data_socket().expect("data socket"),
         admin_socket: paths.admin_socket().expect("admin socket"),
