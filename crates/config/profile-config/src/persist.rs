@@ -1336,8 +1336,10 @@ impl NameService for HostNames {
 /// `euid`, the account this process runs as -- never the directory's
 /// owner, or a root-owned directory in group `root` would pass while
 /// accounts with primary gid 0 exist -- that is, its name is that
-/// account's user name and it lists no member, as the name service
-/// answers both; and when the directory or file carries no POSIX access
+/// account's user name and its member list names no account other than
+/// that one -- empty, or that account's own name, which bionic answers
+/// for every group (A 2026-10-15) -- as the name service answers both;
+/// and when the directory or file carries no POSIX access
 /// ACL (`acl`), since with one its group bits are the ACL's mask, not
 /// the group's grant. The user-private group scheme gives such accounts
 /// umask `002`, so their own directories and files are `0775` and
@@ -1567,7 +1569,9 @@ fn owners_private_group_within(
             )));
         }
     };
-    if group == user && members.is_empty() {
+    // The member list shows OTHER accounts; the owner listed in its own
+    // private group admits nobody (ADR-0028 A 2026-10-15).
+    if group == user && members.iter().all(|member| *member == user) {
         return Ok(());
     }
     Err(format!(
@@ -1952,8 +1956,10 @@ mod tests {
     /// ADR-0028 A 2026-10-08, "a group of one is the owner's own" (#231),
     /// on staged entries: a group-writable ancestor passes when its
     /// group's name is that of the account this process runs as, it lists
-    /// no member, and the directory carries no access ACL. A shared group,
-    /// a gid equal to the uid under another name, a group with a member, a
+    /// no member but that account (A 2026-10-15: none, or the account
+    /// itself, as bionic answers), and the directory carries no access
+    /// ACL. A shared group, a gid equal to the uid under another name, a
+    /// group listing another account, beside ours or alone, a
     /// root-owned directory in group `root` (named after its OWNER, not
     /// ours), an access ACL, a missing entry and a failed read -- of the
     /// names or of the ACL -- are each refused; other-write is refused
@@ -1971,6 +1977,8 @@ mod tests {
                 (100, "users", vec![]),
                 (1000, "staff", vec![]),
                 (1002, "alice", vec!["bob"]),
+                (1003, "alice", vec!["alice"]),
+                (1004, "alice", vec!["alice", "bob"]),
             ],
             fails: false,
             group_fails: false,
@@ -1979,6 +1987,7 @@ mod tests {
             judge_ancestor_with(path, Ok((1000, gid, mode)), 1000, names, || Ok(false))
         };
         judge(1001, 0o40775, &names).expect("the owner's private group, gid apart from the uid");
+        judge(1003, 0o40775, &names).expect("the owner's private group listing the owner");
         let refused = |result: Result<(), PersistError>| match result {
             Err(PersistError::DirectoryNotPrivate { path: at, detail }) => {
                 assert_eq!(at, path);
@@ -1992,6 +2001,8 @@ mod tests {
         assert!(same_id.contains("group staff (gid 1000)"), "{same_id}");
         let member = refused(judge(1002, 0o40775, &names));
         assert!(member.contains("group alice (gid 1002)"), "{member}");
+        let beside = refused(judge(1004, 0o40775, &names));
+        assert!(beside.contains("group alice (gid 1004)"), "{beside}");
         let roots = refused(judge_ancestor_with(
             path,
             Ok((0, 0, 0o40775)),
@@ -2526,7 +2537,7 @@ mod tests {
     /// process's user name and its primary group's name, and no entry
     /// for a gid nothing allocates. Then a `0775` directory in our
     /// primary group is judged as `getent` says that group is: accepted
-    /// when its name is ours and it lists no member, refused naming it
+    /// when its name is ours and it lists no member but us, refused naming it
     /// otherwise -- an oracle apart from the code under test.
     #[cfg(target_os = "linux")]
     #[test]
@@ -2571,8 +2582,9 @@ mod tests {
             .next()
             .unwrap_or_default()
             .to_owned();
-        assert_eq!(listed.is_empty(), members.is_empty(), "members: {line}");
-        let private = group == id("-un") && listed.is_empty();
+        let listed: Vec<&str> = listed.split(',').filter(|m| !m.is_empty()).collect();
+        assert_eq!(listed, members, "members: {line}");
+        let private = group == id("-un") && listed.iter().all(|m| *m == id("-un"));
         chmod(&dir, 0o775);
         match resolve_guarded_dir(&dir) {
             Ok(_) => assert!(private, "accepted, so {group} is our private group"),

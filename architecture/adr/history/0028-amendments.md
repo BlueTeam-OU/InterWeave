@@ -551,3 +551,31 @@ Landing with the pull request this note lands in
 normalisation, write path, the 2.5 row and the contract's minor); the
 restart test that is gate (e)'s evidence is named in §20's closing
 record.
+
+### Amendment 2026-10-15 — A group of one may list its owner
+
+**Trigger.** p2p-network-dev-02's observation (GZCoord 01a13d96) from
+rust-ui-dev-01's Pixel 9a run of gate (d): the walk refused the app's
+own `files/` (`0771`, group `u0_a271`, the process `u0_a271`). Bionic's
+`getgrgid_r` (AOSP `libc/bionic/grp_pwd.cpp`, `init_group_state`) sets
+`gr_mem[0] = gr_name` for every group, so no group ever has an empty
+member list there, and the 2026-10-08 predicate refused every
+group-writable directory on Android, the app's own group included.
+
+**Decision.** The member-list test is "names no account other than the
+owner": the list's purpose is to show other accounts, and the owner's
+own name admits nobody. A Linux host's empty list and bionic's
+one-member list both pass; any other name refuses as before; the two
+residuals (a primary gid root grants, a lying name service) are
+unchanged. Consequence on Android: the platform's `0771` app
+directories pass the predicate; the embedded runtime still keeps its
+private directories at `0700` directly under the boundary, for the
+platform's ownership of those directories (it may restore their modes
+and writes its own files there), and gate (d) pins that layout rather
+than a refusal. **Not added:** "on Android every group-writable
+directory is refused" — false under this reading.
+
+**Propagation.** The body sentence and the layout sentence in Security
+implications; this note; the log row; the digest entry; the threat
+row's residual column keeps its text (the boundary, not the group,
+is its subject).
