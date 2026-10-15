@@ -567,8 +567,10 @@ owner": the list's purpose is to show other accounts, and the owner's
 own name admits nobody. A Linux host's empty list and bionic's
 one-member list both pass; any other name refuses as before; the two
 residuals (a primary gid root grants, a lying name service) are
-unchanged. Consequence on Android: the platform's `0771` app
-directories pass the predicate; the embedded runtime still keeps its
+unchanged. Consequence on Android: the app's `0771`
+`files/` passes the predicate (its group is the app's own group of
+one); `cache/` and `code_cache/`, `02771` in the app's cache group,
+are still refused; the embedded runtime still keeps its
 private directories at `0700` directly under the boundary, for the
 platform's ownership of those directories (it may restore their modes
 and writes its own files there), and gate (d) pins that layout rather
