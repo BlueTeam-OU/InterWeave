@@ -1462,7 +1462,7 @@ mod class_tests {
     /// class: `NoAddresses` is the address being this node's own, a
     /// handler's denial is `denied` as it is when it comes back as an
     /// event, and anything else is `dial_failed`. The real-socket case
-    /// is `tests/gate_notes.rs`.
+    /// is `tests/reconnect.rs`.
     #[test]
     fn a_synchronous_refusal_of_an_admitted_dial_is_classed() {
         let own = BackendRefusal::of_admitted_dial_error(&DialError::NoAddresses);
