@@ -198,8 +198,11 @@ impl LastOutcome {
 
     /// The outcome a refused dial is: the gate's own refusals are
     /// `denied`; having no address to dial is not a refusal and records
-    /// nothing; libp2p's refusal of an admitted dial is its class's
-    /// outcome, as the same class arriving as an event would be.
+    /// nothing; a refusal of an admitted dial before a socket opened is
+    /// its class's outcome, as the same class arriving as an event would
+    /// be -- a handler's denial is `denied`, a route that cannot be
+    /// dialled is `dial_failed` whoever refused it (`observability.md`,
+    /// A 2026-10-15).
     #[must_use]
     pub const fn of_refusal(refusal: &DialRefusal) -> Option<Self> {
         match refusal {
