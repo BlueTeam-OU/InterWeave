@@ -131,9 +131,10 @@ pub use outbound_gate::{AdmittedDials, OutboundAdmission};
 pub use preauth_gate::PreAuthAdmission;
 pub use refusals::{DialRefusals, RECENT_CAPACITY, Refusal};
 pub use runtime::{
-    BroadcastChannels, DEFAULT_COMMAND_CAPACITY, DEFAULT_EVENT_CAPACITY, DialFailureClass,
-    DialRefusal, HolePunchOutcome, MAX_CONFIGURED_CAPACITY, NetworkMonitor, NetworkView,
-    PathChange, PeerGate, PeerPath, RelayReservationOutcome, RelayServerOutcome, ShutdownReport,
-    SubstrateConfig, SubstrateError, SwarmCommand, SwarmCommander, SwarmEvent, SwarmRuntime,
+    BackendRefusal, BroadcastChannels, DEFAULT_COMMAND_CAPACITY, DEFAULT_EVENT_CAPACITY,
+    DialFailureClass, DialRefusal, HolePunchOutcome, MAX_CONFIGURED_CAPACITY, NetworkMonitor,
+    NetworkView, PathChange, PeerGate, PeerPath, RelayReservationOutcome, RelayServerOutcome,
+    ShutdownReport, SubstrateConfig, SubstrateError, SwarmCommand, SwarmCommander, SwarmEvent,
+    SwarmRuntime,
 };
 pub use runtime::{DialGateStatus, IngressStatus, PreAuthStatus, ResolverSource, RuntimeStatus};

@@ -9,6 +9,11 @@
 //! - toward an infrastructure-only peer it is refused at the gate, a
 //!   policy refusal though the book holds a route -- a reconnection loop
 //!   does not re-establish infrastructure (§4).
+//! - a route that is this node's own listen address -- two nodes bound
+//!   to one port, which libp2p-tcp's `SO_REUSEPORT` lets a uid do -- is
+//!   refused by the Swarm before any socket, and the refusal is its own
+//!   class, `own_listen_address`, not `dial_failed`; the control is a
+//!   peer on a port of its own, reached by the same call.
 //!
 //! NOT OBSERVED HERE: the origin itself. `DiscoveryReconnect` and
 //! `Manual` are admitted alike today (both name an application
@@ -22,7 +27,9 @@ use std::time::Duration;
 
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::TransportIdentity;
-use interweave_transport_libp2p::{DialRefusal, SubstrateConfig, SwarmEvent, SwarmRuntime};
+use interweave_transport_libp2p::{
+    DialFailureClass, DialRefusal, SubstrateConfig, SwarmEvent, SwarmRuntime,
+};
 use interweave_transport_runtime::TrustSources;
 use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
 
@@ -194,4 +201,96 @@ async fn repeated_reconnects_to_an_unanswering_peer_hold_one_pending_dial() {
     );
 
     runtime.shutdown().await.expect("clean shutdown");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_route_that_is_this_nodes_own_listen_address_is_refused_as_its_own_class() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (subject_id, shared_id, apart_id) = (
+        ProfileIdentity::generate(),
+        ProfileIdentity::generate(),
+        ProfileIdentity::generate(),
+    );
+    let subject_peer = subject_id.transport_identity().expect("peer id");
+    let shared_peer = shared_id.transport_identity().expect("peer id");
+    let apart_peer = apart_id.transport_identity().expect("peer id");
+    let mut subject = SwarmRuntime::start(
+        &subject_id,
+        SubstrateConfig::default(),
+        TrustSources::new(
+            PeerTrustPolicy::new([shared_peer.clone(), apart_peer.clone()]).expect("two peers"),
+            InfrastructureSet::default(),
+        ),
+    )
+    .expect("starts");
+    let shared = SwarmRuntime::start(
+        &shared_id,
+        SubstrateConfig::default(),
+        data_plane(&subject_peer),
+    )
+    .expect("starts");
+    let apart = SwarmRuntime::start(
+        &apart_id,
+        SubstrateConfig::default(),
+        data_plane(&subject_peer),
+    )
+    .expect("starts");
+    let own = subject
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("listens");
+    // THE SAME PORT, as the two daemons of #276's flake held it.
+    assert_eq!(
+        shared.listen(own.clone()).await.expect("binds beside it"),
+        own
+    );
+    let apart_addr = apart
+        .listen(format!("/ip4/{ip}/tcp/0").parse().expect("valid"))
+        .await
+        .expect("listens");
+    for (peer, address) in [(&shared_peer, &own), (&apart_peer, &apart_addr)] {
+        assert_eq!(
+            subject
+                .learn(peer.clone(), [address.to_string()])
+                .await
+                .expect("delivered"),
+            1
+        );
+    }
+
+    // CONTROL: the same call toward a route of its own is admitted and
+    // connects, so what follows is the route and not the call.
+    subject
+        .reconnect(apart_peer.clone())
+        .await
+        .expect("delivered")
+        .expect("admitted");
+    wait_connected(&mut subject, &apart_peer).await;
+
+    let refused = subject
+        .reconnect(shared_peer.clone())
+        .await
+        .expect("delivered")
+        .expect_err("libp2p strips its own listen address and has none left");
+    assert!(
+        matches!(&refused, DialRefusal::Backend(b) if b.class() == DialFailureClass::OwnListenAddress),
+        "{refused:?}"
+    );
+    assert_eq!(
+        DialFailureClass::of_refusal(&refused).label(),
+        "own_listen_address"
+    );
+    // The route left the book with it, so the next round has nothing to
+    // dial -- which is what an operator reads next.
+    assert_eq!(
+        subject
+            .reconnect(shared_peer.clone())
+            .await
+            .expect("delivered"),
+        Err(DialRefusal::NoKnownAddress)
+    );
+
+    for runtime in [subject, shared, apart] {
+        runtime.shutdown().await.expect("clean shutdown");
+    }
 }

@@ -28,7 +28,9 @@ use crate::behaviour::SubstrateBehaviourEvent;
 use crate::gated_swarm::{AdmittedDial, GatedSwarm, UndialableAdmission};
 use crate::outbound_gate::{InFlightTickets, strip_own_suffix, strip_peer_suffix};
 
-use super::messages::{DialRefusal, PathChange, PeerPath, SwarmEvent};
+use super::messages::{
+    BackendRefusal, DialFailureClass, DialRefusal, PathChange, PeerPath, SwarmEvent,
+};
 use super::to_transport_identity;
 
 /// Admit one dial, bind it to its ticket, and hand it to the Swarm.
@@ -79,8 +81,9 @@ pub(super) fn attempt_dial(
     let admitted = match AdmittedDial::from_ticket(ticket) {
         Ok(a) => a,
         Err(boxed) => {
-            return Err(DialRefusal::Backend(settle_undialable(
-                manager, *boxed, now_ms,
+            return Err(DialRefusal::Backend(BackendRefusal::new(
+                DialFailureClass::DialFailed,
+                settle_undialable(manager, *boxed, now_ms),
             )));
         }
     };
@@ -103,7 +106,9 @@ pub(super) fn attempt_dial(
             } else {
                 manager.record_failure(ticket, now_ms);
             }
-            Err(DialRefusal::Backend(e.to_string()))
+            Err(DialRefusal::Backend(
+                BackendRefusal::of_admitted_dial_error(&e),
+            ))
         }
     }
 }
