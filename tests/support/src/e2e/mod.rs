@@ -456,14 +456,9 @@ fn concrete(raw: &str, listen: &str, route: Option<&str>) -> String {
     raw
 }
 
-/// A port nothing listens on at the moment of asking.
-pub fn free_port(ip: std::net::Ipv4Addr) -> u16 {
-    std::net::TcpListener::bind((ip, 0))
-        .expect("a port")
-        .local_addr()
-        .expect("an address")
-        .port()
-}
+/// Where every end-to-end suite takes its listen ports: never the same
+/// one twice in a process.
+pub use crate::net::free_port;
 
 /// `relative` under `architecture/contracts/schemas`, its `urn:`
 /// references resolved against the whole tree.

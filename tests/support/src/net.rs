@@ -2,7 +2,8 @@
 // Copyright 2026 Andrea Benetton
 
 //! The host's private-range address, for tests that need two runtimes
-//! to learn each other's advertised addresses.
+//! to learn each other's advertised addresses, and the ports their
+//! profiles are written to listen on.
 //!
 //! # Why not loopback
 //!
@@ -28,7 +29,9 @@
 //! crate's root states for every harness. The hosted CI runners have a
 //! private address.
 
-use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+use std::collections::BTreeSet;
+use std::net::{IpAddr, Ipv4Addr, TcpListener, UdpSocket};
+use std::sync::{Mutex, PoisonError};
 
 /// This host's private-range (RFC 1918) IPv4 address, or a panic that
 /// says why the test cannot run here.
@@ -59,5 +62,61 @@ fn private_interface_v4() -> Option<Ipv4Addr> {
     match socket.local_addr().ok()?.ip() {
         IpAddr::V4(ip) if ip.is_private() && !ip.is_loopback() => Some(ip),
         _ => None,
+    }
+}
+
+/// Every port [`free_port`] has answered in this process.
+static HANDED_OUT: Mutex<BTreeSet<u16>> = Mutex::new(BTreeSet::new());
+
+/// A port nothing listens on at the moment of asking, and never one this
+/// process was answered before
+/// (`free_port_never_answers_the_same_port_twice`).
+///
+/// NEVER TWICE, because two asked in a row are two profiles' listen
+/// addresses, written before either daemon starts. The kernel may hand a
+/// port just released straight back; libp2p-tcp listens with
+/// `SO_REUSEPORT`, so both daemons then bind it, and each one's route to
+/// the other is its own listen address, which libp2p-swarm strips from a
+/// dial: `NoAddresses`, the route dropped from the book, and no
+/// connection either way (desktop-e2e's `human_app`, PR run 38523588747
+/// of #276; reproduced by giving both daemons one port). A repeat is held
+/// bound while the next port is asked, so the kernel cannot answer it
+/// again.
+///
+/// What this does not close: another process may bind the port between
+/// this answer and the daemon's bind, which fails that daemon's start.
+///
+/// # Panics
+/// When the host will not bind `ip`.
+#[must_use]
+pub fn free_port(ip: Ipv4Addr) -> u16 {
+    let mut handed_out = HANDED_OUT.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut repeats = Vec::new();
+    loop {
+        let listener = TcpListener::bind((ip, 0)).expect("a port");
+        let port = listener.local_addr().expect("an address").port();
+        if handed_out.insert(port) {
+            return port;
+        }
+        repeats.push(listener);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::free_port;
+    use std::collections::BTreeSet;
+    use std::net::Ipv4Addr;
+
+    /// Far more asks than a test process makes, so the kernel's own
+    /// answers repeat many times over (about seventy expected across a
+    /// 28k ephemeral range): each repeat must be refused, not returned.
+    #[test]
+    fn free_port_never_answers_the_same_port_twice() {
+        let mut seen = BTreeSet::new();
+        for _ in 0..2_000 {
+            let port = free_port(Ipv4Addr::LOCALHOST);
+            assert!(seen.insert(port), "port {port} answered twice");
+        }
     }
 }
