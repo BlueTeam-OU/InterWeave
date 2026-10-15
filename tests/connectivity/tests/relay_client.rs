@@ -916,9 +916,10 @@ async fn an_addition_asks_a_backed_off_relay_at_once_and_without_one_it_waits() 
     );
 
     // THE ADDITION: asked at once, and accepted.
-    subject.network_changed(NetworkView {
-        addresses: vec![ip.into(), Ipv4Addr::new(10, 255, 0, 1).into()],
-    });
+    subject.network_changed(NetworkView::new(vec![
+        ip.into(),
+        Ipv4Addr::new(10, 255, 0, 1).into(),
+    ]));
     let _ = subject_event(
         &mut subject,
         &mut relays,
@@ -1020,9 +1021,7 @@ async fn coming_online_after_an_offline_start_asks_the_backed_off_relay_at_once(
     );
 
     // ONLINE: the first fill.
-    subject.network_changed(NetworkView {
-        addresses: vec![ip.into()],
-    });
+    subject.network_changed(NetworkView::new(vec![ip.into()]));
     let (_, _, before) = subject_event(
         &mut subject,
         &mut relays,
@@ -1104,9 +1103,10 @@ async fn an_addition_inside_the_gates_floor_leaves_the_relay_ladder_alone() {
     );
 
     // THE FIRST ADDITION: both floors clear, asked, and it fails again.
-    subject.network_changed(NetworkView {
-        addresses: vec![ip.into(), Ipv4Addr::new(10, 255, 0, 1).into()],
-    });
+    subject.network_changed(NetworkView::new(vec![
+        ip.into(),
+        Ipv4Addr::new(10, 255, 0, 1).into(),
+    ]));
     assert!(
         next_failure(&mut subject, &relay_peer, Duration::from_secs(4)).await,
         "the control: the addition made the relay due and it was asked"
@@ -1114,13 +1114,11 @@ async fn an_addition_inside_the_gates_floor_leaves_the_relay_ladder_alone() {
 
     // THE SECOND, past the ladder's floor and inside the gate's.
     tokio::time::sleep(Duration::from_secs(6)).await;
-    subject.network_changed(NetworkView {
-        addresses: vec![
-            ip.into(),
-            Ipv4Addr::new(10, 255, 0, 1).into(),
-            Ipv4Addr::new(10, 255, 0, 2).into(),
-        ],
-    });
+    subject.network_changed(NetworkView::new(vec![
+        ip.into(),
+        Ipv4Addr::new(10, 255, 0, 1).into(),
+        Ipv4Addr::new(10, 255, 0, 2).into(),
+    ]));
     // THE WINDOW OPENS WHEN THE VIEW IS READ -- its change is the proof --
     // not when it is sent; a failure seen before that counts too. It
     // closes well short of the ladder's own next step (10 s and up after

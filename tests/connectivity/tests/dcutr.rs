@@ -2069,9 +2069,8 @@ async fn a_network_change_lifts_the_cooldown_and_keeps_the_reservation() {
     // -- and it invalidates nothing (section 14 item 1 speaks of REMOVED
     // addresses): the cooldown stands.
     let view_only = std::net::IpAddr::from(Ipv4Addr::new(10, 255, 0, 1));
-    wire.target.network_changed(NetworkView {
-        addresses: vec![ip.into(), view_only],
-    });
+    wire.target
+        .network_changed(NetworkView::new(vec![ip.into(), view_only]));
     let joined = until(&mut wire, "the target to report the addition", |s, e| {
         s == Side::Target && matches!(e, SwarmEvent::NetworkChanged { .. })
     })
@@ -2118,9 +2117,8 @@ async fn a_network_change_lifts_the_cooldown_and_keeps_the_reservation() {
     );
 
     // THE CHANGE: the view drops the private IP, and that is the removal.
-    wire.target.network_changed(NetworkView {
-        addresses: vec![view_only],
-    });
+    wire.target
+        .network_changed(NetworkView::new(vec![view_only]));
     let mut changed = until(&mut wire, "the target to report the change", |s, e| {
         s == Side::Target && matches!(e, SwarmEvent::NetworkChanged { .. })
     })
@@ -2363,9 +2361,10 @@ async fn a_listener_on_an_ip_the_view_removed_is_not_offered() {
     // view replaces one not yet read, and a first view removes nothing it
     // never named. The first names an address the listeners do not, so
     // its reading is an event to wait for, not a timed guess.
-    subject.network_changed(NetworkView {
-        addresses: vec![ip.into(), Ipv4Addr::new(10, 255, 0, 3).into()],
-    });
+    subject.network_changed(NetworkView::new(vec![
+        ip.into(),
+        Ipv4Addr::new(10, 255, 0, 3).into(),
+    ]));
     until_network_changed(&mut subject).await;
     subject.network_changed(NetworkView::default());
     until_network_changed(&mut subject).await;
@@ -2432,17 +2431,15 @@ async fn connect_outcome(ip: Ipv4Addr, departs: Option<Ipv4Addr>) -> Result<(), 
         // the first names the listener's IP and another, the second drops
         // `gone`.
         let named = [ip, OTHER_IP];
-        subject.network_changed(NetworkView {
-            addresses: named.iter().map(|&a| a.into()).collect(),
-        });
+        subject.network_changed(NetworkView::new(named.iter().map(|&a| a.into()).collect()));
         until_network_changed(&mut subject).await;
-        subject.network_changed(NetworkView {
-            addresses: named
+        subject.network_changed(NetworkView::new(
+            named
                 .iter()
                 .filter(|&&a| a != gone)
                 .map(|&a| a.into())
                 .collect(),
-        });
+        ));
         until_network_changed(&mut subject).await;
         drain(&mut subject, Duration::from_secs(2)).await;
     }

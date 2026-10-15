@@ -795,9 +795,7 @@ async fn a_view_reaches_the_substrate_and_an_empty_one_closes_what_ran_from_the_
         .expect("a composes");
     wait_connected(&mut subject, &b).await;
 
-    subject.network_changed(NetworkView {
-        addresses: vec![ip.into()],
-    });
+    subject.network_changed(NetworkView::new(vec![ip.into()]));
     assert!(
         !disconnected_within(&mut subject, &b, Duration::from_secs(2)).await,
         "a view that agrees with the listeners is no change"

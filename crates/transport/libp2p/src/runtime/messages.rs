@@ -352,15 +352,60 @@ pub enum SwarmCommand {
 /// (`human-client-android.md` "network callbacks", §20 step 5): a
 /// SNAPSHOT of every address of every network it reports usable, never
 /// a delta, so a missed or reordered report corrects itself on the
-/// next. Empty means offline. Addresses only: no network id, interface
-/// name or carrier fact: a host-specific concept stops at the bridge,
-/// which hands the runtime normalized local facts (ADR-0001's layering;
-/// `human-client-android.md`). Handed in through
+/// next. Empty addresses mean offline. Local facts only: no network id,
+/// interface name or carrier fact: a host-specific concept stops at the
+/// bridge, which hands the runtime normalized local facts (ADR-0001's
+/// layering; `human-client-android.md`). Handed in through
 /// [`super::NetworkMonitor`].
+///
+/// Beside the addresses, the active network's DNS facts
+/// (`CONNECTIVITY.md` §14, A 2026-10-14), which build the resolver where
+/// the host's own configuration is not read (Android). They stay on the
+/// device: the runtime builds a resolver from them and reports only
+/// which kind it uses ([`super::ResolverSource`]). The address detector
+/// reads `addresses` alone, so a DNS-only change is no network change.
+///
+/// Non-exhaustive, so a field added later breaks no caller: build one
+/// with [`Self::new`] and the setters.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct NetworkView {
     /// Every usable address, in any order; duplicates are one.
     pub addresses: Vec<std::net::IpAddr>,
+    /// The active network's resolvers, by IP, in the platform's order
+    /// (`LinkProperties.getDnsServers`). Empty means UNKNOWN, not "no
+    /// DNS": the resolver in use is kept.
+    pub dns_servers: Vec<std::net::IpAddr>,
+    /// The Private DNS host name when the platform's Private DNS is in
+    /// strict mode, else `None`. Set, it fails name resolution closed:
+    /// this build has no DNS-over-TLS, and plain DNS is what the user's
+    /// setting refuses (architect-cto's ruling, `GZCoord` 01a13bb7).
+    pub private_dns: Option<String>,
+}
+
+impl NetworkView {
+    /// A view of these addresses, with no DNS facts (unknown).
+    #[must_use]
+    pub fn new(addresses: Vec<std::net::IpAddr>) -> Self {
+        Self {
+            addresses,
+            ..Self::default()
+        }
+    }
+
+    /// The active network's resolvers.
+    #[must_use]
+    pub fn with_dns_servers(mut self, dns_servers: Vec<std::net::IpAddr>) -> Self {
+        self.dns_servers = dns_servers;
+        self
+    }
+
+    /// The strict-mode Private DNS host name, or `None`.
+    #[must_use]
+    pub fn with_private_dns(mut self, private_dns: Option<String>) -> Self {
+        self.private_dns = private_dns;
+        self
+    }
 }
 
 /// The gate's hold on one peer, on the wall clock (`CONNECTIVITY.md`
@@ -850,8 +895,10 @@ pub enum SwarmEvent {
         /// The operating system's error for the watcher.
         detail: String,
     },
-    /// The host has no resolver configuration this process can read, so
-    /// the node came up resolving no name at all.
+    /// The node resolves no name: at start, because the host has no
+    /// resolver configuration this process can read; or later, because
+    /// the platform's view put its Private DNS in strict mode, which this
+    /// build cannot honour (`CONNECTIVITY.md` §14, A 2026-10-14).
     ///
     /// DEGRADED, NOT FATAL. The DNS transport is built for every profile,
     /// and refusing to start without a resolver made a profile that
@@ -861,15 +908,31 @@ pub enum SwarmEvent {
     /// dial to it fail as an ordinary lookup failure, and this event is
     /// what says why, once, before any other.
     ///
-    /// Produced only by `resolver_or_empty`, whose mapping is unit-tested,
-    /// and that it arrives on a started runtime, first, is
+    /// Produced by `resolver_or_empty` at start, whose mapping is
+    /// unit-tested, and that it arrives on a started runtime, first, is
     /// `a_runtime_whose_resolver_read_fails_starts_and_says_so`, through
     /// `start`'s resolver seam. What no test arranges is a host that
     /// really lacks a configuration: `start` passes the system read
-    /// through that seam and nothing else.
+    /// through that seam and nothing else. And by `apply_platform_dns`
+    /// for strict Private DNS, once per resolver build, which
+    /// `a_platform_view_installs_a_resolver_on_a_running_swarm` pins on a
+    /// running Swarm, with no plain query sent.
     ResolverUnavailable {
-        /// The resolver's own message.
+        /// The resolver's own message at start; strict mode's fixed
+        /// diagnostic later, naming neither the nameservers nor the
+        /// Private DNS host.
         detail: String,
+    },
+    /// The platform's view named nameservers, and names resolve through
+    /// them from the next dial (`CONNECTIVITY.md` §14, A 2026-10-14).
+    ///
+    /// Once per resolver build: a view whose DNS facts match the last
+    /// applied ones builds nothing and reports nothing. A count only,
+    /// never a nameserver, which stays on the device. Strict Private DNS
+    /// is [`SwarmEvent::ResolverUnavailable`] instead.
+    ResolverConfigured {
+        /// How many nameservers the resolver asks.
+        nameservers: usize,
     },
     /// A profile asked for LAN discovery and did not get it.
     ///
