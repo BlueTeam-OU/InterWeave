@@ -150,7 +150,8 @@ const fn origin_label(origin: DialOrigin) -> &'static str {
 pub enum LastOutcome {
     /// A connection to it came up.
     Connected,
-    /// A dial to it failed in the network.
+    /// A dial to it failed, in the network or as a route that cannot
+    /// be dialled.
     DialFailed,
     /// An address answered with another identity.
     IdentityMismatch,
