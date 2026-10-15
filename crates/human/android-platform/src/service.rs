@@ -26,7 +26,7 @@ use interweave_transport_embedded::{
 
 use crate::facade::{FacadeLoop, SpawnError};
 use crate::hub::Hub;
-use crate::network::{NetworkReport, NetworkSlot};
+use crate::network::{NetworkReport, NetworkSlot, Told};
 use crate::offline::offline_embedded;
 
 /// The client kind the session declares, as on the desktop: the profile's
@@ -414,16 +414,16 @@ impl ServiceHost {
     /// step 5): the runtime hears the snapshot the reports make, when it
     /// moved, and a runtime that starts later hears it at its start
     /// ([`crate::network`]). Does not wait, whatever a start or a stop is
-    /// doing. How many addresses the runtime was told, `None` for nothing.
-    pub fn network_report(&self, report: NetworkReport) -> Option<usize> {
+    /// doing. What the runtime was told, by count, `None` for nothing.
+    pub fn network_report(&self, report: NetworkReport) -> Option<Told> {
         self.network().report(report)
     }
 
-    /// How many addresses the running runtime was last told of the
-    /// platform's networks -- at its start, when the callback reported
-    /// before it existed; `None` while it was told nothing.
+    /// What the running runtime was last told of the platform's networks,
+    /// by count -- at its start, when the callback reported before it
+    /// existed; `None` while it was told nothing.
     #[must_use]
-    pub fn network_told(&self) -> Option<usize> {
+    pub fn network_told(&self) -> Option<Told> {
         self.network().told()
     }
 

@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use interweave_human_android_platform::stand_in;
 use interweave_human_android_platform::{
-    AvailabilityMode, Ended, NetworkReport, ServiceHost, ServiceLaunch, StartRefused,
+    AvailabilityMode, Ended, Link, NetworkReport, ServiceHost, ServiceLaunch, StartRefused,
     StayReachable, ToView, ViewLink,
 };
 use interweave_human_app_core::Update;
@@ -223,7 +223,10 @@ fn a_network_report_never_waits_on_a_start() {
     while !done.load(std::sync::atomic::Ordering::SeqCst) {
         let _ = service.network_report(NetworkReport::Link {
             network,
-            addresses: vec![std::net::Ipv4Addr::new(10, 0, 0, 5).into()],
+            link: Link {
+                addresses: vec![std::net::Ipv4Addr::new(10, 0, 0, 5).into()],
+                ..Link::default()
+            },
         });
         if !done.load(std::sync::atomic::Ordering::SeqCst) {
             during_the_start += 1;

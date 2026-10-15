@@ -3,16 +3,19 @@
 //! The platform's networks, as the runtime is told them (plan section 20
 //! step 5; human-client-android.md, "Android network lifecycle").
 //!
-//! The Service's `ConnectivityManager` callback reports one network at a
-//! time -- its addresses as its `LinkProperties` change, then its loss --
-//! and the runtime takes one thing: a SNAPSHOT of every address of every
-//! usable network, empty when there is none ([`NetworkView`]). The union
-//! is made here rather than in Kotlin so it is tested on the host. A
-//! network's handle is the bridge's key and stops here: the view carries
-//! addresses alone (ADR-0001's layering).
+//! The Service's `ConnectivityManager` callbacks report one network at a
+//! time -- its addresses and DNS facts as its `LinkProperties` change,
+//! then its loss -- and which network is the default, and the runtime
+//! takes one thing ([`NetworkView`]): a SNAPSHOT of every address of every
+//! usable network, empty when there is none, with the ACTIVE (default)
+//! network's resolvers and its strict-mode Private DNS host
+//! (`CONNECTIVITY.md` section 14, A 2026-10-14). The snapshot is made here
+//! rather than in Kotlin so it is tested on the host. A network's handle
+//! is the bridge's key and stops here: the view carries local facts alone
+//! (ADR-0001's layering).
 //!
-//! The runtime is told only when the snapshot differs from the last one
-//! it was told, and a runtime that starts is told the current one at once:
+//! The runtime is told only when the snapshot -- addresses or DNS facts --
+//! differs from the last one it was told, and a runtime that starts is told the current one at once:
 //! the callback reported every network when it was registered, before
 //! that runtime existed, and does not report them again.
 
@@ -40,44 +43,78 @@ impl<T: NetworkSink> NetworkSink for Arc<T> {
     }
 }
 
-/// Every network the callback reports usable, by its handle, and the
-/// snapshot they make.
+/// One network as the callback reports it, the whole of it each time.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Link {
+    /// Every address it has.
+    pub addresses: Vec<IpAddr>,
+    /// Its resolvers, in the platform's order (`getDnsServers`).
+    pub dns_servers: Vec<IpAddr>,
+    /// Its Private DNS host name when Private DNS is in strict mode on it,
+    /// else `None`.
+    pub private_dns: Option<String>,
+}
+
+/// Every network the callback reports usable, by its handle, which of
+/// them is the default, and the snapshot they make.
 #[derive(Debug, Default)]
 pub struct Links {
     /// `None` while no callback is registered: the platform's view is
     /// unknown, which is not the same as offline.
-    links: Option<BTreeMap<u64, Vec<IpAddr>>>,
+    links: Option<BTreeMap<u64, Link>>,
+    /// The default network's handle, as the default-network callback
+    /// last named it.
+    default: Option<u64>,
 }
 
 impl Links {
     /// The snapshot: every address of every network, sorted, a duplicate
-    /// once. `None` while no callback is registered.
+    /// once, and the default network's DNS facts -- unknown (empty, and
+    /// no Private DNS) while no default is named or it reported nothing.
+    /// `None` while no callback is registered.
     #[must_use]
     pub fn view(&self) -> Option<NetworkView> {
         let links = self.links.as_ref()?;
-        let mut addresses: Vec<IpAddr> = links.values().flatten().copied().collect();
+        let mut addresses: Vec<IpAddr> = links
+            .values()
+            .flat_map(|link| link.addresses.iter().copied())
+            .collect();
         addresses.sort_unstable();
         addresses.dedup();
-        Some(NetworkView::new(addresses))
+        let active = self.default.and_then(|network| links.get(&network));
+        Some(
+            NetworkView::new(addresses)
+                .with_dns_servers(active.map(|l| l.dns_servers.clone()).unwrap_or_default())
+                .with_private_dns(active.and_then(|l| l.private_dns.clone())),
+        )
     }
 
     /// The callback was registered: no network is known yet, which is
     /// offline until it reports one.
     fn watch(&mut self) {
         self.links = Some(BTreeMap::new());
+        self.default = None;
     }
 
     /// The callback was unregistered: the view is unknown again.
     fn unwatch(&mut self) {
         self.links = None;
+        self.default = None;
     }
 
-    /// `network`'s addresses are now `addresses`, the whole set. Ignored
-    /// while no callback is registered: a report racing the
-    /// unregistration says nothing about a later registration.
-    fn link(&mut self, network: u64, addresses: Vec<IpAddr>) {
+    /// `network` is now `link`, the whole of it. Ignored while no
+    /// callback is registered: a report racing the unregistration says
+    /// nothing about a later registration.
+    fn link(&mut self, network: u64, link: Link) {
         if let Some(links) = self.links.as_mut() {
-            links.insert(network, addresses);
+            links.insert(network, link);
+        }
+    }
+
+    /// The default network is now `network`, or there is none.
+    fn default_is(&mut self, network: Option<u64>) {
+        if self.links.is_some() {
+            self.default = network;
         }
     }
 
@@ -133,17 +170,44 @@ impl<S> Default for NetworkSlot<S> {
     }
 }
 
+/// What the runtime was told, by count: a log of it names no address,
+/// resolver or host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Told {
+    /// How many addresses.
+    pub addresses: usize,
+    /// How many resolvers; 0 is unknown.
+    pub dns_servers: usize,
+    /// Whether a strict-mode Private DNS host was named.
+    pub strict_private_dns: bool,
+}
+
+impl Told {
+    fn of(view: &NetworkView) -> Self {
+        Self {
+            addresses: view.addresses.len(),
+            dns_servers: view.dns_servers.len(),
+            strict_private_dns: view.private_dns.is_some(),
+        }
+    }
+}
+
 /// One report from the platform's callback.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetworkReport {
     /// The callback was registered.
     Watching,
-    /// A network's addresses, the whole set.
+    /// A network, the whole of it.
     Link {
         /// The platform's handle for the network.
         network: u64,
-        /// Every address it has now.
-        addresses: Vec<IpAddr>,
+        /// What it has now.
+        link: Link,
+    },
+    /// Which network is the default, if any.
+    Default {
+        /// The platform's handle for it; `None` when there is none.
+        network: Option<u64>,
     },
     /// A network is gone.
     Lost {
@@ -156,12 +220,12 @@ pub enum NetworkReport {
 
 impl<S: NetworkSink> NetworkSlot<S> {
     /// Take one report, and tell the attached runtime when the snapshot
-    /// moved: how many addresses it was told, `None` when it was told
-    /// nothing. A count, so a log of it names no address.
-    pub fn report(&mut self, report: NetworkReport) -> Option<usize> {
+    /// moved: what it was told, by count, `None` when it was told nothing.
+    pub fn report(&mut self, report: NetworkReport) -> Option<Told> {
         match report {
             NetworkReport::Watching => self.links.watch(),
-            NetworkReport::Link { network, addresses } => self.links.link(network, addresses),
+            NetworkReport::Link { network, link } => self.links.link(network, link),
+            NetworkReport::Default { network } => self.links.default_is(network),
             NetworkReport::Lost { network } => self.links.lost(network),
             NetworkReport::Unwatched => self.links.unwatch(),
         }
@@ -176,11 +240,11 @@ impl<S: NetworkSink> NetworkSlot<S> {
         let _ = self.tell();
     }
 
-    /// How many addresses the attached runtime was last told; `None`
-    /// when it was told nothing yet, or none is attached.
+    /// What the attached runtime was last told, by count; `None` when it
+    /// was told nothing yet, or none is attached.
     #[must_use]
-    pub fn told(&self) -> Option<usize> {
-        self.told.as_ref().map(|view| view.addresses.len())
+    pub fn told(&self) -> Option<Told> {
+        self.told.as_ref().map(Told::of)
     }
 
     /// The runtime stops: it hears nothing more, and the slot lets go of
@@ -193,17 +257,17 @@ impl<S: NetworkSink> NetworkSlot<S> {
     /// The snapshot, to the attached runtime, unless it was told it last.
     /// An unknown view is never sent: an unregistered callback is not
     /// offline, and the runtime keeps the last view it had.
-    fn tell(&mut self) -> Option<usize> {
+    fn tell(&mut self) -> Option<Told> {
         let (Some(sink), Some(view)) = (self.sink.as_ref(), self.links.view()) else {
             return None;
         };
         if self.told.as_ref() == Some(&view) {
             return None;
         }
-        let count = view.addresses.len();
+        let told = Told::of(&view);
         sink.network_changed(view.clone());
         self.told = Some(view);
-        Some(count)
+        Some(told)
     }
 }
 
@@ -235,7 +299,40 @@ mod tests {
     fn link(network: u64, addresses: &[&str]) -> NetworkReport {
         NetworkReport::Link {
             network,
-            addresses: addresses.iter().map(|a| ip(a)).collect(),
+            link: Link {
+                addresses: addresses.iter().map(|a| ip(a)).collect(),
+                ..Link::default()
+            },
+        }
+    }
+
+    fn with_dns(
+        network: u64,
+        addresses: &[&str],
+        dns: &[&str],
+        strict: Option<&str>,
+    ) -> NetworkReport {
+        NetworkReport::Link {
+            network,
+            link: Link {
+                addresses: addresses.iter().map(|a| ip(a)).collect(),
+                dns_servers: dns.iter().map(|a| ip(a)).collect(),
+                private_dns: strict.map(str::to_owned),
+            },
+        }
+    }
+
+    fn default_is(network: u64) -> NetworkReport {
+        NetworkReport::Default {
+            network: Some(network),
+        }
+    }
+
+    fn count(addresses: usize) -> Told {
+        Told {
+            addresses,
+            dns_servers: 0,
+            strict_private_dns: false,
         }
     }
 
@@ -244,6 +341,69 @@ mod tests {
         let mut slot = NetworkSlot::default();
         slot.attach(heard.clone());
         (slot, heard)
+    }
+
+    #[test]
+    fn the_dns_facts_are_the_default_networks_and_unknown_without_one() {
+        let heard = Heard::default();
+        let mut slot = NetworkSlot::default();
+        slot.attach(heard.clone());
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(with_dns(1, &["10.0.0.5"], &["10.0.0.1"], None));
+        let _ = slot.report(with_dns(
+            2,
+            &["10.115.0.9"],
+            &["10.115.0.1", "10.115.0.2"],
+            Some("dns.example"),
+        ));
+        let views = heard.0.borrow_mut().drain(..).collect::<Vec<_>>();
+        assert!(
+            views
+                .iter()
+                .all(|v| v.dns_servers.is_empty() && v.private_dns.is_none()),
+            "no default named: the DNS facts are unknown, {views:?}"
+        );
+
+        let _ = slot.report(default_is(2));
+        let view = heard
+            .0
+            .borrow_mut()
+            .pop()
+            .expect("the default named: a new view");
+        assert_eq!(
+            view.addresses,
+            vec![ip("10.0.0.5"), ip("10.115.0.9")],
+            "every network's addresses"
+        );
+        assert_eq!(
+            view.dns_servers,
+            vec![ip("10.115.0.1"), ip("10.115.0.2")],
+            "the default's, in order"
+        );
+        assert_eq!(view.private_dns.as_deref(), Some("dns.example"));
+
+        // A DNS-only change on the default is told; one on another network
+        // is not, since it changes nothing the view carries.
+        assert_eq!(
+            slot.report(with_dns(2, &["10.115.0.9"], &["10.115.0.3"], None)),
+            Some(Told {
+                addresses: 2,
+                dns_servers: 1,
+                strict_private_dns: false
+            })
+        );
+        assert_eq!(
+            slot.report(with_dns(1, &["10.0.0.5"], &["10.0.0.7"], None)),
+            None
+        );
+
+        // The default lost: unknown DNS again, the other network's
+        // addresses kept.
+        let _ = slot.report(NetworkReport::Lost { network: 2 });
+        let _ = slot.report(NetworkReport::Default { network: None });
+        let view = heard.0.borrow_mut().pop().expect("a view");
+        assert_eq!(view.addresses, vec![ip("10.0.0.5")]);
+        assert!(view.dns_servers.is_empty() && view.private_dns.is_none());
     }
 
     #[test]
@@ -290,19 +450,22 @@ mod tests {
     #[test]
     fn a_registered_callback_with_no_network_is_offline_and_a_lost_last_network_is_too() {
         let (mut slot, heard) = attached();
-        assert_eq!(slot.report(NetworkReport::Watching), Some(0));
+        assert_eq!(slot.report(NetworkReport::Watching), Some(count(0)));
         assert_eq!(
             heard.take(),
             vec![Vec::<IpAddr>::new()],
             "registered, nothing yet: offline"
         );
-        assert_eq!(slot.report(link(3, &["10.0.0.5"])), Some(1));
+        assert_eq!(slot.report(link(3, &["10.0.0.5"])), Some(count(1)));
         assert_eq!(
             slot.report(link(3, &["10.0.0.5"])),
             None,
             "told nothing new"
         );
-        assert_eq!(slot.report(NetworkReport::Lost { network: 3 }), Some(0));
+        assert_eq!(
+            slot.report(NetworkReport::Lost { network: 3 }),
+            Some(count(0))
+        );
         assert_eq!(heard.take(), vec![vec![ip("10.0.0.5")], vec![]]);
     }
 
@@ -329,7 +492,11 @@ mod tests {
         assert_eq!(slot.told(), None);
         slot.attach(heard.clone());
         assert_eq!(heard.take(), vec![vec![ip("10.0.0.5")]]);
-        assert_eq!(slot.told(), Some(1), "what the start told is readable");
+        assert_eq!(
+            slot.told(),
+            Some(count(1)),
+            "what the start told is readable"
+        );
         let _ = slot.detach();
         assert_eq!(slot.told(), None);
     }
