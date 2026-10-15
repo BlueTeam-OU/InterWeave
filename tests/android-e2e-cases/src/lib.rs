@@ -77,8 +77,8 @@ pub mod keys {
     pub const REFUSED: &str = "refused";
     /// What the ancestor walk ALONE said of that directory under
     /// `files/`, `accepted` or `refused: <why>` -- measured, not
-    /// required (`trust_boundary`): a host stand-in accepts it, a device
-    /// refuses it on bionic's group answer.
+    /// required (`trust_boundary`), since it rests on the platform's
+    /// name service.
     pub const FILES_WALK_ALONE: &str = "files_walk_alone";
     /// [`RESULT`] of a case that held.
     pub const PASS: &str = "pass";
@@ -435,13 +435,14 @@ const CONTROL_PROBE: &str = "interweave-gate-d-control";
 /// directory, beside the runtime root: the walk alone must accept it and
 /// the embedded boundary refuse it as outside the runtime root, so the
 /// rule the gate is about is shown live on a directory nothing else
-/// refuses. `files/` itself cannot be the control: on a device the walk
-/// alone refuses it too, since bionic answers every group with its own
-/// name as its one listed member (`getgrgid_r`'s `gr_mem`,
-/// `libc/bionic/grp_pwd.cpp`), so the app's group is not the owner's
-/// private group under ADR-0028's predicate and `files/`, `0771`, is
-/// refused as group-writable; a host stand-in's group lists no member
-/// and the walk accepts it. So that verdict is reported, not required.
+/// refuses. `files/` itself is not the control, because what the walk
+/// alone says of it rests on the platform's name service: `files/` is
+/// `0771` in the app's own group, which bionic answers with the app as
+/// its one listed member (`getgrgid_r`'s `gr_mem`,
+/// `libc/bionic/grp_pwd.cpp`) and a host stand-in with none. ADR-0028
+/// accepts both since A 2026-10-15; before it, the walk alone refused
+/// `files/` on a Pixel 9a and the control placed there failed. So that
+/// verdict is reported, not required.
 /// On a stand-in, `files/` is made as Android makes it, `0771`, where it
 /// is missing. Both probes are removed either way.
 fn refused_under_files(
@@ -1014,9 +1015,9 @@ mod tests {
 
     #[test]
     fn a_files_dir_the_walk_alone_refuses_still_passes_and_is_reported() {
-        // A device's case: bionic lists the app's group as its own member,
-        // so the walk alone refuses `files/`. Staged here by the one bit
-        // the walk refuses on any host, other-write.
+        // Whatever the walk alone says of `files/`, the gate holds: as a
+        // device's walk did before ADR-0028 A 2026-10-15, staged here by
+        // the one bit the walk refuses on any host, other-write.
         let (_scratch, app) = app_dir_as_a_runtime_leaves_it();
         let files = app.join("files");
         std::fs::create_dir(&files).expect("files/");

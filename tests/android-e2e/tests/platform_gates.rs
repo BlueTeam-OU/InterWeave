@@ -13,9 +13,9 @@
 //!   runtime root, beside the control: a directory next to the runtime
 //!   root that the ancestor walk alone accepts and the runtime root
 //!   refuses. What the walk alone says of `files/` is reported, not
-//!   asserted: the stand-in accepts it; a device refuses it, since bionic
-//!   lists every group's own name as its member and ADR-0028's private
-//!   group lists none.
+//!   asserted, since it rests on the platform's name service (bionic
+//!   lists the app as its own group's member, which ADR-0028 accepts
+//!   since A 2026-10-15).
 //! - (g) `audit`: with the profile's log level at WARN, stricter than
 //!   INFO, a trust set made through the admin port appears in the Android
 //!   side's log as the audit record `admin.trust.set`, and nothing else
