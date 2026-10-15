@@ -438,6 +438,12 @@ pub enum DialFailureClass {
     NoKnownAddress,
     /// This node's own handler refused the connection (`DialError::Denied`).
     LocallyDenied,
+    /// The address dialled is one this node listens on, so libp2p
+    /// removed it and had nothing left to dial (`DialError::NoAddresses`
+    /// on an admitted dial): the peer's recorded route leads back
+    /// here -- two nodes bound to one port, or a peer configured with
+    /// this node's address.
+    OwnListenAddress,
     /// The address answered with another identity.
     IdentityMismatch,
     /// Any other failure.
@@ -466,6 +472,7 @@ impl DialFailureClass {
             },
             Self::NoKnownAddress => "no_known_address",
             Self::LocallyDenied => "denied",
+            Self::OwnListenAddress => "own_listen_address",
             Self::IdentityMismatch => "identity_mismatch",
             Self::DialFailed => "dial_failed",
         }
@@ -478,7 +485,7 @@ impl DialFailureClass {
             DialRefusal::NoKnownAddress => Self::NoKnownAddress,
             DialRefusal::Policy(denial) => Self::Denied(*denial),
             DialRefusal::Retention(refusal) => Self::Retention(*refusal),
-            DialRefusal::Backend(_) => Self::DialFailed,
+            DialRefusal::Backend(refusal) => refusal.class,
         }
     }
 
@@ -499,6 +506,22 @@ impl DialFailureClass {
             DialError::WrongPeerId { .. } => Self::IdentityMismatch,
             DialError::Denied { .. } => Self::LocallyDenied,
             _ => Self::DialFailed,
+        }
+    }
+
+    /// The class of a dial the Swarm refused synchronously, for a dial
+    /// built by `AdmittedDial`, which always carries the admitted
+    /// address. The Swarm strips every address this node listens on and
+    /// answers `NoAddresses` when none is left (libp2p-swarm 0.48.0
+    /// `lib.rs:496-504`), so on such a dial it means the admitted
+    /// address was this node's own: [`Self::OwnListenAddress`]. On a
+    /// peer-only dial it can also mean "none known", which is why
+    /// [`Self::of_dial_error`] does not say this
+    /// (`tests/reconnect.rs` holds the real-socket case).
+    pub(crate) fn of_admitted_dial_error(error: &libp2p::swarm::DialError) -> Self {
+        match error {
+            libp2p::swarm::DialError::NoAddresses => Self::OwnListenAddress,
+            other => Self::of_dial_error(other),
         }
     }
 }
@@ -523,8 +546,47 @@ pub enum DialRefusal {
     /// `max_connected_peers` are held. Not [`Self::Policy`]'s
     /// `ConnectionLimitReached`, which is the connection total.
     Retention(RetentionRefusal),
-    /// libp2p refused the dial itself.
-    Backend(String),
+    /// libp2p refused the dial itself, after the gate admitted it.
+    Backend(BackendRefusal),
+}
+
+/// libp2p's refusal of an admitted dial: its address-free class, and the
+/// library's text, which can name an address and is never a log field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendRefusal {
+    class: DialFailureClass,
+    detail: String,
+}
+
+impl BackendRefusal {
+    /// A refusal of the given class, with the library's text.
+    #[must_use]
+    pub fn new(class: DialFailureClass, detail: impl Into<String>) -> Self {
+        Self {
+            class,
+            detail: detail.into(),
+        }
+    }
+
+    /// The Swarm's synchronous refusal of a dial `AdmittedDial` built.
+    pub(crate) fn of_admitted_dial_error(error: &libp2p::swarm::DialError) -> Self {
+        Self::new(
+            DialFailureClass::of_admitted_dial_error(error),
+            error.to_string(),
+        )
+    }
+
+    /// Its address-free class.
+    #[must_use]
+    pub const fn class(&self) -> DialFailureClass {
+        self.class
+    }
+
+    /// The library's text; it can name an address.
+    #[must_use]
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
 }
 
 /// What happened to a relay reservation (`RELAY.md` §11's outcomes).
@@ -1386,10 +1448,45 @@ mod class_tests {
             "no_known_address"
         );
         assert_eq!(
-            DialFailureClass::of_refusal(&DialRefusal::Backend("/ip4/1.2.3.4/tcp/1".into()))
-                .label(),
+            DialFailureClass::of_refusal(&DialRefusal::Backend(BackendRefusal::new(
+                DialFailureClass::DialFailed,
+                "/ip4/1.2.3.4/tcp/1"
+            )))
+            .label(),
             "dial_failed",
             "the library's text, which can name an address, is not the class"
+        );
+    }
+
+    /// The Swarm's synchronous refusal of an admitted dial keeps its
+    /// class: `NoAddresses` is the address being this node's own, a
+    /// handler's denial is `denied` as it is when it comes back as an
+    /// event, and anything else is `dial_failed`. The real-socket case
+    /// is `tests/gate_notes.rs`.
+    #[test]
+    fn a_synchronous_refusal_of_an_admitted_dial_is_classed() {
+        let own = BackendRefusal::of_admitted_dial_error(&DialError::NoAddresses);
+        assert_eq!(own.class(), DialFailureClass::OwnListenAddress);
+        assert_eq!(
+            DialFailureClass::of_refusal(&DialRefusal::Backend(own)).label(),
+            "own_listen_address"
+        );
+        let denied = DialError::Denied {
+            cause: libp2p::swarm::ConnectionDenied::new(std::io::Error::other("refused")),
+        };
+        assert_eq!(
+            BackendRefusal::of_admitted_dial_error(&denied).class(),
+            DialFailureClass::LocallyDenied
+        );
+        assert_eq!(
+            BackendRefusal::of_admitted_dial_error(&DialError::Aborted).class(),
+            DialFailureClass::DialFailed
+        );
+        // The peer-only reading is not this one's: there `NoAddresses`
+        // can mean nothing was known.
+        assert_eq!(
+            DialFailureClass::of_dial_error(&DialError::NoAddresses),
+            DialFailureClass::DialFailed
         );
     }
 }

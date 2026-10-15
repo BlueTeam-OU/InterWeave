@@ -190,7 +190,9 @@ impl LastOutcome {
             DialFailureClass::Denied(_)
             | DialFailureClass::Retention(_)
             | DialFailureClass::LocallyDenied => Self::Denied,
-            DialFailureClass::NoKnownAddress | DialFailureClass::DialFailed => Self::DialFailed,
+            DialFailureClass::NoKnownAddress
+            | DialFailureClass::OwnListenAddress
+            | DialFailureClass::DialFailed => Self::DialFailed,
         }
     }
 
