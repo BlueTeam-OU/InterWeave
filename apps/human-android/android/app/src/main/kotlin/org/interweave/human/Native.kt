@@ -89,11 +89,20 @@ internal object Native {
     @JvmStatic external fun networkWatching()
 
     /**
-     * The network [network] (its `Network.getNetworkHandle`) has these
-     * addresses, the whole set: each address its length (4 or 16), then
-     * its `InetAddress.getAddress` bytes.
+     * The network [network] (its `Network.getNetworkHandle`), the whole of
+     * it: its [addresses] and its [dnsServers], each address its length
+     * (4 or 16) then its `InetAddress.getAddress` bytes, and its Private
+     * DNS host when Private DNS is strict on it, else null.
      */
-    @JvmStatic external fun networkLink(network: Long, addresses: ByteArray)
+    @JvmStatic external fun networkLink(
+        network: Long,
+        addresses: ByteArray,
+        dnsServers: ByteArray,
+        privateDns: String?,
+    )
+
+    /** The default network is [network]; 0 when there is none. */
+    @JvmStatic external fun networkDefault(network: Long)
 
     /** The network [network] is gone. */
     @JvmStatic external fun networkLost(network: Long)

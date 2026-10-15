@@ -23,6 +23,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import java.io.ByteArrayOutputStream
+import java.net.InetAddress
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -56,6 +57,7 @@ class NetworkService : Service() {
     // unregistration's, reach the runtime in the order they were made.
     private val networkThread = HandlerThread("interweave-network")
     private val networks = Networks()
+    private val defaultNetwork = DefaultNetwork()
 
     /** What the bound Activity calls on the Service. */
     inner class Local : Binder() {
@@ -105,13 +107,18 @@ class NetworkService : Service() {
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
         handler.post { Native.networkWatching() }
-        getSystemService(ConnectivityManager::class.java)
-            .registerNetworkCallback(request, networks, handler)
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        connectivity.registerNetworkCallback(request, networks, handler)
+        // Which network is the default: its resolvers and Private DNS are
+        // the ones the runtime takes (CONNECTIVITY.md section 14).
+        connectivity.registerDefaultNetworkCallback(defaultNetwork, handler)
     }
 
     /** The callback, unregistered; its last report, then the thread, end. */
     private fun unwatchNetworks() {
-        getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networks)
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        connectivity.unregisterNetworkCallback(networks)
+        connectivity.unregisterNetworkCallback(defaultNetwork)
         Handler(networkThread.looper).post {
             Native.networkUnwatched()
             networkThread.quitSafely()
@@ -123,17 +130,39 @@ class NetworkService : Service() {
         // The platform calls this right after onAvailable, and on every
         // change of the network's addresses: the whole set each time.
         override fun onLinkPropertiesChanged(network: Network, link: LinkProperties) {
+            Native.networkLink(
+                network.networkHandle,
+                wire(link.linkAddresses.map { it.address }),
+                wire(link.dnsServers),
+                // Named only in strict mode: opportunistic mode has no name.
+                if (link.isPrivateDnsActive) link.privateDnsServerName else null,
+            )
+        }
+
+        /** Each address its length, then its bytes (`addresses_from_wire`). */
+        private fun wire(addresses: List<InetAddress>): ByteArray {
             val wire = ByteArrayOutputStream()
-            for (address in link.linkAddresses) {
-                val bytes = address.address.address
+            for (address in addresses) {
+                val bytes = address.address
                 wire.write(bytes.size)
                 wire.write(bytes)
             }
-            Native.networkLink(network.networkHandle, wire.toByteArray())
+            return wire.toByteArray()
         }
 
         override fun onLost(network: Network) {
             Native.networkLost(network.networkHandle)
+        }
+    }
+
+    /** Which network is the default, and its going. */
+    private class DefaultNetwork : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            Native.networkDefault(network.networkHandle)
+        }
+
+        override fun onLost(network: Network) {
+            Native.networkDefault(0)
         }
     }
 
