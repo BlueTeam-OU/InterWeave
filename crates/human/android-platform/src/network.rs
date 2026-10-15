@@ -58,7 +58,7 @@ impl Links {
         let mut addresses: Vec<IpAddr> = links.values().flatten().copied().collect();
         addresses.sort_unstable();
         addresses.dedup();
-        Some(NetworkView { addresses })
+        Some(NetworkView::new(addresses))
     }
 
     /// The callback was registered: no network is known yet, which is
