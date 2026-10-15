@@ -988,6 +988,12 @@ mod tests {
     #[test]
     fn trust_boundary_passes_on_the_layout_a_runtime_leaves_and_reports_the_refusal() {
         let (_scratch, app) = app_dir_as_a_runtime_leaves_it();
+        // `0711`, not Android's `0771`: whether the walk accepts a
+        // group-writable `files/` rests on this host's primary group, and
+        // the verdict asserted below must not.
+        let files = app.join("files");
+        std::fs::create_dir(&files).expect("files/");
+        std::fs::set_permissions(&files, std::fs::Permissions::from_mode(0o711)).expect("0711");
         let out = trust_boundary(&app, "human-android").expect("gate (d) holds");
         // Where the root resolves: a host's temp directory may itself sit
         // behind a symlink, as /var/run does.
@@ -1031,6 +1037,23 @@ mod tests {
             "{alone}"
         );
         assert!(!files.join(FILES_PROBE).exists(), "the probe is removed");
+    }
+
+    #[test]
+    fn the_control_fails_when_the_embedded_boundary_accepts_it() {
+        // An embedded boundary with no runtime root accepts the control:
+        // the case must fail there, before judging `files/`.
+        let (_scratch, app) = app_dir_as_a_runtime_leaves_it();
+        let walk_alone = TrustBoundary::new(&app).expect("boundary");
+        let detail =
+            refused_under_files(&app, &walk_alone, &walk_alone).expect_err("the control fails");
+        assert!(detail.starts_with("the control failed: "), "{detail}");
+        assert!(
+            detail.contains("accepted by the embedded boundary"),
+            "{detail}"
+        );
+        assert!(!app.join(CONTROL_PROBE).exists(), "the control is removed");
+        assert!(!app.join("files").exists(), "files/ is not reached");
     }
 
     #[test]
