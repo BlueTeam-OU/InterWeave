@@ -109,8 +109,9 @@ mod tests {
     use std::net::Ipv4Addr;
 
     /// Far more asks than a test process makes, so the kernel's own
-    /// answers repeat many times over (about seventy expected across a
-    /// 28k ephemeral range): each repeat must be refused, not returned.
+    /// answers repeat many times over (how many depends on the host's
+    /// ephemeral range and its choice of port): each repeat must be
+    /// refused, not returned.
     #[test]
     fn free_port_never_answers_the_same_port_twice() {
         let mut seen = BTreeSet::new();

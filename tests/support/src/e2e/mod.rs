@@ -457,7 +457,8 @@ fn concrete(raw: &str, listen: &str, route: Option<&str>) -> String {
 }
 
 /// Where every end-to-end suite takes its listen ports: never the same
-/// one twice in a process.
+/// one twice in a process
+/// (`net::tests::free_port_never_answers_the_same_port_twice`).
 pub use crate::net::free_port;
 
 /// `relative` under `architecture/contracts/schemas`, its `urn:`

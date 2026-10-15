@@ -560,7 +560,8 @@ async fn each_previous_daemon_exchanges_with_head_both_ways() {
         let mut attempt = 0;
         let (old_home, old, old_peer, head_home, head) = loop {
             attempt += 1;
-            // Two distinct ports: `free_port` never answers one twice.
+            // Two distinct ports: `free_port` never answers one twice
+            // (`net::tests::free_port_never_answers_the_same_port_twice`).
             let (head_port, old_port) = (free_port(ip), free_port(ip));
             let head_listen = format!("/ip4/{ip}/tcp/{head_port}");
             let old_listen = format!("/ip4/{ip}/tcp/{old_port}");
