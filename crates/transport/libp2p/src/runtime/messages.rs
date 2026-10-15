@@ -562,7 +562,8 @@ pub struct BackendRefusal {
 }
 
 impl BackendRefusal {
-    /// A refusal of the given class, with the library's text.
+    /// A refusal of the given class, with the refuser's text, which can
+    /// name an address.
     #[must_use]
     pub fn new(class: DialFailureClass, detail: impl Into<String>) -> Self {
         Self {
