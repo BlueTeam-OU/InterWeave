@@ -198,13 +198,14 @@ impl LastOutcome {
 
     /// The outcome a refused dial is: the gate's own refusals are
     /// `denied`; having no address to dial is not a refusal and records
-    /// nothing.
+    /// nothing; libp2p's refusal of an admitted dial is its class's
+    /// outcome, as the same class arriving as an event would be.
     #[must_use]
     pub const fn of_refusal(refusal: &DialRefusal) -> Option<Self> {
         match refusal {
             DialRefusal::NoKnownAddress => None,
             DialRefusal::Policy(_) | DialRefusal::Retention(_) => Some(Self::Denied),
-            DialRefusal::Backend(_) => Some(Self::DialFailed),
+            DialRefusal::Backend(refusal) => Some(Self::of_class(refusal.class())),
         }
     }
 }
@@ -423,5 +424,42 @@ mod tests {
             None,
             "nothing to dial is not an outcome"
         );
+    }
+
+    /// libp2p's synchronous refusal of an admitted dial reaches the line
+    /// as its own class -- the route being this node's own listen
+    /// address is not a network failure an operator would chase -- and
+    /// the row as the outcome the same class has as an event.
+    #[test]
+    fn a_swarm_refusal_keeps_its_class_on_the_line_and_the_row() {
+        use interweave_transport_libp2p::BackendRefusal;
+        let listed = peer();
+        let trust = PeerTrustPolicy::new([listed.clone()]).expect("one peer");
+        let own = DialRefusal::Backend(BackendRefusal::new(
+            DialFailureClass::OwnListenAddress,
+            "Dial error: no addresses for peer.",
+        ));
+        let log = captured(|| {
+            reconnect_refused(
+                Who::of(&listed, &trust, &InfrastructureSet::default()),
+                DialFailureClass::of_refusal(&own),
+            );
+        });
+        assert!(
+            log.contains("reconnect refused")
+                && log.contains("class=\"own_listen_address\"")
+                && log.contains("INFO"),
+            "{log}"
+        );
+        assert!(
+            !log.contains("no addresses"),
+            "never the library's text: {log}"
+        );
+        assert_eq!(LastOutcome::of_refusal(&own), Some(LastOutcome::DialFailed));
+        let denied = DialRefusal::Backend(BackendRefusal::new(
+            DialFailureClass::LocallyDenied,
+            "denied",
+        ));
+        assert_eq!(LastOutcome::of_refusal(&denied), Some(LastOutcome::Denied));
     }
 }
