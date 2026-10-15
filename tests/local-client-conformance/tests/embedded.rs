@@ -526,7 +526,8 @@ fn trust_administration_revokes_as_policy() {
 /// is the control showing the root check, not the walk, refused it.
 /// `files/` is `0711` here so the control holds on any host; on a device
 /// it is `0771` with the app's own group, which ADR-0028's walk accepts
-/// too (measured with the device evidence of step 1).
+/// since A 2026-10-15 (bionic lists the app as that group's member;
+/// before it, a Pixel 9a's walk refused `files/`).
 #[test]
 fn gate_d_a_private_dir_under_files_is_refused_by_the_runtime_root() {
     let mut node = Node::new();
