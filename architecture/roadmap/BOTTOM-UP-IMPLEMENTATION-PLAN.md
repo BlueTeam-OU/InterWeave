@@ -4998,9 +4998,13 @@ payload carry alone — and the closing record states whether the relayed
 route indicator was proved live on this path, the fact §21 (Stage 18)
 holds its own carry against; (d) ADR-0028's trust boundary (A 2026-10-08) is supplied by the
 embedded runtime as the app's own data directory and the runtime's
-private directories sit directly under it at `0700` — the store opens
-on the device, and a platform test shows a directory under the
-platform's `files/` refused — and the persisted trust overlay is kept
+private directories sit directly under it at `0700` — the store opens on the device, and a platform test shows the runtime
+refusing to place a private directory under the platform's `files/`,
+as outside its runtime root, beside a control directly under the
+boundary that the ancestor walk alone accepts and the runtime refuses
+the same way: a refusal of the runtime's own layout rule, since the
+predicate accepts `files/`'s group of one on a device (ADR-0028
+A 2026-10-15) — and the persisted trust overlay is kept
 under that boundary by the embedded runtime as ADR-0028 (A 2026-10-07)
 binds it; (e) the endpoint runtime overlay's persistence, carried to
 this section by ADR-0028 (A 2026-10-07, "when their carried item is

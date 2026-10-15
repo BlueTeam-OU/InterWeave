@@ -34,7 +34,6 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use std::future::Future;
-use std::net::{Ipv4Addr, TcpListener};
 use std::os::unix::fs::DirBuilderExt as _;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -49,6 +48,7 @@ use interweave_local_client_api::{
 use interweave_local_client_conformance_tests::{PATIENCE, receive};
 use interweave_profile_config::{ProfilePaths, XdgRoots};
 use interweave_profile_identity::ProfileIdentity;
+use interweave_test_support::net::free_port;
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MessageId, Payload,
     TransportIdentity,
@@ -536,18 +536,6 @@ async fn each_previous_transportctl_is_served_by_heads_daemon() {
     }
 }
 
-/// A port free on `ip` now, so an address can be written into the other
-/// side's profile before its daemon starts. Picked, released and bound
-/// later: if another process takes it in between, that daemon exits before
-/// serving with [`PORT_TAKEN`], and the peer row retries on fresh ports.
-fn free_port(ip: Ipv4Addr) -> u16 {
-    TcpListener::bind((ip, 0))
-        .expect("binds")
-        .local_addr()
-        .expect("an address")
-        .port()
-}
-
 /// Row: each previous daemon and HEAD's daemon, peer to peer — direct both
 /// ways and broadcast both ways.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -572,12 +560,9 @@ async fn each_previous_daemon_exchanges_with_head_both_ways() {
         let mut attempt = 0;
         let (old_home, old, old_peer, head_home, head) = loop {
             attempt += 1;
-            let (head_port, old_port) = loop {
-                let (a, b) = (free_port(ip), free_port(ip));
-                if a != b {
-                    break (a, b);
-                }
-            };
+            // Two distinct ports: `free_port` never answers one twice
+            // (`net::tests::free_port_never_answers_the_same_port_twice`).
+            let (head_port, old_port) = (free_port(ip), free_port(ip));
             let head_listen = format!("/ip4/{ip}/tcp/{head_port}");
             let old_listen = format!("/ip4/{ip}/tcp/{old_port}");
             let port_taken = |log: &str| attempt < 3 && log.contains(PORT_TAKEN);
