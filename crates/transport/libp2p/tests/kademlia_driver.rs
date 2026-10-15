@@ -466,16 +466,17 @@ async fn a_walk_after_the_view_departs_the_private_ip_is_pruned_at_the_root_funn
     let ((hub, _), (other, _), (mut asker, _)) = star(true, ip).await;
     // The first view is read before the second is sent: it names an
     // address the listeners do not, so its reading is a change.
-    asker.network_changed(NetworkView {
-        addresses: vec![ip.into(), std::net::Ipv4Addr::new(10, 255, 0, 5).into()],
-    });
+    asker.network_changed(NetworkView::new(vec![
+        ip.into(),
+        std::net::Ipv4Addr::new(10, 255, 0, 5).into(),
+    ]));
     wait_for(&mut asker, "the first view", |e| {
         matches!(e, SwarmEvent::NetworkChanged { .. })
     })
     .await;
-    asker.network_changed(NetworkView {
-        addresses: vec![std::net::Ipv4Addr::new(10, 255, 0, 5).into()],
-    });
+    asker.network_changed(NetworkView::new(vec![
+        std::net::Ipv4Addr::new(10, 255, 0, 5).into(),
+    ]));
     let departed = std::net::IpAddr::from(ip);
     wait_for(
         &mut asker,

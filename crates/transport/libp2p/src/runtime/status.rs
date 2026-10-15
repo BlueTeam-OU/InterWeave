@@ -48,6 +48,26 @@ pub struct RuntimeStatus {
     /// The post-authentication ingress limiters' state (`admin.status`'s
     /// `ingress`).
     pub ingress: IngressStatus,
+    /// Which resolver names are looked up with (`CONNECTIVITY.md` §14,
+    /// A 2026-10-14): its kind only, never a nameserver.
+    pub resolver: ResolverSource,
+}
+
+/// Where the resolver in use came from (`CONNECTIVITY.md` §14 and §19,
+/// A 2026-10-14). Only this leaves the runtime: the nameservers it was
+/// built from stay on the device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolverSource {
+    /// The host's own configuration, read once at start.
+    Host,
+    /// The platform's view named the nameservers.
+    Platform,
+    /// The platform's Private DNS is in strict mode, so no name is
+    /// resolved: this build has no DNS-over-TLS.
+    PrivateDnsStrict,
+    /// No configuration: the host read failed or is not made (Android),
+    /// and no view has named a nameserver yet. Names do not resolve.
+    None,
 }
 
 /// The two ingress rate limiters at the snapshot's instant: how many
