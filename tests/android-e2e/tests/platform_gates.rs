@@ -10,7 +10,12 @@
 //! - (d) `trust_boundary`: the runtime root directly under the app data
 //!   directory, it and the profile's private directories `0700`, and a
 //!   private directory under the platform's `files/` refused by the
-//!   runtime root while the ancestor walk alone accepts it (the control).
+//!   runtime root, beside the control: a directory next to the runtime
+//!   root that the ancestor walk alone accepts and the runtime root
+//!   refuses. What the walk alone says of `files/` is reported, not
+//!   asserted: the stand-in accepts it; a device refuses it, since bionic
+//!   lists every group's own name as its member and ADR-0028's private
+//!   group lists none.
 //! - (g) `audit`: with the profile's log level at WARN, stricter than
 //!   INFO, a trust set made through the admin port appears in the Android
 //!   side's log as the audit record `admin.trust.set`, and nothing else
@@ -61,6 +66,13 @@ fn trust_boundary<A: Device>(mut android: A) {
         .passed(|| android.log());
     let refused = out[keys::REFUSED].as_str().expect("why files/ was refused");
     assert!(refused.contains("outside the runtime root"), "{refused}");
+    // Measured, not required: see the module's (d).
+    eprintln!(
+        "gate (d): the walk alone on files/: {}",
+        out[keys::FILES_WALK_ALONE]
+            .as_str()
+            .expect("the walk alone's verdict")
+    );
     android.stop();
 }
 

@@ -75,6 +75,11 @@ pub mod keys {
     /// Why a directory under the platform's `files/` was refused
     /// (`trust_boundary`).
     pub const REFUSED: &str = "refused";
+    /// What the ancestor walk ALONE said of that directory under
+    /// `files/`, `accepted` or `refused: <why>` -- measured, not
+    /// required (`trust_boundary`): a host stand-in accepts it, a device
+    /// refuses it on bionic's group answer.
+    pub const FILES_WALK_ALONE: &str = "files_walk_alone";
     /// [`RESULT`] of a case that held.
     pub const PASS: &str = "pass";
     /// [`RESULT`] of a case that did not, or could not run.
@@ -95,9 +100,10 @@ pub mod cases {
     /// Plan §20 gate (d), in the app's process: the runtime root sits
     /// directly under the app data directory, it and every private
     /// directory of the profile (argument `profile`) are owner-only, and a
-    /// private directory under the platform's `files/` -- which the
-    /// ancestor walk alone accepts, the control -- is refused by the
-    /// runtime root.
+    /// private directory under the platform's `files/` is refused by the
+    /// runtime root -- beside the control, a directory beside the runtime
+    /// root that the ancestor walk alone accepts and the runtime root
+    /// refuses.
     pub const TRUST_BOUNDARY: &str = "trust_boundary";
     /// Plan §20 gate (g)'s Android half: set a peer (argument `peer`)
     /// trusted through the admin port, which the runtime records on its
@@ -406,66 +412,105 @@ fn trust_boundary(app_data_dir: &Path, profile: &str) -> Result<Map<String, Valu
             ));
         }
     }
-    let refused = refused_under_files(app_data_dir, &walk_alone, paths.boundary())?;
+    let (refused, files_walk_alone) =
+        refused_under_files(app_data_dir, &walk_alone, paths.boundary())?;
     let mut out = Map::new();
     out.insert(keys::ROOT.to_owned(), root.display().to_string().into());
     out.insert(keys::PRIVATE_DIRS.to_owned(), found.into());
     out.insert(keys::REFUSED.to_owned(), refused.into());
+    out.insert(keys::FILES_WALK_ALONE.to_owned(), files_walk_alone.into());
     Ok(out)
 }
 
-/// A private directory made under the platform's `files/`: the walk
-/// alone accepts it -- the control, since `files/` passes ADR-0028's
-/// rule on a device -- and the embedded boundary refuses it. The probe is
-/// removed either way. On a host stand-in, `files/` is made as Android
-/// makes it, `0771`, where it is missing.
+/// The probe under the platform's `files/`, and the control's beside the
+/// runtime root.
+const FILES_PROBE: &str = "interweave-gate-d-probe";
+const CONTROL_PROBE: &str = "interweave-gate-d-control";
+
+/// A private directory made under the platform's `files/`, refused by the
+/// embedded boundary as outside the runtime root; answers that refusal
+/// and what the walk alone said of the same directory.
+///
+/// The control is a private directory made directly under the app data
+/// directory, beside the runtime root: the walk alone must accept it and
+/// the embedded boundary refuse it as outside the runtime root, so the
+/// rule the gate is about is shown live on a directory nothing else
+/// refuses. `files/` itself cannot be the control: on a device the walk
+/// alone refuses it too, since bionic answers every group with its own
+/// name as its one listed member (`getgrgid_r`'s `gr_mem`,
+/// `libc/bionic/grp_pwd.cpp`), so the app's group is not the owner's
+/// private group under ADR-0028's predicate and `files/`, `0771`, is
+/// refused as group-writable; a host stand-in's group lists no member
+/// and the walk accepts it. So that verdict is reported, not required.
+/// On a stand-in, `files/` is made as Android makes it, `0771`, where it
+/// is missing. Both probes are removed either way.
 fn refused_under_files(
     app_data_dir: &Path,
     walk_alone: &TrustBoundary,
     embedded: &TrustBoundary,
-) -> Result<String, String> {
+) -> Result<(String, String), String> {
+    let refused_by_root = |dir: &Path| match resolve_private_dir_within(dir, embedded) {
+        Ok(_) => Err(format!(
+            "{} was accepted by the embedded boundary",
+            dir.display()
+        )),
+        Err(e) if e.to_string().contains("outside the runtime root") => Ok(e.to_string()),
+        Err(e) => Err(format!(
+            "{} refused, but not by the runtime root: {e}",
+            dir.display()
+        )),
+    };
+    with_probe(&app_data_dir.join(CONTROL_PROBE), |control| {
+        resolve_private_dir_within(control, walk_alone).map_err(|e| {
+            format!(
+                "the control failed: the walk alone refused {}: {e}",
+                control.display()
+            )
+        })?;
+        refused_by_root(control)
+            .map_err(|e| format!("the control failed: {e}"))
+            .map(drop)
+    })?;
     let files = app_data_dir.join("files");
     if !files.exists() {
         std::fs::create_dir(&files).map_err(|e| format!("files/: {e}"))?;
         std::fs::set_permissions(&files, std::fs::Permissions::from_mode(0o771))
             .map_err(|e| format!("files/: {e}"))?;
     }
-    let probe = files.join("interweave-gate-d-probe");
-    // A run killed between the probe's making and its removal leaves it
-    // in a device's persistent files/; the next run takes it back first.
-    match std::fs::remove_dir(&probe) {
+    with_probe(&files.join(FILES_PROBE), |probe| {
+        let refused = refused_by_root(probe)?;
+        let alone = match resolve_private_dir_within(probe, walk_alone) {
+            Ok(_) => "accepted".to_owned(),
+            Err(e) => format!("refused: {e}"),
+        };
+        Ok((refused, alone))
+    })
+}
+
+/// Make `probe` a `0700` directory, run `judge` on it and remove it,
+/// whatever `judge` answered. A run killed between the making and the
+/// removal leaves it in a device's persistent data directory; the next
+/// run takes it back first.
+fn with_probe<T>(
+    probe: &Path,
+    judge: impl FnOnce(&Path) -> Result<T, String>,
+) -> Result<T, String> {
+    match std::fs::remove_dir(probe) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => {
             return Err(format!(
-                "a stale probe under files/ could not be removed: {e}"
+                "a stale probe {} could not be removed: {e}",
+                probe.display()
             ));
         }
     }
-    std::fs::create_dir(&probe).map_err(|e| format!("the probe under files/: {e}"))?;
-    let outcome = (|| {
-        std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o700))
-            .map_err(|e| format!("the probe: {e}"))?;
-        resolve_private_dir_within(&probe, walk_alone).map_err(|e| {
-            format!(
-                "the control failed: the walk alone refused {}: {e}",
-                probe.display()
-            )
-        })?;
-        match resolve_private_dir_within(&probe, embedded) {
-            Ok(_) => Err(format!(
-                "{} under files/ was accepted by the embedded boundary",
-                probe.display()
-            )),
-            Err(e) => Ok(e.to_string()),
-        }
-    })();
-    let _ = std::fs::remove_dir(&probe);
-    let refused = outcome?;
-    if !refused.contains("outside the runtime root") {
-        return Err(format!("refused, but not by the runtime root: {refused}"));
-    }
-    Ok(refused)
+    std::fs::create_dir(probe).map_err(|e| format!("the probe {}: {e}", probe.display()))?;
+    let outcome = std::fs::set_permissions(probe, std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| format!("the probe {}: {e}", probe.display()))
+        .and_then(|()| judge(probe));
+    let _ = std::fs::remove_dir(probe);
+    outcome
 }
 
 /// Gate (g)'s Android half: one trust change through the admin port.
@@ -959,10 +1004,52 @@ mod tests {
         );
         let refused = out[keys::REFUSED].as_str().expect("refused");
         assert!(refused.contains("outside the runtime root"), "{refused}");
+        assert_eq!(out[keys::FILES_WALK_ALONE], "accepted");
         assert!(
-            !app.join("files").join("interweave-gate-d-probe").exists(),
+            !app.join("files").join(FILES_PROBE).exists(),
             "the probe is removed"
         );
+        assert!(!app.join(CONTROL_PROBE).exists(), "the control is removed");
+    }
+
+    #[test]
+    fn a_files_dir_the_walk_alone_refuses_still_passes_and_is_reported() {
+        // A device's case: bionic lists the app's group as its own member,
+        // so the walk alone refuses `files/`. Staged here by the one bit
+        // the walk refuses on any host, other-write.
+        let (_scratch, app) = app_dir_as_a_runtime_leaves_it();
+        let files = app.join("files");
+        std::fs::create_dir(&files).expect("files/");
+        std::fs::set_permissions(&files, std::fs::Permissions::from_mode(0o773)).expect("0773");
+        let out = trust_boundary(&app, "human-android").expect("gate (d) holds");
+        let refused = out[keys::REFUSED].as_str().expect("refused");
+        assert!(refused.contains("outside the runtime root"), "{refused}");
+        let alone = out[keys::FILES_WALK_ALONE].as_str().expect("walk alone");
+        assert!(
+            alone.starts_with("refused: ") && alone.contains("other-writable"),
+            "{alone}"
+        );
+        assert!(!files.join(FILES_PROBE).exists(), "the probe is removed");
+    }
+
+    #[test]
+    fn the_control_fails_when_the_walk_alone_refuses_the_app_data_dir() {
+        // The control's own negative: an app data directory the walk
+        // refuses cannot show the runtime root's refusal on its own.
+        let (_scratch, app) = app_dir_as_a_runtime_leaves_it();
+        let walk_alone = TrustBoundary::new(&app).expect("boundary");
+        let paths =
+            ProfilePaths::resolve_embedded("human-android", walk_alone.clone()).expect("paths");
+        let mode = std::fs::metadata(&app).expect("app").permissions().mode();
+        std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o777)).expect("0777");
+        let failed = refused_under_files(&app, &walk_alone, paths.boundary());
+        std::fs::set_permissions(&app, std::fs::Permissions::from_mode(mode)).expect("restored");
+        let detail = failed.expect_err("the control fails");
+        assert!(
+            detail.starts_with("the control failed: the walk alone refused"),
+            "{detail}"
+        );
+        assert!(!app.join(CONTROL_PROBE).exists(), "the control is removed");
     }
 
     #[test]
@@ -984,12 +1071,11 @@ mod tests {
         let files = app.join("files");
         std::fs::create_dir(&files).expect("files/");
         std::fs::set_permissions(&files, std::fs::Permissions::from_mode(0o771)).expect("0771");
-        std::fs::create_dir(files.join("interweave-gate-d-probe")).expect("a stale probe");
+        std::fs::create_dir(files.join(FILES_PROBE)).expect("a stale probe");
+        std::fs::create_dir(app.join(CONTROL_PROBE)).expect("a stale control");
         trust_boundary(&app, "human-android").expect("gate (d) holds after a killed run");
-        assert!(
-            !files.join("interweave-gate-d-probe").exists(),
-            "the probe is removed"
-        );
+        assert!(!files.join(FILES_PROBE).exists(), "the probe is removed");
+        assert!(!app.join(CONTROL_PROBE).exists(), "the control is removed");
     }
 
     #[test]
