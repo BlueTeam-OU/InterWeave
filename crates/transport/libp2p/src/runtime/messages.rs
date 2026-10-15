@@ -546,12 +546,15 @@ pub enum DialRefusal {
     /// `max_connected_peers` are held. Not [`Self::Policy`]'s
     /// `ConnectionLimitReached`, which is the connection total.
     Retention(RetentionRefusal),
-    /// libp2p refused the dial itself, after the gate admitted it.
+    /// The gate admitted the dial and it was refused before a socket
+    /// opened: by the Swarm, or as undialable by this node's own
+    /// `AdmittedDial` or `GatedSwarm`.
     Backend(BackendRefusal),
 }
 
-/// libp2p's refusal of an admitted dial: its address-free class, and the
-/// library's text, which can name an address and is never a log field.
+/// A refusal of an admitted dial before a socket opened: its address-free
+/// class, and the refuser's text, which can name an address and is never
+/// a log field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendRefusal {
     class: DialFailureClass,
@@ -582,7 +585,7 @@ impl BackendRefusal {
         self.class
     }
 
-    /// The library's text; it can name an address.
+    /// The refuser's text; it can name an address.
     #[must_use]
     pub fn detail(&self) -> &str {
         &self.detail
