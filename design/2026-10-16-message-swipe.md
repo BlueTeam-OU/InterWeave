@@ -231,6 +231,13 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     cannot reach. Each becomes a focus target with no action: it takes
     keyboard and TalkBack focus and reads its text. Nothing happens when
     it is activated.
+  - **Every focus target here draws a visible focus indicator** when it
+    holds keyboard focus: every button, each conversation row, and the
+    two headings. Today a conversation row and the headings draw nothing
+    for focus, and a button only thickens its border by 1 px in the same
+    colour, so a person cannot see where focus is (seen on the Pixel 9a,
+    2026-10-16). The indicator is a ring of at least 3:1 against what it
+    sits on; design/2026-10-16-android-look.md section 7 gives its look.
 - **Reduced motion.** When the system's animator duration scale is 0
   ("Remove animations"):
   - the row still follows the finger, since direct manipulation is not
