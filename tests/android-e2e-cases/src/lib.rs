@@ -122,9 +122,9 @@ pub mod cases {
     /// app's runtime with the app's launch, identity and paths, and no
     /// store and no facade, so the `human` lease is free for the case
     /// (01a128a6/01a128a8). On the host stand-in that is an `EmbeddedHost`
-    /// started so. On a phone it is to be a runtime-alone start in the
-    /// app's service host, which the instrumentation's PR (rust-ui-dev's
-    /// j66) adds; until then no phone runner exists. The others run
+    /// started so. On a phone it is a runtime-alone start in the app's
+    /// service host (`ServiceHost::start_runtime_alone`, called by the
+    /// instrumentation in apps/human-android/src/e2e.rs). The others run
     /// before it starts, as [`PROVISION`] must.
     pub const NEED_A_RUNTIME: &[&str] = &[PATHS, TRUST_BOUNDARY, AUDIT];
 
