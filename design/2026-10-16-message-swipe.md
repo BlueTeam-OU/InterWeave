@@ -185,7 +185,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   - After an Undo the store refuses, the snackbar closes under the
     focus, so focus goes where the action itself sent it. A refused
     Undo of Cancel goes to the next row, or the previous one if it was
-    the last. Dismiss's Undo writes nothing, so it cannot be refused.
+    the last, or the conversation's header if no row is left. Dismiss's Undo writes nothing, so it cannot be refused.
     A refused Undo of Unkeep goes to that row's first control, since
     the row is still in place.
   - After Keep, Unkeep or Retry, focus stays where it was.
@@ -443,9 +443,10 @@ snackbar Undo; right = nothing."
   snackbar there. The Chats row itself gains no button. TalkBack users
   reach the control by opening the conversation. Opening it reads its
   unread rows, but a conversation offered for hiding has none.
-- **Focus** after a hide goes to the next conversation row, or the
-  previous one if it was the last. After Undo, it goes to the restored
-  row.
+- **Focus** moves after a hide only if it was inside the conversation's
+  row, as for a message (§7). It goes to the next conversation row, or
+  the previous one if it was the last. A touch that swiped the row
+  leaves focus where it was. After Undo, it goes to the restored row.
 - Announced as §7, with the snackbar's words.
 
 ## 11. Acceptance — what a reviewer checks on a device
@@ -498,7 +499,12 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 12. With TalkBack on:
     - every action in 1–9 can be done with the row's buttons alone;
     - each result is announced;
-    - after Dismiss or Cancel, focus lands on the next row.
+    - after Dismiss or Cancel, focus lands on the next row;
+    - after Dismiss or Cancel of a conversation's only row, focus lands
+      on the conversation's header and the keyboard does not open.
+
+    With TalkBack off, after a touch swipe dismisses a row, focus stays
+    where it was and the list does not scroll.
 13. Every row button and the snackbar's Undo measure at least 48 × 48 dp
     (Layout Inspector or the Accessibility Scanner).
 14. With "Remove animations" on, the row still follows the finger, but
