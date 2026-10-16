@@ -224,6 +224,51 @@ fn a_drag_on_a_conversation_row_offering_no_swipe_opens_and_reads_nothing() {
     let _ = direct(&alice);
 }
 
+/// The point on message row `index` a finger lands on away from its
+/// controls: the author's name, at the row's top.
+fn message_text_at(view: &View, index: usize) -> (f32, f32) {
+    let label = view
+        .window()
+        .get_messages()
+        .row_data(index)
+        .expect("a row")
+        .label;
+    let found: Vec<ElementHandle> =
+        ElementHandle::find_by_accessible_label(view.window(), label.as_str()).collect();
+    let row = found.first().expect("the row is drawn");
+    let at = row.absolute_position();
+    (250.0, at.y + 10.0)
+}
+
+/// Item 5: on a kept row, a right drag (which it does not offer) leaves
+/// the next left drag, from the same point, tracking and committing its
+/// Unkeep.
+#[test]
+fn a_drag_a_row_does_not_offer_leaves_the_next_drag_its_own() {
+    let mut view = phone();
+    let mut model = UiModel::new();
+    let alice = peer();
+    received(&mut model, 1, &alice, "kept");
+    model.read(RowId::from_stored(1));
+    let key = direct(&alice);
+    view.select(key.clone());
+    let _ = turn(&mut view, &mut model);
+    let item = model.messages(&key)[0].key;
+    model.kept(item, RowId::from_stored(10));
+    let _ = turn(&mut view, &mut model);
+    let at = message_text_at(&view, 0);
+
+    drag(&view, at, 120.0);
+    let raised = turn(&mut view, &mut model);
+    assert!(raised.is_empty(), "right offers nothing: {raised:?}");
+    drag(&view, at, -200.0);
+    let raised = turn(&mut view, &mut model);
+    assert!(
+        matches!(raised.as_slice(), [Intent::Unkeep(_)]),
+        "the left drag after it: {raised:?}"
+    );
+}
+
 /// The centre of the control labelled `label`, which must be drawn once.
 fn control_centre(view: &View, label: &str) -> (f32, f32) {
     let found: Vec<ElementHandle> =

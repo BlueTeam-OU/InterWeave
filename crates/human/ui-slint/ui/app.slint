@@ -1145,6 +1145,15 @@ export component AppWindow inherits Window {
                         padding-right: -item.offset;
                     Rectangle {
                         background: Palette.row;
+                // Under the row's controls, the part of the row that is no
+                // control takes the press. Left to the handler, which grabs
+                // it, a drag the row does not offer ends with no callback,
+                // and the next drag on the row was read as its continuation
+                // (swipe spec section 11, item 5, on a device); taken here, the handler reports a drag only once
+                // it has taken it, and ends every drag it took
+                // (tests/pointer.rs,
+                // `a_drag_a_row_does_not_offer_leaves_the_next_drag_its_own`).
+                TouchArea {
                 content := VerticalLayout {
                     HorizontalLayout {
                         Text {
@@ -1259,6 +1268,7 @@ export component AppWindow inherits Window {
                             focused(k) => { root.focus-id = k; }
                         }
                     }
+                }
                 }
                     }
                     }
