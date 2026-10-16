@@ -97,7 +97,7 @@ pub(crate) fn moved(
         if fresh {
             let left = target.toward(Side::Left, rtl).is_some();
             let right = target.toward(Side::Right, rtl).is_some();
-            let gesture = Gesture::press(&s.touch, window_width, pressed, width, left, right, now);
+            let gesture = Gesture::press(&s.touch, window_width, pressed, width, left, right);
             s.tracked = Some(Tracked {
                 key: key.to_owned(),
                 gesture,

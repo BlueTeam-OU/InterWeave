@@ -16,8 +16,6 @@
 //! times milliseconds on a monotonic clock the caller supplies, so a test
 //! replays a touch exactly.
 
-use std::collections::VecDeque;
-
 /// The platform's values the gesture reads (§4, §7).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TouchSettings {
@@ -72,15 +70,14 @@ pub fn snackbar_ms(recommended: u64) -> u64 {
 pub(crate) const ARM_FRACTION: f32 = 0.4;
 /// The least distance that arms, whatever the row's width.
 pub(crate) const ARM_MIN: f32 = 96.0;
-/// A fling commits from this speed, in logical pixels per second.
-pub(crate) const FLING_SPEED: f32 = 1_000.0;
-/// A fling must have moved the row at least this far.
+/// A fling must have moved the row at least this far from touch-down.
 pub(crate) const FLING_MIN: f32 = 48.0;
-/// A fling's speed is the finger's average over this window before the
-/// release.
+/// A fling is released within this long of the first move the row sees.
+/// A time window rather than a speed: on Slint 1.18.1 a press inside a
+/// scrolling list reaches the row about 100 ms late, so a fling's early
+/// moves are never seen and a speed over them cannot be measured (§4,
+/// measured on a Pixel 9a).
 pub(crate) const FLING_WINDOW_MS: u64 = 100;
-/// And needs at least this many position samples in it.
-pub(crate) const FLING_SAMPLES: usize = 3;
 
 /// A side of the screen the row moved toward.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,14 +126,16 @@ pub(crate) struct Gesture {
     phase: Phase,
     offset: f32,
     armed: bool,
-    /// Recent (time, x) samples, oldest first: a fling's speed.
-    samples: VecDeque<(u64, f32)>,
+    /// When the row saw its first move: a fling's window opens there.
+    first_move: Option<u64>,
 }
 
 impl Gesture {
     /// A press at `at` (window coordinates), on a row `width` wide that
-    /// may move `left` and `right` on screen, at `now` ms. A press inside
-    /// a gesture inset is the system's: the row never tracks it.
+    /// may move `left` and `right` on screen. A press inside a gesture
+    /// inset is the system's: the row never tracks it. `at` is where the
+    /// finger touched down, as Slint reports it, which a fling's distance
+    /// counts from.
     #[must_use]
     pub(crate) fn press(
         settings: &TouchSettings,
@@ -145,11 +144,8 @@ impl Gesture {
         width: f32,
         left: bool,
         right: bool,
-        now: u64,
     ) -> Self {
         let in_inset = at.0 < settings.edge_left || at.0 > window_width - settings.edge_right;
-        let mut samples = VecDeque::new();
-        samples.push_back((now, at.0));
         Self {
             start: at,
             width,
@@ -163,7 +159,7 @@ impl Gesture {
             },
             offset: 0.0,
             armed: false,
-            samples,
+            first_move: None,
         }
     }
 
@@ -185,14 +181,7 @@ impl Gesture {
                 self.phase = Phase::Ignored;
             }
         }
-        self.samples.push_back((now, at.0));
-        while self
-            .samples
-            .front()
-            .is_some_and(|(t, _)| now.saturating_sub(*t) > FLING_WINDOW_MS)
-        {
-            self.samples.pop_front();
-        }
+        self.first_move.get_or_insert(now);
         if self.phase != Phase::Tracking {
             return Step {
                 offset: 0.0,
@@ -220,14 +209,18 @@ impl Gesture {
     }
 
     /// The finger lifted at `now` ms: the side to commit toward, or `None`
-    /// to spring back. A release while armed commits; so does a fling in
-    /// an allowed direction fast enough, over enough samples, that moved
-    /// the row far enough, armed or not.
+    /// to spring back. A release while armed commits; so does a fling,
+    /// armed or not: a release within [`FLING_WINDOW_MS`] of the first move
+    /// the row saw, the row having moved at least [`FLING_MIN`] from
+    /// touch-down in an allowed direction (§4). A single late move of that
+    /// distance is a fling, since the distance counts from touch-down.
     #[must_use]
     pub(crate) fn release(&self, now: u64) -> Option<Side> {
         if self.phase != Phase::Tracking {
             return None;
         }
+        // The offset is held at rest the way the row does not move, so its
+        // sign is the allowed direction it moved in.
         let side = if self.offset > 0.0 {
             Side::Right
         } else {
@@ -236,22 +229,10 @@ impl Gesture {
         if self.armed {
             return Some(side);
         }
-        let recent: Vec<&(u64, f32)> = self
-            .samples
-            .iter()
-            .filter(|(t, _)| now.saturating_sub(*t) <= FLING_WINDOW_MS)
-            .collect();
-        let (Some(first), Some(last)) = (recent.first(), recent.last()) else {
-            return None;
-        };
-        if recent.len() < FLING_SAMPLES || last.0 <= first.0 {
-            return None;
-        }
-        #[allow(clippy::cast_precision_loss)]
-        let seconds = (last.0 - first.0) as f32 / 1_000.0;
-        let speed = (last.1 - first.1) / seconds;
-        let toward = (speed > 0.0 && side == Side::Right) || (speed < 0.0 && side == Side::Left);
-        (toward && speed.abs() >= FLING_SPEED && self.offset.abs() >= FLING_MIN).then_some(side)
+        let quick = self
+            .first_move
+            .is_some_and(|first| now.saturating_sub(first) <= FLING_WINDOW_MS);
+        (quick && self.offset.abs() >= FLING_MIN).then_some(side)
     }
 
     /// Whether the row is following the finger.
@@ -285,7 +266,7 @@ mod tests {
     }
 
     fn press(left: bool, right: bool) -> Gesture {
-        Gesture::press(&phone(), WINDOW, (200.0, 100.0), ROW, left, right, 0)
+        Gesture::press(&phone(), WINDOW, (200.0, 100.0), ROW, left, right)
     }
 
     /// Move along a straight line from the press, `steps` samples `ms`
@@ -377,7 +358,7 @@ mod tests {
 
     #[test]
     fn the_threshold_is_never_under_96_on_a_narrow_row() {
-        let mut g = Gesture::press(&phone(), WINDOW, (200.0, 100.0), 160.0, true, true, 0);
+        let mut g = Gesture::press(&phone(), WINDOW, (200.0, 100.0), 160.0, true, true);
         assert!(!g.moved((290.0, 100.0), 10).armed, "40 % would be 64");
         assert!(g.moved((297.0, 100.0), 20).armed);
     }
@@ -400,44 +381,60 @@ mod tests {
     }
 
     #[test]
-    fn a_quick_flick_of_60_commits_unarmed() {
-        // Item 3: about 60 dp in 50 ms.
+    fn a_fling_of_75_in_150_ms_from_touch_down_commits_unarmed() {
+        // Item 3, as the Pixel delivers it: the press reaches the row about
+        // 100 ms late, so the row sees the last 50 ms of a 150 ms fling.
         let mut g = press(true, true);
-        let step = drag(&mut g, 60.0, 0.0, 5, 10);
+        g.moved((250.0, 100.0), 100);
+        let step = g.moved((275.0, 100.0), 140);
         assert!(!step.armed);
-        assert_eq!(g.release(55), Some(Side::Right));
+        assert_eq!(g.release(150), Some(Side::Right));
     }
 
     #[test]
-    fn a_fling_needs_its_distance_its_speed_and_three_samples() {
-        // Fast but under 48.
+    fn a_single_late_move_of_48_from_touch_down_is_a_fling() {
         let mut g = press(true, true);
-        drag(&mut g, 40.0, 0.0, 4, 10);
+        g.moved((248.0, 100.0), 120);
+        assert_eq!(g.release(220), Some(Side::Right), "100 ms after the move");
+        let mut g = press(true, true);
+        g.moved((152.0, 100.0), 120);
+        assert_eq!(g.release(130), Some(Side::Left), "to the left too");
+    }
+
+    #[test]
+    fn a_fling_needs_its_distance_and_its_window() {
+        // Quick but under 48 from touch-down.
+        let mut g = press(true, true);
+        drag(&mut g, 47.0, 0.0, 4, 10);
         assert_eq!(g.release(45), None);
-        // Far enough but slow: 60 in 300 ms.
+        // Far enough, released 101 ms after the first move.
         let mut g = press(true, true);
-        drag(&mut g, 60.0, 0.0, 10, 30);
-        assert_eq!(g.release(305), None);
-        // Fast, far, but two samples in the window.
-        let mut g = press(true, true);
-        g.moved((260.0, 100.0), 300);
-        g.moved((280.0, 100.0), 310);
-        assert_eq!(g.release(311), None);
-        // A flick back toward rest is not one away from it.
+        g.moved((260.0, 100.0), 10);
+        assert_eq!(g.release(111), None);
+        // A long drag ending fast is not a fling: the window is from the
+        // first move, not the last.
         let mut g = press(true, true);
         drag(&mut g, 120.0, 0.0, 10, 30);
-        for (i, x) in [300.0, 280.0, 265.0, 260.0].into_iter().enumerate() {
-            g.moved((x, 100.0), 400 + 10 * u64::try_from(i).expect("small"));
-        }
-        assert_eq!(g.release(435), None);
+        assert_eq!(g.release(305), None);
+        // A direction the row does not offer: no fling that way.
+        let mut g = press(false, true);
+        g.moved((140.0, 100.0), 10);
+        assert_eq!(g.release(20), None);
+    }
+
+    #[test]
+    fn a_release_with_no_move_seen_does_nothing() {
+        // A fling that ended before the row saw a move (§4).
+        let g = press(true, true);
+        assert_eq!(g.release(90), None);
     }
 
     #[test]
     fn a_touch_that_starts_in_a_gesture_inset_is_the_systems() {
-        let mut g = Gesture::press(&phone(), WINDOW, (10.0, 100.0), ROW, true, true, 0);
+        let mut g = Gesture::press(&phone(), WINDOW, (10.0, 100.0), ROW, true, true);
         g.moved((200.0, 100.0), 50);
         assert!(!g.tracking(), "the left edge's back gesture");
-        let mut g = Gesture::press(&phone(), WINDOW, (390.0, 100.0), ROW, true, true, 0);
+        let mut g = Gesture::press(&phone(), WINDOW, (390.0, 100.0), ROW, true, true);
         g.moved((200.0, 100.0), 50);
         assert!(!g.tracking(), "the right edge's");
     }
