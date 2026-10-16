@@ -353,7 +353,7 @@ impl Shared {
         // A snackbar closing is STATE too: refused, an Undo would stay
         // offered after its snackbar had gone, and leaving the conversation
         // closes it. So neither is refused, and each coalesces instead: one
-        // closing per snackbar, one Left until a selection follows it.
+        // closing per snackbar, one Left until a selection or the trust settings follow it.
         if let Input::SnackClosed(id) = input {
             if !self.inputs.contains(&Input::SnackClosed(id)) {
                 self.inputs.push_back(input);
@@ -365,7 +365,7 @@ impl Shared {
                 .inputs
                 .iter()
                 .rev()
-                .take_while(|i| !matches!(i, Input::Select(_)))
+                .take_while(|i| !matches!(i, Input::Select(_) | Input::TrustPage(_)))
                 .any(|i| *i == Input::Left);
             if !waiting {
                 self.inputs.push_back(input);

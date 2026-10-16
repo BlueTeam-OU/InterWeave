@@ -2391,6 +2391,29 @@ fn closing_the_trust_settings_to_the_list_reads_nothing() {
     assert!(!arrival_read_after_closing_trust(true));
 }
 
+/// Back to the list, the trust settings opened and closed back to the
+/// list, all before a take: the second Left still counts, and the
+/// conversation is not on screen (review N1 on #289).
+#[test]
+fn back_then_the_trust_settings_in_one_take_reads_nothing() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    model.read(RowId::from_stored(1));
+    view.window().invoke_left_conversation();
+    view.window().invoke_open_trust();
+    view.window().invoke_close_trust(true);
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    model.received(received(2, &bob, "arrives on the list"));
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read from the list: {raised:?}");
+}
+
 /// The control: a wide window shows the conversation again, and reads it.
 #[test]
 fn closing_the_trust_settings_to_the_conversation_reads_it() {
