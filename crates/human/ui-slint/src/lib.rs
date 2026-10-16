@@ -893,9 +893,11 @@ impl View {
     }
 
     /// Resolve queued inputs against `model`, oldest first, up to and
-    /// including the first draft edit: the root applies that edit and
-    /// calls again, so a send queued after an edit reads the edited draft
-    /// (agreed P2). A call also stops before a Back that follows an
+    /// including the first that the root must apply before the next is
+    /// judged: a draft edit, so a send queued after it reads the edited
+    /// draft (agreed P2); the trust settings opened or closed; an input in
+    /// them; and a selection that leaves them, which cancels a change
+    /// still waiting. A call also stops before a Back that follows an
     /// intent of its own take, leaving the Back first in the queue: the
     /// snackbar that intent may open exists only once the root applies
     /// it. The root calls again until a call returns nothing,
