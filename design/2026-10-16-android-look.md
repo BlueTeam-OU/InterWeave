@@ -46,9 +46,11 @@ The scheme is built from the icon's palette (`assets/README.md`: navy
 `#232c63`, teal `#2ec4b6`, amber `#ffb547`). Teal is the primary colour,
 amber marks what is new, and the dark scheme's surfaces are a navy-tinted
 near-black. Colour and icons are brand-comms's. That role has no holder
-placed in this repository yet, so the values below are the roles
-rust-ui-dev adds to `Palette` in `app.slint`, as the remit says. A
-brand-comms holder may later change a value, keeping its contrast.
+placed in this repository yet, so, as the remit says, this spec names
+the roles and the contrast each must hold, and rust-ui-dev adds them to
+`Palette` in `app.slint`. The values are proposals, measured to meet
+those contrasts: rust-ui-dev or a later brand-comms holder may change a
+value if every pair it is in still meets its need in the table below.
 
 Each role exists in both schemes; the platform's dark or light setting
 picks one, as `Palette.dark` does today.
@@ -344,8 +346,8 @@ this change the "Conversations" title is that focus target.
 
 On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 
-1. Every pair in §3's contrast table holds as measured from a
-   screenshot (the drawn colours equal §3's values).
+1. Every pair in §3's contrast table meets its need, measured from a
+   screenshot, in both schemes. The avatar pairs (§5.1) hold 4.5:1.
 2. Chats: the app bar's title is "Conversations" and Trust settings is an icon
    button in it. The bottom outlined button is gone.
 3. Chats: each row shows the avatar, the name, the last message (or
