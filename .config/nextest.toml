@@ -20,10 +20,11 @@
 #       daemons bind it and the tests share it SILENTLY (the #276 failure,
 #       net.rs says how). Under cargo test, the tests running at once were
 #       one binary's and shared the set. Every free_port caller CI runs is
-#       in desktop-e2e (android-e2e's are #[ignore]d; the upgrade matrix
-#       runs in a step of its own), so that package is the group below.
-#       A free_port caller added in another package needs adding here,
-#       until free_port answers uniquely across processes.
+#       in desktop-e2e or android-e2e (whose stand-in cases, paths.rs and
+#       human_chat.rs, are not #[ignore]d; the upgrade matrix runs in a
+#       step of its own, one process), so those two packages are the group
+#       below. A free_port caller added in another package needs adding
+#       here, until free_port answers uniquely across processes.
 #   OnceLock registries and log sinks (transport-contract's
 #       schema_round_trip and negative_conformance, ipc-v2's wire,
 #       ipc-protocol's schema_agreement, composition's trust_overlay and
@@ -36,14 +37,15 @@
 # and nextest would report it as a pass.
 
 [test-groups]
-# The desktop end-to-end suite, one test at a time: the X display's one
-# input focus (FOCUS) and free_port's per-process set (HANDED_OUT), above.
-# About 83 s in all, measured on #288, beside the rest of the run.
-desktop-e2e = { max-threads = 1 }
+# The desktop and Android end-to-end suites, one test at a time: the X
+# display's one input focus (FOCUS) and free_port's per-process set
+# (HANDED_OUT), above. About 86 s in all, measured on #288, beside the
+# rest of the run.
+end-to-end = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = 'package(interweave-desktop-e2e-tests)'
-test-group = 'desktop-e2e'
+filter = 'package(interweave-desktop-e2e-tests) | package(interweave-android-e2e-tests)'
+test-group = 'end-to-end'
 
 [profile.ci]
 # Run every test and report the whole tally. `cargo test` stopped at the
