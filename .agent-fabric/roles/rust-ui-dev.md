@@ -39,7 +39,9 @@ proposes it.
 - the Slint views, and the implementation and tests of their
   accessibility (TalkBack, focus, touch targets, contrast, motion);
 - the palette in `crates/human/ui-slint/ui/app.slint` and the icons,
-  until a brand-comms holder is placed here;
+  until a brand-comms holder is placed here: a colour or icon role a
+  ux-designer specification names, with its contrast, you add there and
+  give a value that meets it;
 - the human store's SQL schema and its shape guard (`verify_shape`),
   and the conformance tests RETENTION.md §9 requires; RETENTION.md
   itself is a contract (below).
