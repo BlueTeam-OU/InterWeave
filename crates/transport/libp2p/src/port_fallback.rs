@@ -629,7 +629,9 @@ mod tests {
         /// listen port. Not the source of whatever `far` accepts first:
         /// another test in the run can reach `far`'s port too -- dialling
         /// one it held, which the kernel then gave `far` -- and its
-        /// connection is not this dial (InterWeave#283's CI failure).
+        /// connection is not this dial. That is one of the two causes
+        /// InterWeave#283's CI failure cannot tell apart; the other is the
+        /// counted refusal the control below allows.
         async fn dial_through<T>(mut t: PortFallback<T>) -> (u16, u16, PortFallbackCounts)
         where
             T: Transport<Output = tcp::tokio::TcpStream, Error = io::Error> + Unpin,
