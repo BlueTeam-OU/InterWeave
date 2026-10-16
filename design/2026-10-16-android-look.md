@@ -95,6 +95,10 @@ the storage notice must stand out from everything else on screen.
 | `on-surface-variant` on `surface` | 4.5 | 9.9 | 7.6 |
 | `on-surface` on `surface-container-high` | 4.5 | 11.3 | 14.1 |
 | `on-surface-variant` on `surface-container-high` | 4.5 | 7.7 | 6.6 |
+| `on-surface-variant` on `surface-container` (the wide-screen pane) | 4.5 | 9.2 | 7.0 |
+| `on-surface-variant` on `primary-container` (status, time, reply line in a sent bubble) | 4.5 | 5.3 | 6.2 |
+| `on-surface` on `primary-container` (the selected row's name) | 4.5 | 7.9 | 13.3 |
+| `error` on `primary-container` (a failed send's words) | 4.5 | 5.8 | 5.0 |
 | `on-primary-container` on `primary-container` | 4.5 | 8.7 | 13.3 |
 | `on-primary` on `primary` | 4.5 | 10.3 | 6.5 |
 | `primary` as text or ring on `surface` | 4.5 | 10.8 | 6.2 |
