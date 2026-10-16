@@ -1399,7 +1399,7 @@ impl View {
         }
         outcome.announce.map(|announce| match announce {
             Announce::Confirmed(confirms) => swipe::confirmation_text(confirms).to_owned(),
-            Announce::Restored => placeholder_en::text(UiText::Restored).to_owned(),
+            Announce::Restored => placeholder_en::text(UiText::ActionUndone).to_owned(),
         })
     }
 
@@ -1787,7 +1787,7 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
             .iter()
             // Unread, as every message is when it arrives: a read one
             // that comes back -- a Hide undone -- is not an arrival, and
-            // its Undo says "Restored" already.
+            // its Undo says "Action undone" already.
             .filter(|(key, item)| {
                 item.direction == Direction::Inbound
                     && item.status == ItemStatus::Inbound(Retention::Unread)

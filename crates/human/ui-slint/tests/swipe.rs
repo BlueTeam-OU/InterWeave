@@ -306,7 +306,7 @@ fn a_hide_is_confirmed_announced_focused_and_undone_in_place() {
         "back in its place"
     );
     assert!(!view.window().get_snack_shown());
-    assert_eq!(announced(&view), text(UiText::Restored));
+    assert_eq!(announced(&view), text(UiText::ActionUndone));
 }
 
 #[test]

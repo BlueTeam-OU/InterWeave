@@ -13,10 +13,8 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use interweave_human_client_api::OutboundStatus;
 use interweave_human_ui_model::{
-    Confirmation, ConversationKey, ItemKey, RowAction, SwipeOffer, UiText, outbound_label,
-    placeholder_en,
+    Confirmation, ConversationKey, ItemKey, RowAction, SwipeOffer, UiText, placeholder_en,
 };
 use slint::ComponentHandle as _;
 
@@ -229,19 +227,20 @@ pub(crate) const fn action_text(action: RowAction) -> &'static str {
     })
 }
 
-/// What a snackbar says, and its announcement: a cancel in the words of
-/// the row's own cancelled label (§8).
+/// What a snackbar says, and its announcement: what just happened, a
+/// cancel saying whether an attempt may have reached the peer (§8).
 pub(crate) fn confirmation_text(confirms: Confirmation) -> &'static str {
     match confirms {
         Confirmation::Kept => placeholder_en::text(UiText::ConfirmKept),
         Confirmation::Hidden => placeholder_en::text(UiText::ConfirmHidden),
         Confirmation::Unkept => placeholder_en::text(UiText::ConfirmUnkept),
         Confirmation::ConversationHidden => placeholder_en::text(UiText::ConfirmConversationHidden),
-        Confirmation::Cancelled { may_have_reached } => {
-            placeholder_en::label(outbound_label(&OutboundStatus::Cancelled {
-                may_have_reached,
-            }))
-        }
+        Confirmation::Cancelled {
+            may_have_reached: false,
+        } => placeholder_en::text(UiText::ConfirmSendingCanceled),
+        Confirmation::Cancelled {
+            may_have_reached: true,
+        } => placeholder_en::text(UiText::ConfirmSendingCanceledMayHaveReached),
     }
 }
 
