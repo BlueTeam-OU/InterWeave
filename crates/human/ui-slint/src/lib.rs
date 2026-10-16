@@ -1034,8 +1034,15 @@ impl View {
                 }
             }
         }
-        self.leaving_conversations
-            .retain(|(.., until)| *until > now);
+        let slid = self.window.get_swipe_key();
+        self.leaving_conversations.retain(|(key, row, until)| {
+            let back = keys.contains(key);
+            if back && slid.as_str() == format!("c:{}", row.handle) {
+                self.window.set_swipe_key(SharedString::new());
+                self.window.set_swipe_offset(0.0);
+            }
+            !back && *until > now
+        });
         for (key, row, _) in &self.leaving_conversations {
             let at = self
                 .conversation_keys
@@ -1149,7 +1156,17 @@ impl View {
         } else {
             self.leaving_messages.clear();
         }
-        self.leaving_messages.retain(|(.., until)| *until > now);
+        // A row back before its space closed -- an Undo -- is shown, once,
+        // and at rest: its slide out is over.
+        let slid = self.window.get_swipe_key();
+        self.leaving_messages.retain(|(key, row, until)| {
+            let back = keys.contains(key);
+            if back && slid.as_str() == format!("m:{}", row.handle) {
+                self.window.set_swipe_key(SharedString::new());
+                self.window.set_swipe_offset(0.0);
+            }
+            !back && *until > now
+        });
         for (key, row, _) in &self.leaving_messages {
             // Back in its place: after the row it last followed that is
             // still shown, or first.
