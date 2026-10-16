@@ -10,7 +10,8 @@
 # test harness, daemon or transport runtime -- src/lib.rs's
 # the_crate_reaches_no_libp2p_harness_daemon_or_runtime fails if one
 # does. TEST-ONLY; that the release APK's graph names it nowhere is the
-# packaging batch's check (DECISION 01a12770), not yet built.
+# packaging batch's check (DECISION 01a12770): check_human_layering rule
+# 6 and the app's Gradle task verifyReleaseNative.
 [package]
 name = "interweave-android-e2e-cases"
 version = "0.0.0"

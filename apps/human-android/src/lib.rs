@@ -8,7 +8,18 @@
 
 #[cfg(target_os = "android")]
 mod activity;
+#[cfg(all(target_os = "android", feature = "e2e-cases"))]
+mod e2e;
 #[cfg(target_os = "android")]
 mod jni;
 #[cfg(target_os = "android")]
 mod keystore;
+// On every target, so the host tests the filter the phone writes with.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; jni.rs installs it on Android"
+    )
+)]
+mod platform_log;

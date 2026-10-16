@@ -9,10 +9,16 @@ The Android side sits behind a seam, the `Device` trait in `src/lib.rs`: the lif
 
 The desktop side is a `transport-daemon` from the shared harness (`interweave-test-support`, feature `e2e`), and its half of each case is here.
 
-Running on a device: install the app's debug and androidTest builds, then
+Running on a device: install the app's debug build and its androidTest build. The debug native library carries the case entry (feature `e2e-cases`, `apps/human-android/src/e2e.rs`); the release build carries neither, which its Gradle build checks (`verifyReleaseNative`). Build and install from `apps/human-android/android`:
 
 ```sh
-ANDROID_SERIAL=<serial> INTERWEAVE_ANDROID_INSTRUMENTATION=<test package>/<runner> \
+./gradlew installDebug installDebugAndroidTest
+```
+
+The instrumentation is `org.interweave.human.test/org.interweave.human.test.E2eCase` (`app/src/androidTest/`). Then:
+
+```sh
+ANDROID_SERIAL=<serial> INTERWEAVE_ANDROID_INSTRUMENTATION=org.interweave.human.test/org.interweave.human.test.E2eCase \
   cargo test -p interweave-android-e2e-tests --test paths -- --ignored --test-threads 1
 ```
 

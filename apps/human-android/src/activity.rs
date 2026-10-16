@@ -188,6 +188,7 @@ fn focus(focused: bool) {
 )]
 #[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {
+    crate::jni::log_panics();
     log("android_main: the Activity's views start");
     if let Err(e) = init_android(app, |event| match event {
         ActivityEvent::Focus(focused) => focus(focused),

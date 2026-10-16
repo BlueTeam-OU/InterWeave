@@ -24,7 +24,7 @@ use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jboolean, jint, jlong};
 
 /// The profile the app runs, as the android-e2e harness names it.
-const PROFILE: &str = "human-android";
+pub(crate) const PROFILE: &str = "human-android";
 
 /// How long a stop lets exchanges in flight settle: what the runtime's
 /// own tests use, and p2p-network-dev-01's word that it is enough (relay
@@ -57,6 +57,24 @@ mod refused {
 /// One line to the platform's log, under the app's tag. A started
 /// Service has no Activity, so nothing has redirected stderr there.
 pub(crate) fn log(line: &str) {
+    log_at(ndk_sys::android_LogPriority::ANDROID_LOG_INFO, line);
+}
+
+/// The runtime's events to the platform's log, at their own priority
+/// (`crate::platform_log` filters them).
+fn log_event(level: tracing::Level, line: &str) {
+    use ndk_sys::android_LogPriority as P;
+    let priority = match level {
+        tracing::Level::ERROR => P::ANDROID_LOG_ERROR,
+        tracing::Level::WARN => P::ANDROID_LOG_WARN,
+        tracing::Level::INFO => P::ANDROID_LOG_INFO,
+        tracing::Level::DEBUG => P::ANDROID_LOG_DEBUG,
+        tracing::Level::TRACE => P::ANDROID_LOG_VERBOSE,
+    };
+    log_at(priority, line);
+}
+
+fn log_at(priority: ndk_sys::android_LogPriority, line: &str) {
     let (Ok(tag), Ok(text)) = (
         CString::new("interweave"),
         CString::new(line.replace('\0', " ")),
@@ -70,11 +88,57 @@ pub(crate) fn log(line: &str) {
     // SAFETY: both pointers are to NUL-terminated strings that outlive the call.
     unsafe {
         ndk_sys::__android_log_write(
-            i32::try_from(ndk_sys::android_LogPriority::ANDROID_LOG_INFO.0).unwrap_or(4),
+            i32::try_from(priority.0).unwrap_or(4),
             tag.as_ptr(),
             text.as_ptr(),
         );
     }
+}
+
+/// Send every panic's message and location to the platform's log, once
+/// per process. Without it a panic leaves no trace: the default hook
+/// writes to stderr, which Android discards, and the boundary's
+/// `ThrowRuntimeExAndDefault` keeps a `&'static str` payload alone, so a
+/// formatted panic reached Java as "non-string panic payload" (the j66
+/// device run of 2026-10-14). The default hook still runs after it.
+pub(crate) fn log_panics() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let default = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let payload = info.payload();
+            let message = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("a panic with no message");
+            let at = info
+                .location()
+                .map(|l| format!(" at {}:{}", l.file(), l.line()))
+                .unwrap_or_default();
+            let thread = std::thread::current();
+            log(&format!(
+                "panic on thread {}{at}: {message}",
+                thread.name().unwrap_or("unnamed")
+            ));
+            default(info);
+        }));
+    });
+}
+
+/// The JVM calls it when `System.loadLibrary` loads this library: from
+/// `Native.kt` for the Service, and from the instrumentation.
+#[allow(unsafe_code, reason = "the JVM finds JNI_OnLoad by its unmangled name")]
+#[unsafe(no_mangle)]
+extern "system" fn JNI_OnLoad(
+    _vm: *mut jni::sys::JavaVM,
+    _reserved: *mut std::ffi::c_void,
+) -> jint {
+    log_panics();
+    // The runtime's log, once per process: the Service's and the
+    // instrumentation's alike load the library.
+    let _ = crate::platform_log::install(log_event);
+    jni::sys::JNI_VERSION_1_6
 }
 
 /// The identity the runtime starts with: the profile's record, unwrapped
@@ -153,7 +217,12 @@ fn start_without_network(app_data_dir: &str) -> jint {
     if let Err(code) = provision(app_data_dir) {
         return code;
     }
-    match ServiceHost::global().start_without_network(std::path::Path::new(app_data_dir), PROFILE) {
+    let host = ServiceHost::global();
+    let dir = std::path::Path::new(app_data_dir);
+    let started = crate::platform_log::around_start(host, dir, PROFILE, || {
+        host.start_without_network(dir, PROFILE)
+    });
+    match started {
         Ok(()) => {
             log("no network access: the store is open and no runtime runs");
             NETWORK_DENIED
@@ -173,11 +242,15 @@ fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
         Err(code) => return code,
     };
     let host = ServiceHost::global();
-    match host.start(ServiceLaunch {
-        app_data_dir: app_data_dir.into(),
-        profile: PROFILE.to_owned(),
-        identity,
-    }) {
+    let dir = std::path::PathBuf::from(&app_data_dir);
+    let started = crate::platform_log::around_start(host, &dir, PROFILE, || {
+        host.start(ServiceLaunch {
+            app_data_dir: dir.clone(),
+            profile: PROFILE.to_owned(),
+            identity,
+        })
+    });
+    match started {
         Ok(()) => {
             // The networks reported before the runtime existed, which it
             // heard at its start: a count, no address.

@@ -30,6 +30,9 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.0.0"
+        // The android-e2e cases' runner (src/androidTest/, tests/android-e2e's
+        // src/adb.rs): one case per `am instrument`, in the app's process.
+        testInstrumentationRunner = "org.interweave.human.test.E2eCase"
         ndk {
             // The phones this client is built for (plan section 20).
             abiFilters += "arm64-v8a"
@@ -73,8 +76,11 @@ listOf("Debug", "Release").forEach { variant ->
         // creates a first run's identity without asking (jni.rs's
         // FirstRun::Create), until profile-config's provisioning and step 7's
         // onboarding land, and only it does.
+        // The debug build also carries the instrumentation's case entry
+        // (e2e-cases, src/e2e.rs); the release build carries neither, which
+        // verifyReleaseNative below checks of the library it packages.
         val profile =
-            if (variant == "Release") listOf("--release") else listOf("--features", "dev-stand-ins")
+            if (variant == "Release") listOf("--release") else listOf("--features", "dev-stand-ins,e2e-cases")
         // --locked: the library is built from the reviewed Cargo.lock, as
         // every other cargo build here is (CI's `cargo check --locked` for
         // this target included); a lockfile the build would rewrite is a
@@ -90,4 +96,24 @@ listOf("Debug", "Release").forEach { variant ->
     tasks.matching { it.name == "merge${variant}JniLibFolders" }.configureEach {
         dependsOn(cargo)
     }
+}
+
+// The release library names no android-e2e entry: the instrumentation's
+// case entry is the debug build's alone (DECISION 01a12770's invariant
+// for the APK; the Cargo graph's own check is devex-tooling's).
+val verifyReleaseNative = tasks.register("verifyReleaseNative") {
+    group = "verification"
+    description = "Fails if the release native library carries the android-e2e case entry."
+    dependsOn("cargoNdkRelease")
+    val library = rustJniLibs("Release").map { it.file("arm64-v8a/libinterweave_human_android.so") }
+    inputs.file(library)
+    doLast {
+        val bytes = library.get().asFile.readBytes().toString(Charsets.ISO_8859_1)
+        for (name in listOf("Java_org_interweave_human_test_E2eCase_run", "interweave_android_e2e_cases")) {
+            check(!bytes.contains(name)) { "the release native library carries $name" }
+        }
+    }
+}
+tasks.matching { it.name == "mergeReleaseJniLibFolders" }.configureEach {
+    dependsOn(verifyReleaseNative)
 }

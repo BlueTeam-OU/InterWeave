@@ -96,8 +96,8 @@ pub use status::{DialGateStatus, IngressStatus, PreAuthStatus, ResolverSource, R
 
 pub use handle::{NetworkMonitor, ShutdownReport, SwarmCommander};
 pub use messages::{
-    DialFailureClass, DialRefusal, HolePunchOutcome, NetworkView, PathChange, PeerGate, PeerPath,
-    RelayReservationOutcome, RelayServerOutcome, SwarmCommand, SwarmEvent,
+    BackendRefusal, DialFailureClass, DialRefusal, HolePunchOutcome, NetworkView, PathChange,
+    PeerGate, PeerPath, RelayReservationOutcome, RelayServerOutcome, SwarmCommand, SwarmEvent,
 };
 
 pub use config::{
@@ -5197,7 +5197,10 @@ mod shutdown_grace_tests {
 
 #[cfg(test)]
 mod retry_claim_tests {
-    use super::{DialDenial, DialRefusal, RetryClaim, refusal_settles_the_peer, retry_claim};
+    use super::{
+        BackendRefusal, DialDenial, DialFailureClass, DialRefusal, RetryClaim,
+        refusal_settles_the_peer, retry_claim,
+    };
 
     /// A ticket owns the claim, so the tick leaves it alone.
     ///
@@ -5209,7 +5212,13 @@ mod retry_claim_tests {
     fn a_ticketed_peer_keeps_its_claim() {
         assert_eq!(retry_claim(true, None), RetryClaim::Held);
         assert_eq!(
-            retry_claim(true, Some(&DialRefusal::Backend("ignored".into()))),
+            retry_claim(
+                true,
+                Some(&DialRefusal::Backend(BackendRefusal::new(
+                    DialFailureClass::DialFailed,
+                    "ignored"
+                )))
+            ),
             RetryClaim::Held,
             "a refusal from an earlier candidate does not undo the ticket"
         );
@@ -5220,7 +5229,10 @@ mod retry_claim_tests {
     #[test]
     fn an_ordinary_refusal_releases_rather_than_clearing() {
         for refusal in [
-            DialRefusal::Backend("transport said no".into()),
+            DialRefusal::Backend(BackendRefusal::new(
+                DialFailureClass::DialFailed,
+                "transport said no",
+            )),
             DialRefusal::Policy(DialDenial::PeerBackoff),
         ] {
             assert_eq!(
@@ -5262,7 +5274,7 @@ mod retry_claim_tests {
     #[test]
     fn an_address_refusal_leaves_the_other_candidates_worth_trying() {
         assert!(!refusal_settles_the_peer(&DialRefusal::Backend(
-            "bad addr".into()
+            BackendRefusal::new(DialFailureClass::DialFailed, "bad addr")
         )));
         assert!(!refusal_settles_the_peer(&DialRefusal::Policy(
             DialDenial::PeerBackoff
