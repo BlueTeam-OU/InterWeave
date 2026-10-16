@@ -406,8 +406,9 @@ a translation can reorder. The commas give TalkBack its pauses. The
 row's accessible label stays its name (`row.title`, as today), so the
 description does not repeat it. The description keeps `{kind}`: the
 subtitle no longer says "Direct conversation" or "Channel", and a "#"
-read aloud is not a kind (U2a, §7). The three values are pending
-language-culture's final text for this change.
+read aloud is not a kind (U2a, §7). The three values are final: with
+the name first, TalkBack reads a row as, for example, "…x6gY6Eri /
+human, Direct conversation, 2 unread, You: See you at six, 01:18".
 
 The title stays "Conversations", not "Chats". The app calls each item
 a conversation ("Hide conversation", "Conversation hidden", "Back to
