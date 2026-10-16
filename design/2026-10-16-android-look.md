@@ -310,6 +310,15 @@ that exist.
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the overflow button's label, Android's own words for it |
 | `Today`, `Yesterday` | Today, Yesterday | day separators and list times |
+| `ConversationDescription` (exists, new value) | {name}, {unread}, {preview}, {time} | a list row as TalkBack reads it (§7), with unread messages. `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
+| `ConversationDescriptionRead` | {name}, {preview}, {time} | the same, with nothing unread |
+| `ConversationDescriptionEmpty` | {name}, {preview} | the same, with no message held: `{preview}` is "No messages", and there is no time |
+
+A row's description is three templates, not one with optional parts,
+because `labels.rs` never joins strings: each case is a whole sentence
+a translation can reorder. The commas give TalkBack its pauses. The
+old value's `{kind}` ("Direct conversation") goes: the subtitle that
+showed it now shows the last message.
 
 The title stays "Conversations", not "Chats". The app calls each item
 a conversation ("Hide conversation", "Conversation hidden", "Back to
