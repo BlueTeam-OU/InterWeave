@@ -684,3 +684,23 @@ fn a_message_into_a_conversation_hidden_earlier_shows_only_that_message() {
     let arrived = unread(&mut model, &p, 2, 2);
     assert_eq!(shown(&model, &k), [arrived]);
 }
+
+#[test]
+fn a_refused_cancel_is_an_outcome_that_moves_nothing() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let c = pending(&mut model, &p, 1, 1);
+    let before = model.outcome().map(|o| o.id);
+    let cancel = model.intent_for(c, RowAction::Cancel).expect("offered");
+    model.intent_refused(&cancel);
+    let outcome = model.outcome().expect("an outcome");
+    assert_ne!(
+        Some(outcome.id),
+        before,
+        "a new one, for the view to act on"
+    );
+    assert_eq!(outcome.announce, None, "the refusal path says it");
+    assert_eq!(outcome.focus, None, "focus stays");
+    assert!(model.snackbar().is_none());
+    assert_eq!(shown(&model, &key(&p)), [c], "still pending, in place");
+}

@@ -477,8 +477,13 @@ impl UiModel {
     /// Cancel to the next row, as the cancel did -- the message stays
     /// cancelled, and its record is let go -- and a refused Undo of
     /// Unkeep or Keep to that row, still in place.
+    ///
+    /// Any other refusal is an outcome with nothing to say and nowhere to
+    /// move focus: a row a swipe slid out for it -- a Cancel the store
+    /// refused -- springs back on it, and focus stays (§8).
     pub fn intent_refused(&mut self, intent: &Intent) {
         let Some(awaiting) = self.swipe.awaiting else {
+            self.set_outcome(None, None);
             return;
         };
         let matches = match (awaiting, intent) {
@@ -491,6 +496,7 @@ impl UiModel {
             _ => false,
         };
         if !matches {
+            self.set_outcome(None, None);
             return;
         }
         self.swipe.awaiting = None;
