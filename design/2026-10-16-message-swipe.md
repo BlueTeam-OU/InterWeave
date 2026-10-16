@@ -75,7 +75,7 @@ Slint maps 1:1 to dp on Android. Two words used below:
 |---|---|---|
 | idle | — | the row at rest |
 | tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the `swipe-neutral` fill shows, with the action's icon and its label drawn on it in `swipe-on-fill` (§7) |
-| armed | the row has moved ≥ 40 % of its width (at least 96 dp) | the action colour fills the uncovered area, and the icon scales up once (100 → 120 %). One haptic tick plays (`HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE`, or `CONTEXT_CLICK` below API 34), once per crossing. Dragging back below the threshold disarms it, with no second tick |
+| armed | the row has moved at least the larger of 40 % of its width and 96 dp | the action colour fills the uncovered area, and the icon scales up once (100 → 120 %). One haptic tick plays (`HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE`, or `CONTEXT_CLICK` below API 34), once per crossing. Dragging back below the threshold disarms it, with no second tick |
 | commit | release while armed; **or** a fling in the allowed direction at ≥ 1000 dp/s that has moved at least 48 dp, armed or not. The fling's speed is the finger's average over the last 100 ms before release (at least three position samples); with fewer samples it is not a fling | the row's result, §5 |
 | cancel | release while not armed (and not a qualifying fling); a second finger down; the touch cancelled by the system; the list scrolled under the finger | the row springs back to rest (200 ms, decelerate), nothing happens, no snackbar |
 
@@ -255,7 +255,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     own and do not come from the record. If
     an attempt was admitted at the receiver before Cancel ran and
     only its answer was lost, the undone send is answered from the
-    receiver's dedup entry while that entry exists. The entry is bounded
+    receiver's deduplication entry while that entry exists. The entry is bounded
     by its TTL and by eviction, and never survives the receiver's
     restart (ADR-0019). The restored record may go out long after the
     snackbar, and once the entry is gone the receiver may present the
@@ -294,7 +294,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     instant under reduced motion) and the row returns to its place in
     the state the facade reports by then. It stayed pending in the
     transport, so it may already be Sending or accepted by the remote;
-  - the "Send cancelled" snackbar is shown only once the facade has
+  - the "Sending canceled" snackbar is shown only once the facade has
     answered that the Cancel succeeded. A refused Cancel shows none;
   - the existing storage notice and refusal announcement apply;
   - focus returns to the row's first control, even if it had already
@@ -442,7 +442,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
    nothing.
 3. A quick fling right of about 60 dp on a kind-A row commits Keep.
 4. On a kind-A row:
-   - a drag left past the threshold hides it and shows "Hidden";
+   - a drag left past the threshold dismisses it and shows "Dismissed";
    - Undo puts it back in the same place;
    - without Undo, after the snackbar closes, it does not come back in
      this session.
