@@ -226,7 +226,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 
   The status words are never "delivered", "read" or "seen"
   (`human-client-ui.md` §5).
-- **Undo of Cancel restores the record, not a new row.** architect-cto
+- **Undo of Cancel restores the record (a new row id, the same message).** architect-cto
   ruled this on 2026-10-16, and writes it into `human-client-ui.md` §6
   and §13 in InterWeave#284:
   - the undone cancel restores the pending record unchanged: its app
