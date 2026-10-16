@@ -106,6 +106,40 @@ export struct TrustRow {
     origin: string,
 }
 
+// The platform's touch slop, which Rust sets from the system's
+// (swipe spec section 4).
+export global Touch {
+    in property <length> slop: 8px;
+}
+
+// A control's touch area: a press is its tap only while the finger stays
+// within the slop of where it went down (swipe spec section 4). A drag
+// that passes it is a swipe or a scroll, whether or not the row offers
+// one, and never presses the control under it -- a drag along a Chats
+// row once opened and read the conversation it crossed (tests/pointer.rs,
+// `a_drag_from_a_rows_button_never_presses_it_and_a_tap_does` and
+// `a_drag_on_a_conversation_row_offering_no_swipe_opens_and_reads_nothing`).
+// Inside a scrolling list the press reaches it about 100 ms late, and a
+// wander out and back before then is not seen: the release is checked
+// too, so only that is still a tap.
+component TapArea inherits TouchArea {
+    callback tapped();
+    property <bool> drifted;
+    function past-slop() -> bool {
+        abs(self.mouse-x - self.pressed-x) > Touch.slop
+            || abs(self.mouse-y - self.pressed-y) > Touch.slop
+    }
+    pointer-event(event) => {
+        if (event.kind == PointerEventKind.down) { self.drifted = false; }
+    }
+    moved => {
+        if (self.past-slop()) { self.drifted = true; }
+    }
+    clicked => {
+        if (!self.drifted && !self.past-slop()) { root.tapped(); }
+    }
+}
+
 component ActionButton inherits FocusScope {
     in property <string> text;
     in property <string> focus-key;
@@ -150,7 +184,7 @@ component ActionButton inherits FocusScope {
             Text { text: root.text; vertical-alignment: center; accessible-role: none; }
         }
     }
-    TouchArea { clicked => { root.pressed(); } }
+    TapArea { tapped => { root.pressed(); } }
 }
 
 // A heading that takes keyboard and screen-reader focus and does
@@ -234,7 +268,7 @@ component LinkButton inherits FocusScope {
                     accessible-role: none;
                 }
             }
-            TouchArea { clicked => { root.pressed(); } }
+            TapArea { tapped => { root.pressed(); } }
         }
     }
 }
@@ -703,7 +737,7 @@ export component AppWindow inherits Window {
                                 accessible-role: none;
                             }
                         }
-                        TouchArea { clicked => { root.choose(row.handle); } }
+                        TapArea { tapped => { root.choose(row.handle); } }
                     }
                 }
                 }

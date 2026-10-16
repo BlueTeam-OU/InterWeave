@@ -646,6 +646,8 @@ impl View {
         window.set_cancel_label(text(UiText::CancelChange));
         window.set_undo_label(text(UiText::Undo));
         window.set_hide_conversation_label(text(UiText::HideConversation));
+        slint::ComponentHandle::global::<generated::Touch<'_>>(&window)
+            .set_slop(TouchSettings::default().slop);
         let shared = Rc::new(RefCell::new(Shared {
             window: slint::ComponentHandle::as_weak(&window),
             ..Shared::default()
@@ -855,6 +857,9 @@ impl View {
     pub fn set_touch_settings(&self, settings: TouchSettings) {
         self.window.set_rtl(settings.rtl);
         self.window.set_reduced_motion(settings.reduced_motion);
+        // A control's tap ends at the same slop a swipe starts at.
+        slint::ComponentHandle::global::<generated::Touch<'_>>(&self.window)
+            .set_slop(settings.slop);
         self.shared.borrow_mut().touch = settings;
     }
 
