@@ -622,6 +622,47 @@ fn no_undo_is_offered_after_leaving_and_coming_back() {
     );
 }
 
+/// Two conversations side by side in a wide window, a message dismissed
+/// in the first: its snackbar is up with an Undo. Returns the two.
+fn dismissed_in_a_wide_window(
+    view: &mut View,
+    model: &mut UiModel,
+) -> (ConversationKey, ConversationKey) {
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let (alice, bob) = (peer(), peer());
+    read(model, 1, &alice, "first");
+    read(model, 2, &alice, "second");
+    read(model, 3, &bob, "hello");
+    open(view, model, &direct(&alice));
+    labelled(view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(view, model);
+    assert_eq!(
+        labelled(view, text(UiText::Undo)).len(),
+        1,
+        "control: offered"
+    );
+    (direct(&alice), direct(&bob))
+}
+
+/// The trust settings opened in the conversation's place: the person left
+/// it, so its snackbar closes (§5), and is not drawn again with its Undo
+/// when the settings close.
+#[test]
+fn opening_the_trust_settings_closes_the_conversations_snackbar() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, _) = dismissed_in_a_wide_window(&mut view, &mut model);
+    labelled(&view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+    assert!(labelled(&view, text(UiText::Undo)).is_empty());
+    assert_eq!(model.messages(&alice).len(), 1, "the Dismiss stands");
+}
+
 /// A Dismiss, then Back and the same conversation picked again, before
 /// the root takes -- with a keystroke between, which ends a take early, or
 /// without: in the person's order the snackbar was up when they left, so
