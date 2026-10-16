@@ -251,6 +251,7 @@ From the top:
     | status | icon |
     |---|---|
     | Unread | a dot in `tertiary` |
+    | Unread, kept (`UnreadAlsoKept`) | the dot, then the filled bookmark |
     | Read, not kept | none |
     | Kept | a filled bookmark |
     | Sending; Not confirmed, trying again | a clock |
