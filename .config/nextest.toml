@@ -9,30 +9,41 @@
 # of its own, and tests of different binaries run at once (`cargo test`
 # runs one binary at a time, its tests on threads). So a test that relies
 # on sharing ITS PROCESS with its siblings, through a static, loses that
-# here, and has to be named below. The statics found when this was written
-# (2026-10-16), and why each needs nothing or something:
+# here, and has to be named below. The statics in test targets when this
+# was written (2026-10-16), and why each needs a group or nothing:
 #
 #   tests/desktop-e2e/tests/human_app/display.rs  FOCUS, a lock on the X
-#       display's one input focus. Across processes it locks nothing, so
-#       the binary runs one test at a time: the group below.
+#       display's one input focus. Across processes it locks nothing.
 #   tests/support/src/net.rs  HANDED_OUT, free_port never answering one
-#       port twice in a process. A second process can be answered the same
-#       port, which that file already names as not closed (another process
-#       binding between the answer and the bind).
-#   OnceLock registries and log sinks (schema_round_trip, ipc-v2 wire,
-#       composition's trust_overlay and endpoint_overlay): built once per
-#       process instead of once per binary -- more work, the same answer.
+#       port twice in a process. Across processes two tests can be handed
+#       one port, and since libp2p-tcp listens with SO_REUSEPORT both
+#       daemons bind it and the tests share it SILENTLY (the #276 failure,
+#       net.rs says how). Under cargo test, the tests running at once were
+#       one binary's and shared the set. Every free_port caller CI runs is
+#       in desktop-e2e (android-e2e's are #[ignore]d; the upgrade matrix
+#       runs in a step of its own), so that package is the group below.
+#       A free_port caller added in another package needs adding here,
+#       until free_port answers uniquely across processes.
+#   OnceLock registries and log sinks (transport-contract's
+#       schema_round_trip and negative_conformance, ipc-v2's wire,
+#       ipc-protocol's schema_agreement, composition's trust_overlay and
+#       endpoint_overlay) and message-id counters (claude_channel's and
+#       transport-client facade's NEXT, mdns_bounds' interface counter):
+#       built or counted per process instead of per binary, and each test
+#       builds its own stores and names, so the same answer.
 #
 # No retries, deliberately: a test that passes on its second try failed,
 # and nextest would report it as a pass.
 
 [test-groups]
-# The X display's one input focus (display.rs, FOCUS).
-x-display-focus = { max-threads = 1 }
+# The desktop end-to-end suite, one test at a time: the X display's one
+# input focus (FOCUS) and free_port's per-process set (HANDED_OUT), above.
+# About 83 s in all, measured on #288, beside the rest of the run.
+desktop-e2e = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = 'binary_id(interweave-desktop-e2e-tests::human_app)'
-test-group = 'x-display-focus'
+filter = 'package(interweave-desktop-e2e-tests)'
+test-group = 'desktop-e2e'
 
 [profile.ci]
 # Run every test and report the whole tally. `cargo test` stopped at the
