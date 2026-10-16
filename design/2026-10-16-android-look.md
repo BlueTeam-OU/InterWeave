@@ -103,6 +103,7 @@ the storage notice must stand out from everything else on screen.
 | `on-primary-container` as link text on `primary-container` | 4.5 | 8.7 | 13.3 |
 | `on-surface` code text on `surface` | 4.5 | 14.5 | 16.2 |
 | `primary` ring on `primary-container` | 3 | 5.9 | 5.0 |
+| `primary` selection bar on `primary-container` | 3 | 5.9 | 5.0 |
 | `primary` ring on `surface-container` | 3 | 10.1 | 5.7 |
 | `focus-ring-on-inverse` on `inverse-surface` | 3 | 5.2 | 7.7 |
 | `focus-ring-on-notice` on `notice-background` | 3 | 5.9 | 5.9 |
@@ -164,7 +165,10 @@ From the top:
     badge. When the last message is the person's own and still
     pending, a clock icon takes the badge's place.
 - **The selected conversation** (a wide screen shows the list and the
-  conversation side by side) takes `primary-container` as its fill.
+  conversation side by side) takes `primary-container` as its fill and
+  a 4 dp bar in `primary` along its start edge, so it is not shown by
+  colour alone: the fill measures only 1.7 (dark) and 1.1 (light)
+  against the list pane.
 - **Swipe to hide** follows swipe spec §10. Its fill follows the list
   item's full width.
 
