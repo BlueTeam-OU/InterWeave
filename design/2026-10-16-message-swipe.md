@@ -201,6 +201,19 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   envelope, rust-ui-dev returns this point to ux-designer before
   building the Cancel swipe, and the fallback is ux-designer's to
   choose.
+- **Unkeep when the session no longer holds the content.** If the
+  session's copy of the message is past its bound (`UiModel::copy_gone`),
+  Keep is not offered after the Unkeep, so there is nothing for an Undo
+  to restore. The snackbar then shows "No longer kept" with **no** Undo,
+  never an Undo that fails. A missing Undo is honest. A failing one
+  breaks the promise the button makes (ruled 2026-10-16 on
+  rust-ui-dev-01's question).
+- **Undo of Cancel and the transport message id.** Whether the
+  re-queued row reuses the cancelled row's transport message id (the
+  idempotency key) or takes a fresh one is the outbound contract's,
+  the network role's to say. A cancel after dispatch may have reached
+  the remote. rust-ui-dev settles it with that role before building the
+  Cancel swipe. Either answer keeps this spec's behaviour.
 - **Undo of Unkeep when Keep is refused** (storage degraded): the row
   stays not kept, the snackbar closes, and the existing storage notice
   and refusal announcement apply.
