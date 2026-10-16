@@ -583,6 +583,8 @@ mod tests {
     async fn over_real_sockets_the_listen_port_is_kept_and_a_refusal_moves_off_it() {
         use libp2p::tcp;
 
+        const CONTROL_ATTEMPTS: usize = 5;
+
         /// The real transport, its listen-port dials refused as the
         /// runner's kernel refused them.
         struct RefusingReuse(tcp::tokio::Transport);
@@ -623,12 +625,17 @@ mod tests {
         }
 
         /// Listen on loopback, then dial `far` from the listen port and
-        /// answer the source port `far` saw beside the listen port.
+        /// answer the local port of the dialled stream itself beside the
+        /// listen port. Not the source of whatever `far` accepts first:
+        /// another test in the run can reach `far`'s port too -- dialling
+        /// one it held, which the kernel then gave `far` -- and its
+        /// connection is not this dial. That is one of the two causes
+        /// InterWeave#283's CI failure cannot tell apart; the other is the
+        /// counted refusal the control below allows.
         async fn dial_through<T>(mut t: PortFallback<T>) -> (u16, u16, PortFallbackCounts)
         where
-            T: Transport<Error = io::Error> + Unpin,
+            T: Transport<Output = tcp::tokio::TcpStream, Error = io::Error> + Unpin,
             T::Dial: Send + 'static,
-            T::Output: Send + 'static,
         {
             t.listen_on(
                 ListenerId::next(),
@@ -661,21 +668,47 @@ mod tests {
                 .dial(far_addr, opts(PortUse::Reuse, Endpoint::Dialer))
                 .expect("dials");
             // The kernel completes the handshake into `far`'s backlog, so
-            // the dial is awaited alone: a refused one fails here rather
-            // than leaving `accept` waiting.
-            let _stream = dial.await.expect("connects");
-            let (_far_end, source) = far.accept().await.expect("accepted");
-            (source.port(), listen_port, t.fallbacks.snapshot())
+            // nothing is accepted; `far` is held until the port is read.
+            let stream = dial.await.expect("connects");
+            let source = stream.0.local_addr().expect("a local address").port();
+            drop(far);
+            (source, listen_port, t.fallbacks.snapshot())
         }
 
-        let (source, listen, counts) = dial_through(PortFallback::new(
-            tcp::tokio::Transport::new(tcp::Config::default()),
-            PortFallbacks::default(),
-            PunchAddresses::default(),
-        ))
-        .await;
-        assert_eq!(source, listen, "unrefused, the dial keeps the listen port");
-        assert_eq!(counts, PortFallbackCounts::default());
+        // GitHub's runner kernel has refused such a listen-port dial
+        // `EADDRINUSE` (the module's first paragraph), and a refused
+        // control is the wrapper doing its job: counted, and moved. So the control
+        // holds the invariant -- moved exactly when counted -- on every
+        // attempt, and needs one attempt the kernel did not refuse. An
+        // uncounted move fails at once: libp2p-tcp's own silent fresh-port
+        // redial (`EADDRNOTAVAIL`) is the one the counts cannot see.
+        let mut kept = false;
+        for _ in 0..CONTROL_ATTEMPTS {
+            let (source, listen, counts) = dial_through(PortFallback::new(
+                tcp::tokio::Transport::new(tcp::Config::default()),
+                PortFallbacks::default(),
+                PunchAddresses::default(),
+            ))
+            .await;
+            if counts == PortFallbackCounts::default() {
+                assert_eq!(source, listen, "unrefused, the dial keeps the listen port");
+                kept = true;
+                break;
+            }
+            assert_eq!(
+                counts,
+                PortFallbackCounts {
+                    relay_fell_back: 1,
+                    punch_refused: 0
+                },
+                "a refused control is a relay-class fallback"
+            );
+            assert_ne!(source, listen, "counted, it connects from a fresh port");
+        }
+        assert!(
+            kept,
+            "the kernel refused all {CONTROL_ATTEMPTS} listen-port dials; no control"
+        );
 
         let (source, listen, counts) = dial_through(PortFallback::new(
             RefusingReuse(tcp::tokio::Transport::new(tcp::Config::default())),

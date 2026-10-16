@@ -81,6 +81,59 @@ internal object Native {
      */
     @JvmStatic external fun waitNotice(timeoutMs: Long): Int
 
+    /**
+     * The Service's network callback was registered: no network is known
+     * yet, which is offline until one is reported (plan section 20 step
+     * 5). Never waits, nor do the four below
+     * (`a_network_report_never_waits_on_a_start`, android-platform's
+     * `tests/service.rs`).
+     */
+    @JvmStatic external fun networkWatching()
+
+    /**
+     * The network [network] (its `Network.getNetworkHandle`), the whole of
+     * it: its [addresses] and its [dnsServers], each address its length
+     * (4 or 16) then its `InetAddress.getAddress` bytes, and its Private
+     * DNS host when Private DNS is strict on it, else null.
+     */
+    @JvmStatic external fun networkLink(
+        network: Long,
+        addresses: ByteArray,
+        dnsServers: ByteArray,
+        privateDns: String?,
+    )
+
+    /** The default network is [network]; 0 when there is none. */
+    @JvmStatic external fun networkDefault(network: Long)
+
+    /** The network [network] is gone. */
+    @JvmStatic external fun networkLost(network: Long)
+
+    /** The callback was unregistered: the platform's view is unknown. */
+    @JvmStatic external fun networkUnwatched()
+
+    /**
+     * The platform's touch values for a row's swipe (the message swipe
+     * spec, sections 4, 6 and 7): the touch slop and the left and right
+     * system gesture insets in dp, a right-to-left layout, the system's
+     * animations off, and the recommended time a snackbar with a control
+     * stays up, in ms. Never waits.
+     */
+    @JvmStatic external fun touch(
+        slop: Float,
+        edgeLeft: Float,
+        edgeRight: Float,
+        rtl: Boolean,
+        reducedMotion: Boolean,
+        recommendedMs: Long,
+    )
+
+    /**
+     * Wait at most [timeoutMs] for a swipe to arm; true when one did, and
+     * the Activity plays the haptic tick. BLOCKS.
+     */
+    @JvmStatic external fun waitHaptic(timeoutMs: Long): Boolean
+
     /** A person-facing text by its key ([Text]), with [count] filled in. */
     @JvmStatic external fun text(key: Int, count: Int): String
 }

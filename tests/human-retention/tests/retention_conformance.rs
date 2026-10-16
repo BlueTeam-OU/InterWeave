@@ -7,7 +7,7 @@
 //! see `crash_writer`. A drop-and-reopen would prove the store survives
 //! a polite shutdown, which is not what §7 claims.
 //!
-//! # Coverage of the fourteen cases, including what is NOT proved here
+//! # Coverage of the cases, including what is NOT proved here
 //!
 //! | § 9 case | here |
 //! |---|---|
@@ -25,8 +25,10 @@
 //! | 12 backup includes only unread/kept inbound | yes |
 //! | 13 Android system backup excludes the store | **no** — a packaging property (`allowBackup`), provable only with the Android manifest in Stage 17 |
 //! | 14 storage full degrades rather than claiming durability | yes; the client's half (no lease taken) in `client_half.rs` |
+//! | 15 released content absent from the store's files | in `crates/human/store/tests/released_content.rs` |
+//! | 16 an undone cancel re-commits the record unchanged, durable before the first attempt | yes — durability at return, observed from a second connection, and across a reopen |
 //!
-//! Beside the fourteen, not renumbering them: a message unkept in the
+//! Beside the numbered cases, not renumbering them: a message unkept in the
 //! session can be kept again in the session, from the copy `unkeep` hands
 //! back (`case_10_beside_…`, agreed Q6, relay seq 11163). Across a restart
 //! that copy is gone, which is case 11.
@@ -51,7 +53,7 @@ use interweave_human_retention_tests::{
 use interweave_human_store::{
     HumanStore, OutboundDestination, StoreError, StoreOptions, TerminalCause,
 };
-use interweave_transport_api::ChannelId;
+use interweave_transport_api::{ChannelId, MediaType};
 
 /// Run `crash_writer` against `path` and require that it really died.
 ///
@@ -489,4 +491,144 @@ fn case_14_a_full_store_degrades_rather_than_claiming_durability() {
         .commit_unread_inbound(&unread_inbound())
         .expect_err("a degraded store cannot accept new human delivery");
     assert!(matches!(err, StoreError::Degraded), "unexpected: {err}");
+}
+
+// -------------------------------------------------------------------
+// Case 16 -- an undone cancel restores the record, not a new message
+// -------------------------------------------------------------------
+
+/// A `pending_outbound` row's columns as an independent connection reads
+/// them: app id, transport id, peer, media type, payload, created, last
+/// attempt, attempts.
+type StoredPending = (
+    String,
+    Vec<u8>,
+    String,
+    Option<String>,
+    Vec<u8>,
+    i64,
+    Option<i64>,
+    i64,
+);
+
+#[test]
+fn case_16_an_undone_cancel_recommits_the_record_unchanged() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let row = store
+        .commit_pending_outbound(&pending_outbound())
+        .expect("commit");
+    // Attempted before the cancel: the count is what a restart rebuilds
+    // may_have_reached from, so a restore that dropped it would claim the
+    // cancelled attempt never reached the receiver.
+    store
+        .record_attempt(row, 1_700_000_005_000)
+        .expect("attempt");
+    store
+        .record_attempt(row, 1_700_000_006_000)
+        .expect("attempt");
+    let cancelled = store
+        .pending_outbound_row(row)
+        .expect("read")
+        .expect("pending");
+    store
+        .transport_terminal(row, TerminalCause::Cancelled)
+        .expect("cancel");
+    assert!(store.pending_outbound().expect("read").is_empty());
+
+    let restored = store.restore_pending_outbound(&cancelled).expect("restore");
+    assert_ne!(restored, row, "a row id is never reused");
+
+    // Durable at return: a SECOND connection sees every field unchanged,
+    // so a client that attempts on the next line cannot lose it.
+    let observer = rusqlite::Connection::open(&path).expect("independent reader");
+    let (amid, tid, peer, media, payload, created, last, attempts): StoredPending = observer
+        .query_row(
+            "SELECT app_message_id, transport_message_id, destination_peer, media_type,
+                    payload, created_at, last_attempt_at, attempts
+               FROM pending_outbound WHERE row_id = ?1",
+            [restored.get()],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                ))
+            },
+        )
+        .expect("the restored row must be committed, not buffered");
+    assert_eq!(amid, OUTBOUND_ID);
+    assert_eq!(tid, cancelled.transport_message_id.as_bytes().to_vec());
+    assert_eq!(peer, interweave_human_retention_tests::peer().as_str());
+    assert_eq!(
+        media.as_deref(),
+        cancelled.media_type.as_ref().map(MediaType::as_str)
+    );
+    assert_eq!(
+        payload, OUTBOUND_BODY,
+        "the stored bytes, never re-serialised"
+    );
+    assert_eq!(created, 1_700_000_000_000);
+    assert_eq!(last, Some(1_700_000_006_000));
+    assert_eq!(attempts, 2);
+    drop(observer);
+    drop(store);
+
+    // And it is the pending record a restart reloads: equal to the
+    // cancelled one in everything but its row id.
+    let store = reopen(&path);
+    let reloaded = store
+        .pending_outbound_row(restored)
+        .expect("read")
+        .expect("pending after reopen");
+    let mut expected = cancelled;
+    expected.row_id = restored;
+    assert!(reloaded == expected, "{reloaded:?} != {expected:?}");
+}
+
+#[test]
+fn case_16_a_degraded_store_refuses_the_restore() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut store = HumanStore::open(
+        &path,
+        StoreOptions {
+            max_pages: Some(64),
+        },
+    )
+    .expect("opens");
+    let row = store
+        .commit_pending_outbound(&pending_outbound())
+        .expect("commit");
+    let cancelled = store
+        .pending_outbound_row(row)
+        .expect("read")
+        .expect("pending");
+    store
+        .transport_terminal(row, TerminalCause::Cancelled)
+        .expect("cancel");
+    for i in 0..8_u32 {
+        let mut new = unread_inbound();
+        new.app_message_id =
+            interweave_human_store::AppMessageId::parse(format!("{i:032x}")).expect("canonical");
+        new.payload = vec![0_u8; interweave_transport_api::MAX_PAYLOAD_BYTES];
+        if store.commit_unread_inbound(&new).is_err() {
+            break;
+        }
+    }
+    assert_eq!(store.health(), StorageHealth::Degraded);
+
+    // Nothing is sent without its durable pending record (RETENTION.md
+    // §2), so the store refuses rather than accepting and losing.
+    let err = store
+        .restore_pending_outbound(&cancelled)
+        .expect_err("a degraded store cannot restore");
+    assert!(matches!(err, StoreError::Degraded), "unexpected: {err}");
+    assert!(store.pending_outbound().expect("read").is_empty());
 }

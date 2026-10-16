@@ -1,0 +1,787 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Andrea Benetton
+//! A row's actions as swipes and buttons, Hide, and the snackbar's Undo
+//! (`design/2026-10-16-message-swipe.md`; `human-client-ui.md` §6).
+//!
+//! A swipe is a shortcut for a row button: both name a [`RowAction`], and
+//! [`UiModel::intent_for`] answers it from what [`UiModel::actions`]
+//! offers at that moment, so the swipe never decides legality itself and
+//! a row whose state changed under the finger raises nothing (§8).
+//!
+//! Every action runs when it is committed. An Undo is the REVERSE action,
+//! never a cancelled delay: if the app dies while a snackbar is up, the
+//! message is as the snackbar said (§5). So nothing here waits for a
+//! snackbar to close before raising an intent, and closing one raises
+//! none -- it only lets go of what the Undo needed
+//! ([`UiModel::take_released`]).
+
+use interweave_human_core::RowId;
+
+use super::{ConversationKey, Direction, Intent, ItemKey, Table, UiModel};
+
+/// What a row's swipe or button does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RowAction {
+    /// Keep a read message.
+    Keep,
+    /// Drop a read, unkept message from this session (Hide for now).
+    Hide,
+    /// Remove Keep from a kept message.
+    Unkeep,
+    /// Retry a pending message now.
+    Retry,
+    /// Cancel a pending message.
+    Cancel,
+}
+
+/// Which action a row's swipe offers in each direction, named by the
+/// direction of reading rather than the screen: `toward_end` is a swipe
+/// toward the end of a line -- right in a left-to-right layout, left in a
+/// right-to-left one, which the view mirrors (§3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SwipeOffer {
+    /// Keep or Retry.
+    pub toward_end: Option<RowAction>,
+    /// Hide, Unkeep or Cancel.
+    pub toward_start: Option<RowAction>,
+}
+
+/// What a snackbar confirms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Confirmation {
+    /// A message was kept.
+    Kept,
+    /// A message was hidden for this session.
+    Hidden,
+    /// Keep was removed.
+    Unkept,
+    /// A send was cancelled: in the words of the row's own cancelled
+    /// label, since the cancelled attempt may have reached the receiver.
+    Cancelled {
+        /// Whether an attempt may have reached the remote.
+        may_have_reached: bool,
+    },
+    /// A conversation was hidden from the list.
+    ConversationHidden,
+}
+
+/// The one snackbar, while it is up.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snackbar {
+    /// Its identity: the view closes or undoes THIS one by it, so an
+    /// answer to a snackbar already replaced does nothing.
+    pub id: u64,
+    /// What it confirms.
+    pub confirms: Confirmation,
+    /// Whether it offers Undo now. Never an Undo that would fail: with no
+    /// content left to keep, or no cancelled record to restore, it has
+    /// none (§8).
+    pub undo: bool,
+    /// The conversation it is shown in, or `None` on the conversation
+    /// list (a conversation hide).
+    pub conversation: Option<ConversationKey>,
+}
+
+/// Where focus goes after an action took a row away or brought it back
+/// (§7, §10): never to the top of the list, never lost.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FocusTarget {
+    /// A message row's first control.
+    Item(ItemKey),
+    /// A conversation's row on the conversation list.
+    Conversation(ConversationKey),
+}
+
+/// What the view says once, through its polite live region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Announce {
+    /// A snackbar opened: say what it confirms.
+    Confirmed(Confirmation),
+    /// An Undo brought the state back.
+    Restored,
+}
+
+/// The latest outcome of a swipe, a button or an Undo, for the view to
+/// act on once: each has a new `id`, and the view acts on an id it has
+/// not acted on yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Outcome {
+    /// Its identity.
+    pub id: u64,
+    /// What to announce, if anything. A refusal says nothing here: the
+    /// existing storage notice and refusal announcement say it.
+    pub announce: Option<Announce>,
+    /// Where focus goes, or `None` to leave it where it is.
+    pub focus: Option<FocusTarget>,
+}
+
+/// What a closed snackbar's Undo no longer needs, for the root to let go
+/// of on the facade side ([`UiModel::take_released`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Released {
+    /// The read copies held for Keep of messages now hidden: by the row
+    /// whose release handed each over, as [`Intent::Keep`]'s `from`.
+    pub copies: Vec<(Table, RowId)>,
+    /// The cancelled pending records held for their Undo, by the rows the
+    /// cancels ended: one per snackbar closed or replaced, however many
+    /// that was since the last take.
+    pub cancelled: Vec<RowId>,
+}
+
+impl Released {
+    /// Whether there is nothing to let go of.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.copies.is_empty() && self.cancelled.is_empty()
+    }
+}
+
+/// What an open snackbar's Undo does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Undo {
+    /// Undo of Keep: Unkeep the row the Keep made.
+    Unkeep { item: ItemKey, kept_row: RowId },
+    /// Undo of Unkeep: the Keep `actions` offers on it then.
+    Keep { item: ItemKey },
+    /// Undo of Cancel: restore the record the facade side holds, if it
+    /// holds one.
+    Restore {
+        item: ItemKey,
+        row: RowId,
+        restorable: bool,
+    },
+    /// Undo of Hide, of one message or of a conversation's.
+    Unhide {
+        items: Vec<ItemKey>,
+        conversation: Option<ConversationKey>,
+    },
+}
+
+impl Undo {
+    /// The items the Undo needs held: not evicted while it is offered.
+    fn items(&self) -> Vec<ItemKey> {
+        match self {
+            Self::Unkeep { item, .. } | Self::Keep { item } | Self::Restore { item, .. } => {
+                vec![*item]
+            }
+            Self::Unhide { items, .. } => items.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Open {
+    id: u64,
+    confirms: Confirmation,
+    conversation: Option<ConversationKey>,
+    undo: Undo,
+}
+
+/// An Undo raised and not answered yet: its result restores the state
+/// and is announced as such, never confirmed with a snackbar of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Awaiting {
+    Unkept(ItemKey),
+    Kept(ItemKey),
+    Restored(ItemKey),
+}
+
+/// The swipe state the model holds.
+#[derive(Debug, Default)]
+pub(super) struct SwipeState {
+    seq: u64,
+    open: Option<Open>,
+    awaiting: Option<Awaiting>,
+    /// Items whose Keep is on its way: one entry per Keep issued, each gone
+    /// at its answer or its refusal, so bounded by the Keeps in flight.
+    keeping: std::collections::HashSet<ItemKey>,
+    outcome: Option<Outcome>,
+    released: Released,
+}
+
+impl SwipeState {
+    /// Whether `key` must stay held: an open snackbar's Undo needs it, or
+    /// a Keep of it is on its way and its answer attaches a row the store
+    /// holds -- so the session cap never evicts it (review of #289, round
+    /// 3).
+    pub(super) fn protects(&self, key: &ItemKey) -> bool {
+        self.keeping.contains(key)
+            || self
+                .open
+                .as_ref()
+                .is_some_and(|o| o.undo.items().contains(key))
+    }
+}
+
+impl UiModel {
+    /// The actions a row offers as buttons, in order (§7): Keep and Hide
+    /// on a read, unkept message, Unkeep on a kept one, Retry and Cancel
+    /// on a pending one, none on anything else.
+    #[must_use]
+    pub fn row_actions(&self, key: ItemKey) -> Vec<RowAction> {
+        let mut list: Vec<RowAction> = self
+            .actions(key)
+            .iter()
+            .filter_map(|intent| match intent {
+                Intent::Keep { .. } => Some(RowAction::Keep),
+                Intent::Unkeep(_) => Some(RowAction::Unkeep),
+                Intent::Retry(_) => Some(RowAction::Retry),
+                Intent::Cancel(_) => Some(RowAction::Cancel),
+                _ => None,
+            })
+            .collect();
+        if self.hide_offered(key) {
+            list.push(RowAction::Hide);
+        }
+        list
+    }
+
+    /// Which way the row may be swiped (§3): a direction exactly when its
+    /// action is legal now. Keep and Retry toward the end, Hide, Unkeep
+    /// and Cancel toward the start.
+    #[must_use]
+    pub fn swipe_offer(&self, key: ItemKey) -> SwipeOffer {
+        let actions = self.row_actions(key);
+        let has = |a| actions.contains(&a);
+        SwipeOffer {
+            toward_end: [RowAction::Keep, RowAction::Retry]
+                .into_iter()
+                .find(|a| has(*a)),
+            toward_start: [RowAction::Hide, RowAction::Unkeep, RowAction::Cancel]
+                .into_iter()
+                .find(|a| has(*a)),
+        }
+    }
+
+    /// The intent `action` on `key` raises NOW, or `None` if it is no
+    /// longer legal: a swipe is re-checked at commit, and a row whose
+    /// state changed under the finger springs back (§8).
+    #[must_use]
+    pub fn intent_for(&self, key: ItemKey, action: RowAction) -> Option<Intent> {
+        if action == RowAction::Hide {
+            return self.hide_offered(key).then_some(Intent::Hide(key));
+        }
+        self.actions(key).into_iter().find(|intent| {
+            matches!(
+                (action, intent),
+                (RowAction::Keep, Intent::Keep { .. })
+                    | (RowAction::Unkeep, Intent::Unkeep(_))
+                    | (RowAction::Retry, Intent::Retry(_))
+                    | (RowAction::Cancel, Intent::Cancel(_))
+            )
+        })
+    }
+
+    /// Hide is offered on every read, unkept received message, with or
+    /// without the content Keep would need: hiding needs no copy (§3).
+    fn hide_offered(&self, key: ItemKey) -> bool {
+        // Not while a Keep is on its way: its answer attaches a row the
+        // store holds, and the item must still be here to take it (review
+        // F1 on #289, round 2).
+        !self.swipe.keeping.contains(&key)
+            && self.items.get(&key).is_some_and(|item| {
+                !item.hidden && item.direction == Direction::Inbound && item.rows.is_empty()
+            })
+    }
+
+    /// The root issued `intent`: a Keep is on its way to the store until it
+    /// is answered ([`Self::kept`]) or refused ([`Self::intent_refused`]).
+    pub fn keep_requested(&mut self, intent: &Intent) {
+        if let Intent::Keep { item, .. } = intent {
+            self.swipe.keeping.insert(*item);
+        }
+    }
+
+    /// Whether conversation `key` may be hidden from the list (§10): it
+    /// shows something, and every message it shows is a read, unkept
+    /// received one or a sent one the transport is done with. Nothing
+    /// unread, kept or pending.
+    #[must_use]
+    pub fn conversation_hide_offered(&self, key: &ConversationKey) -> bool {
+        let mut shown = self
+            .items
+            .values()
+            .filter(|i| &i.conversation == key && !i.hidden)
+            .peekable();
+        shown.peek().is_some()
+            && shown.all(|item| match &item.outbound {
+                Some(status) => status.is_terminal(),
+                None => item.rows.is_empty(),
+            })
+            // Nor while a Keep of one of them is on its way: its answer
+            // attaches a row the store holds (review of #289, round 3).
+            && !self
+                .items
+                .iter()
+                .any(|(k, i)| &i.conversation == key && self.swipe.keeping.contains(k))
+    }
+
+    /// The intent hiding conversation `key` raises now, if it is offered.
+    #[must_use]
+    pub fn hide_conversation_intent(&self, key: &ConversationKey) -> Option<Intent> {
+        self.conversation_hide_offered(key)
+            .then(|| Intent::HideConversation(key.clone()))
+    }
+
+    // --- results -----------------------------------------------------------
+
+    /// Hide `key` for the rest of the session: it leaves the list now and
+    /// the session's memory once its snackbar closes. Writes nothing --
+    /// its durable copy went when it was read (`human-client-ui.md` §6).
+    pub fn hide(&mut self, key: ItemKey) {
+        if !self.hide_offered(key) {
+            return;
+        }
+        let Some(conversation) = self.items.get(&key).map(|i| i.conversation.clone()) else {
+            return;
+        };
+        let focus = self.focus_after_leaving(&conversation, key);
+        if let Some(item) = self.items.get_mut(&key) {
+            item.hidden = true;
+        }
+        self.open(
+            Confirmation::Hidden,
+            Some(conversation),
+            Undo::Unhide {
+                items: vec![key],
+                conversation: None,
+            },
+            focus,
+        );
+    }
+
+    /// Hide conversation `key` from the list, every message in it as
+    /// [`Self::hide`] hides one (§10).
+    pub fn hide_conversation(&mut self, key: &ConversationKey) {
+        if !self.conversation_hide_offered(key) {
+            return;
+        }
+        let list = self.conversations();
+        let at = list.iter().position(|c| &c.key == key);
+        let focus = at.and_then(|i| {
+            list.get(i + 1)
+                .or_else(|| i.checked_sub(1).and_then(|p| list.get(p)))
+        });
+        let items: Vec<ItemKey> = self
+            .items
+            .iter()
+            .filter(|(_, i)| &i.conversation == key && !i.hidden)
+            .map(|(k, _)| *k)
+            .collect();
+        for k in &items {
+            if let Some(item) = self.items.get_mut(k) {
+                item.hidden = true;
+            }
+        }
+        self.open(
+            Confirmation::ConversationHidden,
+            None,
+            Undo::Unhide {
+                items,
+                conversation: Some(key.clone()),
+            },
+            focus.map(|c| FocusTarget::Conversation(c.key.clone())),
+        );
+    }
+
+    /// The facade cancelled pending `row` as the person asked: the row
+    /// leaves the list, and `restorable` says whether the facade side
+    /// holds the record an Undo would restore (§8).
+    pub fn cancelled(&mut self, row: RowId, restorable: bool) {
+        // The terminal update released the row, so it is found by the
+        // pending row it last held: its first, or the one a restore gave it.
+        let key = self
+            .items
+            .iter()
+            .find(|(_, i)| i.last_pending == Some(row))
+            .map(|(k, _)| *k);
+        let Some(key) = key else {
+            // No item to show a snackbar for: no Undo can be offered, so
+            // the record the facade side holds for one is let go now.
+            if restorable {
+                self.swipe.released.cancelled.push(row);
+            }
+            return;
+        };
+        let Some((conversation, may_have_reached)) = self.items.get(&key).map(|i| {
+            (
+                i.conversation.clone(),
+                matches!(
+                    i.outbound,
+                    Some(interweave_human_client_api::OutboundStatus::Cancelled {
+                        may_have_reached: true
+                    })
+                ),
+            )
+        }) else {
+            return;
+        };
+        let focus = self.focus_after_leaving(&conversation, key);
+        if let Some(item) = self.items.get_mut(&key) {
+            item.hidden = true;
+        }
+        self.open(
+            Confirmation::Cancelled { may_have_reached },
+            Some(conversation),
+            Undo::Restore {
+                item: key,
+                row,
+                restorable,
+            },
+            focus,
+        );
+    }
+
+    /// A Keep of `key` was answered: it is no longer on its way, whether or
+    /// not the item is still held.
+    pub(super) fn keep_answered(&mut self, key: ItemKey) {
+        self.swipe.keeping.remove(&key);
+    }
+
+    /// The root kept `key` as `kept_row`: confirmed with a snackbar, or,
+    /// when it was an Undo of Unkeep, announced as restored.
+    pub(super) fn swipe_kept(&mut self, key: ItemKey, kept_row: RowId) {
+        if self.swipe.awaiting == Some(Awaiting::Kept(key)) {
+            self.swipe.awaiting = None;
+            self.set_outcome(Some(Announce::Restored), Some(FocusTarget::Item(key)));
+            return;
+        }
+        let conversation = self.items.get(&key).map(|i| i.conversation.clone());
+        self.open(
+            Confirmation::Kept,
+            conversation,
+            Undo::Unkeep {
+                item: key,
+                kept_row,
+            },
+            None,
+        );
+    }
+
+    /// The root removed Keep from `key`'s kept row.
+    pub(super) fn swipe_unkept(&mut self, key: ItemKey) {
+        if self.swipe.awaiting == Some(Awaiting::Unkept(key)) {
+            self.swipe.awaiting = None;
+            self.set_outcome(Some(Announce::Restored), Some(FocusTarget::Item(key)));
+            return;
+        }
+        let conversation = self.items.get(&key).map(|i| i.conversation.clone());
+        self.open(
+            Confirmation::Unkept,
+            conversation,
+            Undo::Keep { item: key },
+            None,
+        );
+    }
+
+    /// The facade side restored the record cancelled as `cancelled` as the
+    /// pending row `row`: the message is back in its place, pending, under
+    /// the key it was first shown with.
+    pub fn restored(&mut self, cancelled: RowId, row: RowId) {
+        let Some(Awaiting::Restored(key)) = self.swipe.awaiting else {
+            return;
+        };
+        if self.items.get(&key).and_then(|i| i.last_pending) != Some(cancelled) {
+            return;
+        }
+        self.swipe.awaiting = None;
+        if let Some(item) = self.items.get_mut(&key) {
+            item.hidden = false;
+            item.last_pending = Some(row);
+            item.rows.push((Table::Pending, row));
+            item.outbound = Some(interweave_human_client_api::OutboundStatus::Sending {
+                attempts: 0,
+                next_retry_at: None,
+                last_problem: None,
+            });
+        }
+        self.by_row.insert((Table::Pending, row), key);
+        if self.ephemeral_set.remove(&key) {
+            self.ephemeral.retain(|k| *k != key);
+        }
+        // A status the facade reported before this answer arrived.
+        if let Some(update) = self.held.remove(&row) {
+            self.held_order.retain(|r| *r != row);
+            self.apply(update);
+        }
+        self.set_outcome(Some(Announce::Restored), Some(FocusTarget::Item(key)));
+    }
+
+    /// An intent was refused (storage degraded or full, or nothing left
+    /// to act on). If it was an Undo, the snackbar is already closed and
+    /// focus goes where the action itself sent it (§7): a refused Undo of
+    /// Cancel to the next row, as the cancel did -- the message stays
+    /// cancelled, and its record is let go -- and a refused Undo of
+    /// Unkeep or Keep to that row, still in place.
+    ///
+    /// Any other refusal is an outcome with nothing to say and nowhere to
+    /// move focus: a row a swipe slid out for it -- a Cancel the store
+    /// refused -- springs back on it, and focus stays (§8).
+    pub fn intent_refused(&mut self, intent: &Intent) {
+        if let Intent::Keep { item, .. } = intent {
+            self.swipe.keeping.remove(item);
+        }
+        let Some(awaiting) = self.swipe.awaiting else {
+            self.set_outcome(None, None);
+            return;
+        };
+        let matches = match (awaiting, intent) {
+            (Awaiting::Kept(key), Intent::Keep { item, .. }) => key == *item,
+            (Awaiting::Unkept(key), Intent::Unkeep(row)) => self
+                .items
+                .get(&key)
+                .is_some_and(|i| i.rows.contains(&(Table::Kept, *row))),
+            (Awaiting::Restored(_), Intent::Restore(_)) => true,
+            _ => false,
+        };
+        if !matches {
+            self.set_outcome(None, None);
+            return;
+        }
+        self.swipe.awaiting = None;
+        match awaiting {
+            Awaiting::Kept(key) | Awaiting::Unkept(key) => {
+                self.set_outcome(None, Some(FocusTarget::Item(key)));
+            }
+            Awaiting::Restored(key) => {
+                let focus = self
+                    .items
+                    .get(&key)
+                    .map(|i| i.conversation.clone())
+                    .and_then(|c| self.focus_after_leaving(&c, key));
+                self.drop_items(&[key]);
+                if let Intent::Restore(row) = intent {
+                    self.swipe.released.cancelled.push(*row);
+                }
+                self.set_outcome(None, focus);
+            }
+        }
+    }
+
+    // --- the snackbar -------------------------------------------------------
+
+    /// The snackbar, if one is up.
+    #[must_use]
+    pub fn snackbar(&self) -> Option<Snackbar> {
+        let open = self.swipe.open.as_ref()?;
+        Some(Snackbar {
+            id: open.id,
+            confirms: open.confirms,
+            undo: self.undo_offered(&open.undo),
+            conversation: open.conversation.clone(),
+        })
+    }
+
+    fn undo_offered(&self, undo: &Undo) -> bool {
+        match undo {
+            Undo::Unkeep { item, kept_row } => self
+                .items
+                .get(item)
+                .is_some_and(|i| i.rows.contains(&(Table::Kept, *kept_row))),
+            Undo::Keep { item } => self.intent_for(*item, RowAction::Keep).is_some(),
+            Undo::Restore {
+                item, restorable, ..
+            } => *restorable && self.items.contains_key(item),
+            Undo::Unhide { items, .. } => items.iter().any(|k| self.items.contains_key(k)),
+        }
+    }
+
+    /// The person pressed the Undo of snackbar `id`. The snackbar closes,
+    /// and the reverse action is raised for the root to carry out -- or,
+    /// for a Hide, done here, since a Hide wrote nothing. `None` when the
+    /// snackbar is gone, replaced, or offers no Undo now.
+    pub fn undo(&mut self, id: u64) -> Option<Intent> {
+        if self.swipe.open.as_ref().map(|o| o.id) != Some(id) {
+            return None;
+        }
+        let open = self.swipe.open.take()?;
+        if !self.undo_offered(&open.undo) {
+            self.finish(open);
+            return None;
+        }
+        match open.undo {
+            Undo::Unkeep { item, kept_row } => {
+                self.swipe.awaiting = Some(Awaiting::Unkept(item));
+                Some(Intent::Unkeep(kept_row))
+            }
+            Undo::Keep { item } => {
+                self.swipe.awaiting = Some(Awaiting::Kept(item));
+                self.intent_for(item, RowAction::Keep)
+            }
+            Undo::Restore { item, row, .. } => {
+                self.swipe.awaiting = Some(Awaiting::Restored(item));
+                Some(Intent::Restore(row))
+            }
+            Undo::Unhide {
+                items,
+                conversation,
+            } => {
+                self.unhide(&items);
+                let focus = match conversation {
+                    Some(c) => Some(FocusTarget::Conversation(c)),
+                    None => items.first().map(|k| FocusTarget::Item(*k)),
+                };
+                self.set_outcome(Some(Announce::Restored), focus);
+                None
+            }
+        }
+    }
+
+    /// Snackbar `id` closed -- its timeout, a swipe away, leaving the
+    /// conversation, the app leaving the foreground -- with no Undo. The
+    /// action already happened; only what its Undo needed is let go.
+    pub fn snackbar_closed(&mut self, id: u64) {
+        if self.swipe.open.as_ref().map(|o| o.id) == Some(id)
+            && let Some(open) = self.swipe.open.take()
+        {
+            self.finish(open);
+        }
+    }
+
+    /// The latest outcome, for the view to act on once by its id.
+    #[must_use]
+    pub const fn outcome(&self) -> Option<&Outcome> {
+        self.swipe.outcome.as_ref()
+    }
+
+    /// What closed snackbars no longer need, for the root to let go of.
+    pub fn take_released(&mut self) -> Released {
+        std::mem::take(&mut self.swipe.released)
+    }
+
+    // --- internals ----------------------------------------------------------
+
+    fn open(
+        &mut self,
+        confirms: Confirmation,
+        conversation: Option<ConversationKey>,
+        undo: Undo,
+        focus: Option<FocusTarget>,
+    ) {
+        // One at a time: a new one replaces the old, and the old one's
+        // Undo goes with it (§6).
+        if let Some(old) = self.swipe.open.take() {
+            self.finish(old);
+        }
+        self.swipe.seq += 1;
+        self.swipe.open = Some(Open {
+            id: self.swipe.seq,
+            confirms,
+            conversation,
+            undo,
+        });
+        self.set_outcome(Some(Announce::Confirmed(confirms)), focus);
+    }
+
+    fn set_outcome(&mut self, announce: Option<Announce>, focus: Option<FocusTarget>) {
+        self.swipe.seq += 1;
+        self.swipe.outcome = Some(Outcome {
+            id: self.swipe.seq,
+            announce,
+            focus,
+        });
+    }
+
+    /// Let go of what a closed snackbar's Undo needed: a hidden or
+    /// cancelled message leaves the session's memory, and the copy or
+    /// record the facade side held for it is released. Anything else the
+    /// Undo held goes back under the session cap.
+    fn finish(&mut self, open: Open) {
+        match open.undo {
+            Undo::Unhide { items, .. } => {
+                // A row attached closes this snackbar first
+                // (`row_attached`), and a hidden item offers no Keep
+                // (`actions`), so none holds a row. One whose Keep was
+                // issued before it was hidden is shown again, never
+                // dropped: its answer attaches a row the store holds.
+                let (kept, gone): (Vec<ItemKey>, Vec<ItemKey>) = items
+                    .into_iter()
+                    .partition(|k| self.swipe.keeping.contains(k));
+                self.unhide(&kept);
+                for key in &gone {
+                    if let Some(from) = self.items.get(key).and_then(|i| i.released_from) {
+                        self.swipe.released.copies.push(from);
+                    }
+                }
+                self.drop_items(&gone);
+            }
+            Undo::Restore { item, row, .. } => {
+                self.drop_items(&[item]);
+                self.swipe.released.cancelled.push(row);
+            }
+            Undo::Unkeep { .. } | Undo::Keep { .. } => self.evict(),
+        }
+    }
+
+    fn unhide(&mut self, items: &[ItemKey]) {
+        for key in items {
+            if let Some(item) = self.items.get_mut(key) {
+                item.hidden = false;
+            }
+        }
+    }
+
+    /// A store row was attached to `key` -- a Keep answered, a copy of the
+    /// message received: a message the store holds is never hidden. The
+    /// snackbar that hid it closes with nothing dropped, the others it hid
+    /// shown again, as an Undo would (review F1 on #289).
+    pub(super) fn row_attached(&mut self, key: ItemKey) {
+        let was_hidden = self.items.get(&key).is_some_and(|i| i.hidden);
+        if let Some(item) = self.items.get_mut(&key) {
+            item.hidden = false;
+        }
+        let hid_it =
+            self.swipe.open.as_ref().is_some_and(
+                |o| matches!(&o.undo, Undo::Unhide { items, .. } if items.contains(&key)),
+            );
+        if hid_it && let Some(open) = self.swipe.open.take() {
+            if let Undo::Unhide { items, .. } = open.undo {
+                self.unhide(&items);
+            }
+            self.evict();
+        } else if was_hidden {
+            self.evict();
+        }
+    }
+
+    /// A message arrived in `conversation`: if the open snackbar hid it,
+    /// the arrival wins and nothing is lost -- the conversation comes back
+    /// whole, as an Undo would bring it, and the snackbar closes (§10).
+    pub(super) fn arrived_in(&mut self, conversation: &ConversationKey) {
+        let hid_it = self.swipe.open.as_ref().is_some_and(
+            |o| matches!(&o.undo, Undo::Unhide { conversation: Some(c), .. } if c == conversation),
+        );
+        if hid_it && let Some(open) = self.swipe.open.take() {
+            let Undo::Unhide { items, .. } = open.undo else {
+                return;
+            };
+            self.unhide(&items);
+            self.evict();
+        }
+    }
+
+    /// Where focus goes when `key` leaves `conversation`'s list: the next
+    /// row, else the previous one. Placed by the list's own order, so a
+    /// row already hidden -- a refused restore -- still has a place to
+    /// leave from. With no row left, nowhere: focus stays where it was --
+    /// the composer would open the phone's keyboard unasked (seen on the
+    /// Pixel), and the spec names no other place.
+    fn focus_after_leaving(
+        &self,
+        conversation: &ConversationKey,
+        key: ItemKey,
+    ) -> Option<FocusTarget> {
+        let place = self.items.get(&key).map(|i| (i.local_at, key))?;
+        let shown: Vec<(u64, ItemKey)> = self
+            .messages(conversation)
+            .iter()
+            .map(|m| (m.local_at, m.key))
+            .filter(|p| p.1 != key)
+            .collect();
+        shown
+            .iter()
+            .find(|p| **p > place)
+            .or_else(|| shown.iter().rev().find(|p| **p < place))
+            .map(|p| FocusTarget::Item(p.1))
+    }
+}

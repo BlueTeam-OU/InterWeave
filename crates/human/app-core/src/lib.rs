@@ -22,6 +22,6 @@ mod listing;
 mod model_side;
 mod protocol;
 
-pub use facade::{FacadeSide, READ_COPY_CAP};
+pub use facade::{CANCELLED_CAP, FacadeSide, READ_COPY_CAP};
 pub use model_side::{ModelSide, Opener, PROBLEM_CAP, Problem, Surface};
 pub use protocol::{Command, Failure, Listing, Update};
