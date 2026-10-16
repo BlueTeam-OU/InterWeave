@@ -1131,3 +1131,155 @@ fn the_snackbar_mirrors_right_to_left() {
         );
     }
 }
+
+// --- focus after Keep, Unkeep and Retry (§7; §11 item 21) ------------------
+
+/// Carry out what `turn` returned that changes a row's buttons: a Keep
+/// kept as stored row `kept`, an Unkeep released. Then render, as the
+/// root does once the store has answered.
+fn answer(view: &mut View, model: &mut UiModel, intents: &[Intent], kept: i64) {
+    for intent in intents {
+        match intent {
+            Intent::Keep { item, .. } => model.kept(*item, RowId::from_stored(kept)),
+            Intent::Unkeep(row) => model.unkept(*row),
+            _ => {}
+        }
+    }
+    let _ = turn(view, model);
+}
+
+/// Two read rows, the second's control focused by the keyboard first, as
+/// the place focus is "elsewhere".
+fn two_read_rows_focus_on_the_second() -> (View, UiModel, i32, String) {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    let first = handle(&view, 0);
+    let elsewhere = tab_to(&view, &format!("action:{}:", handle(&view, 1)));
+    (view, model, first, elsewhere)
+}
+
+#[test]
+fn keep_by_its_button_from_the_keyboard_focuses_the_rows_first_control() {
+    let (mut view, mut model, first, _) = two_read_rows_focus_on_the_second();
+    tab_to(&view, &format!("action:{first}:0"));
+    press_focused(&view);
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    assert_eq!(
+        view.window()
+            .get_messages()
+            .row_data(0)
+            .expect("row")
+            .actions
+            .row_count(),
+        1,
+        "control: the row now offers Unkeep alone"
+    );
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first}:0"),
+        "the pressed Keep is gone; focus is on the row's Unkeep"
+    );
+}
+
+/// A tap on the button does not focus it, and focus still goes to the
+/// row: the spec names the button, not where focus was.
+#[test]
+fn keep_and_unkeep_by_a_tap_on_the_button_focus_the_rows_first_control() {
+    let (mut view, mut model, first, elsewhere) = two_read_rows_focus_on_the_second();
+    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id().as_str(), elsewhere, "control");
+    answer(&mut view, &mut model, &intents, 10);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first}:0")
+    );
+
+    let on = tab_to(&view, &format!("action:{}:", handle(&view, 1)));
+    labelled(&view, text(UiText::Unkeep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id().as_str(), on, "control");
+    answer(&mut view, &mut model, &intents, 0);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first}:0")
+    );
+}
+
+#[test]
+fn keep_by_a_touch_swipe_leaves_focus_held_in_another_row() {
+    let (mut view, mut model, _, elsewhere) = two_read_rows_focus_on_the_second();
+    swipe(&view, &row_key(&view, 0), 170.0, 0.0, 8);
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    assert!(model.snackbar().is_some(), "control: it was kept");
+    assert_eq!(view.window().get_focus_id().as_str(), elsewhere);
+}
+
+/// A swipe raised after a button press of the same row ends the button's
+/// claim: the swipe's Unkeep moves focus only from inside the row.
+#[test]
+fn a_swipe_after_a_refused_press_moves_focus_only_from_inside_the_row() {
+    let (mut view, mut model, first, _) = two_read_rows_focus_on_the_second();
+    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    let keep = intents.first().expect("Keep").clone();
+    model.intent_refused(&keep);
+    let _ = turn(&mut view, &mut model);
+    let elsewhere = view.window().get_focus_id().to_string();
+    swipe(&view, &format!("m:{first}"), 170.0, 0.0, 8);
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    assert!(model.snackbar().is_some(), "control: it was kept");
+    assert_eq!(view.window().get_focus_id().as_str(), elsewhere);
+}
+
+#[test]
+fn unkeep_by_a_touch_swipe_on_the_row_holding_focus_focuses_its_first_control() {
+    let (mut view, mut model, first, _) = two_read_rows_focus_on_the_second();
+    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    // Focus on the row's Show source, after its Unkeep.
+    tab_to(&view, &format!("source:{first}"));
+    swipe(&view, &format!("m:{first}"), -170.0, 0.0, 8);
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 0);
+    assert_eq!(
+        view.window()
+            .get_messages()
+            .row_data(0)
+            .expect("row")
+            .actions
+            .row_count(),
+        2,
+        "control: Keep and Dismiss again"
+    );
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first}:0")
+    );
+}
+
+#[test]
+fn retry_by_its_button_leaves_focus_on_it() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    pending(&mut model, 1, &alice, "out");
+    open(&mut view, &mut model, &direct(&alice));
+    let retry = format!("action:{}:0", handle(&view, 0));
+    tab_to(&view, &retry);
+    press_focused(&view);
+    let intents = turn(&mut view, &mut model);
+    assert!(
+        matches!(intents.first(), Some(Intent::Retry(_))),
+        "{intents:?}"
+    );
+    assert_eq!(view.window().get_focus_id().as_str(), retry);
+}

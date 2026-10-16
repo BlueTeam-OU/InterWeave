@@ -20,7 +20,7 @@
 // handwritten line in this crate.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -222,8 +222,9 @@ enum Input {
     Focus(bool),
     /// An item action, by IDENTITY: the item and the action as rendered,
     /// never a position a re-render could move (agreed P1). A row button
-    /// and a committed swipe make the same input.
-    Action(ItemKey, RowAction),
+    /// and a committed swipe raise the same intent; which made it decides
+    /// only where focus goes after a Keep or Unkeep (§7).
+    Action(ItemKey, RowAction, By),
     /// Hide a conversation from the list: its row's swipe, or the open
     /// conversation's own control.
     HideConversation(ConversationKey),
@@ -249,6 +250,13 @@ enum Input {
     /// What the person did in the trust settings: a removal names its
     /// peer by identity, as rendered.
     Trust(TrustInput),
+}
+
+/// What made an item action: its row button, or a touch swipe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum By {
+    Button,
+    Swipe,
 }
 
 /// What a press on an item resolves against: the item, its actions and
@@ -605,6 +613,10 @@ pub struct View {
     outcome_seen: Option<u64>,
     /// The snackbar whose timeout is running.
     snack_timed: Option<u64>,
+    /// Rows whose Keep or Unkeep was raised by the row's own button and
+    /// not answered yet: its outcome moves focus to the row wherever
+    /// focus is (§7). Only rows still drawn are kept.
+    pressed: HashSet<ItemKey>,
 }
 
 impl View {
@@ -669,7 +681,7 @@ impl View {
                     .map(|action| (item.key, *action))
             });
             if let Some((key, action)) = pressed {
-                enqueue(&s, Input::Action(key, action));
+                enqueue(&s, Input::Action(key, action, By::Button));
             }
         });
         let s = Rc::clone(&shared);
@@ -800,6 +812,7 @@ impl View {
             rendered_shown: None,
             outcome_seen: None,
             snack_timed: None,
+            pressed: HashSet::new(),
         })
     }
 
@@ -980,8 +993,22 @@ impl View {
                 // Judged NOW, against the model: a row whose state changed
                 // since it was drawn -- under the finger, even -- raises
                 // nothing (swipe spec section 8).
-                Input::Action(key, action) => {
-                    out.extend(model.intent_for(key, action).map(ViewEvent::Intent));
+                Input::Action(key, action, by) => {
+                    let intent = model.intent_for(key, action);
+                    // A Keep or Unkeep by its button moves focus to the
+                    // row's first control however it was pressed -- a tap
+                    // does not focus the button -- and a swipe only from
+                    // inside the row (§7). Any other action of the row
+                    // ends the claim, so a refused one leaves none behind.
+                    if intent.is_some()
+                        && by == By::Button
+                        && matches!(action, RowAction::Keep | RowAction::Unkeep)
+                    {
+                        self.pressed.insert(key);
+                    } else {
+                        self.pressed.remove(&key);
+                    }
+                    out.extend(intent.map(ViewEvent::Intent));
                 }
                 Input::HideConversation(key) => {
                     if let Some(intent) = model.hide_conversation_intent(&key) {
@@ -1400,6 +1427,8 @@ impl View {
             shared.swipes.extend(swipes);
         }
         update_by_key(&*self.messages, &mut self.message_keys, &keys, &rows);
+        let drawn = &self.message_keys;
+        self.pressed.retain(|key| drawn.contains(key));
     }
 
     /// Announce what changed since the last render, in the window's one
@@ -1509,9 +1538,10 @@ impl View {
     /// The snackbar, the open conversation's hide control, a committed
     /// swipe's row, and the model's latest outcome: its announcement,
     /// returned for the render's one, and its focus, moved once the rows
-    /// it names are drawn -- and, after a row was taken away, only if
-    /// `focused`, the row focus was inside, is that row (swipe spec
-    /// section 7): a touch that swiped a row leaves focus where it was.
+    /// it names are drawn -- and, after a row was taken away or its
+    /// buttons changed, only if `focused`, the row focus was inside, is
+    /// that row, or the row's own button raised its Keep or Unkeep (swipe
+    /// spec section 7): a touch that swiped a row leaves focus where it was.
     fn render_swipe(&mut self, model: &UiModel, focused: Option<&FocusTarget>) -> Option<String> {
         let window = &self.window;
         let snack = model.snackbar();
@@ -1583,9 +1613,15 @@ impl View {
         let outcome = outcome.filter(|o| self.outcome_seen != Some(o.id))?;
         self.outcome_seen = Some(outcome.id);
         let header = self.shared.borrow_mut().hidden_from_header.take();
-        let moves = outcome.moves_from.as_ref().is_none_or(|from| {
-            focused == Some(from) || header.map(FocusTarget::Conversation).as_ref() == Some(from)
-        });
+        let pressed = match &outcome.moves_from {
+            Some(FocusTarget::Item(key)) => self.pressed.remove(key),
+            _ => false,
+        };
+        let moves = pressed
+            || outcome.moves_from.as_ref().is_none_or(|from| {
+                focused == Some(from)
+                    || header.map(FocusTarget::Conversation).as_ref() == Some(from)
+            });
         if let Some(focus) = outcome.focus.as_ref().filter(|_| moves) {
             let target = match focus {
                 FocusTarget::Item(key) => self
