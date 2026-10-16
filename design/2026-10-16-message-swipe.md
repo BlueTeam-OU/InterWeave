@@ -173,6 +173,11 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     first control, or the previous row's if it was the last. Never to
     the top of the list, never lost.
   - After Undo, focus goes to the restored row's first control.
+  - After an Undo the store refuses, the snackbar closes under the
+    focus, so focus goes where the action itself sent it. A refused
+    Undo of Cancel goes to the next row, or the previous one if it was
+    the last. Hide's Undo writes nothing, so it cannot be refused. A refused Undo of Unkeep goes to that row's
+    first control, since the row is still in place.
   - After Keep, Unkeep or Retry, focus stays where it was.
 - **Reduced motion.** When the system's animator duration scale is 0
   ("Remove animations"):
