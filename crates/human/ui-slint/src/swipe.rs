@@ -174,6 +174,15 @@ pub(crate) fn ended(shared: &Rc<RefCell<Shared>>, window: &slint::Weak<AppWindow
             outcome: None,
             at: Instant::now(),
         });
+        // Its bound passes with nothing else to turn the root: wake it, so
+        // a render springs the row back if the model never took it away.
+        let s = Rc::clone(shared);
+        slint::Timer::single_shot(crate::COMMIT_HOLD + crate::LEAVING, move || {
+            let wake = s.borrow().wake.clone();
+            if let Some(wake) = wake {
+                wake();
+            }
+        });
     } else {
         window.set_swipe_offset(0.0);
     }
