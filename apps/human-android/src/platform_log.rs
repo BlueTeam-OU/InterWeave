@@ -35,11 +35,25 @@ fn level_to_follow(running: Option<LogLevel>, file: impl FnOnce() -> Option<LogL
     running.or_else(file).unwrap_or(LogLevel::Info)
 }
 
+/// Run `start` with the level followed on both sides: before, so the
+/// runtime's first line is judged at the level it will load; after, so
+/// the level is the one it did load. Every start path goes through it,
+/// so none can leave the level stale.
+pub(crate) fn around_start<T>(
+    host: &interweave_human_android_platform::ServiceHost,
+    app_data_dir: &std::path::Path,
+    profile: &str,
+    start: impl FnOnce() -> T,
+) -> T {
+    follow(host, app_data_dir, profile);
+    let started = start();
+    follow(host, app_data_dir, profile);
+    started
+}
+
 /// Follow `host`'s level, reading `app_data_dir`'s profile only when no
-/// runtime runs. Called before a start, so the runtime's first line is
-/// judged at the level it will load, and after it, so the level is the
-/// one it did load.
-pub(crate) fn follow(
+/// runtime runs.
+fn follow(
     host: &interweave_human_android_platform::ServiceHost,
     app_data_dir: &std::path::Path,
     profile: &str,

@@ -84,18 +84,18 @@ fn run(env: &mut Env<'_>, case: &str, args: &str, app_data_dir: &str) -> String 
         identity,
     };
     let mut client: Option<Box<dyn interweave_android_e2e_cases::AppClient>> = None;
-    crate::platform_log::follow(service, &dir, PROFILE);
-    let started = if cases::NEED_A_RUNTIME.contains(&case) {
-        service.start_runtime_alone(launch)
-    } else if cases::NEED_THE_CLIENT.contains(&case) {
-        let tap = Tap::default();
-        let started = service.start_recording(launch, Arc::clone(&tap));
-        client = Some(Box::new(HubClient::attach(service.hub(), tap)));
-        started
-    } else {
-        Ok(())
-    };
-    crate::platform_log::follow(service, &dir, PROFILE);
+    let started = crate::platform_log::around_start(service, &dir, PROFILE, || {
+        if cases::NEED_A_RUNTIME.contains(&case) {
+            service.start_runtime_alone(launch)
+        } else if cases::NEED_THE_CLIENT.contains(&case) {
+            let tap = Tap::default();
+            let started = service.start_recording(launch, Arc::clone(&tap));
+            client = Some(Box::new(HubClient::attach(service.hub(), tap)));
+            started
+        } else {
+            Ok(())
+        }
+    });
     if let Err(why) = started {
         return failed(case, &format!("the start was refused: {why:?}"));
     }

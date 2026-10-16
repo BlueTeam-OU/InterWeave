@@ -404,9 +404,9 @@ impl ServiceHost {
     }
 
     /// The log level the running runtime loaded from its profile: the
-    /// level the app's platform log follows once a start has run, since a
-    /// start redelivered while one runs starts nothing and the file may
-    /// have changed since. `None` while nothing runs.
+    /// level the app's platform log follows around every start while one
+    /// runs, since a start redelivered then starts nothing and the file
+    /// may have changed since. `None` while no runtime runs.
     #[must_use]
     pub fn log_level(&self) -> Option<LogLevel> {
         self.lock()
@@ -530,8 +530,8 @@ impl ServiceHost {
 /// (`observability.log_level`), read as a start reads the profile -- so
 /// the app's platform log can be filtered at it before the runtime logs
 /// its first line (plan section 20, the audit sink carried from section
-/// 18). `None` when the profile cannot be read: the start that follows
-/// refuses and says why.
+/// 18), and wherever no runtime runs to say which level it loaded.
+/// `None` when the profile cannot be read: a start refuses and says why.
 #[must_use]
 pub fn profile_log_level(app_data_dir: &std::path::Path, profile: &str) -> Option<LogLevel> {
     let boundary = TrustBoundary::new(app_data_dir).ok()?;

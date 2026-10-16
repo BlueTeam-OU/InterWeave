@@ -217,7 +217,12 @@ fn start_without_network(app_data_dir: &str) -> jint {
     if let Err(code) = provision(app_data_dir) {
         return code;
     }
-    match ServiceHost::global().start_without_network(std::path::Path::new(app_data_dir), PROFILE) {
+    let host = ServiceHost::global();
+    let dir = std::path::Path::new(app_data_dir);
+    let started = crate::platform_log::around_start(host, dir, PROFILE, || {
+        host.start_without_network(dir, PROFILE)
+    });
+    match started {
         Ok(()) => {
             log("no network access: the store is open and no runtime runs");
             NETWORK_DENIED
@@ -238,13 +243,13 @@ fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
     };
     let host = ServiceHost::global();
     let dir = std::path::PathBuf::from(&app_data_dir);
-    crate::platform_log::follow(host, &dir, PROFILE);
-    let started = host.start(ServiceLaunch {
-        app_data_dir: dir.clone(),
-        profile: PROFILE.to_owned(),
-        identity,
+    let started = crate::platform_log::around_start(host, &dir, PROFILE, || {
+        host.start(ServiceLaunch {
+            app_data_dir: dir.clone(),
+            profile: PROFILE.to_owned(),
+            identity,
+        })
     });
-    crate::platform_log::follow(host, &dir, PROFILE);
     match started {
         Ok(()) => match host.availability() {
             Some(AvailabilityMode::StayReachable) => 1,
