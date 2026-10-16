@@ -27,7 +27,7 @@ use interweave_human_core::RowId;
 use interweave_human_ui_model::{
     ConversationKey, Intent, RuntimeHost, UiModel, UiText, placeholder_en,
 };
-use interweave_human_ui_slint::{TouchSettings, View, ViewEvent};
+use interweave_human_ui_slint::{INPUT_CAP, TouchSettings, View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 use slint::{ComponentHandle as _, Model as _};
@@ -646,6 +646,98 @@ fn dismissed_in_a_wide_window(
     (direct(&alice), direct(&bob))
 }
 
+/// Another conversation picked, then the first again, before the root
+/// takes: the pick closes the snackbar in the queue, so it is gone from
+/// the screen at the pick, a render before the take draws it no more, and
+/// no Undo is offered that the queue would answer after the close (review
+/// 5551078222 on #291, pre-existing item 1).
+#[test]
+fn no_undo_is_offered_after_picking_another_conversation_and_coming_back() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = dismissed_in_a_wide_window(&mut view, &mut model);
+    view.select(bob);
+    assert!(
+        labelled(&view, text(UiText::Undo)).is_empty(),
+        "gone at the pick"
+    );
+    view.select(alice.clone());
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::Undo)).is_empty(),
+        "not drawn again while its closing waits"
+    );
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+    assert_eq!(model.messages(&alice).len(), 1, "the Dismiss stands");
+}
+
+/// A pick of another conversation refused at a full queue closes nothing,
+/// so the snackbar and its Undo stay on screen, and the Undo still works.
+#[test]
+fn a_refused_pick_leaves_the_undo_on_screen() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = dismissed_in_a_wide_window(&mut view, &mut model);
+    for _ in 0..INPUT_CAP {
+        view.select(alice.clone());
+    }
+    view.select(bob);
+    assert_eq!(view.refused_inputs(), 1, "control: refused");
+    assert_eq!(labelled(&view, text(UiText::Undo)).len(), 1);
+    let _ = turn(&mut view, &mut model);
+    labelled(&view, text(UiText::Undo))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(model.messages(&alice).len(), 2, "undone");
+}
+
+/// Picking the conversation already shown leaves its snackbar and its
+/// Undo where they are: only a pick of ANOTHER closes it.
+#[test]
+fn picking_the_shown_conversation_keeps_its_undo() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, _) = dismissed_in_a_wide_window(&mut view, &mut model);
+    view.select(alice.clone());
+    assert_eq!(labelled(&view, text(UiText::Undo)).len(), 1);
+    labelled(&view, text(UiText::Undo))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(model.messages(&alice).len(), 2, "undone");
+}
+
+/// The snackbar's time runs out before the root takes the closing: its
+/// Undo goes from the screen then, not at the next turn, so it cannot be
+/// pressed after the close it would follow in the queue (review
+/// 5551078222 on #291, its first risk).
+#[test]
+fn a_timed_out_snackbar_leaves_the_screen_at_once() {
+    closing_leaves_the_screen_at_once(|_| {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(6_100));
+    });
+}
+
+/// The app leaves the foreground before the root takes the closing: as
+/// for a timeout, the Undo goes from the screen at once.
+#[test]
+fn a_snackbar_closed_by_the_background_leaves_the_screen_at_once() {
+    closing_leaves_the_screen_at_once(View::close_snackbar);
+}
+
+fn closing_leaves_the_screen_at_once(close: impl FnOnce(&View)) {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, _) = dismissed_in_a_wide_window(&mut view, &mut model);
+    close(&view);
+    assert_eq!(view.queued_inputs(), 1, "control: the closing waits");
+    assert!(
+        labelled(&view, text(UiText::Undo)).is_empty(),
+        "gone at once"
+    );
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+    assert_eq!(model.messages(&alice).len(), 1, "the Dismiss stands");
+}
+
 /// The trust settings opened in the conversation's place: the person left
 /// it, so its snackbar closes (§5), and is not drawn again with its Undo
 /// when the settings close.
@@ -655,6 +747,10 @@ fn opening_the_trust_settings_closes_the_conversations_snackbar() {
     let mut model = UiModel::new();
     let (alice, _) = dismissed_in_a_wide_window(&mut view, &mut model);
     labelled(&view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    assert!(
+        labelled(&view, text(UiText::Undo)).is_empty(),
+        "gone at the press"
+    );
     let _ = turn(&mut view, &mut model);
     labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
     let _ = turn(&mut view, &mut model);

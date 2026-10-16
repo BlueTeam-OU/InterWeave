@@ -27,8 +27,9 @@ use std::time::{Duration, Instant};
 use interweave_human_client_api::TrustOrigin;
 use interweave_human_ui_model::{
     Announce, ConversationKey, Direction, FocusTarget, HostText, Intent, ItemKey, ItemStatus,
-    MessageItem, Reply, Retention, RowAction, RuntimeHost, SessionNotice, TrustChange, TrustInput,
-    TrustOutcome, UiModel, UiText, fill, placeholder_en, short_peer, visible_destination,
+    MessageItem, Reply, Retention, RowAction, RuntimeHost, SessionNotice, Snackbar, TrustChange,
+    TrustInput, TrustOutcome, UiModel, UiText, fill, placeholder_en, short_peer,
+    visible_destination,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -313,16 +314,79 @@ struct Shared {
     touch: TouchSettings,
     /// The platform's haptic tick, played once as a swipe arms.
     haptic: Option<Rc<dyn Fn()>>,
-    /// The snackbar shown, by its id.
-    snack: Option<u64>,
+    /// The model's snackbar as last rendered, drawn or not.
+    snack: Option<SnackUp>,
+    /// The window, to take a snackbar off screen when an input that closes
+    /// it is queued.
+    window: slint::Weak<AppWindow>,
+}
+
+/// A snackbar, as the queue judges what closes it.
+#[derive(Clone)]
+struct SnackUp {
+    id: u64,
+    /// The conversation it is shown in; `None` on the list.
+    conversation: Option<ConversationKey>,
+}
+
+impl SnackUp {
+    fn of(snack: &Snackbar) -> Self {
+        Self {
+            id: snack.id,
+            conversation: snack.conversation.clone(),
+        }
+    }
+
+    /// Whether `input`, once taken, closes this snackbar: its own closing,
+    /// and for a conversation's, each input that leaves it (§5) -- Back, a
+    /// pick of another conversation, the trust settings opened in its
+    /// place. What [`View::take_events`] resolves each to.
+    fn closed_by(&self, input: &Input) -> bool {
+        match input {
+            Input::SnackClosed(id) => *id == self.id,
+            Input::Left | Input::TrustPage(true) => self.conversation.is_some(),
+            Input::Select(key) => self.conversation.as_ref().is_some_and(|c| c != key),
+            _ => false,
+        }
+    }
 }
 
 impl Shared {
     /// Queue `input`, and return the wake hook for the caller to run once
     /// it has RELEASED its borrow of this state: a hook that takes at
     /// once borrows it again (review F3).
+    ///
+    /// An input that will close the snackbar takes it off the screen now,
+    /// with its Undo: an Undo pressed after it would follow the close in
+    /// the queue and find nothing (review 5551078222 on #291;
+    /// `no_undo_is_offered_after_picking_another_conversation_and_coming_back`,
+    /// `a_timed_out_snackbar_leaves_the_screen_at_once`). A refused press
+    /// closes nothing, so it hides nothing
+    /// (`a_refused_pick_leaves_the_undo_on_screen`).
     #[must_use]
     fn push(&mut self, input: Input) -> Option<Rc<dyn Fn()>> {
+        let closes = self.snack.as_ref().is_some_and(|s| s.closed_by(&input));
+        let refused = self.refused;
+        let wake = self.queue(input);
+        if closes
+            && self.refused == refused
+            && let Some(window) = self.window.upgrade()
+        {
+            window.set_snack_shown(false);
+        }
+        wake
+    }
+
+    /// Whether a queued input will close `snack`: a render then leaves it
+    /// off screen
+    /// (`no_undo_is_offered_after_picking_another_conversation_and_coming_back`).
+    fn closing(&self, snack: &SnackUp) -> bool {
+        self.inputs.iter().any(|i| snack.closed_by(i))
+    }
+
+    /// Queue `input` by the rules below, or refuse it at the cap.
+    #[must_use]
+    fn queue(&mut self, input: Input) -> Option<Rc<dyn Fn()>> {
         // An edit is the composer's STATE: refusing it loses what the
         // person typed (review R2-1), so it is never refused. It replaces a
         // queued edit for the same conversation only while no later input
@@ -569,7 +633,10 @@ impl View {
         window.set_cancel_label(text(UiText::CancelChange));
         window.set_undo_label(text(UiText::Undo));
         window.set_hide_conversation_label(text(UiText::HideConversation));
-        let shared = Rc::new(RefCell::new(Shared::default()));
+        let shared = Rc::new(RefCell::new(Shared {
+            window: slint::ComponentHandle::as_weak(&window),
+            ..Shared::default()
+        }));
 
         let s = Rc::clone(&shared);
         window.on_select(move |handle| {
@@ -786,7 +853,7 @@ impl View {
     /// The app left the foreground: the snackbar closes, its Undo with it
     /// (§5). The action itself has happened already.
     pub fn close_snackbar(&self) {
-        let shown = self.shared.borrow().snack;
+        let shown = self.shared.borrow().snack.as_ref().map(|s| s.id);
         if let Some(id) = shown {
             let _ = self.shared.borrow_mut().push(Input::SnackClosed(id));
         }
@@ -1405,9 +1472,14 @@ impl View {
     fn render_swipe(&mut self, model: &UiModel) -> Option<String> {
         let window = &self.window;
         let snack = model.snackbar();
-        let shown = snack.as_ref().filter(|s| match &s.conversation {
-            None => true,
-            Some(c) => self.on_screen() == Some(c),
+        let up = snack.as_ref().map(SnackUp::of);
+        let closing = up.as_ref().is_some_and(|s| self.shared.borrow().closing(s));
+        let shown = snack.as_ref().filter(|s| {
+            !closing
+                && match &s.conversation {
+                    None => true,
+                    Some(c) => self.on_screen() == Some(c),
+                }
         });
         window.set_snack_shown(shown.is_some());
         if let Some(s) = shown {
@@ -1416,7 +1488,7 @@ impl View {
             window.set_snack_text(swipe::confirmation_text(s.confirms).into());
             window.set_snack_undo(s.undo);
         }
-        self.shared.borrow_mut().snack = snack.as_ref().map(|s| s.id);
+        self.shared.borrow_mut().snack = up;
         if let Some(s) = &snack
             && self.snack_timed != Some(s.id)
         {
