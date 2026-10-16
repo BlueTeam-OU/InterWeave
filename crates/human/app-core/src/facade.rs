@@ -152,7 +152,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Command::Retry(row) => Box::pin(self.client.retry(*row, now))
                 .await
                 .map_err(|e| row_failure(&e)),
-            Command::Cancel(row) => self.client.cancel(*row).map_err(|e| row_failure(&e)),
+            Command::Cancel(row) => self
+                .client
+                .cancel(*row)
+                .map(drop)
+                .map_err(|e| row_failure(&e)),
             Command::Reopen => {
                 self.client.reopen(now);
                 Ok(())

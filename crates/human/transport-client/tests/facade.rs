@@ -1438,8 +1438,8 @@ async fn a_fabricated_row_id_is_refused_by_retry_and_cancel() {
         Err(interweave_human_transport_client::RowError::NoSuchRow)
     );
     assert_eq!(
-        sender.cancel(made_up),
-        Err(interweave_human_transport_client::RowError::NoSuchRow)
+        sender.cancel(made_up).err(),
+        Some(interweave_human_transport_client::RowError::NoSuchRow)
     );
 }
 
@@ -1875,5 +1875,93 @@ async fn a_daemon_without_trusts_version_reads_as_incompatible() {
     assert_eq!(
         client.set_trust(stranger, true).await,
         Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Incompatible))
+    );
+}
+
+#[tokio::test]
+async fn an_undone_cancel_sends_the_same_message_under_its_ids() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let held = raw(&b, Some(human())).await;
+    let mut sender = client(&a, agent(), memory());
+    ready(&mut sender, 0).await;
+    a.inject_send(TransportError::Timeout);
+    let row = sender
+        .send(to(b.peer()), &envelope("x"), 0)
+        .await
+        .expect("row");
+    let before = sender.store_mut().pending_outbound().expect("read")[0].clone();
+    events(&mut sender);
+    let cancelled = sender
+        .cancel(row)
+        .expect("cancelled")
+        .expect("a restore can be written");
+    assert_eq!(cancelled.row(), row);
+    assert!(
+        sender
+            .store_mut()
+            .pending_outbound()
+            .expect("read")
+            .is_empty()
+    );
+
+    // The restored attempt fails too, so the restored record can be read
+    // before anything is accepted -- and fails as "not taken", so the
+    // Unconfirmed below is what the restore carried, not what this
+    // attempt found.
+    a.inject_send(TransportError::Overloaded);
+    let restored = sender.restore(cancelled, 1).await.expect("restored");
+    assert_ne!(restored, row, "a new row id");
+    let OutboundStatus::Unconfirmed {
+        next_retry_at: Some(due),
+        ..
+    } = last_status(&mut sender)
+    else {
+        panic!("the cancelled attempt may have reached: so may the restored one");
+    };
+    let after = sender.store_mut().pending_outbound().expect("read")[0].clone();
+    assert_eq!(after.row_id, restored);
+    assert_eq!(after.app_message_id, before.app_message_id);
+    assert_eq!(after.transport_message_id, before.transport_message_id);
+    assert_eq!(after.destination, before.destination);
+    assert_eq!(after.media_type, before.media_type);
+    assert_eq!(after.payload, before.payload, "the stored bytes, as sent");
+    assert_eq!(after.created_at, before.created_at);
+    assert_eq!(
+        after.attempts,
+        before.attempts + 1,
+        "the carried count, plus the restore's own attempt"
+    );
+
+    sender.tick(due).await;
+    assert_eq!(
+        last_status(&mut sender),
+        OutboundStatus::Accepted { endpoint: human() }
+    );
+    assert_eq!(
+        raw_direct_ids(&held).await,
+        [before.transport_message_id],
+        "the undone send went out as the cancelled message"
+    );
+}
+
+#[tokio::test]
+async fn a_cancel_on_degraded_storage_offers_no_restore() {
+    let (_a, b) = FakeNetwork::pair(node_config(), node_config());
+    let dir = common::private_tempdir();
+    let mut sender = client(&b, human(), store_with_room_for_one(dir.path()));
+    let kept = sender
+        .send(Destination::Broadcast(room()), &body("one"), 1)
+        .await
+        .expect("the first fits");
+    assert_eq!(
+        sender
+            .send(Destination::Broadcast(room()), &body("two"), 1)
+            .await,
+        Err(SendError::StorageUnavailable)
+    );
+    assert_eq!(sender.session_state(), &SessionState::StorageDegraded);
+    assert!(
+        sender.cancel(kept).expect("cancelled").is_none(),
+        "a restore could not be written, so none is offered"
     );
 }
