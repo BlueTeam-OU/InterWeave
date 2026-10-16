@@ -327,9 +327,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             // What an earlier input of the same take makes no longer
             // offered: a Keep after a Dismiss of the same
             // message, reported, since the person asked for it and nothing
-            // else will say so (review of #289, rounds 5 and 6); and a
-            // Dismiss or a conversation hide after a Keep of a message in
-            // it, which the Keep's own confirmation answers.
+            // else will say so (`a_keep_taken_after_its_dismiss_is_not_issued`);
+            // and a Dismiss or a conversation hide after a Keep of a message
+            // in it, which the Keep's own confirmation answers
+            // (`hides_after_a_keep_in_one_take_leave_the_keep_and_report_nothing`).
             if let Intent::Keep { item, from } = intent {
                 self.problem(Problem::Command {
                     command: Command::Keep { item, from },
