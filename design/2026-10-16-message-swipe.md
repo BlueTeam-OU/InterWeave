@@ -40,15 +40,19 @@ them a message they can't get back.
 
 **Rule:** a direction is offered on a row exactly when its action is
 legal on that row now. For Keep, Unkeep, Retry and Cancel that means
-`UiModel::actions(key)`. Hide for now is offered on kind A only.
+`UiModel::actions(key)`. Hide for now is offered on every kind-A row,
+including one whose session copy is gone (`UiModel::copy_gone`). There
+`actions` is empty, so Keep is not offered, but hiding needs no copy:
+such a row offers the left swipe and the Hide button, and no right
+swipe.
 The swipe never decides legality itself. When the model's answer
 changes, the swipe changes with it.
 
 - A direction with no action **does not move**. The row does not
   follow the finger that way and nothing is revealed. A row that
   slides and then does nothing tells the person something happened.
-- Kind D, and any row whose actions are empty, does not move either
-  way. A vertical scroll that starts on it scrolls as usual.
+- Kind D, and any other row whose actions are empty, does not move
+  either way. A vertical scroll that starts on it scrolls as usual.
 - **In a right-to-left layout the directions mirror**, the platform
   convention. The owner ruled this on 2026-10-16: "mirror, the platform
   convention". In an RTL locale Keep and Retry are a swipe to the
@@ -80,7 +84,8 @@ Edge rules:
   the rest of its life. It never becomes a swipe.
 - The tracking rule is this one, not the toolkit's. Slint 1.18.1's
   `SwipeGestureHandler` starts at 8 px when dx > |dy| / 2, so a drag
-  30–60° off horizontal would swipe. Here it scrolls. A row tracks
+  45–63° off horizontal would swipe. Here it scrolls, since this rule
+  tracks only below 45°. A row tracks
   its own touch with this rule and the system slop (ruled 2026-10-16
   on rust-ui-dev-01's question).
 - Only one row tracks at a time.
@@ -221,6 +226,16 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   If the facade or store cannot restore a cancelled record under its
   old ids, rust-ui-dev returns this point to ux-designer before building
   the Cancel swipe.
+
+  **The Undo of Cancel waits on InterWeave#284 landing on main.** That
+  PR reads the restore as RETENTION.md §2's retry: the same
+  `app_message_id` and stored bytes, under a new row id. The frozen
+  §2 diagram has no restore edge, and whether it needs one is
+  architect-cto's call. If they decide it does, the Undo of Cancel also
+  waits on that change. The cancelled row itself stays terminal
+  (`OutboundStatus::is_terminal`): the restore is a new row, so
+  nothing about the old one changes. The Cancel swipe and button
+  themselves, without an Undo, do not wait.
 - **Unkeep when the session no longer holds the content.** If the
   session's copy of the message is past its bound (`UiModel::copy_gone`),
   Keep is not offered after the Unkeep, so there is nothing for an Undo
@@ -228,6 +243,16 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   never an Undo that fails. A missing Undo is honest. A failing one
   breaks the promise the button makes (ruled 2026-10-16 on
   rust-ui-dev-01's question).
+- **Undo of Cancel when the store refuses the restore** (storage
+  degraded or full, RETENTION.md §4):
+  - the row stays cancelled, and nothing is sent: a send never goes out
+    without its durable pending record (RETENTION.md §2);
+  - the snackbar closes, and the existing storage notice and refusal
+    announcement apply;
+
+  While storage is already degraded when Cancel runs, its snackbar
+  shows no Undo, since a restore could not be written. A missing Undo
+  is honest; a failing one is not (as for Unkeep above).
 - **Undo of Unkeep when Keep is refused** (storage degraded): the row
   stays not kept, the snackbar closes, and the existing storage notice
   and refusal announcement apply.
@@ -285,6 +310,13 @@ snackbar Undo; right = nothing."
 - **Undo** puts the conversation back in its place with its messages.
 - **A new message** into a hidden conversation brings it back to the
   list, holding only that message.
+- **A new message while the hide's snackbar is still up.** The
+  arrival wins, and nothing is lost: the conversation comes back in its
+  place with all its messages and the new one, as an Undo would bring
+  it. The snackbar closes, and the arrival is announced as any new
+  message is. A new message is a reason to see the conversation, and
+  merging a later Undo into a list that already holds the new message
+  would risk a duplicate row.
 - **Equivalent without the gesture.** The conversation's own screen has
   a "Hide conversation" control in its header, shown only when the
   conversation is offered. It returns to the list and shows the same
@@ -336,7 +368,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 10. On a kind-D row, neither direction moves the row.
 11. A vertical scroll that starts on any row, drifting sideways less
     than it moves vertically, scrolls and never swipes. That includes
-    a drag about 45° off horizontal, which Slint's own swipe handler
+    a drag 55–60° off horizontal, which Slint's own swipe handler
     would take.
 12. With TalkBack on:
     - every action in 1–9 can be done with the row's buttons alone;
