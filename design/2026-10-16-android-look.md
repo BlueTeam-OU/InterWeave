@@ -163,7 +163,8 @@ From the top:
     under it, the **unread badge**: the count in `on-tertiary` on a
     `tertiary` pill, 20 dp tall. With no unread messages there is no
     badge. When the last message is the person's own and still
-    pending, a clock icon takes the badge's place.
+    pending and nothing is unread, a clock icon takes the badge's
+    place; with unread messages the badge shows, never the clock.
 - **The selected conversation** (a wide screen shows the list and the
   conversation side by side) takes `primary-container` as its fill and
   a 4 dp bar in `primary` along its start edge, so it is not shown by
@@ -205,11 +206,16 @@ From the top:
   message the person sent starts with "You: " (§9).
 - **Showing a preview never reads a message.** An unread message
   previewed in the list stays unread, keeps its durable copy and its
-  badge count, until the person opens the conversation. Today a drag on
-  a Chats row reads the conversation's messages unseen (swipe review
+  badge count, until the person opens the conversation. On main
+  761d72b3 a drag on a Chats row reads the conversation's messages
+  unseen (found on the Pixel 9a, 2026-10-16, running swipe spec §11
   item 17). A preview must not add a second way to do that.
 - With no message held (all were read, not kept, and a restart removed
   them), the subtitle is "No messages", in `on-surface-variant`.
+- Every time on these screens is the local time the message reached
+  this app (`local_at`), never the time a sender asserts
+  (`sent_at_ms`), which a peer chooses. Day separators and the
+  one-minute grouping use it too.
 - The time is the last message's: "01:18" today, "Yesterday", the day
   of the week within the last seven days, else the date, in the phone's
   locale format.
@@ -240,13 +246,19 @@ From the top:
     it.
   - Under the text, inside the bubble, right-aligned: the status with
     its icon, then " · " and the time, in body small:
-    - Kept: a filled bookmark and "Kept";
-    - Read, not kept: no icon, "Read, not kept";
-    - pending ("Sending", "Not confirmed, trying again"): a clock;
-    - accepted by remote transport: a single check;
-    - accepted by local transport (a channel's send): an outlined check,
-      "Accepted by local transport";
-    - failed: an error icon, in `error`.
+    every status label (`LabelKey`) has an icon:
+
+    | status | icon |
+    |---|---|
+    | Unread | a dot in `tertiary` |
+    | Read, not kept | none |
+    | Kept | a filled bookmark |
+    | Sending; Not confirmed, trying again | a clock |
+    | Not sent, send again or cancel; May have reached the peer, send again or cancel | an error icon, the icon and words in `error` |
+    | Accepted by remote transport | a single check |
+    | Accepted by local transport (a channel's send) | an outlined check |
+    | Canceled; Canceled, may have reached the peer | a crossed circle |
+
     The words stay those of `human-client-ui.md` §5. A check never
     means read (§5 there).
   - Consecutive messages from the same side within a minute sit 2 dp
@@ -310,7 +322,8 @@ From the top:
 
 - **The snackbar** becomes Material's: `inverse-surface`, 4 dp corners,
   at least 48 dp tall, 12 dp from the screen's sides, above the
-  composer. The text is in `inverse-on-surface` and Undo is a text
+  composer in a conversation and 12 dp above the bottom of the screen's
+  safe area on the Chats list. The text is in `inverse-on-surface` and Undo is a text
   button in `inverse-primary`, with a 48 × 48 dp target. Its behaviour
   follows swipe spec §6.
 - **Focus.** Every focusable control draws a 3 dp ring 2 dp outside its
@@ -341,8 +354,9 @@ From the top:
   flat state layer (`on-surface` at 10 %).
 - **RTL.** Everything mirrors: received bubbles on the right, sent on
   the left, avatars on the right in the list, the back arrow pointing
-  right. The snackbar mirrors too (swipe review item 16 found it did
-  not).
+  right. The snackbar mirrors too: text at the start, Undo at the end
+  (on main 761d72b3 it did not, swipe spec §11 item 16's run of
+  2026-10-16).
 
 ## 8. Edge cases
 
@@ -415,43 +429,61 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 
 1. Every pair in §3's contrast table meets its need, measured from a
    screenshot, in both schemes. The avatar pairs (§5.1) hold 4.5:1.
-2. Chats: the app bar's title is "Conversations" and Trust settings is an icon
-   button in it. The bottom outlined button is gone.
+2. Chats: the app bar's title is "Conversations" and Trust settings is
+   an icon button in it. The bottom outlined button is gone.
 3. Chats: each row shows the avatar, the name, the last message (or
    "No messages"), the time and, with unread messages, the badge with
-   their count. The name is bold exactly when the badge shows.
-4. The avatar for one peer id has the same letters and colour after a
-   restart, and on desktop.
+   their count. The name is bold exactly when the badge shows. With
+   nothing unread and one's own pending last message, the clock shows
+   in the badge's place.
+4. The avatar shows the last two characters of the peer id before any
+   "/", in the pair the byte sum modulo 3 picks (checked by a ui-model
+   test over fixed ids). The same id has the same avatar after a
+   restart and on desktop. A channel's avatar is "#".
 5. **A preview reads nothing**: a conversation with 2 unread messages
    shows its last one in the list. After a restart without opening it,
    it still has both messages unread.
-6. A conversation's app bar has the back arrow, avatar, name and
-   connectivity line. The peer id is in Details, and copying it gives
-   the exact canonical id.
-7. Received messages are on the start side, sent on the end side, with
-   §6's fills. In an RTL locale the sides swap.
-8. In a channel, each received bubble shows its author, and TalkBack's
-   description of the author is the full PeerId. A channel's avatar is
-   "#". In a direct conversation no bubble shows an author line.
-   Each bubble's status shows its icon and its words. Accepted shows a
-   single check and never the words "Read" or "Seen".
-9. Every chip, link, and the Send and back buttons measure at least
-   48 × 48 dp to touch.
-9a. A reply shows its reply line in the bubble, a link in a bubble
-    opens as today's link button does, code, quote and rule lines keep
-    their look in both bubble colours, and a header shows the path line
-    when the path is known. A bubble whose route differs from the
-    title's shows it.
-10. Every focusable control shows the 3 dp ring under Tab, on the Chats
+6. The preview is the first line with markdown removed, a link showing
+   its text. One's own reads "You: …". The time reads as §5.2 says for
+   a message from today, yesterday, this week and earlier, and comes
+   from `local_at` (a ui-model test with a peer-asserted time far off).
+7. A conversation's app bar has the back arrow, avatar, name,
+   connectivity line and, when known, path line. The overflow button is
+   labelled "More options" and holds Details, and Hide conversation
+   exactly when it is offered. Details shows the peer id, and copying
+   it gives the exact canonical id.
+8. Received messages are on the start side and sent on the end side,
+   with §6's fills, corners and width (at most 80 %). In an RTL locale
+   the sides swap. Same-side messages within a minute sit 2 dp apart,
+   and a day change shows its separator.
+9. In a channel, each received bubble shows its author, and the
+   author's description is the full PeerId. In a direct conversation
+   no bubble shows an author line.
+10. Each status in §6's table shows its icon and its words. Accepted
+    shows a check and never the words "Read" or "Seen".
+11. A reply shows its reply line in the bubble, a link opens as today's
+    link button does, and code, quote and rule lines keep their look in
+    both bubble colours. A bubble whose route differs from the title's
+    shows it.
+12. Every chip, link, and the Send and back buttons measure at least
+    48 × 48 dp to touch. Send is dimmed and does nothing while the field
+    is empty.
+13. Every focusable control shows the 3 dp ring under Tab: on the Chats
     list, in a conversation, on the snackbar's Undo and on a notice
     banner's buttons, in the colour §7 gives its container, and the
-    ring measures 3:1 or more against that container.
-11. At 200 % font size nothing overlaps or is cut, apart from the
+    ring measures 3:1 or more against it.
+14. The selected conversation on a wide screen shows its start bar as
+    well as its fill.
+15. The snackbar is Material's (§7), sits above the composer, or at the
+    bottom on the Chats list, and in an RTL locale has its text at the
+    start and Undo at the end.
+16. At 200 % font size nothing overlaps or is cut, apart from the
     one-line subtitles' ellipsis.
-12. Every swipe spec §11 item still passes. Only the swipe's look has
-    changed.
-13. Under "Remove animations" no ripple plays.
-14. TalkBack reads a bubble as author, text, status, time, and a
+17. Every swipe spec §11 item still passes. Only the swipe's look has
+    changed; the neutral fill holds §3's contrasts.
+18. Under "Remove animations" no ripple plays.
+19. TalkBack reads a bubble as author, text, status, time, and a
     conversation row as name, unread count, last message, time (a
-    person's check, as swipe spec §11 item 12; blocked until TalkBack
-    reaches the app).
+    channel's saying it is a channel), and never the avatar: a person's
+    check, as swipe spec §11 item 12, blocked until TalkBack reaches the
+    app.
