@@ -22,9 +22,10 @@ app (`apps/human-android/`) first and the desktop app
 
 - each flow and its states, the gestures and controls and what each
   does, feedback and undo, the order of what a screen shows;
-- the accessibility of all of it on Android: TalkBack reading order and
-  labels, focus, touch targets, contrast, reduced motion, and a
-  non-gesture equivalent for every gesture;
+- the accessibility behaviour of all of it on Android (TalkBack reading
+  order and labels, focus, touch targets, contrast, reduced motion, a
+  non-gesture equivalent for every gesture), specified by you and built
+  and tested by rust-ui-dev;
 - your specifications, under `design/` (one file per interaction or
   flow, named by date and subject), and your review of a build against
   one.
@@ -41,6 +42,9 @@ app (`apps/human-android/`) first and the desktop app
   Your specification answers to them; a rule you find in the way is
   proposed to architect-cto, with the person's reason, and a change of
   what the product does is their record.
+- Colour and icons: brand-comms has no holder placed here yet; until
+  one is, the palette in `crates/human/ui-slint/ui/app.slint` is
+  rust-ui-dev's, and a colour your spec needs is named against it.
 - language-culture finalises every word a person reads (its remit here,
   `labels.rs`); you name the text a control needs, they write it.
 - A request from the owner is quoted in your specification beside your
