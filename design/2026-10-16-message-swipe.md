@@ -109,7 +109,7 @@ committed swipe except Retry shows the snackbar (§6).
 | A left, Hide for now | removes the row from this session's list (new; §8) | slides out, then the space closes (150 ms) | "Hidden" | puts the row back in the same place |
 | B left, Unkeep | `Intent::Unkeep(row)`, at once | slides back to rest. Its status reads not kept, and it becomes kind A | "No longer kept" | the Keep `actions` now offers on it (`from` is the kept row the Unkeep released, whose content this session holds). The row reads Kept again |
 | C right, Retry now | `Intent::Retry(row)` | slides back to rest. Its status changes as the facade reports it (Sending) | none (nothing to undo) | — |
-| C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Send cancelled" | restores the cancelled pending record itself: its app message id, its transport message id and its stored payload bytes, never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
+| C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Send cancelled" | restores the cancelled pending record itself: everything §8 lists unchanged (both ids, destination, media type, stored payload bytes, attempt count), never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
 
 **The rule: after any interruption, the state is what the person last
 saw confirmed.** Every action runs on commit. Undo is the reverse
@@ -213,8 +213,13 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   and §13 in InterWeave#284:
   - the undone cancel restores the pending record unchanged: its app
     message id, its transport message id, its destination selector, its
-    media type and its stored payload bytes. It is never a re-serialised
-    or re-identified copy. A new row id is expected;
+    media type, its stored payload bytes and its attempt count. It is
+    never a re-serialised or re-identified copy. A new row id is
+    expected. The attempt count matters because after a restart the
+    client rebuilds `may_have_reached` from it (RETENTION.md §2,
+    conformance case 16, InterWeave#284). A restore with no attempts
+    would wrongly say the cancelled attempt never reached the
+    receiver;
   - the receiver dedups a direct message by its transport message id.
     So if an attempt was admitted at the receiver before Cancel ran and
     only its answer was lost, the undone send is answered from the
@@ -401,6 +406,6 @@ TalkBack off and once with it on, and once with "Remove animations" on.
       snackbar closes;
     - the Undo of Keep raises Unkeep, the Undo of Unkeep raises Keep
       with the released row as `from`, and the Undo of Cancel restores
-      the cancelled record with its ids, destination, media type and
-      stored bytes unchanged;
+      the cancelled record with its ids, destination, media type,
+      stored bytes and attempt count unchanged;
     - the Undo of Hide raises nothing.
