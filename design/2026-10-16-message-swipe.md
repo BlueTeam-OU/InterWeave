@@ -40,15 +40,19 @@ them a message they can't get back.
 
 **Rule:** a direction is offered on a row exactly when its action is
 legal on that row now. For Keep, Unkeep, Retry and Cancel that means
-`UiModel::actions(key)`. Hide for now is offered on kind A only.
+`UiModel::actions(key)`. Hide for now is offered on every kind-A row,
+including one whose session copy is gone (`UiModel::copy_gone`). There
+`actions` is empty, so Keep is not offered, but hiding needs no copy:
+such a row offers the left swipe and the Hide button, and no right
+swipe.
 The swipe never decides legality itself. When the model's answer
 changes, the swipe changes with it.
 
 - A direction with no action **does not move**. The row does not
   follow the finger that way and nothing is revealed. A row that
   slides and then does nothing tells the person something happened.
-- Kind D, and any row whose actions are empty, does not move either
-  way. A vertical scroll that starts on it scrolls as usual.
+- Kind D, and any other row whose actions are empty, does not move
+  either way. A vertical scroll that starts on it scrolls as usual.
 - **In a right-to-left layout the directions mirror**, the platform
   convention. The owner ruled this on 2026-10-16: "mirror, the platform
   convention". In an RTL locale Keep and Retry are a swipe to the
