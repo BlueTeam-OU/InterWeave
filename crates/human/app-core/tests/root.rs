@@ -1163,3 +1163,26 @@ async fn an_undo_of_cancel_survives_many_cancels_queued_before_it() {
         bob.updates
     );
 }
+
+/// However late the facade answers, the model side keeps no more cancels
+/// in flight than the facade side can hold records for (review F2 on #289,
+/// round 3).
+#[tokio::test]
+async fn cancels_in_flight_stay_within_what_can_be_held() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), CANCELLED_CAP + 2, 1).await;
+    // Every cancel pressed, none answered: the facade is busy elsewhere.
+    bob.will(
+        rows.iter()
+            .map(|row| ViewEvent::Intent(Intent::Cancel(*row)))
+            .collect(),
+    );
+    let commands = bob.model.turn();
+    let cancels = commands
+        .iter()
+        .filter(|c| matches!(c, Command::Cancel(_)))
+        .count();
+    assert_eq!(cancels, CANCELLED_CAP - 2);
+}

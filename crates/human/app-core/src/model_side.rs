@@ -9,6 +9,7 @@ use std::collections::{HashSet, VecDeque};
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_ui_model::{ConversationKey, Intent, UiModel, ViewEvent};
 
+use crate::facade::CANCELLED_CAP;
 use crate::protocol::{Command, Failure, Update};
 
 /// A view as the root drives it: show the model, then hand back what the
@@ -341,7 +342,26 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             }
             Intent::Unkeep(row) => Command::Unkeep(row),
             Intent::Retry(row) => Command::Retry(row),
-            Intent::Cancel(row) => Command::Cancel(row),
+            Intent::Cancel(row) => {
+                // Each cancel's record is held for its Undo until its
+                // snackbar goes; with the facade on its own thread, answers
+                // can lag any number of turns. So at most CANCELLED_CAP - 2
+                // are in flight -- room for the open snackbar's record and
+                // one replaced one still to let go -- and a cancel past
+                // that is refused, as one the store refused (its row
+                // springs back), rather than evicting an offered Undo's
+                // record (review F2 on #289, round 3).
+                let in_flight = self
+                    .in_flight
+                    .iter()
+                    .filter(|f| matches!(f, InFlight::Other(Command::Cancel(_))))
+                    .count();
+                if in_flight >= CANCELLED_CAP - 2 {
+                    self.model.intent_refused(&Intent::Cancel(row));
+                    return None;
+                }
+                Command::Cancel(row)
+            }
             Intent::Restore(row) => Command::Restore(row),
             // Hiding writes nothing: the model's alone.
             Intent::Hide(item) => {

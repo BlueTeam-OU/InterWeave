@@ -31,11 +31,11 @@ pub const READ_COPY_CAP: usize = 256;
 
 /// How many cancelled records the facade side holds for an Undo, at most.
 /// Each closed or replaced snackbar lets its record go (`ForgetCancelled`),
-/// so what is held at once is the open snackbar's and those of cancels
-/// whose answers the model has not applied yet: at most one take's
-/// presses, which the reference view bounds at 64 (`ui-slint`'s
-/// `INPUT_CAP`), plus the open one. Each holds a message's bytes, up to
-/// the 48 KiB payload limit, so this is about 3 MiB at most.
+/// and the model side keeps at most this many minus two cancels in flight
+/// (`ModelSide::turn`), so the held records -- those in flight, the open
+/// snackbar's, and a replaced one not yet let go -- stay within it however
+/// late the answers come. Each holds a message's bytes, up to the 48 KiB
+/// payload limit, so this is about 3 MiB at most.
 pub const CANCELLED_CAP: usize = 65;
 
 /// How many received messages one turn hands over, at most.
