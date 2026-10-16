@@ -4,7 +4,7 @@ Status: specification for rust-ui-dev to build (`crates/human/ui-slint`,
 `crates/human/ui-model` where a screen needs data it lacks,
 `apps/human-android`). Written by ux-designer, 2026-10-16. It answers to
 `architecture/docs/architecture/human-client-ui.md`. Where the two
-disagree, that one wins and this file is wrong. The swipe actions keep
+disagree, that one wins and this file is wrong. The swipe actions follow
 `design/2026-10-16-message-swipe.md`; this file changes how they look,
 never what they do.
 
@@ -20,7 +20,7 @@ already knows. That means Material 3 components (top app bar, list
 items, chips, a snackbar, a rounded text field), arranged the way
 Android messengers arrange them, and a colour scheme instead of grey
 boxes with outlines. The words, the screens' content, and every action
-stay as they are, apart from the three additions the owner chose.
+stay as they are, apart from the owner's three choices below.
 
 The owner saw a mockup of this direction (published as a page on
 2026-10-16, "InterWeave Android Look") and chose, on 2026-10-16:
@@ -123,7 +123,7 @@ system font size was not checked. Every size here follows it, up to
 
 From the top:
 
-- **Top app bar**, 64 dp: the title "Chats" on the left. On the right an
+- **Top app bar**, 64 dp: the title "Conversations" on the left. On the right an
   icon button for Trust settings (a shield, labelled "Trust settings")
   replaces today's full-width outlined button at the bottom of the list.
 - **The list.** Each conversation is a Material list item, at least
@@ -140,7 +140,7 @@ From the top:
     pending, a clock icon takes the badge's place.
 - **The selected conversation** (a wide screen shows the list and the
   conversation side by side) takes `primary-container` as its fill.
-- **Swipe to hide** keeps swipe spec §10. Its fill follows the list
+- **Swipe to hide** follows swipe spec §10. Its fill follows the list
   item's full width.
 
 ### 5.1 The avatar
@@ -168,8 +168,8 @@ From the top:
 
 - The last message the conversation holds in this session, received or
   sent, as plain text: its first line with the markdown marks removed
-  (no bold, no link syntax; a link shows its text). A sent message
-  starts with "You: ".
+  (no bold, no link syntax; a link shows its text). The preview of a
+  message the person sent starts with "You: " (§9).
 - **Showing a preview never reads a message.** An unread message
   previewed in the list stays unread, keeps its durable copy and its
   badge count, until the person opens the conversation. Today a drag on
@@ -177,16 +177,17 @@ From the top:
   item 17). A preview must not add a second way to do that.
 - With no message held (all were read, not kept, and a restart removed
   them), the subtitle is "No messages", in `on-surface-variant`.
-- The time is the last message's: "01:18" today, "Yesterday", the
-  weekday within a week, else the date, in the phone's locale format.
+- The time is the last message's: "01:18" today, "Yesterday", the day
+  of the week within the last seven days, else the date, in the phone's
+  locale format.
 
 ## 6. A conversation
 
 From the top:
 
 - **Top app bar**, 64 dp:
-  - a back arrow (48 dp target, labelled "Back to conversations"),
-    which replaces today's outlined "Back to conversations" box;
+  - a back arrow (48 dp target, labelled "Back to conversations"), which
+    replaces today's outlined "Back to conversations" box;
   - the avatar, 36 dp;
   - the name in title medium and, under it, the connectivity line
     ("Online, some peers might not reach you") in body small;
@@ -194,7 +195,7 @@ From the top:
     conversation is offered for hiding (swipe spec §10), and "Details".
     "Details" shows the full peer id, copyable in its exact canonical
     form (`human-client-ui.md` §11).
-  The peer id leaves the main screen.
+  The peer id is no longer shown on the conversation screen itself.
 - **Messages as bubbles.**
   - Received: on the start side, `surface-container-high`, 18 dp
     corners with the corner nearest the sender 6 dp. Sent: on the end
@@ -205,7 +206,7 @@ From the top:
     its icon, then " · " and the time, in body small:
     - Kept: a filled bookmark and "Kept";
     - Read, not kept: no icon, "Read, not kept";
-    - pending (Sending, Not confirmed, trying again): a clock;
+    - pending ("Sending", "Not confirmed, trying again"): a clock;
     - accepted by remote transport: a single check;
     - failed: an error icon, in `error`.
     The words stay those of `human-client-ui.md` §5. A check never
@@ -213,7 +214,8 @@ From the top:
   - Consecutive messages from the same side within a minute sit 2 dp
     apart. A change of side, 8 dp. A day change shows a centred "Today",
     "Yesterday" or the date, in body small.
-  - The author line ("...x6gY6Eri", "You") goes: the side says who.
+  - The author line ("...x6gY6Eri", "You") is removed: the bubble's
+    side shows who wrote it.
     TalkBack still reads the author first (§7).
 - **Row actions as chips**, under the bubble, on the bubble's side:
   - outlined chips, 32 dp drawn and 48 dp to touch (the touch area
@@ -249,7 +251,7 @@ From the top:
   at least 48 dp tall, 12 dp from the screen's sides, above the
   composer. The text is in `inverse-on-surface` and Undo is a text
   button in `inverse-primary`, with a 48 × 48 dp target. Its behaviour
-  stays swipe spec §6.
+  follows swipe spec §6.
 - **Focus.** Every focusable control draws a 3 dp ring in `primary`, 2 dp
   outside its edge, when it holds keyboard focus. Today the Chats list
   draws none and a conversation's buttons only thicken a grey border
@@ -285,21 +287,29 @@ From the top:
 
 ## 9. Words
 
-New text a person reads. language-culture writes the final words and
-the translations. These are the proposals:
+New and changed text a person reads. language-culture finalised the
+English (2026-10-16). rust-ui-dev names the keys and commits the values
+to `labels.rs`; the names below are suggestions, apart from the keys
+that exist.
 
-| key (proposed) | text | where |
+| key | text | where |
 |---|---|---|
-| `Chats` | Chats | the list's app bar title; today's `Conversations` heading is replaced |
-| `MessagePlaceholder` | Message | the composer's placeholder |
+| `Conversations` (exists) | Conversations | the list's app bar title, in place of today's heading: the same key and the same text |
+| `Composer` (exists) | Message | the composer's placeholder. The placeholder is the text field's label, so it is the same key. A second key with the same text would fail the `labels.rs` test that every `UiText` is distinct |
 | `NoMessages` | No messages | the list's subtitle when nothing is held |
-| `YouPrefix` | You: | before one's own last message in the list |
+| `OwnLastMessage` | You: {message} | the list's subtitle when the last message is one's own. `{message}` is the preview text. A template, not a prefix: `labels.rs` fills a template by placeholder and never joins strings, so a translation can reorder it |
 | `Details` | Details | the conversation's overflow menu |
-| `MoreOptions` | More options | the overflow button's label |
+| `MoreOptions` | More options | the overflow button's label, Android's own words for it |
 | `Today`, `Yesterday` | Today, Yesterday | day separators and list times |
 
+The title stays "Conversations", not "Chats". The app calls each item
+a conversation ("Hide conversation", "Conversation hidden", "Back to
+conversations"), and one noun for one thing is easier to read than
+two. "Chats" in this file and the swipe spec names the screen, not a
+word the person sees.
+
 The swipe spec's focus table names the `Conversations` heading. With
-this change the "Chats" title is that focus target.
+this change the "Conversations" title is that focus target.
 
 ## 10. Deliberately left out
 
@@ -318,7 +328,7 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 
 1. Every pair in §3's contrast table holds as measured from a
    screenshot (the drawn colours equal §3's values).
-2. Chats: the app bar's title is "Chats" and Trust settings is an icon
+2. Chats: the app bar's title is "Conversations" and Trust settings is an icon
    button in it. The bottom outlined button is gone.
 3. Chats: each row shows the avatar, the name, the last message (or
    "No messages"), the time and, with unread messages, the badge with
