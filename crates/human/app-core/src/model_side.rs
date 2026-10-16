@@ -246,8 +246,11 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         // facade nothing, so no update would bring another turn: the
         // view would sit on its press. One more render once the takes
         // drain, then takes until empty again (the shipped client over
-        // AT-SPI showed a removal never reaching its confirmation).
-        let mut trust_unrendered = false;
+        // AT-SPI showed a removal never reaching its confirmation). The
+        // same holds for what the model does alone: a Hide, an Undo, a
+        // snackbar closing (seen on the phone: a hidden row held slid out,
+        // no snackbar, until something else turned the root).
+        let mut unrendered = false;
         loop {
             let events = self.surface.take_events(&self.model);
             if events.is_empty() {
@@ -261,7 +264,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 {
                     commands.push(command);
                 }
-                if std::mem::take(&mut trust_unrendered) {
+                if std::mem::take(&mut unrendered) {
                     self.surface.render(&self.model);
                     continue;
                 }
@@ -273,7 +276,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                         self.model.draft_changed(key, draft);
                     }
                     ViewEvent::Trust(input) => {
-                        trust_unrendered = true;
+                        unrendered = true;
                         if let Some(intent) = self.model.trust_settings_mut().input(input)
                             && let Some(command) = self.command_for(intent)
                         {
@@ -286,18 +289,24 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     // (`a_trust_intent_handed_over_bare_reaches_nothing`).
                     ViewEvent::Intent(Intent::ReadTrust | Intent::SetTrust(_)) => {}
                     ViewEvent::Intent(intent) => {
+                        unrendered |=
+                            matches!(intent, Intent::Hide(_) | Intent::HideConversation(_));
                         if let Some(command) = self.command_for(intent) {
                             commands.push(command);
                         }
                     }
                     ViewEvent::Undo(id) => {
+                        unrendered = true;
                         if let Some(intent) = self.model.undo(id)
                             && let Some(command) = self.command_for(intent)
                         {
                             commands.push(command);
                         }
                     }
-                    ViewEvent::SnackbarClosed(id) => self.model.snackbar_closed(id),
+                    ViewEvent::SnackbarClosed(id) => {
+                        unrendered = true;
+                        self.model.snackbar_closed(id);
+                    }
                 }
             }
         }

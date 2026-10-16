@@ -759,6 +759,36 @@ async fn a_trust_proposal_is_rendered_in_the_turn_that_took_it() {
     );
 }
 
+/// A Hide asks the facade nothing, so no update brings another turn: the
+/// turn that took it renders it, as it does a trust input (seen on the
+/// phone: the row held slid out and no snackbar until the next turn).
+#[tokio::test]
+async fn a_hide_is_rendered_in_the_turn_that_took_it() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "hide me")]);
+    bob.pump(1).await;
+    alice.pump(2).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let item = alice.model().messages(&from_bob)[0].key;
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(3).await;
+
+    alice.will(vec![ViewEvent::Intent(Intent::Hide(item))]);
+    let before = alice.model.surface().renders;
+    alice.model.turn();
+    assert_eq!(
+        alice.model.surface().renders,
+        before + 2,
+        "the turn's own render, and one more once the Hide was taken"
+    );
+    assert!(alice.model().snackbar().is_some());
+}
+
 /// A trust intent handed over bare -- by a surface that built one rather
 /// than confirming the change shown -- reaches nothing: trust changes only
 /// through the settings' inputs.
