@@ -373,8 +373,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **Desktop.** The Dismiss button and the snackbar live in the shared views
   and will appear on desktop. This spec is reviewed on Android only.
 - **The words.** language-culture finalised them (below).
-  rust-ui-dev adds the keys and commits the values to `labels.rs`,
-  which is rust-ui-dev's file. A swipe's revealed label is its
+  The keys below were added to `labels.rs` (rust-ui-dev's file) in
+  InterWeave#289; those marked "existed" were there before. A swipe's revealed label is its
   button's text, so one key serves both. Two action names in this
   file are not the words the person sees: Retry reads "Send again"
   and Unkeep reads "Stop keeping". A message's action reads
@@ -386,21 +386,21 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 
   | where it is shown | text | `UiText` key |
   |---|---|---|
-  | Keep button and swipe label | Keep | `Keep` (exists) |
-  | message row: Dismiss button and swipe label | Dismiss | new |
-  | conversation row: swipe label (§10) | Hide | new |
-  | Unkeep button and swipe label | Stop keeping | `Unkeep` (exists) |
-  | Retry button and swipe label | Send again | `Retry` (exists) |
-  | Cancel button and swipe label | Cancel | `Cancel` (exists) |
-  | the conversation header's control (§10) | Hide conversation | new |
-  | the snackbar's button | Undo | new |
-  | snackbar and announcement after Keep | Kept | new |
-  | snackbar and announcement after a message is dismissed | Dismissed | new |
-  | snackbar and announcement after Unkeep | No longer kept | new |
-  | snackbar and announcement after Cancel, `may_have_reached` false | Sending canceled | new |
-  | snackbar and announcement after Cancel, `may_have_reached` true | Sending canceled, may have reached the peer | new |
-  | snackbar and announcement after a conversation hide | Conversation hidden | new |
-  | announcement after any Undo | Action undone | new |
+  | Keep button and swipe label | Keep | `Keep` (existed) |
+  | message row: Dismiss button and swipe label | Dismiss | `Dismiss` |
+  | conversation row: swipe label (§10) | Hide | `HideShort` |
+  | Unkeep button and swipe label | Stop keeping | `Unkeep` (existed) |
+  | Retry button and swipe label | Send again | `Retry` (existed) |
+  | Cancel button and swipe label | Cancel | `Cancel` (existed) |
+  | the conversation header's control (§10) | Hide conversation | `HideConversation` |
+  | the snackbar's button | Undo | `Undo` |
+  | snackbar and announcement after Keep | Kept | `ConfirmKept` |
+  | snackbar and announcement after a message is dismissed | Dismissed | `ConfirmDismissed` |
+  | snackbar and announcement after Unkeep | No longer kept | `ConfirmUnkept` |
+  | snackbar and announcement after Cancel, `may_have_reached` false | Sending canceled | `ConfirmSendingCanceled` |
+  | snackbar and announcement after Cancel, `may_have_reached` true | Sending canceled, may have reached the peer | `ConfirmSendingCanceledMayHaveReached` |
+  | snackbar and announcement after a conversation hide | Conversation hidden | `ConfirmConversationHidden` |
+  | announcement after any Undo | Action undone | `ActionUndone` |
 
   These are final. "Action undone", not "Restored": the Undo of Keep
   leaves a message not kept, and nothing is restored. The snackbar texts are new
