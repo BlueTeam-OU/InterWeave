@@ -551,7 +551,10 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 7. On a kind-B row, a drag left, then Undo, then killing the app: after
    restart the message is still kept.
 8. On a kind-C row (no daemon or network, so it stays pending):
-   - a drag right changes its status to Sending and shows no snackbar;
+   - a drag right retries it and shows no snackbar. Its status is what
+     the facade reports: Sending, or "Not confirmed, trying again" for a
+     row that was already retrying (§5), the same as after the Retry
+     button;
    - a drag left removes it and shows "Sending canceled";
    - Undo restores it in place, pending, with the same app message id
      and transport message id (the diagnostics view shows both).
