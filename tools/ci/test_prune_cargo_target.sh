@@ -66,6 +66,8 @@ layout() {
         touch "$p/deps/interweave_wire-$H.d" "$p/deps/interweave_wire-$H2"
         touch "$p/deps/relay_client-$H" "$p/deps/relay_client-$H.d"
         touch "$p/deps/transport_daemon-$H"
+        # A workspace proc-macro (.so) and staticlib (.a) drop the prefix.
+        touch "$p/deps/libinterweave_wire-$H2.so" "$p/deps/libinterweave_wire-$H2.a"
         # The test target p2p, beside the crate libp2p: only a library's
         # own files drop the lib prefix, so libp2p-<hash>.d stays.
         touch "$p/deps/p2p-$H" "$p/deps/p2p-$H.d"
