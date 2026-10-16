@@ -912,3 +912,11 @@ fn a_dismissed_message_offers_nothing_and_a_keep_already_issued_keeps_it() {
     model.kept(first, row(10));
     assert_eq!(model.actions(first), [Intent::Unkeep(row(10))]);
 }
+
+#[test]
+fn a_cancel_with_no_item_lets_its_record_go_at_once() {
+    let mut model = UiModel::new();
+    model.cancelled(row(42), true);
+    assert!(model.snackbar().is_none());
+    assert_eq!(model.take_released().cancelled, [row(42)]);
+}

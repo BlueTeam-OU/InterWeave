@@ -396,6 +396,11 @@ impl UiModel {
             .find(|(_, i)| i.last_pending == Some(row))
             .map(|(k, _)| *k);
         let Some(key) = key else {
+            // No item to show a snackbar for: no Undo can be offered, so
+            // the record the facade side holds for one is let go now.
+            if restorable {
+                self.swipe.released.cancelled.push(row);
+            }
             return;
         };
         let Some((conversation, may_have_reached)) = self.items.get(&key).map(|i| {
