@@ -570,7 +570,13 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     than it moves vertically, scrolls and never swipes. That includes
     a drag 55–60° off horizontal, which Slint's own swipe handler
     would take.
-12. With TalkBack on:
+12. With TalkBack on. **Precondition:** TalkBack reaches the app's
+    controls. On main 761d72b3 it cannot: Slint 1.18.1's Android backend
+    carries no accessibility bridge, so the window is one View with no
+    children. The bridge is rust-ui-dev's to build; how is
+    architect-cto's decision, on rust-ui-dev's measurement (2026-10-16).
+    Until it lands, this item and every TalkBack row of item 21 are
+    blocked, not passed:
     - every action in 1–9 can be done with the row's buttons alone;
     - each result is announced;
     - every focus case in item 21 marked "TalkBack" lands where the
@@ -631,8 +637,8 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     read it: on main 761d72b3 the Android build exposes the Slint window
     as one `View` with no children, and nothing in the repository
     bridges Slint's accessibility tree to Android's (seen on the Pixel
-    9a, 2026-10-16). Once a bridge exists, `focused="true"` in the dump
-    is the stronger check. "TalkBack" means the same
+    9a, 2026-10-16). Once the bridge item 12 needs exists,
+    `focused="true"` in the dump is the stronger check. "TalkBack" means the same
     with TalkBack's focus, a person's check (item 12). "Tests" means the
     ui-model or app-core tests, with a store that refuses writes where
     the case is a refusal.
