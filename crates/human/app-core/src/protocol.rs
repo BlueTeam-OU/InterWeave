@@ -43,6 +43,15 @@ pub enum Command {
     Retry(RowId),
     /// Cancel a pending row.
     Cancel(RowId),
+    /// Take a cancel back: restore the record the cancel of this row
+    /// deleted, if the facade side still holds it.
+    Restore(RowId),
+    /// Let go of the record held for the Undo of this row's cancel: its
+    /// snackbar closed.
+    ForgetCancelled(RowId),
+    /// Let go of the read copy a Keep of a now hidden message would have
+    /// used, by the row whose read or unkeep handed it back.
+    ForgetCopy((Table, RowId)),
     /// Try opening the session again.
     Reopen,
     /// Re-check storage now.
@@ -125,6 +134,21 @@ pub enum Update {
     },
     /// A kept row was unkept.
     Unkept(RowId),
+    /// A pending row was cancelled as the person asked. `restorable`
+    /// says whether the facade side holds the record an Undo restores.
+    Cancelled {
+        /// The cancelled row.
+        row: RowId,
+        /// Whether an Undo can restore it.
+        restorable: bool,
+    },
+    /// The record cancelled as `cancelled` was restored as pending `row`.
+    Restored {
+        /// The row the cancel ended.
+        cancelled: RowId,
+        /// The restored row.
+        row: RowId,
+    },
     /// The daemon's answer to reading the trust allowlist. A failure is
     /// the settings view's to say, not a command's: the command is `Done`.
     TrustRead(Result<TrustList, TrustProblem>),

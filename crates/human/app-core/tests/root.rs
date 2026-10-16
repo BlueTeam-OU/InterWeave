@@ -22,8 +22,8 @@ use interweave_human_app_core::{
 use interweave_human_store::{HumanStore, InboundOrigin, NewInbound, RowId, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
-    ConversationKey, Intent, LabelKey, Table, TrustChange, TrustInput, TrustOutcome, UiModel,
-    ViewEvent,
+    ConversationKey, Intent, LabelKey, RowAction, Table, TrustChange, TrustInput, TrustOutcome,
+    UiModel, ViewEvent,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
@@ -808,4 +808,167 @@ async fn a_change_not_read_back_is_read_again_by_the_next_turn() {
     });
     root.model.apply(Update::Done(commands[0].clone()));
     assert_eq!(root.model.turn(), vec![Command::ReadTrust], "read again");
+}
+
+/// The snackbar now up, which the scripted person answers by its id.
+fn snack(root: &Root) -> u64 {
+    root.model().snackbar().expect("a snackbar").id
+}
+
+#[tokio::test]
+async fn an_undone_cancel_goes_out_as_the_same_message_once() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    // Not taken, so the row stays pending to be cancelled.
+    b.inject_send(TransportError::Overloaded);
+    let to_alice = direct(a.peer());
+    bob.will(vec![send(&to_alice, "take it back")]);
+    bob.pump(1).await;
+    let item = bob.model().messages(&to_alice)[0].key;
+    let Some(Intent::Cancel(row)) = bob.model().intent_for(item, RowAction::Cancel) else {
+        panic!("Cancel is offered on a pending row");
+    };
+
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(row))]);
+    bob.pump(2).await;
+    assert!(bob.model().messages(&to_alice).is_empty(), "the row left");
+    let id = snack(&bob);
+    assert!(bob.model().snackbar().expect("up").undo);
+
+    bob.will(vec![ViewEvent::Undo(id)]);
+    bob.pump(3).await;
+    let restored = match bob.updates.iter().rev().find_map(|u| match u {
+        Update::Restored { cancelled, row } => Some((*cancelled, *row)),
+        _ => None,
+    }) {
+        Some((cancelled, restored)) => {
+            assert_eq!(cancelled, row);
+            restored
+        }
+        None => panic!("restored: {:?}", bob.updates),
+    };
+    assert_ne!(restored, row);
+    assert_eq!(
+        bob.model()
+            .messages(&to_alice)
+            .iter()
+            .map(|m| m.key)
+            .collect::<Vec<_>>(),
+        [item],
+        "back in its place, under its key"
+    );
+
+    // The restore's attempt went out; Alice holds one message.
+    alice.pump(4).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let shown: Vec<_> = alice
+        .model()
+        .messages(&from_bob)
+        .into_iter()
+        .map(|m| m.source)
+        .collect();
+    assert_eq!(shown, ["take it back"]);
+    assert!(
+        !bob.updates
+            .iter()
+            .any(|u| matches!(u, Update::Failed { .. })),
+        "{:?}",
+        bob.updates
+    );
+}
+
+#[tokio::test]
+async fn a_hidden_message_lets_go_of_its_copy_when_the_snackbar_closes() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "hide me")]);
+    bob.pump(1).await;
+    alice.pump(2).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let item = alice.model().messages(&from_bob)[0].key;
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(3).await;
+    let Some(Intent::Keep { from, .. }) = alice.model().intent_for(item, RowAction::Keep) else {
+        panic!("Keep offered after read");
+    };
+
+    alice.will(vec![ViewEvent::Intent(Intent::Hide(item))]);
+    alice.pump(4).await;
+    assert!(alice.model().messages(&from_bob).is_empty());
+    assert!(
+        !alice.commands.contains(&Command::ForgetCopy(from)),
+        "held while its Undo is offered"
+    );
+    let id = snack(&alice);
+    alice.will(vec![ViewEvent::SnackbarClosed(id)]);
+    alice.pump(5).await;
+    assert!(alice.commands.contains(&Command::ForgetCopy(from)));
+    // A Keep raised now, from a stale view, finds no copy.
+    alice.will(vec![ViewEvent::Intent(Intent::Keep { item, from })]);
+    alice.pump(6).await;
+    assert!(alice.updates.iter().any(|u| matches!(
+        u,
+        Update::Failed {
+            why: Failure::CopyGone,
+            ..
+        }
+    )));
+}
+
+#[tokio::test]
+async fn an_undone_unkeep_is_kept_in_the_store() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let (mut alice, _) = Root::new(facade(
+        &a,
+        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+    ));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "keep me")]);
+    bob.pump(1).await;
+    alice.pump(2).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let item = alice.model().messages(&from_bob)[0].key;
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(3).await;
+    let keep = alice
+        .model()
+        .intent_for(item, RowAction::Keep)
+        .expect("offered");
+    alice.will(vec![ViewEvent::Intent(keep)]);
+    alice.pump(4).await;
+    let unkeep = alice
+        .model()
+        .intent_for(item, RowAction::Unkeep)
+        .expect("offered");
+    alice.will(vec![ViewEvent::Intent(unkeep)]);
+    alice.pump(5).await;
+    let id = snack(&alice);
+    alice.will(vec![ViewEvent::Undo(id)]);
+    alice.pump(6).await;
+    assert!(alice.model().snackbar().is_none());
+    assert!(
+        !alice
+            .updates
+            .iter()
+            .any(|u| matches!(u, Update::Failed { .. })),
+        "{:?}",
+        alice.updates
+    );
+    alice.facade.close().await;
+    drop(alice);
+
+    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopen");
+    assert_eq!(store.kept_inbound().expect("kept").len(), 1, "kept again");
 }

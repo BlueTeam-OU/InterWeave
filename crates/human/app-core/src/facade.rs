@@ -12,9 +12,9 @@
 use std::collections::{HashMap, VecDeque};
 
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
-use interweave_human_client_api::{ClientEvent, Destination, Diagnostics, RowError};
+use interweave_human_client_api::{ClientEvent, Destination, Diagnostics, RowError, SendError};
 use interweave_human_store::{ReadEphemeral, RowId, StoreError};
-use interweave_human_transport_client::TransportClient;
+use interweave_human_transport_client::{CancelledSend, TransportClient};
 use interweave_human_ui_model::{ConversationKey, Table};
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 
@@ -37,6 +37,9 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     client: TransportClient<B, A>,
     wall: Box<dyn Fn() -> u64 + Send + Sync>,
     copies: ReadCopies<ReadEphemeral>,
+    /// The record the last cancel deleted, for its snackbar's Undo: one,
+    /// since one snackbar is up at a time, and let go when it closes.
+    cancelled: Option<CancelledSend>,
     reported: Option<Diagnostics>,
 }
 
@@ -52,6 +55,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             client,
             wall: Box::new(wall),
             copies: ReadCopies::default(),
+            cancelled: None,
             reported: None,
         }
     }
@@ -152,11 +156,43 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Command::Retry(row) => Box::pin(self.client.retry(*row, now))
                 .await
                 .map_err(|e| row_failure(&e)),
-            Command::Cancel(row) => self
-                .client
-                .cancel(*row)
-                .map(drop)
-                .map_err(|e| row_failure(&e)),
+            Command::Cancel(row) => match self.client.cancel(*row) {
+                Ok(record) => {
+                    // The row's Cancelled status first, so the model reads
+                    // whether it may have reached the remote from it.
+                    while let Some(event) = self.client.next_event() {
+                        self.on_event(event, &mut updates);
+                    }
+                    updates.push(Update::Cancelled {
+                        row: *row,
+                        restorable: record.is_some(),
+                    });
+                    self.cancelled = record;
+                    Ok(())
+                }
+                Err(e) => Err(row_failure(&e)),
+            },
+            Command::Restore(row) => match self.cancelled.take_if(|c| c.row() == *row) {
+                None => Err(Failure::NoSuchRow),
+                Some(record) => match Box::pin(self.client.restore(record, now)).await {
+                    Ok(restored) => {
+                        updates.push(Update::Restored {
+                            cancelled: *row,
+                            row: restored,
+                        });
+                        Ok(())
+                    }
+                    Err(e) => Err(restore_failure(&e)),
+                },
+            },
+            Command::ForgetCancelled(row) => {
+                self.cancelled.take_if(|c| c.row() == *row);
+                Ok(())
+            }
+            Command::ForgetCopy(from) => {
+                self.copies.remove(from);
+                Ok(())
+            }
             Command::Reopen => {
                 self.client.reopen(now);
                 Ok(())
@@ -238,6 +274,16 @@ fn store_failure(error: &StoreError) -> Failure {
         | StoreError::MalformedAppMessageId { .. }
         | StoreError::TimestampOutOfRange { .. } => Failure::Corrupt,
         _ => Failure::StorageUnavailable,
+    }
+}
+
+/// A refused restore's class. Nothing was committed or sent.
+const fn restore_failure(error: &SendError) -> Failure {
+    match error {
+        SendError::StorageUnavailable => Failure::StorageUnavailable,
+        // Another pending row holds the message, or this session can no
+        // longer send there.
+        _ => Failure::Refused,
     }
 }
 

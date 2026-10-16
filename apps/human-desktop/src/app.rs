@@ -208,6 +208,9 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::Unkeep(_) => "unkeep",
         Command::Retry(_) => "retry",
         Command::Cancel(_) => "cancel",
+        Command::Restore(_) => "restore",
+        Command::ForgetCancelled(_) => "forget cancelled",
+        Command::ForgetCopy(_) => "forget copy",
         Command::Reopen => "reopen",
         Command::RecheckStorage => "recheck storage",
         // Named only because the match is whole: the failure line is the

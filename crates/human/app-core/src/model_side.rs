@@ -194,6 +194,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::Read(row) => self.model.read(row),
             Update::Kept { item, row } => self.model.kept(item, row),
             Update::Unkept(row) => self.model.unkept(row),
+            Update::Cancelled { row, restorable } => self.model.cancelled(row, restorable),
+            Update::Restored { cancelled, row } => self.model.restored(cancelled, row),
             Update::TrustRead(answer) => self.model.trust_settings_mut().read(answer),
             Update::TrustSet { change, answer } => {
                 self.model.trust_settings_mut().set(change, answer);
@@ -206,6 +208,20 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 if let (Command::Keep { item, .. }, Failure::CopyGone) = (&command, why) {
                     // The content is gone: stop offering what cannot work.
                     self.model.copy_gone(*item);
+                }
+                // A refused Undo closes nothing more, but focus goes where
+                // the action itself sent it.
+                let undone = match &command {
+                    Command::Keep { item, from } => Some(Intent::Keep {
+                        item: *item,
+                        from: *from,
+                    }),
+                    Command::Unkeep(row) => Some(Intent::Unkeep(*row)),
+                    Command::Restore(row) => Some(Intent::Restore(*row)),
+                    _ => None,
+                };
+                if let Some(intent) = undone {
+                    self.model.intent_refused(&intent);
                 }
                 self.problem(Problem::Command { command, why });
             }
@@ -233,6 +249,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         loop {
             let events = self.surface.take_events(&self.model);
             if events.is_empty() {
+                // What a closed or replaced snackbar's Undo no longer needs.
+                let released = self.model.take_released();
+                commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
+                commands.extend(released.cancelled.map(Command::ForgetCancelled));
                 // A change's answer may have left the list to read again.
                 if let Some(intent) = self.model.trust_settings_mut().take_reread()
                     && let Some(command) = self.command_for(intent)
@@ -268,6 +288,14 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                             commands.push(command);
                         }
                     }
+                    ViewEvent::Undo(id) => {
+                        if let Some(intent) = self.model.undo(id)
+                            && let Some(command) = self.command_for(intent)
+                        {
+                            commands.push(command);
+                        }
+                    }
+                    ViewEvent::SnackbarClosed(id) => self.model.snackbar_closed(id),
                 }
             }
         }
@@ -298,6 +326,16 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Intent::Unkeep(row) => Command::Unkeep(row),
             Intent::Retry(row) => Command::Retry(row),
             Intent::Cancel(row) => Command::Cancel(row),
+            Intent::Restore(row) => Command::Restore(row),
+            // Hiding writes nothing: the model's alone.
+            Intent::Hide(item) => {
+                self.model.hide(item);
+                return None;
+            }
+            Intent::HideConversation(key) => {
+                self.model.hide_conversation(&key);
+                return None;
+            }
             Intent::Reopen => Command::Reopen,
             Intent::RecheckStorage => Command::RecheckStorage,
             Intent::ReadTrust => Command::ReadTrust,

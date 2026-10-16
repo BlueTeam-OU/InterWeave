@@ -1464,12 +1464,16 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         Intent::Cancel(_) => UiText::Cancel,
         Intent::Keep { .. } => UiText::Keep,
         Intent::Unkeep(_) => UiText::Unkeep,
+        Intent::Hide(_) => UiText::Hide,
+        Intent::HideConversation(_) => UiText::HideConversation,
         Intent::Reopen => UiText::TryAgain,
         Intent::RecheckStorage => UiText::RecheckStorage,
         Intent::AllowNetwork => UiText::AllowNetwork,
+        // A restore is an Undo's, never a button of its own.
         Intent::MarkRead(_)
         | Intent::Send { .. }
         | Intent::OpenLink(_)
+        | Intent::Restore(_)
         | Intent::ReadTrust
         | Intent::SetTrust(_) => return None,
     };
