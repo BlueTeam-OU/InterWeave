@@ -316,6 +316,11 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// The command for `intent`, or `None` when it needs none -- a link is
     /// opened here -- or the same action is still in flight.
     fn command_for(&mut self, intent: Intent) -> Option<Command> {
+        // Only what the model offers now: an earlier input of the same take
+        // may have changed it (a Dismiss before a Keep of the same message).
+        if !self.model.offers(&intent) {
+            return None;
+        }
         let command = match intent {
             Intent::OpenLink(destination) => {
                 // The model raises it only for an allowlisted link a person

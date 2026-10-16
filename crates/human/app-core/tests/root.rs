@@ -940,10 +940,19 @@ async fn a_hidden_message_lets_go_of_its_copy_when_the_snackbar_closes() {
     alice.will(vec![ViewEvent::SnackbarClosed(id)]);
     alice.pump(5).await;
     assert!(alice.commands.contains(&Command::ForgetCopy(from)));
-    // A Keep raised now, from a stale view, finds no copy.
+    // A Keep raised now, from a stale view, is not issued: the message is
+    // gone from the model.
     alice.will(vec![ViewEvent::Intent(Intent::Keep { item, from })]);
     alice.pump(6).await;
-    assert!(alice.updates.iter().any(|u| matches!(
+    assert!(
+        !alice
+            .commands
+            .iter()
+            .any(|c| matches!(c, Command::Keep { .. }))
+    );
+    // And the facade side holds no copy to keep any more.
+    let updates = alice.facade.execute(Command::Keep { item, from }, 7).await;
+    assert!(updates.iter().any(|u| matches!(
         u,
         Update::Failed {
             why: Failure::CopyGone,
@@ -1185,4 +1194,52 @@ async fn cancels_in_flight_stay_within_what_can_be_held() {
         .filter(|c| matches!(c, Command::Cancel(_)))
         .count();
     assert_eq!(cancels, CANCELLED_CAP - 2);
+}
+
+/// Dismiss, then Keep of the same message, then another Dismiss, in one
+/// take: the Keep, judged by the view before the Dismiss was applied, is
+/// not issued for a dismissed message, and nothing the store holds is
+/// lost (review P-1 on #289, round 4).
+#[tokio::test]
+async fn a_keep_taken_after_its_dismiss_is_not_issued() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "first")]);
+    bob.pump(1).await;
+    bob.will(vec![send(&direct(a.peer()), "second")]);
+    bob.pump(2).await;
+    alice.pump(3).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(4).await;
+    let items: Vec<_> = alice
+        .model()
+        .messages(&from_bob)
+        .iter()
+        .map(|m| m.key)
+        .collect();
+    let keep = alice
+        .model()
+        .intent_for(items[0], RowAction::Keep)
+        .expect("offered");
+    alice.commands.clear();
+    alice.will(vec![
+        ViewEvent::Intent(Intent::Hide(items[0])),
+        ViewEvent::Intent(keep),
+        ViewEvent::Intent(Intent::Hide(items[1])),
+    ]);
+    alice.pump(5).await;
+    alice.pump(6).await;
+    assert!(
+        !alice
+            .commands
+            .iter()
+            .any(|c| matches!(c, Command::Keep { .. })),
+        "no Keep for a dismissed message: {:?}",
+        alice.commands
+    );
 }
