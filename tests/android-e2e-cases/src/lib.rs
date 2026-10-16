@@ -188,16 +188,17 @@ pub fn run<B: DataSessionBinding + AdminBinding>(
 /// either runner, naming the key.
 fn answer(case: &str, outcome: Result<Map<String, Value>, String>) -> String {
     let mut out = match outcome {
-        Ok(fields) => match fields.iter().find(|(_, value)| !value.is_string()) {
-            Some((key, value)) => failed(&format!(
-                "{key} is not text ({value}): every value crosses the instrumentation's status as a string"
-            )),
-            None => {
+        Ok(fields) => {
+            if let Some((key, value)) = fields.iter().find(|(_, value)| !value.is_string()) {
+                failed(&format!(
+                    "{key} is not text ({value}): every value crosses the instrumentation's status as a string"
+                ))
+            } else {
                 let mut fields = fields;
                 fields.insert(keys::RESULT.to_owned(), keys::PASS.into());
                 fields
             }
-        },
+        }
         Err(detail) => failed(&detail),
     };
     out.insert(keys::CASE.to_owned(), case.into());
