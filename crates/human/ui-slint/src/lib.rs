@@ -369,7 +369,7 @@ impl Shared {
         // offered after its snackbar had gone, and leaving the conversation
         // closes it. So neither is refused, and each coalesces instead: one
         // closing per snackbar, one Left until a selection or the trust
-        // settings follow it -- the only ways back to a Back control.
+        // settings follow it.
         if let Input::SnackClosed(id) = input {
             if !self.inputs.contains(&Input::SnackClosed(id)) {
                 self.inputs.push_back(input);
@@ -828,7 +828,10 @@ impl View {
     /// Resolve queued inputs against `model`, oldest first, up to and
     /// including the first draft edit: the root applies that edit and
     /// calls again, so a send queued after an edit reads the edited draft
-    /// (agreed P2). The root calls again until a call returns nothing,
+    /// (agreed P2). A call also stops before a Back that follows an
+    /// intent of its own take, leaving the Back first in the queue: the
+    /// snackbar that intent may open exists only once the root applies
+    /// it. The root calls again until a call returns nothing,
     /// before it returns to its event loop: that is what keeps the queue
     /// at its bound ([`queued_inputs`](Self::queued_inputs)). A press
     /// whose action the model no longer offers yields nothing -- never
