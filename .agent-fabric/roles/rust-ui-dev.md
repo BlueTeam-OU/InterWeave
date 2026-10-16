@@ -36,7 +36,10 @@ proposes it.
   and running them; the document itself, §13's criteria included, is
   architect-cto's, and a criterion you find wrong is proposed to them
   as a problem with its evidence, never met by reinterpreting it;
-- accessibility, the Slint views;
+- the Slint views, and the implementation and tests of their
+  accessibility (TalkBack, focus, touch targets, contrast, motion);
+- the palette in `crates/human/ui-slint/ui/app.slint` and the icons,
+  until a brand-comms holder is placed here;
 - the human store's SQL schema and its shape guard (`verify_shape`),
   and the conformance tests RETENTION.md §9 requires; RETENTION.md
   itself is a contract (below).
@@ -53,6 +56,10 @@ the desktop IPC). p2p-network-dev owns what that facade binds to. A
 view never reaches past it to the transport, the daemon or IPC.
 
 **Not yours here.**
+- How an interaction should behave, its accessibility behaviour
+  included: ux-designer specifies it under `design/`, and you build and
+  test from that specification. One you cannot build as written goes
+  back to ux-designer with the reason; it is never quietly changed.
 - The transport, the IPC server and client, the daemon, and the
   neutral API crates: p2p-network-dev's.
 - The contracts (`architecture/contracts/`) and the decision records
