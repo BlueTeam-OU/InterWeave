@@ -112,6 +112,28 @@ internal object Native {
     /** The callback was unregistered: the platform's view is unknown. */
     @JvmStatic external fun networkUnwatched()
 
+    /**
+     * The platform's touch values for a row's swipe (the message swipe
+     * spec, sections 4, 6 and 7): the touch slop and the left and right
+     * system gesture insets in dp, a right-to-left layout, the system's
+     * animations off, and the recommended time a snackbar with a control
+     * stays up, in ms. Never waits.
+     */
+    @JvmStatic external fun touch(
+        slop: Float,
+        edgeLeft: Float,
+        edgeRight: Float,
+        rtl: Boolean,
+        reducedMotion: Boolean,
+        recommendedMs: Long,
+    )
+
+    /**
+     * Wait at most [timeoutMs] for a swipe to arm; true when one did, and
+     * the Activity plays the haptic tick. BLOCKS.
+     */
+    @JvmStatic external fun waitHaptic(timeoutMs: Long): Boolean
+
     /** A person-facing text by its key ([Text]), with [count] filled in. */
     @JvmStatic external fun text(key: Int, count: Int): String
 }

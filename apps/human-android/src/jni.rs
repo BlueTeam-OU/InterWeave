@@ -15,13 +15,14 @@ use interweave_human_android_platform::{
     ServiceLaunch, StartRefused, Told, addresses_from_wire, start_identity,
 };
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
+use interweave_human_ui_slint::{TouchSettings, snackbar_ms};
 use interweave_profile_identity::ProfileIdentity;
 use jni::{Env, EnvUnowned};
 
 use crate::keystore::KeystoreCipher;
 use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JByteArray, JClass, JString};
-use jni::sys::{jboolean, jint, jlong};
+use jni::sys::{jboolean, jfloat, jint, jlong};
 
 /// The profile the app runs, as the android-e2e harness names it.
 pub(crate) const PROFILE: &str = "human-android";
@@ -322,6 +323,57 @@ extern "system" fn Java_org_interweave_human_Native_waitNetworkAsk<'caller>(
         Ok(crate::activity::NETWORK_ASK.wait(timeout))
     })
     .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// `Native.waitHaptic(timeoutMs)`: true when a swipe armed since the last
+/// call, within the timeout.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_waitHaptic<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    timeout_ms: jlong,
+) -> jboolean {
+    env.with_env(|_| -> Result<jboolean, jni::errors::Error> {
+        let timeout = Duration::from_millis(u64::try_from(timeout_ms).unwrap_or(0));
+        Ok(crate::activity::HAPTIC.wait(timeout))
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// `Native.touch(...)`: the platform's touch values, in dp -- which Slint's
+/// logical pixels are on Android -- and the snackbar's recommended time.
+#[allow(
+    unsafe_code,
+    clippy::too_many_arguments,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_touch<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    slop: jfloat,
+    edge_left: jfloat,
+    edge_right: jfloat,
+    rtl: jboolean,
+    reduced_motion: jboolean,
+    recommended_ms: jlong,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::activity::touch_changed(TouchSettings {
+            slop,
+            edge_left,
+            edge_right,
+            rtl,
+            reduced_motion,
+            snackbar_ms: snackbar_ms(u64::try_from(recommended_ms).unwrap_or(0)),
+        });
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
 }
 
 /// `Native.waitEnded()`.

@@ -9,10 +9,17 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewTreeObserver
+import android.view.WindowInsets
+import android.view.accessibility.AccessibilityManager
 
 /**
  * The window: the native library's `android_main` draws the views and
@@ -36,6 +43,9 @@ class MainActivity : NativeActivity() {
         super.onStart()
         shown = true
         Thread({ relayAsks() }, "interweave-network-ask").start()
+        Thread({ relayHaptics() }, "interweave-haptic").start()
+        window.decorView.viewTreeObserver.addOnGlobalLayoutListener(layout)
+        touch()
         if (bound) return
         when {
             networkGranted() -> {
@@ -53,6 +63,9 @@ class MainActivity : NativeActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The animation scale or a screen reader's timeout may have been
+        // changed in the settings meanwhile.
+        touch()
         // Back from the prompt or the settings page: a grant restarts the
         // Service with its runtime.
         local?.recheck()
@@ -60,6 +73,7 @@ class MainActivity : NativeActivity() {
 
     override fun onStop() {
         shown = false
+        window.decorView.viewTreeObserver.removeOnGlobalLayoutListener(layout)
         // A recreation for a configuration change keeps the binding: the
         // next instance finds it held, and foreground-only mode's runtime
         // and lease survive it (review F2). Any other stop lets go.
@@ -83,6 +97,82 @@ class MainActivity : NativeActivity() {
         // network.
         if (!bound) bind() else local?.recheck()
         if (networkGranted()) askNotifications()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        touch()
+    }
+
+    /** A rotation or a window resize moves the gesture insets. */
+    private val layout = ViewTreeObserver.OnGlobalLayoutListener { touch() }
+
+    /**
+     * Hand the swipe its platform values: the touch slop and the system
+     * gesture insets (the back-gesture zones) in dp, the layout's
+     * direction, whether animations are off, and the snackbar's
+     * recommended time for content with a control. Sent only when they
+     * change.
+     */
+    private fun touch() {
+        val density = resources.displayMetrics.density
+        val insets = window.decorView.rootWindowInsets?.getInsets(WindowInsets.Type.systemGestures())
+        val accessibility = getSystemService(AccessibilityManager::class.java)
+        val values =
+            Touch(
+                slop = ViewConfiguration.get(this).scaledTouchSlop / density,
+                edgeLeft = (insets?.left ?: 0) / density,
+                edgeRight = (insets?.right ?: 0) / density,
+                rtl = resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL,
+                reducedMotion =
+                    Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f,
+                recommendedMs =
+                    (
+                        accessibility?.getRecommendedTimeoutMillis(
+                            SNACKBAR_MS,
+                            AccessibilityManager.FLAG_CONTENT_TEXT or AccessibilityManager.FLAG_CONTENT_CONTROLS,
+                        ) ?: SNACKBAR_MS
+                    ).toLong(),
+            )
+        if (values == sentTouch) return
+        sentTouch = values
+        Native.touch(
+            values.slop,
+            values.edgeLeft,
+            values.edgeRight,
+            values.rtl,
+            values.reducedMotion,
+            values.recommendedMs,
+        )
+    }
+
+    /** The touch values as last sent. */
+    private data class Touch(
+        val slop: Float,
+        val edgeLeft: Float,
+        val edgeRight: Float,
+        val rtl: Boolean,
+        val reducedMotion: Boolean,
+        val recommendedMs: Long,
+    )
+
+    private var sentTouch: Touch? = null
+
+    /** A swipe armed: the platform's tick, once per crossing. */
+    private fun relayHaptics() {
+        while (shown) {
+            if (Native.waitHaptic(ASK_WAIT_MS) && shown) {
+                runOnUiThread {
+                    val tick =
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                            HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
+                        } else {
+                            HapticFeedbackConstants.CONTEXT_CLICK
+                        }
+                    window.decorView.performHapticFeedback(tick)
+                }
+            }
+        }
     }
 
     /** The window's "Allow network access", carried out on the main thread. */
@@ -141,6 +231,9 @@ class MainActivity : NativeActivity() {
         private const val NETWORK_REQUEST = 2
         private const val NOTIFICATIONS_REQUEST = 1
         private const val ASK_WAIT_MS = 500L
+
+        /** The snackbar's own time up, before a screen reader's setting lengthens it. */
+        private const val SNACKBAR_MS = 6_000
         private const val PREFERENCES = "interweave.window"
         private const val ASKED_NETWORK = "asked_network"
 
