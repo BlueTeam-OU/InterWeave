@@ -77,7 +77,7 @@ Slint maps 1:1 to dp on Android. Two words used below:
 | idle | — | the row at rest |
 | tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the `swipe-neutral` fill shows, with the action's icon and its label drawn on it in `swipe-on-fill` (§7) |
 | armed | the row has moved at least the larger of 40 % of its width and 96 dp | the action colour fills the uncovered area, and the icon scales up once (100 → 120 %). One haptic tick plays (`HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE`, or `CONTEXT_CLICK` below API 34), once per crossing. Dragging back below the threshold disarms it, with no second tick |
-| commit | release while armed; **or** a fling: a release within 100 ms of the first move the row sees, having moved at least 48 dp in the allowed direction from the touch-down point (the press position Slint reports, not where the row first saw a move), armed or not. The rule uses this time window, not a speed, because on Slint 1.18.1 a press inside a scrolling list reaches the row about 100 ms late, so a fling's early moves are never seen (measured by rust-ui-dev-01 on a Pixel 9a, 2026-10-16). A fling whose whole movement ends within about 100 ms of touch-down is not seen in time: the row sees no move before the release. If the row sees one late move and the release comes within 100 ms of it, the distance from touch-down decides, so a single late move of at least 48 dp is a fling. Nothing happens, the row returns to rest, and the person can swipe again or drag more slowly | the row's result, §5 |
+| commit | release while armed; **or** a fling: a release within 100 ms of the first move the row sees, having moved at least 48 dp in the allowed direction from the touch-down point (the press position Slint reports, not where the row first saw a move), armed or not. The rule uses this time window, not a speed, because on Slint 1.18.1 a press inside a scrolling list reaches the row about 100 ms late, so a fling's early moves are never seen (measured by rust-ui-dev-01 on a Pixel 9a, 2026-10-16). A fling whose whole movement ends within about 100 ms of touch-down is not seen in time: the row sees no move before the release. Nothing happens, the row returns to rest, and the person can swipe again or drag more slowly. If the row sees one late move and the release comes within 100 ms of it, the distance from touch-down decides, so a single late move of at least 48 dp is a fling | the row's result, §5 |
 | cancel | release while not armed (and not a qualifying fling); a second finger down; the touch cancelled by the system; the list scrolled under the finger | the row springs back to rest (200 ms, decelerate), nothing happens, no snackbar |
 
 Edge rules:
@@ -141,11 +141,11 @@ happened.
   waits for the facade's answer (§8), and until then the old snackbar
   stays, with its Undo. The old snackbar is replaced only when the
   Cancel succeeds, and stays if the Cancel is refused. If the person
-  takes another action with a snackbar before the Cancel's answer
-  comes, that newer snackbar stays, with its Undo. The Cancel's late
-  success is then only announced, with §8's words, and shows no
+  takes another action that shows a snackbar before the Cancel's
+  answer comes, that newer snackbar stays, with its Undo. The Cancel's
+  late success is then only announced, with §8's words, and shows no
   snackbar, so it has no Undo. A late answer never takes away the Undo
-  of an action taken after it.
+  of an action taken after the Cancel.
 - Shown for 6 s, or for `AccessibilityManager.getRecommendedTimeoutMillis(6000,
   FLAG_CONTENT_TEXT | FLAG_CONTENT_CONTROLS)` if that is longer (TalkBack
   users get the time their setting asks for). It is never shown for more
@@ -463,10 +463,9 @@ snackbar Undo; right = nothing."
   swiped the row leaves focus where it was. After Undo, it goes to the
   restored row.
 - **Focus after the header's "Hide conversation"**, which returns to
-  the list (the way a TalkBack user hides): focus goes where the
-  hidden row's place was, by the same order. That is the next
-  conversation row, else the previous one, else the Chats screen's
-  header. It never goes to the top of the list, and is never lost.
+  the list (the way a TalkBack user hides a conversation): focus goes
+  as after a swipe, to the next conversation row, else the previous
+  one, else the Chats screen's header. It never goes to the top of the list, and is never lost.
 - Announced as §7, with the snackbar's words.
 
 ## 11. Acceptance — what a reviewer checks on a device
@@ -565,7 +564,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 19. While a Cancel waits for the facade's answer (a slowed store in the
     app-core tests, or on a device if a test build can slow it),
     dismissing another row keeps the "Dismissed" snackbar and its Undo.
-    The Cancel's success that arrives after it is announced and shows
+    The Cancel's success, arriving after that, is announced and shows
     no snackbar.
 20. With a store that refuses writes (in the app-core or ui-model tests,
     and on a device if a test build can make storage refuse):
