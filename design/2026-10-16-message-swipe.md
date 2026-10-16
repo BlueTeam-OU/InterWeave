@@ -243,8 +243,11 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     conformance case 16, InterWeave#284). A restore with no attempts
     would wrongly say the cancelled attempt never reached the
     receiver;
-  - the receiver dedups a direct message by its transport message id.
-    If an attempt was admitted at the receiver before Cancel ran and
+  - the receiver dedups a direct message by ADR-0019's key: the mode,
+    the source peer and endpoint, the destination selector and the
+    message id, with the content fingerprint checked against the entry.
+    This is why every one of those inputs must come back unchanged. If
+    an attempt was admitted at the receiver before Cancel ran and
     only its answer was lost, the undone send is answered from the
     receiver's dedup entry while that entry exists. The entry is bounded
     by its TTL and by eviction, and never survives the receiver's
