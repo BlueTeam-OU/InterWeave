@@ -76,7 +76,7 @@ Slint maps 1:1 to dp on Android. Two words used below:
 | idle | — | the row at rest |
 | tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the `swipe-neutral` fill shows, with the action's icon and its label drawn on it in `swipe-on-fill` (§7) |
 | armed | the row has moved at least the larger of 40 % of its width and 96 dp | the action colour fills the uncovered area, and the icon scales up once (100 → 120 %). One haptic tick plays (`HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE`, or `CONTEXT_CLICK` below API 34), once per crossing. Dragging back below the threshold disarms it, with no second tick |
-| commit | release while armed; **or** a fling: a release within 100 ms of the first move the row sees, having moved at least 48 dp in the allowed direction, armed or not. The rule is this and not a speed because on Slint 1.18.1 a press inside a scrolling list reaches the row about 100 ms late, so a flick's early moves are never seen (measured by rust-ui-dev-01 on a Pixel 9a, 2026-10-16). A flick quicker than that springs back, which loses nothing | the row's result, §5 |
+| commit | release while armed; **or** a fling: a release within 100 ms of the first move the row sees, having moved at least 48 dp in the allowed direction, armed or not. The rule uses this time window, not a speed, because on Slint 1.18.1 a press inside a scrolling list reaches the row about 100 ms late, so a fling's early moves are never seen (measured by rust-ui-dev-01 on a Pixel 9a, 2026-10-16). A fling quicker than that springs back, which loses nothing | the row's result, §5 |
 | cancel | release while not armed (and not a qualifying fling); a second finger down; the touch cancelled by the system; the list scrolled under the finger | the row springs back to rest (200 ms, decelerate), nothing happens, no snackbar |
 
 Edge rules:
@@ -184,8 +184,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   - After an Undo the store refuses, the snackbar closes under the
     focus, so focus goes where the action itself sent it. A refused
     Undo of Cancel goes to the next row, or the previous one if it was
-    the last. Dismiss's Undo writes nothing, so it cannot be refused. A refused Undo of Unkeep goes to that row's
-    first control, since the row is still in place.
+    the last. Dismiss's Undo writes nothing, so it cannot be refused.
+    A refused Undo of Unkeep goes to that row's first control, since
+    the row is still in place.
   - After Keep, Unkeep or Retry, focus stays where it was.
 - **Reduced motion.** When the system's animator duration scale is 0
   ("Remove animations"):
@@ -299,7 +300,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     slid out and its space closed, the space opens again (150 ms,
     instant under reduced motion) and the row returns to its place in
     the state the facade reports by then. It stayed pending in the
-    transport, so it may already be Sending or accepted by the remote;
+    transport, so it may already be Sending or accepted by the remote
+    transport;
   - the "Sending canceled" snackbar is shown only once the facade has
     answered that the Cancel succeeded. A refused Cancel shows none;
   - the existing storage notice and refusal announcement apply;
@@ -342,10 +344,10 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     its way to the store: dismissing it then would drop a message the
     person just asked to keep.
   - A dismissed message that gains a stored row while its snackbar is
-    up (its Keep is answered, or a copy of it arrives) comes back in
+    shown (its Keep is answered, or a copy of it arrives) comes back in
     its place, and the Dismiss snackbar closes. The store now holds
-    it, so hiding it would hide a kept or unread message (found in
-    InterWeave#289's review, 2026-10-16).
+    it, so leaving it out of the list would hide a kept or unread
+    message (found in InterWeave#289's review, 2026-10-16).
 - **Keep is refused because storage is degraded.** The row stays kind
   A, no snackbar is shown, and the existing storage notice and refusal
   announcement apply.
@@ -370,12 +372,14 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **The words.** language-culture finalised them (below).
   rust-ui-dev adds the keys and commits the values to `labels.rs`,
   which is rust-ui-dev's file. A swipe's revealed label is its
-  button's text, so one key serves both. The action names in this
-  file (Retry, Unkeep) are not the words the person
-  sees. A message's action reads "Dismiss", with no "for now",
-  because the message does not come back once its Undo closes (§8;
-  the owner's ruling of 2026-10-16). A conversation keeps "Hide". The prose of this file uses British spelling;
-  the strings below are en-US, as all of `labels.rs` is.
+  button's text, so one key serves both. Two action names in this
+  file are not the words the person sees: Retry reads "Send again"
+  and Unkeep reads "Stop keeping". A message's action reads
+  "Dismiss", because the message does not come back once its Undo
+  closes (§8; the owner's ruling of 2026-10-16). A conversation's
+  action stays "Hide", because a new message brings it back (§10).
+  The prose of this file uses British spelling; the strings below are
+  en-US, as all of `labels.rs` is.
 
   | where it is shown | text | `UiText` key |
   |---|---|---|
@@ -454,7 +458,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 2. On a kind-A row, a drag right to 30 % and back gives no tick on the
    way back and nothing on release. Releasing a drag at 30 % also does
    nothing.
-3. A flick right of about 60 dp, taking about 150 ms, on a kind-A row
+3. A fling right of about 60 dp, taking about 150 ms, on a kind-A row
    commits Keep.
 4. On a kind-A row:
    - a drag left past the threshold dismisses it and shows "Dismissed";
