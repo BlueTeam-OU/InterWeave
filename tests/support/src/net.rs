@@ -29,8 +29,10 @@
 //! crate's root states for every harness. The hosted CI runners have a
 //! private address.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
+use std::fs::{File, OpenOptions, TryLockError};
 use std::net::{IpAddr, Ipv4Addr, TcpListener, UdpSocket};
+use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
 /// This host's private-range (RFC 1918) IPv4 address, or a panic that
@@ -65,8 +67,9 @@ fn private_interface_v4() -> Option<Ipv4Addr> {
     }
 }
 
-/// Every port [`free_port`] has answered in this process.
-static HANDED_OUT: Mutex<BTreeSet<u16>> = Mutex::new(BTreeSet::new());
+/// Every port [`free_port`] has answered in this process, each with the
+/// claim that keeps another process from being answered it.
+static HANDED_OUT: Mutex<BTreeMap<u16, File>> = Mutex::new(BTreeMap::new());
 
 /// A port nothing listens on at the moment of asking, and never one this
 /// process was answered before
@@ -83,8 +86,19 @@ static HANDED_OUT: Mutex<BTreeSet<u16>> = Mutex::new(BTreeSet::new());
 /// bound while the next port is asked, so the kernel cannot answer it
 /// again.
 ///
-/// What this does not close: another process may bind the port between
-/// this answer and the daemon's bind, which fails that daemon's start.
+/// NOR TWICE ACROSS PROCESSES on this host's temporary directory: a test
+/// runner that gives every test a process of its own (nextest) runs
+/// tests of different binaries at once, and a set kept in one process
+/// cannot see another's. Each answer holds an advisory lock on a file
+/// named by the port ([`claim`]) for the rest of the process, so another
+/// process skips a port held there, and the kernel releases the lock
+/// when the process ends however it ends: nothing is left to go stale
+/// (`a_claimed_port_is_refused_to_another_claim_until_released`).
+///
+/// What this does not close: a process that is not a `free_port` caller
+/// -- or one under another temporary directory, such as another account
+/// on a shared host -- may bind the port between this answer and the
+/// daemon's bind, which fails that daemon's start.
 ///
 /// # Panics
 /// When the host will not bind `ip`.
@@ -95,16 +109,50 @@ pub fn free_port(ip: Ipv4Addr) -> u16 {
     loop {
         let listener = TcpListener::bind((ip, 0)).expect("a port");
         let port = listener.local_addr().expect("an address").port();
-        if handed_out.insert(port) {
+        if !handed_out.contains_key(&port)
+            && let Some(held) = claim(port)
+        {
+            handed_out.insert(port, held);
             return port;
         }
         repeats.push(listener);
     }
 }
 
+/// Where the claims are: the temporary directory, which every process of
+/// one test run shares.
+fn claims_dir() -> PathBuf {
+    std::env::temp_dir().join("interweave-free-port")
+}
+
+/// `port`'s claim, if no other holder has it: an exclusive advisory lock
+/// on its file, held while the returned file is open. The lock belongs
+/// to the open file, not the process, so a second open in this process
+/// is refused as another process's would be.
+///
+/// # Panics
+/// When the claims directory or a claim file cannot be made or locked.
+fn claim(port: u16) -> Option<File> {
+    let dir = claims_dir();
+    std::fs::create_dir_all(&dir)
+        .unwrap_or_else(|e| panic!("the port claims at {}: {e}", dir.display()));
+    let path = dir.join(port.to_string());
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .unwrap_or_else(|e| panic!("the port claim {}: {e}", path.display()));
+    match file.try_lock() {
+        Ok(()) => Some(file),
+        Err(TryLockError::WouldBlock) => None,
+        Err(TryLockError::Error(e)) => panic!("locking {}: {e}", path.display()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::free_port;
+    use super::{claim, free_port};
     use std::collections::BTreeSet;
     use std::net::Ipv4Addr;
 
@@ -119,5 +167,57 @@ mod tests {
             let port = free_port(Ipv4Addr::LOCALHOST);
             assert!(seen.insert(port), "port {port} answered twice");
         }
+    }
+
+    /// A port held by ANOTHER PROCESS is refused, and claimable once that
+    /// process ends: `flock(1)` holds the claim file as a second test
+    /// process would, by the same `flock(2)` lock. The control is the
+    /// claim after the holder is gone, which succeeds.
+    #[test]
+    fn a_port_another_process_claims_is_refused_until_it_ends() {
+        // A port no claim of this process's covers: free_port's answers
+        // all are, and a fresh one from the kernel need not be.
+        let port = loop {
+            let port = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+                .and_then(|l| l.local_addr())
+                .expect("a port")
+                .port();
+            if let Some(probe) = claim(port) {
+                drop(probe);
+                break port;
+            }
+        };
+        let file = super::claims_dir().join(port.to_string());
+        let mut holder = std::process::Command::new("flock")
+            .arg("--no-fork")
+            .arg(&file)
+            .args(["sleep", "30"])
+            .spawn()
+            .expect("flock(1): util-linux");
+        // The holder has the lock once our claim is refused; bounded, so
+        // a holder that never locks fails here rather than hanging.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while let Some(probe) = claim(port) {
+            drop(probe);
+            assert!(
+                std::time::Instant::now() < deadline,
+                "flock never held {}",
+                file.display()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        holder.kill().expect("the holder ends");
+        holder.wait().expect("reaped");
+        assert!(
+            claim(port).is_some(),
+            "port {port} still held after its holder ended"
+        );
+    }
+
+    /// What `free_port` answers is held: a fresh claim on it is refused.
+    #[test]
+    fn free_port_holds_the_claim_on_what_it_answers() {
+        let port = free_port(Ipv4Addr::LOCALHOST);
+        assert!(claim(port).is_none(), "port {port} answered unclaimed");
     }
 }
