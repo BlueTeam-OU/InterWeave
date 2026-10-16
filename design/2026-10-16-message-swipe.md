@@ -109,7 +109,7 @@ committed swipe except Retry shows the snackbar (§6).
 | A left, Hide for now | removes the row from this session's list (new; §8) | slides out, then the space closes (150 ms) | "Hidden" | puts the row back in the same place |
 | B left, Unkeep | `Intent::Unkeep(row)`, at once | slides back to rest. Its status reads not kept, and it becomes kind A | "No longer kept" | the Keep `actions` now offers on it (`from` is the kept row the Unkeep released, whose content this session holds). The row reads Kept again |
 | C right, Retry now | `Intent::Retry(row)` | slides back to rest. Its status changes as the facade reports it (Sending) | none (nothing to undo) | — |
-| C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Send cancelled" | restores the cancelled pending record itself: its app message id, its transport message id and its stored payload bytes, never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
+| C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Send cancelled" | restores the cancelled pending record itself: everything §8 lists unchanged (both ids, destination, media type, stored payload bytes, attempt count), never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
 
 **The rule: after any interruption, the state is what the person last
 saw confirmed.** Every action runs on commit. Undo is the reverse
@@ -139,10 +139,7 @@ happened.
 - Shown for 6 s, or for `AccessibilityManager.getRecommendedTimeoutMillis(6000,
   FLAG_CONTENT_TEXT | FLAG_CONTENT_CONTROLS)` if that is longer (TalkBack
   users get the time their setting asks for). It is never shown for more
-  than 2 minutes, the longest the platform setting offers. That stays
-  well inside the receiver's 5-minute dedup window (ADR-0019), so an
-  undone cancel is answered from the receiver's entry if it got the
-  first attempt.
+  than 2 minutes, the longest the platform setting offers.
 - Its Undo is a button with a touch target of at least 48 × 48 dp,
   reachable by TalkBack and by a hardware keyboard.
 - An Undo restores exactly the state before the swipe. Two undos in a
@@ -176,6 +173,11 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     first control, or the previous row's if it was the last. Never to
     the top of the list, never lost.
   - After Undo, focus goes to the restored row's first control.
+  - After an Undo the store refuses, the snackbar closes under the
+    focus, so focus goes where the action itself sent it. A refused
+    Undo of Cancel goes to the next row, or the previous one if it was
+    the last. Hide's Undo writes nothing, so it cannot be refused. A refused Undo of Unkeep goes to that row's
+    first control, since the row is still in place.
   - After Keep, Unkeep or Retry, focus stays where it was.
 - **Reduced motion.** When the system's animator duration scale is 0
   ("Remove animations"):
@@ -186,9 +188,30 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **Colour is never the only signal.** The armed state is shown by the
   colour **and** the icon's scale **and** the haptic tick. Before
   arming, the icon has a label beside it, so the direction's meaning
-  can be read. Contrast: the icon against its fill ≥ 3:1, and the label
-  ≥ 4.5:1 (WCAG 1.4.11, 1.4.3). The colours are brand-comms'. This spec
-  names only their roles: neutral, keep, hide or remove, retry.
+  can be read.
+- **Colour and icon roles.** These are new entries that rust-ui-dev
+  adds to `global Palette` in `crates/human/ui-slint/ui/app.slint`. The
+  palette and the icons are rust-ui-dev's until a brand-comms holder is
+  placed in this repository (the remits, InterWeave#282). Each must
+  meet its contrast in every theme the app draws:
+
+  | role | what it is | contrast it must meet |
+  |---|---|---|
+  | `swipe-neutral` | the fill behind a row before arming | ≥ 3:1 against the row's own background, so the uncovered area reads as one (WCAG 1.4.11) |
+  | `swipe-keep` | the armed fill for Keep | — |
+  | `swipe-remove` | the armed fill for Hide, Unkeep, Cancel and the conversation hide | — |
+  | `swipe-retry` | the armed fill for Retry | — |
+  | `swipe-on-fill` | the icon and label drawn on any of the four fills | icon ≥ 3:1 (WCAG 1.4.11) and label ≥ 4.5:1 (WCAG 1.4.3) against each fill |
+
+  The armed fills need no contrast against each other or against
+  `swipe-neutral`, because colour is not the only signal of arming
+  (above).
+
+  Icons, one per action: Keep, Hide, Unkeep, Retry, Cancel, and the
+  conversation hide (Hide's icon may serve). The shapes are
+  rust-ui-dev's to choose, from a source whose licence the repository
+  accepts. Each is decorative beside its label, so it carries no
+  accessible name of its own.
 
 ## 8. Edge cases
 
@@ -208,19 +231,27 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 
   The status words are never "delivered", "read" or "seen"
   (`human-client-ui.md` §5).
-- **Undo of Cancel restores the record, not a new row.** architect-cto
+- **Undo of Cancel restores the record (a new row id, the same message).** architect-cto
   ruled this on 2026-10-16, and writes it into `human-client-ui.md` §6
   and §13 in InterWeave#284:
   - the undone cancel restores the pending record unchanged: its app
     message id, its transport message id, its destination selector, its
-    media type and its stored payload bytes. It is never a re-serialised
-    or re-identified copy. A new row id is expected;
+    media type, its stored payload bytes and its attempt count. It is
+    never a re-serialised or re-identified copy. A new row id is
+    expected. The attempt count matters because after a restart the
+    client rebuilds `may_have_reached` from it (RETENTION.md §2,
+    conformance case 16, InterWeave#284). A restore with no attempts
+    would wrongly say the cancelled attempt never reached the
+    receiver;
   - the receiver dedups a direct message by its transport message id.
-    So if an attempt was admitted at the receiver before Cancel ran and
+    If an attempt was admitted at the receiver before Cancel ran and
     only its answer was lost, the undone send is answered from the
-    receiver's dedup entry within its 5-minute window, not delivered
-    twice. Past that window it is an ordinary retry. The client never
-    claims exactly-once (RETENTION.md §2);
+    receiver's dedup entry while that entry exists. The entry is bounded
+    by its TTL and by eviction, and never survives the receiver's
+    restart (ADR-0019). The restored record may go out long after the
+    snackbar, and once the entry is gone the receiver may present the
+    message again, as for any retry. The client never claims
+    exactly-once (RETENTION.md §2);
   - what the session holds for that Undo is the record (both ids and
     the bytes), not the rendered text.
   If the facade or store cannot restore a cancelled record under its
@@ -245,6 +276,13 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   never an Undo that fails. A missing Undo is honest. A failing one
   breaks the promise the button makes (ruled 2026-10-16 on
   rust-ui-dev-01's question).
+- **Cancel refused by the store** (storage degraded or full;
+  `TransportClient::cancel` answers `StorageUnavailable`, and the row
+  stays pending):
+  - the row springs back to its place, still pending, and no snackbar
+    is shown;
+  - the existing storage notice and refusal announcement apply;
+  - focus stays where it was.
 - **Undo of Cancel when the store refuses the restore** (storage
   degraded or full, RETENTION.md §4):
   - the row stays cancelled, and nothing is sent: a send never goes out
@@ -252,7 +290,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   - the snackbar closes, and the existing storage notice and refusal
     announcement apply;
 
-  While storage is already degraded when Cancel runs, its snackbar
+  If Cancel succeeds while storage is already degraded, its snackbar
   shows no Undo, since a restore could not be written. A missing Undo
   is honest; a failing one is not (as for Unkeep above).
 - **Undo of Unkeep when Keep is refused** (storage degraded): the row
@@ -289,8 +327,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   and will appear on desktop. This spec is reviewed on Android only.
 - **The words.** Every label above is a proposal. language-culture
   writes them in `labels.rs`.
-- **The colours and icons.** These are brand-comms'. The roles are
-  named in §7.
+- **The colour values and icon shapes.** rust-ui-dev chooses them,
+  against the roles and contrasts named in §7, until a brand-comms
+  holder is placed here.
 
 ## 10. Swipe on a conversation row (Chats list)
 
@@ -401,6 +440,6 @@ TalkBack off and once with it on, and once with "Remove animations" on.
       snackbar closes;
     - the Undo of Keep raises Unkeep, the Undo of Unkeep raises Keep
       with the released row as `from`, and the Undo of Cancel restores
-      the cancelled record with its ids, destination, media type and
-      stored bytes unchanged;
+      the cancelled record with its ids, destination, media type,
+      stored bytes and attempt count unchanged;
     - the Undo of Hide raises nothing.
