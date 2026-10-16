@@ -28,6 +28,7 @@
     reason = "test harness: every helper panics on a broken setup"
 )]
 
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::StreamExt as _;
@@ -39,7 +40,6 @@ use interweave_transport_runtime::{ConnectionManager, ConnectionPolicy, TrustSou
 use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
 use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
 use libp2p::{Multiaddr, PeerId, identify, identity, relay};
-use tokio::sync::{mpsc, oneshot};
 
 use super::PATIENCE;
 
@@ -58,6 +58,9 @@ pub struct RelaySeen {
     pub circuits: Vec<(PeerId, PeerId)>,
     /// Circuit requests denied, as (source, destination).
     pub denied: Vec<(PeerId, PeerId)>,
+    /// Accepted circuits that closed, as (source, destination, why): the
+    /// error the relay closed it with, or `clean`.
+    pub closed: Vec<(PeerId, PeerId, String)>,
 }
 
 /// A running relay; dropping it stops it.
@@ -67,7 +70,7 @@ pub struct Relay {
     /// Where it listens, ending in `/p2p/<peer>`: the `static_relays`
     /// entry a daemon is given.
     pub address: String,
-    seen: mpsc::UnboundedSender<oneshot::Sender<RelaySeen>>,
+    seen: Arc<Mutex<RelaySeen>>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -129,23 +132,17 @@ impl Relay {
         // The verdict a daemon's AutoNAT adapter would publish: the one
         // input the hop gate reads.
         swarm.add_external_address(listen.clone());
-        let (seen, mut asks) = mpsc::unbounded_channel::<oneshot::Sender<RelaySeen>>();
+        let seen = Arc::new(Mutex::new(RelaySeen::default()));
+        let record = Arc::clone(&seen);
         let task = tokio::spawn(async move {
             // The manager owns the policy the classifier reads; it lives
             // as long as the relay does.
             let _manager = manager;
-            let mut record = RelaySeen::default();
             loop {
-                tokio::select! {
-                    ask = asks.recv() => match ask {
-                        Some(reply) => { let _ = reply.send(record.clone()); }
-                        None => return,
-                    },
-                    event = swarm.select_next_some() => {
-                        if let SwarmEvent::Behaviour(RelayBehaviourEvent::Relay(e)) = event {
-                            note(&mut record, &e);
-                        }
-                    }
+                if let SwarmEvent::Behaviour(RelayBehaviourEvent::Relay(e)) =
+                    swarm.select_next_some().await
+                {
+                    note(&mut record.lock().expect("the record"), &e);
                 }
             }
         });
@@ -158,11 +155,20 @@ impl Relay {
         }
     }
 
-    /// What the relay has done so far.
-    pub async fn seen(&self) -> RelaySeen {
-        let (reply, answer) = oneshot::channel();
-        self.seen.send(reply).expect("the relay task is alive");
-        answer.await.expect("the relay task answers")
+    /// What the relay has done so far, for the suites that await it; the
+    /// record is behind a lock, so it is ready at once.
+    pub fn seen(&self) -> impl Future<Output = RelaySeen> {
+        std::future::ready(self.seen_now())
+    }
+
+    /// What the relay has done so far, from synchronous code: a failure's
+    /// log, which cannot await.
+    ///
+    /// # Panics
+    /// If the relay's task panicked holding the record.
+    #[must_use]
+    pub fn seen_now(&self) -> RelaySeen {
+        self.seen.lock().expect("the record").clone()
     }
 
     /// The circuit address through this relay to `target`: the route a
@@ -186,6 +192,17 @@ fn note(record: &mut RelaySeen, event: &relay::Event) {
             dst_peer_id,
             ..
         } => record.denied.push((*src_peer_id, *dst_peer_id)),
+        relay::Event::CircuitClosed {
+            src_peer_id,
+            dst_peer_id,
+            error,
+        } => record.closed.push((
+            *src_peer_id,
+            *dst_peer_id,
+            error
+                .as_ref()
+                .map_or_else(|| "clean".to_owned(), ToString::to_string),
+        )),
         _ => {}
     }
 }
