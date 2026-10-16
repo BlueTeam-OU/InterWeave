@@ -134,7 +134,8 @@ class NetworkService : Service() {
                 network.networkHandle,
                 wire(link.linkAddresses.map { it.address }),
                 wire(link.dnsServers),
-                // Named only in strict mode: opportunistic mode has no name.
+                // The platform names a host in strict mode; opportunistic
+                // mode has none.
                 if (link.isPrivateDnsActive) link.privateDnsServerName else null,
             )
         }

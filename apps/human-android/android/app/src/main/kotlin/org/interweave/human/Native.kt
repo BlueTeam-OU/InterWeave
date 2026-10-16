@@ -84,7 +84,9 @@ internal object Native {
     /**
      * The Service's network callback was registered: no network is known
      * yet, which is offline until one is reported (plan section 20 step
-     * 5). Never waits; so with the three below.
+     * 5). Never waits, nor do the four below
+     * (`a_network_report_never_waits_on_a_start`, android-platform's
+     * `tests/service.rs`).
      */
     @JvmStatic external fun networkWatching()
 

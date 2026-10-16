@@ -121,7 +121,8 @@ pub struct ServiceHost {
     hub: Arc<Hub>,
     running: Mutex<Option<Running>>,
     /// The platform's networks and the runtime that hears them: a lock of
-    /// their own, so the callback never waits on a start.
+    /// their own, so the callback never waits on a start
+    /// (`tests/service.rs`: `a_network_report_never_waits_on_a_start`).
     network: Mutex<NetworkSlot<Arc<EmbeddedHost>>>,
 }
 

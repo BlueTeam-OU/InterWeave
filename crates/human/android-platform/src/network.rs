@@ -17,7 +17,10 @@
 //! The runtime is told only when the snapshot -- addresses or DNS facts --
 //! differs from the last one it was told, and a runtime that starts is told the current one at once:
 //! the callback reported every network when it was registered, before
-//! that runtime existed, and does not report them again.
+//! that runtime existed, and does not report them again. The tests below:
+//! `a_report_that_leaves_the_addresses_as_they_were_tells_the_runtime_nothing`,
+//! `the_dns_facts_are_the_default_networks_and_unknown_without_one` and
+//! `a_runtime_that_starts_hears_the_networks_reported_before_it_existed`.
 
 use std::collections::BTreeMap;
 use std::net::IpAddr;
@@ -152,7 +155,8 @@ pub fn addresses_from_wire(mut wire: &[u8]) -> Vec<IpAddr> {
 
 /// The callback's reports and the runtime that hears them, under one lock
 /// of their own: never the start's, which a start holds for seconds while
-/// the callback must not wait.
+/// the callback must not wait (`tests/service.rs`:
+/// `a_network_report_never_waits_on_a_start`).
 pub struct NetworkSlot<S> {
     links: Links,
     /// What the attached runtime was last told.
@@ -473,13 +477,13 @@ mod tests {
     fn a_report_that_leaves_the_addresses_as_they_were_tells_the_runtime_nothing() {
         let (mut slot, heard) = attached();
         let _ = slot.report(NetworkReport::Watching);
-        let _ = slot.report(link(1, &["10.0.0.5"]));
+        let _ = slot.report(link(1, &["10.0.0.5", "10.0.0.6"]));
         heard.take();
         // A Wi-Fi reconnect with the same lease: a new handle, the same
-        // address; and the same set in another order.
-        let _ = slot.report(link(2, &["10.0.0.5"]));
+        // addresses, reported in another order.
+        let _ = slot.report(link(2, &["10.0.0.6", "10.0.0.5"]));
         let _ = slot.report(NetworkReport::Lost { network: 1 });
-        let _ = slot.report(link(2, &["10.0.0.5"]));
+        let _ = slot.report(link(2, &["10.0.0.5", "10.0.0.6"]));
         assert!(heard.take().is_empty(), "the addresses never changed");
     }
 
