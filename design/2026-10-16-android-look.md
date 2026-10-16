@@ -69,6 +69,7 @@ picks one, as `Palette.dark` does today.
 | `on-primary-container` | text on `primary-container` | `#b8fff4` | `#00201d` |
 | `tertiary` | the unread badge | `#ffb547` | `#ffb547` |
 | `on-tertiary` | the badge's number | `#2a1800` | `#2a1800` |
+| `unread-dot` | the unread dot beside a status | `#ffb547` | `#7c5200` |
 | `inverse-surface` | the snackbar | `#e3e6f3` | `#2a3050` |
 | `inverse-on-surface` | the snackbar's text | `#2a3050` | `#eef0fb` |
 | `inverse-primary` | the snackbar's Undo | `#006a61` | `#5fdccd` |
@@ -113,6 +114,7 @@ the storage notice must stand out from everything else on screen.
 | `focus-ring-on-inverse` on `inverse-surface` | 3 | 5.2 | 7.7 |
 | `focus-ring-on-notice` on `notice-background` | 3 | 5.9 | 5.9 |
 | `on-tertiary` on `tertiary` | 4.5 | 9.7 | 9.7 |
+| `unread-dot` on `surface-container-high` / `primary-container` (in a bubble) | 3 | 8.0 / 5.6 | 5.7 / 5.3 |
 | `inverse-on-surface` on `inverse-surface` | 4.5 | 10.3 | 11.3 |
 | `inverse-primary` on `inverse-surface` | 4.5 | 5.2 | 7.7 |
 | `error` on `surface` | 4.5 | 10.6 | 6.2 |
@@ -255,7 +257,7 @@ From the top:
 
     | status | icon |
     |---|---|
-    | Unread | a dot in `tertiary` |
+    | Unread | a dot in `unread-dot` |
     | Unread, kept (`UnreadAlsoKept`) | the dot, then the filled bookmark |
     | Read, not kept | none |
     | Kept | a filled bookmark |
