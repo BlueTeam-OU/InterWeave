@@ -241,7 +241,12 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         // here reaches the screen at the next turn's render, and the view
         // never writes over text it is still holding.
         self.surface.render(&self.model);
+        // What closed snackbars no longer need goes first, ahead of any
+        // cancel this turn issues.
         let mut commands = Vec::new();
+        let released = self.model.take_released();
+        commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
+        commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
         // A trust input changes what the settings show -- a proposal to
         // confirm, why a typed value was not proposed -- and may ask the
         // facade nothing, so no update would bring another turn: the
@@ -349,20 +354,23 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Intent::Retry(row) => Command::Retry(row),
             Intent::Cancel(row) => {
                 // Each cancel's record is held for its Undo until its
-                // snackbar goes; with the facade on its own thread, answers
-                // can lag any number of turns. So at most CANCELLED_CAP - 2
-                // are in flight -- room for the open snackbar's record and
-                // one replaced one still to let go -- and a cancel past
-                // that is refused, as one the store refused (its row
-                // springs back), rather than evicting an offered Undo's
-                // record (review F2 on #289, round 3).
+                // snackbar goes, and the facade side evicts the oldest past
+                // CANCELLED_CAP. The open snackbar's record is the newest
+                // answer applied, so only cancels still in flight come
+                // after it; keeping at most CANCELLED_CAP - 2 of them in
+                // flight keeps it, however late the answers come. A cancel
+                // past that is refused and reported, and its row springs
+                // back (review F2 on #289, rounds 3 and 4).
                 let in_flight = self
                     .in_flight
                     .iter()
                     .filter(|f| matches!(f, InFlight::Other(Command::Cancel(_))))
                     .count();
                 if in_flight >= CANCELLED_CAP - 2 {
-                    self.model.intent_refused(&Intent::Cancel(row));
+                    self.problem(Problem::Command {
+                        command: Command::Cancel(row),
+                        why: Failure::TooMany,
+                    });
                     return None;
                 }
                 Command::Cancel(row)

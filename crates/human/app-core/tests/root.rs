@@ -1194,6 +1194,53 @@ async fn cancels_in_flight_stay_within_what_can_be_held() {
         .filter(|c| matches!(c, Command::Cancel(_)))
         .count();
     assert_eq!(cancels, CANCELLED_CAP - 2);
+    // The four past it are reported, never silent.
+    let too_many = bob
+        .model
+        .take_problems()
+        .into_iter()
+        .filter(|p| {
+            matches!(
+                p,
+                Problem::Command {
+                    command: Command::Cancel(_),
+                    why: Failure::TooMany
+                }
+            )
+        })
+        .count();
+    assert_eq!(too_many, 4);
+}
+
+/// What closed snackbars no longer need is let go ahead of the next
+/// turn's cancels (review of #289, round 4).
+#[tokio::test]
+async fn released_records_go_before_the_next_cancels() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), 4, 1).await;
+    bob.will(vec![
+        ViewEvent::Intent(Intent::Cancel(rows[0])),
+        ViewEvent::Intent(Intent::Cancel(rows[1])),
+        ViewEvent::Intent(Intent::Cancel(rows[2])),
+    ]);
+    bob.pump(2).await;
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[3]))]);
+    let commands = bob.model.turn();
+    let cancel = commands
+        .iter()
+        .position(|c| matches!(c, Command::Cancel(_)))
+        .expect("the cancel");
+    let forgets: Vec<_> = commands[..cancel]
+        .iter()
+        .filter(|c| matches!(c, Command::ForgetCancelled(_)))
+        .collect();
+    assert_eq!(
+        forgets.len(),
+        2,
+        "both replaced snackbars' records first: {commands:?}"
+    );
 }
 
 /// Dismiss, then Keep of the same message, then another Dismiss, in one

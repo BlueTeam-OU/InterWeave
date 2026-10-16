@@ -29,13 +29,15 @@ use crate::protocol::{Command, Failure, Listing, Update};
 /// model stops offering it).
 pub const READ_COPY_CAP: usize = 256;
 
-/// How many cancelled records the facade side holds for an Undo, at most.
-/// Each closed or replaced snackbar lets its record go (`ForgetCancelled`),
-/// and the model side keeps at most this many minus two cancels in flight
-/// (`ModelSide::turn`), so the held records -- those in flight, the open
-/// snackbar's, and a replaced one not yet let go -- stay within it however
-/// late the answers come. Each holds a message's bytes, up to the 48 KiB
-/// payload limit, so this is about 3 MiB at most.
+/// How many cancelled records the facade side holds for an Undo, at most:
+/// past it the oldest goes. The open snackbar's record is the newest answer
+/// the model has applied, so only records of cancels still in flight are
+/// newer, and the model side keeps at most this many minus two of them
+/// (`ModelSide::turn`): the open record is never the one evicted, however
+/// late the answers come. Records of closed snackbars are let go with
+/// `ForgetCancelled` at the next turn, and any still held are older, so
+/// evicted first. Each holds a message's bytes, up to the 48 KiB payload
+/// limit, so this is about 3 MiB at most.
 pub const CANCELLED_CAP: usize = 65;
 
 /// How many received messages one turn hands over, at most.

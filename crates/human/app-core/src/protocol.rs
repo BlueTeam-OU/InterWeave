@@ -188,4 +188,7 @@ pub enum Failure {
     Refused,
     /// A stored row could not be read back.
     Corrupt,
+    /// Too many of the same action are still on their way: the cancels
+    /// whose records an Undo may need ([`crate::CANCELLED_CAP`]).
+    TooMany,
 }
