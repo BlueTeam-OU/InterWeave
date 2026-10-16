@@ -209,28 +209,32 @@ ui_texts! {
     /// message is not deleted from anywhere -- its stored copy went when
     /// it was read -- and it does not come back in this session. Short:
     /// it sits beside "Keep" on a phone-width row.
-    Hide => "Hide", // PLACEHOLDER (en)
+    Hide => "Hide",
     /// The conversation screen's header control that hides the whole
     /// conversation from the list, offered only when it holds nothing
     /// unread, kept or pending. A short button label.
-    HideConversation => "Hide conversation", // PLACEHOLDER (en)
+    HideConversation => "Hide conversation",
     /// The snackbar after Keep, a few words above the composer for about
     /// six seconds, beside an Undo button; also announced.
-    ConfirmKept => "Kept", // PLACEHOLDER (en)
+    ConfirmKept => "Kept",
     /// The snackbar after Hide: the message left the list.
-    ConfirmHidden => "Hidden", // PLACEHOLDER (en)
+    ConfirmHidden => "Hidden",
     /// The snackbar after the person removed Keep: the stored copy is
     /// already deleted when this shows.
-    ConfirmUnkept => "No longer kept", // PLACEHOLDER (en)
+    ConfirmUnkept => "No longer kept",
     /// The snackbar on the conversation list after a conversation was
     /// hidden from it.
-    ConfirmConversationHidden => "Conversation hidden", // PLACEHOLDER (en)
+    ConfirmConversationHidden => "Conversation hidden",
     /// The snackbar's button that reverses what it confirms. A touch
     /// target of its own, so one word.
-    Undo => "Undo", // PLACEHOLDER (en)
+    Undo => "Undo",
+    /// The snackbar after a Cancel: the message will not be sent again.
+    ConfirmSendingCanceled => "Sending canceled",
+    /// The same, when an earlier attempt may have been received.
+    ConfirmSendingCanceledMayHaveReached => "Sending canceled, may have reached the peer",
     /// Announced to a screen reader after an Undo put things back as they
     /// were before the action.
-    Restored => "Restored", // PLACEHOLDER (en)
+    ActionUndone => "Action undone",
     /// The session is re-opening on its own.
     Reconnecting => "Reconnecting",
     /// Storage cannot hold new messages.
