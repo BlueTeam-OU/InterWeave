@@ -67,13 +67,18 @@ Slint maps 1:1 to dp on Android. Two words used below:
 | idle | — | the row at rest |
 | tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the action's icon and its label appear in the neutral colour |
 | armed | the row has moved ≥ 40 % of its width (at least 96 dp) | the action colour fills the uncovered area, and the icon scales up once (100 → 120 %). One haptic tick plays (`HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE`, or `CONTEXT_CLICK` below API 34), once per crossing. Dragging back below the threshold disarms it, with no second tick |
-| commit | release while armed; **or** a fling in the allowed direction at ≥ 1000 dp/s that has moved at least 48 dp, armed or not | the row's result, §5 |
+| commit | release while armed; **or** a fling in the allowed direction at ≥ 1000 dp/s that has moved at least 48 dp, armed or not. The fling's speed is the finger's average over the last 100 ms before release (at least three position samples); with fewer samples it is not a fling | the row's result, §5 |
 | cancel | release while not armed (and not a qualifying fling); a second finger down; the touch cancelled by the system; the list scrolled under the finger | the row springs back to rest (200 ms, decelerate), nothing happens, no snackbar |
 
 Edge rules:
 
 - If vertical movement passes the slop first, the touch is a scroll for
   the rest of its life. It never becomes a swipe.
+- The tracking rule is this one, not the toolkit's. Slint 1.18.1's
+  `SwipeGestureHandler` starts at 8 px when dx > |dy| / 2, so a drag
+  30–60° off horizontal would swipe. Here it scrolls. A row tracks
+  its own touch with this rule and the system slop (ruled 2026-10-16
+  on rust-ui-dev-01's question).
 - Only one row tracks at a time.
 - A press that stays within the slop on a link, or on one of the row's
   buttons, is that control's tap. A drag that starts on one passes the
@@ -93,31 +98,35 @@ committed swipe except Retry shows the snackbar (§6).
 |---|---|---|---|---|
 | A right, Keep | `Intent::Keep { item, from }` as `actions` offers it | slides back to rest. Its status reads Kept and it becomes kind B | "Kept" | the Unkeep of that kept row |
 | A left, Hide for now | removes the row from this session's list (new; §8) | slides out, then the space closes (150 ms) | "Hidden" | puts the row back in the same place |
-| B left, Unkeep | **nothing yet**. The Unkeep is raised when the snackbar closes, not on release | slides back to rest. Its status already reads as not kept, so the person sees the result | "No longer kept" | cancels the pending Unkeep. The row reads Kept again. No store call was made |
+| B left, Unkeep | `Intent::Unkeep(row)`, at once | slides back to rest. Its status reads not kept, and it becomes kind A | "No longer kept" | the Keep `actions` now offers on it (`from` is the kept row the Unkeep released, whose content this session holds). The row reads Kept again |
 | C right, Retry now | `Intent::Retry(row)` | slides back to rest. Its status changes as the facade reports it (Sending) | none (nothing to undo) | — |
-| C left, Cancel send | **nothing yet**. The Cancel is raised when the snackbar closes | slides out, then the space closes | "Send cancelled" | cancels the pending Cancel. The row is back in place with its status as it now is |
+| C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Send cancelled" | puts the same message back as pending: the same envelope (same message id, text and destination), shown in its old place, sent as any pending row is. Needs a facade or store call that re-queues a cancelled envelope (§8) |
 
-**Why Unkeep and Cancel are deferred.** Both are destructive, and their
-undo must survive whatever happens while the snackbar is up. If Unkeep
-ran at once and the app were killed, the kept copy would be gone with
-no way back. Deferring makes the undo free, and makes a kill fail
-safe: the row is still kept, or still pending.
+**The rule: after any interruption, the state is what the person last
+saw confirmed.** Every action runs on commit. Undo is the reverse
+action, not a cancelled delay. If the app is killed while a snackbar is
+up, the message is as the snackbar said: no longer kept, or cancelled
+and never sent. An earlier draft of this spec deferred Unkeep and
+Cancel until the snackbar closed. That fails the rule: a kill left an
+unkept message kept, and let a cancelled one be sent after restart,
+with nothing saying so (found by rust-ui-dev-01, 2026-10-16).
 
-**What closes the snackbar.** Any of these commits a deferred action:
+**What closes the snackbar:**
 
 - its timeout;
 - the person swiping it away;
 - another snackbar replacing it;
 - leaving the conversation;
-- the app going to the background (`onStop`).
+- the app going to the background or being killed.
 
-The app going away without `onStop` (killed) commits nothing.
+Once it closes, the Undo is gone. The action itself has already
+happened.
 
 ## 6. The snackbar
 
 - At the bottom of the conversation, above the composer, never
   covering the composer. One at a time. A new swipe's snackbar replaces
-  the old one, and the old one's deferred action commits as it goes.
+  the old one, and the old one's Undo goes with it.
 - Shown for 6 s, or for `AccessibilityManager.getRecommendedTimeoutMillis(6000,
   FLAG_CONTENT_TEXT | FLAG_CONTENT_CONTROLS)` if that is longer (TalkBack
   users get the time their setting asks for).
@@ -133,8 +142,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **Row buttons.** Each row keeps its action buttons, which are the
   primary control: kind A shows Keep and **Hide** (new). Kind B shows
   Unkeep. Kind C shows Retry and Cancel. A button press gives the same
-  result, the same snackbar and the same Undo as the swipe, including
-  the deferral of Unkeep and Cancel.
+  result, the same snackbar and the same Undo as the swipe.
 - **Touch targets.** Every row button and the snackbar's Undo have a
   target of at least 48 × 48 dp (Android accessibility, WCAG 2.5.8).
   Today `ActionButton` has a minimum height of 24 px, which fails this.
@@ -175,19 +183,23 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   row is accepted by the remote while it is tracking. The swipe is
   re-checked against `actions` at commit. If the action is no longer
   legal, the row springs back and nothing happens.
-- **A cancel is pending and the row is accepted.** The row is accepted
-  by the remote transport while its Cancel waits on the snackbar:
-  - the Cancel is dropped;
+- **Cancel races an attempt already in flight.** If the facade reports
+  the row accepted by the remote transport, rather than cancelled:
   - the row comes back in place with its accepted status;
   - the snackbar is replaced by "Not cancelled: accepted by remote
-    transport".
+    transport", with no Undo.
 
   Never "delivered", "read" or "seen" (`human-client-ui.md` §5).
-- **No new send attempt while a Cancel is pending.** The client starts
-  no new send attempt of that row while its Cancel waits. An attempt
-  already in flight may finish, and then the case above applies. If the
-  facade cannot hold back a scheduled retry, rust-ui-dev returns this
-  point to ux-designer before building §5's deferral.
+- **Undo of Cancel re-queues the same envelope.** It is the same
+  application message, so a reply that references it still resolves.
+  It is a new pending row, sent as any pending row is, retries
+  included. If the facade or store cannot re-queue a cancelled
+  envelope, rust-ui-dev returns this point to ux-designer before
+  building the Cancel swipe, and the fallback is ux-designer's to
+  choose.
+- **Undo of Unkeep when Keep is refused** (storage degraded): the row
+  stays not kept, the snackbar closes, and the existing storage notice
+  and refusal announcement apply.
 - **Hide for now is session-only and changes no retention.**
   - The hidden row is read and not kept, so its durable copy is already
     gone (`human-client-ui.md` §6). Hide removes it from what the view
@@ -202,7 +214,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **Network denied.** Keep, Hide and Unkeep work. Retry is offered only
   if `actions` offers it, and its result is what the facade reports.
 - **Leaving the conversation mid-swipe** cancels the swipe. Leaving it
-  with a snackbar up commits that snackbar's deferred action (§5).
+  with a snackbar up closes the snackbar (§5).
 
 ## 9. Deliberately left out
 
@@ -251,21 +263,26 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 5. On a kind-B row:
    - a drag right does not move the row;
    - a drag left commits and shows "No longer kept";
-   - Undo within the timeout leaves it kept. Check by restarting the
-     app: the message is still there.
+   - Undo within the timeout makes it kept again. Check by restarting
+     the app: the message is still there.
 6. On a kind-B row, a drag left followed by killing the app from Recents
-   before the snackbar closes leaves the message kept after restart.
-7. On a kind-B row, a drag left followed by letting the snackbar time
-   out, then restarting the app: the message is gone.
+   before the snackbar closes: after restart the message is gone, as
+   "No longer kept" said.
+7. On a kind-B row, a drag left, then Undo, then killing the app: after
+   restart the message is still kept.
 8. On a kind-C row (no daemon or network, so it stays pending):
    - a drag right changes its status to Sending and shows no snackbar;
    - a drag left removes it and shows "Send cancelled";
-   - Undo restores it.
-9. On a kind-C row, letting the snackbar time out, then restarting: the
-   message is not pending and is never sent.
+   - Undo restores it in place, pending, with the same message id
+     (the diagnostics view shows it).
+9. On a kind-C row, a drag left followed by killing the app before the
+   snackbar closes: after restart the message is not pending and is
+   never sent, even once a network is available.
 10. On a kind-D row, neither direction moves the row.
 11. A vertical scroll that starts on any row, drifting sideways less
-    than it moves vertically, scrolls and never swipes.
+    than it moves vertically, scrolls and never swipes. That includes
+    a drag about 45° off horizontal, which Slint's own swipe handler
+    would take.
 12. With TalkBack on:
     - every action in 1–9 can be done with the row's buttons alone;
     - each result is announced;
@@ -279,6 +296,9 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 16. The ui-model tests show:
     - which swipes are offered is computed from `actions` and the
       Hide rule, for kinds A–D;
-    - a deferred Unkeep or Cancel raises its intent only when the
+    - Unkeep and Cancel raise their intent at commit, not when the
       snackbar closes;
-    - an Undo raises nothing.
+    - the Undo of Keep raises Unkeep, the Undo of Unkeep raises Keep
+      with the released row as `from`, and the Undo of Cancel re-queues
+      the same envelope;
+    - the Undo of Hide raises nothing.
