@@ -291,8 +291,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   - the slide-out does not wait for the facade's answer, so the
     release feels immediate. If the refusal comes after the row has
     slid out and its space closed, the space opens again (150 ms,
-    instant under reduced motion) and the row returns to its place,
-    still pending;
+    instant under reduced motion) and the row returns to its place in
+    the state the facade reports by then. It stayed pending in the
+    transport, so it may already be Sending or accepted by the remote;
   - the "Send cancelled" snackbar is shown only once the facade has
     answered that the Cancel succeeded. A refused Cancel shows none;
   - the existing storage notice and refusal announcement apply;
