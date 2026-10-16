@@ -228,11 +228,13 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   the Cancel swipe.
 
   **The Undo of Cancel waits on InterWeave#284 landing on main.** That
-  PR reads the restore as RETENTION.md §2's retry: the same
-  `app_message_id` and stored bytes, under a new row id. The frozen
-  §2 diagram has no restore edge, and whether it needs one is
-  architect-cto's call. If they decide it does, the Undo of Cancel also
-  waits on that change. The cancelled row itself stays terminal
+  PR writes the restore into RETENTION.md §2 (architect-cto, 28efec49):
+  the undone cancel enters the diagram again at Send for the same
+  message, with the cancelled record's identities, durable before any
+  attempt. It adds no new edge or state, and conformance case 16 tests
+  it. The restore is offered only while the session still holds that
+  record. When it does not, Cancel's snackbar shows no Undo, as for
+  Unkeep after `copy_gone`. The cancelled row itself stays terminal
   (`OutboundStatus::is_terminal`): the restore is a new row, so
   nothing about the old one changes. The Cancel swipe and button
   themselves, without an Undo, do not wait.
