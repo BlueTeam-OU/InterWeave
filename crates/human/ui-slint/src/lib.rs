@@ -101,6 +101,9 @@ pub enum ActivityEvent {
     /// The window gained (`true`) or lost the person's focus: what a
     /// read is gated on, as the desktop window's focus is.
     Focus(bool),
+    /// The Activity is no longer visible -- the app went to the
+    /// background: the snackbar closes, its Undo with it (swipe spec §5).
+    Stop,
     /// The Activity is being destroyed: its window goes with it.
     Destroy,
 }
@@ -122,6 +125,7 @@ pub fn init_android(
             match main {
                 MainEvent::GainedFocus => event(ActivityEvent::Focus(true)),
                 MainEvent::LostFocus => event(ActivityEvent::Focus(false)),
+                MainEvent::Stop => event(ActivityEvent::Stop),
                 MainEvent::Destroy => event(ActivityEvent::Destroy),
                 _ => {}
             }
