@@ -110,7 +110,7 @@ committed swipe except Retry shows the snackbar (§6).
 saw confirmed.** Every action runs on commit. Undo is the reverse
 action, not a cancelled delay. If the app is killed while a snackbar is
 up, the message is as the snackbar said: no longer kept, or cancelled
-and never sent. An earlier draft of this spec deferred Unkeep and
+and not sent again. An earlier draft of this spec deferred Unkeep and
 Cancel until the snackbar closed. That fails the rule: a kill left an
 unkept message kept, and let a cancelled one be sent after restart,
 with nothing saying so (found by rust-ui-dev-01, 2026-10-16).
@@ -133,7 +133,11 @@ happened.
   the old one, and the old one's Undo goes with it.
 - Shown for 6 s, or for `AccessibilityManager.getRecommendedTimeoutMillis(6000,
   FLAG_CONTENT_TEXT | FLAG_CONTENT_CONTROLS)` if that is longer (TalkBack
-  users get the time their setting asks for).
+  users get the time their setting asks for). It is never shown for more
+  than 2 minutes, the longest the platform setting offers. That stays
+  well inside the receiver's 5-minute dedup window (ADR-0019), so an
+  undone cancel is answered from the receiver's entry if it got the
+  first attempt.
 - Its Undo is a button with a touch target of at least 48 × 48 dp,
   reachable by TalkBack and by a hardware keyboard.
 - An Undo restores exactly the state before the swipe. Two undos in a
@@ -187,23 +191,31 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   row is accepted by the remote while it is tracking. The swipe is
   re-checked against `actions` at commit. If the action is no longer
   legal, the row springs back and nothing happens.
-- **Cancel races an attempt already in flight.** If the facade reports
-  the row accepted by the remote transport, rather than cancelled:
-  - the row comes back in place with its accepted status;
-  - the snackbar is replaced by "Not cancelled: accepted by remote
-    transport", with no Undo.
+- **Cancel of an attempt already in flight.** The client cannot know
+  whether that attempt reached the receiver. The facade reports a
+  cancelled row as `Cancelled { may_have_reached }` and nothing after
+  it (TRANSPORT.md, Cancellation). So:
+  - the snackbar text follows the existing status label: "Send
+    cancelled" when `may_have_reached` is false, and the
+    `CancelledMayHaveBeenReceived` label's words when it is true;
+  - there is no "accepted while cancelling" case. An earlier draft
+    had one, but nothing reports it (architect-cto, InterWeave#284).
 
-  Never "delivered", "read" or "seen" (`human-client-ui.md` §5).
+  The status words are never "delivered", "read" or "seen"
+  (`human-client-ui.md` §5).
 - **Undo of Cancel restores the record, not a new row.** architect-cto
   ruled this on 2026-10-16, and writes it into `human-client-ui.md` §6
-  and §13 in a docs PR of theirs:
-  - the undone cancel restores the pending record under its app message
-    id and its transport message id, with its stored payload bytes,
-    never a re-serialised or re-identified copy;
+  and §13 in InterWeave#284:
+  - the undone cancel restores the pending record unchanged: its app
+    message id, its transport message id, its destination selector, its
+    media type and its stored payload bytes. It is never a re-serialised
+    or re-identified copy. A new row id is expected;
   - the receiver dedups a direct message by its transport message id.
     So if an attempt was admitted at the receiver before Cancel ran and
     only its answer was lost, the undone send is answered from the
-    receiver's dedup entry, not delivered twice;
+    receiver's dedup entry within its 5-minute window, not delivered
+    twice. Past that window it is an ordinary retry. The client never
+    claims exactly-once (RETENTION.md §2);
   - what the session holds for that Undo is the record (both ids and
     the bytes), not the rendered text.
   If the facade or store cannot restore a cancelled record under its
@@ -319,8 +331,8 @@ TalkBack off and once with it on, and once with "Remove animations" on.
    - Undo restores it in place, pending, with the same app message id
      and transport message id (the diagnostics view shows both).
 9. On a kind-C row, a drag left followed by killing the app before the
-   snackbar closes: after restart the message is not pending and is
-   never sent, even once a network is available.
+   snackbar closes: after restart the message is not pending, and this
+   client never sends it again, even once a network is available.
 10. On a kind-D row, neither direction moves the row.
 11. A vertical scroll that starts on any row, drifting sideways less
     than it moves vertically, scrolls and never swipes. That includes
@@ -355,5 +367,6 @@ TalkBack off and once with it on, and once with "Remove animations" on.
       snackbar closes;
     - the Undo of Keep raises Unkeep, the Undo of Unkeep raises Keep
       with the released row as `from`, and the Undo of Cancel restores
-      the cancelled record with both its ids and its stored bytes;
+      the cancelled record with its ids, destination, media type and
+      stored bytes unchanged;
     - the Undo of Hide raises nothing.
