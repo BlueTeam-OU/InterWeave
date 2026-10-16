@@ -232,10 +232,11 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   whether that attempt reached the receiver. The facade reports a
   cancelled row as `Cancelled { may_have_reached }` and nothing after
   it (TRANSPORT.md, Cancellation). So:
-  - the snackbar text follows the two status labels: "Sending canceled"
-    when `may_have_reached` is false (the `Cancelled` label), and "Send
-    canceled, may have reached the peer" when it is true (the
-    `CancelledMayHaveBeenReceived` label);
+  - the snackbar text is chosen by `may_have_reached`, from the
+    snackbar's own keys in §9 and not from the row's status labels:
+    "Sending canceled" (`ConfirmSendingCanceled`) when it is false, and
+    "Sending canceled, may have reached the peer"
+    (`ConfirmSendingCanceledMayHaveReached`) when it is true;
   - there is no "accepted while cancelling" case. An earlier draft
     had one, but nothing reports it (architect-cto, InterWeave#284).
 
@@ -480,6 +481,10 @@ TalkBack off and once with it on, and once with "Remove animations" on.
    - a drag left removes it and shows "Sending canceled";
    - Undo restores it in place, pending, with the same app message id
      and transport message id (the diagnostics view shows both).
+   - with a reachable peer and an attempt held in flight (a test build
+     or a slowed link), a drag left shows "Sending canceled, may have
+     reached the peer". If no device run can hold an attempt in flight,
+     the app-core tests show it.
 9. On a kind-C row, a drag left followed by killing the app before the
    snackbar closes: after restart the message is not pending, and this
    client never sends it again, even once a network is available.
