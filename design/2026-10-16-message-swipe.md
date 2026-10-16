@@ -232,8 +232,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   The status words are never "delivered", "read" or "seen"
   (`human-client-ui.md` §5).
 - **Undo of Cancel restores the record (a new row id, the same message).** architect-cto
-  ruled this on 2026-10-16, and writes it into `human-client-ui.md` §6
-  and §13 in InterWeave#284:
+  ruled this on 2026-10-16, and wrote it into `human-client-ui.md` §6
+  and §13 in InterWeave#284 (merged 2026-10-16):
   - the undone cancel restores the pending record unchanged: its app
     message id, its transport message id, its destination selector, its
     media type, its stored payload bytes and its attempt count. It is
@@ -261,8 +261,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   old ids, rust-ui-dev returns this point to ux-designer before building
   the Cancel swipe.
 
-  **The Undo of Cancel waits on InterWeave#284 landing on main.** That
-  PR writes the restore into RETENTION.md §2 (architect-cto, 28efec49):
+  **The Undo of Cancel waited on InterWeave#284, which landed on main
+  on 2026-10-16 (d7634b3d).** That PR wrote the restore into
+  RETENTION.md §2:
   the undone cancel enters the diagram again at Send for the same
   message, with the cancelled record's identities, durable before any
   attempt. It adds no new edge or state, and conformance case 16 tests
@@ -270,8 +271,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   record. When it does not, Cancel's snackbar shows no Undo, as for
   Unkeep after `copy_gone`. The cancelled row itself stays terminal
   (`OutboundStatus::is_terminal`): the restore is a new row, so
-  nothing about the old one changes. The Cancel swipe and button
-  themselves, without an Undo, do not wait.
+  nothing about the old one changes.
 - **Unkeep when the session no longer holds the content.** If the
   session's copy of the message is past its bound (`UiModel::copy_gone`),
   Keep is not offered after the Unkeep, so there is nothing for an Undo
