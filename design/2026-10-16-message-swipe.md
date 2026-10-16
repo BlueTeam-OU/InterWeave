@@ -328,7 +328,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     the state the facade reports by then. It stayed pending in the
     transport, so it may already be Sending or accepted by the remote
     transport;
-  - the "Sending canceled" snackbar is shown only once the facade has
+  - the Cancel's snackbar (either text, above) is shown only once the facade has
     answered that the Cancel succeeded. A refused Cancel shows none;
   - the existing storage notice and refusal announcement apply;
   - if focus had moved off the row when it slid out, it returns to the
