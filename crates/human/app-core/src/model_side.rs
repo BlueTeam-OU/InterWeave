@@ -324,6 +324,24 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         // Only what the model offers now: an earlier input of the same take
         // may have changed it (a Dismiss before a Keep of the same message).
         if !self.model.offers(&intent) {
+            // Not silent: the person asked for it. Reported as an action
+            // on a row no longer there for it (review of #289, round 5).
+            let refused = match &intent {
+                Intent::Keep { item, from } => Some(Command::Keep {
+                    item: *item,
+                    from: *from,
+                }),
+                Intent::Unkeep(row) => Some(Command::Unkeep(*row)),
+                Intent::Retry(row) => Some(Command::Retry(*row)),
+                Intent::Cancel(row) => Some(Command::Cancel(*row)),
+                _ => None,
+            };
+            if let Some(command) = refused {
+                self.problem(Problem::Command {
+                    command,
+                    why: Failure::NoSuchRow,
+                });
+            }
             return None;
         }
         let command = match intent {
@@ -359,8 +377,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 // answer applied, so only cancels still in flight come
                 // after it; keeping at most CANCELLED_CAP - 2 of them in
                 // flight keeps it, however late the answers come. A cancel
-                // past that is refused and reported, and its row springs
-                // back (review F2 on #289, rounds 3 and 4).
+                // past that is refused and reported, and its row springs back at
+                // the view's commit bound (review F2 on #289, rounds 3 to 5).
                 let in_flight = self
                     .in_flight
                     .iter()

@@ -1289,4 +1289,12 @@ async fn a_keep_taken_after_its_dismiss_is_not_issued() {
         "no Keep for a dismissed message: {:?}",
         alice.commands
     );
+    // Reported, not silent.
+    assert!(alice.model.take_problems().iter().any(|p| matches!(
+        p,
+        Problem::Command {
+            command: Command::Keep { .. },
+            why: Failure::NoSuchRow
+        }
+    )));
 }
