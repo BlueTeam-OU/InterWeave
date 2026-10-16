@@ -99,6 +99,7 @@ the storage notice must stand out from everything else on screen.
 | `on-primary` on `primary` | 4.5 | 10.3 | 6.5 |
 | `primary` as text or ring on `surface` | 4.5 | 10.8 | 6.2 |
 | `primary` ring on `surface-container-high` | 3 | 8.4 | 5.4 |
+| `primary` as a channel author's text on `surface-container-high` | 4.5 | 8.4 | 5.4 |
 | `primary` ring on `primary-container` | 3 | 5.9 | 5.0 |
 | `primary` ring on `surface-container` | 3 | 10.1 | 5.7 |
 | `focus-ring-on-inverse` on `inverse-surface` | 3 | 5.2 | 7.7 |
@@ -127,6 +128,7 @@ Sizes are in sp, so they follow the system's font size:
 |---|---|---|---|
 | title large | 22 / 28 | regular | the Chats app bar's title |
 | title medium | 16 / 24 | medium | a conversation's name in its app bar |
+| title small | 14 / 20 | medium | a channel message's author (§6) |
 | body large | 16 / 24 | regular | a conversation's name in the list; message text |
 | body medium | 14 / 20 | regular | the list's subtitle (last message) |
 | label large | 14 / 20 | medium | chips, buttons, the snackbar's Undo |
@@ -178,6 +180,10 @@ From the top:
   avatar is decoration beside the name, which stays the identity
   (`human-client-ui.md` §3: labels and avatars are not authenticated by
   the transport). TalkBack reads the name and never the avatar.
+- **A channel** has no peer id. Its avatar is a "#" on the navy pair,
+  the same for every channel; its title already begins with "#" as text
+  (`#name`), so direct and channel differ in text, never by colour alone
+  (U2a, `app.slint`).
 - When the owner later lets people name contacts, the avatar takes the
   name's initials. That is outside this spec.
 
@@ -225,15 +231,22 @@ From the top:
     - Read, not kept: no icon, "Read, not kept";
     - pending ("Sending", "Not confirmed, trying again"): a clock;
     - accepted by remote transport: a single check;
+    - accepted by local transport (a channel's send): an outlined check,
+      "Accepted by local transport";
     - failed: an error icon, in `error`.
     The words stay those of `human-client-ui.md` §5. A check never
     means read (§5 there).
   - Consecutive messages from the same side within a minute sit 2 dp
     apart. A change of side, 8 dp. A day change shows a centred "Today",
     "Yesterday" or the date, in body small.
-  - The author line ("...x6gY6Eri", "You") is removed: the bubble's
-    side shows who wrote it.
-    TalkBack still reads the author first (§7).
+  - In a **direct** conversation the author line ("...x6gY6Eri", "You")
+    is removed: there are two parties and the bubble's side shows which.
+    In a **channel**, received bubbles come from several peers, so each
+    keeps its author as the bubble's first line, in title small
+    (14 / 20, medium) in `primary`, with the author's full PeerId as its
+    accessible description as today (U5a). Consecutive bubbles from the
+    same author within a minute show it once.
+    TalkBack reads the author first in both (§7).
 - **Row actions as chips**, under the bubble, on the bubble's side:
   - outlined chips, 32 dp drawn and 48 dp to touch (the touch area
     extends 8 dp above and below), 8 dp apart, each with an 18 dp icon
@@ -284,7 +297,9 @@ From the top:
   is read as one item too: the name, the unread count when there is
   one, the last message as the list shows it, then its time. The
   preview is what a sighted person reads first after the name, so a
-  TalkBack user hears it in the same place. This needs a new
+  TalkBack user hears it in the same place. A channel's row also says
+  it is a channel, in words (U2a), since a "#" read aloud is not a kind;
+  language-culture writes those templates. This needs a new
   description template in place of today's `ConversationDescription`
   ("{kind}, {unread}"); language-culture writes it. TalkBack is not
   reachable on Android today (Slint 1.18.1's Android backend has no
@@ -355,7 +370,8 @@ this change the "Conversations" title is that focus target.
   placement only. Neither exists, and adding them is a product decision.
 - **Dynamic colour** (Material You, colours from the wallpaper).
   InterWeave keeps its own colours, so the app is recognisable.
-- **Contact names, photos and channels.** Separate work.
+- **Contact names and photos, and new channel features.** Separate
+  work. Channels that exist today keep what they show (§5.1, §6).
 - **The desktop client.** It shares `Palette`, so it changes colour with
   this. Its layout is not specified here.
 - **Haptics and sounds.** No change.
@@ -381,7 +397,10 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
    the exact canonical id.
 7. Received messages are on the start side, sent on the end side, with
    §6's fills. In an RTL locale the sides swap.
-8. Each bubble's status shows its icon and its words. Accepted shows a
+8. In a channel, each received bubble shows its author, and TalkBack's
+   description of the author is the full PeerId. A channel's avatar is
+   "#". In a direct conversation no bubble shows an author line.
+   Each bubble's status shows its icon and its words. Accepted shows a
    single check and never the words "Read" or "Seen".
 9. Every chip and the Send and back buttons measure at least
    48 × 48 dp to touch.
