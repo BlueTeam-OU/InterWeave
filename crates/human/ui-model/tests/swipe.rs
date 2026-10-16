@@ -704,3 +704,23 @@ fn a_refused_cancel_is_an_outcome_that_moves_nothing() {
     assert!(model.snackbar().is_none());
     assert_eq!(shown(&model, &key(&p)), [c], "still pending, in place");
 }
+
+#[test]
+fn hiding_the_only_row_moves_focus_nowhere_and_keeps_the_title() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let a = read(&mut model, &p, 1, 1);
+    let title = model.conversations()[0].title.clone();
+    model.hide(a);
+    assert_eq!(
+        model.outcome().and_then(|o| o.focus.clone()),
+        None,
+        "no row left: focus stays, never to the composer and its keyboard"
+    );
+    assert!(model.conversations().is_empty());
+    assert_eq!(
+        model.title(&key(&p)),
+        title,
+        "the open conversation keeps its title"
+    );
+}

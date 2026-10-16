@@ -809,6 +809,14 @@ impl UiModel {
         list
     }
 
+    /// A conversation's title, as the list shows it: for a conversation
+    /// the list no longer holds too -- every message in it hidden while it
+    /// is open.
+    #[must_use]
+    pub fn title(&self, key: &ConversationKey) -> String {
+        title(key)
+    }
+
     /// A conversation's messages, in LOCAL time order (A3). Replies are
     /// resolved here, within the conversation, so a target that was
     /// evicted or is ambiguous reads `Unavailable` (review F5).

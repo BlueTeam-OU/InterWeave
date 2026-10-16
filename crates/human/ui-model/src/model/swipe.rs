@@ -90,8 +90,6 @@ pub enum FocusTarget {
     Item(ItemKey),
     /// A conversation's row on the conversation list.
     Conversation(ConversationKey),
-    /// The conversation's composer: the action left it no message row.
-    Composer(ConversationKey),
 }
 
 /// What the view says once, through its polite live region.
@@ -321,7 +319,7 @@ impl UiModel {
                 items: vec![key],
                 conversation: None,
             },
-            Some(focus),
+            focus,
         );
     }
 
@@ -398,7 +396,7 @@ impl UiModel {
                 row,
                 restorable,
             },
-            Some(focus),
+            focus,
         );
     }
 
@@ -509,7 +507,7 @@ impl UiModel {
                     .items
                     .get(&key)
                     .map(|i| i.conversation.clone())
-                    .map(|c| self.focus_after_leaving(&c, key));
+                    .and_then(|c| self.focus_after_leaving(&c, key));
                 self.drop_items(&[key]);
                 if let Intent::Restore(row) = intent {
                     self.swipe.released.cancelled = Some(*row);
@@ -690,13 +688,17 @@ impl UiModel {
     }
 
     /// Where focus goes when `key` leaves `conversation`'s list: the next
-    /// row, else the previous one, else the composer. Placed by the list's
-    /// own order, so a row already hidden -- a refused restore -- still
-    /// has a place to leave from.
-    fn focus_after_leaving(&self, conversation: &ConversationKey, key: ItemKey) -> FocusTarget {
-        let Some(place) = self.items.get(&key).map(|i| (i.local_at, key)) else {
-            return FocusTarget::Composer(conversation.clone());
-        };
+    /// row, else the previous one. Placed by the list's own order, so a
+    /// row already hidden -- a refused restore -- still has a place to
+    /// leave from. With no row left, nowhere: focus stays where it was --
+    /// the composer would open the phone's keyboard unasked (seen on the
+    /// Pixel), and the spec names no other place.
+    fn focus_after_leaving(
+        &self,
+        conversation: &ConversationKey,
+        key: ItemKey,
+    ) -> Option<FocusTarget> {
+        let place = self.items.get(&key).map(|i| (i.local_at, key))?;
         let shown: Vec<(u64, ItemKey)> = self
             .messages(conversation)
             .iter()
@@ -707,9 +709,6 @@ impl UiModel {
             .iter()
             .find(|p| **p > place)
             .or_else(|| shown.iter().rev().find(|p| **p < place))
-            .map_or_else(
-                || FocusTarget::Composer(conversation.clone()),
-                |p| FocusTarget::Item(p.1),
-            )
+            .map(|p| FocusTarget::Item(p.1))
     }
 }
