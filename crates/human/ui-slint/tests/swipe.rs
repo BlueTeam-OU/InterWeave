@@ -410,3 +410,22 @@ fn hide_conversation_is_offered_on_its_screen_only_when_the_swipe_is() {
         "a pending message: not offered"
     );
 }
+
+#[test]
+fn a_conversation_whose_rows_are_all_hidden_keeps_its_header() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "only");
+    open(&mut view, &mut model, &direct(&alice));
+    let title = view.window().get_header_title().to_string();
+    assert!(!title.is_empty(), "control");
+    labelled(&view, text(UiText::Hide))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(view.window().get_header_title().as_str(), title);
+    assert_ne!(
+        view.window().get_focus_id().as_str(),
+        "composer",
+        "no keyboard asked for"
+    );
+}

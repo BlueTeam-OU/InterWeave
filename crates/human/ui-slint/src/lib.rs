@@ -1384,7 +1384,6 @@ impl View {
                     .conversation_keys
                     .contains(key)
                     .then(|| format!("c:{}", self.conversation_handles.of(key))),
-                FocusTarget::Composer(_) => Some("composer".to_owned()),
             };
             if let Some(target) = target {
                 let window = swipe::weak(&self.window);
@@ -1444,12 +1443,7 @@ impl View {
                 window.set_refused(SharedString::new());
             }
             Some(key) => {
-                let title = model
-                    .conversations()
-                    .into_iter()
-                    .find(|s| &s.key == key)
-                    .map(|s| s.title)
-                    .unwrap_or_default();
+                let title = model.title(key);
                 window.set_header_title(title.into());
                 window.set_header_id(full_id(key).into());
                 let path = model.path(key).map(placeholder_en::path);

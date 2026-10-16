@@ -428,7 +428,7 @@ export component AppWindow inherits Window {
     in property <bool> reduced-motion;
     // A focus request: Rust bumps the sequence once the rows it names are
     // drawn, and the control named by the target takes focus ("m:" and an
-    // item's handle, "c:" and a conversation's, or "composer").
+    // item's handle, "c:" and a conversation's).
     in property <int> focus-seq;
     in property <string> focus-target;
     // The snackbar (swipe spec section 6): one at a time, in the
@@ -1209,10 +1209,6 @@ export component AppWindow inherits Window {
                         edited => { root.draft-edited(self.text); }
                         changed has-focus => {
                             if (self.has-focus) { root.focus-id = "composer"; }
-                        }
-                        property <int> focus-seq: root.focus-seq;
-                        changed focus-seq => {
-                            if (root.focus-target == "composer") { self.focus(); }
                         }
                     }
                 }
