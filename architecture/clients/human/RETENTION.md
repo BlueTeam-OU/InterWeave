@@ -43,7 +43,7 @@ The durable pending record preserves the destination selector, HumanChatV2 `app_
 
 A retry reuses the same HumanChatV2 `app_message_id` and resends the stored byte-identical payload (ADR-0050). Transport-level retry/idempotency continues to follow the frozen direct-message contract and its bounded dedup window; the human client must not claim exactly-once application delivery.
 
-An explicit cancel the person takes back inside the client's undo window re-enters this diagram at Send for the same message: the client commits a pending record carrying the cancelled record's `app_message_id`, transport message id, destination selector, media type and stored byte-identical payload before any attempt, so the undone send is the retry above and not a new message; the restore is offered only while the session still holds that record, and it is not a new durable state (A 2026-10-16).
+An explicit cancel the person takes back inside the client's undo window re-enters this diagram at Send for the same message: the client commits a pending record carrying the cancelled record's `app_message_id`, transport message id, destination selector, media type, stored byte-identical payload and attempt count before any attempt, so the undone send is the retry above and not a new message and `may_have_reached` is rebuilt as it was; the restore is offered only while the session still holds that record, and it is not a new durable state (A 2026-10-16).
 
 Pending outbound content is **not eligible for cross-device/system backup** in standard v1. Its purpose is local crash/restart survival, not delayed delivery from another device or restored image.
 
@@ -164,4 +164,4 @@ The desktop and Android human clients must share tests proving:
 13. Android system backup/device transfer contains none of the human message-content store;
 14. storage unavailable/full transitions the human endpoint to degraded/offline handling rather than silently claiming unread durability.
 15. released content is absent from the store's files (the database and its write-ahead log) after a clean close, after the next open following an unclean one, and within the store's bound while open (`crates/human/store/tests/released_content.rs`; A 2026-10-07).
-16. an undone cancel re-commits the cancelled record's `app_message_id`, transport message id, destination selector, media type and payload bytes unchanged, durable before the first attempt (A 2026-10-16).
+16. an undone cancel re-commits the cancelled record's `app_message_id`, transport message id, destination selector, media type, payload bytes and attempt count unchanged, durable before the first attempt (A 2026-10-16).
