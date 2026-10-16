@@ -516,3 +516,13 @@ TalkBack off and once with it on, and once with "Remove animations" on.
       the cancelled record with its ids, destination, media type,
       stored bytes and attempt count unchanged;
     - the Undo of Dismiss raises nothing.
+19. With a store that refuses writes (in the app-core or ui-model tests,
+    and on a device if a test build can make storage refuse):
+    - a refused Cancel shows no snackbar. Its row returns in the state
+      the facade reports, and the storage notice shows;
+    - a refused Unkeep leaves the row kept, with no snackbar, and the
+      storage notice shows;
+    - a refused Undo of Keep leaves the row kept and closes the
+      snackbar, with focus on the row;
+    - a refused Undo of Cancel leaves the row cancelled and sends
+      nothing.
