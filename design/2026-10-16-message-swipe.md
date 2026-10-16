@@ -338,6 +338,14 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     removed it anyway.
   - A message that replies to a dismissed one shows the neutral
     unavailable-reply placeholder (§15), as for any message not held.
+  - Dismiss is not offered while a Keep of the same message is still on
+    its way to the store: dismissing it then would drop a message the
+    person just asked to keep.
+  - A dismissed message that gains a stored row while its snackbar is
+    up (its Keep is answered, or a copy of it arrives) comes back in
+    its place, and the Dismiss snackbar closes. The store now holds
+    it, so hiding it would hide a kept or unread message (found in
+    InterWeave#289's review, 2026-10-16).
 - **Keep is refused because storage is degraded.** The row stays kind
   A, no snackbar is shown, and the existing storage notice and refusal
   announcement apply.
