@@ -353,11 +353,13 @@ component Snackbar inherits Rectangle {
                 text: root.text;
                 wrap: word-wrap;
                 min-width: 0;
+                horizontal-stretch: 1;
                 vertical-alignment: center;
                 accessible-role: AccessibleRole.text;
                 accessible-label: self.text;
             }
             if root.undo: ActionButton {
+                horizontal-stretch: 0;
                 text: root.undo-label;
                 detail: root.text;
                 target: 48px;
