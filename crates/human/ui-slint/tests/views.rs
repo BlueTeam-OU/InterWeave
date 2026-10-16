@@ -2382,6 +2382,42 @@ fn a_conversation_left_for_the_list_reads_nothing() {
     );
 }
 
+/// Closing the trust settings in a narrow window shows the list, so the
+/// conversation they covered is still not on screen: an arrival there is
+/// not read. In a wide window it is shown again, and read (review PE1 on
+/// #289).
+#[test]
+fn closing_the_trust_settings_to_the_list_reads_nothing() {
+    assert!(!arrival_read_after_closing_trust(true));
+}
+
+/// The control: a wide window shows the conversation again, and reads it.
+#[test]
+fn closing_the_trust_settings_to_the_conversation_reads_it() {
+    assert!(arrival_read_after_closing_trust(false));
+}
+
+/// Whether a message arriving after the trust settings close -- to the
+/// list or to the conversation -- is read.
+fn arrival_read_after_closing_trust(to_list: bool) -> bool {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    model.read(RowId::from_stored(1));
+    view.window().invoke_open_trust();
+    let _ = intents(&mut view, &mut model);
+    view.window().invoke_close_trust(to_list);
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+
+    model.received(received(2, &bob, "arrives after the settings"));
+    view.render(&model);
+    intents(&mut view, &mut model).contains(&Intent::MarkRead(RowId::from_stored(2)))
+}
+
 /// Read is a retention act (RETENTION.md): a conversation the trust
 /// settings cover is not on screen, so nothing in it is read -- not a
 /// message arriving there, and not one selected in the list beside the

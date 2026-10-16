@@ -601,7 +601,14 @@ impl View {
         let s = Rc::clone(&shared);
         window.on_open_trust(move || enqueue(&s, Input::TrustPage(true)));
         let s = Rc::clone(&shared);
-        window.on_close_trust(move || enqueue(&s, Input::TrustPage(false)));
+        window.on_close_trust(move |to_list| {
+            enqueue(&s, Input::TrustPage(false));
+            // A narrow window shows the list, not the conversation the
+            // settings covered: nothing in it is on screen to read.
+            if to_list {
+                enqueue(&s, Input::Left);
+            }
+        });
         let s = Rc::clone(&shared);
         window.on_trust_entry_edited(move |text| {
             enqueue(&s, Input::Trust(TrustInput::EntryChanged(text.to_string())));

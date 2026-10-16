@@ -478,7 +478,9 @@ export component AppWindow inherits Window {
     callback notice-pressed();
     callback draft-edited(string);
     callback open-trust();
-    callback close-trust();
+    // Closing the trust settings; `true` when it shows the list rather
+    // than the conversation (a narrow window).
+    callback close-trust(bool);
     callback trust-entry-edited(string);
     callback trust-add();
     callback trust-remove(int);
@@ -515,7 +517,7 @@ export component AppWindow inherits Window {
     }
     function close-settings() {
         root.list-shown = true;
-        root.close-trust();
+        root.close-trust(root.narrow);
     }
 
     // The announcement, for a screen reader only: a sighted
