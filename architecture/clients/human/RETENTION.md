@@ -39,7 +39,7 @@ PENDING_OUTBOUND (durable)
                                       `--> optional RAM-only rendering until session ends
 ```
 
-The durable pending record preserves the destination selector, HumanChatV2 `app_message_id`, payload/media type, creation time, and retry state needed by the application. It does not live in `TransportRuntime`, IPC, the daemon, peer cache, Kademlia, relay state, or endpoint queues.
+The durable pending record preserves the destination selector, HumanChatV2 `app_message_id`, the transport message id (minted once at commit and reused by every retry, ADR-0019), payload/media type, creation time, and retry state needed by the application (A 2026-10-16). It does not live in `TransportRuntime`, IPC, the daemon, peer cache, Kademlia, relay state, or endpoint queues.
 
 A retry reuses the same HumanChatV2 `app_message_id` and resends the stored byte-identical payload (ADR-0050). Transport-level retry/idempotency continues to follow the frozen direct-message contract and its bounded dedup window; the human client must not claim exactly-once application delivery.
 
