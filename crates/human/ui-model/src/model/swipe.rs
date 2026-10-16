@@ -190,6 +190,9 @@ pub(super) struct SwipeState {
     seq: u64,
     open: Option<Open>,
     awaiting: Option<Awaiting>,
+    /// Items whose Keep is on its way: one entry per Keep issued, each gone
+    /// at its answer or its refusal, so bounded by the Keeps in flight.
+    keeping: std::collections::HashSet<ItemKey>,
     outcome: Option<Outcome>,
     released: Released,
 }
@@ -266,9 +269,21 @@ impl UiModel {
     /// Hide is offered on every read, unkept received message, with or
     /// without the content Keep would need: hiding needs no copy (§3).
     fn hide_offered(&self, key: ItemKey) -> bool {
-        self.items.get(&key).is_some_and(|item| {
-            !item.hidden && item.direction == Direction::Inbound && item.rows.is_empty()
-        })
+        // Not while a Keep is on its way: its answer attaches a row the
+        // store holds, and the item must still be here to take it (review
+        // F1 on #289, round 2).
+        !self.swipe.keeping.contains(&key)
+            && self.items.get(&key).is_some_and(|item| {
+                !item.hidden && item.direction == Direction::Inbound && item.rows.is_empty()
+            })
+    }
+
+    /// The root issued `intent`: a Keep is on its way to the store until it
+    /// is answered ([`Self::kept`]) or refused ([`Self::intent_refused`]).
+    pub fn keep_requested(&mut self, intent: &Intent) {
+        if let Intent::Keep { item, .. } = intent {
+            self.swipe.keeping.insert(*item);
+        }
     }
 
     /// Whether conversation `key` may be hidden from the list (§10): it
@@ -402,6 +417,12 @@ impl UiModel {
 
     /// The root kept `key` as `kept_row`: confirmed with a snackbar, or,
     /// when it was an Undo of Unkeep, announced as restored.
+    /// A Keep of `key` was answered: it is no longer on its way, whether or
+    /// not the item is still held.
+    pub(super) fn keep_answered(&mut self, key: ItemKey) {
+        self.swipe.keeping.remove(&key);
+    }
+
     pub(super) fn swipe_kept(&mut self, key: ItemKey, kept_row: RowId) {
         if self.swipe.awaiting == Some(Awaiting::Kept(key)) {
             self.swipe.awaiting = None;
@@ -480,6 +501,9 @@ impl UiModel {
     /// move focus: a row a swipe slid out for it -- a Cancel the store
     /// refused -- springs back on it, and focus stays (§8).
     pub fn intent_refused(&mut self, intent: &Intent) {
+        if let Intent::Keep { item, .. } = intent {
+            self.swipe.keeping.remove(item);
+        }
         let Some(awaiting) = self.swipe.awaiting else {
             self.set_outcome(None, None);
             return;
@@ -648,12 +672,10 @@ impl UiModel {
     fn finish(&mut self, open: Open) {
         match open.undo {
             Undo::Unhide { items, .. } => {
-                // Only what no store row holds leaves the session: a row
-                // that arrived meanwhile is the store's, and shown again.
-                let (held, gone): (Vec<ItemKey>, Vec<ItemKey>) = items
-                    .into_iter()
-                    .partition(|k| self.items.get(k).is_some_and(|i| !i.rows.is_empty()));
-                self.unhide(&held);
+                // Every one is row-less: a row attached closes this
+                // snackbar first (`row_attached`), and a Keep on its way
+                // keeps Hide from being offered (`hide_offered`).
+                let gone = items;
                 for key in &gone {
                     if let Some(from) = self.items.get(key).and_then(|i| i.released_from) {
                         self.swipe.released.copies.push(from);

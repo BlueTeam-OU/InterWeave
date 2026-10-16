@@ -808,3 +808,33 @@ fn a_hide_during_an_undo_of_unkeep_never_drops_the_kept_message() {
     }
     assert_eq!(shown(&model, &k), [b], "kept, so never dropped");
 }
+
+#[test]
+fn hide_is_not_offered_while_a_keep_is_on_its_way() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let k = key(&p);
+    let a = read(&mut model, &p, 1, 1);
+    let b = read(&mut model, &p, 2, 2);
+    let keep = model.intent_for(a, RowAction::Keep).expect("offered");
+    model.keep_requested(&keep);
+    assert_eq!(
+        model.intent_for(a, RowAction::Hide),
+        None,
+        "Keep is on its way"
+    );
+    model.hide(a);
+    // Another snackbar closes whatever a Hide could have left behind.
+    model.hide(b);
+    model.kept(a, row(10));
+    assert_eq!(shown(&model, &k), [a], "kept, and shown");
+    // Refused, it is offered again.
+    let third = read(&mut model, &p, 3, 3);
+    let keep = model.intent_for(third, RowAction::Keep).expect("offered");
+    model.keep_requested(&keep);
+    model.intent_refused(&keep);
+    assert_eq!(
+        model.intent_for(third, RowAction::Hide),
+        Some(Intent::Hide(third))
+    );
+}

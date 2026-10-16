@@ -731,6 +731,7 @@ impl UiModel {
 
     /// The root kept the read message `key` as `kept_row`.
     pub fn kept(&mut self, key: ItemKey, kept_row: RowId) {
+        self.keep_answered(key);
         if let Some(item) = self.items.get_mut(&key) {
             item.rows.push((Table::Kept, kept_row));
             self.by_row.insert((Table::Kept, kept_row), key);
