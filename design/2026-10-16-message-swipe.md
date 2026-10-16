@@ -210,6 +210,16 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     swiped row, where it goes to that row's first control as well.
   - After Retry, by swipe or button, focus stays where it was: the row
     still offers Retry and Cancel, so its buttons stay.
+  - **When the snackbar closes while its Undo holds focus**, the focused
+    control is gone, whatever closed it: the timeout, a swipe-away, a
+    newer snackbar, or an arrival (§8, §10). Focus goes to the row the
+    closing snackbar's action concerned: its first control if the row
+    is on screen (Keep, Unkeep, a dismissed message that came back),
+    else the row in its place as after a removal (the next row, else
+    the previous one, else the conversation's header title). On the
+    Chats list it goes to the conversation's row, or its place in the
+    same way. Leaving the conversation closes the snackbar too, and
+    focus then goes to that conversation's row on the Chats list.
   - **Two headings become focusable.** The conversation's header title
     and the Chats screen's "Conversations" heading
     (`UiText::Conversations`) are plain text today, which keyboard focus
@@ -380,7 +390,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     shown (a copy of it arrives; a Keep cannot be on its way, since
     Dismiss is not offered then) comes back in its place, and the Dismiss snackbar closes. The store now holds
     it, so leaving it out of the list would hide a kept or unread
-    message (found in InterWeave#289's review, 2026-10-16).
+    message (found in InterWeave#289's review, 2026-10-16). If the
+    snackbar's Undo held focus, focus goes to the returned row's first
+    control (§7).
 - **Keep is refused because storage is degraded.** The row stays kind
   A, no snackbar is shown, the existing storage notice and refusal
   announcement apply, and focus stays where it was.
@@ -466,7 +478,9 @@ snackbar Undo; right = nothing."
   it. The snackbar closes, and the arrival is announced as any new
   message is. A new message is a reason to see the conversation, and
   merging a later Undo into a list that already holds the new message
-  would risk a duplicate row. Focus stays where it was.
+  would risk a duplicate row. If the snackbar's Undo held focus, focus
+  goes to the returned conversation's row (§7). Otherwise it stays where
+  it was.
 - **Equivalent without the gesture.** The conversation's own screen has
   a "Hide conversation" control in its header, shown only when the
   conversation is offered. It returns to the list and shows the same
@@ -624,7 +638,14 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     | Chats: a touch swipe hide, focus elsewhere | stays where it was | keyboard |
     | Chats: "Hide conversation" in the conversation's header | the hidden row's place: next row, else previous, else the "Conversations" heading | keyboard, TalkBack |
     | Chats: Undo of a hide | the restored conversation row | keyboard, TalkBack |
-    | Chats: a new message restores a hidden conversation (§10) | stays where it was | keyboard |
+    | Chats: a new message restores a hidden conversation (§10), focus on the hide's Undo | the returned conversation row | tests |
+    | Chats: the same, focus elsewhere | stays where it was | keyboard |
+    | a dismissed message gains a stored row (§8), focus on the Dismiss's Undo | the returned row's first control | tests |
+    | the same, focus elsewhere | stays where it was | tests |
+    | the snackbar times out, focus on its Undo | the action's row's first control, or the removed row's place (§7) | keyboard |
+    | the snackbar is swiped away or replaced, focus on its Undo | as for the timeout | keyboard |
+    | leaving the conversation with focus on the snackbar's Undo | the conversation's row on the Chats list | keyboard |
     | Chats: a swipe with TalkBack on | cannot occur, as above | — |
 
-    The two headings take focus (§7), so focus is never lost.
+    The two headings take focus (§7), and every case where the focused
+    control goes names a target, so focus is never lost.
