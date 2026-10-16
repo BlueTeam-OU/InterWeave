@@ -299,6 +299,8 @@ impl Side {
         let row = Box::pin(self.client.send(to.clone(), envelope, now))
             .await
             .expect("the facade commits it");
+        // Attempted by the tick after the commit, as a root's loop runs it.
+        Box::pin(self.client.tick(now)).await;
         self.model.sent(row, &to, envelope.clone(), wall_ms());
     }
 
