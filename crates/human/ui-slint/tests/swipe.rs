@@ -206,8 +206,8 @@ fn announced(view: &View) -> String {
     if a.is_empty() { b } else { a }
 }
 
-/// §7, item 13: every row button of every kind -- read, kept, pending --
-/// is at least 48 x 48, its touch area with it. On the Pixel the drawn
+/// §7, checked by §11 item 13: every row button of every kind -- read,
+/// kept, pending -- is at least 48 x 48, its touch area with it. On the Pixel the drawn
 /// border measured 125.5 px of 126, which this does not explain: the
 /// element is 48, so the likely cause is a row at a fractional pixel with
 /// its edge anti-aliased (not checked on the device).
@@ -936,7 +936,7 @@ fn a_conversation_rows_swipe_says_hide() {
     assert_ne!(text(UiText::HideShort), text(UiText::Dismiss));
 }
 
-// --- focus after a row leaves (swipe spec section 7, item 21) -------------
+// --- focus after a row leaves (swipe spec section 7; section 11 item 21) --
 
 /// Three read rows; focus placed on the `at`th row's Dismiss by the
 /// keyboard and pressed there.
