@@ -2349,10 +2349,6 @@ fn leaving_drops_a_waiting_change_and_a_non_peer_id_is_said() {
     );
 }
 
-/// Read is a retention act (RETENTION.md): a conversation the trust
-/// settings cover is not on screen, so nothing in it is read -- not a
-/// message arriving there, and not one selected in the list beside the
-/// settings, focused window or not.
 /// A narrow window that went back to the list no longer shows the
 /// conversation: a message arriving in it is not read, and stays unread
 /// until the person opens it again.
@@ -2386,6 +2382,10 @@ fn a_conversation_left_for_the_list_reads_nothing() {
     );
 }
 
+/// Read is a retention act (RETENTION.md): a conversation the trust
+/// settings cover is not on screen, so nothing in it is read -- not a
+/// message arriving there, and not one selected in the list beside the
+/// settings, focused window or not.
 #[test]
 fn a_conversation_under_the_trust_settings_reads_nothing() {
     let mut view = view();
