@@ -84,7 +84,8 @@ conversation, not only `surface`. Today's `#707070` measures 2.84 on a
 received bubble and 1.97 on a sent one in dark. So in dark it becomes
 `#9aa1bb`, and its icon and label take a new role, `swipe-on-neutral`
 (`#11152a`), since white on that grey would fail. Light keeps `#707070`
-with white. `notice-background` and `notice-text` keep theirs too:
+with white. This narrows swipe spec §7's single `swipe-on-fill` for the
+neutral fill in dark; the swipe spec follows when it is next changed. `notice-background` and `notice-text` keep theirs too:
 the storage notice must stand out from everything else on screen.
 
 **Contrast**, measured with WCAG 2.2's formula (dark, then light):
@@ -140,8 +141,8 @@ Sizes are in sp, so they follow the system's font size:
 | body medium | 14 / 20 | regular | the list's subtitle (last message) |
 | label large | 14 / 20 | medium | chips, buttons, the snackbar's Undo |
 | body small | 12 / 16 | regular | times, statuses, the app bar's subtitle |
-| markdown heading, level 1 / 2 / 3 and below | 20 / 28, 18 / 24, 16 / 24 | medium | headings inside a message |
-| table header | as body large | medium | a table's header row inside a message |
+| markdown heading, level 1 / 2 / 3 and below | 20 / 28, 18 / 24, 16 / 24 | bold | headings inside a message |
+| table header | as body large | bold | a table's header row inside a message |
 | code | 14 / 20 | regular, the code font | code lines inside a message |
 
 Today `app.slint` sets 12px, 14px (message text) and 16px, and
@@ -239,8 +240,8 @@ From the top:
     line;
   - an overflow menu (⋮) holding "Hide conversation" when the
     conversation is offered for hiding (swipe spec §10), and "Details".
-    "Details" shows the full peer id, copyable in its exact canonical
-    form (`human-client-ui.md` §11).
+    "Details" shows the full peer id, or a channel's id, copyable in
+    its exact canonical form (`human-client-ui.md` §11).
   The peer id is no longer shown on the conversation screen itself.
 - **Messages as bubbles.**
   - Received: on the start side, `surface-container-high`, 18 dp
