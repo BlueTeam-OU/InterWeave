@@ -282,10 +282,17 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **Cancel refused by the store** (storage degraded or full;
   `TransportClient::cancel` answers `StorageUnavailable`, and the row
   stays pending):
-  - the row springs back to its place, still pending, and no snackbar
-    is shown;
+  - the slide-out does not wait for the facade's answer, so the
+    release feels immediate. If the refusal comes after the row has
+    slid out and its space closed, the space opens again (150 ms,
+    instant under reduced motion) and the row returns to its place,
+    still pending;
+  - the "Send cancelled" snackbar is shown only once the facade has
+    answered that the Cancel succeeded. A refused Cancel shows none,
+    or closes one already shown;
   - the existing storage notice and refusal announcement apply;
-  - focus stays where it was.
+  - focus returns to the row's first control, even if it had already
+    moved to the next row.
 - **Undo of Cancel when the store refuses the restore** (storage
   degraded or full, RETENTION.md §4):
   - the row stays cancelled, and nothing is sent: a send never goes out
