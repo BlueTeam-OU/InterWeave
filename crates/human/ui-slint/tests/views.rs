@@ -1316,14 +1316,14 @@ fn a_queue_drained_at_each_take_holds_at_most_four_times_the_cap_plus_three() {
     );
 }
 
-/// The queue's bound with the pane shown and hidden too, at its worst
-/// order: a focus change beside every input and an edit beside every
-/// selection, while a pane shown or hidden after each waits outside the
-/// queue; with the two snackbar closings and a focus change beside each,
-/// four times the cap plus seven at most (review F4 on #289, rounds 1 and
-/// 2; j84).
+/// The queue's bound with leaving for the list too, at its worst order: a
+/// focus change beside every input, an edit and a Left beside every
+/// selection, while a pane shown or hidden waits outside the queue -- six
+/// times the cap plus one here, and with the two snackbar closings and a
+/// focus change beside each, six times the cap plus nine at most (review
+/// F4 on #289, rounds 1 and 2; j84).
 #[test]
-fn a_queue_with_closings_holds_at_most_four_times_the_cap_plus_seven() {
+fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine() {
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
@@ -1341,12 +1341,13 @@ fn a_queue_with_closings_holds_at_most_four_times_the_cap_plus_seven() {
         view.set_window_focused(false);
         type_into(&view, &format!("draft {n}"));
         view.set_window_focused(true);
+        view.window().invoke_left_conversation();
         view.window().invoke_pane_changed();
     }
-    // Each press with its edit and two focus changes, the third merged into
-    // the next press's first: no pane change among them.
-    assert_eq!(view.queued_inputs(), 4 * INPUT_CAP + 1);
-    assert!(view.queued_inputs() <= 4 * INPUT_CAP + 7);
+    // Each press with its edit, its Left and three focus changes, and one
+    // focus change more; no pane change among them.
+    assert_eq!(view.queued_inputs(), 6 * INPUT_CAP + 1);
+    assert!(view.queued_inputs() <= 6 * INPUT_CAP + 9);
 }
 
 /// Review F1: a render that changes nothing about an item keeps focus on

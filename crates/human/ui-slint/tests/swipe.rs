@@ -433,11 +433,12 @@ fn a_conversation_whose_rows_are_all_hidden_keeps_its_header() {
     );
 }
 
-/// A snackbar's closing is never refused, so it coalesces instead: one
-/// closing per snackbar; a pane shown or hidden waits outside the queue
+/// A snackbar's closing and leaving for the list are never refused, so
+/// they coalesce instead: one closing per snackbar, one Left until a
+/// selection follows it; a pane shown or hidden waits outside the queue
 /// (review F4 on #289; j84; the bound `queued_inputs` states).
 #[test]
-fn snackbar_closings_wait_once_each() {
+fn closings_and_leavings_wait_once_each() {
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
@@ -449,9 +450,10 @@ fn snackbar_closings_wait_once_each() {
     let before = view.queued_inputs();
     for _ in 0..50 {
         view.close_snackbar();
+        view.window().invoke_left_conversation();
         view.window().invoke_pane_changed();
     }
-    assert_eq!(view.queued_inputs(), before + 1, "one closing");
+    assert_eq!(view.queued_inputs(), before + 2, "one closing, one Left");
     let _ = turn(&mut view, &mut model);
     assert!(model.snackbar().is_none());
     assert_eq!(view.queued_inputs(), 0);
@@ -582,33 +584,48 @@ fn a_snackbar_made_after_coming_back_stays_up() {
     assert_ne!(after.id, before);
 }
 
-/// Back, the same conversation picked again and the snackbar's Undo, all
-/// before the root takes: the Undo is taken before Back closes the
-/// snackbar, so the message is back (review P3-1 on #291, round 2).
+/// A Dismiss, then Back and the same conversation picked again, before
+/// the root takes -- with a keystroke between, which ends a take early, or
+/// without: in the person's order the snackbar was up when they left, so
+/// it closes (review P3-1 on #291, round 3, and its pre-existing case).
 #[test]
-fn an_undo_pressed_after_coming_back_is_honoured() {
-    let mut view = view();
-    view.window()
-        .window()
-        .set_size(slint::LogicalSize::new(390.0, 800.0));
-    let mut model = UiModel::new();
-    let alice = peer();
-    read(&mut model, 1, &alice, "first");
-    read(&mut model, 2, &alice, "second");
-    open(&mut view, &mut model, &direct(&alice));
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
-    let _ = turn(&mut view, &mut model);
-    assert_eq!(model.messages(&direct(&alice)).len(), 1, "control");
-    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
-    view.select(direct(&alice));
-    labelled(&view, text(UiText::Undo))[0].invoke_accessible_default_action();
-    slint::platform::update_timers_and_animations();
-    let _ = turn(&mut view, &mut model);
-    assert_eq!(
-        model.messages(&direct(&alice)).len(),
-        2,
-        "back in its place"
-    );
+fn a_dismiss_before_leaving_and_coming_back_leaves_no_snackbar() {
+    dismiss_leave_and_come_back(true);
+}
+
+/// The same with no keystroke: one take drains it all.
+#[test]
+fn a_dismiss_before_leaving_and_coming_back_in_one_take_leaves_no_snackbar() {
+    dismiss_leave_and_come_back(false);
+}
+
+fn dismiss_leave_and_come_back(keystroke: bool) {
+    {
+        let mut view = view();
+        view.window()
+            .window()
+            .set_size(slint::LogicalSize::new(390.0, 800.0));
+        let mut model = UiModel::new();
+        let alice = peer();
+        read(&mut model, 1, &alice, "first");
+        read(&mut model, 2, &alice, "second");
+        open(&mut view, &mut model, &direct(&alice));
+        assert!(model.snackbar().is_none(), "control: none up");
+        labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+        if keystroke {
+            view.window().invoke_draft_edited("h".into());
+        }
+        labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+        view.select(direct(&alice));
+        slint::platform::update_timers_and_animations();
+        let _ = turn(&mut view, &mut model);
+        assert_eq!(
+            model.messages(&direct(&alice)).len(),
+            1,
+            "control: dismissed"
+        );
+        assert!(model.snackbar().is_none(), "keystroke between: {keystroke}");
+    }
 }
 
 /// A Dismiss and a resize to the list before the root takes: the
