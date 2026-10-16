@@ -25,10 +25,11 @@
 # `android check (aarch64-linux-android)`, and the advisory one CLAUDE.md
 # §9 names apart, `android apk (assembleDebug)`.
 #
-# Deliberately NOT conditional-per-surface. The run is ~8.5 minutes wall
-# clock, and all of it is `rust` (tree checks and tool self-tests ~2.7
-# min each, in parallel beside it; 12 runs, 2026-09-29), which every PR
-# that touches a crate needs anyway. A `changes` job and per-surface
+# Deliberately NOT conditional-per-surface. The run's wall clock is
+# `rust`'s, ~10 minutes with its cargo cache warm (2026-10-16; the job's
+# own note has the figures), while tree checks and tool self-tests take
+# ~2.7 min each in parallel beside it (12 runs, 2026-09-29), and every PR
+# that touches a crate needs `rust` anyway. A `changes` job and per-surface
 # `run` inputs would skip only the two short jobs, and on a public
 # repository the minutes cost nothing: machinery that costs more to
 # understand than the runners it saves.
@@ -94,12 +95,16 @@ jobs:
     # third time; xtask is the local entry point, not a CI wrapper.
     name: rust
     runs-on: ubuntu-latest
-    # Measured 8.5 min over 12 runs, 2026-09-29 (clippy 74 s, test build
-    # 177 s, 104 test binaries ~215 s); the cap is for a hang, which
-    # otherwise runs to GitHub's six-hour default. A miss on the
-    # previous-builds cache (below) adds a cold release build of every
-    # entry: 7m38s for the first on a 6-core host, 2026-10-08, not yet
-    # timed on a runner.
+    # Measured on #288, 2026-10-16: 10m03s with the cargo cache (below)
+    # warm (clippy 29 s, test build 3m36s, 3206 tests in 204 binaries
+    # 233 s under nextest), 14m29s with it cold. Before both, on main
+    # the same day: 19m22s (clippy 141 s, test build 7m05s, the binaries
+    # one after another 432 s), close enough to the cap to be the reason
+    # for this change. The cap is for a hang, which otherwise runs to
+    # GitHub's six-hour default; it holds the cold run plus a miss on the
+    # previous-builds cache (below), which adds a cold release build of
+    # every entry: 7m38s for the first on a 6-core host, 2026-10-08, not
+    # yet timed on a runner.
     timeout-minutes: 25
     env:
       # Incremental compilation pays off only when a build is redone in
