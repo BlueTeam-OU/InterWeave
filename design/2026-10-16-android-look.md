@@ -338,12 +338,12 @@ From the top:
 - **TalkBack.** A bubble is read as one item: author ("You" for one's
   own), the text, the status, the time. The chips follow it in order.
   Swipe spec §7's labels are unchanged. A conversation row in the list
-  is read as one item too: the name, the unread count when there is
-  one, the last message as the list shows it, then its time. The
+  is read as one item too: its name (the row's label), then its
+  description: the kind (direct or channel, in words), the unread count
+  when there is one, the last message as the list shows it, then its
+  time. The
   preview is what a sighted person reads first after the name, so a
-  TalkBack user hears it in the same place. A channel's row also says
-  it is a channel, in words (U2a), since a "#" read aloud is not a kind;
-  language-culture writes those templates. This needs a new
+  TalkBack user hears it in the same place (§9's templates). This needs a new
   description template in place of today's `ConversationDescription`
   ("{kind}, {unread}"); language-culture writes it. TalkBack is not
   reachable on Android today (Slint 1.18.1's Android backend has no
@@ -390,15 +390,18 @@ that exist.
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the overflow button's label, Android's own words for it |
 | `Today`, `Yesterday` | Today, Yesterday | day separators and list times |
-| `ConversationDescription` (exists, new value) | {name}, {unread}, {preview}, {time} | a list row as TalkBack reads it (§7), with unread messages. `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
-| `ConversationDescriptionRead` | {name}, {preview}, {time} | the same, with nothing unread |
-| `ConversationDescriptionEmpty` | {name}, {preview} | the same, with no message held: `{preview}` is "No messages", and there is no time |
+| `ConversationDescription` (exists, new value) | {kind}, {unread}, {preview}, {time} | a list row's description as TalkBack reads it (§7), with unread messages. `{kind}` is `DirectConversation` or `ChannelConversation` as today, `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
+| `ConversationDescriptionRead` | {kind}, {preview}, {time} | the same, with nothing unread |
+| `ConversationDescriptionEmpty` | {kind}, {preview} | the same, with no message held: `{preview}` is "No messages", and there is no time |
 
 A row's description is three templates, not one with optional parts,
 because `labels.rs` never joins strings: each case is a whole sentence
 a translation can reorder. The commas give TalkBack its pauses. The
-old value's `{kind}` ("Direct conversation") goes: the subtitle that
-showed it now shows the last message.
+row's accessible label stays its name (`row.title`, as today), so the
+description does not repeat it. The description keeps `{kind}`: the
+subtitle no longer says "Direct conversation" or "Channel", and a "#"
+read aloud is not a kind (U2a, §7). The three values are pending
+language-culture's final text for this change.
 
 The title stays "Conversations", not "Chats". The app calls each item
 a conversation ("Hide conversation", "Conversation hidden", "Back to
@@ -483,7 +486,7 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
     changed; the neutral fill holds §3's contrasts.
 18. Under "Remove animations" no ripple plays.
 19. TalkBack reads a bubble as author, text, status, time, and a
-    conversation row as name, unread count, last message, time (a
-    channel's saying it is a channel), and never the avatar: a person's
+    conversation row as name, kind, unread count, last message, time,
+    the name once, and never the avatar: a person's
     check, as swipe spec §11 item 12, blocked until TalkBack reaches the
     app.
