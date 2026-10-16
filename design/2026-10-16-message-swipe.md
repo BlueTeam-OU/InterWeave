@@ -77,7 +77,7 @@ Slint maps 1:1 to dp on Android. Two words used below:
 | idle | — | the row at rest |
 | tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the `swipe-neutral` fill shows, with the action's icon and its label drawn on it in `swipe-on-fill` (§7) |
 | armed | the row has moved at least the larger of 40 % of its width and 96 dp | the action colour fills the uncovered area, and the icon scales up once (100 → 120 %). One haptic tick plays (`HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE`, or `CONTEXT_CLICK` below API 34), once per crossing. Dragging back below the threshold disarms it, with no second tick |
-| commit | release while armed; **or** a fling: a release within 100 ms of the first move the row sees, having moved at least 48 dp in the allowed direction, armed or not. The rule uses this time window, not a speed, because on Slint 1.18.1 a press inside a scrolling list reaches the row about 100 ms late, so a fling's early moves are never seen (measured by rust-ui-dev-01 on a Pixel 9a, 2026-10-16). A fling whose whole movement ends within about 100 ms of touch-down is not seen in time: the row sees no move, or less than 48 dp, before the release. Nothing happens, the row returns to rest, and the person can swipe again or drag more slowly | the row's result, §5 |
+| commit | release while armed; **or** a fling: a release within 100 ms of the first move the row sees, having moved at least 48 dp in the allowed direction from the touch-down point (the press position Slint reports, not where the row first saw a move), armed or not. The rule uses this time window, not a speed, because on Slint 1.18.1 a press inside a scrolling list reaches the row about 100 ms late, so a fling's early moves are never seen (measured by rust-ui-dev-01 on a Pixel 9a, 2026-10-16). A fling whose whole movement ends within about 100 ms of touch-down is not seen in time: the row sees no move, or less than 48 dp, before the release. Nothing happens, the row returns to rest, and the person can swipe again or drag more slowly | the row's result, §5 |
 | cancel | release while not armed (and not a qualifying fling); a second finger down; the touch cancelled by the system; the list scrolled under the finger | the row springs back to rest (200 ms, decelerate), nothing happens, no snackbar |
 
 Edge rules:
@@ -137,7 +137,10 @@ happened.
 
 - At the bottom of the conversation, above the composer, never
   covering the composer. One at a time. A new swipe's snackbar replaces
-  the old one, and the old one's Undo goes with it.
+  the old one, and the old one's Undo goes with it. A Cancel's snackbar
+  waits for the facade's answer (§8), and until then the old snackbar
+  stays, with its Undo. It is replaced only when the Cancel succeeds,
+  and stays if the Cancel is refused.
 - Shown for 6 s, or for `AccessibilityManager.getRecommendedTimeoutMillis(6000,
   FLAG_CONTENT_TEXT | FLAG_CONTENT_CONTROLS)` if that is longer (TalkBack
   users get the time their setting asks for). It is never shown for more
@@ -228,7 +231,11 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **The row's state changes under the finger.** For example, a pending
   row is accepted by the remote while it is tracking. The swipe is
   re-checked against `actions` at commit. If the action is no longer
-  legal, the row springs back and nothing happens.
+  legal, the row springs back and nothing happens. There is no
+  snackbar and no announcement of its own: the row's status label
+  already shows what changed, and is announced as any status change
+  is. A button whose action is no longer legal is gone from the row, so
+  a TalkBack user cannot meet this case.
 - **Cancel of an attempt already in flight.** The client cannot know
   whether that attempt reached the receiver. The facade reports a
   cancelled row as `Cancelled { may_have_reached }` and nothing after
@@ -462,7 +469,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 2. On a kind-A row, a drag right to 30 % and back gives no tick on the
    way back and nothing on release. Releasing a drag at 30 % also does
    nothing.
-3. A fling right of about 60 dp, taking about 150 ms, on a kind-A row
+3. A fling right of about 75 dp from touch-down, taking about 150 ms, on a kind-A row
    commits Keep.
 4. On a kind-A row:
    - a drag left past the threshold dismisses it and shows "Dismissed";
