@@ -226,6 +226,16 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   If the facade or store cannot restore a cancelled record under its
   old ids, rust-ui-dev returns this point to ux-designer before building
   the Cancel swipe.
+
+  **The Undo of Cancel waits on InterWeave#284 landing on main.** That
+  PR reads the restore as RETENTION.md §2's retry: the same
+  `app_message_id` and stored bytes, under a new row id. The frozen
+  §2 diagram has no restore edge, and whether it needs one is
+  architect-cto's call. If they decide it does, the Undo of Cancel also
+  waits on that change. The cancelled row itself stays terminal
+  (`OutboundStatus::is_terminal`): the restore is a new row, so
+  nothing about the old one changes. The Cancel swipe and button
+  themselves, without an Undo, do not wait.
 - **Unkeep when the session no longer holds the content.** If the
   session's copy of the message is past its bound (`UiModel::copy_gone`),
   Keep is not offered after the Unkeep, so there is nothing for an Undo
