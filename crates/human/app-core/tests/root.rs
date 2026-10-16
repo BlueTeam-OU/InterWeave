@@ -1135,3 +1135,31 @@ async fn a_keep_on_its_way_keeps_its_message_through_a_hide() {
         [Intent::Unkeep(_)]
     ));
 }
+
+/// More cancels than the old cap of eight queued in one take before an
+/// Undo: the Undo still finds its record (review F2 on #289, round 2).
+#[tokio::test]
+async fn an_undo_of_cancel_survives_many_cancels_queued_before_it() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), 10, 1).await;
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[0]))]);
+    bob.pump(2).await;
+    let first = snack(&bob);
+    let mut take: Vec<ViewEvent> = rows[1..]
+        .iter()
+        .map(|row| ViewEvent::Intent(Intent::Cancel(*row)))
+        .collect();
+    take.push(ViewEvent::Undo(first));
+    bob.will(take);
+    bob.pump(3).await;
+    assert!(
+        bob.updates.iter().any(|u| matches!(
+            u,
+            Update::Restored { cancelled, .. } if *cancelled == rows[0]
+        )),
+        "{:?}",
+        bob.updates
+    );
+}

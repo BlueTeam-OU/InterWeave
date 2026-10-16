@@ -29,10 +29,14 @@ use crate::protocol::{Command, Failure, Listing, Update};
 /// model stops offering it).
 pub const READ_COPY_CAP: usize = 256;
 
-/// How many cancelled records the facade side holds for an Undo, at most:
-/// one snackbar is up at a time and a replaced one's record is let go at
-/// the next turn, so this is headroom for commands queued in between.
-pub const CANCELLED_CAP: usize = 8;
+/// How many cancelled records the facade side holds for an Undo, at most.
+/// Each closed or replaced snackbar lets its record go (`ForgetCancelled`),
+/// so what is held at once is the open snackbar's and those of cancels
+/// whose answers the model has not applied yet: at most one take's
+/// presses, which the reference view bounds at 64 (`ui-slint`'s
+/// `INPUT_CAP`), plus the open one. Each holds a message's bytes, up to
+/// the 48 KiB payload limit, so this is about 3 MiB at most.
+pub const CANCELLED_CAP: usize = 65;
 
 /// How many received messages one turn hands over, at most.
 const DRAIN_PER_TURN: usize = 64;
@@ -42,10 +46,11 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     client: TransportClient<B, A>,
     wall: Box<dyn Fn() -> u64 + Send + Sync>,
     copies: ReadCopies<ReadEphemeral>,
-    /// The records cancels deleted, for their snackbars' Undo, by row:
-    /// let go when a snackbar closes or its Undo runs. More than one, since
-    /// a cancel can run before the Undo of the snackbar it replaces (review
-    /// F2 on #289); at most [`CANCELLED_CAP`], the oldest going first.
+    /// The records cancels deleted, for their snackbars' Undo, by row: let
+    /// go when a snackbar closes or is replaced, or its Undo runs. More than
+    /// one, since a cancel can run before the Undo of the snackbar it
+    /// replaces (review F2 on #289); at most [`CANCELLED_CAP`], the oldest
+    /// going first.
     cancelled: VecDeque<CancelledSend>,
     reported: Option<Diagnostics>,
 }

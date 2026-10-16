@@ -257,7 +257,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 // What a closed or replaced snackbar's Undo no longer needs.
                 let released = self.model.take_released();
                 commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
-                commands.extend(released.cancelled.map(Command::ForgetCancelled));
+                commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
                 // A change's answer may have left the list to read again.
                 if let Some(intent) = self.model.trust_settings_mut().take_reread()
                     && let Some(command) = self.command_for(intent)
