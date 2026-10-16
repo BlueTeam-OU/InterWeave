@@ -214,6 +214,11 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     control.
   - After Retry, by swipe or button, focus stays where it was: the row
     still offers Retry and Cancel, so its buttons stay.
+  - **When a row's status changes its buttons** without the person
+    acting (a pending row accepted by the remote or the local transport
+    offers neither Retry nor Cancel), and focus was on a button that
+    went, focus goes to that row's first remaining control. Every
+    message row keeps its Show source button, so one always remains.
   - **When the snackbar closes while its Undo holds focus**, the focused
     control is gone, whatever closed it: the timeout, a swipe-away, a
     newer snackbar, or an arrival (§8, §10). Focus goes to the row
@@ -641,6 +646,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     | Keep or Unkeep by a touch swipe, focus inside that row | that row's first control | keyboard |
     | Keep or Unkeep by a touch swipe, focus elsewhere | stays where it was | keyboard |
     | Retry, by swipe or button | stays where it was | keyboard |
+    | a pending row becomes accepted while its Retry or Cancel holds focus | that row's first remaining control (Show source) | tests |
     | Undo of Keep or Unkeep | that row's first control | keyboard, TalkBack |
     | Keep refused (storage degraded) | stays where it was | tests |
     | Cancel refused, focus had moved off the row | back to the row's first control | tests |
