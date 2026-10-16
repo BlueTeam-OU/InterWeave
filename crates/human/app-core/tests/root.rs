@@ -22,8 +22,8 @@ use interweave_human_app_core::{
 use interweave_human_store::{HumanStore, InboundOrigin, NewInbound, RowId, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
-    ConversationKey, Intent, LabelKey, RowAction, Table, TrustChange, TrustInput, TrustOutcome,
-    UiModel, ViewEvent,
+    Announce, Confirmation, ConversationKey, Intent, LabelKey, RowAction, Table, TrustChange,
+    TrustInput, TrustOutcome, UiModel, ViewEvent,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
@@ -1066,6 +1066,72 @@ async fn an_undo_of_cancel_survives_a_cancel_queued_before_it() {
         "{:?}",
         bob.updates
     );
+}
+
+/// Swipe spec item 19: while a Cancel waits for the facade, a newer
+/// action's snackbar stays with its Undo when the Cancel's success comes,
+/// and the Cancel is only announced. The facade is slowed by holding the
+/// first Cancel's command back.
+#[tokio::test]
+async fn a_cancels_late_success_leaves_a_newer_snackbar_and_its_undo() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), 2, 1).await;
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[0]))]);
+    let held = bob.model.turn();
+    assert_eq!(held, [Command::Cancel(rows[0])]);
+    // The person acts again while it waits.
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[1]))]);
+    bob.pump(2).await;
+    let newer = bob.model().snackbar().expect("the second cancel's");
+    assert!(newer.undo, "control: the newer snackbar offers Undo");
+    for command in held {
+        for update in bob.facade.execute(command, 3).await {
+            bob.model.apply(update);
+        }
+    }
+    assert_eq!(bob.model().snackbar(), Some(newer.clone()), "it stays");
+    assert!(matches!(
+        bob.model().outcome().and_then(|o| o.announce),
+        Some(Announce::Confirmed(Confirmation::Cancelled { .. }))
+    ));
+    // Its Undo still restores the second.
+    bob.will(vec![ViewEvent::Undo(newer.id)]);
+    bob.pump(4).await;
+    assert!(
+        bob.updates.iter().any(|u| matches!(
+            u,
+            Update::Restored { cancelled, .. } if *cancelled == rows[1]
+        )),
+        "{:?}",
+        bob.updates
+    );
+}
+
+/// The control: once the newer snackbar has closed, the late Cancel shows
+/// its own, with its Undo.
+#[tokio::test]
+async fn a_cancels_late_success_after_the_newer_snackbar_closed_shows_its_own() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), 2, 1).await;
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[0]))]);
+    let held = bob.model.turn();
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[1]))]);
+    bob.pump(2).await;
+    let newer = snack(&bob);
+    bob.will(vec![ViewEvent::SnackbarClosed(newer)]);
+    bob.pump(3).await;
+    for command in held {
+        for update in bob.facade.execute(command, 4).await {
+            bob.model.apply(update);
+        }
+    }
+    let own = bob.model().snackbar().expect("the late cancel's own");
+    assert!(matches!(own.confirms, Confirmation::Cancelled { .. }));
+    assert!(own.undo);
 }
 
 /// The records held for an Undo are bounded: past the cap the oldest goes.

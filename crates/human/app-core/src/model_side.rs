@@ -411,6 +411,11 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             // after this press.
             self.model.send_pressed(key);
         }
+        if let Command::Cancel(row) = &command {
+            // Until it is answered, the snackbar up now stays; one opened
+            // after it is never taken away by its answer (§6).
+            self.model.cancel_requested(*row);
+        }
         Some(command)
     }
 }
