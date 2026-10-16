@@ -310,6 +310,13 @@ snackbar Undo; right = nothing."
 - **Undo** puts the conversation back in its place with its messages.
 - **A new message** into a hidden conversation brings it back to the
   list, holding only that message.
+- **A new message while the hide's snackbar is still up.** The
+  arrival wins, and nothing is lost: the conversation comes back in its
+  place with all its messages and the new one, as an Undo would bring
+  it. The snackbar closes, and the arrival is announced as any new
+  message is. A new message is a reason to see the conversation, and
+  merging a later Undo into a list that already holds the new message
+  would risk a duplicate row.
 - **Equivalent without the gesture.** The conversation's own screen has
   a "Hide conversation" control in its header, shown only when the
   conversation is offered. It returns to the list and shows the same
