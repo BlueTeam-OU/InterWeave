@@ -77,7 +77,7 @@ Slint maps 1:1 to dp on Android. Two words used below:
 | idle | — | the row at rest |
 | tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the `swipe-neutral` fill shows, with the action's icon and its label drawn on it in `swipe-on-fill` (§7) |
 | armed | the row has moved at least the larger of 40 % of its width and 96 dp | the action colour fills the uncovered area, and the icon scales up once (100 → 120 %). One haptic tick plays (`HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE`, or `CONTEXT_CLICK` below API 34), once per crossing. Dragging back below the threshold disarms it, with no second tick |
-| commit | release while armed; **or** a fling: a release within 100 ms of the first move the row sees, having moved at least 48 dp in the allowed direction from the touch-down point (the press position Slint reports, not where the row first saw a move), armed or not. The rule uses this time window, not a speed, because on Slint 1.18.1 a press inside a scrolling list reaches the row about 100 ms late, so a fling's early moves are never seen (measured by rust-ui-dev-01 on a Pixel 9a, 2026-10-16). A fling whose whole movement ends within about 100 ms of touch-down is not seen in time: the row sees no move, or less than 48 dp, before the release. Nothing happens, the row returns to rest, and the person can swipe again or drag more slowly | the row's result, §5 |
+| commit | release while armed; **or** a fling: a release within 100 ms of the first move the row sees, having moved at least 48 dp in the allowed direction from the touch-down point (the press position Slint reports, not where the row first saw a move), armed or not. The rule uses this time window, not a speed, because on Slint 1.18.1 a press inside a scrolling list reaches the row about 100 ms late, so a fling's early moves are never seen (measured by rust-ui-dev-01 on a Pixel 9a, 2026-10-16). A fling whose whole movement ends within about 100 ms of touch-down is not seen in time: the row sees no move before the release. If the row sees one late move and the release comes within 100 ms of it, the distance from touch-down decides, so a single late move of at least 48 dp is a fling. Nothing happens, the row returns to rest, and the person can swipe again or drag more slowly | the row's result, §5 |
 | cancel | release while not armed (and not a qualifying fling); a second finger down; the touch cancelled by the system; the list scrolled under the finger | the row springs back to rest (200 ms, decelerate), nothing happens, no snackbar |
 
 Edge rules:
@@ -111,7 +111,7 @@ committed swipe except Retry shows the snackbar (§6).
 | A left, Dismiss | removes the row from this session's list (new; §8) | slides out, then the space closes (150 ms) | "Dismissed" | puts the row back in the same place |
 | B left, Unkeep | `Intent::Unkeep(row)`, at once | slides back to rest. Its status reads "Read, not kept", and it becomes kind A | "No longer kept" | the Keep `actions` now offers on it (`from` is the kept row the Unkeep released, whose content this session holds). The row reads Kept again |
 | C right, Retry now | `Intent::Retry(row)` | slides back to rest. Its status changes as the facade reports it (Sending) | none (nothing to undo) | — |
-| C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Sending canceled" | restores the cancelled pending record itself: everything §8 lists unchanged (both ids, destination, media type, stored payload bytes, attempt count), never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
+| C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Sending canceled", or §8's may-have-reached text when `may_have_reached` is true | restores the cancelled pending record itself: everything §8 lists unchanged (both ids, destination, media type, stored payload bytes, attempt count), never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
 
 **The rule: after any interruption, the state is what the person last
 saw confirmed.** Every action runs on commit. Undo is the reverse
@@ -140,7 +140,12 @@ happened.
   the old one, and the old one's Undo goes with it. A Cancel's snackbar
   waits for the facade's answer (§8), and until then the old snackbar
   stays, with its Undo. The old snackbar is replaced only when the
-  Cancel succeeds, and stays if the Cancel is refused.
+  Cancel succeeds, and stays if the Cancel is refused. If the person
+  takes another action with a snackbar before the Cancel's answer
+  comes, that newer snackbar stays, with its Undo. The Cancel's late
+  success is then only announced, with §8's words, and shows no
+  snackbar, so it has no Undo. A late answer never takes away the Undo
+  of an action taken after it.
 - Shown for 6 s, or for `AccessibilityManager.getRecommendedTimeoutMillis(6000,
   FLAG_CONTENT_TEXT | FLAG_CONTENT_CONTROLS)` if that is longer (TalkBack
   users get the time their setting asks for). It is never shown for more
@@ -173,7 +178,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **Announcement.** Every result in §5, by swipe or button, and every
   Undo, is announced through the existing polite live region, with the
   same words as the snackbar ("Kept", "Dismissed", "No longer kept",
-  "Sending canceled", and "Action undone" for an Undo; §9).
+  "Sending canceled" or §8's may-have-reached text, and "Action undone"
+  for an Undo; §9).
 - **Focus.**
   - After Dismiss or Cancel removes a row, focus moves only if it was
     inside that row (keyboard, switch access or TalkBack focus). It goes
@@ -452,8 +458,15 @@ snackbar Undo; right = nothing."
   unread rows, but a conversation offered for hiding has none.
 - **Focus** moves after a hide only if it was inside the conversation's
   row, as for a message (§7). It goes to the next conversation row, or
-  the previous one if it was the last. A touch that swiped the row
-  leaves focus where it was. After Undo, it goes to the restored row.
+  the previous one if it was the last, or the Chats screen's header (its
+  title) if the hidden conversation was the only row. A touch that
+  swiped the row leaves focus where it was. After Undo, it goes to the
+  restored row.
+- **Focus after the header's "Hide conversation"**, which returns to
+  the list (the way a TalkBack user hides): focus goes where the
+  hidden row's place was, by the same order. That is the next
+  conversation row, else the previous one, else the Chats screen's
+  header. It never goes to the top of the list, and is never lost.
 - Announced as §7, with the snackbar's words.
 
 ## 11. Acceptance — what a reviewer checks on a device
@@ -530,6 +543,13 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     A conversation holding an unread, kept or pending message moves in
     neither direction. Its screen's "Hide conversation" control does
     the same as the swipe and is shown only when the swipe is offered.
+
+    With TalkBack on:
+    - "Hide conversation" in the conversation's header returns to the
+      list with focus on the next conversation row;
+    - when the hidden conversation was the only one, focus lands on
+      the Chats screen's header;
+    - "Conversation hidden" is announced, and Undo is reachable.
 18. The ui-model tests show:
     - which swipes are offered is computed from `actions` and the
       Dismiss rule, for kinds A–D, and for a conversation from §10's rule,
@@ -542,7 +562,12 @@ TalkBack off and once with it on, and once with "Remove animations" on.
       the cancelled record with its ids, destination, media type,
       stored bytes and attempt count unchanged;
     - the Undo of Dismiss raises nothing.
-19. With a store that refuses writes (in the app-core or ui-model tests,
+19. While a Cancel waits for the facade's answer (a slowed store in the
+    app-core tests, or on a device if a test build can slow it),
+    dismissing another row keeps the "Dismissed" snackbar and its Undo.
+    The Cancel's success that arrives after it is announced and shows
+    no snackbar.
+20. With a store that refuses writes (in the app-core or ui-model tests,
     and on a device if a test build can make storage refuse):
     - a refused Cancel shows no snackbar. Its row returns in the state
       the facade reports, and the storage notice shows;
