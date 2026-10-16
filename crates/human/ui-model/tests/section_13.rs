@@ -70,6 +70,9 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         | Intent::Unkeep(_)
         | Intent::Retry(_)
         | Intent::Cancel(_)
+        | Intent::Hide(_)
+        | Intent::HideConversation(_)
+        | Intent::Restore(_)
         | Intent::Send { .. }
         | Intent::OpenLink(_)
         | Intent::Reopen
