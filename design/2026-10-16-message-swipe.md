@@ -186,9 +186,30 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **Colour is never the only signal.** The armed state is shown by the
   colour **and** the icon's scale **and** the haptic tick. Before
   arming, the icon has a label beside it, so the direction's meaning
-  can be read. Contrast: the icon against its fill ≥ 3:1, and the label
-  ≥ 4.5:1 (WCAG 1.4.11, 1.4.3). The colours are brand-comms'. This spec
-  names only their roles: neutral, keep, hide or remove, retry.
+  can be read.
+- **Colour and icon roles.** These are new entries that rust-ui-dev
+  adds to `global Palette` in `crates/human/ui-slint/ui/app.slint`. The
+  palette and the icons are rust-ui-dev's until a brand-comms holder is
+  placed in this repository (the remits, InterWeave#282). Each must
+  meet its contrast in every theme the app draws:
+
+  | role | what it is | contrast it must meet |
+  |---|---|---|
+  | `swipe-neutral` | the fill behind a row before arming | ≥ 3:1 against the row's own background, so the uncovered area reads as one (WCAG 1.4.11) |
+  | `swipe-keep` | the armed fill for Keep | — |
+  | `swipe-remove` | the armed fill for Hide, Unkeep, Cancel and the conversation hide | — |
+  | `swipe-retry` | the armed fill for Retry | — |
+  | `swipe-on-fill` | the icon and label drawn on any of the four fills | icon ≥ 3:1 (WCAG 1.4.11) and label ≥ 4.5:1 (WCAG 1.4.3) against each fill |
+
+  The armed fills need no contrast against each other or against
+  `swipe-neutral`, because colour is not the only signal of arming
+  (above).
+
+  Icons, one per action: Keep, Hide, Unkeep, Retry, Cancel, and the
+  conversation hide (Hide's icon may serve). The shapes are
+  rust-ui-dev's to choose, from a source whose licence the repository
+  accepts. Each is decorative beside its label, so it carries no
+  accessible name of its own.
 
 ## 8. Edge cases
 
@@ -294,8 +315,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   and will appear on desktop. This spec is reviewed on Android only.
 - **The words.** Every label above is a proposal. language-culture
   writes them in `labels.rs`.
-- **The colours and icons.** These are brand-comms'. The roles are
-  named in §7.
+- **The colour values and icon shapes.** rust-ui-dev chooses them,
+  against the roles and contrasts named in §7, until a brand-comms
+  holder is placed here.
 
 ## 10. Swipe on a conversation row (Chats list)
 
