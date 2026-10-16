@@ -19,7 +19,10 @@ use std::time::Duration;
 
 use i_slint_backend_testing::ElementHandle;
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
-use interweave_human_client_api::{Destination, Origin, Received};
+use interweave_human_client_api::{
+    ClientEvent, Destination, Origin, OutboundStatus, OutboundUpdate, Received,
+};
+use interweave_human_core::AppMessageId;
 use interweave_human_core::RowId;
 use interweave_human_ui_model::{
     ConversationKey, Intent, RuntimeHost, UiModel, UiText, placeholder_en,
@@ -453,4 +456,45 @@ fn closings_and_leavings_wait_once_each() {
     let _ = turn(&mut view, &mut model);
     assert!(model.snackbar().is_none());
     assert_eq!(view.queued_inputs(), 0);
+}
+
+/// What a cancel's snackbar says, by whether an attempt may have reached
+/// the peer (review N3 on #289).
+#[test]
+fn a_cancels_snackbar_says_whether_it_may_have_reached_the_peer() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for (row, may_have_reached, said) in [
+        (1, false, UiText::ConfirmSendingCanceled),
+        (2, true, UiText::ConfirmSendingCanceledMayHaveReached),
+    ] {
+        pending(&mut model, row, &alice, "out");
+        model.client_event(ClientEvent::Outbound(OutboundUpdate {
+            row: RowId::from_stored(row),
+            app_message_id: AppMessageId::parse(format!("{row:032x}")).expect("id"),
+            status: OutboundStatus::Cancelled { may_have_reached },
+            last_code: None,
+        }));
+        model.cancelled(RowId::from_stored(row), true);
+        open(&mut view, &mut model, &direct(&alice));
+        assert_eq!(view.window().get_snack_text().as_str(), text(said));
+    }
+}
+
+/// A conversation row's swipe is labelled "Hide", a message's "Dismiss".
+#[test]
+fn a_conversation_rows_swipe_says_hide() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "only");
+    open(&mut view, &mut model, &direct(&alice));
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row");
+    assert_eq!(row.hide_label.as_str(), text(UiText::HideShort));
+    assert_ne!(text(UiText::HideShort), text(UiText::Dismiss));
 }
