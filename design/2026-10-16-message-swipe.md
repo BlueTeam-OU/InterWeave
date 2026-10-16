@@ -49,9 +49,13 @@ changes, the swipe changes with it.
   slides and then does nothing tells the person something happened.
 - Kind D, and any row whose actions are empty, does not move either
   way. A vertical scroll that starts on it scrolls as usual.
-- In a right-to-left layout the directions are **not** mirrored in
-  this version: right is Keep or Retry in every locale (§10, open
-  question 1).
+- **In a right-to-left layout the directions mirror**, the platform
+  convention. The owner ruled this on 2026-10-16: "mirror, the platform
+  convention". In an RTL locale Keep and Retry are a swipe to the
+  **left**, and Hide, Unkeep and Cancel a swipe to the **right**. Every
+  "right" and "left" in this file is the left-to-right case. The
+  icons, the side they show on, and the snackbar follow the layout
+  direction.
 
 ## 4. The gesture
 
@@ -219,14 +223,14 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 ## 9. Deliberately left out
 
 - **Like, Accept, Reject.** Reactions and contact requests are features
-  the app does not have. The owner asked for them to go to architect-cto
-  as a separate product question. A reaction would tell the sender a
-  message was read, which `human-client-ui.md` §6 says is never sent in
-  v1. A contact request would need a trust flow, and trust changes are
-  settings-only (§8).
-- **Swipes on the Chats list rows.** These are waiting on the owner. A
-  proposal has gone to them, and that part gets its own section or file
-  once they answer.
+  the app does not have. The owner sent them to architect-cto as a
+  separate product question, and architect-cto answered on 2026-10-16:
+  - **Reactions** are not in the product now. They would need their
+    own record, as an explicit message the person sends, never a
+    receipt sent on read. Until that record exists, no swipe or button
+    sends one.
+  - **Contact requests** are refused. A remote message may never ask
+    for a trust change (`human-client-ui.md` §4, §8, §10).
 - **Desktop.** The Hide button and the snackbar live in the shared views
   and will appear on desktop. This spec is reviewed on Android only.
 - **The words.** Every label above is a proposal. language-culture
@@ -234,12 +238,36 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **The colours and icons.** These are brand-comms'. The roles are
   named in §7.
 
-## 10. Open questions
+## 10. Swipe on a conversation row (Chats list)
 
-1. **Right-to-left mirroring.** Android convention mirrors start and
-   end in an RTL layout. The owner's words name physical right and left.
-   This version keeps physical directions until the owner rules (asked
-   2026-10-16).
+The owner's ruling, 2026-10-16: "Left = hide the conversation for now,
+offered only when it holds nothing unread, pending or kept, with a
+snackbar Undo; right = nothing."
+
+- **Offered** only when every message in the conversation is a read,
+  unkept inbound message (kind A) or an accepted outbound one (kind D).
+  If any row is unread, kept or pending, the row does not move either
+  way. A right swipe never moves the row.
+- **Gesture** as §4: the same slop, angle rule, threshold, fling, haptic
+  tick and edge-inset rule. The revealed icon and label say "Hide".
+- **On commit** the conversation leaves the list and the space closes.
+  Its messages are dropped from the session as Hide for now drops one
+  (§8): nothing is written to the store, and none of them can be kept
+  any more. The snackbar reads "Conversation hidden" (proposed), with
+  Undo.
+- **Undo** puts the conversation back in its place with its messages.
+- **A new message** into a hidden conversation brings it back to the
+  list, holding only that message.
+- **Equivalent without the gesture.** The conversation's own screen has
+  a "Hide conversation" control in its header, shown only when the
+  conversation is offered. It returns to the list and shows the same
+  snackbar there. The Chats row itself gains no button. TalkBack users
+  reach the control by opening the conversation. Opening it reads its
+  unread rows, but a conversation offered for hiding has none.
+- **Focus** after a hide goes to the next conversation row, or the
+  previous one if it was the last. After Undo, it goes to the restored
+  row.
+- Announced as §7, with the snackbar's words.
 
 ## 11. Acceptance — what a reviewer checks on a device
 
@@ -293,9 +321,21 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     spring-back and collapse are instant.
 15. A swipe started at a screen edge, inside the back-gesture zone,
     performs the system back gesture and does not move the row.
-16. The ui-model tests show:
+16. In an RTL locale (Settings › Developer options › Force RTL layout
+    direction, or an RTL language), a swipe to the left on a kind-A row
+    commits Keep, and a swipe to the right hides it.
+17. On the Chats list, a conversation holding only read, unkept or
+    accepted messages:
+    - a drag left hides it and shows "Conversation hidden";
+    - Undo puts it back;
+    - a drag right does not move it.
+
+    A conversation holding an unread, kept or pending message moves in
+    neither direction. Its screen's "Hide conversation" control does
+    the same as the swipe and is shown only when the swipe is offered.
+18. The ui-model tests show:
     - which swipes are offered is computed from `actions` and the
-      Hide rule, for kinds A–D;
+      Hide rule, for kinds A–D, and for a conversation from §10's rule;
     - Unkeep and Cancel raise their intent at commit, not when the
       snackbar closes;
     - the Undo of Keep raises Unkeep, the Undo of Unkeep raises Keep
