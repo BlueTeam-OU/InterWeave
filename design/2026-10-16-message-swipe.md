@@ -196,8 +196,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     name, at the top of its screen). It never goes
     to the composer, which would open the keyboard unasked. Never to the
     top of the list, never lost.
-  - After an Undo, focus goes to the row's first control: the restored
-    row's after Dismiss or Cancel, the same row's after Keep or Unkeep.
+  - After an Undo, focus goes to a row's first control: the restored
+    row after an Undo of Dismiss or Cancel, and the same row after an
+    Undo of Keep or Unkeep.
   - After an Undo the store refuses, the snackbar closes under the
     focus, so focus goes where the action itself sent it. A refused
     Undo of Cancel goes to the next row, or the previous one if it was
@@ -206,19 +207,21 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     A refused Undo of Unkeep goes to that row's first control, since
     the row is still in place.
   - After Keep or Unkeep by its button, the row's buttons change (a
-    kept row offers Unkeep, a read one Keep), so the pressed button is
-    gone. Focus goes to that row's first control. After a touch swipe
-    Keep or Unkeep, focus stays where it was, unless it was inside the
-    swiped row, where it goes to that row's first control as well.
+    kept row offers Unkeep, an unkept one Keep), so the pressed button
+    is gone. Focus goes to that row's first control. After Keep or
+    Unkeep by a touch swipe, focus stays where it was, unless it was
+    inside the swiped row. Then it also goes to that row's first
+    control.
   - After Retry, by swipe or button, focus stays where it was: the row
     still offers Retry and Cancel, so its buttons stay.
   - **When the snackbar closes while its Undo holds focus**, the focused
     control is gone, whatever closed it: the timeout, a swipe-away, a
-    newer snackbar, or an arrival (§8, §10). Focus goes to the row the
-    closing snackbar's action concerned: its first control if the row
-    is on screen (Keep, Unkeep, a dismissed message that came back),
-    else the row in its place as after a removal (the next row, else
-    the previous one, else the conversation's header title). On the
+    newer snackbar, or an arrival (§8, §10). Focus goes to the row
+    that the closing snackbar's action was about: to its first control
+    if the row is on screen (Keep, Unkeep, a dismissed message that
+    came back). If the row was removed, focus goes where it goes after
+    a removal: the next row, else the previous one, else the
+    conversation's header title. On the
     Chats list it goes to the conversation's row, or its place in the
     same way. Leaving the conversation closes the snackbar too, and
     focus then goes to that conversation's row on the Chats list.
@@ -649,7 +652,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     | Chats: the same, focus elsewhere | stays where it was | keyboard |
     | a dismissed message gains a stored row (§8), focus on the Dismiss's Undo | the returned row's first control | tests |
     | the same, focus elsewhere | stays where it was | tests |
-    | the snackbar times out, focus on its Undo | the action's row's first control, or the removed row's place (§7) | keyboard |
+    | the snackbar times out, focus on its Undo | the first control of the action's row, or, for a removed row, as after a removal (§7) | keyboard |
     | the snackbar is swiped away or replaced, focus on its Undo | as for the timeout | keyboard |
     | leaving the conversation with focus on the snackbar's Undo | the conversation's row on the Chats list | keyboard |
     | Chats: a swipe with TalkBack on | cannot occur, as above | — |
