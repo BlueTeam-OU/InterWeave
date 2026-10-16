@@ -618,6 +618,46 @@ impl HumanStore {
     /// [`StoreError::TimestampOutOfRange`] if `created_at` cannot be
     /// represented, or a storage error.
     pub fn commit_pending_outbound(&mut self, new: &NewOutbound) -> Result<RowId, StoreError> {
+        self.insert_pending(new, None, 0)
+    }
+
+    /// Commit again a pending record an explicit cancel deleted, when the
+    /// person takes the cancel back (`RETENTION.md` §2, case 16).
+    ///
+    /// Everything the record carries goes back unchanged -- both ids, the
+    /// destination, the media type, the stored bytes, the creation time
+    /// and the attempt count with its last attempt's time -- so the
+    /// restored send is a retry of the same message and, after a restart,
+    /// `may_have_reached` is rebuilt from the carried count as it would
+    /// have been for the cancelled record. Only `row_id` is new: a row id
+    /// is never reused, and `cancelled.row_id` is ignored. Like a commit,
+    /// it is durable when this returns, so call it before any attempt.
+    ///
+    /// # Errors
+    /// As [`Self::commit_pending_outbound`]: [`StoreError::Degraded`]
+    /// while storage is degraded, a duplicate while another pending row
+    /// holds the same `app_message_id`, or a storage error.
+    pub fn restore_pending_outbound(
+        &mut self,
+        cancelled: &PendingOutbound,
+    ) -> Result<RowId, StoreError> {
+        let new = NewOutbound {
+            app_message_id: cancelled.app_message_id.clone(),
+            transport_message_id: cancelled.transport_message_id,
+            destination: cancelled.destination.clone(),
+            media_type: cancelled.media_type.clone(),
+            payload: cancelled.payload.clone(),
+            created_at: cancelled.created_at,
+        };
+        self.insert_pending(&new, cancelled.last_attempt_at, cancelled.attempts)
+    }
+
+    fn insert_pending(
+        &mut self,
+        new: &NewOutbound,
+        last_attempt_at: Option<u64>,
+        attempts: u32,
+    ) -> Result<RowId, StoreError> {
         self.reject_if_degraded()?;
         check_payload(&new.payload)?;
 
@@ -629,13 +669,16 @@ impl HumanStore {
             ),
             OutboundDestination::Broadcast(c) => (None, None, Some(c.as_str().to_owned())),
         };
+        let last_attempt_at = last_attempt_at
+            .map(|at| sql_timestamp("last_attempt_at", at))
+            .transpose()?;
 
         let result = self.conn.execute(
             "INSERT INTO pending_outbound
                  (app_message_id, transport_message_id, destination_peer,
                   destination_endpoint, channel_id, media_type, payload, created_at,
                   last_attempt_at, attempts)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, 0)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 new.app_message_id.as_str(),
                 new.transport_message_id.as_bytes().as_slice(),
@@ -649,6 +692,8 @@ impl HumanStore {
                 new.media_type.as_ref().map(MediaType::as_str),
                 new.payload,
                 sql_timestamp("created_at", new.created_at)?,
+                last_attempt_at,
+                attempts,
             ],
         );
 
