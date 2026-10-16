@@ -135,9 +135,13 @@ Sizes are in sp, so they follow the system's font size:
 | body medium | 14 / 20 | regular | the list's subtitle (last message) |
 | label large | 14 / 20 | medium | chips, buttons, the snackbar's Undo |
 | body small | 12 / 16 | regular | times, statuses, the app bar's subtitle |
+| markdown heading, level 1 / 2 / 3 and below | 20 / 28, 18 / 24, 16 / 24 | medium | headings inside a message |
+| table header | as body large | medium | a table's header row inside a message |
+| code | 14 / 20 | regular, the code font | code lines inside a message |
 
-Today `app.slint` sets 12px and 16px sizes, and whether they follow the
-system font size was not checked. Every size here follows it, up to
+Today `app.slint` sets 12px, 14px (message text) and 16px, and
+markdown headings from 14px up to 22px; whether they follow the system
+font size was not checked. Every size here follows it, up to
 200 % (§8).
 
 ## 5. The Chats screen
