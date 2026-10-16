@@ -25,13 +25,15 @@
 #       step of its own, one process), so those two packages are the group
 #       below. A free_port caller added in another package needs adding
 #       here, until free_port answers uniquely across processes.
-#   OnceLock registries and log sinks (transport-contract's
+#   OnceLock registries, log sinks and counters (transport-contract's
 #       schema_round_trip and negative_conformance, ipc-v2's wire,
 #       ipc-protocol's schema_agreement, composition's trust_overlay and
-#       endpoint_overlay) and message-id counters (claude_channel's and
-#       transport-client facade's NEXT, mdns_bounds' interface counter):
-#       built or counted per process instead of per binary, and each test
-#       builds its own stores and names, so the same answer.
+#       endpoint_overlay, android-e2e's log_capture LINES and LEVEL,
+#       claude_channel's and transport-client facade's NEXT message ids,
+#       mdns_bounds' WATCHER_POLLS, TASKS_SPAWNED, TASKS_DROPPED and
+#       RECOVERING_POLLS): built or counted per process instead of per
+#       binary, and none serialises or deduplicates across tests, so the
+#       same answer.
 #
 # No retries, deliberately: a test that passes on its second try failed,
 # and nextest would report it as a pass.
