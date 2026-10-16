@@ -384,8 +384,10 @@ conversations"), and one noun for one thing is easier to read than
 two. "Chats" in this file and the swipe spec names the screen, not a
 word the person sees.
 
-The swipe spec's focus table names the `Conversations` heading. With
-this change the "Conversations" title is that focus target.
+The swipe spec's focus table (§11 item 21, added by InterWeave #286,
+not yet on main) names the `Conversations` heading as a focus target.
+With this change the "Conversations" title is that target. If this
+spec lands first, the sentence waits for #286.
 
 ## 10. Deliberately left out
 
