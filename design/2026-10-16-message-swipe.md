@@ -368,7 +368,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     facade has answered that the Cancel succeeded. A refused Cancel shows none;
   - the existing storage notice and refusal announcement apply;
   - if focus had moved off the row when it slid out, it returns to the
-    row's first control; otherwise it stays where it was.
+    row's first control; otherwise it stays where it was. If the person
+    has left the conversation by the time the refusal arrives, focus
+    stays where it is, and the refusal is only announced.
 - **Undo of Cancel when the store refuses the restore** (storage
   degraded or full, RETENTION.md §4):
   - the row stays cancelled, and nothing is sent: a send never goes out
@@ -661,6 +663,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     | Keep refused (storage degraded) | stays where it was | tests |
     | Cancel refused, focus had moved off the row | back to the row's first control | tests |
     | Cancel refused, focus had not moved | stays where it was | tests |
+    | Cancel refused after the person left the conversation | stays where it is; the refusal is announced only | tests |
     | Unkeep refused | stays where it was | tests |
     | Undo of Keep refused | that row's first control | tests |
     | Undo of Unkeep refused | that row's first control | tests |
