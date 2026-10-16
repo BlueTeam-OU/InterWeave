@@ -2,7 +2,7 @@
 role: language-culture
 class: remit
 project: interweave
-description: "What the language and culture role covers in InterWeave: the words of the human client, and the locale structure when localisation comes."
+description: "What the language and culture role covers in InterWeave: the words of the human client, the English of the design/ specifications, and the locale structure when localisation comes."
 origin:
   - agent: user
     host: develop-qzapp
