@@ -218,8 +218,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     control is gone, whatever closed it: the timeout, a swipe-away, a
     newer snackbar, or an arrival (§8, §10). Focus goes to the row
     that the closing snackbar's action was about: to its first control
-    if the row is on screen (Keep, Unkeep, a dismissed message that
-    came back). If the row was removed, focus goes where it goes after
+    if the row is still in the list (Keep, Unkeep, a dismissed message
+    that came back), scrolled into view if it was off screen. If the
+    row was removed, focus goes where it goes after
     a removal: the next row, else the previous one, else the
     conversation's header title. On the
     Chats list it goes to the conversation's row, or its place in the
@@ -661,6 +662,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     | the same, focus elsewhere | stays where it was | tests |
     | the snackbar times out, focus on its Undo | the first control of the action's row, or, for a removed row, as after a removal (§7) | keyboard |
     | the snackbar is swiped away or replaced, focus on its Undo | as for the timeout | keyboard |
+    | the snackbar closes, focus on its Undo, the action's row still in the list but scrolled off screen | that row's first control, scrolled into view | tests |
     | leaving the conversation with focus on the snackbar's Undo | the conversation's row on the Chats list | keyboard |
     | Chats: a swipe with TalkBack on | cannot occur, as above | — |
 
