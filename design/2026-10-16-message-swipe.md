@@ -49,8 +49,9 @@ The swipe never decides legality itself. When the model's answer
 changes, the swipe changes with it.
 
 - A direction with no action **does not move**. The row does not
-  follow the finger that way and nothing is revealed. A row that
-  slides and then does nothing tells the person something happened.
+  follow the finger that way and nothing is revealed. A row that slid
+  and then did nothing would tell the person that something happened
+  when nothing did.
 - Kind D, and any other row whose actions are empty, does not move
   either way. A vertical scroll that starts on it scrolls as usual.
 - **In a right-to-left layout the directions mirror**, the platform
@@ -103,19 +104,19 @@ Edge rules:
 Each result is visible on the row itself and is announced (§7). Every
 committed swipe except Retry shows the snackbar (§6).
 
-| kind, direction | on commit | the row afterwards | snackbar text (proposed; words are language-culture's) | Undo does |
+| kind, direction | on commit | the row afterwards | snackbar text (final; keys in §9) | Undo does |
 |---|---|---|---|---|
 | A right, Keep | `Intent::Keep { item, from }` as `actions` offers it | slides back to rest. Its status reads Kept and it becomes kind B | "Kept" | the Unkeep of that kept row |
 | A left, Hide for now | removes the row from this session's list (new; §8) | slides out, then the space closes (150 ms) | "Hidden" | puts the row back in the same place |
-| B left, Unkeep | `Intent::Unkeep(row)`, at once | slides back to rest. Its status reads not kept, and it becomes kind A | "No longer kept" | the Keep `actions` now offers on it (`from` is the kept row the Unkeep released, whose content this session holds). The row reads Kept again |
+| B left, Unkeep | `Intent::Unkeep(row)`, at once | slides back to rest. Its status reads "Read, not kept", and it becomes kind A | "No longer kept" | the Keep `actions` now offers on it (`from` is the kept row the Unkeep released, whose content this session holds). The row reads Kept again |
 | C right, Retry now | `Intent::Retry(row)` | slides back to rest. Its status changes as the facade reports it (Sending) | none (nothing to undo) | — |
-| C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Send cancelled" | restores the cancelled pending record itself: everything §8 lists unchanged (both ids, destination, media type, stored payload bytes, attempt count), never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
+| C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Sending canceled" | restores the cancelled pending record itself: everything §8 lists unchanged (both ids, destination, media type, stored payload bytes, attempt count), never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
 
 **The rule: after any interruption, the state is what the person last
 saw confirmed.** Every action runs on commit. Undo is the reverse
 action, not a cancelled delay. If the app is killed while a snackbar is
-up, the message is as the snackbar said: no longer kept, or cancelled
-and not sent again. An earlier draft of this spec deferred Unkeep and
+up, the message is as the snackbar said: kept, no longer kept, or
+cancelled and not sent again. An earlier draft of this spec deferred Unkeep and
 Cancel until the snackbar closed. That fails the rule: a kill left an
 unkept message kept, and let a cancelled one be sent after restart,
 with nothing saying so (found by rust-ui-dev-01, 2026-10-16).
@@ -154,7 +155,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   Unkeep. Kind C shows Retry and Cancel. A button press gives the same
   result, the same snackbar and the same Undo as the swipe.
 - **Touch targets.** Every row button and the snackbar's Undo have a
-  target of at least 48 × 48 dp (Android accessibility, WCAG 2.5.8).
+  target of at least 48 × 48 dp (Android's accessibility guidance;
+  stricter than WCAG 2.5.8, whose minimum is 24 × 24).
   Today `ActionButton` has a minimum height of 24 px, which fails this.
   This spec raises it on message rows.
 - **TalkBack.** A one-finger swipe with TalkBack on is TalkBack's
@@ -167,7 +169,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **Announcement.** Every result in §5, by swipe or button, and every
   Undo, is announced through the existing polite live region, with the
   same words as the snackbar ("Kept", "Hidden", "No longer kept",
-  "Send cancelled", and "Restored" for an Undo).
+  "Sending canceled", and "Action undone" for an Undo; §9).
 - **Focus.**
   - After Hide or Cancel removes a row, focus goes to the next row's
     first control, or the previous row's if it was the last. Never to
@@ -223,9 +225,10 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   whether that attempt reached the receiver. The facade reports a
   cancelled row as `Cancelled { may_have_reached }` and nothing after
   it (TRANSPORT.md, Cancellation). So:
-  - the snackbar text follows the existing status label: "Send
-    cancelled" when `may_have_reached` is false, and the
-    `CancelledMayHaveBeenReceived` label's words when it is true;
+  - the snackbar text follows the two status labels: "Sending canceled"
+    when `may_have_reached` is false (the `Cancelled` label), and "Send
+    canceled, may have reached the peer" when it is true (the
+    `CancelledMayHaveBeenReceived` label);
   - there is no "accepted while cancelling" case. An earlier draft
     had one, but nothing reports it (architect-cto, InterWeave#284).
 
@@ -347,8 +350,36 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     for a trust change (`human-client-ui.md` §4, §8, §10).
 - **Desktop.** The Hide button and the snackbar live in the shared views
   and will appear on desktop. This spec is reviewed on Android only.
-- **The words.** Every label above is a proposal. language-culture
-  writes them in `labels.rs`.
+- **The words.** language-culture finalised them (below).
+  rust-ui-dev adds the keys and commits the values to `labels.rs`,
+  which is rust-ui-dev's file. A swipe's revealed label is its
+  button's text, so one key serves both. The action names in this
+  file (Retry, Unkeep, Hide for now) are not the words the person
+  sees. The person sees no "for now", because a hidden message does
+  not come back (§8). The prose of this file uses British spelling;
+  the strings below are en-US, as all of `labels.rs` is.
+
+  | where it is shown | text | `UiText` key |
+  |---|---|---|
+  | Keep button and swipe label | Keep | `Keep` (exists) |
+  | Hide button and swipe label, message and conversation row | Hide | new |
+  | Unkeep button and swipe label | Stop keeping | `Unkeep` (exists) |
+  | Retry button and swipe label | Send again | `Retry` (exists) |
+  | Cancel button and swipe label | Cancel | `Cancel` (exists) |
+  | the conversation header's control (§10) | Hide conversation | new |
+  | the snackbar's button | Undo | new |
+  | snackbar and announcement after Keep | Kept | new |
+  | snackbar and announcement after Hide | Hidden | new |
+  | snackbar and announcement after Unkeep | No longer kept | new |
+  | snackbar and announcement after Cancel, `may_have_reached` false | Sending canceled | new |
+  | snackbar and announcement after Cancel, `may_have_reached` true | Sending canceled, may have reached the peer | new |
+  | snackbar and announcement after a conversation hide | Conversation hidden | new |
+  | announcement after any Undo | Action undone | new |
+
+  These are final. "Action undone", not "Restored": the Undo of Keep
+  leaves a message not kept, and nothing is restored. The snackbar texts are new
+  `UiText` keys even where a status label has the same words: a status
+  label names a state, and a snackbar names what just happened.
 - **The colour values and icon shapes.** rust-ui-dev chooses them,
   against the roles and contrasts named in §7, until a brand-comms
   holder is placed here.
@@ -364,12 +395,12 @@ snackbar Undo; right = nothing."
   If any row is unread, kept or pending, the row does not move either
   way. A right swipe never moves the row.
 - **Gesture** as §4: the same slop, angle rule, threshold, fling, haptic
-  tick and edge-inset rule. The revealed icon and label say "Hide".
+  tick and edge-inset rule. The revealed label reads "Hide", beside
+  Hide's icon.
 - **On commit** the conversation leaves the list and the space closes.
   Its messages are dropped from the session as Hide for now drops one
   (§8): nothing is written to the store, and none of them can be kept
-  any more. The snackbar reads "Conversation hidden" (proposed), with
-  Undo.
+  any more. The snackbar reads "Conversation hidden", with Undo.
 - **Undo** puts the conversation back in its place with its messages.
 - **A new message** into a hidden conversation brings it back to the
   list, holding only that message.
@@ -402,9 +433,9 @@ TalkBack off and once with it on, and once with "Remove animations" on.
    - releasing makes the row read Kept, with a "Kept" snackbar;
    - Undo makes it unkept again.
 2. On a kind-A row, a drag right to 30 % and back gives no tick on the
-   way back and nothing on release. A drag to 30 % and released also
-   does nothing.
-3. A quick flick right of about 60 dp on a kind-A row commits Keep.
+   way back and nothing on release. Releasing a drag at 30 % also does
+   nothing.
+3. A quick fling right of about 60 dp on a kind-A row commits Keep.
 4. On a kind-A row:
    - a drag left past the threshold hides it and shows "Hidden";
    - Undo puts it back in the same place;
@@ -422,7 +453,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
    restart the message is still kept.
 8. On a kind-C row (no daemon or network, so it stays pending):
    - a drag right changes its status to Sending and shows no snackbar;
-   - a drag left removes it and shows "Send cancelled";
+   - a drag left removes it and shows "Sending canceled";
    - Undo restores it in place, pending, with the same app message id
      and transport message id (the diagnostics view shows both).
 9. On a kind-C row, a drag left followed by killing the app before the
@@ -440,14 +471,14 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 13. Every row button and the snackbar's Undo measure at least 48 × 48 dp
     (Layout Inspector or the Accessibility Scanner).
 14. With "Remove animations" on, the row still follows the finger, but
-    spring-back and collapse are instant.
+    spring-back and space-closing are instant.
 15. A swipe started at a screen edge, inside the back-gesture zone,
     performs the system back gesture and does not move the row.
 16. In an RTL locale (Settings › Developer options › Force RTL layout
     direction, or an RTL language), a swipe to the left on a kind-A row
     commits Keep, and a swipe to the right hides it.
-17. On the Chats list, a conversation holding only read, unkept or
-    accepted messages:
+17. On the Chats list, a conversation holding only read messages that
+    are not kept and sent messages accepted by the remote transport:
     - a drag left hides it and shows "Conversation hidden";
     - Undo puts it back;
     - a drag right does not move it.
