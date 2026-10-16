@@ -110,7 +110,7 @@ committed swipe except Retry shows the snackbar (§6).
 | A right, Keep | `Intent::Keep { item, from }` as `actions` offers it | slides back to rest. Its status reads Kept and it becomes kind B | "Kept" | the Unkeep of that kept row |
 | A left, Dismiss | removes the row from this session's list (new; §8) | slides out, then the space closes (150 ms) | "Dismissed" | puts the row back in the same place |
 | B left, Unkeep | `Intent::Unkeep(row)`, at once | slides back to rest. Its status reads "Read, not kept", and it becomes kind A | "No longer kept" | the Keep `actions` now offers on it (`from` is the kept row the Unkeep released, whose content this session holds). The row reads Kept again |
-| C right, Retry now | `Intent::Retry(row)` | slides back to rest. Its status changes as the facade reports it (Sending) | none (nothing to undo) | — |
+| C right, Retry now | `Intent::Retry(row)` | slides back to rest. Its status is what the facade reports: Sending, or "Not confirmed, trying again" while the transport keeps retrying, as after the Retry button | none (nothing to undo) | — |
 | C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Sending canceled", or §8's may-have-reached text when `may_have_reached` is true | restores the cancelled pending record itself: everything §8 lists unchanged (both ids, destination, media type, stored payload bytes, attempt count), never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
 
 **The rule: after any interruption, the state is what the person last
