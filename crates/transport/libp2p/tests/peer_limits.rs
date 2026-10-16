@@ -150,9 +150,39 @@ async fn a_peer_past_its_connection_ceiling_is_refused() {
     runtime.shutdown().await.expect("clean shutdown");
 }
 
-/// `max_connected_peers`: two peers are held, a third is refused -- and
-/// a second connection from a peer already held is not a new place, so
-/// it is kept beside them.
+/// Drive the dialers until exactly `want` of them still hold a
+/// connection to `target`; their indices. The subject decides at
+/// authentication, and a dialer counts its connection established before
+/// the subject has authenticated it, so which of three dialers arriving
+/// back to back is refused is the subject's order, not the dial order.
+async fn holding(
+    dialers: &mut [Swarm<dummy::Behaviour>],
+    target: PeerId,
+    want: usize,
+) -> Vec<usize> {
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        for dialer in dialers.iter_mut() {
+            let _ =
+                tokio::time::timeout(Duration::from_millis(10), dialer.select_next_some()).await;
+        }
+        let held: Vec<usize> = (0..dialers.len())
+            .filter(|&i| dialers[i].is_connected(&target))
+            .collect();
+        if held.len() == want {
+            return held;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "dialers {held:?} hold a connection, not {want} of them"
+        );
+    }
+}
+
+/// `max_connected_peers`: two peers are held, a third is refused and
+/// stays refused when it comes again -- and a second connection from a
+/// peer already held is not a new place, so it is kept beside them (the
+/// control).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_peer_past_the_connected_peer_ceiling_is_refused() {
     let mut dialers = vec![raw(), raw(), raw()];
@@ -166,8 +196,18 @@ async fn a_peer_past_the_connected_peer_ceiling_is_refused() {
         connect(dialer, target, &address).await;
     }
     settles_at(&runtime, &mut dialers, 2).await;
+    let held = holding(&mut dialers, target, 2).await;
+    // Indexed by who the subject kept: dialers[0] is the refused one
+    // whenever the subject authenticated it last, and its second dial is
+    // then a new peer at a full ceiling, refused (InterWeave#283's flake).
+    let refused = (0..dialers.len())
+        .find(|i| !held.contains(i))
+        .expect("one of three is refused");
 
-    connect(&mut dialers[0], target, &address).await;
+    connect(&mut dialers[refused], target, &address).await;
+    settles_at(&runtime, &mut dialers, 2).await;
+
+    connect(&mut dialers[held[0]], target, &address).await;
     settles_at(&runtime, &mut dialers, 3).await;
     runtime.shutdown().await.expect("clean shutdown");
 }
