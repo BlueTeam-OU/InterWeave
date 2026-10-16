@@ -107,7 +107,7 @@ committed swipe except Retry shows the snackbar (§6).
 | kind, direction | on commit | the row afterwards | snackbar text (final; keys in §9) | Undo does |
 |---|---|---|---|---|
 | A right, Keep | `Intent::Keep { item, from }` as `actions` offers it | slides back to rest. Its status reads Kept and it becomes kind B | "Kept" | the Unkeep of that kept row |
-| A left, Hide for now | removes the row from this session's list (new; §8) | slides out, then the space closes (150 ms) | "Hidden" | puts the row back in the same place |
+| A left, Hide for now | removes the row from this session's list (new; §8) | slides out, then the space closes (150 ms) | "Dismissed" | puts the row back in the same place |
 | B left, Unkeep | `Intent::Unkeep(row)`, at once | slides back to rest. Its status reads "Read, not kept", and it becomes kind A | "No longer kept" | the Keep `actions` now offers on it (`from` is the kept row the Unkeep released, whose content this session holds). The row reads Kept again |
 | C right, Retry now | `Intent::Retry(row)` | slides back to rest. Its status changes as the facade reports it (Sending) | none (nothing to undo) | — |
 | C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Sending canceled" | restores the cancelled pending record itself: everything §8 lists unchanged (both ids, destination, media type, stored payload bytes, attempt count), never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
@@ -168,7 +168,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   well. That is optional, not required for acceptance.
 - **Announcement.** Every result in §5, by swipe or button, and every
   Undo, is announced through the existing polite live region, with the
-  same words as the snackbar ("Kept", "Hidden", "No longer kept",
+  same words as the snackbar ("Kept", "Dismissed", "No longer kept",
   "Sending canceled", and "Action undone" for an Undo; §9).
 - **Focus.**
   - After Hide or Cancel removes a row, focus goes to the next row's
@@ -355,21 +355,23 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   which is rust-ui-dev's file. A swipe's revealed label is its
   button's text, so one key serves both. The action names in this
   file (Retry, Unkeep, Hide for now) are not the words the person
-  sees. The person sees no "for now", because a hidden message does
-  not come back (§8). The prose of this file uses British spelling;
+  sees. A message's action reads "Dismiss", with no "for now",
+  because the message does not come back once its Undo closes (§8;
+  the owner's ruling of 2026-10-16). A conversation keeps "Hide". The prose of this file uses British spelling;
   the strings below are en-US, as all of `labels.rs` is.
 
   | where it is shown | text | `UiText` key |
   |---|---|---|
   | Keep button and swipe label | Keep | `Keep` (exists) |
-  | Hide button and swipe label, message and conversation row | Hide | new |
+  | message row: Hide button and swipe label | Dismiss | new |
+  | conversation row: swipe label (§10) | Hide | new |
   | Unkeep button and swipe label | Stop keeping | `Unkeep` (exists) |
   | Retry button and swipe label | Send again | `Retry` (exists) |
   | Cancel button and swipe label | Cancel | `Cancel` (exists) |
   | the conversation header's control (§10) | Hide conversation | new |
   | the snackbar's button | Undo | new |
   | snackbar and announcement after Keep | Kept | new |
-  | snackbar and announcement after Hide | Hidden | new |
+  | snackbar and announcement after a message is dismissed | Dismissed | new |
   | snackbar and announcement after Unkeep | No longer kept | new |
   | snackbar and announcement after Cancel, `may_have_reached` false | Sending canceled | new |
   | snackbar and announcement after Cancel, `may_have_reached` true | Sending canceled, may have reached the peer | new |
