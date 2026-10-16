@@ -271,6 +271,13 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   never an Undo that fails. A missing Undo is honest. A failing one
   breaks the promise the button makes (ruled 2026-10-16 on
   rust-ui-dev-01's question).
+- **Cancel refused by the store** (storage degraded or full;
+  `TransportClient::cancel` answers `StorageUnavailable`, and the row
+  stays pending):
+  - the row springs back to its place, still pending, and no snackbar
+    is shown;
+  - the existing storage notice and refusal announcement apply;
+  - focus stays where it was.
 - **Undo of Cancel when the store refuses the restore** (storage
   degraded or full, RETENTION.md §4):
   - the row stays cancelled, and nothing is sent: a send never goes out
@@ -278,7 +285,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   - the snackbar closes, and the existing storage notice and refusal
     announcement apply;
 
-  While storage is already degraded when Cancel runs, its snackbar
+  If Cancel succeeds while storage is already degraded, its snackbar
   shows no Undo, since a restore could not be written. A missing Undo
   is honest; a failing one is not (as for Unkeep above).
 - **Undo of Unkeep when Keep is refused** (storage degraded): the row
