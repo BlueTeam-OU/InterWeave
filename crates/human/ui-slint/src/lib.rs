@@ -259,14 +259,15 @@ struct Pressable {
 /// person saw.
 ///
 /// THE QUEUE'S ORDER IS THE PERSON'S ORDER. No queued input is ever moved
-/// relative to another, and no press, edit or focus change is held
-/// outside it: an edit or a focus change is never refused, and coalesces
-/// only in place, into an entry it can replace without changing what any
-/// input between them resolves to. Three flags wait outside it, each with
-/// no order to keep and resolved once the queue has drained, against the
-/// window as it is then: a render's "viewed", which the root made; the
-/// pane shown or hidden, which the window reports; and a narrow window's
-/// Back, which says only that the conversation was left.
+/// relative to another, and no press but one, edit or focus change is
+/// held outside it: an edit or a focus change is never refused, and
+/// coalesces only in place, into an entry it can replace without changing
+/// what any input between them resolves to. Three flags wait outside it: a
+/// render's "viewed", which the root made, and the pane shown or hidden,
+/// which the window reports, both resolved once the queue has drained,
+/// against the window as it is then; and the one press, a narrow window's
+/// Back, which says only that the conversation was left and is resolved
+/// at the end of the next take, against the model as it was before it.
 /// Three review rounds on #170 found inputs moved or held aside -- a focus
 /// change moved past selections, a refused edit reported out of order and
 /// then lost when the conversation changed -- so the edit is now in the
@@ -295,6 +296,7 @@ struct Shared {
     /// from the list shows the pane again before the take, and the
     /// window's change handler, seeing no change, says nothing
     /// (`leaving_and_coming_back_in_one_take_closes_the_snackbar`).
+    /// Resolved by the next take whatever exit it leaves by (`take_events`).
     left: bool,
     notice: Option<SessionNotice>,
     /// The trusted peers as rendered, by handle.
@@ -822,6 +824,28 @@ impl View {
     /// conversation selected in it is rendered, and a render's "viewed" is
     /// resolved against the focus and conversation of that moment.
     pub fn take_events(&mut self, model: &UiModel) -> Vec<ViewEvent> {
+        let mut out = self.take_queue(model);
+        // Back is resolved by the FIRST take after it, at whichever exit
+        // it leaves by, against the model as it stood when the take began
+        // -- the model changes only between takes -- so the snackbar it
+        // closes is the one that was up when the person left, never one a
+        // press after their return makes
+        // (`a_snackbar_made_after_coming_back_stays_up`); and after every
+        // press of the take, so an Undo pressed once back is taken first
+        // (`an_undo_pressed_after_coming_back_is_honoured`).
+        let left = std::mem::take(&mut self.shared.borrow_mut().left);
+        if left
+            && let Some(snack) = model.snackbar()
+            && snack.conversation.is_some()
+            && !out.contains(&ViewEvent::SnackbarClosed(snack.id))
+        {
+            out.push(ViewEvent::SnackbarClosed(snack.id));
+        }
+        out
+    }
+
+    /// [`take_events`](Self::take_events) without Back's resolution.
+    fn take_queue(&mut self, model: &UiModel) -> Vec<ViewEvent> {
         let mut out = Vec::new();
         loop {
             let next = self.shared.borrow_mut().inputs.pop_front();
@@ -951,8 +975,7 @@ impl View {
         // Last, so an Undo pressed while it was up is taken first
         // (`an_undo_before_a_resize_to_the_list_is_honoured`).
         let moved = std::mem::take(&mut self.shared.borrow_mut().pane_moved);
-        let left = std::mem::take(&mut self.shared.borrow_mut().left);
-        if (left || !self.window.get_pane_shown())
+        if !self.window.get_pane_shown()
             && let Some(snack) = model.snackbar()
             && snack.conversation.is_some()
             && !out.contains(&ViewEvent::SnackbarClosed(snack.id))

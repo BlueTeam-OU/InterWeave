@@ -542,6 +542,75 @@ fn leaving_and_coming_back_in_one_take_closes_the_snackbar() {
     assert!(model.snackbar().is_none());
 }
 
+/// Back, the same conversation picked again, a Dismiss and a keystroke,
+/// all before the root takes: the snackbar that was up when the person
+/// left closes, and the one the Dismiss makes after they came back stays
+/// up, though the keystroke ends the first take early (review P3-1 on
+/// #291, round 2).
+#[test]
+fn a_snackbar_made_after_coming_back_stays_up() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    read(&mut model, 3, &alice, "third");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    let before = model.snackbar().expect("control: one up").id;
+    // The dismissed row is held while its space closes; then it goes.
+    std::thread::sleep(Duration::from_millis(200));
+    view.render(&model);
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    view.select(direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    view.window().invoke_draft_edited("h".into());
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(
+        model.messages(&direct(&alice)).len(),
+        1,
+        "control: both dismissed"
+    );
+    let after = model
+        .snackbar()
+        .expect("the second Dismiss's snackbar is up");
+    assert_ne!(after.id, before);
+}
+
+/// Back, the same conversation picked again and the snackbar's Undo, all
+/// before the root takes: the Undo is taken before Back closes the
+/// snackbar, so the message is back (review P3-1 on #291, round 2).
+#[test]
+fn an_undo_pressed_after_coming_back_is_honoured() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(model.messages(&direct(&alice)).len(), 1, "control");
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    view.select(direct(&alice));
+    labelled(&view, text(UiText::Undo))[0].invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(
+        model.messages(&direct(&alice)).len(),
+        2,
+        "back in its place"
+    );
+}
+
 /// A Dismiss and a resize to the list before the root takes: the
 /// snackbar the Dismiss makes is for a conversation no longer on screen,
 /// so it closes too (review R2 on #291).

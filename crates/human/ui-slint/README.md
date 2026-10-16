@@ -31,7 +31,7 @@ The desktop app turns `desktop` on. `i-slint-backend-testing` is pinned to the s
 - A render that shows a conversation with unread items marks the view "viewed". A message that arrives while the person reads it is therefore read at the end of the next take, if the window then has focus and the conversation is still shown. `render` does not wake the root, which is mid-render: the root takes after it renders.
 - A take stops at the first draft edit. The root applies it and takes again, so a send queued after an edit reads the edited text.
 
-The queue's order is the person's order: no queued input is ever moved relative to another, and no press, edit or focus change is held outside it. Coalescing happens only in place. Three flags wait outside the queue, each resolved once it has drained, against the window as it is then: a render's "viewed", the conversation pane shown or hidden, and a narrow window's Back.
+The queue's order is the person's order: no queued input is ever moved relative to another, and no press but one, edit or focus change is held outside it. Coalescing happens only in place. Three flags wait outside the queue: a render's "viewed" and the conversation pane shown or hidden, resolved once it has drained against the window as it is then; and the one press, a narrow window's Back, resolved at the end of the next take against the snackbar that was up before it.
 
 The queue holds `INPUT_CAP` presses:
 - When it is full, the newest press is refused and counted. An edit is never refused: it is the composer's state, and refusing it would lose what the person typed.
