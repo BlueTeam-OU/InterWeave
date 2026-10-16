@@ -1078,10 +1078,10 @@ async fn an_undo_of_cancel_survives_a_cancel_queued_before_it() {
     );
 }
 
-/// Swipe spec item 19: while a Cancel waits for the facade, a newer
-/// action's snackbar stays with its Undo when the Cancel's success comes,
-/// and the Cancel is only announced. The facade is slowed by holding the
-/// first Cancel's command back.
+/// Swipe spec section 11 item 19 (as #286 carries it): while a Cancel
+/// waits for the facade, a newer action's snackbar stays with its Undo
+/// when the Cancel's success comes, and the Cancel is only announced.
+/// The facade is slowed by holding the first Cancel's command back.
 #[tokio::test]
 async fn a_cancels_late_success_leaves_a_newer_snackbar_and_its_undo() {
     let (a, b) = FakeNetwork::pair(node(), node());
