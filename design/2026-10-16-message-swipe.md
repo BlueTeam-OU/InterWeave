@@ -80,7 +80,8 @@ Edge rules:
   the rest of its life. It never becomes a swipe.
 - The tracking rule is this one, not the toolkit's. Slint 1.18.1's
   `SwipeGestureHandler` starts at 8 px when dx > |dy| / 2, so a drag
-  30–60° off horizontal would swipe. Here it scrolls. A row tracks
+  45–63° off horizontal would swipe. Here it scrolls, since this rule
+  tracks only below 45°. A row tracks
   its own touch with this rule and the system slop (ruled 2026-10-16
   on rust-ui-dev-01's question).
 - Only one row tracks at a time.
@@ -336,7 +337,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 10. On a kind-D row, neither direction moves the row.
 11. A vertical scroll that starts on any row, drifting sideways less
     than it moves vertically, scrolls and never swipes. That includes
-    a drag about 45° off horizontal, which Slint's own swipe handler
+    a drag 55–60° off horizontal, which Slint's own swipe handler
     would take.
 12. With TalkBack on:
     - every action in 1–9 can be done with the row's buttons alone;
