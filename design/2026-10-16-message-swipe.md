@@ -41,8 +41,8 @@ them a message they can't get back.
 **Rule:** a direction is offered on a row exactly when its action is
 legal on that row now. For Keep, Unkeep, Retry and Cancel that means
 `UiModel::actions(key)`. Dismiss is offered on every kind-A row except
-one whose Keep is still on its way to the store (§8), including one
-whose session copy is gone (`UiModel::copy_gone`). There
+one whose Keep is still on its way to the store (§8). That includes a
+row whose session copy is gone (`UiModel::copy_gone`). There
 `actions` is empty, so Keep is not offered, but dismissing needs no copy:
 such a row offers the left swipe and the Dismiss button, and no right
 swipe.
@@ -139,8 +139,8 @@ happened.
   covering the composer. One at a time. A new swipe's snackbar replaces
   the old one, and the old one's Undo goes with it. A Cancel's snackbar
   waits for the facade's answer (§8), and until then the old snackbar
-  stays, with its Undo. It is replaced only when the Cancel succeeds,
-  and stays if the Cancel is refused.
+  stays, with its Undo. The old snackbar is replaced only when the
+  Cancel succeeds, and stays if the Cancel is refused.
 - Shown for 6 s, or for `AccessibilityManager.getRecommendedTimeoutMillis(6000,
   FLAG_CONTENT_TEXT | FLAG_CONTENT_CONTROLS)` if that is longer (TalkBack
   users get the time their setting asks for). It is never shown for more
@@ -188,7 +188,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   - After an Undo the store refuses, the snackbar closes under the
     focus, so focus goes where the action itself sent it. A refused
     Undo of Cancel goes to the next row, or the previous one if it was
-    the last, or the conversation's header if no row is left. Dismiss's Undo writes nothing, so it cannot be refused.
+    the last, or the conversation's header if no row is left.
+    Dismiss's Undo writes nothing, so it cannot be refused.
     A refused Undo of Unkeep goes to that row's first control, since
     the row is still in place.
   - After Keep, Unkeep or Retry, focus stays where it was.
@@ -235,7 +236,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   snackbar and no announcement of its own: the row's status label
   already shows what changed, and is announced as any status change
   is. A button whose action is no longer legal is gone from the row, so
-  a TalkBack user cannot meet this case.
+  a TalkBack user cannot reach this case.
 - **Cancel of an attempt already in flight.** The client cannot know
   whether that attempt reached the receiver. The facade reports a
   cancelled row as `Cancelled { may_have_reached }` and nothing after
@@ -354,8 +355,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     person just asked to keep.
   - A dismissed message that gains a stored row while its snackbar is
     shown (a copy of it arrives; a Keep cannot be on its way, since
-    Dismiss is not offered then) comes back in
-    its place, and the Dismiss snackbar closes. The store now holds
+    Dismiss is not offered then) comes back in its place, and the Dismiss snackbar closes. The store now holds
     it, so leaving it out of the list would hide a kept or unread
     message (found in InterWeave#289's review, 2026-10-16).
 - **Keep is refused because storage is degraded.** The row stays kind
@@ -381,8 +381,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   and will appear on desktop. This spec is reviewed on Android only.
 - **The words.** language-culture finalised them (below).
   The keys below were added to `labels.rs` (rust-ui-dev's file) in
-  InterWeave#289; those marked "existed" were there before. A swipe's revealed label is its
-  button's text, so one key serves both. Two action names in this
+  InterWeave#289; those marked "existed" were there before. A swipe's
+  revealed label is its button's text, so one key serves both. Two action names in this
   file are not the words the person sees: Retry reads "Send again"
   and Unkeep reads "Stop keeping". A message's action reads
   "Dismiss", because the message does not come back once its Undo
@@ -469,8 +469,8 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 2. On a kind-A row, a drag right to 30 % and back gives no tick on the
    way back and nothing on release. Releasing a drag at 30 % also does
    nothing.
-3. A fling right of about 75 dp from touch-down, taking about 150 ms, on a kind-A row
-   commits Keep.
+3. A fling right of about 75 dp from touch-down, taking about 150 ms,
+   on a kind-A row commits Keep.
 4. On a kind-A row:
    - a drag left past the threshold dismisses it and shows "Dismissed";
    - Undo puts it back in the same place;
