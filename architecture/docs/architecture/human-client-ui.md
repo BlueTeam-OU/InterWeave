@@ -83,6 +83,8 @@ The human UI implements [`clients/human/RETENTION.md`](../../clients/human/RETEN
 - read-but-unkept inbound and transport-terminal outbound messages may remain visible in RAM for the current session, but they disappear across app/process restart;
 - removing Keep deletes the durable kept copy;
 - no remote payload, EndpointId, sender label, notification action, or application extension may force Keep.
+- a read-but-unkept inbound message may be dropped from the session early by the receiver's explicit choice (**Hide**): it writes nothing to the store, it cannot be kept afterwards, and nothing of it survives restart (A 2026-10-16);
+- an explicit cancel runs at once and deletes the durable pending record; an undo offered for it restores that record, not a new one — the same `app_message_id`, the same transport message id and the stored byte-identical payload, committed durable before any attempt — so the undo is RETENTION.md §2's retry and a receiver that admitted an attempt in flight answers it from its dedup entry; an undo is offered only while the session still holds the record, and a cancel the transport reports as accepted has no undo (A 2026-10-16).
 
 The UI should distinguish `Unread` from `Kept`. Unread is temporary durability for user availability; Kept is an explicit post-read retention choice. Neither state is transmitted to the sender in v1.
 
@@ -166,6 +168,8 @@ Raw internal codes remain available in diagnostics.
 - desktop and Android render the same HumanChatV2 fixture consistently;
 - pending outbound and unread inbound survive restart; read-unkept/transport-terminal messages do not;
 - receiver Keep can be set only after read and cannot be forced by remote content;
+- Hide writes nothing to the store, and nothing of a hidden row survives restart;
+- an undone cancel restores the pending record under its ids with its stored bytes, never a re-serialised or re-identified copy;
 - accessibility tree contains meaningful labels/actions for message, route, trust, and connectivity controls.
 
 ## 14. Android availability-policy diagnostic
