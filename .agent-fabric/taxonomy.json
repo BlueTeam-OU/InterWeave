@@ -20,6 +20,7 @@
       "keywords": ["slint", "human client", "human-desktop", "human-android", "ui-model", "accessibility", "screen reader", "focus", "human store", "retention", "privacy", "activity", "foreground service"],
       "types": ["decision", "feedback", "project"]
     },
+    {"id": "ux-designer", "paths": ["design/"], "keywords": ["ux", "user experience", "interaction", "gesture", "swipe", "flow", "usability", "talkback", "touch target", "undo"], "types": ["decision", "feedback", "project"]},
     {
       "id": "language-culture",
       "paths": ["crates/human/ui-model/src/labels.rs"],
