@@ -76,9 +76,15 @@ picks one, as `Palette.dark` does today.
 | `focus-ring-on-inverse` | the focus ring on the snackbar | `#006a61` | `#5fdccd` |
 | `focus-ring-on-notice` | the focus ring on a notice banner | `#006a61` | `#006a61` |
 
-The swipe roles (`swipe-neutral`, `swipe-keep`, `swipe-remove`,
-`swipe-retry`, `swipe-on-fill`) keep their values and their rules
-(swipe spec §7). `notice-background` and `notice-text` keep theirs too:
+The swipe roles (`swipe-keep`, `swipe-remove`, `swipe-retry`,
+`swipe-on-fill`) keep their values and their rules (swipe spec §7).
+`swipe-neutral` must hold 3:1 against the row's own background (swipe
+spec §7), and that background is now a bubble or the selected
+conversation, not only `surface`. Today's `#707070` measures 2.84 on a
+received bubble and 1.97 on a sent one in dark. So in dark it becomes
+`#9aa1bb`, and its icon and label take a new role, `swipe-on-neutral`
+(`#11152a`), since white on that grey would fail. Light keeps `#707070`
+with white. `notice-background` and `notice-text` keep theirs too:
 the storage notice must stand out from everything else on screen.
 
 **Contrast**, measured with WCAG 2.2's formula (dark, then light):
@@ -102,7 +108,11 @@ the storage notice must stand out from everything else on screen.
 | `inverse-primary` on `inverse-surface` | 4.5 | 5.2 | 7.7 |
 | `error` on `surface` | 4.5 | 10.6 | 6.2 |
 | `outline` on `surface` (a chip's edge) | 3 | 3.9 | 3.9 |
-| `swipe-neutral` on `surface` (swipe spec §7) | 3 | 3.6 | 4.7 |
+| `swipe-neutral` on `surface` (swipe spec §7) | 3 | 7.0 | 4.7 |
+| `swipe-neutral` on `surface-container` | 3 | 6.6 | 4.4 |
+| `swipe-neutral` on `surface-container-high` (a received bubble) | 3 | 5.5 | 4.1 |
+| `swipe-neutral` on `primary-container` (a sent bubble, the selection) | 3 | 3.8 | 3.9 |
+| `swipe-on-neutral` (dark) or white (light) on `swipe-neutral` | 4.5 | 7.0 | 5.0 |
 
 Colour is never the only sign of anything. Unread is a number and a
 bold name as well as amber. Sent and received differ by side as well as
