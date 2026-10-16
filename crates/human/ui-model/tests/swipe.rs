@@ -270,7 +270,7 @@ fn unkeep_and_cancel_raise_their_intent_at_commit_and_closing_raises_none() {
     let id = snack_id(&model);
     model.snackbar_closed(id);
     let released = model.take_released();
-    assert_eq!(released.cancelled, Some(row(2)));
+    assert_eq!(released.cancelled, [row(2)]);
     assert!(released.copies.is_empty());
 }
 
@@ -462,7 +462,7 @@ fn a_refused_restore_leaves_the_message_cancelled_and_focus_on_the_next_row() {
         model.outcome().and_then(|o| o.focus.clone()),
         Some(FocusTarget::Item(after))
     );
-    assert_eq!(model.take_released().cancelled, Some(row(1)));
+    assert_eq!(model.take_released().cancelled, [row(1)]);
 }
 
 #[test]
@@ -836,5 +836,22 @@ fn hide_is_not_offered_while_a_keep_is_on_its_way() {
     assert_eq!(
         model.intent_for(third, RowAction::Hide),
         Some(Intent::Hide(third))
+    );
+}
+
+#[test]
+fn every_cancel_replaced_in_one_turn_lets_its_record_go() {
+    let p = peer();
+    let mut model = UiModel::new();
+    for n in 1..=3 {
+        pending(&mut model, &p, n, u64::try_from(n).expect("small"));
+    }
+    for n in 1..=3 {
+        cancel(&mut model, n, true);
+    }
+    assert_eq!(
+        model.take_released().cancelled,
+        [row(1), row(2)],
+        "both replaced snackbars' records, not only the last"
     );
 }

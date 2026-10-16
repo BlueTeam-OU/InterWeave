@@ -122,15 +122,17 @@ pub struct Released {
     /// The read copies held for Keep of messages now hidden: by the row
     /// whose release handed each over, as [`Intent::Keep`]'s `from`.
     pub copies: Vec<(Table, RowId)>,
-    /// The cancelled pending record held for its Undo.
-    pub cancelled: Option<RowId>,
+    /// The cancelled pending records held for their Undo, by the rows the
+    /// cancels ended: one per snackbar closed or replaced, however many
+    /// that was since the last take.
+    pub cancelled: Vec<RowId>,
 }
 
 impl Released {
     /// Whether there is nothing to let go of.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.copies.is_empty() && self.cancelled.is_none()
+        self.copies.is_empty() && self.cancelled.is_empty()
     }
 }
 
@@ -534,7 +536,7 @@ impl UiModel {
                     .and_then(|c| self.focus_after_leaving(&c, key));
                 self.drop_items(&[key]);
                 if let Intent::Restore(row) = intent {
-                    self.swipe.released.cancelled = Some(*row);
+                    self.swipe.released.cancelled.push(*row);
                 }
                 self.set_outcome(None, focus);
             }
@@ -685,7 +687,7 @@ impl UiModel {
             }
             Undo::Restore { item, row, .. } => {
                 self.drop_items(&[item]);
-                self.swipe.released.cancelled = Some(row);
+                self.swipe.released.cancelled.push(row);
             }
             Undo::Unkeep { .. } | Undo::Keep { .. } => self.evict(),
         }
