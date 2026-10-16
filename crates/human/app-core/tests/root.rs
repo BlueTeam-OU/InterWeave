@@ -142,19 +142,29 @@ impl Root {
     }
 
     /// One pass of the loop: the facade's turn, the model side's turn,
-    /// and every command it asked for.
+    /// and every command it asked for -- then the facade's turn again,
+    /// as both roots run one after the commands they carried out: a send,
+    /// a retry or a restore is attempted there, not by its command.
     async fn pump(&mut self, now: u64) {
-        for update in self.facade.turn(now).await {
-            self.updates.push(update.clone());
-            self.model.apply(update);
-        }
+        self.facade_turn(now).await;
         let commands = self.model.turn();
         self.commands.extend(commands.iter().cloned());
+        let any = !commands.is_empty();
         for command in commands {
             for update in self.facade.execute(command, now).await {
                 self.updates.push(update.clone());
                 self.model.apply(update);
             }
+        }
+        if any {
+            self.facade_turn(now).await;
+        }
+    }
+
+    async fn facade_turn(&mut self, now: u64) {
+        for update in self.facade.turn(now).await {
+            self.updates.push(update.clone());
+            self.model.apply(update);
         }
     }
 
