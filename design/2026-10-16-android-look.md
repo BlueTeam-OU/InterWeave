@@ -73,6 +73,8 @@ picks one, as `Palette.dark` does today.
 | `inverse-on-surface` | the snackbar's text | `#2a3050` | `#eef0fb` |
 | `inverse-primary` | the snackbar's Undo | `#006a61` | `#5fdccd` |
 | `error` | refused text, today's `refused-text` | `#ffb4ab` | `#ba1a1a` |
+| `focus-ring-on-inverse` | the focus ring on the snackbar | `#006a61` | `#5fdccd` |
+| `focus-ring-on-notice` | the focus ring on a notice banner | `#006a61` | `#006a61` |
 
 The swipe roles (`swipe-neutral`, `swipe-keep`, `swipe-remove`,
 `swipe-retry`, `swipe-on-fill`) keep their values and their rules
@@ -92,6 +94,9 @@ the storage notice must stand out from everything else on screen.
 | `primary` as text or ring on `surface` | 4.5 | 10.8 | 6.2 |
 | `primary` ring on `surface-container-high` | 3 | 8.4 | 5.4 |
 | `primary` ring on `primary-container` | 3 | 5.9 | 5.0 |
+| `primary` ring on `surface-container` | 3 | 10.1 | 5.7 |
+| `focus-ring-on-inverse` on `inverse-surface` | 3 | 5.2 | 7.7 |
+| `focus-ring-on-notice` on `notice-background` | 3 | 5.9 | 5.9 |
 | `on-tertiary` on `tertiary` | 4.5 | 9.7 | 9.7 |
 | `inverse-on-surface` on `inverse-surface` | 4.5 | 10.3 | 11.3 |
 | `inverse-primary` on `inverse-surface` | 4.5 | 5.2 | 7.7 |
@@ -254,8 +259,11 @@ From the top:
   composer. The text is in `inverse-on-surface` and Undo is a text
   button in `inverse-primary`, with a 48 × 48 dp target. Its behaviour
   follows swipe spec §6.
-- **Focus.** Every focusable control draws a 3 dp ring in `primary`, 2 dp
-  outside its edge, when it holds keyboard focus. Today the Chats list
+- **Focus.** Every focusable control draws a 3 dp ring 2 dp outside its
+  edge when it holds keyboard focus. The ring sits on the control's
+  container, so its colour depends on that container: `primary` on the
+  surfaces and bubbles, `focus-ring-on-inverse` on the snackbar,
+  `focus-ring-on-notice` on a notice banner (§3, each 3:1 or more). Today the Chats list
   draws none and a conversation's buttons only thicken a grey border
   from 1 to 2 px, which is hard to see. The ring follows the control's
   shape: round for the back arrow and Send, rounded for chips and list
@@ -367,8 +375,10 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
    single check and never the words "Read" or "Seen".
 9. Every chip and the Send and back buttons measure at least
    48 × 48 dp to touch.
-10. Every focusable control shows the 3 dp `primary` ring under Tab,
-    on the Chats list and in a conversation.
+10. Every focusable control shows the 3 dp ring under Tab, on the Chats
+    list, in a conversation, on the snackbar's Undo and on a notice
+    banner's buttons, in the colour §7 gives its container, and the
+    ring measures 3:1 or more against that container.
 11. At 200 % font size nothing overlaps or is cut, apart from the
     one-line subtitles' ellipsis.
 12. Every swipe spec §11 item still passes. Only the swipe's look has
