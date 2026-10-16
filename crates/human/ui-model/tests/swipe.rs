@@ -706,23 +706,179 @@ fn a_refused_cancel_is_an_outcome_that_moves_nothing() {
 }
 
 #[test]
-fn hiding_the_only_row_moves_focus_nowhere_and_keeps_the_title() {
+fn hiding_the_only_row_sends_focus_to_the_header_and_keeps_the_title() {
     let p = peer();
     let mut model = UiModel::new();
     let a = read(&mut model, &p, 1, 1);
     let title = model.conversations()[0].title.clone();
     model.hide(a);
+    let outcome = model.outcome().expect("an outcome");
     assert_eq!(
-        model.outcome().and_then(|o| o.focus.clone()),
-        None,
-        "no row left: focus stays, never to the composer and its keyboard"
+        outcome.focus,
+        Some(FocusTarget::Header(key(&p))),
+        "no row left: the header title, never the composer and its keyboard"
     );
+    assert_eq!(outcome.moves_from, Some(FocusTarget::Item(a)));
     assert!(model.conversations().is_empty());
     assert_eq!(
         model.title(&key(&p)),
         title,
         "the open conversation keeps its title"
     );
+}
+
+#[test]
+fn a_row_taken_away_moves_focus_only_from_inside_it() {
+    // §7: the view moves focus only if it was inside the row that left;
+    // the model names that row. Keep, Unkeep and an Undo name none.
+    let p = peer();
+    let mut model = UiModel::new();
+    let a = read(&mut model, &p, 1, 1);
+    let b = read(&mut model, &p, 2, 2);
+    let c = pending(&mut model, &p, 3, 3);
+    model.hide(a);
+    let outcome = model.outcome().expect("hide");
+    assert_eq!(outcome.moves_from, Some(FocusTarget::Item(a)));
+    assert_eq!(outcome.focus, Some(FocusTarget::Item(b)));
+    let id = snack_id(&model);
+    assert_eq!(model.undo(id), None);
+    let outcome = model.outcome().expect("undo");
+    assert_eq!(outcome.moves_from, None, "an Undo moves focus to its row");
+    assert_eq!(outcome.focus, Some(FocusTarget::Item(a)));
+    cancel(&mut model, 3, true);
+    let outcome = model.outcome().expect("cancel");
+    assert_eq!(outcome.moves_from, Some(FocusTarget::Item(c)));
+    assert_eq!(
+        outcome.focus,
+        Some(FocusTarget::Item(b)),
+        "the previous row"
+    );
+    model.kept(b, row(10));
+    let outcome = model.outcome().expect("keep");
+    assert_eq!(
+        (outcome.focus.clone(), outcome.moves_from.clone()),
+        (None, None)
+    );
+}
+
+#[test]
+fn a_refused_undo_of_the_only_rows_cancel_sends_focus_to_the_header() {
+    let p = peer();
+    let mut model = UiModel::new();
+    pending(&mut model, &p, 1, 1);
+    cancel(&mut model, 1, true);
+    let id = snack_id(&model);
+    let restore = model.undo(id).expect("a restore");
+    model.intent_refused(&restore);
+    assert_eq!(
+        model.outcome().and_then(|o| o.focus.clone()),
+        Some(FocusTarget::Header(key(&p)))
+    );
+}
+
+#[test]
+fn hiding_the_only_conversation_sends_focus_to_the_lists_heading() {
+    let p = peer();
+    let mut model = UiModel::new();
+    read(&mut model, &p, 1, 1);
+    model.hide_conversation(&key(&p));
+    let outcome = model.outcome().expect("an outcome");
+    assert_eq!(outcome.focus, Some(FocusTarget::ConversationsHeading));
+    assert_eq!(outcome.moves_from, Some(FocusTarget::Conversation(key(&p))));
+}
+
+// --- a Cancel waiting for the facade (§6) ---------------------------------
+
+/// Pending row 1 and read row 2 from `p`, the Cancel of row 1 issued.
+fn cancel_waiting(model: &mut UiModel, p: &TransportIdentity) -> (ItemKey, ItemKey) {
+    let c = pending(model, p, 1, 1);
+    let b = read(model, p, 2, 2);
+    model.cancel_requested(row(1));
+    (c, b)
+}
+
+#[test]
+fn a_cancels_late_success_under_a_newer_snackbar_is_only_announced() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let (c, b) = cancel_waiting(&mut model, &p);
+    model.hide(b);
+    let dismissed = model.snackbar().expect("Dismissed");
+    cancel(&mut model, 1, true);
+    assert_eq!(
+        model.snackbar(),
+        Some(dismissed),
+        "the newer snackbar stays, with its Undo"
+    );
+    let outcome = model.outcome().expect("an outcome");
+    assert_eq!(
+        outcome.announce,
+        Some(Announce::Confirmed(Confirmation::Cancelled {
+            may_have_reached: false
+        })),
+        "announced in the snackbar's words"
+    );
+    assert_eq!(outcome.moves_from, Some(FocusTarget::Item(c)));
+    assert!(!shown(&model, &key(&p)).contains(&c), "the row has gone");
+    assert_eq!(
+        model.take_released().cancelled,
+        [row(1)],
+        "no Undo, so its record goes now"
+    );
+    // The Dismiss's Undo still works.
+    let id = snack_id(&model);
+    assert_eq!(model.undo(id), None);
+    assert_eq!(shown(&model, &key(&p)), [b]);
+}
+
+#[test]
+fn a_cancels_success_after_the_newer_snackbar_closed_shows_its_own() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let (_, b) = cancel_waiting(&mut model, &p);
+    model.hide(b);
+    let id = snack_id(&model);
+    model.snackbar_closed(id);
+    cancel(&mut model, 1, true);
+    let snack = model.snackbar().expect("the Cancel's own");
+    assert_eq!(
+        snack.confirms,
+        Confirmation::Cancelled {
+            may_have_reached: false
+        }
+    );
+    assert!(snack.undo);
+}
+
+#[test]
+fn a_cancels_success_replaces_a_snackbar_older_than_the_cancel() {
+    let p = peer();
+    let mut model = UiModel::new();
+    pending(&mut model, &p, 1, 1);
+    let b = read(&mut model, &p, 2, 2);
+    model.hide(b);
+    model.cancel_requested(row(1));
+    cancel(&mut model, 1, true);
+    let snack = model.snackbar().expect("replaced");
+    assert!(matches!(snack.confirms, Confirmation::Cancelled { .. }));
+    assert!(snack.undo);
+}
+
+#[test]
+fn a_refused_cancel_forgets_when_it_was_issued() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let (c, b) = cancel_waiting(&mut model, &p);
+    model.intent_refused(&Intent::Cancel(row(1)));
+    model.hide(b);
+    // A later cancel the model was not told of shows its snackbar as any
+    // cancel does: the refused one's mark is gone.
+    cancel(&mut model, 1, true);
+    assert!(matches!(
+        model.snackbar().map(|s| s.confirms),
+        Some(Confirmation::Cancelled { .. })
+    ));
+    assert!(!shown(&model, &key(&p)).contains(&c));
 }
 
 // --- a message the store holds is never hidden (review F1 on #289) -------
