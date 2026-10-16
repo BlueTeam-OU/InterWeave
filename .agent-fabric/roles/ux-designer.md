@@ -58,8 +58,11 @@ app (`apps/human-android/`) first and the desktop app
 LAN (Wireless debugging, `adb connect`), not USB; it is paired with
 rust-ui-dev's and ux-designer's logins (the owner, 2026-10-16). One
 account drives it at a time: a run on it is `fabric-lease pixel-9a --
-<the run>`, and ends with `adb disconnect` and `adb kill-server`, so the
-next holder finds it free. The link drops with the phone's Wi-Fi and
+bash -c 'adb kill-server; trap "adb disconnect; adb kill-server" EXIT;
+<the run>'`. The trap releases the phone however the run ends, a failure,
+a timeout or a signal included, and the first kill-server clears an adb
+server a previous holder left behind (both logins share the host's adb
+port); `pgrep -a adb` after the run shows nothing of yours. The link drops with the phone's Wi-Fi and
 Wireless debugging can switch itself off; a re-pair is a person's step at
 the phone, asked of the owner. What only a person can judge, TalkBack and
 the feel of a gesture, stays a person's check whoever runs the rest.
