@@ -284,10 +284,10 @@ struct Shared {
     viewed: bool,
     /// The right-hand pane was shown or hidden since the last take (the
     /// window's `pane-shown`): back to the list, the trust settings
-    /// closed to it, or a resize across the narrow width. Hidden, it
-    /// closes a conversation's snackbar (§5); shown, it reads what is on
-    /// screen. Resolved last, after every press it follows or precedes, so
-    /// it never closes a snackbar before an Undo pressed while it was up.
+    /// closed to it, or a resize across the narrow width. Shown, it reads
+    /// what is on screen once the queue has drained. (Hidden needs no
+    /// flag: every take closes a conversation's snackbar while the pane
+    /// is hidden.)
     pane_moved: bool,
     notice: Option<SessionNotice>,
     /// The trusted peers as rendered, by handle.
@@ -929,9 +929,15 @@ impl View {
         // The queue has drained: a render's "viewed" is resolved against the
         // focus and the conversation of this moment, so it can only read
         // less than the person's order would.
+        // A conversation's snackbar is never left up behind the list (§5),
+        // judged at EVERY take rather than when the pane moved: one a
+        // press in this take makes exists only once the root applies it,
+        // and the root takes again then
+        // (`a_dismiss_then_a_resize_to_the_list_in_one_take_leaves_no_snackbar`).
+        // Last, so an Undo pressed while it was up is taken first
+        // (`an_undo_before_a_resize_to_the_list_is_honoured`).
         let moved = std::mem::take(&mut self.shared.borrow_mut().pane_moved);
-        if moved
-            && !self.window.get_pane_shown()
+        if !self.window.get_pane_shown()
             && let Some(snack) = model.snackbar()
             && snack.conversation.is_some()
             && !out.contains(&ViewEvent::SnackbarClosed(snack.id))

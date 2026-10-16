@@ -517,6 +517,37 @@ fn an_undo_before_a_resize_to_the_list_is_honoured() {
     assert!(model.snackbar().is_none());
 }
 
+/// A Dismiss and a resize to the list before the root takes: the
+/// snackbar the Dismiss makes is for a conversation no longer on screen,
+/// so it closes too (review R2 on #291).
+#[test]
+fn a_dismiss_then_a_resize_to_the_list_in_one_take_leaves_no_snackbar() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "control: none up yet");
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(
+        model.messages(&direct(&alice)).is_empty(),
+        "control: dismissed"
+    );
+    assert!(model.snackbar().is_none());
+}
+
 /// What a cancel's snackbar says, by whether an attempt may have reached
 /// the peer (review N3 on #289).
 #[test]
