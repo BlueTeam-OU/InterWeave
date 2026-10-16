@@ -23,7 +23,9 @@ The caller-facing surface was agreed with the client's role before it was built 
 - `Published`: published locally, not delivered to any recipient in particular.
 - `Cancelled { may_have_reached }`. After a restart, `may_have_reached` is derived as `attempts > 0`. An attempt is recorded before the transport call, so this errs only toward "may".
 
-`cancel` hands back the record it deleted (`CancelledSend`), or nothing when a restore could not be written: the record could not be read first, or storage is degraded. `restore` takes that record back as the person's undo (`RETENTION.md` §2, case 16): it commits it again with both ids, the destination, the media type, the stored bytes and the attempt count unchanged, under a new row id, and attempts it as a retry. The restored row starts with the `may_have_reached` the cancelled one had. `restore` fails, committing and sending nothing, in the same configuration and storage cases as `send`.
+`cancel` hands back the record it deleted (`CancelledSend`), or nothing when a restore could not be written: the record could not be read first, or storage is degraded. `restore` takes that record back as the person's undo (`RETENTION.md` §2, case 16): it commits it again with both ids, the destination, the media type, the stored bytes and the attempt count unchanged, under a new row id, due at once as a retry. The restored row starts with the `may_have_reached` the cancelled one had. `restore` fails, committing and sending nothing, in the same configuration and storage cases as `send`.
+
+`send`, `retry` and `restore` make no transport call (`the_first_attempt_waits_for_the_next_tick`): `send` and `restore` commit their row, all three report it due at once, and the next `tick` attempts it (agreed with the transport's role, relay message 01a146c7, 2026-10-17). The caller shows the row before an attempt to an unreachable peer has taken its time to fail, and sees a retry's `Sending` before its answer. A root runs `tick` after the commands it carries out.
 
 `send` commits nothing, and returns an error, in these cases:
 - the envelope is too large;

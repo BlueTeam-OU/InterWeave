@@ -167,9 +167,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                     updates.push(Update::Unkept(*row));
                 })
                 .map_err(|e| store_failure(&e)),
-            Command::Retry(row) => Box::pin(self.client.retry(*row, now))
-                .await
-                .map_err(|e| row_failure(&e)),
+            Command::Retry(row) => self.client.retry(*row, now).map_err(|e| row_failure(&e)),
             Command::Cancel(row) => match self.client.cancel(*row) {
                 Ok(record) => {
                     // The row's Cancelled status first, so the model reads

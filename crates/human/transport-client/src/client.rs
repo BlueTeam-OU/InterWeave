@@ -325,8 +325,11 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
         }
     }
 
-    /// Compose: commit the pending copy FIRST, then attempt it if the
-    /// session is ready (`RETENTION.md` §2's order).
+    /// Compose: commit the pending copy FIRST (`RETENTION.md` §2's
+    /// order); the next [`Self::tick`] attempts it if the session is
+    /// ready. Not attempted here: the caller hands the new row to the
+    /// person before an attempt to an unreachable peer has taken its time
+    /// to fail (`the_first_attempt_waits_for_the_next_tick`).
     ///
     /// # Errors
     /// See [`SendError`]: no row exists after any of them.
@@ -390,24 +393,20 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             },
         );
         self.report(row_id);
-        if matches!(self.state, SessionState::Ready { .. }) {
-            self.attempt_row(row_id, now).await;
-        }
         Ok(row_id)
     }
 
-    /// Retry a row now, whatever its state: the person's "try again".
+    /// Retry a row now, whatever its state: the person's "try again". It
+    /// is due at once, and the next [`Self::tick`] attempts it, so the
+    /// caller reports its `Sending` before the attempt's answer.
     ///
     /// # Errors
     /// [`RowError::NoSuchRow`] for a row that is not pending.
-    pub async fn retry(&mut self, row_id: RowId, now: u64) -> Result<(), RowError> {
+    pub fn retry(&mut self, row_id: RowId, now: u64) -> Result<(), RowError> {
         let row = self.rows.get_mut(&row_id).ok_or(RowError::NoSuchRow)?;
         row.attention = None;
         row.next_at = Some(now);
         self.report(row_id);
-        if matches!(self.state, SessionState::Ready { .. }) {
-            self.attempt_row(row_id, now).await;
-        }
         Ok(())
     }
 
@@ -441,8 +440,9 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
     }
 
     /// Take back a cancel: commit the cancelled record again, unchanged
-    /// but for a new row id, and attempt it as a retry if the session is
-    /// ready (`RETENTION.md` §2, case 16). The same message, never a new
+    /// but for a new row id, due at once: the next [`Self::tick`]
+    /// attempts it as a retry if the session is ready (`RETENTION.md`
+    /// §2, case 16). The same message, never a new
     /// one: a receiver that admitted the cancelled attempt answers this
     /// one from its dedup entry while it holds it.
     ///
@@ -488,9 +488,6 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             },
         );
         self.report(row_id);
-        if matches!(self.state, SessionState::Ready { .. }) {
-            self.attempt_row(row_id, now).await;
-        }
         Ok(row_id)
     }
 
@@ -803,14 +800,6 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
     }
 
     // --- one attempt -------------------------------------------------------
-
-    async fn attempt_row(&mut self, row_id: RowId, now: u64) {
-        match self.store.pending_outbound_row(row_id) {
-            Ok(Some(pending)) => self.attempt(&pending, now).await,
-            Ok(None) => {}
-            Err(_) => self.diagnostics.pending_unreadable += 1,
-        }
-    }
 
     async fn attempt(&mut self, pending: &PendingOutbound, now: u64) {
         let row_id = pending.row_id;

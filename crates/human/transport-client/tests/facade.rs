@@ -208,6 +208,68 @@ async fn a_send_with_no_session_is_committed_and_goes_out_when_one_opens() {
     );
 }
 
+/// A send, a retry and a restore commit and report their row, and make
+/// no transport call: the next tick attempts it. A caller shows the row
+/// before an attempt to an unreachable peer has taken its time to fail
+/// (j88, swipe spec section 11 item 8: a restore seen 33 s late).
+#[tokio::test]
+async fn the_first_attempt_waits_for_the_next_tick() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let held = raw(&b, Some(human())).await;
+    let mut sender = client(&a, agent(), memory());
+    ready(&mut sender, 0).await;
+
+    sender
+        .send(to(b.peer()), &envelope("sent"), 0)
+        .await
+        .expect("row");
+    assert_eq!(
+        last_status(&mut sender),
+        OutboundStatus::Sending {
+            attempts: 0,
+            next_retry_at: Some(0),
+            last_problem: None
+        },
+        "reported before any attempt"
+    );
+    assert!(raw_direct_ids(&held).await.is_empty(), "send attempted");
+    sender.tick(0).await;
+    assert_eq!(raw_direct_ids(&held).await.len(), 1, "the tick sends it");
+
+    // A row whose attempt failed, retried before its backoff is up.
+    a.inject_send(TransportError::Overloaded);
+    let retried = sender
+        .send(to(b.peer()), &envelope("retried"), 0)
+        .await
+        .expect("row");
+    sender.tick(0).await;
+    events(&mut sender);
+    sender.retry(retried, 1).expect("retried");
+    assert!(
+        matches!(last_status(&mut sender), OutboundStatus::Sending { .. }),
+        "the retry is reported"
+    );
+    assert!(raw_direct_ids(&held).await.is_empty(), "retry attempted");
+    sender.tick(1).await;
+    assert_eq!(raw_direct_ids(&held).await.len(), 1, "the tick retries it");
+
+    // A cancelled row taken back.
+    a.inject_send(TransportError::Overloaded);
+    let cancelled = sender
+        .send(to(b.peer()), &envelope("restored"), 2)
+        .await
+        .expect("row");
+    sender.tick(2).await;
+    let record = sender
+        .cancel(cancelled)
+        .expect("cancelled")
+        .expect("a restore can be written");
+    sender.restore(record, 3).await.expect("restored");
+    assert!(raw_direct_ids(&held).await.is_empty(), "restore attempted");
+    sender.tick(3).await;
+    assert_eq!(raw_direct_ids(&held).await.len(), 1, "the tick sends it");
+}
+
 #[tokio::test]
 async fn an_accepted_direct_message_arrives_committed_with_its_route_label() {
     let (a, b) = FakeNetwork::pair(node_config(), node_config());
@@ -217,6 +279,7 @@ async fn an_accepted_direct_message_arrives_committed_with_its_route_label() {
     ready(&mut receiver, 0).await;
     let sent = envelope("over the wire");
     sender.send(to(b.peer()), &sent, 0).await.expect("sent");
+    sender.tick(0).await;
     let got = receiver.drain(16, 5).await;
     let [
         Received {
@@ -262,6 +325,7 @@ async fn a_transient_failure_retries_on_its_schedule_and_says_why() {
         .send(to(b.peer()), &envelope("x"), 0)
         .await
         .expect("row");
+    sender.tick(0).await;
     let OutboundStatus::Sending {
         attempts: 1,
         next_retry_at: Some(due),
@@ -291,6 +355,7 @@ async fn a_problem_that_needs_the_person_is_never_retried_on_a_timer() {
         .send(to(b.peer()), &envelope("x"), 0)
         .await
         .expect("row");
+    sender.tick(0).await;
     assert_eq!(
         last_status(&mut sender),
         OutboundStatus::NeedsAttention {
@@ -310,10 +375,8 @@ async fn a_problem_that_needs_the_person_is_never_retried_on_a_timer() {
         1,
         "still pending and durable: there is no failed terminal state"
     );
-    sender
-        .retry(row, 3_600_001)
-        .await
-        .expect("the person retries");
+    sender.retry(row, 3_600_001).expect("the person retries");
+    sender.tick(3_600_001).await;
     assert_eq!(
         last_status(&mut sender),
         OutboundStatus::Accepted { endpoint: human() }
@@ -331,6 +394,7 @@ async fn an_unconfirmed_send_is_retried_under_the_stored_transport_id() {
         .send(to(b.peer()), &envelope("x"), 0)
         .await
         .expect("row");
+    sender.tick(0).await;
     let OutboundStatus::Unconfirmed {
         next_retry_at: Some(due),
         ..
@@ -369,6 +433,7 @@ async fn after_a_restart_a_pending_row_is_reported_once_and_resent_under_its_id(
             .send(to(b.peer()), &envelope("x"), 0)
             .await
             .expect("row");
+        sender.tick(0).await;
         let id = sender.store_mut().pending_outbound().expect("read")[0].transport_message_id;
         sender.close().await;
         id
@@ -406,11 +471,13 @@ async fn a_cancel_after_an_unconfirmed_attempt_says_it_may_have_reached() {
         .send(to(b.peer()), &envelope("x"), 0)
         .await
         .expect("row");
+    sender.tick(0).await;
     a.inject_send(TransportError::Overloaded);
     let not = sender
         .send(to(b.peer()), &envelope("y"), 0)
         .await
         .expect("row");
+    sender.tick(0).await;
     events(&mut sender);
     sender.cancel(maybe).expect("cancelled");
     sender.cancel(not).expect("cancelled");
@@ -478,6 +545,7 @@ async fn a_broadcast_is_published_and_arrives_with_its_channel_and_publisher() {
         .send(Destination::Broadcast(room()), &sent, 0)
         .await
         .expect("row");
+    sender.tick(0).await;
     assert_eq!(last_status(&mut sender), OutboundStatus::Published);
     let got = receiver.drain(16, 1).await;
     assert_eq!(got.len(), 1, "{got:?}");
@@ -748,6 +816,7 @@ async fn a_stopped_runtime_takes_the_session_and_connectivity_to_reconnecting_an
         .send(to(b.peer()), &envelope("x"), 1)
         .await
         .expect("row");
+    sender.tick(1).await;
     assert!(
         matches!(sender.session_state(), SessionState::Reconnecting { .. }),
         "{:?}",
@@ -808,6 +877,7 @@ async fn an_unreachable_or_lost_attempt_may_have_reached_and_never_goes_back() {
         .send(to(b.peer()), &envelope("x"), 0)
         .await
         .expect("row");
+    sender.tick(0).await;
     let OutboundStatus::Unconfirmed {
         next_retry_at: Some(due),
         last_problem: Some(SendProblem::NoNetworkPath),
@@ -961,6 +1031,7 @@ async fn a_lease_loss_hands_over_everything_already_accepted() {
             )
             .await
             .expect("published");
+        sender.tick(0).await;
     }
     let admin = b
         .admin(BTreeSet::from([AdminCapability::Endpoints]))
@@ -1077,6 +1148,7 @@ async fn a_degrade_returns_to_refused_and_never_leaves_closed() {
         .send(Destination::Broadcast(room()), &body("one"), 1)
         .await
         .expect("the first fits");
+    refused.tick(1).await;
     assert_eq!(
         refused
             .send(Destination::Broadcast(room()), &body("two"), 1)
@@ -1104,6 +1176,7 @@ async fn a_degrade_returns_to_refused_and_never_leaves_closed() {
         .send(Destination::Broadcast(room()), &body("one"), 1)
         .await
         .expect("committed, never sent");
+    closed.tick(1).await;
     assert_eq!(
         closed
             .send(Destination::Broadcast(room()), &body("two"), 1)
@@ -1123,6 +1196,7 @@ async fn the_transport_id_is_never_the_application_id_and_times_are_wall_clock()
     let sent = envelope("x");
     a.inject_send(TransportError::Overloaded);
     sender.send(to(b.peer()), &sent, 7).await.expect("row");
+    sender.tick(7).await;
     let pending = &sender.store_mut().pending_outbound().expect("read")[0];
     assert_eq!(pending.created_at, WALL_MS, "persisted on the wall clock");
     assert_eq!(pending.last_attempt_at, Some(WALL_MS));
@@ -1177,6 +1251,7 @@ async fn a_session_closed_after_a_lost_connection_keeps_what_it_had_accepted() {
         .send(to(a.peer()), &envelope("x"), 1)
         .await
         .expect("row");
+    client_b.tick(1).await;
     assert!(matches!(
         client_b.session_state(),
         SessionState::Reconnecting { .. }
@@ -1207,6 +1282,7 @@ async fn a_send_after_the_lease_was_revoked_is_retried_once_the_lease_is_reclaim
         .send(to(b.peer()), &envelope("x"), 1)
         .await
         .expect("row");
+    sender.tick(1).await;
     assert!(
         matches!(
             last_status(&mut sender),
@@ -1249,6 +1325,7 @@ async fn a_pending_row_that_no_longer_reads_is_counted_not_silently_stalled() {
         .send(to(b.peer()), &envelope("x"), 0)
         .await
         .expect("row");
+    sender.tick(0).await;
     // Corrupted on disk behind the facade's back.
     rusqlite::Connection::open(&path)
         .expect("raw")
@@ -1330,6 +1407,7 @@ async fn a_snapshot_past_the_cap_is_kept_in_the_store_and_announced() {
         .send(to(a.peer()), &envelope("x"), 1)
         .await
         .expect("row");
+    receiver.tick(1).await;
     let overflow = u64::try_from(cap).expect("fits");
     assert_eq!(receiver.diagnostics().held_overflow, overflow);
     assert!(
@@ -1395,6 +1473,7 @@ async fn a_snapshot_past_the_cap_is_kept_in_the_store_and_announced() {
         .send(to(a.peer()), &envelope("y"), 100_001)
         .await
         .expect("row");
+    receiver.tick(100_001).await;
     let total = overflow + 1;
     assert_eq!(receiver.diagnostics().held_overflow, total);
     assert!(
@@ -1421,6 +1500,7 @@ async fn a_close_whose_take_meets_a_full_store_degrades_rather_than_reconnects()
         .send(to(a.peer()), &envelope("x"), 1)
         .await
         .expect("a small row fits");
+    receiver.tick(1).await;
     assert_eq!(
         receiver.session_state(),
         &SessionState::StorageDegraded,
@@ -1434,7 +1514,7 @@ async fn a_fabricated_row_id_is_refused_by_retry_and_cancel() {
     let mut sender = client(&a, agent(), memory());
     let made_up = interweave_human_core::RowId::from_stored(4_242);
     assert_eq!(
-        sender.retry(made_up, 0).await,
+        sender.retry(made_up, 0),
         Err(interweave_human_transport_client::RowError::NoSuchRow)
     );
     assert_eq!(
@@ -1477,6 +1557,7 @@ async fn a_path_change_is_the_peers_newest_path_and_nothing_else() {
         .send(to(b.peer()), &envelope("a route"), 0)
         .await
         .expect("sent");
+    sender.tick(0).await;
     assert_eq!(receiver.drain(16, 1).await.len(), 1, "the route is there");
     let _ = events(&mut receiver);
     b.path_changed(a.peer(), PeerPath::Relayed, PeerPath::Direct, "dcutr", 5);
@@ -1520,6 +1601,7 @@ async fn a_route_begun_or_returned_with_no_previous_path_is_the_peers_path() {
         .send(to(b.peer()), &envelope("the first message"), 0)
         .await
         .expect("sent");
+    sender.tick(0).await;
     assert_eq!(receiver.drain(16, 1).await.len(), 1, "the route begins");
     assert_eq!(
         events(&mut receiver),
@@ -1889,6 +1971,7 @@ async fn an_undone_cancel_sends_the_same_message_under_its_ids() {
         .send(to(b.peer()), &envelope("x"), 0)
         .await
         .expect("row");
+    sender.tick(0).await;
     let before = sender.store_mut().pending_outbound().expect("read")[0].clone();
     events(&mut sender);
     let cancelled = sender
@@ -1910,6 +1993,7 @@ async fn an_undone_cancel_sends_the_same_message_under_its_ids() {
     // attempt found.
     a.inject_send(TransportError::Overloaded);
     let restored = sender.restore(cancelled, 1).await.expect("restored");
+    sender.tick(1).await;
     assert_ne!(restored, row, "a new row id");
     let OutboundStatus::Unconfirmed {
         next_retry_at: Some(due),
@@ -1953,6 +2037,7 @@ async fn a_cancel_on_degraded_storage_offers_no_restore() {
         .send(Destination::Broadcast(room()), &body("one"), 1)
         .await
         .expect("the first fits");
+    sender.tick(1).await;
     assert_eq!(
         sender
             .send(Destination::Broadcast(room()), &body("two"), 1)
