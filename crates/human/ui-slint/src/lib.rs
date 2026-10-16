@@ -192,12 +192,13 @@ fn code_font() -> SharedString {
 /// How many PRESSES wait for [`View::take_events`] at most. A full queue
 /// refuses the NEWEST press and counts it: a refused press does nothing
 /// and can be pressed again, where dropping the oldest could drop an edit
-/// and keep the send after it (agreed, relay seq 10882). Edits and focus
-/// changes are state, not presses, and are never refused; with them, and
-/// a root that drains the queue whenever it takes, the queue holds at most
-/// four times this plus three ([`View::queued_inputs`]). A root that stops
-/// between takes breaks that number, not the bound: one more edit can
-/// wait per conversation selected meanwhile, so the queue stays finite.
+/// and keep the send after it (agreed, relay seq 10882). Edits, focus
+/// changes, a snackbar's closing and leaving for the list are state, not
+/// presses, and are never refused; with them, and a root that drains the
+/// queue whenever it takes, the queue holds at most five times this plus
+/// six ([`View::queued_inputs`]). A root that stops between takes breaks
+/// that number, not the bound: one more edit can wait per conversation
+/// selected meanwhile, so the queue stays finite.
 pub const INPUT_CAP: usize = 64;
 
 /// How long a leaving row's space takes to close (swipe spec §5: 150 ms),
@@ -350,10 +351,25 @@ impl Shared {
         // -- in place, so nothing moves (rust-ui-dev R1, review N2) -- which
         // leaves at most one between any two other inputs.
         // A snackbar closing is STATE too: refused, an Undo would stay
-        // offered after its snackbar had gone. And leaving the
-        // conversation closes it.
-        if matches!(input, Input::SnackClosed(_) | Input::Left) {
-            self.inputs.push_back(input);
+        // offered after its snackbar had gone, and leaving the conversation
+        // closes it. So neither is refused, and each coalesces instead: one
+        // closing per snackbar, one Left until a selection follows it.
+        if let Input::SnackClosed(id) = input {
+            if !self.inputs.contains(&Input::SnackClosed(id)) {
+                self.inputs.push_back(input);
+            }
+            return self.wake.clone();
+        }
+        if let Input::Left = input {
+            let waiting = self
+                .inputs
+                .iter()
+                .rev()
+                .take_while(|i| !matches!(i, Input::Select(_)))
+                .any(|i| *i == Input::Left);
+            if !waiting {
+                self.inputs.push_back(input);
+            }
             return self.wake.clone();
         }
         if let Input::Focus(_) = input {
@@ -369,7 +385,11 @@ impl Shared {
             .filter(|i| {
                 !matches!(
                     i,
-                    Input::Focus(_) | Input::Draft(..) | Input::Trust(TrustInput::EntryChanged(_))
+                    Input::Focus(_)
+                        | Input::Draft(..)
+                        | Input::Trust(TrustInput::EntryChanged(_))
+                        | Input::SnackClosed(_)
+                        | Input::Left
                 )
             })
             .count();
@@ -756,7 +776,11 @@ impl View {
     /// empty whenever it takes -- the contract on
     /// [`take_events`](Self::take_events) -- never more than [`INPUT_CAP`]
     /// presses, one edit beside each press plus one, and one focus change
-    /// beside every other input plus one: four times the cap plus three. A
+    /// beside every other input plus one: four times the cap plus three.
+    /// Beside them, one Left beside each selection plus one, and the closing
+    /// of each snackbar shown since the last take, each once -- at most
+    /// two, since the model changes a snackbar only through the root, which
+    /// renders and then takes: five times the cap plus six in all. A
     /// root that stops between takes can leave a selection taken and later
     /// inputs queued, which lets one more edit wait per conversation
     /// selected that way; the queue stays finite, not at that number.

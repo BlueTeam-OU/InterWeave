@@ -429,3 +429,28 @@ fn a_conversation_whose_rows_are_all_hidden_keeps_its_header() {
         "no keyboard asked for"
     );
 }
+
+/// A snackbar's closing and leaving for the list are never refused, so
+/// they coalesce instead: one closing per snackbar, one Left until a
+/// selection follows it (review F4 on #289; the bound `queued_inputs`
+/// states).
+#[test]
+fn closings_and_leavings_wait_once_each() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Hide))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_some(), "control");
+    let before = view.queued_inputs();
+    for _ in 0..50 {
+        view.close_snackbar();
+        view.window().invoke_left_conversation();
+    }
+    assert_eq!(view.queued_inputs(), before + 2, "one closing, one Left");
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+    assert_eq!(view.queued_inputs(), 0);
+}
