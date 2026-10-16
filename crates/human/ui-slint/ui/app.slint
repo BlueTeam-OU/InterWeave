@@ -140,6 +140,28 @@ component TapArea inherits TouchArea {
     }
 }
 
+// Where keyboard focus is: a 3 px ring 2 px outside the control's edge
+// (design/2026-10-16-android-look.md section 7), so focus never depends on
+// a border's width or on colour inside the control. Every focusable
+// element draws one (tests/views.rs,
+// `every_tab_stop_draws_exactly_one_focus_ring`). The user places it with
+// x and y, five px out on each side: an element whose x or y is set does
+// not count toward its parent's size, so the ring moves no layout. A
+// container that clips keeps five px of padding around its controls, or
+// the ring is cut there.
+component FocusRing inherits Rectangle {
+    in property <bool> shown;
+    // On the notice banner, whose background is light in both schemes.
+    in property <bool> on-notice;
+    // The control's own corner radius; the ring follows its shape.
+    in property <length> radius: 4px;
+    border-width: 3px;
+    border-color: root.on-notice ? Palette.focus-ring-on-notice : Palette.focus-ring;
+    border-radius: root.radius + 5px;
+    // Opacity rather than `visible`, so a test reads it.
+    opacity: root.shown ? 1 : 0;
+}
+
 component ActionButton inherits FocusScope {
     in property <string> text;
     in property <string> focus-key;
@@ -172,10 +194,12 @@ component ActionButton inherits FocusScope {
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
     }
+    // On the notice banner: its ring takes the banner's colour.
+    in property <bool> on-notice;
     min-height: root.target;
     min-width: root.target;
     Rectangle {
-        border-width: root.has-focus ? 2px : 1px;
+        border-width: 1px;
         border-color: Palette.border;
         HorizontalLayout {
             padding-left: 8px;
@@ -185,6 +209,15 @@ component ActionButton inherits FocusScope {
         }
     }
     TapArea { tapped => { root.pressed(); } }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        radius: 0px;
+        shown: root.has-focus;
+        on-notice: root.on-notice;
+    }
 }
 
 // A heading that takes keyboard and screen-reader focus and does
@@ -207,21 +240,24 @@ component FocusHeading inherits FocusScope {
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
     }
-    // The layout is the only child, so the heading takes its text's
-    // height; the border shows where keyboard focus is.
+    // The layout is the only child counted for the heading's size, so it
+    // takes its text's height; the ring is placed, and not counted.
     VerticalLayout {
-        Rectangle {
-            border-width: root.has-focus ? 2px : 0px;
-            border-color: Palette.border;
-            HorizontalLayout {
-                Text {
-                    text: root.text;
-                    font-weight: 700;
-                    font-size: root.font-size;
-                    accessible-role: none;
-                }
+        HorizontalLayout {
+            Text {
+                text: root.text;
+                font-weight: 700;
+                font-size: root.font-size;
+                accessible-role: none;
             }
         }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        shown: root.has-focus;
     }
 }
 
@@ -246,13 +282,14 @@ component LinkButton inherits FocusScope {
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
     }
-    // The layout is the control's ONLY child, the touch area inside it:
-    // with a sibling beside the layout the control kept one line's height
-    // whatever the destination wrapped to, and the lines below overlapped
-    // the next control (seen in the rendered window).
+    // The layout is the only child counted for the control's size, the
+    // touch area inside it: with a sibling beside the layout the control
+    // kept one line's height whatever the destination wrapped to, and the
+    // lines below overlapped the next control (seen in the rendered
+    // window). The focus ring is placed by x and y, and so not counted.
     VerticalLayout {
         Rectangle {
-            border-width: root.has-focus ? 2px : 1px;
+            border-width: 1px;
             border-color: Palette.border;
             HorizontalLayout {
                 padding: 4px;
@@ -271,6 +308,14 @@ component LinkButton inherits FocusScope {
             TapArea { tapped => { root.pressed(); } }
         }
     }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        radius: 0px;
+        shown: root.has-focus;
+    }
 }
 
 // Colours, each pair holding at least WCAG AA contrast (4.5:1) for text
@@ -288,6 +333,14 @@ global Palette {
     out property <color> notice-text: #3d2c00;
     out property <color> refused-text: dark ? #ff9e9e : #8a1c1c;
     out property <color> selected: dark ? #2e4a6e : #dde8f7;
+    // Where keyboard focus is (design/2026-10-16-android-look.md section
+    // 7): at least 3:1 against every surface it is drawn on -- dark 9.08
+    // on the pane, 5.43 on a selected row, 10 or more on any style's
+    // window background; light 5.85, 5.24 and 6.1 or more. The notice
+    // banner is light in both schemes, so its ring is the light one there
+    // (5.90 on #fff4ce).
+    out property <color> focus-ring: dark ? #5fdccd : #006a61;
+    out property <color> focus-ring-on-notice: #006a61;
     // A row's background, which a swipe uncovers what is under.
     out property <color> row: Style.background;
     // The swipe roles (swipe spec section 7). One set serves both schemes:
@@ -691,6 +744,8 @@ export component AppWindow inherits Window {
             conversations-column := VerticalLayout {
                 width: parent.width;
                 spacing: 6px;
+                // Room for a row's focus ring, which the list would clip.
+                padding: 5px;
                 alignment: start;
             for row[index] in root.conversations: conversation := FocusScope {
                 property <string> swipe-key: "c:" + row.handle;
@@ -768,6 +823,13 @@ export component AppWindow inherits Window {
                     }
                 }
                 }
+                FocusRing {
+                    x: -5px;
+                    y: -5px;
+                    width: conversation.width + 10px;
+                    height: conversation.height + 10px;
+                    shown: conversation.has-focus;
+                }
             }
             }
             }
@@ -836,16 +898,28 @@ export component AppWindow inherits Window {
             }
             // This profile's own identity, exact and selectable to copy
             // (human-client-ui.md section 11). Read-only.
-            TextInput {
-                text: root.own-peer-id;
-                read-only: true;
-                single-line: true;
-                font-size: 12px;
-                color: Palette.muted-text;
-                accessible-label: root.own-peer-id-label;
-                accessible-value: self.text;
-                changed has-focus => {
-                    if (self.has-focus) { root.focus-id = "own-peer-id"; }
+            own-id := Rectangle {
+                // Its field's height: a box in a layout stretches without one, and
+                // the field alone does not size it (both seen in the window).
+                height: own-id-input.preferred-height;
+                own-id-input := TextInput {
+                    text: root.own-peer-id;
+                    read-only: true;
+                    single-line: true;
+                    font-size: 12px;
+                    color: Palette.muted-text;
+                    accessible-label: root.own-peer-id-label;
+                    accessible-value: self.text;
+                    changed has-focus => {
+                        if (self.has-focus) { root.focus-id = "own-peer-id"; }
+                    }
+                }
+                FocusRing {
+                    x: -5px;
+                    y: -5px;
+                    width: own-id.width + 10px;
+                    height: own-id.height + 10px;
+                    shown: own-id-input.has-focus;
                 }
             }
             // The add row under the explanation, above the list it adds to,
@@ -859,11 +933,11 @@ export component AppWindow inherits Window {
             if root.trust-list-read: HorizontalLayout {
                 spacing: 8px;
                 height: 36px;
-                Rectangle {
+                entry-box := Rectangle {
                     border-width: 1px;
                     border-color: Palette.border;
                     border-radius: 4px;
-                    TextInput {
+                    entry := TextInput {
                         x: 8px;
                         width: parent.width - 16px;
                         vertical-alignment: center;
@@ -874,6 +948,13 @@ export component AppWindow inherits Window {
                         changed has-focus => {
                             if (self.has-focus) { root.focus-id = "trust-entry"; }
                         }
+                    }
+                    FocusRing {
+                        x: -5px;
+                        y: -5px;
+                        width: entry-box.width + 10px;
+                        height: entry-box.height + 10px;
+                        shown: entry.has-focus;
                     }
                 }
                 ActionButton {
@@ -901,6 +982,8 @@ export component AppWindow inherits Window {
             trusted-column := VerticalLayout {
                 width: parent.width;
                 spacing: 6px;
+                // Room for a control's focus ring, which the list would clip.
+                padding: 5px;
                 alignment: start;
             for row[index] in root.trusted: HorizontalLayout {
                 spacing: 8px;
@@ -911,14 +994,28 @@ export component AppWindow inherits Window {
                 // narrow window must still reach every row's control.
                 VerticalLayout {
                     horizontal-stretch: 1;
-                    TextInput {
-                        text: row.peer;
-                        read-only: true;
-                        single-line: true;
-                        accessible-label: row.peer;
-                        accessible-value: self.text;
-                        changed has-focus => {
-                            if (self.has-focus) { root.focus-id = "peer:" + row.handle; }
+                    // The PeerId's focus ring clears the line under it.
+                    spacing: 5px;
+                    peer-box := Rectangle {
+                        // Its field's height: a box in a layout stretches without one, and
+                        // the field alone does not size it (both seen in the window).
+                        height: peer-input.preferred-height;
+                        peer-input := TextInput {
+                            text: row.peer;
+                            read-only: true;
+                            single-line: true;
+                            accessible-label: row.peer;
+                            accessible-value: self.text;
+                            changed has-focus => {
+                                if (self.has-focus) { root.focus-id = "peer:" + row.handle; }
+                            }
+                        }
+                        FocusRing {
+                            x: -5px;
+                            y: -5px;
+                            width: peer-box.width + 10px;
+                            height: peer-box.height + 10px;
+                            shown: peer-input.has-focus;
                         }
                     }
                     Text {
@@ -959,6 +1056,7 @@ export component AppWindow inherits Window {
                         text: root.confirm-label;
                         detail: root.pending-text;
                         focus-key: "trust-confirm";
+                        on-notice: true;
                         pressed => { root.trust-confirm(); }
                         focused(k) => { root.focus-id = k; }
                     }
@@ -966,6 +1064,7 @@ export component AppWindow inherits Window {
                         text: root.cancel-label;
                         detail: root.pending-text;
                         focus-key: "trust-cancel";
+                        on-notice: true;
                         pressed => { root.trust-cancel(); }
                         focused(k) => { root.focus-id = k; }
                         init => { self.focus(); }
@@ -1022,6 +1121,7 @@ export component AppWindow inherits Window {
                 if root.has-notice-action: ActionButton {
                     text: root.notice-action;
                     focus-key: "notice";
+                    on-notice: true;
                     pressed => { root.notice-pressed(); }
                     focused(k) => { root.focus-id = k; }
                 }
@@ -1055,16 +1155,28 @@ export component AppWindow inherits Window {
             // The identifier in exact canonical form, selectable so a person
             // can copy it with the platform's own keys (human-client-ui.md
             // section 11). Read-only: nothing typed here goes anywhere.
-            if root.header-id != "": TextInput {
-                text: root.header-id;
-                read-only: true;
-                single-line: true;
-                font-size: 12px;
-                color: Palette.muted-text;
-                accessible-label: root.header-id-label;
-                accessible-value: self.text;
-                changed has-focus => {
-                    if (self.has-focus) { root.focus-id = "header-id"; }
+            if root.header-id != "": header-id-box := Rectangle {
+                // Its field's height: a box in a layout stretches without one, and
+                // the field alone does not size it (both seen in the window).
+                height: header-id-input.preferred-height;
+                header-id-input := TextInput {
+                    text: root.header-id;
+                    read-only: true;
+                    single-line: true;
+                    font-size: 12px;
+                    color: Palette.muted-text;
+                    accessible-label: root.header-id-label;
+                    accessible-value: self.text;
+                    changed has-focus => {
+                        if (self.has-focus) { root.focus-id = "header-id"; }
+                    }
+                }
+                FocusRing {
+                    x: -5px;
+                    y: -5px;
+                    width: header-id-box.width + 10px;
+                    height: header-id-box.height + 10px;
+                    shown: header-id-input.has-focus;
                 }
             }
             // Updated in place: a path change is not an event a person is
@@ -1096,6 +1208,8 @@ export component AppWindow inherits Window {
             messages-column := VerticalLayout {
                 width: parent.width;
                 spacing: 10px;
+                // Room for a row's focus ring, which the list would clip.
+                padding: 5px;
                 alignment: start;
             for row[index] in root.messages: item := FocusScope {
                 // The person's choice for this message, kept with its row
@@ -1183,6 +1297,8 @@ export component AppWindow inherits Window {
                 // `a_drag_a_row_does_not_offer_leaves_the_next_drag_its_own`).
                 TouchArea {
                 content := VerticalLayout {
+                    // Room for a control's focus ring: the row clips.
+                    padding: 5px;
                     HorizontalLayout {
                         Text {
                             text: row.author;
@@ -1302,6 +1418,13 @@ export component AppWindow inherits Window {
                     }
                 }
                 }
+                FocusRing {
+                    x: -5px;
+                    y: -5px;
+                    width: item.width + 10px;
+                    height: item.height + 10px;
+                    shown: item.has-focus;
+                }
             }
             }
             }
@@ -1332,10 +1455,17 @@ export component AppWindow inherits Window {
             if root.composer-enabled: HorizontalLayout {
                 spacing: 8px;
                 height: 36px;
-                Rectangle {
+                composer-box := Rectangle {
                     border-width: 1px;
                     border-color: Palette.border;
                     border-radius: 4px;
+                    FocusRing {
+                        x: -5px;
+                        y: -5px;
+                        width: composer-box.width + 10px;
+                        height: composer-box.height + 10px;
+                        shown: input.has-focus;
+                    }
                     input := TextInput {
                         x: 8px;
                         width: parent.width - 16px;

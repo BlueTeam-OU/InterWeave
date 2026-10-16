@@ -800,6 +800,84 @@ fn tab_reaches_the_composer_send_item_actions_and_the_notice() {
     assert_eq!(actions, 2, "Retry and Cancel: {reached:?}");
 }
 
+/// How many focus rings are drawn: shown, and so opaque.
+fn rings_shown(view: &View) -> usize {
+    let rings: Vec<ElementHandle> = all(view)
+        .into_iter()
+        .filter(|e| e.type_name().as_deref() == Some("FocusRing"))
+        .collect();
+    assert!(!rings.is_empty(), "the window has focus rings to find");
+    rings.iter().filter(|r| r.computed_opacity() > 0.0).count()
+}
+
+/// Tab `stops` times and, at every element focus lands on, one focus ring
+/// is drawn: N2 of ux-designer's review of 761d72b3 (a conversation row,
+/// a message and the peer-id field drew none), and the android-look
+/// spec's section 7. Returns the stops reached.
+fn tab_each_draws_one_ring(view: &View, stops: usize) -> std::collections::BTreeSet<String> {
+    let mut reached = std::collections::BTreeSet::new();
+    for _ in 0..stops {
+        let on = tab(view);
+        slint::platform::update_timers_and_animations();
+        assert!(!on.is_empty(), "Tab lands on a reported element");
+        assert_eq!(rings_shown(view), 1, "one focus ring at {on:?}");
+        reached.insert(on);
+    }
+    reached
+}
+
+/// Every element Tab reaches draws exactly one focus ring -- on the
+/// Chats list, in a conversation with a link, actions, the peer-id field,
+/// the composer and the notice, and on the trust settings -- and none is
+/// drawn while nothing holds focus.
+#[test]
+fn every_tab_stop_draws_exactly_one_focus_ring() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    model.received(received(
+        1,
+        &alice,
+        "see [the docs](https://example.org/docs)",
+    ));
+    let id = sent(&mut model, 4, &bob, "to bob");
+    update(
+        &mut model,
+        4,
+        &id,
+        OutboundStatus::Sending {
+            attempts: 1,
+            next_retry_at: Some(5),
+            last_problem: None,
+        },
+    );
+    model.client_event(ClientEvent::Session(SessionState::StorageDegraded));
+    view.render(&model);
+    assert_eq!(rings_shown(&view), 0, "control: no ring before any focus");
+    let list = tab_each_draws_one_ring(&view, 12);
+    assert!(
+        list.iter().any(|r| r.starts_with("conversation:")),
+        "the list's rows were reached: {list:?}"
+    );
+    open(&mut view, &mut model, &direct(&bob));
+    let chat = tab_each_draws_one_ring(&view, 40);
+    for wanted in ["header-id", "composer", "send", "notice"] {
+        assert!(chat.contains(wanted), "Tab reaches {wanted}: {chat:?}");
+    }
+    assert!(chat.iter().any(|r| r.starts_with("item:")), "{chat:?}");
+    assert!(chat.iter().any(|r| r.starts_with("action:")), "{chat:?}");
+    open(&mut view, &mut model, &direct(&alice));
+    let linked = tab_each_draws_one_ring(&view, 40);
+    assert!(linked.iter().any(|r| r.starts_with("link:")), "{linked:?}");
+    let me = peer();
+    trust_settings(&mut view, &mut model, &me, std::slice::from_ref(&alice));
+    let trust = tab_each_draws_one_ring(&view, 20);
+    for wanted in ["own-peer-id", "trust-entry", "trust-add"] {
+        assert!(trust.contains(wanted), "Tab reaches {wanted}: {trust:?}");
+    }
+    assert!(trust.iter().any(|r| r.starts_with("peer:")), "{trust:?}");
+}
+
 fn buttons(view: &View) -> Vec<String> {
     all(view)
         .into_iter()
