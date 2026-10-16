@@ -77,6 +77,12 @@ env:
   # tool-suites its self-test, and both must judge with one release.
   CARGO_MACHETE_VERSION: "v0.9.2"
   CARGO_MACHETE_SHA256: "48200087f54c55aabcd4db4af1e25742b49846c02a1b1bfa134711945b35b2e9"
+  # cargo-nextest, which runs the `rust` job's tests (.config/nextest.toml
+  # says what it changes against `cargo test`). One job installs it; the
+  # pin is here with the others so every tool's release is read in one
+  # place. The checksum is the release's own published .sha256, compared.
+  CARGO_NEXTEST_VERSION: "0.9.148"
+  CARGO_NEXTEST_SHA256: "223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc"
 
 jobs:
   rust:
@@ -268,8 +274,26 @@ jobs:
       # live AT-SPI bus (see above): the wrapper refuses, exit 125 and the
       # step named, before running any test on a session it could not
       # stand up, so a missing display never reads as a failing window.
+      #
+      # Run by cargo-nextest, so the binaries run at once rather than one
+      # after another: .config/nextest.toml says what that changes and
+      # which tests it keeps apart. Installed as cargo-deny is (the
+      # tree-checks job says why), into a directory this job creates.
+      - name: Install cargo-nextest
+        run: |
+          set -euo pipefail
+          asset="cargo-nextest-${CARGO_NEXTEST_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          url="https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${CARGO_NEXTEST_VERSION}/${asset}"
+          curl -fsSL -o "$asset" "$url"
+          echo "${CARGO_NEXTEST_SHA256}  ${asset}" | sha256sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/bin"
+          tar -xzf "$asset" -C "${RUNNER_TEMP}/bin" cargo-nextest
+          rm -f "$asset"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/bin/cargo-nextest" nextest --version
+
       - name: Tests
-        run: bash tools/ci/with_display.sh cargo test --workspace --all-targets --locked
+        run: bash tools/ci/with_display.sh cargo nextest run --workspace --all-targets --locked --profile ci
 
       # After Tests, so the listing reuses the binary it built.
       - name: The root funnel's measurement tests are compiled and not ignored (plan §15)

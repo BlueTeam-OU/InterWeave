@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# cargo-nextest's configuration: how the `rust` job's Tests step runs the
+# workspace tests (`cargo nextest run --profile ci`, under
+# tools/ci/with_display.sh).
+#
+# WHAT NEXTEST CHANGES, against `cargo test`: every test runs in a process
+# of its own, and tests of different binaries run at once (`cargo test`
+# runs one binary at a time, its tests on threads). So a test that relies
+# on sharing ITS PROCESS with its siblings, through a static, loses that
+# here, and has to be named below. The statics found when this was written
+# (2026-10-16), and why each needs nothing or something:
+#
+#   tests/desktop-e2e/tests/human_app/display.rs  FOCUS, a lock on the X
+#       display's one input focus. Across processes it locks nothing, so
+#       the binary runs one test at a time: the group below.
+#   tests/support/src/net.rs  HANDED_OUT, free_port never answering one
+#       port twice in a process. A second process can be answered the same
+#       port, which that file already names as not closed (another process
+#       binding between the answer and the bind).
+#   OnceLock registries and log sinks (schema_round_trip, ipc-v2 wire,
+#       composition's trust_overlay and endpoint_overlay): built once per
+#       process instead of once per binary -- more work, the same answer.
+#
+# No retries, deliberately: a test that passes on its second try failed,
+# and nextest would report it as a pass.
+
+[test-groups]
+# The X display's one input focus (display.rs, FOCUS).
+x-display-focus = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'binary_id(interweave-desktop-e2e-tests::human_app)'
+test-group = 'x-display-focus'
+
+[profile.ci]
+# Run every test and report the whole tally. `cargo test` stopped at the
+# first failing binary, so a flake early in the run hid every later result.
+fail-fast = false
+# Say which tests are slow while they run, without ending any: the job's
+# timeout-minutes is what stops a hang.
+slow-timeout = { period = "60s" }
