@@ -457,8 +457,15 @@ snackbar Undo; right = nothing."
   unread rows, but a conversation offered for hiding has none.
 - **Focus** moves after a hide only if it was inside the conversation's
   row, as for a message (§7). It goes to the next conversation row, or
-  the previous one if it was the last. A touch that swiped the row
-  leaves focus where it was. After Undo, it goes to the restored row.
+  the previous one if it was the last, or the Chats screen's header (its
+  title) if the hidden conversation was the only row. A touch that
+  swiped the row leaves focus where it was. After Undo, it goes to the
+  restored row.
+- **Focus after the header's "Hide conversation"**, which returns to
+  the list (the way a TalkBack user hides): focus goes where the
+  hidden row's place was, by the same order. That is the next
+  conversation row, else the previous one, else the Chats screen's
+  header. It never goes to the top of the list, and is never lost.
 - Announced as §7, with the snackbar's words.
 
 ## 11. Acceptance — what a reviewer checks on a device
@@ -535,6 +542,13 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     A conversation holding an unread, kept or pending message moves in
     neither direction. Its screen's "Hide conversation" control does
     the same as the swipe and is shown only when the swipe is offered.
+
+    With TalkBack on:
+    - "Hide conversation" in the conversation's header returns to the
+      list with focus on the next conversation row;
+    - when the hidden conversation was the only one, focus lands on
+      the Chats screen's header;
+    - "Conversation hidden" is announced, and Undo is reachable.
 18. The ui-model tests show:
     - which swipes are offered is computed from `actions` and the
       Dismiss rule, for kinds A–D, and for a conversation from §10's rule,
