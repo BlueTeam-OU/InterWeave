@@ -324,21 +324,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         // Only what the model offers now: an earlier input of the same take
         // may have changed it (a Dismiss before a Keep of the same message).
         if !self.model.offers(&intent) {
-            // Not silent: the person asked for it. Reported as an action
-            // on a row no longer there for it (review of #289, round 5).
-            let refused = match &intent {
-                Intent::Keep { item, from } => Some(Command::Keep {
-                    item: *item,
-                    from: *from,
-                }),
-                Intent::Unkeep(row) => Some(Command::Unkeep(*row)),
-                Intent::Retry(row) => Some(Command::Retry(*row)),
-                Intent::Cancel(row) => Some(Command::Cancel(*row)),
-                _ => None,
-            };
-            if let Some(command) = refused {
+            // What an earlier input of the same take makes no longer
+            // offered: a Keep after a Dismiss of the same
+            // message, reported, since the person asked for it and nothing
+            // else will say so (review of #289, rounds 5 and 6); and a
+            // Dismiss or a conversation hide after a Keep of a message in
+            // it, which the Keep's own confirmation answers.
+            if let Intent::Keep { item, from } = intent {
                 self.problem(Problem::Command {
-                    command,
+                    command: Command::Keep { item, from },
                     why: Failure::NoSuchRow,
                 });
             }
