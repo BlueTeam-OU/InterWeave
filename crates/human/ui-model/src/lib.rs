@@ -26,6 +26,7 @@ pub use model::{
     Announce, Composer, Confirmation, ConversationKey, ConversationSummary, DEDUP_CAP, Direction,
     FocusTarget, HELD_UPDATE_CAP, Intent, ItemDiagnostics, ItemKey, ItemStatus, ListedInbound,
     ListedOutbound, MessageItem, Outcome, Released, Reply, Retention, RouteLabel, RowAction,
-    SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table, Trust, UiModel, ViewEvent,
+    SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table, Trust, UiModel, UndoClosed,
+    ViewEvent,
 };
 pub use trust::{EntryProblem, TrustChange, TrustInput, TrustOutcome, TrustSettings};

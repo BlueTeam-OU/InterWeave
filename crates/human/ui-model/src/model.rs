@@ -28,6 +28,7 @@ mod swipe;
 
 pub use swipe::{
     Announce, Confirmation, FocusTarget, Outcome, Released, RowAction, Snackbar, SwipeOffer,
+    UndoClosed,
 };
 
 /// How many items the model holds that the store no longer does --

@@ -13,7 +13,7 @@ use interweave_human_client_api::{
 use interweave_human_core::{AppMessageId, RowId};
 use interweave_human_ui_model::{
     Announce, Confirmation, ConversationKey, FocusTarget, Intent, ItemKey, ListedInbound, Reply,
-    RowAction, SESSION_ITEM_CAP, SwipeOffer, Table, UiModel,
+    RowAction, SESSION_ITEM_CAP, SwipeOffer, Table, UiModel, UndoClosed,
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportIdentity};
@@ -1123,4 +1123,182 @@ fn retry_makes_no_outcome_so_focus_stays() {
     );
     assert_eq!(model.outcome().map(|o| o.id), before);
     assert_eq!(model.row_actions(c), [RowAction::Retry, RowAction::Cancel]);
+}
+
+// --- focus when the snackbar closes under its Undo (§7, §8, §10) -----------
+
+/// The latest snackbar closed with no Undo taken, as `(conversation,
+/// focus)`, and that it is new since `before`.
+fn closed_since(model: &UiModel, before: Option<u64>) -> (Option<ConversationKey>, FocusTarget) {
+    let closed: &UndoClosed = model.undo_closed().expect("a snackbar closed");
+    assert_ne!(Some(closed.id), before, "a new one, for the view to act on");
+    (closed.conversation.clone(), closed.focus.clone())
+}
+
+fn closed_id(model: &UiModel) -> Option<u64> {
+    model.undo_closed().map(|c| c.id)
+}
+
+#[test]
+fn a_kept_or_unkept_rows_snackbar_closing_names_that_row() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let a = read(&mut model, &p, 1, 1);
+    let _b = read(&mut model, &p, 2, 2);
+    model.kept(a, row(10));
+    let before = closed_id(&model);
+    model.snackbar_closed(snack_id(&model));
+    assert_eq!(
+        closed_since(&model, before),
+        (Some(key(&p)), FocusTarget::Item(a))
+    );
+    model.unkept(row(10));
+    let before = closed_id(&model);
+    model.snackbar_closed(snack_id(&model));
+    assert_eq!(closed_since(&model, before).1, FocusTarget::Item(a));
+}
+
+#[test]
+fn a_removed_rows_snackbar_closing_names_its_place() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let a = read(&mut model, &p, 1, 1);
+    let b = read(&mut model, &p, 2, 2);
+    let c = pending(&mut model, &p, 3, 3);
+    model.hide(a);
+    let before = closed_id(&model);
+    model.snackbar_closed(snack_id(&model));
+    assert_eq!(
+        closed_since(&model, before).1,
+        FocusTarget::Item(b),
+        "the next row"
+    );
+    cancel(&mut model, 3, true);
+    let before = closed_id(&model);
+    model.snackbar_closed(snack_id(&model));
+    assert_eq!(
+        closed_since(&model, before).1,
+        FocusTarget::Item(b),
+        "the previous row"
+    );
+    assert!(!shown(&model, &key(&p)).contains(&c), "control: cancelled");
+    model.hide(b);
+    let before = closed_id(&model);
+    model.snackbar_closed(snack_id(&model));
+    assert_eq!(
+        closed_since(&model, before).1,
+        FocusTarget::Header(key(&p)),
+        "no row left"
+    );
+}
+
+#[test]
+fn a_snackbar_replaced_by_a_newer_one_names_the_older_actions_row() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let a = read(&mut model, &p, 1, 1);
+    let b = read(&mut model, &p, 2, 2);
+    let c = read(&mut model, &p, 3, 3);
+    model.hide(a);
+    let before = closed_id(&model);
+    model.kept(c, row(10));
+    assert_eq!(closed_since(&model, before).1, FocusTarget::Item(b));
+}
+
+#[test]
+fn an_undo_pressed_with_nothing_left_to_undo_names_the_row() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let a = read(&mut model, &p, 1, 1);
+    let b = pending(&mut model, &p, 2, 2);
+    cancel(&mut model, 2, false);
+    let id = snack_id(&model);
+    assert!(
+        !model.snackbar().expect("up").undo,
+        "control: no record held"
+    );
+    let before = closed_id(&model);
+    assert_eq!(model.undo(id), None);
+    assert!(!shown(&model, &key(&p)).contains(&b));
+    assert_eq!(closed_since(&model, before).1, FocusTarget::Item(a));
+}
+
+#[test]
+fn a_dismissed_message_whose_copy_arrives_names_the_returned_row() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let a = read(&mut model, &p, 1, 1);
+    let _b = read(&mut model, &p, 2, 2);
+    model.hide(a);
+    let before = closed_id(&model);
+    model.unread_listed(vec![ListedInbound {
+        row: row(3),
+        origin: Origin::Direct {
+            peer: p.clone(),
+            endpoint: endpoint("human"),
+        },
+        envelope: envelope(1, "hello"),
+        received_at: 3,
+    }]);
+    assert!(model.snackbar().is_none(), "control: the copy closes it");
+    assert!(shown(&model, &key(&p)).contains(&a), "control: back");
+    assert_eq!(
+        closed_since(&model, before),
+        (Some(key(&p)), FocusTarget::Item(a))
+    );
+}
+
+#[test]
+fn a_hidden_conversation_names_its_row_when_a_message_brings_it_back() {
+    let (p, q) = (peer(), peer());
+    let mut model = UiModel::new();
+    let _ = read(&mut model, &p, 1, 1);
+    let _ = read(&mut model, &q, 2, 2);
+    model.hide_conversation(&key(&p));
+    let before = closed_id(&model);
+    let _ = unread(&mut model, &p, 3, 3);
+    assert!(model.snackbar().is_none(), "control: the arrival closes it");
+    assert_eq!(
+        closed_since(&model, before),
+        (None, FocusTarget::Conversation(key(&p)))
+    );
+}
+
+#[test]
+fn a_conversation_hides_snackbar_closing_names_its_place_on_the_list() {
+    let (p, q) = (peer(), peer());
+    let mut model = UiModel::new();
+    let _ = read(&mut model, &p, 1, 1);
+    let _ = read(&mut model, &q, 2, 2);
+    let first = model.conversations()[0].key.clone();
+    let second = model.conversations()[1].key.clone();
+    model.hide_conversation(&first);
+    let before = closed_id(&model);
+    model.snackbar_closed(snack_id(&model));
+    assert_eq!(
+        closed_since(&model, before),
+        (None, FocusTarget::Conversation(second.clone()))
+    );
+    model.hide_conversation(&second);
+    let before = closed_id(&model);
+    model.snackbar_closed(snack_id(&model));
+    assert_eq!(
+        closed_since(&model, before).1,
+        FocusTarget::ConversationsHeading
+    );
+}
+
+#[test]
+fn an_undo_taken_names_no_closing() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let a = read(&mut model, &p, 1, 1);
+    model.hide(a);
+    let before = closed_id(&model);
+    assert_eq!(model.undo(snack_id(&model)), None, "Unhide is the model's");
+    assert_eq!(
+        closed_id(&model),
+        before,
+        "the Undo's own focus rule applies"
+    );
 }

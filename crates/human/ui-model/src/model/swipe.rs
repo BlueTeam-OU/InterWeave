@@ -127,6 +127,25 @@ pub struct Outcome {
     pub moves_from: Option<FocusTarget>,
 }
 
+/// A snackbar closed with no Undo taken -- its timeout, a swipe away, a
+/// newer snackbar, leaving, an arrival (§7, §8, §10): where focus goes if
+/// the closed snackbar's Undo held it, since that control is gone. The
+/// view knows where focus was, and acts on each `id` once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndoClosed {
+    /// Its identity.
+    pub id: u64,
+    /// The conversation the snackbar was shown in, or `None` on the
+    /// conversation list. Once the person has left it, focus goes to its
+    /// row on the list instead of `focus` (§7).
+    pub conversation: Option<ConversationKey>,
+    /// The row the closed snackbar's action was about, if it is still
+    /// shown, else where focus goes after its removal: the next row, the
+    /// previous one, the header title, or on the list the next
+    /// conversation, the previous one, the list's heading.
+    pub focus: FocusTarget,
+}
+
 /// What a closed snackbar's Undo no longer needs, for the root to let go
 /// of on the facade side ([`UiModel::take_released`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -187,6 +206,9 @@ struct Open {
     confirms: Confirmation,
     conversation: Option<ConversationKey>,
     undo: Undo,
+    /// Where the action sent focus: for a conversation hide, the hidden
+    /// row's place on the list, which the list no longer holds.
+    sent_focus: Option<FocusTarget>,
 }
 
 /// An Undo raised and not answered yet: its result restores the state
@@ -214,6 +236,7 @@ pub(super) struct SwipeState {
     /// so bounded by the Cancels in flight.
     cancelling: std::collections::HashMap<RowId, u64>,
     outcome: Option<Outcome>,
+    undo_closed: Option<UndoClosed>,
     released: Released,
 }
 
@@ -663,6 +686,7 @@ impl UiModel {
         }
         let open = self.swipe.open.take()?;
         if !self.undo_offered(&open.undo) {
+            self.closed_under(&open);
             self.finish(open);
             return None;
         }
@@ -701,6 +725,7 @@ impl UiModel {
         if self.swipe.open.as_ref().map(|o| o.id) == Some(id)
             && let Some(open) = self.swipe.open.take()
         {
+            self.closed_under(&open);
             self.finish(open);
         }
     }
@@ -709,6 +734,13 @@ impl UiModel {
     #[must_use]
     pub const fn outcome(&self) -> Option<&Outcome> {
         self.swipe.outcome.as_ref()
+    }
+
+    /// The latest snackbar closed with no Undo taken, for the view to act
+    /// on once by its id: where focus goes if that Undo held it.
+    #[must_use]
+    pub const fn undo_closed(&self) -> Option<&UndoClosed> {
+        self.swipe.undo_closed.as_ref()
     }
 
     /// What closed snackbars no longer need, for the root to let go of.
@@ -729,6 +761,7 @@ impl UiModel {
         // One at a time: a new one replaces the old, and the old one's
         // Undo goes with it (§6).
         if let Some(old) = self.swipe.open.take() {
+            self.closed_under(&old);
             self.finish(old);
         }
         self.swipe.seq += 1;
@@ -737,6 +770,7 @@ impl UiModel {
             confirms,
             conversation,
             undo,
+            sent_focus: focus.clone(),
         });
         self.set_outcome(Some(Announce::Confirmed(confirms)), focus, moves_from);
     }
@@ -787,6 +821,50 @@ impl UiModel {
         }
     }
 
+    /// Snackbar `open` closed with no Undo taken: say where focus goes if
+    /// its Undo held it (§7). Called before [`Self::finish`] drops what the
+    /// Undo held, since a removed row's place is found by it.
+    fn closed_under(&mut self, open: &Open) {
+        let shown = |key: &ItemKey| self.items.get(key).is_some_and(|i| !i.hidden);
+        let about = |key: ItemKey| {
+            if shown(&key) {
+                return Some(FocusTarget::Item(key));
+            }
+            open.conversation
+                .as_ref()
+                .and_then(|c| self.focus_after_leaving(c, key))
+        };
+        let focus = match &open.undo {
+            Undo::Unkeep { item, .. } | Undo::Keep { item } | Undo::Restore { item, .. } => {
+                about(*item)
+            }
+            Undo::Unhide {
+                conversation: Some(c),
+                ..
+            } => {
+                if self.conversations().iter().any(|row| &row.key == c) {
+                    Some(FocusTarget::Conversation(c.clone()))
+                } else {
+                    open.sent_focus.clone()
+                }
+            }
+            Undo::Unhide { items, .. } => items.first().and_then(|k| about(*k)),
+        };
+        // No row left to name: the conversation's header title, or the
+        // list's heading -- never lost.
+        let focus = focus.unwrap_or_else(|| {
+            open.conversation
+                .clone()
+                .map_or(FocusTarget::ConversationsHeading, FocusTarget::Header)
+        });
+        self.swipe.seq += 1;
+        self.swipe.undo_closed = Some(UndoClosed {
+            id: self.swipe.seq,
+            conversation: open.conversation.clone(),
+            focus,
+        });
+    }
+
     fn unhide(&mut self, items: &[ItemKey]) {
         for key in items {
             if let Some(item) = self.items.get_mut(key) {
@@ -809,9 +887,10 @@ impl UiModel {
                 |o| matches!(&o.undo, Undo::Unhide { items, .. } if items.contains(&key)),
             );
         if hid_it && let Some(open) = self.swipe.open.take() {
-            if let Undo::Unhide { items, .. } = open.undo {
-                self.unhide(&items);
+            if let Undo::Unhide { items, .. } = &open.undo {
+                self.unhide(items);
             }
+            self.closed_under(&open);
             self.evict();
         } else if was_hidden {
             self.evict();
@@ -826,10 +905,10 @@ impl UiModel {
             |o| matches!(&o.undo, Undo::Unhide { conversation: Some(c), .. } if c == conversation),
         );
         if hid_it && let Some(open) = self.swipe.open.take() {
-            let Undo::Unhide { items, .. } = open.undo else {
-                return;
-            };
-            self.unhide(&items);
+            if let Undo::Unhide { items, .. } = &open.undo {
+                self.unhide(items);
+            }
+            self.closed_under(&open);
             self.evict();
         }
     }
