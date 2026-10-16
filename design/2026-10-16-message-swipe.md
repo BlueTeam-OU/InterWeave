@@ -140,7 +140,12 @@ happened.
   the old one, and the old one's Undo goes with it. A Cancel's snackbar
   waits for the facade's answer (§8), and until then the old snackbar
   stays, with its Undo. The old snackbar is replaced only when the
-  Cancel succeeds, and stays if the Cancel is refused.
+  Cancel succeeds, and stays if the Cancel is refused. If the person
+  takes another action with a snackbar before the Cancel's answer
+  comes, that newer snackbar stays, with its Undo. The Cancel's late
+  success is then only announced, with §8's words, and shows no
+  snackbar, so it has no Undo. A late answer never takes away the Undo
+  of an action taken after it.
 - Shown for 6 s, or for `AccessibilityManager.getRecommendedTimeoutMillis(6000,
   FLAG_CONTENT_TEXT | FLAG_CONTENT_CONTROLS)` if that is longer (TalkBack
   users get the time their setting asks for). It is never shown for more
@@ -542,7 +547,12 @@ TalkBack off and once with it on, and once with "Remove animations" on.
       the cancelled record with its ids, destination, media type,
       stored bytes and attempt count unchanged;
     - the Undo of Dismiss raises nothing.
-19. With a store that refuses writes (in the app-core or ui-model tests,
+19. While a Cancel waits for the facade's answer (a slowed store in the
+    app-core tests, or on a device if a test build can slow it),
+    dismissing another row keeps the "Dismissed" snackbar and its Undo.
+    The Cancel's success that arrives after it is announced and shows
+    no snackbar.
+20. With a store that refuses writes (in the app-core or ui-model tests,
     and on a device if a test build can make storage refuse):
     - a refused Cancel shows no snackbar. Its row returns in the state
       the facade reports, and the storage notice shows;
