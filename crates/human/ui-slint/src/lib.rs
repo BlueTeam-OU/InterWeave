@@ -1032,7 +1032,7 @@ impl View {
                     description: description.into(),
                     selected: self.shown.as_ref() == Some(&summary.key),
                     hide: swipe::kind(hide.then_some(RowAction::Hide)),
-                    hide_label: swipe::action_text(RowAction::Hide).into(),
+                    hide_label: placeholder_en::text(UiText::HideShort).into(),
                     leaving: false,
                 }
             })
@@ -1905,7 +1905,7 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         Intent::Cancel(_) => UiText::Cancel,
         Intent::Keep { .. } => UiText::Keep,
         Intent::Unkeep(_) => UiText::Unkeep,
-        Intent::Hide(_) => UiText::Hide,
+        Intent::Hide(_) => UiText::Dismiss,
         Intent::HideConversation(_) => UiText::HideConversation,
         Intent::Reopen => UiText::TryAgain,
         Intent::RecheckStorage => UiText::RecheckStorage,

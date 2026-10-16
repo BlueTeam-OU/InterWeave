@@ -220,7 +220,7 @@ pub(crate) const fn kind(action: Option<RowAction>) -> SwipeKind {
 pub(crate) const fn action_text(action: RowAction) -> &'static str {
     placeholder_en::text(match action {
         RowAction::Keep => UiText::Keep,
-        RowAction::Hide => UiText::Hide,
+        RowAction::Hide => UiText::Dismiss,
         RowAction::Unkeep => UiText::Unkeep,
         RowAction::Retry => UiText::Retry,
         RowAction::Cancel => UiText::Cancel,
@@ -232,7 +232,7 @@ pub(crate) const fn action_text(action: RowAction) -> &'static str {
 pub(crate) fn confirmation_text(confirms: Confirmation) -> &'static str {
     match confirms {
         Confirmation::Kept => placeholder_en::text(UiText::ConfirmKept),
-        Confirmation::Hidden => placeholder_en::text(UiText::ConfirmHidden),
+        Confirmation::Hidden => placeholder_en::text(UiText::ConfirmDismissed),
         Confirmation::Unkept => placeholder_en::text(UiText::ConfirmUnkept),
         Confirmation::ConversationHidden => placeholder_en::text(UiText::ConfirmConversationHidden),
         Confirmation::Cancelled {

@@ -176,7 +176,7 @@ fn a_read_rows_buttons_are_keep_and_hide_each_48_by_48() {
     let alice = peer();
     read(&mut model, 1, &alice, "hello");
     open(&mut view, &mut model, &direct(&alice));
-    for label in [text(UiText::Keep), text(UiText::Hide)] {
+    for label in [text(UiText::Keep), text(UiText::Dismiss)] {
         let found = labelled(&view, label);
         assert_eq!(found.len(), 1, "one {label} button");
         let size = found[0].size();
@@ -286,9 +286,9 @@ fn a_hide_is_confirmed_announced_focused_and_undone_in_place() {
     assert!(view.window().get_snack_shown());
     assert_eq!(
         view.window().get_snack_text().as_str(),
-        text(UiText::ConfirmHidden)
+        text(UiText::ConfirmDismissed)
     );
-    assert_eq!(announced(&view), text(UiText::ConfirmHidden));
+    assert_eq!(announced(&view), text(UiText::ConfirmDismissed));
     assert_eq!(
         view.window().get_focus_id().as_str(),
         format!("action:{second_handle}:0"),
@@ -317,7 +317,7 @@ fn a_leaving_rows_space_closes_and_then_it_goes() {
     read(&mut model, 1, &alice, "first");
     read(&mut model, 2, &alice, "second");
     open(&mut view, &mut model, &direct(&alice));
-    let hide = labelled(&view, text(UiText::Hide));
+    let hide = labelled(&view, text(UiText::Dismiss));
     hide[0].invoke_accessible_default_action();
     let _ = turn(&mut view, &mut model);
     let rows = view.window().get_messages();
@@ -420,7 +420,7 @@ fn a_conversation_whose_rows_are_all_hidden_keeps_its_header() {
     open(&mut view, &mut model, &direct(&alice));
     let title = view.window().get_header_title().to_string();
     assert!(!title.is_empty(), "control");
-    labelled(&view, text(UiText::Hide))[0].invoke_accessible_default_action();
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
     let _ = turn(&mut view, &mut model);
     assert_eq!(view.window().get_header_title().as_str(), title);
     assert_ne!(
@@ -441,7 +441,7 @@ fn closings_and_leavings_wait_once_each() {
     let alice = peer();
     read(&mut model, 1, &alice, "first");
     open(&mut view, &mut model, &direct(&alice));
-    labelled(&view, text(UiText::Hide))[0].invoke_accessible_default_action();
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
     let _ = turn(&mut view, &mut model);
     assert!(model.snackbar().is_some(), "control");
     let before = view.queued_inputs();
