@@ -139,10 +139,7 @@ happened.
 - Shown for 6 s, or for `AccessibilityManager.getRecommendedTimeoutMillis(6000,
   FLAG_CONTENT_TEXT | FLAG_CONTENT_CONTROLS)` if that is longer (TalkBack
   users get the time their setting asks for). It is never shown for more
-  than 2 minutes, the longest the platform setting offers. That stays
-  well inside the receiver's 5-minute dedup window (ADR-0019), so an
-  undone cancel is answered from the receiver's entry if it got the
-  first attempt.
+  than 2 minutes, the longest the platform setting offers.
 - Its Undo is a button with a touch target of at least 48 × 48 dp,
   reachable by TalkBack and by a hardware keyboard.
 - An Undo restores exactly the state before the swipe. Two undos in a
@@ -242,11 +239,14 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     would wrongly say the cancelled attempt never reached the
     receiver;
   - the receiver dedups a direct message by its transport message id.
-    So if an attempt was admitted at the receiver before Cancel ran and
+    If an attempt was admitted at the receiver before Cancel ran and
     only its answer was lost, the undone send is answered from the
-    receiver's dedup entry within its 5-minute window, not delivered
-    twice. Past that window it is an ordinary retry. The client never
-    claims exactly-once (RETENTION.md §2);
+    receiver's dedup entry while that entry exists. The entry is bounded
+    by its TTL and by eviction, and never survives the receiver's
+    restart (ADR-0019). The restored record may go out long after the
+    snackbar, and once the entry is gone the receiver may present the
+    message again, as for any retry. The client never claims
+    exactly-once (RETENTION.md §2);
   - what the session holds for that Undo is the record (both ids and
     the bytes), not the rendered text.
   If the facade or store cannot restore a cancelled record under its
