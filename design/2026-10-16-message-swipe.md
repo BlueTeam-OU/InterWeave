@@ -141,7 +141,7 @@ happened.
   waits for the facade's answer (§8), and until then the old snackbar
   stays, with its Undo. The old snackbar is replaced only when the
   Cancel succeeds, and stays if the Cancel is refused. If the Cancel's
-  success arrives while a newer snackbar is up (the person took another
+  success arrives while a newer snackbar is shown (the person took another
   action after the Cancel), that newer snackbar stays, with its Undo.
   The Cancel's success is then only announced, with §8's words, and
   has no snackbar and so no Undo. If the newer snackbar has already
@@ -328,8 +328,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     the state the facade reports by then. It stayed pending in the
     transport, so it may already be Sending or accepted by the remote
     transport;
-  - the Cancel's snackbar (either text, above) is shown only once the facade has
-    answered that the Cancel succeeded. A refused Cancel shows none;
+  - the Cancel's snackbar (either text, above) is shown only once the
+    facade has answered that the Cancel succeeded. A refused Cancel shows none;
   - the existing storage notice and refusal announcement apply;
   - if focus had moved off the row when it slid out, it returns to the
     row's first control; otherwise it stays where it was.
@@ -468,14 +468,16 @@ snackbar Undo; right = nothing."
   unread rows, but a conversation offered for hiding has none.
 - **Focus** moves after a hide only if it was inside the conversation's
   row, as for a message (§7). It goes to the next conversation row, or
-  the previous one if it was the last, or the Chats screen's "Conversations"
-  heading (§7) if the hidden conversation was the only row. A touch that
+  the previous one if it was the last, or the Chats screen's
+  "Conversations" heading (§7) if the hidden conversation was the only
+  row. A touch that
   swiped the row leaves focus where it was. After Undo, it goes to the
   restored row.
 - **Focus after the header's "Hide conversation"**, which returns to
   the list (the way a TalkBack user hides a conversation): focus goes
   as after a swipe, to the next conversation row, else the previous
-  one, else the Chats screen's "Conversations" heading. It never goes to the top of the list, and is never lost.
+  one, else the Chats screen's "Conversations" heading. It never goes
+  to the top of the list, and is never lost.
 - Announced as §7, with the snackbar's words.
 
 ## 11. Acceptance — what a reviewer checks on a device
@@ -566,7 +568,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 19. While a Cancel waits for the facade's answer (a slowed store in the
     app-core tests, or on a device if a test build can slow it),
     dismissing another row keeps the "Dismissed" snackbar and its Undo.
-    The Cancel's success, arriving while that snackbar is up, is
+    The Cancel's success, arriving while that snackbar is shown, is
     announced and shows no snackbar. When the "Dismissed" snackbar has
     already closed before the success arrives, the Cancel's own
     snackbar shows, with its Undo.
@@ -614,4 +616,4 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     | Chats: a new message restores a hidden conversation (§10) | stays where it was | keyboard |
     | Chats: a swipe with TalkBack on | cannot occur, as above | — |
 
-    The two headings take focus (§7), and focus is never on nothing.
+    The two headings take focus (§7), so focus is never lost.
