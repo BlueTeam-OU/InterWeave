@@ -28,8 +28,8 @@ use interweave_human_ui_model::{
 use interweave_human_ui_slint::{INPUT_CAP, View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
-use slint::ComponentHandle as _;
 use slint::platform::{Key, WindowEvent};
+use slint::{ComponentHandle as _, Model as _};
 
 fn peer() -> TransportIdentity {
     ProfileIdentity::generate()
@@ -117,6 +117,8 @@ fn intents(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
                 ViewEvent::Intent(intent) => out.push(intent),
                 ViewEvent::DraftChanged { key, draft } => model.draft_changed(key, draft),
                 ViewEvent::Trust(input) => out.extend(model.trust_settings_mut().input(input)),
+                ViewEvent::Undo(id) => out.extend(model.undo(id)),
+                ViewEvent::SnackbarClosed(id) => model.snackbar_closed(id),
             }
         }
     }
@@ -1298,6 +1300,38 @@ fn a_queue_drained_at_each_take_holds_at_most_four_times_the_cap_plus_three() {
     );
 }
 
+/// The queue's bound with leaving for the list too, at its worst order: a
+/// focus change beside every input, an edit and a Left beside every
+/// selection -- six times the cap plus one here, and with the two snackbar
+/// closings and a focus change beside each, six times the cap plus nine
+/// at most (review F4 on #289, rounds 1 and 2).
+#[test]
+fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "unread"));
+    open(&mut view, &mut model, &direct(&alice));
+    let handle = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    for n in 0..INPUT_CAP * 2 {
+        view.set_window_focused(true);
+        view.window().invoke_select(handle);
+        view.set_window_focused(false);
+        type_into(&view, &format!("draft {n}"));
+        view.set_window_focused(true);
+        view.window().invoke_left_conversation();
+    }
+    // Each press with its edit, its Left and three focus changes, and one
+    // focus change more: what this order reaches, and under the bound.
+    assert_eq!(view.queued_inputs(), 6 * INPUT_CAP + 1);
+    assert!(view.queued_inputs() <= 6 * INPUT_CAP + 9);
+}
+
 /// Review F1: a render that changes nothing about an item keeps focus on
 /// its action button -- the next Tab continues from it.
 #[test]
@@ -2345,6 +2379,126 @@ fn leaving_drops_a_waiting_change_and_a_non_peer_id_is_said() {
         None,
         "dropped, never made"
     );
+}
+
+/// A narrow window that went back to the list no longer shows the
+/// conversation: a message arriving in it is not read, and stays unread
+/// until the person opens it again.
+#[test]
+fn a_conversation_left_for_the_list_reads_nothing() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let read = open(&mut view, &mut model, &direct(&bob));
+    assert_eq!(
+        read,
+        vec![Intent::MarkRead(RowId::from_stored(1))],
+        "control"
+    );
+    model.read(RowId::from_stored(1));
+    view.window().invoke_left_conversation();
+    let _ = intents(&mut view, &mut model);
+
+    model.received(received(2, &bob, "arrives while the list is shown"));
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read from the list: {raised:?}");
+
+    let read = open(&mut view, &mut model, &direct(&bob));
+    assert_eq!(
+        read,
+        vec![Intent::MarkRead(RowId::from_stored(2))],
+        "read once opened again"
+    );
+}
+
+/// Closing the trust settings in a narrow window shows the list, so the
+/// conversation they covered is still not on screen: an arrival there is
+/// not read. In a wide window it is shown again, and read (review PE1 on
+/// #289).
+#[test]
+fn closing_the_trust_settings_to_the_list_reads_nothing() {
+    assert!(!arrival_read_after_closing_trust(true));
+}
+
+/// Back to the list, the trust settings opened and closed back to the
+/// list, all before a take: the second Left still counts, and the
+/// conversation is not on screen (review N1 on #289).
+#[test]
+fn back_then_the_trust_settings_in_one_take_reads_nothing() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    model.read(RowId::from_stored(1));
+    view.window().invoke_left_conversation();
+    view.window().invoke_open_trust();
+    view.window().invoke_close_trust(true);
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    model.received(received(2, &bob, "arrives on the list"));
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read from the list: {raised:?}");
+}
+
+/// The same through the settings' own back control in a narrow window:
+/// the window says it shows the list (review N2 on #289).
+#[test]
+fn the_narrow_settings_back_control_returns_to_the_list() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(400.0, 800.0));
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    model.read(RowId::from_stored(1));
+    view.window().invoke_open_trust();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    let back = labelled(&view, text(UiText::BackToConversations));
+    assert_eq!(back.len(), 1, "the settings' back control alone");
+    back[0].invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    model.received(received(2, &bob, "arrives on the list"));
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read from the list: {raised:?}");
+}
+
+/// The control: a wide window shows the conversation again, and reads it.
+#[test]
+fn closing_the_trust_settings_to_the_conversation_reads_it() {
+    assert!(arrival_read_after_closing_trust(false));
+}
+
+/// Whether a message arriving after the trust settings close -- to the
+/// list or to the conversation -- is read.
+fn arrival_read_after_closing_trust(to_list: bool) -> bool {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    model.read(RowId::from_stored(1));
+    view.window().invoke_open_trust();
+    let _ = intents(&mut view, &mut model);
+    view.window().invoke_close_trust(to_list);
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+
+    model.received(received(2, &bob, "arrives after the settings"));
+    view.render(&model);
+    intents(&mut view, &mut model).contains(&Intent::MarkRead(RowId::from_stored(2)))
 }
 
 /// Read is a retention act (RETENTION.md): a conversation the trust

@@ -23,6 +23,8 @@ The caller-facing surface was agreed with the client's role before it was built 
 - `Published`: published locally, not delivered to any recipient in particular.
 - `Cancelled { may_have_reached }`. After a restart, `may_have_reached` is derived as `attempts > 0`. An attempt is recorded before the transport call, so this errs only toward "may".
 
+`cancel` hands back the record it deleted (`CancelledSend`), or nothing when a restore could not be written: the record could not be read first, or storage is degraded. `restore` takes that record back as the person's undo (`RETENTION.md` §2, case 16): it commits it again with both ids, the destination, the media type, the stored bytes and the attempt count unchanged, under a new row id, and attempts it as a retry. The restored row starts with the `may_have_reached` the cancelled one had. `restore` fails, committing and sending nothing, in the same configuration and storage cases as `send`.
+
 `send` commits nothing, and returns an error, in these cases:
 - the envelope is too large;
 - it is not one a receiver would accept;

@@ -47,6 +47,10 @@ yeslogic-fontconfig-sys = { workspace = true }
 desktop = [
     "slint/backend-winit",
     "slint/renderer-software",
+    # The swipe icons are paths (ui/app.slint SwipeIcon), which the
+    # software renderer draws only with this; its crates are in the graph
+    # already.
+    "slint/software-renderer-path",
     "slint/accessibility",
     "slint/unstable-winit-030",
     # The font stack the renderer uses, asked for the platform's

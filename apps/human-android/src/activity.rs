@@ -14,7 +14,7 @@ use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide};
 use interweave_human_app_core::{ModelSide, Opener, Problem, Surface};
 use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent};
 use interweave_human_ui_slint::{
-    ActivityEvent, AndroidApp, View, defer, init_android, invoke_on_window,
+    ActivityEvent, AndroidApp, TouchSettings, View, defer, init_android, invoke_on_window,
 };
 
 use crate::jni::log;
@@ -68,6 +68,59 @@ impl Ask {
 }
 
 pub(crate) static NETWORK_ASK: Ask = Ask::new();
+
+/// A swipe armed: the Activity plays the platform's haptic tick, on its
+/// own thread's wait (`Native.waitHaptic`), so nothing here calls into
+/// the JVM.
+pub(crate) static HAPTIC: Ask = Ask::new();
+
+/// The platform's touch values as the Activity last read them
+/// (`Native.touch`): kept for a window that starts after they were read.
+static TOUCH: Mutex<Option<TouchSettings>> = Mutex::new(None);
+
+/// The Activity read its touch values again -- at its start, at a resume,
+/// at a layout change: the window takes them.
+pub(crate) fn touch_changed(settings: TouchSettings) {
+    *TOUCH.lock().unwrap_or_else(PoisonError::into_inner) = Some(settings);
+    invoke_on_window(apply_touch);
+}
+
+fn apply_touch() {
+    let settings = *TOUCH.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some(settings) = settings else {
+        return;
+    };
+    let applied = ROOT.with(|root| {
+        let Ok(root) = root.try_borrow() else {
+            return false;
+        };
+        if let Some(root) = root.as_ref() {
+            root.view.borrow().set_touch_settings(settings);
+        }
+        true
+    });
+    if !applied {
+        defer(apply_touch);
+    }
+}
+
+/// The app left the foreground: the snackbar closes (swipe spec §5).
+fn stopped() {
+    let applied = ROOT.with(|root| {
+        let Ok(root) = root.try_borrow() else {
+            return false;
+        };
+        if let Some(root) = root.as_ref() {
+            root.view.borrow().close_snackbar();
+        }
+        true
+    });
+    if applied {
+        defer(turn);
+    } else {
+        defer(stopped);
+    }
+}
 
 /// What the window opens outside itself: links not yet -- the platform's
 /// intent is a later step, and a link pressed now is logged, never
@@ -192,6 +245,7 @@ fn android_main(app: AndroidApp) {
     log("android_main: the Activity's views start");
     if let Err(e) = init_android(app, |event| match event {
         ActivityEvent::Focus(focused) => focus(focused),
+        ActivityEvent::Stop => stopped(),
         ActivityEvent::Destroy => ServiceHost::global().hub().set_focused(false),
     }) {
         log(&format!("the views' platform could not be set: {e}"));
@@ -206,8 +260,11 @@ fn android_main(app: AndroidApp) {
     };
     let handle = view.handle();
     view.set_wake(|| defer(turn));
+    view.on_haptic(|| HAPTIC.raise());
     let view = Rc::new(RefCell::new(view));
     ROOT.with(|root| *root.borrow_mut() = Some(Root::attach(view)));
+    // Values the Activity read before this window existed.
+    defer(apply_touch);
     defer(turn);
     if let Err(e) = handle.run() {
         log(&format!("the event loop ended: {e}"));

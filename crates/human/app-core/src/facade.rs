@@ -12,9 +12,9 @@
 use std::collections::{HashMap, VecDeque};
 
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
-use interweave_human_client_api::{ClientEvent, Destination, Diagnostics, RowError};
+use interweave_human_client_api::{ClientEvent, Destination, Diagnostics, RowError, SendError};
 use interweave_human_store::{ReadEphemeral, RowId, StoreError};
-use interweave_human_transport_client::TransportClient;
+use interweave_human_transport_client::{CancelledSend, TransportClient};
 use interweave_human_ui_model::{ConversationKey, Table};
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 
@@ -29,6 +29,17 @@ use crate::protocol::{Command, Failure, Listing, Update};
 /// model stops offering it).
 pub const READ_COPY_CAP: usize = 256;
 
+/// How many cancelled records the facade side holds for an Undo, at most:
+/// past it the oldest goes. The open snackbar's record is the newest answer
+/// the model has applied, so only records of cancels still in flight are
+/// newer, and the model side keeps at most this many minus two of them
+/// (`ModelSide::turn`): the open record is never the one evicted, however
+/// late the answers come. Records of closed snackbars are let go with
+/// `ForgetCancelled` at the next turn, and any still held are older, so
+/// evicted first. Each holds a message's bytes, up to the 48 KiB payload
+/// limit, so this is about 3 MiB at most.
+pub const CANCELLED_CAP: usize = 65;
+
 /// How many received messages one turn hands over, at most.
 const DRAIN_PER_TURN: usize = 64;
 
@@ -37,6 +48,12 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     client: TransportClient<B, A>,
     wall: Box<dyn Fn() -> u64 + Send + Sync>,
     copies: ReadCopies<ReadEphemeral>,
+    /// The records cancels deleted, for their snackbars' Undo, by row: let
+    /// go when a snackbar closes or is replaced, or its Undo runs. More than
+    /// one, since a cancel can run before the Undo of the snackbar it
+    /// replaces (review F2 on #289); at most [`CANCELLED_CAP`], the oldest
+    /// going first.
+    cancelled: VecDeque<CancelledSend>,
     reported: Option<Diagnostics>,
 }
 
@@ -52,6 +69,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             client,
             wall: Box::new(wall),
             copies: ReadCopies::default(),
+            cancelled: VecDeque::new(),
             reported: None,
         }
     }
@@ -152,7 +170,53 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Command::Retry(row) => Box::pin(self.client.retry(*row, now))
                 .await
                 .map_err(|e| row_failure(&e)),
-            Command::Cancel(row) => self.client.cancel(*row).map_err(|e| row_failure(&e)),
+            Command::Cancel(row) => match self.client.cancel(*row) {
+                Ok(record) => {
+                    // The row's Cancelled status first, so the model reads
+                    // whether it may have reached the remote from it.
+                    while let Some(event) = self.client.next_event() {
+                        self.on_event(event, &mut updates);
+                    }
+                    updates.push(Update::Cancelled {
+                        row: *row,
+                        restorable: record.is_some(),
+                    });
+                    if let Some(record) = record {
+                        self.cancelled.push_back(record);
+                        while self.cancelled.len() > CANCELLED_CAP {
+                            self.cancelled.pop_front();
+                        }
+                    }
+                    Ok(())
+                }
+                Err(e) => Err(row_failure(&e)),
+            },
+            Command::Restore(row) => match self
+                .cancelled
+                .iter()
+                .position(|c| c.row() == *row)
+                .and_then(|at| self.cancelled.remove(at))
+            {
+                None => Err(Failure::NoSuchRow),
+                Some(record) => match Box::pin(self.client.restore(record, now)).await {
+                    Ok(restored) => {
+                        updates.push(Update::Restored {
+                            cancelled: *row,
+                            row: restored,
+                        });
+                        Ok(())
+                    }
+                    Err(e) => Err(restore_failure(&e)),
+                },
+            },
+            Command::ForgetCancelled(row) => {
+                self.cancelled.retain(|c| c.row() != *row);
+                Ok(())
+            }
+            Command::ForgetCopy(from) => {
+                self.copies.remove(from);
+                Ok(())
+            }
             Command::Reopen => {
                 self.client.reopen(now);
                 Ok(())
@@ -234,6 +298,16 @@ fn store_failure(error: &StoreError) -> Failure {
         | StoreError::MalformedAppMessageId { .. }
         | StoreError::TimestampOutOfRange { .. } => Failure::Corrupt,
         _ => Failure::StorageUnavailable,
+    }
+}
+
+/// A refused restore's class. Nothing was committed or sent.
+const fn restore_failure(error: &SendError) -> Failure {
+    match error {
+        SendError::StorageUnavailable => Failure::StorageUnavailable,
+        // Another pending row holds the message, or this session can no
+        // longer send there.
+        _ => Failure::Refused,
     }
 }
 

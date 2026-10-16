@@ -47,6 +47,8 @@ Agreed with the client's role before it was built (relay seqs 10630, 10639 and 1
 - `Keep`, only after read, naming the read or unkeep whose copy it keeps (re-keep within the session, agreed Q6);
 - `Unkeep`;
 - `Retry` and `Cancel` on pending rows;
+- `Hide` on a read, unkept message and `HideConversation` on a conversation holding nothing unread, kept or pending: the root carries them out on the model, which writes nothing (`human-client-ui.md` §6);
+- `Restore`, only from `undo` of a cancel's snackbar;
 - `Send` (`send_draft`);
 - `OpenLink`, only on a person's activation of an allowlisted scheme;
 - `Reopen`;
@@ -54,7 +56,9 @@ Agreed with the client's role before it was built (relay seqs 10630, 10639 and 1
 - `ReadTrust`, when the trust settings open, or after a change whose list was not read back (`take_reread`) -- a re-read that then fails says the list may be stale, never that nothing changed;
 - `SetTrust(change)`, only from `TrustSettings::confirm(shown)` of the change the person proposed in the settings -- the typed PeerId, or a listed peer's removal -- and was shown with its exact PeerId, while it is still the change waiting: a press never confirms a proposal that replaced the one on screen. A change's answer says whether it was made; "nothing was changed" is said only when nothing was, and a change made, or possibly made, whose list was not read back is read again (`take_reread`).
 
-**`ViewEvent`** is what a view hands the root: an `Intent`; a draft edit the root applies with `draft_changed`; or a trust settings input (`TrustInput`) the root applies with `TrustSettings::input`, which returns `ReadTrust` on opening and `SetTrust` on confirmation only. The root applies an edit or an input before it takes the view's events again. It lives here, not in the toolkit crate, so a root that names no toolkit can handle it; `ui-slint` re-exports it.
+**Swipes, Hide and the snackbar** (`design/2026-10-16-message-swipe.md`; `model/swipe.rs`). `row_actions` and `swipe_offer` say what a row's buttons and swipes do, from `actions` and the Hide rule; `intent_for` answers one at commit, so a row whose state changed raises nothing. Every action runs when it is committed: the snackbar (`snackbar()`) confirms a result, and its Undo is the reverse action -- Unkeep after Keep, Keep from the released row after Unkeep, `Restore` after Cancel -- never a cancelled delay; an Undo's result is announced as undone, not confirmed again. A hidden or cancelled message leaves the list at once and the session when its snackbar closes; what its Undo needed is then handed back (`take_released`) for the facade side to let go of. One snackbar at a time, and no Undo that would fail. `outcome()` is the latest result's announcement and focus target, for a view to act on once.
+
+**`ViewEvent`** is what a view hands the root: an `Intent`; a draft edit the root applies with `draft_changed`; the snackbar's Undo or its closing, by its id; or a trust settings input (`TrustInput`) the root applies with `TrustSettings::input`, which returns `ReadTrust` on opening and `SetTrust` on confirmation only. The root applies an edit or an input before it takes the view's events again. It lives here, not in the toolkit crate, so a root that names no toolkit can handle it; `ui-slint` re-exports it.
 
 Only the trust settings' two touch administration, and nothing touches recovery: no intent a message or a conversation offers reaches trust (`tests/section_13.rs`, s13_4 and s13_5). Read is a retention act, so `MarkRead` comes only from `conversation_viewed(key, focused: true)`: never on receipt, never from a notification, never while unfocused, and never from `actions()`.
 
