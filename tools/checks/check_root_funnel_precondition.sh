@@ -53,8 +53,13 @@
 #   3. the crate does not switch off test discovery (`autotests = false`)
 #      unless a [[test]] names root_funnel;
 #   4. .github/workflows/ci.yml runs `cargo test --workspace --all-targets`
-#      on a command line (not a comment), with no --no-run, no libtest
-#      arguments after ` -- `, no `||`, and not excluding this crate.
+#      or `cargo nextest run --workspace --all-targets` on a command line
+#      (not a comment), with no --no-run, no libtest arguments after
+#      ` -- `, no `||`, and not excluding this crate; under nextest, with
+#      none of the options that narrow which tests run (-E, --filterset,
+#      --filter-expr, --partition, --run-ignored), and with no
+#      `default-filter` in .config/nextest.toml, which narrows it from
+#      outside the command line.
 #
 # NOT CHECKED: that the tests measure what their names say (the test's
 # own job and its review's), and CI edits made to defeat this — a step's
@@ -129,14 +134,21 @@ else
     # tools/ci/with_display.sh (plan §18: the session wrapper the Tests
     # step runs in, which runs its command once and returns its status).
     # No other prefix counts. It must run everything and fail CI on a
-    # failure.
-    runs="$(grep -E '^[[:space:]]*(-[[:space:]]*)?(run:[[:space:]]*)?(bash[[:space:]]+tools/ci/with_display\.sh[[:space:]]+)?cargo test ' "$CI" \
+    # failure. `cargo nextest run` counts as `cargo test` does (the Tests
+    # step, since 2026-10-16): it builds the same binaries and runs the
+    # same tests, one process each; its own ways of running fewer do not.
+    runs="$(grep -E '^[[:space:]]*(-[[:space:]]*)?(run:[[:space:]]*)?(bash[[:space:]]+tools/ci/with_display\.sh[[:space:]]+)?cargo (test|nextest run) ' "$CI" \
         | grep -- '--workspace' | grep -- '--all-targets' \
-        | grep -v -- '--no-run' | grep -vE -- ' -- |[|][|]' || true)"
+        | grep -v -- '--no-run' | grep -vE -- ' -- |[|][|]' \
+        | grep -vE -- '[[:space:]](-E|--filterset|--filter-expr|--partition|--run-ignored)([[:space:]=]|$)' || true)"
     if [ -z "$runs" ]; then
-        fail ".github/workflows/ci.yml has no command running cargo test --workspace --all-targets (a comment, --no-run, libtest arguments or || does not count) — present no longer means passes"
+        fail ".github/workflows/ci.yml has no command running cargo test (or cargo nextest run) --workspace --all-targets (a comment, --no-run, libtest arguments, ||, or a nextest filter, partition or --run-ignored does not count) — present no longer means passes"
     elif grep -Eq -- '--exclude[ =]+interweave-transport-libp2p' <<<"$runs"; then
         fail ".github/workflows/ci.yml excludes interweave-transport-libp2p from cargo test — the measurement never runs"
+    fi
+    if grep -q 'cargo nextest run ' <<<"$runs" && [ -f "$ROOT/.config/nextest.toml" ] \
+        && grep -Eq '^[[:space:]]*default-filter[[:space:]]*=' "$ROOT/.config/nextest.toml"; then
+        fail ".config/nextest.toml sets a default-filter — CI's cargo nextest run no longer runs every test"
     fi
 fi
 
@@ -167,5 +179,5 @@ fi
 if [ "$COMPILED" = 1 ]; then
     echo "check_root_funnel_precondition: OK — libtest lists the root funnel's ${#PINNED[@]} measurement tests and none is ignored; the tree runs them under cargo test --all-targets."
 else
-    echo "check_root_funnel_precondition: OK (tree) — root_funnel.rs is present and built through RootFunnel, and CI runs cargo test --all-targets; the compiled listing is checked in the rust job."
+    echo "check_root_funnel_precondition: OK (tree) — root_funnel.rs is present and built through RootFunnel, and CI runs cargo test (or cargo nextest run) --all-targets; the compiled listing is checked in the rust job."
 fi
