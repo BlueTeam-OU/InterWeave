@@ -74,16 +74,6 @@ fn log_event(level: tracing::Level, line: &str) {
     log_at(priority, line);
 }
 
-/// Filter the runtime's log at the level `app_data_dir`'s profile names,
-/// before a start runs it: the default's when the profile cannot be
-/// read, and the start then says why.
-pub(crate) fn log_level_from(app_data_dir: &std::path::Path) {
-    crate::platform_log::set_level(
-        interweave_human_android_platform::profile_log_level(app_data_dir, PROFILE)
-            .unwrap_or(interweave_human_android_platform::LogLevel::Info),
-    );
-}
-
 fn log_at(priority: ndk_sys::android_LogPriority, line: &str) {
     let (Ok(tag), Ok(text)) = (
         CString::new("interweave"),
@@ -247,19 +237,14 @@ fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
         Err(code) => return code,
     };
     let host = ServiceHost::global();
-    // From the file only before a start runs it; once one runs, the
-    // level is the one it loaded (a redelivered start starts nothing).
-    if !host.is_running() {
-        log_level_from(std::path::Path::new(&app_data_dir));
-    }
+    let dir = std::path::PathBuf::from(&app_data_dir);
+    crate::platform_log::follow(host, &dir, PROFILE);
     let started = host.start(ServiceLaunch {
-        app_data_dir: app_data_dir.into(),
+        app_data_dir: dir.clone(),
         profile: PROFILE.to_owned(),
         identity,
     });
-    if let Some(level) = host.log_level() {
-        crate::platform_log::set_level(level);
-    }
+    crate::platform_log::follow(host, &dir, PROFILE);
     match started {
         Ok(()) => match host.availability() {
             Some(AvailabilityMode::StayReachable) => 1,

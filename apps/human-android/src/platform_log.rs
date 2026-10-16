@@ -20,11 +20,33 @@ use tracing::field::{Field, Visit};
 /// sets it.
 static LEVEL: RwLock<LogLevel> = RwLock::new(LogLevel::Info);
 
-/// Filter at `level` from now on: set before each start, from the
-/// profile the start will run, so the runtime's first line is judged at
-/// it too.
+/// Filter at `level` from now on; a start sets it through [`follow`].
 pub(crate) fn set_level(level: LogLevel) {
     *LEVEL.write().unwrap_or_else(PoisonError::into_inner) = level;
+}
+
+/// The level to filter at: the running runtime's where one runs, since
+/// a start while one runs starts nothing and the file may have changed
+/// since; else the one the profile names, which the next start loads;
+/// else the default's (the start then says why the profile is unread).
+/// A Service that runs without a runtime (the network-denied posture)
+/// has none running, so it takes the file's.
+fn level_to_follow(running: Option<LogLevel>, file: impl FnOnce() -> Option<LogLevel>) -> LogLevel {
+    running.or_else(file).unwrap_or(LogLevel::Info)
+}
+
+/// Follow `host`'s level, reading `app_data_dir`'s profile only when no
+/// runtime runs. Called before a start, so the runtime's first line is
+/// judged at the level it will load, and after it, so the level is the
+/// one it did load.
+pub(crate) fn follow(
+    host: &interweave_human_android_platform::ServiceHost,
+    app_data_dir: &std::path::Path,
+    profile: &str,
+) {
+    set_level(level_to_follow(host.log_level(), || {
+        interweave_human_android_platform::profile_log_level(app_data_dir, profile)
+    }));
 }
 
 fn level() -> LogLevel {
@@ -121,6 +143,23 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
     use tracing_subscriber::layer::SubscriberExt as _;
+
+    #[test]
+    fn the_level_followed_is_the_running_runtimes_else_the_files() {
+        use LogLevel::{Debug, Info, Warn};
+        assert_eq!(
+            level_to_follow(Some(Debug), || panic!(
+                "the file is read while a runtime runs"
+            )),
+            Debug
+        );
+        assert_eq!(level_to_follow(None, || Some(Warn)), Warn);
+        assert_eq!(
+            level_to_follow(None, || None),
+            Info,
+            "an unread profile: the default's"
+        );
+    }
 
     /// One test, since the level is the process's: the filter follows it,
     /// the audit record passes at every level, and a line carries its
