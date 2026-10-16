@@ -289,6 +289,12 @@ struct Shared {
     /// flag: every take closes a conversation's snackbar while the pane
     /// is hidden.)
     pane_moved: bool,
+    /// A narrow window's Back was pressed since the last take: the person
+    /// left the conversation, so its snackbar closes (§5) even when a pick
+    /// from the list shows the pane again before the take, and the
+    /// window's change handler, seeing no change, says nothing
+    /// (`leaving_and_coming_back_in_one_take_closes_the_snackbar`).
+    left: bool,
     notice: Option<SessionNotice>,
     /// The trusted peers as rendered, by handle.
     trusted: HashMap<i32, TransportIdentity>,
@@ -402,6 +408,19 @@ impl Shared {
 /// root is in control already, and may hold the view borrowed (review N4).
 fn enqueue(shared: &RefCell<Shared>, input: Input) {
     let wake = shared.borrow_mut().push(input);
+    if let Some(wake) = wake {
+        wake();
+    }
+}
+
+/// Set a flag held outside the queue, and wake the root after the borrow
+/// is released, as [`enqueue`] does.
+fn flag(shared: &RefCell<Shared>, set: impl FnOnce(&mut Shared)) {
+    let wake = {
+        let mut shared = shared.borrow_mut();
+        set(&mut shared);
+        shared.wake.clone()
+    };
     if let Some(wake) = wake {
         wake();
     }
@@ -652,16 +671,9 @@ impl View {
             }
         });
         let s = Rc::clone(&shared);
-        window.on_pane_changed(move || {
-            let wake = {
-                let mut shared = s.borrow_mut();
-                shared.pane_moved = true;
-                shared.wake.clone()
-            };
-            if let Some(wake) = wake {
-                wake();
-            }
-        });
+        window.on_pane_changed(move || flag(&s, |shared| shared.pane_moved = true));
+        let s = Rc::clone(&shared);
+        window.on_left_conversation(move || flag(&s, |shared| shared.left = true));
 
         Ok(Self {
             window,
@@ -937,7 +949,8 @@ impl View {
         // Last, so an Undo pressed while it was up is taken first
         // (`an_undo_before_a_resize_to_the_list_is_honoured`).
         let moved = std::mem::take(&mut self.shared.borrow_mut().pane_moved);
-        if !self.window.get_pane_shown()
+        let left = std::mem::take(&mut self.shared.borrow_mut().left);
+        if (left || !self.window.get_pane_shown())
             && let Some(snack) = model.snackbar()
             && snack.conversation.is_some()
             && !out.contains(&ViewEvent::SnackbarClosed(snack.id))

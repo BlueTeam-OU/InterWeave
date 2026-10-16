@@ -517,6 +517,31 @@ fn an_undo_before_a_resize_to_the_list_is_honoured() {
     assert!(model.snackbar().is_none());
 }
 
+/// Back, then the same conversation picked again, before the root takes
+/// either: the person left it, so its snackbar closes (§5), though the
+/// pane is shown again by the take (review R1 on #291).
+#[test]
+fn leaving_and_coming_back_in_one_take_closes_the_snackbar() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_some(), "control");
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    // Picked again as a person picks it: the list hands the pane back.
+    view.select(direct(&alice));
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+}
+
 /// A Dismiss and a resize to the list before the root takes: the
 /// snackbar the Dismiss makes is for a conversation no longer on screen,
 /// so it closes too (review R2 on #291).

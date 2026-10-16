@@ -495,6 +495,10 @@ export component AppWindow inherits Window {
     // The right-hand pane was shown or hidden: a narrow window went to
     // the list or back, or a resize crossed `narrow` (`pane-shown`).
     callback pane-changed();
+    // A narrow window's Back: the person left the conversation, even if a
+    // pick from the list shows it again before the window's next turn,
+    // when `pane-shown` is back where it was.
+    callback left-conversation();
 
     // A window narrower than this shows one pane at a time -- the list,
     // or a conversation or the trust settings with a way back -- rather
@@ -875,6 +879,7 @@ export component AppWindow inherits Window {
                     focus-key: "back-to-list";
                     pressed => {
                         root.list-shown = true;
+                        root.left-conversation();
                     }
                     focused(k) => { root.focus-id = k; }
                 }
