@@ -231,8 +231,6 @@ enum Input {
     /// The snackbar closed without one: its timeout, a swipe away, the
     /// app leaving the foreground.
     SnackClosed(u64),
-    /// A narrow window went back from the conversation to the list.
-    Left,
     /// The notice's action, with the notice that was shown.
     Notice(SessionNotice),
     /// A link's control, with the destination as rendered: the model
@@ -264,8 +262,10 @@ struct Pressable {
 /// relative to another, and nothing a person did is held outside it: an
 /// edit or a focus change is never refused, and coalesces only in place,
 /// into an entry it can replace without changing what any input between
-/// them resolves to. The one thing outside the queue is a render's
-/// "viewed", which the root made, resolved once the queue has drained.
+/// them resolves to. The two things outside the queue are a render's
+/// "viewed", which the root made, and a pane shown or hidden, which the
+/// window reports with no state of its own: both are resolved once the
+/// queue has drained, against the window as it is then.
 /// Three review rounds on #170 found inputs moved or held aside -- a focus
 /// change moved past selections, a refused edit reported out of order and
 /// then lost when the conversation changed -- so the edit is now in the
@@ -277,10 +277,18 @@ struct Shared {
     conversations: HashMap<i32, ConversationKey>,
     items: HashMap<i32, Pressable>,
     selected: Option<ConversationKey>,
-    /// A render showed a conversation with unread items: once the queue
-    /// has drained, read the conversation then shown if the window then
-    /// has focus (rust-ui-dev F1). Resolved last, it can only read fewer.
+    /// A render showed a conversation with unread items, or the pane came
+    /// back on screen: once the queue has drained, read the conversation
+    /// then on screen if the window then has focus (rust-ui-dev F1).
+    /// Resolved last, it can only read fewer.
     viewed: bool,
+    /// The right-hand pane was shown or hidden since the last take (the
+    /// window's `pane-shown`): back to the list, the trust settings
+    /// closed to it, or a resize across the narrow width. Hidden, it
+    /// closes a conversation's snackbar (§5); shown, it reads what is on
+    /// screen. Resolved last, after every press it follows or precedes, so
+    /// it never closes a snackbar before an Undo pressed while it was up.
+    pane_moved: bool,
     notice: Option<SessionNotice>,
     /// The trusted peers as rendered, by handle.
     trusted: HashMap<i32, TransportIdentity>,
@@ -352,22 +360,10 @@ impl Shared {
         // leaves at most one between any two other inputs.
         // A snackbar closing is STATE too: refused, an Undo would stay
         // offered after its snackbar had gone, and leaving the conversation
-        // closes it. So neither is refused, and each coalesces instead: one
-        // closing per snackbar, one Left until a selection or the trust settings follow it.
+        // closes it. So it is never refused, and coalesces instead: one
+        // closing per snackbar.
         if let Input::SnackClosed(id) = input {
             if !self.inputs.contains(&Input::SnackClosed(id)) {
-                self.inputs.push_back(input);
-            }
-            return self.wake.clone();
-        }
-        if let Input::Left = input {
-            let waiting = self
-                .inputs
-                .iter()
-                .rev()
-                .take_while(|i| !matches!(i, Input::Select(_) | Input::TrustPage(_)))
-                .any(|i| *i == Input::Left);
-            if !waiting {
                 self.inputs.push_back(input);
             }
             return self.wake.clone();
@@ -389,7 +385,6 @@ impl Shared {
                         | Input::Draft(..)
                         | Input::Trust(TrustInput::EntryChanged(_))
                         | Input::SnackClosed(_)
-                        | Input::Left
                 )
             })
             .count();
@@ -449,10 +444,6 @@ enum Page {
     Conversation,
     /// The trust settings, in its place.
     Trust,
-    /// A narrow window went back to the conversation list: the
-    /// conversation is still selected and no longer seen, so nothing in
-    /// it is read and its snackbar is closed.
-    List,
 }
 
 /// The reference view: one window, bound to a [`UiModel`].
@@ -601,14 +592,7 @@ impl View {
         let s = Rc::clone(&shared);
         window.on_open_trust(move || enqueue(&s, Input::TrustPage(true)));
         let s = Rc::clone(&shared);
-        window.on_close_trust(move |to_list| {
-            enqueue(&s, Input::TrustPage(false));
-            // A narrow window shows the list, not the conversation the
-            // settings covered: nothing in it is on screen to read.
-            if to_list {
-                enqueue(&s, Input::Left);
-            }
-        });
+        window.on_close_trust(move || enqueue(&s, Input::TrustPage(false)));
         let s = Rc::clone(&shared);
         window.on_trust_entry_edited(move |text| {
             enqueue(&s, Input::Trust(TrustInput::EntryChanged(text.to_string())));
@@ -668,7 +652,16 @@ impl View {
             }
         });
         let s = Rc::clone(&shared);
-        window.on_left_conversation(move || enqueue(&s, Input::Left));
+        window.on_pane_changed(move || {
+            let wake = {
+                let mut shared = s.borrow_mut();
+                shared.pane_moved = true;
+                shared.wake.clone()
+            };
+            if let Some(wake) = wake {
+                wake();
+            }
+        });
 
         Ok(Self {
             window,
@@ -784,12 +777,13 @@ impl View {
     /// [`take_events`](Self::take_events) -- never more than [`INPUT_CAP`]
     /// presses, one edit beside each press plus one, and one focus change
     /// beside every other input plus one: four times the cap plus three.
-    /// Beside them, one Left beside each press plus one, and the closing of
+    /// Beside them, the closing of
     /// each snackbar shown since the last take, each once -- at most two,
     /// since the model changes a snackbar only through the root, which
-    /// renders and then takes -- each with a focus change beside it: six
-    /// times the cap plus nine in all
-    /// (`a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine`). A
+    /// renders and then takes -- each with a focus change beside it: four
+    /// times the cap plus seven in all; a pane shown or hidden waits
+    /// outside the queue
+    /// (`a_queue_with_closings_holds_at_most_four_times_the_cap_plus_seven`). A
     /// root that stops between takes can leave a selection taken and later
     /// inputs queued, which lets one more edit wait per conversation
     /// selected that way; the queue stays finite, not at that number.
@@ -835,14 +829,18 @@ impl View {
                     {
                         out.push(ViewEvent::SnackbarClosed(snack.id));
                     }
-                    out.extend(
-                        model
-                            .conversation_viewed(&key, self.focused)
-                            .into_iter()
-                            .map(ViewEvent::Intent),
-                    );
                     self.shared.borrow_mut().selected = Some(key.clone());
                     self.shown = Some(key);
+                    // Read only if the pane is on screen: a selection the
+                    // root makes behind a narrow window's list is not seen.
+                    if let Some(key) = self.on_screen() {
+                        out.extend(
+                            model
+                                .conversation_viewed(key, self.focused)
+                                .into_iter()
+                                .map(ViewEvent::Intent),
+                        );
+                    }
                     self.selection_unrendered = true;
                     if leaving {
                         out.push(ViewEvent::Trust(TrustInput::Cancel));
@@ -880,16 +878,6 @@ impl View {
                 }
                 Input::Undo(id) => out.push(ViewEvent::Undo(id)),
                 Input::SnackClosed(id) => out.push(ViewEvent::SnackbarClosed(id)),
-                Input::Left => {
-                    if self.page == Page::Conversation {
-                        self.page = Page::List;
-                    }
-                    if let Some(snack) = model.snackbar()
-                        && snack.conversation.is_some()
-                    {
-                        out.push(ViewEvent::SnackbarClosed(snack.id));
-                    }
-                }
                 Input::Link(destination) => {
                     out.extend(model.link_activated(&destination).map(ViewEvent::Intent));
                 }
@@ -941,7 +929,16 @@ impl View {
         // The queue has drained: a render's "viewed" is resolved against the
         // focus and the conversation of this moment, so it can only read
         // less than the person's order would.
-        let viewed = std::mem::take(&mut self.shared.borrow_mut().viewed);
+        let moved = std::mem::take(&mut self.shared.borrow_mut().pane_moved);
+        if moved
+            && !self.window.get_pane_shown()
+            && let Some(snack) = model.snackbar()
+            && snack.conversation.is_some()
+            && !out.contains(&ViewEvent::SnackbarClosed(snack.id))
+        {
+            out.push(ViewEvent::SnackbarClosed(snack.id));
+        }
+        let viewed = std::mem::take(&mut self.shared.borrow_mut().viewed) || moved;
         if viewed && let Some(key) = self.on_screen() {
             for intent in model.conversation_viewed(key, self.focused) {
                 // A focus gained or a selection in this same take may have
@@ -956,14 +953,18 @@ impl View {
     }
 
     /// The conversation a person can see now: the one shown, unless the
-    /// trust settings cover it or a narrow window went back to the list.
-    /// Read is a retention act, so only this one is ever read
+    /// trust settings cover it or a narrow window shows the list. Whether
+    /// the list is shown is read from the window AT THIS MOMENT, never
+    /// kept here: a copy is what a resize left behind (j84), and the
+    /// window's change handler runs only at its next turn. Read is a
+    /// retention act, so only this one is ever read
     /// (`a_conversation_under_the_trust_settings_reads_nothing`,
-    /// `a_conversation_left_for_the_list_reads_nothing`).
+    /// `a_conversation_left_for_the_list_reads_nothing`,
+    /// `a_resize_to_the_list_reads_nothing_before_its_handler_runs`).
     fn on_screen(&self) -> Option<&ConversationKey> {
         match self.page {
-            Page::Conversation => self.shown.as_ref(),
-            Page::Trust | Page::List => None,
+            Page::Conversation if self.window.get_pane_shown() => self.shown.as_ref(),
+            Page::Conversation | Page::Trust => None,
         }
     }
 
