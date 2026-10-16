@@ -878,6 +878,31 @@ fn every_tab_stop_draws_exactly_one_focus_ring() {
     assert!(trust.iter().any(|r| r.starts_with("peer:")), "{trust:?}");
 }
 
+/// A button is never narrower than its label: the storage notice's
+/// action, beside the notice's wrapping text, keeps at a phone's width
+/// the width it has with room to spare (its label ran out of the button
+/// in the rendered window).
+#[test]
+fn the_notice_action_keeps_its_labels_width_when_the_window_narrows() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.client_event(ClientEvent::Session(SessionState::StorageDegraded));
+    view.render(&model);
+    resize(&view, 1000.0);
+    let label = view.window().get_notice_action().to_string();
+    assert!(!label.is_empty(), "control: the notice offers its action");
+    let action = || the(&view, &label);
+    let roomy = action().size().width;
+    resize(&view, 360.0);
+    view.window().set_list_shown(false);
+    slint::platform::update_timers_and_animations();
+    let narrow = action().size().width;
+    assert!(roomy > 0.0, "control: the action is laid out");
+    assert!(
+        narrow >= roomy,
+        "as wide at 360 as at 1000: {narrow} < {roomy}"
+    );
+}
 fn buttons(view: &View) -> Vec<String> {
     all(view)
         .into_iter()

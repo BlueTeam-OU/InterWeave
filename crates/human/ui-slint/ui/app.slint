@@ -194,18 +194,27 @@ component ActionButton inherits FocusScope {
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
     }
-    // On the notice banner: its ring takes the banner's colour.
+    // On the notice banner, which is light in both schemes: the label,
+    // border and ring take its colours, or a dark scheme's light label
+    // was all but invisible on it (seen in the rendered window).
     in property <bool> on-notice;
     min-height: root.target;
-    min-width: root.target;
+    // Never narrower than its label: squeezed beside a wrapping text, the
+    // label ran out of the button (seen in the rendered window).
+    min-width: max(root.target, label.preferred-width + 16px);
     Rectangle {
         border-width: 1px;
-        border-color: Palette.border;
+        border-color: root.on-notice ? Palette.notice-text : Palette.border;
         HorizontalLayout {
             padding-left: 8px;
             padding-right: 8px;
             // The caption is the button's label already: not a second node.
-            Text { text: root.text; vertical-alignment: center; accessible-role: none; }
+            label := Text {
+                text: root.text;
+                color: root.on-notice ? Palette.notice-text : Palette.foreground;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
         }
     }
     TapArea { tapped => { root.pressed(); } }
@@ -331,6 +340,8 @@ global Palette {
     out property <color> muted-text: dark ? #c8c8c8 : #4a4a4a;
     out property <color> notice-background: #fff4ce;
     out property <color> notice-text: #3d2c00;
+    // The scheme's own text colour, which a Text takes when it names none.
+    out property <color> foreground: Style.foreground;
     out property <color> refused-text: dark ? #ff9e9e : #8a1c1c;
     out property <color> selected: dark ? #2e4a6e : #dde8f7;
     // Where keyboard focus is (design/2026-10-16-android-look.md section
