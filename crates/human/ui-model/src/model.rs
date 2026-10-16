@@ -737,6 +737,7 @@ impl UiModel {
             if self.ephemeral_set.remove(&key) {
                 self.ephemeral.retain(|k| *k != key);
             }
+            self.row_attached(key);
             self.swipe_kept(key, kept_row);
         }
     }
@@ -1050,6 +1051,7 @@ impl UiModel {
             if self.ephemeral_set.remove(&existing) {
                 self.ephemeral.retain(|k| *k != existing);
             }
+            self.row_attached(existing);
             return;
         }
         let key = ItemKey(table, row);

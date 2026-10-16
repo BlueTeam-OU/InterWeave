@@ -648,12 +648,18 @@ impl UiModel {
     fn finish(&mut self, open: Open) {
         match open.undo {
             Undo::Unhide { items, .. } => {
-                for key in &items {
+                // Only what no store row holds leaves the session: a row
+                // that arrived meanwhile is the store's, and shown again.
+                let (held, gone): (Vec<ItemKey>, Vec<ItemKey>) = items
+                    .into_iter()
+                    .partition(|k| self.items.get(k).is_some_and(|i| !i.rows.is_empty()));
+                self.unhide(&held);
+                for key in &gone {
                     if let Some(from) = self.items.get(key).and_then(|i| i.released_from) {
                         self.swipe.released.copies.push(from);
                     }
                 }
-                self.drop_items(&items);
+                self.drop_items(&gone);
             }
             Undo::Restore { item, row, .. } => {
                 self.drop_items(&[item]);
@@ -668,6 +674,29 @@ impl UiModel {
             if let Some(item) = self.items.get_mut(key) {
                 item.hidden = false;
             }
+        }
+    }
+
+    /// A store row was attached to `key` -- a Keep answered, a copy of the
+    /// message received: a message the store holds is never hidden. The
+    /// snackbar that hid it closes with nothing dropped, the others it hid
+    /// shown again, as an Undo would (review F1 on #289).
+    pub(super) fn row_attached(&mut self, key: ItemKey) {
+        let was_hidden = self.items.get(&key).is_some_and(|i| i.hidden);
+        if let Some(item) = self.items.get_mut(&key) {
+            item.hidden = false;
+        }
+        let hid_it =
+            self.swipe.open.as_ref().is_some_and(
+                |o| matches!(&o.undo, Undo::Unhide { items, .. } if items.contains(&key)),
+            );
+        if hid_it && let Some(open) = self.swipe.open.take() {
+            if let Undo::Unhide { items, .. } = open.undo {
+                self.unhide(&items);
+            }
+            self.evict();
+        } else if was_hidden {
+            self.evict();
         }
     }
 

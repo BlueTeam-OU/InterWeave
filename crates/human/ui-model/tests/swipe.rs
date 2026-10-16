@@ -724,3 +724,87 @@ fn hiding_the_only_row_moves_focus_nowhere_and_keeps_the_title() {
         "the open conversation keeps its title"
     );
 }
+
+// --- a message the store holds is never hidden (review F1 on #289) -------
+
+#[test]
+fn a_keep_answered_after_a_hide_brings_the_kept_message_back() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let k = key(&p);
+    let a = read(&mut model, &p, 1, 1);
+    // Keep pressed, then Hide before the Keep is answered.
+    let _keep = model.intent_for(a, RowAction::Keep).expect("offered");
+    model.hide(a);
+    assert!(shown(&model, &k).is_empty());
+    model.kept(a, row(10));
+    assert_eq!(shown(&model, &k), [a], "kept, and shown");
+    let snack = model.snackbar().expect("Kept is confirmed");
+    assert_eq!(snack.confirms, Confirmation::Kept);
+    assert!(snack.undo);
+    model.snackbar_closed(snack.id);
+    assert_eq!(shown(&model, &k), [a], "never dropped while kept");
+    assert_eq!(model.actions(a), [Intent::Unkeep(row(10))]);
+}
+
+#[test]
+fn a_copy_received_while_hidden_brings_the_message_back_unread() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let k = key(&p);
+    let a = read(&mut model, &p, 1, 1);
+    model.hide(a);
+    // The same envelope again, as a new unread row.
+    model.unread_listed(vec![ListedInbound {
+        row: row(2),
+        origin: Origin::Direct {
+            peer: p.clone(),
+            endpoint: endpoint("human"),
+        },
+        envelope: envelope(1, "hello"),
+        received_at: 2,
+    }]);
+    assert_eq!(shown(&model, &k), [a], "the copy's row is the store's");
+    assert!(model.snackbar().is_none(), "the hide is over");
+    assert_eq!(model.conversations()[0].unread, 1);
+}
+
+#[test]
+fn a_copy_received_while_a_conversation_is_hidden_brings_it_back() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let k = key(&p);
+    let a = read(&mut model, &p, 1, 1);
+    let b = read(&mut model, &p, 2, 2);
+    model.hide_conversation(&k);
+    model.unread_listed(vec![ListedInbound {
+        row: row(3),
+        origin: Origin::Direct {
+            peer: p.clone(),
+            endpoint: endpoint("human"),
+        },
+        envelope: envelope(1, "hello"),
+        received_at: 3,
+    }]);
+    assert_eq!(shown(&model, &k), [a, b], "the arrival wins, nothing lost");
+    assert!(model.snackbar().is_none());
+}
+
+#[test]
+fn a_hide_during_an_undo_of_unkeep_never_drops_the_kept_message() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let k = key(&p);
+    let b = read(&mut model, &p, 1, 1);
+    model.kept(b, row(10));
+    model.unkept(row(10));
+    let id = snack_id(&model);
+    let _keep = model.undo(id).expect("Keep");
+    model.hide(b);
+    model.kept(b, row(11));
+    assert_eq!(shown(&model, &k), [b]);
+    if let Some(snack) = model.snackbar() {
+        model.snackbar_closed(snack.id);
+    }
+    assert_eq!(shown(&model, &k), [b], "kept, so never dropped");
+}
