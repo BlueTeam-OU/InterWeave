@@ -29,6 +29,11 @@ use crate::protocol::{Command, Failure, Listing, Update};
 /// model stops offering it).
 pub const READ_COPY_CAP: usize = 256;
 
+/// How many cancelled records the facade side holds for an Undo, at most:
+/// one snackbar is up at a time and a replaced one's record is let go at
+/// the next turn, so this is headroom for commands queued in between.
+pub const CANCELLED_CAP: usize = 8;
+
 /// How many received messages one turn hands over, at most.
 const DRAIN_PER_TURN: usize = 64;
 
@@ -37,9 +42,11 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     client: TransportClient<B, A>,
     wall: Box<dyn Fn() -> u64 + Send + Sync>,
     copies: ReadCopies<ReadEphemeral>,
-    /// The record the last cancel deleted, for its snackbar's Undo: one,
-    /// since one snackbar is up at a time, and let go when it closes.
-    cancelled: Option<CancelledSend>,
+    /// The records cancels deleted, for their snackbars' Undo, by row:
+    /// let go when a snackbar closes or its Undo runs. More than one, since
+    /// a cancel can run before the Undo of the snackbar it replaces (review
+    /// F2 on #289); at most [`CANCELLED_CAP`], the oldest going first.
+    cancelled: VecDeque<CancelledSend>,
     reported: Option<Diagnostics>,
 }
 
@@ -55,7 +62,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             client,
             wall: Box::new(wall),
             copies: ReadCopies::default(),
-            cancelled: None,
+            cancelled: VecDeque::new(),
             reported: None,
         }
     }
@@ -167,12 +174,22 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                         row: *row,
                         restorable: record.is_some(),
                     });
-                    self.cancelled = record;
+                    if let Some(record) = record {
+                        self.cancelled.push_back(record);
+                        while self.cancelled.len() > CANCELLED_CAP {
+                            self.cancelled.pop_front();
+                        }
+                    }
                     Ok(())
                 }
                 Err(e) => Err(row_failure(&e)),
             },
-            Command::Restore(row) => match self.cancelled.take_if(|c| c.row() == *row) {
+            Command::Restore(row) => match self
+                .cancelled
+                .iter()
+                .position(|c| c.row() == *row)
+                .and_then(|at| self.cancelled.remove(at))
+            {
                 None => Err(Failure::NoSuchRow),
                 Some(record) => match Box::pin(self.client.restore(record, now)).await {
                     Ok(restored) => {
@@ -186,7 +203,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 },
             },
             Command::ForgetCancelled(row) => {
-                self.cancelled.take_if(|c| c.row() == *row);
+                self.cancelled.retain(|c| c.row() != *row);
                 Ok(())
             }
             Command::ForgetCopy(from) => {

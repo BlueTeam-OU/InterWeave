@@ -17,7 +17,7 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 
 use interweave_human_app_core::{
-    Command, FacadeSide, Failure, ModelSide, Opener, Problem, Surface, Update,
+    CANCELLED_CAP, Command, FacadeSide, Failure, ModelSide, Opener, Problem, Surface, Update,
 };
 use interweave_human_store::{HumanStore, InboundOrigin, NewInbound, RowId, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
@@ -1001,4 +1001,88 @@ async fn an_undone_unkeep_is_kept_in_the_store() {
 
     let store = HumanStore::open(&path, StoreOptions::default()).expect("reopen");
     assert_eq!(store.kept_inbound().expect("kept").len(), 1, "kept again");
+}
+
+/// Pending rows to `to` that stay pending: every attempt is refused as
+/// not taken.
+async fn pending_rows(
+    root: &mut Root,
+    node: &FakeNode,
+    to: &TransportIdentity,
+    n: usize,
+    now: u64,
+) -> Vec<RowId> {
+    let mut rows = Vec::new();
+    for i in 0..n {
+        node.inject_send(TransportError::Overloaded);
+        root.will(vec![send(&direct(to), &format!("pending {i}"))]);
+        root.pump(now).await;
+        let row = root
+            .updates
+            .iter()
+            .rev()
+            .find_map(|u| match u {
+                Update::Sent { row, .. } => Some(*row),
+                _ => None,
+            })
+            .expect("sent");
+        rows.push(row);
+    }
+    rows
+}
+
+/// A cancel can run before the Undo of the snackbar it replaces: the
+/// offered Undo still finds its record (review F2 on #289).
+#[tokio::test]
+async fn an_undo_of_cancel_survives_a_cancel_queued_before_it() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), 2, 1).await;
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[0]))]);
+    bob.pump(2).await;
+    let first = snack(&bob);
+    assert!(bob.model().snackbar().expect("up").undo);
+    // In one take: cancel the second, then undo the first.
+    bob.will(vec![
+        ViewEvent::Intent(Intent::Cancel(rows[1])),
+        ViewEvent::Undo(first),
+    ]);
+    bob.pump(3).await;
+    assert!(
+        bob.updates.iter().any(|u| matches!(
+            u,
+            Update::Restored { cancelled, .. } if *cancelled == rows[0]
+        )),
+        "{:?}",
+        bob.updates
+    );
+}
+
+/// The records held for an Undo are bounded: past the cap the oldest goes.
+#[tokio::test]
+async fn the_cancelled_records_held_are_bounded() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), CANCELLED_CAP + 1, 1).await;
+    for row in &rows {
+        let _ = bob.facade.execute(Command::Cancel(*row), 2).await;
+    }
+    let oldest = bob.facade.execute(Command::Restore(rows[0]), 3).await;
+    assert!(
+        matches!(
+            oldest.last(),
+            Some(Update::Failed {
+                why: Failure::NoSuchRow,
+                ..
+            })
+        ),
+        "the oldest went: {oldest:?}"
+    );
+    let next = bob.facade.execute(Command::Restore(rows[1]), 3).await;
+    assert!(
+        next.iter().any(|u| matches!(u, Update::Restored { .. })),
+        "the cap's worth stay: {next:?}"
+    );
 }
