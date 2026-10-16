@@ -73,7 +73,7 @@ Slint maps 1:1 to dp on Android. Two words used below:
 | phase | what starts it | what the person sees and feels |
 |---|---|---|
 | idle | — | the row at rest |
-| tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the action's icon and its label appear in the neutral colour |
+| tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the `swipe-neutral` fill shows, with the action's icon and its label drawn on it in `swipe-on-fill` (§7) |
 | armed | the row has moved ≥ 40 % of its width (at least 96 dp) | the action colour fills the uncovered area, and the icon scales up once (100 → 120 %). One haptic tick plays (`HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE`, or `CONTEXT_CLICK` below API 34), once per crossing. Dragging back below the threshold disarms it, with no second tick |
 | commit | release while armed; **or** a fling in the allowed direction at ≥ 1000 dp/s that has moved at least 48 dp, armed or not. The fling's speed is the finger's average over the last 100 ms before release (at least three position samples); with fewer samples it is not a fling | the row's result, §5 |
 | cancel | release while not armed (and not a qualifying fling); a second finger down; the touch cancelled by the system; the list scrolled under the finger | the row springs back to rest (200 ms, decelerate), nothing happens, no snackbar |
