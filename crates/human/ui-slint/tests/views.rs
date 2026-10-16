@@ -2446,6 +2446,34 @@ fn back_then_the_trust_settings_in_one_take_reads_nothing() {
     assert!(raised.is_empty(), "not read from the list: {raised:?}");
 }
 
+/// The same through the settings' own back control in a narrow window:
+/// the window says it shows the list (review N2 on #289).
+#[test]
+fn the_narrow_settings_back_control_returns_to_the_list() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(400.0, 800.0));
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    model.read(RowId::from_stored(1));
+    view.window().invoke_open_trust();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    let back = labelled(&view, text(UiText::BackToConversations));
+    assert_eq!(back.len(), 1, "the settings' back control alone");
+    back[0].invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    model.received(received(2, &bob, "arrives on the list"));
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read from the list: {raised:?}");
+}
+
 /// The control: a wide window shows the conversation again, and reads it.
 #[test]
 fn closing_the_trust_settings_to_the_conversation_reads_it() {
