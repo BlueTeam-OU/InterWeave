@@ -1055,3 +1055,60 @@ fn the_two_headings_take_keyboard_focus_and_do_nothing() {
     assert!(turn(&mut view, &mut model).is_empty());
     assert_eq!(model.messages(&direct(&alice)).len(), 1, "nothing happened");
 }
+
+/// §3: the snackbar follows the layout direction. Its Undo is at the
+/// line's end, the right left to right and the left right to left, at
+/// least 48 x 48, inside the snackbar, and never over its text.
+#[test]
+fn the_snackbar_mirrors_right_to_left() {
+    let mut view = view();
+    for rtl in [false, true] {
+        view.set_touch_settings(TouchSettings {
+            rtl,
+            ..TouchSettings::default()
+        });
+        let mut model = UiModel::new();
+        let alice = peer();
+        read(&mut model, 1, &alice, "first");
+        open(&mut view, &mut model, &direct(&alice));
+        labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+        let _ = turn(&mut view, &mut model);
+        assert!(view.window().get_snack_shown());
+        let undo = labelled(&view, text(UiText::Undo));
+        assert_eq!(undo.len(), 1, "one Undo");
+        let u = &undo[0];
+        // The announcement says it too: the snackbar's is the one beside
+        // its Undo.
+        let (uy, uh) = (u.absolute_position().y, u.size().height);
+        let said: Vec<ElementHandle> = labelled(&view, text(UiText::ConfirmDismissed))
+            .into_iter()
+            .filter(|t| {
+                let mid = t.absolute_position().y + t.size().height / 2.0;
+                t.size().width > 1.0 && mid > uy && mid < uy + uh
+            })
+            .collect();
+        assert_eq!(said.len(), 1, "rtl {rtl}: its text beside the Undo");
+        let t = &said[0];
+        let (ux, uw) = (u.absolute_position().x, u.size().width);
+        let (tx, tw) = (t.absolute_position().x, t.size().width);
+        assert!(
+            u.size().width >= 48.0 && u.size().height >= 48.0,
+            "rtl {rtl}: Undo {:?}",
+            u.size()
+        );
+        if rtl {
+            assert!(
+                ux + uw <= tx,
+                "rtl: Undo {ux}+{uw} left of the text at {tx}"
+            );
+        } else {
+            assert!(tx + tw <= ux, "ltr: text {tx}+{tw} left of Undo at {ux}");
+        }
+        let window = view.window().window();
+        let width = window.size().to_logical(window.scale_factor()).width;
+        assert!(
+            ux >= 0.0 && ux + uw <= width + 0.5,
+            "rtl {rtl}: Undo on screen"
+        );
+    }
+}

@@ -409,6 +409,9 @@ component Snackbar inherits Rectangle {
     in property <string> undo-label;
     in property <int> snack-id;
     in property <int> focus-seq;
+    // A right-to-left layout: the Undo sits at the line's end, the left
+    // (swipe spec section 3).
+    in property <bool> rtl;
     callback undo-pressed(int);
     callback dismissed(int);
     callback focused(string);
@@ -420,29 +423,53 @@ component Snackbar inherits Rectangle {
         handle-swipe-left: true;
         handle-swipe-right: true;
         swiped => { root.dismissed(root.snack-id); }
+        // The Undo sits at the line's end in either direction. It is
+        // placed, not laid out, so the tree keeps the text before it in
+        // both: a screen reader reads what happened, then its Undo.
         HorizontalLayout {
             padding: 8px;
-            padding-left: 12px;
+            padding-left: root.rtl ? 8px : 12px;
+            padding-right: root.rtl ? 12px : 8px;
             spacing: 8px;
+            if root.undo && root.rtl: Rectangle {
+                width: root.undo-width;
+                min-height: 48px;
+            }
             Text {
                 text: root.text;
                 wrap: word-wrap;
                 min-width: 0;
                 horizontal-stretch: 1;
+                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 vertical-alignment: center;
                 accessible-role: AccessibleRole.text;
                 accessible-label: self.text;
             }
-            if root.undo: ActionButton {
-                horizontal-stretch: 0;
-                text: root.undo-label;
-                detail: root.text;
-                target: 48px;
-                focus-key: "undo";
-                pressed => { root.undo-pressed(root.snack-id); }
-                focused(k) => { root.focused(k); }
+            if root.undo && !root.rtl: Rectangle {
+                width: root.undo-width;
+                min-height: 48px;
             }
         }
+        if root.undo: ActionButton {
+            x: root.rtl ? 8px : parent.width - self.width - 8px;
+            y: (parent.height - self.height) / 2;
+            width: root.undo-width;
+            height: 48px;
+            text: root.undo-label;
+            detail: root.text;
+            target: 48px;
+            focus-key: "undo";
+            pressed => { root.undo-pressed(root.snack-id); }
+            focused(k) => { root.focused(k); }
+        }
+    }
+    // The Undo's width, from its label as ActionButton draws it (8 px each
+    // side), at least the 48 px touch target.
+    property <length> undo-width: max(48px, undo-measure.preferred-width + 16px);
+    undo-measure := Text {
+        text: root.undo-label;
+        visible: false;
+        accessible-role: none;
     }
 }
 
@@ -751,6 +778,7 @@ export component AppWindow inherits Window {
                 undo-label: root.undo-label;
                 snack-id: root.snack-id;
                 focus-seq: root.focus-seq;
+                rtl: root.rtl;
                 undo-pressed(id) => { root.undo(id); }
                 dismissed(id) => { root.snack-closed(id); }
                 focused(k) => { root.focus-id = k; }
@@ -1285,6 +1313,7 @@ export component AppWindow inherits Window {
                 undo-label: root.undo-label;
                 snack-id: root.snack-id;
                 focus-seq: root.focus-seq;
+                rtl: root.rtl;
                 undo-pressed(id) => { root.undo(id); }
                 dismissed(id) => { root.snack-closed(id); }
                 focused(k) => { root.focus-id = k; }
