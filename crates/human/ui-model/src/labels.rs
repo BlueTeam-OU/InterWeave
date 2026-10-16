@@ -204,6 +204,33 @@ ui_texts! {
     Keep => "Keep",
     /// Remove Keep from a kept message.
     Unkeep => "Stop keeping",
+    /// Hide a read, unkept message for the rest of this session: a row
+    /// button, and the label beside the icon a swipe uncovers. The
+    /// message is not deleted from anywhere -- its stored copy went when
+    /// it was read -- and it does not come back in this session. Short:
+    /// it sits beside "Keep" on a phone-width row.
+    Hide => "Hide", // PLACEHOLDER (en)
+    /// The conversation screen's header control that hides the whole
+    /// conversation from the list, offered only when it holds nothing
+    /// unread, kept or pending. A short button label.
+    HideConversation => "Hide conversation", // PLACEHOLDER (en)
+    /// The snackbar after Keep, a few words above the composer for about
+    /// six seconds, beside an Undo button; also announced.
+    ConfirmKept => "Kept", // PLACEHOLDER (en)
+    /// The snackbar after Hide: the message left the list.
+    ConfirmHidden => "Hidden", // PLACEHOLDER (en)
+    /// The snackbar after the person removed Keep: the stored copy is
+    /// already deleted when this shows.
+    ConfirmUnkept => "No longer kept", // PLACEHOLDER (en)
+    /// The snackbar on the conversation list after a conversation was
+    /// hidden from it.
+    ConfirmConversationHidden => "Conversation hidden", // PLACEHOLDER (en)
+    /// The snackbar's button that reverses what it confirms. A touch
+    /// target of its own, so one word.
+    Undo => "Undo", // PLACEHOLDER (en)
+    /// Announced to a screen reader after an Undo put things back as they
+    /// were before the action.
+    Restored => "Restored", // PLACEHOLDER (en)
     /// The session is re-opening on its own.
     Reconnecting => "Reconnecting",
     /// Storage cannot hold new messages.
