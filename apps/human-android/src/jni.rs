@@ -246,13 +246,21 @@ fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
         Ok(identity) => identity,
         Err(code) => return code,
     };
-    log_level_from(std::path::Path::new(&app_data_dir));
     let host = ServiceHost::global();
-    match host.start(ServiceLaunch {
+    // From the file only before a start runs it; once one runs, the
+    // level is the one it loaded (a redelivered start starts nothing).
+    if !host.is_running() {
+        log_level_from(std::path::Path::new(&app_data_dir));
+    }
+    let started = host.start(ServiceLaunch {
         app_data_dir: app_data_dir.into(),
         profile: PROFILE.to_owned(),
         identity,
-    }) {
+    });
+    if let Some(level) = host.log_level() {
+        crate::platform_log::set_level(level);
+    }
+    match started {
         Ok(()) => match host.availability() {
             Some(AvailabilityMode::StayReachable) => 1,
             _ => 0,

@@ -403,6 +403,18 @@ impl ServiceHost {
             .map(|host| host.availability())
     }
 
+    /// The log level the running runtime loaded from its profile: the
+    /// level the app's platform log follows once a start has run, since a
+    /// start redelivered while one runs starts nothing and the file may
+    /// have changed since. `None` while nothing runs.
+    #[must_use]
+    pub fn log_level(&self) -> Option<LogLevel> {
+        self.lock()
+            .as_ref()
+            .and_then(|r| r.host.as_ref())
+            .map(|host| host.log_level())
+    }
+
     /// Record the person's Stay-reachable choice: `Some` turns it on,
     /// `None` removes it and the authored default applies again. The
     /// running client's wait then answers [`Ended::AvailabilityChanged`]

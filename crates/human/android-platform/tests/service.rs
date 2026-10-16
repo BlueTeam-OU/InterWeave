@@ -224,6 +224,39 @@ fn the_log_level_is_the_profiles_and_none_without_one() {
     );
 }
 
+/// The level the platform log follows once a start ran is the one the
+/// runtime loaded: a start redelivered while it runs starts nothing, so
+/// a file changed since does not speak for it.
+#[test]
+fn the_running_log_level_is_the_one_the_runtime_loaded() {
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let service = ServiceHost::new();
+    assert_eq!(service.log_level(), None, "nothing runs");
+    service.start(launch(&app)).expect("started");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    let config = std::fs::read_to_string(paths.config_file()).expect("read");
+    std::fs::write(
+        paths.config_file(),
+        format!("{config}\nobservability: {{ log_level: warn }}\n"),
+    )
+    .expect("write");
+    assert_eq!(
+        interweave_human_android_platform::profile_log_level(&app.dir, PROFILE),
+        Some(interweave_human_android_platform::LogLevel::Warn),
+        "the control: the file now names warn"
+    );
+    service.start(launch(&app)).expect("redelivered");
+    assert_eq!(
+        service.log_level(),
+        Some(interweave_human_android_platform::LogLevel::Info),
+        "the running runtime's level, not the file's"
+    );
+    let _ = service.stop(GRACE);
+    assert_eq!(service.log_level(), None, "nothing runs again");
+}
+
 #[test]
 fn a_profile_no_endpoint_admits_is_refused_and_leaves_nothing_running() {
     let app = app();
