@@ -140,12 +140,14 @@ happened.
   the old one, and the old one's Undo goes with it. A Cancel's snackbar
   waits for the facade's answer (§8), and until then the old snackbar
   stays, with its Undo. The old snackbar is replaced only when the
-  Cancel succeeds, and stays if the Cancel is refused. If the person
-  takes another action that shows a snackbar before the Cancel's
-  answer comes, that newer snackbar stays, with its Undo. The Cancel's
-  late success is then only announced, with §8's words, and shows no
-  snackbar, so it has no Undo. A late answer never takes away the Undo
-  of an action taken after the Cancel.
+  Cancel succeeds, and stays if the Cancel is refused. If the Cancel's
+  success arrives while a newer snackbar is up (the person took another
+  action after the Cancel), that newer snackbar stays, with its Undo.
+  The Cancel's success is then only announced, with §8's words, and
+  has no snackbar and so no Undo. If the newer snackbar has already
+  closed when the success arrives, the Cancel's snackbar shows as
+  usual. A late answer never takes away the Undo of an action taken
+  after the Cancel.
 - Shown for 6 s, or for `AccessibilityManager.getRecommendedTimeoutMillis(6000,
   FLAG_CONTENT_TEXT | FLAG_CONTENT_CONTROLS)` if that is longer (TalkBack
   users get the time their setting asks for). It is never shown for more
@@ -564,8 +566,10 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 19. While a Cancel waits for the facade's answer (a slowed store in the
     app-core tests, or on a device if a test build can slow it),
     dismissing another row keeps the "Dismissed" snackbar and its Undo.
-    The Cancel's success, arriving after that, is announced and shows
-    no snackbar.
+    The Cancel's success, arriving while that snackbar is up, is
+    announced and shows no snackbar. When the "Dismissed" snackbar has
+    already closed before the success arrives, the Cancel's own
+    snackbar shows, with its Undo.
 20. With a store that refuses writes (in the app-core or ui-model tests,
     and on a device if a test build can make storage refuse):
     - a refused Cancel shows no snackbar. Its row returns in the state
