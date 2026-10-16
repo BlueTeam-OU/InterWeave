@@ -180,14 +180,16 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   same words as the snackbar ("Kept", "Dismissed", "No longer kept",
   "Sending canceled" or §8's may-have-reached text, and "Action undone"
   for an Undo; §9).
-- **Focus.**
+- **Focus.** Every case below, and those in §8 and §10, is listed with
+  its check in §11 item 21, the one focus table.
   - After Dismiss or Cancel removes a row, focus moves only if it was
     inside that row (keyboard, switch access or TalkBack focus). It goes
     to the next row's first control, or the previous row's if it was
     the last. A touch that swiped the row leaves focus where it was, so
     the list does not jump to bring a control into view.
   - When the last row of a conversation goes and focus was inside it,
-    focus goes to the conversation's header (its title). It never goes
+    focus goes to the conversation's header title (the conversation's
+    name, at the top of its screen). It never goes
     to the composer, which would open the keyboard unasked. Never to the
     top of the list, never lost.
   - After Undo, focus goes to the restored row's first control.
@@ -199,6 +201,12 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     A refused Undo of Unkeep goes to that row's first control, since
     the row is still in place.
   - After Keep, Unkeep or Retry, focus stays where it was.
+  - **Two headings become focusable.** The conversation's header title
+    and the Chats screen's "Conversations" heading
+    (`UiText::Conversations`) are plain text today, which keyboard focus
+    cannot reach. Each becomes a focus target with no action: it takes
+    keyboard and TalkBack focus and reads its text. Nothing happens when
+    it is activated.
 - **Reduced motion.** When the system's animator duration scale is 0
   ("Remove animations"):
   - the row still follows the finger, since direct manipulation is not
@@ -365,8 +373,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     it, so leaving it out of the list would hide a kept or unread
     message (found in InterWeave#289's review, 2026-10-16).
 - **Keep is refused because storage is degraded.** The row stays kind
-  A, no snackbar is shown, and the existing storage notice and refusal
-  announcement apply.
+  A, no snackbar is shown, the existing storage notice and refusal
+  announcement apply, and focus stays where it was.
 - **Network denied.** Keep, Dismiss and Unkeep work. Retry is offered only
   if `actions` offers it, and its result is what the facade reports.
 - **Leaving the conversation mid-swipe** cancels the swipe. Leaving it
@@ -449,7 +457,7 @@ snackbar Undo; right = nothing."
   it. The snackbar closes, and the arrival is announced as any new
   message is. A new message is a reason to see the conversation, and
   merging a later Undo into a list that already holds the new message
-  would risk a duplicate row.
+  would risk a duplicate row. Focus stays where it was.
 - **Equivalent without the gesture.** The conversation's own screen has
   a "Hide conversation" control in its header, shown only when the
   conversation is offered. It returns to the list and shows the same
@@ -458,14 +466,14 @@ snackbar Undo; right = nothing."
   unread rows, but a conversation offered for hiding has none.
 - **Focus** moves after a hide only if it was inside the conversation's
   row, as for a message (§7). It goes to the next conversation row, or
-  the previous one if it was the last, or the Chats screen's header (its
-  title) if the hidden conversation was the only row. A touch that
+  the previous one if it was the last, or the Chats screen's "Conversations"
+  heading (§7) if the hidden conversation was the only row. A touch that
   swiped the row leaves focus where it was. After Undo, it goes to the
   restored row.
 - **Focus after the header's "Hide conversation"**, which returns to
   the list (the way a TalkBack user hides a conversation): focus goes
   as after a swipe, to the next conversation row, else the previous
-  one, else the Chats screen's header. It never goes to the top of the list, and is never lost.
+  one, else the Chats screen's "Conversations" heading. It never goes to the top of the list, and is never lost.
 - Announced as §7, with the snackbar's words.
 
 ## 11. Acceptance — what a reviewer checks on a device
@@ -518,12 +526,8 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 12. With TalkBack on:
     - every action in 1–9 can be done with the row's buttons alone;
     - each result is announced;
-    - after Dismiss or Cancel, focus lands on the next row;
-    - after Dismiss or Cancel of a conversation's only row, focus lands
-      on the conversation's header and the keyboard does not open.
-
-    With TalkBack off, after a touch swipe dismisses a row, focus stays
-    where it was and the list does not scroll.
+    - every focus case in item 21 marked "TalkBack" lands where the
+      table says.
 13. Every row button and the snackbar's Undo measure at least 48 × 48 dp
     (Layout Inspector or the Accessibility Scanner).
 14. With "Remove animations" on, the row still follows the finger, but
@@ -543,12 +547,8 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     neither direction. Its screen's "Hide conversation" control does
     the same as the swipe and is shown only when the swipe is offered.
 
-    With TalkBack on:
-    - "Hide conversation" in the conversation's header returns to the
-      list with focus on the next conversation row;
-    - when the hidden conversation was the only one, focus lands on
-      the Chats screen's header;
-    - "Conversation hidden" is announced, and Undo is reachable.
+    With TalkBack on, "Conversation hidden" is announced and Undo is
+    reachable. Where focus lands is item 21.
 18. The ui-model tests show:
     - which swipes are offered is computed from `actions` and the
       Dismiss rule, for kinds A–D, and for a conversation from §10's rule,
@@ -573,6 +573,41 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     - a refused Unkeep leaves the row kept, with no snackbar, and the
       storage notice shows;
     - a refused Undo of Keep leaves the row kept and closes the
-      snackbar, with focus on the row;
+      snackbar;
     - a refused Undo of Cancel leaves the row cancelled and sends
       nothing.
+21. **Focus, every case.** "Keyboard" means focus placed with a hardware
+    keyboard or `adb shell input keyevent` (Tab, arrows) and read from
+    `uiautomator dump` (`focused="true"`). "TalkBack" means the same
+    with TalkBack's focus, a person's check (item 12). "Tests" means the
+    ui-model or app-core tests, with a store that refuses writes where
+    the case is a refusal.
+
+    | case | focus goes to | checked by |
+    |---|---|---|
+    | Dismiss or Cancel by its button, focus in the row | next row's first control | keyboard, TalkBack |
+    | the same, and the row was the last in the list | previous row's first control | keyboard, TalkBack |
+    | the same, and it was the conversation's only row | the conversation's header title; the keyboard does not open | keyboard, TalkBack |
+    | a touch swipe Dismiss or Cancel, TalkBack off, focus elsewhere | stays where it was; the list does not scroll | keyboard (focus a control in another row first) |
+    | a touch swipe on the row that holds keyboard focus | as the three button rows above | keyboard |
+    | a swipe with TalkBack on | cannot occur: TalkBack takes one-finger swipes, so the person uses the buttons | — |
+    | Undo of Dismiss or Cancel | the restored row's first control | keyboard, TalkBack |
+    | Keep, Unkeep or Retry, by swipe or button | stays where it was | keyboard |
+    | Keep refused (storage degraded) | stays where it was | tests |
+    | Cancel refused, focus had moved off the row | back to the row's first control | tests |
+    | Cancel refused, focus had not moved | stays where it was | tests |
+    | Unkeep refused | stays where it was | tests |
+    | Undo of Keep refused | that row's first control | tests |
+    | Undo of Unkeep refused | that row's first control | tests |
+    | Undo of Cancel refused | next row's first control, else the previous, else the conversation's header title | tests |
+    | Undo of Dismiss refused | cannot occur: it writes nothing | — |
+    | Chats: hide by swipe, focus in the conversation's row | next conversation row | keyboard |
+    | Chats: the same, the row was the last | previous conversation row | keyboard |
+    | Chats: the same, it was the only row | the "Conversations" heading | keyboard |
+    | Chats: a touch swipe hide, focus elsewhere | stays where it was | keyboard |
+    | Chats: "Hide conversation" in the conversation's header | the hidden row's place: next row, else previous, else the "Conversations" heading | keyboard, TalkBack |
+    | Chats: Undo of a hide | the restored conversation row | keyboard, TalkBack |
+    | Chats: a new message restores a hidden conversation (§10) | stays where it was | keyboard |
+    | Chats: a swipe with TalkBack on | cannot occur, as above | — |
+
+    The two headings take focus (§7), and focus is never on nothing.
