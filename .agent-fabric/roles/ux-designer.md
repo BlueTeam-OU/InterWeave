@@ -57,12 +57,14 @@ app (`apps/human-android/`) first and the desktop app
 **The test phone.** The Pixel 9a is reached by wireless adb over the
 LAN (Wireless debugging, `adb connect`), not USB; it is paired with
 rust-ui-dev's and ux-designer's logins (the owner, 2026-10-16). One
-account drives it at a time: a run on it is `fabric-lease pixel-9a --
-bash -c 'adb kill-server; trap "adb disconnect; adb kill-server" EXIT;
-<the run>'`. The trap releases the phone however the run ends, a failure,
-a timeout or a signal included, and the first kill-server clears an adb
-server a previous holder left behind (both logins share the host's adb
-port); `pgrep -a adb` after the run shows nothing of yours. The link drops with the phone's Wi-Fi and
+account drives it at a time, on an adb server of its own: every login
+on the host shares adb's default port 5037, so a kill-server there drops
+what another account is running (live, 2026-10-16). A run on it is
+`fabric-lease pixel-9a -- bash -c 'export ANDROID_ADB_SERVER_PORT=$((15037
++ $(id -u) % 1000)); trap "adb disconnect; adb kill-server" EXIT; <the
+run>'`. The trap releases the phone however the run ends, a failure, a
+timeout or a signal included, and stops only your own server; `pgrep -a
+adb` after the run shows nothing of yours. The link drops with the phone's Wi-Fi and
 Wireless debugging can switch itself off; a re-pair is a person's step at
 the phone, asked of the owner. What only a person can judge, TalkBack and
 the feel of a gesture, stays a person's check whoever runs the rest.
