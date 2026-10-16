@@ -73,7 +73,7 @@ Slint maps 1:1 to dp on Android. Two words used below:
 | phase | what starts it | what the person sees and feels |
 |---|---|---|
 | idle | — | the row at rest |
-| tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the action's icon and its label appear in the neutral colour |
+| tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the `swipe-neutral` fill shows, with the action's icon and its label drawn on it in `swipe-on-fill` (§7) |
 | armed | the row has moved ≥ 40 % of its width (at least 96 dp) | the action colour fills the uncovered area, and the icon scales up once (100 → 120 %). One haptic tick plays (`HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE`, or `CONTEXT_CLICK` below API 34), once per crossing. Dragging back below the threshold disarms it, with no second tick |
 | commit | release while armed; **or** a fling in the allowed direction at ≥ 1000 dp/s that has moved at least 48 dp, armed or not. The fling's speed is the finger's average over the last 100 ms before release (at least three position samples); with fewer samples it is not a fling | the row's result, §5 |
 | cancel | release while not armed (and not a qualifying fling); a second finger down; the touch cancelled by the system; the list scrolled under the finger | the row springs back to rest (200 ms, decelerate), nothing happens, no snackbar |
@@ -232,8 +232,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   The status words are never "delivered", "read" or "seen"
   (`human-client-ui.md` §5).
 - **Undo of Cancel restores the record (a new row id, the same message).** architect-cto
-  ruled this on 2026-10-16, and writes it into `human-client-ui.md` §6
-  and §13 in InterWeave#284:
+  ruled this on 2026-10-16, and wrote it into `human-client-ui.md` §6
+  and §13 in InterWeave#284 (merged 2026-10-16):
   - the undone cancel restores the pending record unchanged: its app
     message id, its transport message id, its destination selector, its
     media type, its stored payload bytes and its attempt count. It is
@@ -243,8 +243,11 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     conformance case 16, InterWeave#284). A restore with no attempts
     would wrongly say the cancelled attempt never reached the
     receiver;
-  - the receiver dedups a direct message by its transport message id.
-    If an attempt was admitted at the receiver before Cancel ran and
+  - the receiver dedups a direct message by ADR-0019's key: the mode,
+    the source peer and endpoint, the destination selector and the
+    message id, with the content fingerprint checked against the entry.
+    This is why every one of those inputs must come back unchanged. If
+    an attempt was admitted at the receiver before Cancel ran and
     only its answer was lost, the undone send is answered from the
     receiver's dedup entry while that entry exists. The entry is bounded
     by its TTL and by eviction, and never survives the receiver's
@@ -258,8 +261,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   old ids, rust-ui-dev returns this point to ux-designer before building
   the Cancel swipe.
 
-  **The Undo of Cancel waits on InterWeave#284 landing on main.** That
-  PR writes the restore into RETENTION.md §2 (architect-cto, 28efec49):
+  **The Undo of Cancel waited on InterWeave#284, which landed on main
+  on 2026-10-16 (d7634b3d).** That PR wrote the restore into
+  RETENTION.md §2:
   the undone cancel enters the diagram again at Send for the same
   message, with the cancelled record's identities, durable before any
   attempt. It adds no new edge or state, and conformance case 16 tests
@@ -267,8 +271,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   record. When it does not, Cancel's snackbar shows no Undo, as for
   Unkeep after `copy_gone`. The cancelled row itself stays terminal
   (`OutboundStatus::is_terminal`): the restore is a new row, so
-  nothing about the old one changes. The Cancel swipe and button
-  themselves, without an Undo, do not wait.
+  nothing about the old one changes.
 - **Unkeep when the session no longer holds the content.** If the
   session's copy of the message is past its bound (`UiModel::copy_gone`),
   Keep is not offered after the Unkeep, so there is nothing for an Undo
@@ -279,10 +282,17 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 - **Cancel refused by the store** (storage degraded or full;
   `TransportClient::cancel` answers `StorageUnavailable`, and the row
   stays pending):
-  - the row springs back to its place, still pending, and no snackbar
-    is shown;
+  - the slide-out does not wait for the facade's answer, so the
+    release feels immediate. If the refusal comes after the row has
+    slid out and its space closed, the space opens again (150 ms,
+    instant under reduced motion) and the row returns to its place,
+    still pending;
+  - the "Send cancelled" snackbar is shown only once the facade has
+    answered that the Cancel succeeded. A refused Cancel shows none,
+    or closes one already shown;
   - the existing storage notice and refusal announcement apply;
-  - focus stays where it was.
+  - focus returns to the row's first control, even if it had already
+    moved to the next row.
 - **Undo of Cancel when the store refuses the restore** (storage
   degraded or full, RETENTION.md §4):
   - the row stays cancelled, and nothing is sent: a send never goes out
@@ -293,6 +303,18 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   If Cancel succeeds while storage is already degraded, its snackbar
   shows no Undo, since a restore could not be written. A missing Undo
   is honest; a failing one is not (as for Unkeep above).
+- **Unkeep refused by the store** (`Store::unkeep` fails, and the
+  facade passes it on as a failure):
+  - the row springs back to rest, still kept, and no snackbar is shown;
+  - the existing storage notice and refusal announcement apply;
+  - focus stays where it was.
+- **Undo of Keep refused** (the Unkeep that undoes a Keep fails):
+  - the row stays kept, and the snackbar closes;
+  - the existing storage notice and refusal announcement apply;
+  - focus goes to that row's first control.
+
+  The person is told that it is still kept, so nothing has silently
+  failed to happen.
 - **Undo of Unkeep when Keep is refused** (storage degraded): the row
   stays not kept, the snackbar closes, and the existing storage notice
   and refusal announcement apply.
