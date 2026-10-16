@@ -212,6 +212,8 @@ async fn a_peer_relayed_from_its_first_message_shows_the_relay_and_again_on_its_
         )
         .await
         .expect("sent");
+    // A send is attempted by the tick after it, as a root runs it.
+    b_side.tick(1).await;
     turn(&mut a_side, &mut model, 2).await;
     let key = model.conversations()[0].key.clone();
     assert_eq!(model.path(&key), Some(PeerPath::Relayed), "from the first");
@@ -507,12 +509,16 @@ async fn s13_7_pending_outbound_and_unread_inbound_survive_restart_and_read_unke
         .send(to_b.clone(), &envelope(1, "accepted"), 1)
         .await
         .expect("sent");
+    // A send is attempted by the tick after it, as a root runs it: this
+    // one before the busy answer is injected, so only the next meets it.
+    a_side.tick(1).await;
     // Pending outbound: the remote is busy, so it stays pending.
     a.inject_send(TransportError::Overloaded);
     a_side
         .send(to_b.clone(), &envelope(2, "still pending"), 2)
         .await
         .expect("pending");
+    a_side.tick(2).await;
     // Two inbound for a: one read without Keep, one left unread.
     for (id, text) in [(3, "read, not kept"), (4, "left unread")] {
         b_side
@@ -526,6 +532,7 @@ async fn s13_7_pending_outbound_and_unread_inbound_survive_restart_and_read_unke
             )
             .await
             .expect("sent to a");
+        b_side.tick(3).await;
     }
     let got = a_side.drain(16, 4).await;
     assert_eq!(got.len(), 2);
@@ -581,6 +588,7 @@ async fn a_message_received_while_unfocused_is_still_unread_after_a_restart() {
         )
         .await
         .expect("sent");
+    b_side.tick(1).await;
     let mut model = UiModel::new();
     for received in a_side.drain(16, 2).await {
         model.received(received);
