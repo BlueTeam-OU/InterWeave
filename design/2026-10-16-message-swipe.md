@@ -194,7 +194,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     name, at the top of its screen). It never goes
     to the composer, which would open the keyboard unasked. Never to the
     top of the list, never lost.
-  - After Undo, focus goes to the restored row's first control.
+  - After an Undo, focus goes to the row's first control: the restored
+    row's after Dismiss or Cancel, the same row's after Keep or Unkeep.
   - After an Undo the store refuses, the snackbar closes under the
     focus, so focus goes where the action itself sent it. A refused
     Undo of Cancel goes to the next row, or the previous one if it was
@@ -202,7 +203,13 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     Dismiss's Undo writes nothing, so it cannot be refused.
     A refused Undo of Unkeep goes to that row's first control, since
     the row is still in place.
-  - After Keep, Unkeep or Retry, focus stays where it was.
+  - After Keep or Unkeep by its button, the row's buttons change (a
+    kept row offers Unkeep, a read one Keep), so the pressed button is
+    gone. Focus goes to that row's first control. After a touch swipe
+    Keep or Unkeep, focus stays where it was, unless it was inside the
+    swiped row, where it goes to that row's first control as well.
+  - After Retry, by swipe or button, focus stays where it was: the row
+    still offers Retry and Cancel, so its buttons stay.
   - **Two headings become focusable.** The conversation's header title
     and the Chats screen's "Conversations" heading
     (`UiText::Conversations`) are plain text today, which keyboard focus
@@ -598,7 +605,11 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     | a touch swipe on the row that holds keyboard focus | as the three button rows above | keyboard |
     | a swipe with TalkBack on | cannot occur: TalkBack takes one-finger swipes, so the person uses the buttons | — |
     | Undo of Dismiss or Cancel | the restored row's first control | keyboard, TalkBack |
-    | Keep, Unkeep or Retry, by swipe or button | stays where it was | keyboard |
+    | Keep or Unkeep by its button | that row's first control | keyboard, TalkBack |
+    | Keep or Unkeep by a touch swipe, focus inside that row | that row's first control | keyboard |
+    | Keep or Unkeep by a touch swipe, focus elsewhere | stays where it was | keyboard |
+    | Retry, by swipe or button | stays where it was | keyboard |
+    | Undo of Keep or Unkeep | that row's first control | keyboard, TalkBack |
     | Keep refused (storage degraded) | stays where it was | tests |
     | Cancel refused, focus had moved off the row | back to the row's first control | tests |
     | Cancel refused, focus had not moved | stays where it was | tests |
