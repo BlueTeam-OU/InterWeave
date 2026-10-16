@@ -43,8 +43,9 @@ app (`apps/human-android/`) first and the desktop app
   proposed to architect-cto, with the person's reason, and a change of
   what the product does is their record.
 - Colour and icons: brand-comms has no holder placed here yet; until
-  one is, the palette in `crates/human/ui-slint/ui/app.slint` is
-  rust-ui-dev's, and a colour your spec needs is named against it.
+  one is, the palette in `crates/human/ui-slint/ui/app.slint` and the
+  icons are rust-ui-dev's; a colour or icon your spec needs is named
+  as a role (with its contrast) that rust-ui-dev adds there.
 - language-culture finalises every word a person reads (its remit here,
   `labels.rs`); you name the text a control needs, they write it.
 - A request from the owner is quoted in your specification beside your

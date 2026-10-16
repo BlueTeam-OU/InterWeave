@@ -38,8 +38,8 @@ proposes it.
   as a problem with its evidence, never met by reinterpreting it;
 - the Slint views, and the implementation and tests of their
   accessibility (TalkBack, focus, touch targets, contrast, motion);
-- the palette in `crates/human/ui-slint/ui/app.slint`, until a
-  brand-comms holder is placed here;
+- the palette in `crates/human/ui-slint/ui/app.slint` and the icons,
+  until a brand-comms holder is placed here;
 - the human store's SQL schema and its shape guard (`verify_shape`),
   and the conformance tests RETENTION.md §9 requires; RETENTION.md
   itself is a contract (below).
