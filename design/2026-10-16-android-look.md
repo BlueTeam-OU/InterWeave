@@ -260,7 +260,16 @@ From the top:
   items.
 - **TalkBack.** A bubble is read as one item: author ("You" for one's
   own), the text, the status, the time. The chips follow it in order.
-  Swipe spec §7's labels are unchanged.
+  Swipe spec §7's labels are unchanged. A conversation row in the list
+  is read as one item too: the name, the unread count when there is
+  one, the last message as the list shows it, then its time. The
+  preview is what a sighted person reads first after the name, so a
+  TalkBack user hears it in the same place. This needs a new
+  description template in place of today's `ConversationDescription`
+  ("{kind}, {unread}"); language-culture writes it. TalkBack is not
+  reachable on Android today (Slint 1.18.1's Android backend has no
+  accessibility bridge, rust-ui-dev's finding of 2026-10-16), so this
+  reading order is the target once it is.
 - **Motion.** Nothing new animates beyond Material's own press ripple.
   Under "Remove animations" there is no ripple: the press shows as a
   flat state layer (`on-surface` at 10 %).
@@ -354,5 +363,7 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 12. Every swipe spec §11 item still passes. Only the swipe's look has
     changed.
 13. Under "Remove animations" no ripple plays.
-14. TalkBack reads a bubble as author, text, status, time (a person's
-    check, as swipe spec §11 item 12).
+14. TalkBack reads a bubble as author, text, status, time, and a
+    conversation row as name, unread count, last message, time (a
+    person's check, as swipe spec §11 item 12; blocked until TalkBack
+    reaches the app).
