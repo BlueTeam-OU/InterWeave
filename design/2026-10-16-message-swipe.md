@@ -40,8 +40,9 @@ them a message they can't get back.
 
 **Rule:** a direction is offered on a row exactly when its action is
 legal on that row now. For Keep, Unkeep, Retry and Cancel that means
-`UiModel::actions(key)`. Dismiss is offered on every kind-A row,
-including one whose session copy is gone (`UiModel::copy_gone`). There
+`UiModel::actions(key)`. Dismiss is offered on every kind-A row except
+one whose Keep is still on its way to the store (§8), including one
+whose session copy is gone (`UiModel::copy_gone`). There
 `actions` is empty, so Keep is not offered, but dismissing needs no copy:
 such a row offers the left swipe and the Dismiss button, and no right
 swipe.
@@ -345,7 +346,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     its way to the store: dismissing it then would drop a message the
     person just asked to keep.
   - A dismissed message that gains a stored row while its snackbar is
-    shown (its Keep is answered, or a copy of it arrives) comes back in
+    shown (a copy of it arrives; a Keep cannot be on its way, since
+    Dismiss is not offered then) comes back in
     its place, and the Dismiss snackbar closes. The store now holds
     it, so leaving it out of the list would hide a kept or unread
     message (found in InterWeave#289's review, 2026-10-16).
@@ -517,7 +519,9 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     the same as the swipe and is shown only when the swipe is offered.
 18. The ui-model tests show:
     - which swipes are offered is computed from `actions` and the
-      Dismiss rule, for kinds A–D, and for a conversation from §10's rule;
+      Dismiss rule, for kinds A–D, and for a conversation from §10's rule,
+      including that Dismiss is not offered while a Keep of the same
+      message is on its way;
     - Unkeep and Cancel raise their intent at commit, not when the
       snackbar closes;
     - the Undo of Keep raises Unkeep, the Undo of Unkeep raises Keep
