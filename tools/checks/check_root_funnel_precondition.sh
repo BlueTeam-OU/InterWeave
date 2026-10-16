@@ -140,14 +140,18 @@ else
     runs="$(grep -E '^[[:space:]]*(-[[:space:]]*)?(run:[[:space:]]*)?(bash[[:space:]]+tools/ci/with_display\.sh[[:space:]]+)?cargo (test|nextest run) ' "$CI" \
         | grep -- '--workspace' | grep -- '--all-targets' \
         | grep -v -- '--no-run' | grep -vE -- ' -- |[|][|]' \
-        | grep -vE -- '[[:space:]](-E|--filterset|--filter-expr|--partition|--run-ignored)([[:space:]=]|$)' || true)"
+        | grep -vE -- '[[:space:]](-E|--filterset|--filter-expr|--partition|--run-ignored)([[:space:]=]|$)|[[:space:]]-E[^[:space:]]' || true)"
     if [ -z "$runs" ]; then
         fail ".github/workflows/ci.yml has no command running cargo test (or cargo nextest run) --workspace --all-targets (a comment, --no-run, libtest arguments, ||, or a nextest filter, partition or --run-ignored does not count) — present no longer means passes"
     elif grep -Eq -- '--exclude[ =]+interweave-transport-libp2p' <<<"$runs"; then
-        fail ".github/workflows/ci.yml excludes interweave-transport-libp2p from cargo test — the measurement never runs"
+        fail ".github/workflows/ci.yml excludes interweave-transport-libp2p from cargo test (or cargo nextest run) — the measurement never runs"
     fi
-    if grep -q 'cargo nextest run ' <<<"$runs" && [ -f "$ROOT/.config/nextest.toml" ] \
-        && grep -Eq '^[[:space:]]*default-filter[[:space:]]*=' "$ROOT/.config/nextest.toml"; then
+    # Any default-filter outside a comment, in whatever TOML spelling
+    # (a dotted key, a quoted key, an inline table): read whole into a
+    # variable, never piped into an early-exiting grep under pipefail.
+    nextest_cfg=""
+    [ -f "$ROOT/.config/nextest.toml" ] && nextest_cfg="$(sed 's/#.*//' "$ROOT/.config/nextest.toml")"
+    if grep -q 'cargo nextest run ' <<<"$runs" && grep -q 'default-filter' <<<"$nextest_cfg"; then
         fail ".config/nextest.toml sets a default-filter — CI's cargo nextest run no longer runs every test"
     fi
 fi
@@ -177,7 +181,7 @@ if [ "$fails" -gt 0 ]; then
     exit 1
 fi
 if [ "$COMPILED" = 1 ]; then
-    echo "check_root_funnel_precondition: OK — libtest lists the root funnel's ${#PINNED[@]} measurement tests and none is ignored; the tree runs them under cargo test --all-targets."
+    echo "check_root_funnel_precondition: OK — libtest lists the root funnel's ${#PINNED[@]} measurement tests and none is ignored; the tree runs them under cargo test (or cargo nextest run) --all-targets."
 else
     echo "check_root_funnel_precondition: OK (tree) — root_funnel.rs is present and built through RootFunnel, and CI runs cargo test (or cargo nextest run) --all-targets; the compiled listing is checked in the rust job."
 fi
