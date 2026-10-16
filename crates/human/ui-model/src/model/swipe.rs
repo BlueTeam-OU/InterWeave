@@ -82,8 +82,8 @@ pub struct Snackbar {
     pub conversation: Option<ConversationKey>,
 }
 
-/// Where focus goes after an action took a row away or brought it back
-/// (§7, §10): never to the top of the list, never lost.
+/// Where focus goes after an action took a row away, brought it back or
+/// changed its buttons (§7, §10): never to the top of the list, never lost.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FocusTarget {
     /// A message row's first control.
@@ -118,10 +118,12 @@ pub struct Outcome {
     pub announce: Option<Announce>,
     /// Where focus goes, or `None` to leave it where it is.
     pub focus: Option<FocusTarget>,
-    /// The row this outcome took away, when it took one: `focus` is moved
-    /// only if focus was inside that row (§7, §10). A touch that swiped a
-    /// row leaves focus where it was, so the list does not jump. `None`:
-    /// `focus` is moved wherever focus is.
+    /// The row this outcome took away, or whose buttons it changed -- a
+    /// Keep or Unkeep: `focus` is moved only if focus was inside that row
+    /// (§7, §10), or, for a Keep or Unkeep, if the row's own button made
+    /// it, which the view knows and the model does not. A touch that
+    /// swiped a row leaves focus where it was, so the list does not jump.
+    /// `None`: `focus` is moved wherever focus is.
     pub moves_from: Option<FocusTarget>,
 }
 
@@ -500,6 +502,8 @@ impl UiModel {
             return;
         }
         let conversation = self.items.get(&key).map(|i| i.conversation.clone());
+        // The row's buttons change, so a pressed one is gone: focus goes
+        // to the row's first control (§7).
         self.open(
             Confirmation::Kept,
             conversation,
@@ -507,8 +511,8 @@ impl UiModel {
                 item: key,
                 kept_row,
             },
-            None,
-            None,
+            Some(FocusTarget::Item(key)),
+            Some(FocusTarget::Item(key)),
         );
     }
 
@@ -520,12 +524,14 @@ impl UiModel {
             return;
         }
         let conversation = self.items.get(&key).map(|i| i.conversation.clone());
+        // The row's buttons change, so a pressed one is gone: focus goes
+        // to the row's first control (§7).
         self.open(
             Confirmation::Unkept,
             conversation,
             Undo::Keep { item: key },
-            None,
-            None,
+            Some(FocusTarget::Item(key)),
+            Some(FocusTarget::Item(key)),
         );
     }
 

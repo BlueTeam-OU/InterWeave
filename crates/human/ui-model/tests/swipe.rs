@@ -730,7 +730,8 @@ fn hiding_the_only_row_sends_focus_to_the_header_and_keeps_the_title() {
 #[test]
 fn a_row_taken_away_moves_focus_only_from_inside_it() {
     // §7: the view moves focus only if it was inside the row that left;
-    // the model names that row. Keep, Unkeep and an Undo name none.
+    // the model names that row. An Undo names none. Keep and Unkeep name
+    // the row whose buttons they change, and send focus to it.
     let p = peer();
     let mut model = UiModel::new();
     let a = read(&mut model, &p, 1, 1);
@@ -757,7 +758,7 @@ fn a_row_taken_away_moves_focus_only_from_inside_it() {
     let outcome = model.outcome().expect("keep");
     assert_eq!(
         (outcome.focus.clone(), outcome.moves_from.clone()),
-        (None, None)
+        (Some(FocusTarget::Item(b)), Some(FocusTarget::Item(b)))
     );
 }
 
@@ -1075,4 +1076,51 @@ fn a_cancel_with_no_item_lets_its_record_go_at_once() {
     model.cancelled(row(42), true);
     assert!(model.snackbar().is_none());
     assert_eq!(model.take_released().cancelled, [row(42)]);
+}
+
+// --- focus after Keep and Unkeep (§7; §11 item 21) --------------------------
+
+/// A Keep or Unkeep changes the row's buttons, so the one pressed is gone:
+/// the outcome sends focus to the row's first control, from inside that
+/// row -- a touch swipe with focus elsewhere leaves it there.
+#[test]
+fn keep_and_unkeep_send_focus_to_their_rows_first_control_from_inside_it() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let a = read(&mut model, &p, 1, 1);
+    model.kept(a, row(10));
+    let outcome = model.outcome().expect("Kept");
+    assert_eq!(outcome.focus, Some(FocusTarget::Item(a)));
+    assert_eq!(outcome.moves_from, Some(FocusTarget::Item(a)));
+
+    model.unkept(row(10));
+    let outcome = model.outcome().expect("Unkept");
+    assert_eq!(
+        outcome.announce,
+        Some(Announce::Confirmed(Confirmation::Unkept))
+    );
+    assert_eq!(outcome.focus, Some(FocusTarget::Item(a)));
+    assert_eq!(outcome.moves_from, Some(FocusTarget::Item(a)));
+}
+
+/// Retry keeps the row's buttons -- it still offers Retry and Cancel -- so
+/// it makes no outcome, and focus stays where it was.
+#[test]
+fn retry_makes_no_outcome_so_focus_stays() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let c = pending(&mut model, &p, 1, 1);
+    let before = model.outcome().map(|o| o.id);
+    assert!(model.intent_for(c, RowAction::Retry).is_some(), "control");
+    status(
+        &mut model,
+        1,
+        OutboundStatus::Sending {
+            attempts: 1,
+            next_retry_at: None,
+            last_problem: None,
+        },
+    );
+    assert_eq!(model.outcome().map(|o| o.id), before);
+    assert_eq!(model.row_actions(c), [RowAction::Retry, RowAction::Cancel]);
 }
