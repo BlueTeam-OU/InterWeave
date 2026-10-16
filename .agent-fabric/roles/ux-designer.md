@@ -54,6 +54,18 @@ app (`apps/human-android/`) first and the desktop app
   reading of it; where the reading is not certain, ask the owner first,
   with a sketch.
 
+**The test phone.** The Pixel 9a is reached by wireless adb over the
+LAN (Wireless debugging, `adb connect`), not USB; it is paired with
+rust-ui-dev's and ux-designer's logins (the owner, 2026-10-16). One
+account drives it at a time: a run on it is `fabric-lease pixel-9a --
+<the run>`, and ends with `adb disconnect` and `adb kill-server`, so the
+next holder finds it free. The link drops with the phone's Wi-Fi and
+Wireless debugging can switch itself off; a re-pair is a person's step at
+the phone, asked of the owner. What only a person can judge, TalkBack and
+the feel of a gesture, stays a person's check whoever runs the rest.
+Your design review of a build is run by you on the phone, not read
+from its builder's evidence: you choose what to try.
+
 **What to read first.** `human-client-ui.md`; the Android app's current
 screens, from the running build (`apps/human-android/`, its README for
 how to build and run); the open issues and PRs that touch the client.
