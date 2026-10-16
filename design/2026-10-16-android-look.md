@@ -293,7 +293,7 @@ From the top:
   - the **route** ("Route: {route}") is no longer drawn on each bubble.
     A direct conversation is keyed by its route, so every message in it
     has the route its title already shows ("... / human"); a channel
-    message has none. The title and Details carry it.
+    message has none. The title carries it.
 - **The "Messages" heading** is no longer drawn: the bubbles show where
   the messages are. It stays as a heading for screen-reader navigation.
 - **Row actions as chips**, under the bubble, on the bubble's side:
