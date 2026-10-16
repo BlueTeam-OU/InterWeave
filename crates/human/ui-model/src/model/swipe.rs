@@ -202,10 +202,16 @@ pub(super) struct SwipeState {
 impl SwipeState {
     /// Whether `key` is held for an open snackbar's Undo, so the session
     /// cap must not evict it.
+    /// Whether `key` must stay held: an open snackbar's Undo needs it, or
+    /// a Keep of it is on its way and its answer attaches a row the store
+    /// holds -- so the session cap never evicts it (review of #289, round
+    /// 3).
     pub(super) fn protects(&self, key: &ItemKey) -> bool {
-        self.open
-            .as_ref()
-            .is_some_and(|o| o.undo.items().contains(key))
+        self.keeping.contains(key)
+            || self
+                .open
+                .as_ref()
+                .is_some_and(|o| o.undo.items().contains(key))
     }
 }
 
@@ -304,6 +310,12 @@ impl UiModel {
                 Some(status) => status.is_terminal(),
                 None => item.rows.is_empty(),
             })
+            // Nor while a Keep of one of them is on its way: its answer
+            // attaches a row the store holds (review of #289, round 3).
+            && !self
+                .items
+                .iter()
+                .any(|(k, i)| &i.conversation == key && self.swipe.keeping.contains(k))
     }
 
     /// The intent hiding conversation `key` raises now, if it is offered.
@@ -417,14 +429,14 @@ impl UiModel {
         );
     }
 
-    /// The root kept `key` as `kept_row`: confirmed with a snackbar, or,
-    /// when it was an Undo of Unkeep, announced as restored.
     /// A Keep of `key` was answered: it is no longer on its way, whether or
     /// not the item is still held.
     pub(super) fn keep_answered(&mut self, key: ItemKey) {
         self.swipe.keeping.remove(&key);
     }
 
+    /// The root kept `key` as `kept_row`: confirmed with a snackbar, or,
+    /// when it was an Undo of Unkeep, announced as restored.
     pub(super) fn swipe_kept(&mut self, key: ItemKey, kept_row: RowId) {
         if self.swipe.awaiting == Some(Awaiting::Kept(key)) {
             self.swipe.awaiting = None;
@@ -676,7 +688,8 @@ impl UiModel {
             Undo::Unhide { items, .. } => {
                 // Every one is row-less: a row attached closes this
                 // snackbar first (`row_attached`), and a Keep on its way
-                // keeps Hide from being offered (`hide_offered`).
+                // keeps either hide from being offered (`hide_offered`,
+                // `conversation_hide_offered`).
                 let gone = items;
                 for key in &gone {
                     if let Some(from) = self.items.get(key).and_then(|i| i.released_from) {

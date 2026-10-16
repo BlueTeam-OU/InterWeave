@@ -855,3 +855,38 @@ fn every_cancel_replaced_in_one_turn_lets_its_record_go() {
         "both replaced snackbars' records, not only the last"
     );
 }
+
+#[test]
+fn a_conversation_is_not_offered_for_hiding_while_a_keep_in_it_is_on_its_way() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let k = key(&p);
+    let first = read(&mut model, &p, 1, 1);
+    read(&mut model, &p, 2, 2);
+    assert!(model.conversation_hide_offered(&k), "control");
+    let keep = model.intent_for(first, RowAction::Keep).expect("offered");
+    model.keep_requested(&keep);
+    assert!(!model.conversation_hide_offered(&k));
+    model.hide_conversation(&k);
+    assert!(model.snackbar().is_none(), "nothing hidden");
+    model.kept(first, row(10));
+    assert!(model.messages(&k).iter().any(|m| m.key == first));
+}
+
+#[test]
+fn the_session_cap_never_evicts_a_message_whose_keep_is_on_its_way() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let first = read(&mut model, &p, 1, 1);
+    let keep = model.intent_for(first, RowAction::Keep).expect("offered");
+    model.keep_requested(&keep);
+    for n in 0..=i64::try_from(SESSION_ITEM_CAP).expect("small") {
+        read(&mut model, &p, 100 + n, 100);
+    }
+    model.kept(first, row(10));
+    assert_eq!(
+        model.actions(first),
+        [Intent::Unkeep(row(10))],
+        "still held, and kept"
+    );
+}
