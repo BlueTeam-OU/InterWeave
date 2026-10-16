@@ -437,7 +437,7 @@ fn a_conversation_whose_rows_are_all_hidden_keeps_its_header() {
 /// closing per snackbar; a pane shown or hidden waits outside the queue
 /// (review F4 on #289; j84; the bound `queued_inputs` states).
 #[test]
-fn closings_and_leavings_wait_once_each() {
+fn snackbar_closings_wait_once_each() {
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();

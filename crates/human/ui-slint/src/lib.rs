@@ -259,13 +259,14 @@ struct Pressable {
 /// person saw.
 ///
 /// THE QUEUE'S ORDER IS THE PERSON'S ORDER. No queued input is ever moved
-/// relative to another, and nothing a person did is held outside it: an
-/// edit or a focus change is never refused, and coalesces only in place,
-/// into an entry it can replace without changing what any input between
-/// them resolves to. The two things outside the queue are a render's
-/// "viewed", which the root made, and a pane shown or hidden, which the
-/// window reports with no state of its own: both are resolved once the
-/// queue has drained, against the window as it is then.
+/// relative to another, and no press, edit or focus change is held
+/// outside it: an edit or a focus change is never refused, and coalesces
+/// only in place, into an entry it can replace without changing what any
+/// input between them resolves to. Three flags wait outside it, each with
+/// no order to keep and resolved once the queue has drained, against the
+/// window as it is then: a render's "viewed", which the root made; the
+/// pane shown or hidden, which the window reports; and a narrow window's
+/// Back, which says only that the conversation was left.
 /// Three review rounds on #170 found inputs moved or held aside -- a focus
 /// change moved past selections, a refused edit reported out of order and
 /// then lost when the conversation changed -- so the edit is now in the
