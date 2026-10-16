@@ -1298,3 +1298,55 @@ async fn a_keep_taken_after_its_dismiss_is_not_issued() {
         }
     )));
 }
+
+/// Keep of a message, then a Dismiss of it and a hide of its conversation,
+/// in one take: the Keep is issued, the two hides are dropped without a
+/// report, and the message stays shown -- the Keep's confirmation answers
+/// them (the README's "Hide writes nothing" rule; review of #289, round 7).
+#[tokio::test]
+async fn hides_after_a_keep_in_one_take_leave_the_keep_and_report_nothing() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "keep me")]);
+    bob.pump(1).await;
+    alice.pump(2).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(3).await;
+    let item = alice.model().messages(&from_bob)[0].key;
+    let keep = alice
+        .model()
+        .intent_for(item, RowAction::Keep)
+        .expect("offered");
+    let _ = alice.model.take_problems();
+    alice.commands.clear();
+    alice.will(vec![
+        ViewEvent::Intent(keep),
+        ViewEvent::Intent(Intent::Hide(item)),
+        ViewEvent::Intent(Intent::HideConversation(from_bob.clone())),
+    ]);
+    alice.pump(4).await;
+    assert_eq!(
+        alice
+            .commands
+            .iter()
+            .filter(|c| matches!(c, Command::Keep { .. }))
+            .count(),
+        1
+    );
+    assert!(alice.model.take_problems().is_empty(), "no report");
+    assert_eq!(
+        alice
+            .model()
+            .messages(&from_bob)
+            .iter()
+            .map(|m| m.key)
+            .collect::<Vec<_>>(),
+        [item],
+        "not hidden"
+    );
+}
