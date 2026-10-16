@@ -104,7 +104,7 @@ committed swipe except Retry shows the snackbar (§6).
 | A left, Hide for now | removes the row from this session's list (new; §8) | slides out, then the space closes (150 ms) | "Hidden" | puts the row back in the same place |
 | B left, Unkeep | `Intent::Unkeep(row)`, at once | slides back to rest. Its status reads not kept, and it becomes kind A | "No longer kept" | the Keep `actions` now offers on it (`from` is the kept row the Unkeep released, whose content this session holds). The row reads Kept again |
 | C right, Retry now | `Intent::Retry(row)` | slides back to rest. Its status changes as the facade reports it (Sending) | none (nothing to undo) | — |
-| C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Send cancelled" | puts the same message back as pending: the same envelope (same message id, text and destination), shown in its old place, sent as any pending row is. Needs a facade or store call that re-queues a cancelled envelope (§8) |
+| C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Send cancelled" | restores the cancelled pending record itself: its app message id, its transport message id and its stored payload bytes, never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
 
 **The rule: after any interruption, the state is what the person last
 saw confirmed.** Every action runs on commit. Undo is the reverse
@@ -194,13 +194,21 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     transport", with no Undo.
 
   Never "delivered", "read" or "seen" (`human-client-ui.md` §5).
-- **Undo of Cancel re-queues the same envelope.** It is the same
-  application message, so a reply that references it still resolves.
-  It is a new pending row, sent as any pending row is, retries
-  included. If the facade or store cannot re-queue a cancelled
-  envelope, rust-ui-dev returns this point to ux-designer before
-  building the Cancel swipe, and the fallback is ux-designer's to
-  choose.
+- **Undo of Cancel restores the record, not a new row.** architect-cto
+  ruled this on 2026-10-16, and writes it into `human-client-ui.md` §6
+  and §13 in a docs PR of theirs:
+  - the undone cancel restores the pending record under its app message
+    id and its transport message id, with its stored payload bytes,
+    never a re-serialised or re-identified copy;
+  - the receiver dedups a direct message by its transport message id.
+    So if an attempt was admitted at the receiver before Cancel ran and
+    only its answer was lost, the undone send is answered from the
+    receiver's dedup entry, not delivered twice;
+  - what the session holds for that Undo is the record (both ids and
+    the bytes), not the rendered text.
+  If the facade or store cannot restore a cancelled record under its
+  old ids, rust-ui-dev returns this point to ux-designer before building
+  the Cancel swipe.
 - **Unkeep when the session no longer holds the content.** If the
   session's copy of the message is past its bound (`UiModel::copy_gone`),
   Keep is not offered after the Unkeep, so there is nothing for an Undo
@@ -208,12 +216,6 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   never an Undo that fails. A missing Undo is honest. A failing one
   breaks the promise the button makes (ruled 2026-10-16 on
   rust-ui-dev-01's question).
-- **Undo of Cancel and the transport message id.** Whether the
-  re-queued row reuses the cancelled row's transport message id (the
-  idempotency key) or takes a fresh one is the outbound contract's,
-  the network role's to say. A cancel after dispatch may have reached
-  the remote. rust-ui-dev settles it with that role before building the
-  Cancel swipe. Either answer keeps this spec's behaviour.
 - **Undo of Unkeep when Keep is refused** (storage degraded): the row
   stays not kept, the snackbar closes, and the existing storage notice
   and refusal announcement apply.
@@ -314,8 +316,8 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 8. On a kind-C row (no daemon or network, so it stays pending):
    - a drag right changes its status to Sending and shows no snackbar;
    - a drag left removes it and shows "Send cancelled";
-   - Undo restores it in place, pending, with the same message id
-     (the diagnostics view shows it).
+   - Undo restores it in place, pending, with the same app message id
+     and transport message id (the diagnostics view shows both).
 9. On a kind-C row, a drag left followed by killing the app before the
    snackbar closes: after restart the message is not pending and is
    never sent, even once a network is available.
@@ -352,6 +354,6 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     - Unkeep and Cancel raise their intent at commit, not when the
       snackbar closes;
     - the Undo of Keep raises Unkeep, the Undo of Unkeep raises Keep
-      with the released row as `from`, and the Undo of Cancel re-queues
-      the same envelope;
+      with the released row as `from`, and the Undo of Cancel restores
+      the cancelled record with both its ids and its stored bytes;
     - the Undo of Hide raises nothing.
