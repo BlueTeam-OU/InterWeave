@@ -844,7 +844,8 @@ impl View {
                     self.shared.borrow_mut().selected = Some(key.clone());
                     self.shown = Some(key);
                     // Read only if the pane is on screen: a selection the
-                    // root makes behind a narrow window's list is not seen.
+                    // root makes behind a narrow window's list is not seen
+                    // (`a_selection_behind_the_list_by_its_take_reads_nothing`).
                     if let Some(key) = self.on_screen() {
                         out.extend(
                             model

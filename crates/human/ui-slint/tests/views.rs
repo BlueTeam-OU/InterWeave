@@ -2565,6 +2565,32 @@ fn a_resize_to_the_list_reads_nothing_before_its_handler_runs() {
     assert!(raised.is_empty(), "nor after it: {raised:?}");
 }
 
+/// A selection the root makes, then Back pressed before the root takes
+/// it: the conversation is behind the list when the selection resolves,
+/// so nothing in it is read (review P3-2 on #291).
+#[test]
+fn a_selection_behind_the_list_by_its_take_reads_nothing() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    model.received(received(1, &alice, "seen"));
+    model.received(received(2, &bob, "unread"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&alice));
+    model.read(RowId::from_stored(1));
+    view.select(direct(&bob));
+    press(&view, text(UiText::BackToConversations));
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read behind the list: {raised:?}");
+    let read = open(&mut view, &mut model, &direct(&bob));
+    assert_eq!(
+        read,
+        vec![Intent::MarkRead(RowId::from_stored(2))],
+        "control: read once shown"
+    );
+}
+
 /// The other way: a narrow window back on the list, widened, shows the
 /// conversation beside it again, and what arrived there meanwhile is read
 /// at once -- the pane's return is the only event (j84).
