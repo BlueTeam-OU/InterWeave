@@ -204,12 +204,15 @@ ui_texts! {
     Keep => "Keep",
     /// Remove Keep from a kept message.
     Unkeep => "Stop keeping",
-    /// Hide a read, unkept message for the rest of this session: a row
-    /// button, and the label beside the icon a swipe uncovers. The
-    /// message is not deleted from anywhere -- its stored copy went when
-    /// it was read -- and it does not come back in this session. Short:
-    /// it sits beside "Keep" on a phone-width row.
-    Hide => "Hide",
+    /// Dismiss a read, unkept message for the rest of this session: a
+    /// row button, and the label beside the icon a swipe uncovers. Nothing
+    /// is deleted from anywhere -- its stored copy went when it was read --
+    /// and it does not come back in this session (the owner's ruling,
+    /// 2026-10-16: a message is dismissed, a conversation hidden).
+    Dismiss => "Dismiss",
+    /// The label beside the icon a conversation row's swipe uncovers: the
+    /// conversation leaves the list.
+    HideShort => "Hide",
     /// The conversation screen's header control that hides the whole
     /// conversation from the list, offered only when it holds nothing
     /// unread, kept or pending. A short button label.
@@ -217,8 +220,8 @@ ui_texts! {
     /// The snackbar after Keep, a few words above the composer for about
     /// six seconds, beside an Undo button; also announced.
     ConfirmKept => "Kept",
-    /// The snackbar after Hide: the message left the list.
-    ConfirmHidden => "Hidden",
+    /// The snackbar after Dismiss: the message left the list.
+    ConfirmDismissed => "Dismissed",
     /// The snackbar after the person removed Keep: the stored copy is
     /// already deleted when this shows.
     ConfirmUnkept => "No longer kept",
