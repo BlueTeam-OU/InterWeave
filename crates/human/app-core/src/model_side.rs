@@ -210,7 +210,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     self.model.copy_gone(*item);
                 }
                 // A refused Undo closes nothing more, but focus goes where
-                // the action itself sent it.
+                // the action itself sent it; a refused Cancel's row, slid
+                // out by its swipe, springs back.
                 let undone = match &command {
                     Command::Keep { item, from } => Some(Intent::Keep {
                         item: *item,
@@ -218,6 +219,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     }),
                     Command::Unkeep(row) => Some(Intent::Unkeep(*row)),
                     Command::Restore(row) => Some(Intent::Restore(*row)),
+                    Command::Cancel(row) => Some(Intent::Cancel(*row)),
                     _ => None,
                 };
                 if let Some(intent) = undone {
