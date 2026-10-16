@@ -200,8 +200,6 @@ pub(super) struct SwipeState {
 }
 
 impl SwipeState {
-    /// Whether `key` is held for an open snackbar's Undo, so the session
-    /// cap must not evict it.
     /// Whether `key` must stay held: an open snackbar's Undo needs it, or
     /// a Keep of it is on its way and its answer attaches a row the store
     /// holds -- so the session cap never evicts it (review of #289, round
@@ -686,11 +684,15 @@ impl UiModel {
     fn finish(&mut self, open: Open) {
         match open.undo {
             Undo::Unhide { items, .. } => {
-                // Every one is row-less: a row attached closes this
-                // snackbar first (`row_attached`), and a Keep on its way
-                // keeps either hide from being offered (`hide_offered`,
-                // `conversation_hide_offered`).
-                let gone = items;
+                // A row attached closes this snackbar first
+                // (`row_attached`), and a hidden item offers no Keep
+                // (`actions`), so none holds a row. One whose Keep was
+                // issued before it was hidden is shown again, never
+                // dropped: its answer attaches a row the store holds.
+                let (kept, gone): (Vec<ItemKey>, Vec<ItemKey>) = items
+                    .into_iter()
+                    .partition(|k| self.swipe.keeping.contains(k));
+                self.unhide(&kept);
                 for key in &gone {
                     if let Some(from) = self.items.get(key).and_then(|i| i.released_from) {
                         self.swipe.released.copies.push(from);

@@ -851,7 +851,8 @@ impl UiModel {
     /// that comes from a focused view alone (review F1).
     #[must_use]
     pub fn actions(&self, key: ItemKey) -> Vec<Intent> {
-        let Some(item) = self.items.get(&key) else {
+        // A hidden item offers nothing: it is on its way out of the session.
+        let Some(item) = self.items.get(&key).filter(|i| !i.hidden) else {
             return Vec::new();
         };
         if let Some(status) = &item.outbound {
@@ -869,6 +870,27 @@ impl UiModel {
         } else {
             Vec::new()
         }
+    }
+
+    /// Whether the model offers `intent` NOW. A view judges a whole take
+    /// against the model as it was rendered, so the root asks again as it
+    /// issues each: a Dismiss taken earlier in the same take may have
+    /// changed what is legal (review P-1 on #289, round 4).
+    #[must_use]
+    pub fn offers(&self, intent: &Intent) -> bool {
+        let key = match intent {
+            Intent::Keep { item, .. } | Intent::Hide(item) => Some(*item),
+            Intent::Unkeep(row) => self.by_row.get(&(Table::Kept, *row)).copied(),
+            Intent::Retry(row) | Intent::Cancel(row) => {
+                self.by_row.get(&(Table::Pending, *row)).copied()
+            }
+            Intent::HideConversation(key) => return self.conversation_hide_offered(key),
+            _ => return true,
+        };
+        key.is_some_and(|key| match intent {
+            Intent::Hide(_) => self.row_actions(key).contains(&RowAction::Hide),
+            _ => self.actions(key).contains(intent),
+        })
     }
 
     /// An outbound row's raw failure, for the diagnostics view only.

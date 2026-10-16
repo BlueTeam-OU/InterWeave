@@ -890,3 +890,25 @@ fn the_session_cap_never_evicts_a_message_whose_keep_is_on_its_way() {
         "still held, and kept"
     );
 }
+
+#[test]
+fn a_dismissed_message_offers_nothing_and_a_keep_already_issued_keeps_it() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let k = key(&p);
+    let first = read(&mut model, &p, 1, 1);
+    let second = read(&mut model, &p, 2, 2);
+    let keep = model.intent_for(first, RowAction::Keep).expect("offered");
+    model.hide(first);
+    assert!(
+        model.actions(first).is_empty(),
+        "a hidden item offers nothing"
+    );
+    assert!(!model.offers(&keep), "and its Keep is no longer offered");
+    // Had the Keep been issued anyway, the closing hide shows it again.
+    model.keep_requested(&keep);
+    model.hide(second);
+    assert_eq!(shown(&model, &k), [first]);
+    model.kept(first, row(10));
+    assert_eq!(model.actions(first), [Intent::Unkeep(row(10))]);
+}
