@@ -22,17 +22,22 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use interweave_human_client_api::TrustOrigin;
 use interweave_human_ui_model::{
-    ConversationKey, Direction, HostText, Intent, ItemKey, ItemStatus, MessageItem, Reply,
-    Retention, RuntimeHost, SessionNotice, TrustChange, TrustInput, TrustOutcome, UiModel, UiText,
-    fill, placeholder_en, short_peer, visible_destination,
+    Announce, ConversationKey, Direction, FocusTarget, HostText, Intent, ItemKey, ItemStatus,
+    MessageItem, Reply, Retention, RowAction, RuntimeHost, SessionNotice, TrustChange, TrustInput,
+    TrustOutcome, UiModel, UiText, fill, placeholder_en, short_peer, visible_destination,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
 mod body;
+mod gesture;
+mod swipe;
+
+pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
 
 #[allow(
     missing_docs,
@@ -191,6 +196,14 @@ fn code_font() -> SharedString {
 /// wait per conversation selected meanwhile, so the queue stays finite.
 pub const INPUT_CAP: usize = 64;
 
+/// How long a leaving row's space takes to close (swipe spec §5: 150 ms),
+/// with a frame to spare before it is dropped.
+const LEAVING: Duration = Duration::from_millis(170);
+
+/// How long a committed swipe's row is held slid out waiting for the
+/// model to take it away, at most, before it springs back.
+const COMMIT_HOLD: Duration = Duration::from_millis(1_500);
+
 /// What a view asks of the composition root. Defined in `ui-model`, so a
 /// root that names no toolkit can handle it; re-exported here because a
 /// view is where it comes from.
@@ -201,9 +214,20 @@ pub use interweave_human_ui_model::ViewEvent;
 enum Input {
     Select(ConversationKey),
     Focus(bool),
-    /// An item action, by IDENTITY: the item and the intent as rendered,
-    /// never a position a re-render could move (agreed P1).
-    Action(ItemKey, Intent),
+    /// An item action, by IDENTITY: the item and the action as rendered,
+    /// never a position a re-render could move (agreed P1). A row button
+    /// and a committed swipe make the same input.
+    Action(ItemKey, RowAction),
+    /// Hide a conversation from the list: its row's swipe, or the open
+    /// conversation's own control.
+    HideConversation(ConversationKey),
+    /// The snackbar's Undo, by the snackbar's id.
+    Undo(u64),
+    /// The snackbar closed without one: its timeout, a swipe away, the
+    /// app leaving the foreground.
+    SnackClosed(u64),
+    /// A narrow window went back from the conversation to the list.
+    Left,
     /// The notice's action, with the notice that was shown.
     Notice(SessionNotice),
     /// A link's control, with the destination as rendered: the model
@@ -223,7 +247,7 @@ enum Input {
 #[derive(Clone)]
 struct Pressable {
     key: ItemKey,
-    actions: Vec<Intent>,
+    actions: Vec<RowAction>,
     links: Vec<String>,
 }
 
@@ -259,6 +283,18 @@ struct Shared {
     /// of Confirm names.
     pending_shown: Option<TrustChange>,
     wake: Option<Rc<dyn Fn()>>,
+    /// The rows a swipe can move, as rendered, by their swipe key.
+    swipes: HashMap<String, swipe::Swipeable>,
+    /// The swipe in progress.
+    tracked: Option<swipe::Tracked>,
+    /// A committed swipe's row, held slid out until the model answers.
+    committed: Option<swipe::Committed>,
+    /// The platform's touch values.
+    touch: TouchSettings,
+    /// The platform's haptic tick, played once as a swipe arms.
+    haptic: Option<Rc<dyn Fn()>>,
+    /// The snackbar shown, by its id.
+    snack: Option<u64>,
 }
 
 impl Shared {
@@ -309,6 +345,13 @@ impl Shared {
         // replaces a queued focus change only when that is the LAST input
         // -- in place, so nothing moves (rust-ui-dev R1, review N2) -- which
         // leaves at most one between any two other inputs.
+        // A snackbar closing is STATE too: refused, an Undo would stay
+        // offered after its snackbar had gone. And leaving the
+        // conversation closes it.
+        if matches!(input, Input::SnackClosed(_) | Input::Left) {
+            self.inputs.push_back(input);
+            return self.wake.clone();
+        }
         if let Input::Focus(_) = input {
             match self.inputs.back_mut() {
                 Some(last @ Input::Focus(_)) => *last = input,
@@ -382,6 +425,10 @@ enum Page {
     Conversation,
     /// The trust settings, in its place.
     Trust,
+    /// A narrow window went back to the conversation list: the
+    /// conversation is still selected and no longer seen, so nothing in
+    /// it is read and its snackbar is closed.
+    List,
 }
 
 /// The reference view: one window, bound to a [`UiModel`].
@@ -397,7 +444,7 @@ pub struct View {
     /// row compares its actions by model identity, so a fresh model on
     /// every render would rebuild the buttons and drop a focused one
     /// (review F1).
-    action_models: HashMap<i32, (Vec<Intent>, ModelRc<ActionRow>)>,
+    action_models: HashMap<i32, (Vec<RowAction>, ModelRc<ActionRow>)>,
     /// Each item's drawn body, kept while the item is shown: a body never
     /// changes, and a fresh model would rebuild a focused link's control,
     /// as a fresh actions model would (review F1). Keyed by the item, not
@@ -421,6 +468,17 @@ pub struct View {
     /// Where the runtime runs, which the texts that name it follow.
     host: RuntimeHost,
     shared: Rc<RefCell<Shared>>,
+    /// Rows the list no longer holds, kept while their space closes: the
+    /// row as last drawn, and until when.
+    leaving_messages: Vec<(ItemKey, MessageRow, Instant)>,
+    leaving_conversations: Vec<(ConversationKey, ConversationRow, Instant)>,
+    /// The conversation the last render's messages were from: a row gone
+    /// from the same conversation leaves, one from another just goes.
+    rendered_shown: Option<ConversationKey>,
+    /// The model's last outcome this view acted on.
+    outcome_seen: Option<u64>,
+    /// The snackbar whose timeout is running.
+    snack_timed: Option<u64>,
 }
 
 impl View {
@@ -460,6 +518,8 @@ impl View {
         window.set_add_label(text(UiText::TrustPeer));
         window.set_confirm_label(text(UiText::ConfirmChange));
         window.set_cancel_label(text(UiText::CancelChange));
+        window.set_undo_label(text(UiText::Undo));
+        window.set_hide_conversation_label(text(UiText::HideConversation));
         let shared = Rc::new(RefCell::new(Shared::default()));
 
         let s = Rc::clone(&shared);
@@ -475,10 +535,10 @@ impl View {
                 usize::try_from(index)
                     .ok()
                     .and_then(|i| item.actions.get(i))
-                    .map(|intent| (item.key, intent.clone()))
+                    .map(|action| (item.key, *action))
             });
-            if let Some((key, intent)) = pressed {
-                enqueue(&s, Input::Action(key, intent));
+            if let Some((key, action)) = pressed {
+                enqueue(&s, Input::Action(key, action));
             }
         });
         let s = Rc::clone(&shared);
@@ -541,6 +601,44 @@ impl View {
         let s = Rc::clone(&shared);
         window.on_trust_cancel(move || enqueue(&s, Input::Trust(TrustInput::Cancel)));
 
+        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
+        window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
+            swipe::moved(
+                &s,
+                &w,
+                key.as_str(),
+                (px, py),
+                (cx, cy),
+                width,
+                window_width,
+            );
+        });
+        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
+        window.on_swipe_ended(move |key| swipe::ended(&s, &w, key.as_str()));
+        let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
+        window.on_swipe_cancelled(move |key| swipe::cancelled(&s, &w, key.as_str()));
+        let s = Rc::clone(&shared);
+        window.on_undo(move |id| {
+            if let Ok(id) = u64::try_from(id) {
+                enqueue(&s, Input::Undo(id));
+            }
+        });
+        let s = Rc::clone(&shared);
+        window.on_snack_closed(move |id| {
+            if let Ok(id) = u64::try_from(id) {
+                enqueue(&s, Input::SnackClosed(id));
+            }
+        });
+        let s = Rc::clone(&shared);
+        window.on_hide_conversation(move || {
+            let selected = s.borrow().selected.clone();
+            if let Some(key) = selected {
+                enqueue(&s, Input::HideConversation(key));
+            }
+        });
+        let s = Rc::clone(&shared);
+        window.on_left_conversation(move || enqueue(&s, Input::Left));
+
         Ok(Self {
             window,
             conversations,
@@ -563,6 +661,11 @@ impl View {
             trust_announced: 0,
             host,
             shared,
+            leaving_messages: Vec::new(),
+            leaving_conversations: Vec::new(),
+            rendered_shown: None,
+            outcome_seen: None,
+            snack_timed: None,
         })
     }
 
@@ -612,6 +715,30 @@ impl View {
         // the person picks it from the list.
         self.window.set_list_shown(false);
         let _ = self.shared.borrow_mut().push(Input::Select(key));
+    }
+
+    /// The platform's touch values a swipe reads (§4, §6, §7): its touch
+    /// slop, its gesture insets, the layout's direction, whether motion
+    /// is off, and the snackbar's time up. A desktop keeps the defaults.
+    pub fn set_touch_settings(&self, settings: TouchSettings) {
+        self.window.set_rtl(settings.rtl);
+        self.window.set_reduced_motion(settings.reduced_motion);
+        self.shared.borrow_mut().touch = settings;
+    }
+
+    /// Play `tick` once each time a swipe arms (§4): the platform's
+    /// haptic feedback. Without one, arming is shown and not felt.
+    pub fn on_haptic(&self, tick: impl Fn() + 'static) {
+        self.shared.borrow_mut().haptic = Some(Rc::new(tick));
+    }
+
+    /// The app left the foreground: the snackbar closes, its Undo with it
+    /// (§5). The action itself has happened already.
+    pub fn close_snackbar(&self) {
+        let shown = self.shared.borrow().snack;
+        if let Some(id) = shown {
+            let _ = self.shared.borrow_mut().push(Input::SnackClosed(id));
+        }
     }
 
     /// The window gained or lost the person's focus. The platform's
@@ -665,6 +792,12 @@ impl View {
                     // conversation on screen to read.
                     let leaving = self.page == Page::Trust;
                     self.page = Page::Conversation;
+                    // Leaving a conversation closes its snackbar (§5).
+                    if let Some(snack) = model.snackbar()
+                        && snack.conversation.as_ref().is_some_and(|c| *c != key)
+                    {
+                        out.push(ViewEvent::SnackbarClosed(snack.id));
+                    }
                     out.extend(
                         model
                             .conversation_viewed(&key, self.focused)
@@ -690,9 +823,34 @@ impl View {
                         );
                     }
                 }
-                Input::Action(key, intent) => {
-                    if model.actions(key).contains(&intent) {
+                // Judged NOW, against the model: a row whose state changed
+                // since it was drawn -- under the finger, even -- raises
+                // nothing (swipe spec section 8).
+                Input::Action(key, action) => {
+                    out.extend(model.intent_for(key, action).map(ViewEvent::Intent));
+                }
+                Input::HideConversation(key) => {
+                    if let Some(intent) = model.hide_conversation_intent(&key) {
+                        // Its own screen hid it: there is nothing left to
+                        // show in its place.
+                        if self.shown.as_ref() == Some(&key) {
+                            self.shown = None;
+                            self.shared.borrow_mut().selected = None;
+                            self.selection_unrendered = true;
+                        }
                         out.push(ViewEvent::Intent(intent));
+                    }
+                }
+                Input::Undo(id) => out.push(ViewEvent::Undo(id)),
+                Input::SnackClosed(id) => out.push(ViewEvent::SnackbarClosed(id)),
+                Input::Left => {
+                    if self.page == Page::Conversation {
+                        self.page = Page::List;
+                    }
+                    if let Some(snack) = model.snackbar()
+                        && snack.conversation.is_some()
+                    {
+                        out.push(ViewEvent::SnackbarClosed(snack.id));
                     }
                 }
                 Input::Link(destination) => {
@@ -761,12 +919,14 @@ impl View {
     }
 
     /// The conversation a person can see now: the one shown, unless the
-    /// trust settings cover it. Read is a retention act, so only this one
-    /// is ever read (`a_conversation_under_the_trust_settings_reads_nothing`).
+    /// trust settings cover it or a narrow window went back to the list.
+    /// Read is a retention act, so only this one is ever read
+    /// (`a_conversation_under_the_trust_settings_reads_nothing`,
+    /// `a_conversation_left_for_the_list_reads_nothing`).
     fn on_screen(&self) -> Option<&ConversationKey> {
         match self.page {
             Page::Conversation => self.shown.as_ref(),
-            Page::Trust => None,
+            Page::Trust | Page::List => None,
         }
     }
 
@@ -788,13 +948,16 @@ impl View {
         // slot, and the first would never be heard (review F5).
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
-        let said = match (conversation, trust) {
-            (Some(first), Some(rest)) => Some(fill(
-                placeholder_en::text(UiText::AnnounceBoth),
-                &[("first", &first), ("rest", &rest)],
-            )),
-            (first, rest) => first.or(rest),
-        };
+        let outcome = self.render_swipe(model);
+        let said = [conversation, trust, outcome]
+            .into_iter()
+            .flatten()
+            .reduce(|first, rest| {
+                fill(
+                    placeholder_en::text(UiText::AnnounceBoth),
+                    &[("first", &first), ("rest", &rest)],
+                )
+            });
         if let Some(said) = said {
             self.announce(said);
         }
@@ -812,7 +975,6 @@ impl View {
     fn render_conversations(&mut self, model: &UiModel) {
         let summaries = model.conversations();
         let keys: Vec<ConversationKey> = summaries.iter().map(|s| s.key.clone()).collect();
-        self.conversation_handles.retain(&keys);
         let rows: Vec<ConversationRow> = summaries
             .iter()
             .map(|summary| {
@@ -835,21 +997,77 @@ impl View {
                         &[("kind", kind), ("unread", &unread)],
                     )
                 };
+                let hide = model.conversation_hide_offered(&summary.key);
                 ConversationRow {
                     handle: self.conversation_handles.of(&summary.key),
                     title: summary.title.as_str().into(),
                     description: description.into(),
                     selected: self.shown.as_ref() == Some(&summary.key),
+                    hide: swipe::kind(hide.then_some(RowAction::Hide)),
+                    hide_label: swipe::action_text(RowAction::Hide).into(),
+                    leaving: false,
                 }
             })
             .collect();
+        let (mut keys, mut rows) = (keys, rows);
+        let now = Instant::now();
+        let reduced = self.shared.borrow().touch.reduced_motion;
+        if !reduced {
+            for (index, key) in self.conversation_keys.iter().enumerate() {
+                let known = self.leaving_conversations.iter().any(|(k, ..)| k == key);
+                if !keys.contains(key)
+                    && !known
+                    && let Some(row) = self.conversations.row_data(index)
+                {
+                    self.leaving_conversations.push((
+                        key.clone(),
+                        ConversationRow {
+                            leaving: true,
+                            ..row
+                        },
+                        now + LEAVING,
+                    ));
+                }
+            }
+        }
+        self.leaving_conversations
+            .retain(|(.., until)| *until > now);
+        for (key, row, _) in &self.leaving_conversations {
+            let at = self
+                .conversation_keys
+                .iter()
+                .position(|k| k == key)
+                .and_then(|old| {
+                    self.conversation_keys[..old]
+                        .iter()
+                        .rev()
+                        .find_map(|before| keys.iter().position(|k| k == before))
+                })
+                .map_or(0, |i| i + 1);
+            keys.insert(at, key.clone());
+            rows.insert(at, row.clone());
+        }
+        if !self.leaving_conversations.is_empty() {
+            self.wake_after(LEAVING);
+        }
+        self.conversation_handles.retain(&keys);
         {
             let mut shared = self.shared.borrow_mut();
             shared.conversations = keys
                 .iter()
                 .zip(&rows)
+                .filter(|(_, row)| !row.leaving)
                 .map(|(key, row)| (row.handle, key.clone()))
                 .collect();
+            shared.swipes.retain(|k, _| k.starts_with("m:"));
+            for (key, row) in keys.iter().zip(&rows) {
+                if row.hide != generated::SwipeKind::None && !row.leaving {
+                    shared.swipes.insert(
+                        format!("c:{}", row.handle),
+                        swipe::Swipeable::Conversation(key.clone()),
+                    );
+                }
+            }
         }
         update_by_key(
             &*self.conversations,
@@ -864,18 +1082,14 @@ impl View {
             .shown
             .as_ref()
             .map_or_else(Vec::new, |key| model.messages(key));
-        let keys: Vec<ItemKey> = items.iter().map(|i| i.key).collect();
-        self.item_handles.retain(&keys);
+        let mut keys: Vec<ItemKey> = items.iter().map(|i| i.key).collect();
         let mut rendered = HashMap::new();
-        let rows: Vec<MessageRow> = items
+        let mut swipes = HashMap::new();
+        let mut rows: Vec<MessageRow> = items
             .iter()
             .map(|item| {
                 let handle = self.item_handles.of(&item.key);
-                let actions: Vec<Intent> = model
-                    .actions(item.key)
-                    .into_iter()
-                    .filter(|i| action_text(i).is_some())
-                    .collect();
+                let actions = model.row_actions(item.key);
                 let model_rc = match self.action_models.get(&handle) {
                     Some((same, rc)) if *same == actions => rc.clone(),
                     _ => {
@@ -889,7 +1103,12 @@ impl View {
                     .bodies
                     .entry(item.key)
                     .or_insert_with(|| drawn_body(item));
-                let row = message_row(handle, item, model_rc, drawn);
+                let offer = model.swipe_offer(item.key);
+                swipes.insert(
+                    format!("m:{handle}"),
+                    swipe::Swipeable::Item(item.key, offer),
+                );
+                let row = message_row(handle, item, model_rc, drawn, offer);
                 rendered.insert(
                     handle,
                     Pressable {
@@ -901,10 +1120,63 @@ impl View {
                 row
             })
             .collect();
+        // A row gone from the conversation still shown leaves: its space
+        // closes rather than the rows below jumping up (swipe spec §5).
+        // One gone because another conversation is shown just goes.
+        let now = Instant::now();
+        let reduced = self.shared.borrow().touch.reduced_motion;
+        if self.rendered_shown == self.shown && !reduced {
+            for (index, key) in self.message_keys.iter().enumerate() {
+                let known = self.leaving_messages.iter().any(|(k, ..)| k == key);
+                if !keys.contains(key)
+                    && !known
+                    && let Some(row) = self.messages.row_data(index)
+                {
+                    self.leaving_messages.push((
+                        *key,
+                        MessageRow {
+                            leaving: true,
+                            ..row
+                        },
+                        now + LEAVING,
+                    ));
+                }
+            }
+        } else {
+            self.leaving_messages.clear();
+        }
+        self.leaving_messages.retain(|(.., until)| *until > now);
+        for (key, row, _) in &self.leaving_messages {
+            // Back in its place: after the row it last followed that is
+            // still shown, or first.
+            let at = self
+                .message_keys
+                .iter()
+                .position(|k| k == key)
+                .and_then(|old| {
+                    self.message_keys[..old]
+                        .iter()
+                        .rev()
+                        .find_map(|before| keys.iter().position(|k| k == before))
+                })
+                .map_or(0, |i| i + 1);
+            keys.insert(at, *key);
+            rows.insert(at, row.clone());
+        }
+        if !self.leaving_messages.is_empty() {
+            self.wake_after(LEAVING);
+        }
+        self.rendered_shown.clone_from(&self.shown);
+        self.item_handles.retain(&keys);
         self.action_models
             .retain(|handle, _| rendered.contains_key(handle));
         self.bodies.retain(|key, _| keys.contains(key));
-        self.shared.borrow_mut().items = rendered;
+        {
+            let mut shared = self.shared.borrow_mut();
+            shared.items = rendered;
+            shared.swipes.retain(|k, _| k.starts_with("c:"));
+            shared.swipes.extend(swipes);
+        }
         update_by_key(&*self.messages, &mut self.message_keys, &keys, &rows);
     }
 
@@ -1010,6 +1282,117 @@ impl View {
         }
         self.trust_announced = count;
         Some(said)
+    }
+
+    /// The snackbar, the open conversation's hide control, a committed
+    /// swipe's row, and the model's latest outcome: its announcement,
+    /// returned for the render's one, and its focus, moved once the rows
+    /// it names are drawn.
+    fn render_swipe(&mut self, model: &UiModel) -> Option<String> {
+        let window = &self.window;
+        let snack = model.snackbar();
+        let shown = snack.as_ref().filter(|s| match &s.conversation {
+            None => true,
+            Some(c) => self.on_screen() == Some(c),
+        });
+        window.set_snack_shown(shown.is_some());
+        if let Some(s) = shown {
+            window.set_snack_on_list(s.conversation.is_none());
+            window.set_snack_id(i32::try_from(s.id).unwrap_or(i32::MAX));
+            window.set_snack_text(swipe::confirmation_text(s.confirms).into());
+            window.set_snack_undo(s.undo);
+        }
+        self.shared.borrow_mut().snack = snack.as_ref().map(|s| s.id);
+        if let Some(s) = &snack
+            && self.snack_timed != Some(s.id)
+        {
+            // Its timeout: a later snackbar's replaces it, and a stale one
+            // names an id the model no longer holds, which closes nothing.
+            self.snack_timed = Some(s.id);
+            let (shared, id) = (Rc::clone(&self.shared), s.id);
+            let ms = self.shared.borrow().touch.snackbar_ms;
+            slint::Timer::single_shot(Duration::from_millis(ms), move || {
+                enqueue(&shared, Input::SnackClosed(id));
+            });
+        }
+        window.set_hide_conversation_shown(
+            self.on_screen()
+                .is_some_and(|key| model.conversation_hide_offered(key)),
+        );
+
+        let outcome = model.outcome().cloned();
+        let outcome_id = outcome.as_ref().map(|o| o.id);
+        // A row a committed swipe slid out stays there until the render
+        // that removes it; still here once the model has answered -- a
+        // refused Cancel -- or after a bound, it springs back (§8).
+        let committed = self.shared.borrow().committed.clone();
+        if let Some(mut c) = committed {
+            let present = self.shared.borrow().swipes.contains_key(&c.key);
+            if !present {
+                self.shared.borrow_mut().committed = None;
+            } else if c.outcome.is_none() {
+                c.outcome = Some(outcome_id.unwrap_or(0));
+                self.shared.borrow_mut().committed = Some(c);
+            } else if c.outcome != Some(outcome_id.unwrap_or(0)) || c.at.elapsed() > COMMIT_HOLD {
+                self.shared.borrow_mut().committed = None;
+                window.set_swipe_offset(0.0);
+            }
+        }
+        // A leaving row's slide is over once its space has closed.
+        let swiping = window.get_swipe_key();
+        let gone = !self.shared.borrow().swipes.contains_key(swiping.as_str())
+            && self.shared.borrow().tracked.is_none();
+        if !swiping.is_empty()
+            && gone
+            && self.leaving_messages.is_empty()
+            && self.leaving_conversations.is_empty()
+        {
+            window.set_swipe_key(SharedString::new());
+            window.set_swipe_offset(0.0);
+        }
+
+        let outcome = outcome.filter(|o| self.outcome_seen != Some(o.id))?;
+        self.outcome_seen = Some(outcome.id);
+        if let Some(focus) = &outcome.focus {
+            let target = match focus {
+                FocusTarget::Item(key) => self
+                    .message_keys
+                    .contains(key)
+                    .then(|| format!("m:{}", self.item_handles.of(key))),
+                FocusTarget::Conversation(key) => self
+                    .conversation_keys
+                    .contains(key)
+                    .then(|| format!("c:{}", self.conversation_handles.of(key))),
+                FocusTarget::Composer(_) => Some("composer".to_owned()),
+            };
+            if let Some(target) = target {
+                let window = swipe::weak(&self.window);
+                // Once the rows it names exist: a restored row is drawn by
+                // this render, and its controls are made after it.
+                defer(move || {
+                    if let Some(window) = window.upgrade() {
+                        window.set_focus_target(target.into());
+                        window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
+                    }
+                });
+            }
+        }
+        outcome.announce.map(|announce| match announce {
+            Announce::Confirmed(confirms) => swipe::confirmation_text(confirms).to_owned(),
+            Announce::Restored => placeholder_en::text(UiText::Restored).to_owned(),
+        })
+    }
+
+    /// Wake the root after `delay`, so it renders again: a leaving row
+    /// is dropped once its space has closed.
+    fn wake_after(&self, delay: Duration) {
+        let shared = Rc::clone(&self.shared);
+        slint::Timer::single_shot(delay, move || {
+            let wake = shared.borrow().wake.clone();
+            if let Some(wake) = wake {
+                wake();
+            }
+        });
     }
 
     fn render_chrome(&self, model: &UiModel) {
@@ -1169,14 +1552,14 @@ fn update_by_key<K: PartialEq + Clone, R: Clone + PartialEq>(
 
 /// The buttons for `actions`, in order: a press is recorded by its index
 /// into the actions as rendered.
-fn action_model(actions: &[Intent]) -> ModelRc<ActionRow> {
+fn action_model(actions: &[RowAction]) -> ModelRc<ActionRow> {
     let rows: Vec<ActionRow> = actions
         .iter()
         .enumerate()
-        .filter_map(|(index, intent)| {
+        .filter_map(|(index, action)| {
             Some(ActionRow {
                 index: i32::try_from(index).ok()?,
-                text: action_text(intent)?.into(),
+                text: swipe::action_text(*action).into(),
             })
         })
         .collect();
@@ -1260,6 +1643,7 @@ fn message_row(
     item: &MessageItem,
     actions: ModelRc<ActionRow>,
     drawn: &DrawnBody,
+    offer: interweave_human_ui_model::SwipeOffer,
 ) -> MessageRow {
     let (author, author_id) = match (&item.direction, &item.author) {
         (Direction::Inbound, Some(peer)) => (short_peer(peer.as_str()), peer.as_str().to_owned()),
@@ -1301,6 +1685,19 @@ fn message_row(
         links: drawn.link_rows.clone(),
         reply: reply.into(),
         actions,
+        end_kind: swipe::kind(offer.toward_end),
+        end_label: offer
+            .toward_end
+            .map(swipe::action_text)
+            .unwrap_or_default()
+            .into(),
+        start_kind: swipe::kind(offer.toward_start),
+        start_label: offer
+            .toward_start
+            .map(swipe::action_text)
+            .unwrap_or_default()
+            .into(),
+        leaving: false,
     }
 }
 
@@ -1373,8 +1770,13 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
         let arrived: Vec<&SeenItem> = now
             .items
             .iter()
+            // Unread, as every message is when it arrives: a read one
+            // that comes back -- a Hide undone -- is not an arrival, and
+            // its Undo says "Restored" already.
             .filter(|(key, item)| {
-                item.direction == Direction::Inbound && !before.items.contains_key(key)
+                item.direction == Direction::Inbound
+                    && item.status == ItemStatus::Inbound(Retention::Unread)
+                    && !before.items.contains_key(key)
             })
             .map(|(_, item)| item)
             .collect();

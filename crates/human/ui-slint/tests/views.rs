@@ -2353,6 +2353,39 @@ fn leaving_drops_a_waiting_change_and_a_non_peer_id_is_said() {
 /// settings cover is not on screen, so nothing in it is read -- not a
 /// message arriving there, and not one selected in the list beside the
 /// settings, focused window or not.
+/// A narrow window that went back to the list no longer shows the
+/// conversation: a message arriving in it is not read, and stays unread
+/// until the person opens it again.
+#[test]
+fn a_conversation_left_for_the_list_reads_nothing() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let read = open(&mut view, &mut model, &direct(&bob));
+    assert_eq!(
+        read,
+        vec![Intent::MarkRead(RowId::from_stored(1))],
+        "control"
+    );
+    model.read(RowId::from_stored(1));
+    view.window().invoke_left_conversation();
+    let _ = intents(&mut view, &mut model);
+
+    model.received(received(2, &bob, "arrives while the list is shown"));
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read from the list: {raised:?}");
+
+    let read = open(&mut view, &mut model, &direct(&bob));
+    assert_eq!(
+        read,
+        vec![Intent::MarkRead(RowId::from_stored(2))],
+        "read once opened again"
+    );
+}
+
 #[test]
 fn a_conversation_under_the_trust_settings_reads_nothing() {
     let mut view = view();
