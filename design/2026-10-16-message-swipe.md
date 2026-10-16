@@ -607,7 +607,12 @@ TalkBack off and once with it on, and once with "Remove animations" on.
       nothing.
 21. **Focus, every case.** "Keyboard" means focus placed with a hardware
     keyboard or `adb shell input keyevent` (Tab, arrows) and read from
-    `uiautomator dump` (`focused="true"`). "TalkBack" means the same
+    the drawn focus indicator in a screenshot. `uiautomator dump` cannot
+    read it: on main 761d72b3 the Android build exposes the Slint window
+    as one `View` with no children, and nothing in the repository
+    bridges Slint's accessibility tree to Android's (seen on the Pixel
+    9a, 2026-10-16). Once a bridge exists, `focused="true"` in the dump
+    is the stronger check. "TalkBack" means the same
     with TalkBack's focus, a person's check (item 12). "Tests" means the
     ui-model or app-core tests, with a store that refuses writes where
     the case is a refusal.
