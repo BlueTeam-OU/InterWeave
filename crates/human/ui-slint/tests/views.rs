@@ -28,8 +28,8 @@ use interweave_human_ui_model::{
 use interweave_human_ui_slint::{INPUT_CAP, View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
-use slint::ComponentHandle as _;
 use slint::platform::{Key, WindowEvent};
+use slint::{ComponentHandle as _, Model as _};
 
 fn peer() -> TransportIdentity {
     ProfileIdentity::generate()
@@ -1298,6 +1298,38 @@ fn a_queue_drained_at_each_take_holds_at_most_four_times_the_cap_plus_three() {
         u64::try_from(INPUT_CAP).expect("small"),
         "only presses past the cap are refused"
     );
+}
+
+/// The queue's bound with leaving for the list too, at its worst order: a
+/// focus change beside every input, an edit and a Left beside every
+/// selection -- six times the cap plus one here, and with the two snackbar
+/// closings and a focus change beside each, six times the cap plus nine
+/// at most (review F4 on #289, rounds 1 and 2).
+#[test]
+fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "unread"));
+    open(&mut view, &mut model, &direct(&alice));
+    let handle = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    for n in 0..INPUT_CAP * 2 {
+        view.set_window_focused(true);
+        view.window().invoke_select(handle);
+        view.set_window_focused(false);
+        type_into(&view, &format!("draft {n}"));
+        view.set_window_focused(true);
+        view.window().invoke_left_conversation();
+    }
+    // Each press with its edit, its Left and three focus changes, and one
+    // focus change more: what this order reaches, and under the bound.
+    assert_eq!(view.queued_inputs(), 6 * INPUT_CAP + 1);
+    assert!(view.queued_inputs() <= 6 * INPUT_CAP + 9);
 }
 
 /// Review F1: a render that changes nothing about an item keeps focus on
