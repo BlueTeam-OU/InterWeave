@@ -293,6 +293,18 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   If Cancel succeeds while storage is already degraded, its snackbar
   shows no Undo, since a restore could not be written. A missing Undo
   is honest; a failing one is not (as for Unkeep above).
+- **Unkeep refused by the store** (`Store::unkeep` fails, and the
+  facade passes it on as a failure):
+  - the row springs back to rest, still kept, and no snackbar is shown;
+  - the existing storage notice and refusal announcement apply;
+  - focus stays where it was.
+- **Undo of Keep refused** (the Unkeep that undoes a Keep fails):
+  - the row stays kept, and the snackbar closes;
+  - the existing storage notice and refusal announcement apply;
+  - focus goes to that row's first control.
+
+  The person is told that it is still kept, so nothing has silently
+  failed to happen.
 - **Undo of Unkeep when Keep is refused** (storage degraded): the row
   stays not kept, the snackbar closes, and the existing storage notice
   and refusal announcement apply.
