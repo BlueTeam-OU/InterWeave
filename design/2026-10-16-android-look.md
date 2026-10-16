@@ -100,6 +100,8 @@ the storage notice must stand out from everything else on screen.
 | `primary` as text or ring on `surface` | 4.5 | 10.8 | 6.2 |
 | `primary` ring on `surface-container-high` | 3 | 8.4 | 5.4 |
 | `primary` as a channel author's text on `surface-container-high` | 4.5 | 8.4 | 5.4 |
+| `on-primary-container` as link text on `primary-container` | 4.5 | 8.7 | 13.3 |
+| `on-surface` code text on `surface` | 4.5 | 14.5 | 16.2 |
 | `primary` ring on `primary-container` | 3 | 5.9 | 5.0 |
 | `primary` ring on `surface-container` | 3 | 10.1 | 5.7 |
 | `focus-ring-on-inverse` on `inverse-surface` | 3 | 5.2 | 7.7 |
@@ -212,8 +214,11 @@ From the top:
   - a back arrow (48 dp target, labelled "Back to conversations"), which
     replaces today's outlined "Back to conversations" box;
   - the avatar, 36 dp;
-  - the name in title medium and, under it, the connectivity line
-    ("Online, some peers might not reach you") in body small;
+  - the name in title medium and, under it, in body small, the
+    connectivity line ("Online, some peers might not reach you") and,
+    when a path is known, the path line ("Connected directly",
+    "Connected through a relay", `human-client-ui.md` §7) as a second
+    line;
   - an overflow menu (⋮) holding "Hide conversation" when the
     conversation is offered for hiding (swipe spec §10), and "Details".
     "Details" shows the full peer id, copyable in its exact canonical
@@ -247,6 +252,24 @@ From the top:
     accessible description as today (U5a). Consecutive bubbles from the
     same author within a minute show it once.
     TalkBack reads the author first in both (§7).
+- **What else a bubble holds**, each kept from today:
+  - the **reply line** ("In reply to an earlier message", or its
+    "not shown here" form, `human-client-ui.md` §15) at the top inside
+    the bubble, in body small and `on-surface-variant`, after a 3 dp
+    start bar in the bubble's text colour;
+  - **links** as text in `primary` in a received bubble and in
+    `on-primary-container` in a sent one, underlined, each a 48 dp
+    target as today's link buttons are;
+  - **code** lines on `surface` with `on-surface` text, in the code
+    font; **quote** bars and **rules** in the bubble's text colour.
+    Today's `Palette.pane` and `divider` become `surface-container` and
+    `outline` wherever else they are used;
+  - the **route** ("Route: {route}"): a direct conversation is one route,
+    already in its title ("... / human"), so the bubble shows it only
+    when a message's route differs from the title's. TalkBack's
+    description of a bubble always includes it.
+- **The "Messages" heading** is no longer drawn: the bubbles show where
+  the messages are. It stays as a heading for screen-reader navigation.
 - **Row actions as chips**, under the bubble, on the bubble's side:
   - outlined chips, 32 dp drawn and 48 dp to touch (the touch area
     extends 8 dp above and below), 8 dp apart, each with an 18 dp icon
@@ -402,8 +425,13 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
    "#". In a direct conversation no bubble shows an author line.
    Each bubble's status shows its icon and its words. Accepted shows a
    single check and never the words "Read" or "Seen".
-9. Every chip and the Send and back buttons measure at least
+9. Every chip, link, and the Send and back buttons measure at least
    48 × 48 dp to touch.
+9a. A reply shows its reply line in the bubble, a link in a bubble
+    opens as today's link button does, code, quote and rule lines keep
+    their look in both bubble colours, and a header shows the path line
+    when the path is known. A bubble whose route differs from the
+    title's shows it.
 10. Every focusable control shows the 3 dp ring under Tab, on the Chats
     list, in a conversation, on the snackbar's Undo and on a notice
     banner's buttons, in the colour §7 gives its container, and the
