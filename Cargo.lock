@@ -3476,7 +3476,6 @@ dependencies = [
  "interweave-human-ui-slint",
  "interweave-profile-config",
  "interweave-profile-identity",
- "interweave-transport-embedded",
  "jni 0.22.4",
  "ndk-sys 0.6.0+11769913",
  "serde_json",

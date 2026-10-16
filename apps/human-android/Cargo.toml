@@ -27,16 +27,16 @@ crate-type = ["cdylib", "rlib"]
 interweave-human-ui-model = { path = "../../crates/human/ui-model" }
 # The app's log (src/platform_log.rs): the runtime's events, through the
 # embedded host's own filter at the profile's level, to logcat. On every
-# target so the host tests the filter the phone writes with.
+# target so the host tests the filter the phone writes with; the filter
+# comes through android-platform, the app's one way to the runtime.
+interweave-human-android-platform = { path = "../../crates/human/android-platform" }
 interweave-profile-config = { path = "../../crates/config/profile-config" }
-interweave-transport-embedded = { path = "../../crates/transport/embedded" }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # The Service's hold on the runtime, store and facade, and the hub the
-# Activity's view attaches to.
-interweave-human-android-platform = { path = "../../crates/human/android-platform" }
+# Activity's view attaches to: android-platform, in [dependencies].
 interweave-human-app-core = { path = "../../crates/human/app-core" }
 # The views with Slint's Android backend over NativeActivity.
 interweave-human-ui-slint = { path = "../../crates/human/ui-slint", features = ["android"] }

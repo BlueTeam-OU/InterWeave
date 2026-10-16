@@ -30,7 +30,7 @@ pub use interweave_profile_config::runtime::KeyUnlockPolicy;
 /// The embedded custody path, for the app's Keystore adapter of its
 /// `SeedCipher` seam.
 pub use interweave_transport_embedded::custody;
-pub use interweave_transport_embedded::{EmbeddedRefused, StayReachable};
+pub use interweave_transport_embedded::{EmbeddedRefused, StayReachable, log_admits};
 pub use notice::Notices;
 pub use service::{
     AvailabilityMode, CLIENT_KIND, Ended, LogLevel, ServiceHost, ServiceLaunch, StartRefused,

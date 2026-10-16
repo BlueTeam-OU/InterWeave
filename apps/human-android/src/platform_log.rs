@@ -12,8 +12,8 @@
 use std::fmt::Write as _;
 use std::sync::{PoisonError, RwLock};
 
+use interweave_human_android_platform::log_admits;
 use interweave_profile_config::sections::LogLevel;
-use interweave_transport_embedded::log_admits;
 use tracing::field::{Field, Visit};
 
 /// The level the running profile names; the default's until a start
@@ -73,6 +73,26 @@ where
     S: tracing::Subscriber,
     W: Fn(tracing::Level, &str) + Send + Sync + 'static,
 {
+    // Judged per event, never cached: the level changes at each start
+    // (`set_level`), and an `always`/`never` interest would freeze the
+    // first answer for the callsite's life.
+    fn register_callsite(
+        &self,
+        _: &'static tracing::Metadata<'static>,
+    ) -> tracing::subscriber::Interest {
+        tracing::subscriber::Interest::sometimes()
+    }
+
+    // Before the fields are evaluated or a span is allocated: what the
+    // filter refuses costs one check, in the release build too.
+    fn enabled(
+        &self,
+        meta: &tracing::Metadata<'_>,
+        _: tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
+        log_admits(meta.target(), *meta.level(), level())
+    }
+
     fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
         let meta = event.metadata();
         if !log_admits(meta.target(), *meta.level(), level()) {
@@ -124,6 +144,27 @@ mod tests {
                 "admin.trust.set"
             );
             tracing::warn!(target: "libp2p_swarm", "another crate at WARN");
+            // Refused before its fields are built, and not cached: the
+            // same callsite is admitted once the level allows it.
+            for (at, admitted) in [(LogLevel::Warn, false), (LogLevel::Debug, true)] {
+                set_level(at);
+                assert_eq!(
+                    tracing::enabled!(target: "interweave::connectivity", tracing::Level::DEBUG),
+                    admitted,
+                    "DEBUG enabled at {at:?}"
+                );
+            }
+            set_level(LogLevel::Warn);
+            let built = std::cell::Cell::new(false);
+            tracing::debug!(
+                target: "interweave::connectivity",
+                field = {
+                    built.set(true);
+                    1_u8
+                },
+                "never built"
+            );
+            assert!(!built.get(), "a refused event's field was evaluated");
             set_level(LogLevel::Debug);
             tracing::debug!(target: "interweave::connectivity", "debug once the level is");
             tracing::debug!(target: "libp2p_swarm", "another crate is capped at WARN");
