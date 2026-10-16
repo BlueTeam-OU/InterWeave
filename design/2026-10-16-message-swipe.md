@@ -291,8 +291,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     instant under reduced motion) and the row returns to its place,
     still pending;
   - the "Send cancelled" snackbar is shown only once the facade has
-    answered that the Cancel succeeded. A refused Cancel shows none,
-    or closes one already shown;
+    answered that the Cancel succeeded. A refused Cancel shows none;
   - the existing storage notice and refusal announcement apply;
   - focus returns to the row's first control, even if it had already
     moved to the next row.
