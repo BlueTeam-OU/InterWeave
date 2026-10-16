@@ -208,10 +208,12 @@ async fn a_send_with_no_session_is_committed_and_goes_out_when_one_opens() {
     );
 }
 
-/// A send, a retry and a restore commit and report their row, and make
-/// no transport call: the next tick attempts it. A caller shows the row
+/// A send and a restore commit their row, a retry marks its row due, and
+/// none of the three makes a transport call: each reports the row, and
+/// the next tick attempts it. A caller shows the row
 /// before an attempt to an unreachable peer has taken its time to fail
-/// (j88, swipe spec section 11 item 8: a restore seen 33 s late).
+/// (the j88 device run of swipe spec section 11 item 8 saw a restored
+/// row 33 s late).
 #[tokio::test]
 async fn the_first_attempt_waits_for_the_next_tick() {
     let (a, b) = FakeNetwork::pair(node_config(), node_config());
