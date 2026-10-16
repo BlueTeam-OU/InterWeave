@@ -285,6 +285,11 @@ struct Shared {
     conversations: HashMap<i32, ConversationKey>,
     items: HashMap<i32, Pressable>,
     selected: Option<ConversationKey>,
+    /// The conversation the open conversation's "Hide conversation" was
+    /// last pressed for: focus moves after that hide wherever it was, as
+    /// after a swipe from inside the row (swipe spec section 10), since
+    /// the screen holding the control goes. Taken by the next outcome.
+    hidden_from_header: Option<ConversationKey>,
     /// A render showed a conversation with unread items, or the pane came
     /// back on screen: once the queue has drained, read the conversation
     /// then on screen if the window then has focus (rust-ui-dev F1).
@@ -533,6 +538,14 @@ impl<K: Ord + Clone> Handles<K> {
     fn retain(&mut self, live: &[K]) {
         self.by_key.retain(|k, _| live.contains(k));
     }
+
+    /// The key `handle` stands for, while it is drawn.
+    fn key_of(&self, handle: i32) -> Option<&K> {
+        self.by_key
+            .iter()
+            .find(|(_, h)| **h == handle)
+            .map(|(k, _)| k)
+    }
 }
 
 /// What the right-hand pane shows.
@@ -749,6 +762,7 @@ impl View {
         window.on_hide_conversation(move || {
             let selected = s.borrow().selected.clone();
             if let Some(key) = selected {
+                s.borrow_mut().hidden_from_header = Some(key.clone());
                 enqueue(&s, Input::HideConversation(key));
             }
         });
@@ -1089,6 +1103,24 @@ impl View {
     /// (`a_conversation_under_the_trust_settings_reads_nothing`,
     /// `a_conversation_left_for_the_list_reads_nothing`,
     /// `a_resize_to_the_list_reads_nothing_before_its_handler_runs`).
+    /// The row focus is inside, by what its focused control reported in
+    /// `focus-id`: a message row or one of its controls, or a
+    /// conversation row.
+    fn focused_row(&self) -> Option<FocusTarget> {
+        let id = self.window.get_focus_id();
+        let id = id.as_str();
+        let handle = |rest: &str| rest.split(':').next()?.parse::<i32>().ok();
+        if let Some(rest) = id.strip_prefix("conversation:") {
+            let key = self.conversation_handles.key_of(handle(rest)?)?;
+            return Some(FocusTarget::Conversation(key.clone()));
+        }
+        let rest = ["item:", "action:", "link:", "source:"]
+            .into_iter()
+            .find_map(|prefix| id.strip_prefix(prefix))?;
+        let key = self.item_handles.key_of(handle(rest)?)?;
+        Some(FocusTarget::Item(*key))
+    }
+
     fn on_screen(&self) -> Option<&ConversationKey> {
         match self.page {
             Page::Conversation if self.window.get_pane_shown() => self.shown.as_ref(),
@@ -1107,6 +1139,8 @@ impl View {
     /// not wake the root, which is rendering: the root takes after it
     /// renders.
     pub fn render(&mut self, model: &UiModel) {
+        // Before the lists retire the handles of the rows they remove.
+        let focused = self.focused_row();
         self.render_conversations(model);
         self.render_messages(model);
         self.render_chrome(model);
@@ -1114,7 +1148,7 @@ impl View {
         // slot, and the first would never be heard (review F5).
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
-        let outcome = self.render_swipe(model);
+        let outcome = self.render_swipe(model, focused.as_ref());
         let said = [conversation, trust, outcome]
             .into_iter()
             .flatten()
@@ -1470,8 +1504,10 @@ impl View {
     /// The snackbar, the open conversation's hide control, a committed
     /// swipe's row, and the model's latest outcome: its announcement,
     /// returned for the render's one, and its focus, moved once the rows
-    /// it names are drawn.
-    fn render_swipe(&mut self, model: &UiModel) -> Option<String> {
+    /// it names are drawn -- and, after a row was taken away, only if
+    /// `focused`, the row focus was inside, is that row (swipe spec
+    /// section 7): a touch that swiped a row leaves focus where it was.
+    fn render_swipe(&mut self, model: &UiModel, focused: Option<&FocusTarget>) -> Option<String> {
         let window = &self.window;
         let snack = model.snackbar();
         let up = snack.as_ref().map(SnackUp::of);
@@ -1541,7 +1577,11 @@ impl View {
 
         let outcome = outcome.filter(|o| self.outcome_seen != Some(o.id))?;
         self.outcome_seen = Some(outcome.id);
-        if let Some(focus) = &outcome.focus {
+        let header = self.shared.borrow_mut().hidden_from_header.take();
+        let moves = outcome.moves_from.as_ref().is_none_or(|from| {
+            focused == Some(from) || header.map(FocusTarget::Conversation).as_ref() == Some(from)
+        });
+        if let Some(focus) = outcome.focus.as_ref().filter(|_| moves) {
             let target = match focus {
                 FocusTarget::Item(key) => self
                     .message_keys
@@ -1551,6 +1591,8 @@ impl View {
                     .conversation_keys
                     .contains(key)
                     .then(|| format!("c:{}", self.conversation_handles.of(key))),
+                FocusTarget::Header(key) => (self.on_screen() == Some(key)).then(|| "h".to_owned()),
+                FocusTarget::ConversationsHeading => Some("heading".to_owned()),
             };
             if let Some(target) = target {
                 let window = swipe::weak(&self.window);

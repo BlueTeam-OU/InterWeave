@@ -30,6 +30,7 @@ use interweave_human_ui_model::{
 use interweave_human_ui_slint::{INPUT_CAP, TouchSettings, View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportIdentity};
+use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle as _, Model as _};
 
 fn peer() -> TransportIdentity {
@@ -130,6 +131,39 @@ fn turn(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
 fn open(view: &mut View, model: &mut UiModel, key: &ConversationKey) {
     view.select(key.clone());
     let _ = turn(view, model);
+}
+
+/// Tab until the focused control's `focus-id` starts with `prefix`.
+fn tab_to(view: &View, prefix: &str) -> String {
+    for _ in 0..60 {
+        key(view, Key::Tab);
+        let on = view.window().get_focus_id().to_string();
+        if on.starts_with(prefix) {
+            return on;
+        }
+    }
+    panic!("Tab never reached {prefix}");
+}
+
+fn key(view: &View, key: Key) {
+    let text: slint::SharedString = key.into();
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+    window.dispatch_event(WindowEvent::KeyReleased { text });
+}
+
+/// Activate the focused control from the keyboard.
+fn press_focused(view: &View) {
+    key(view, Key::Return);
+}
+
+/// The handle of the message row at `index` as drawn.
+fn handle(view: &View, index: usize) -> i32 {
+    view.window()
+        .get_messages()
+        .row_data(index)
+        .expect("a row")
+        .handle
 }
 
 /// The swipe key of the message row at `index` as drawn.
@@ -267,7 +301,7 @@ fn right_to_left_mirrors_the_directions() {
 }
 
 #[test]
-fn a_hide_is_confirmed_announced_focused_and_undone_in_place() {
+fn a_hide_is_confirmed_announced_and_undone_in_place() {
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
@@ -275,12 +309,13 @@ fn a_hide_is_confirmed_announced_focused_and_undone_in_place() {
     read(&mut model, 2, &alice, "second");
     open(&mut view, &mut model, &direct(&alice));
     let first = row_key(&view, 0);
-    let second_handle = view
+    let first_handle = view
         .window()
         .get_messages()
-        .row_data(1)
+        .row_data(0)
         .expect("row")
         .handle;
+    let focus_before = view.window().get_focus_id().to_string();
 
     swipe(&view, &first, -170.0, 0.0, 8);
     let intents = turn(&mut view, &mut model);
@@ -294,8 +329,8 @@ fn a_hide_is_confirmed_announced_focused_and_undone_in_place() {
     assert_eq!(announced(&view), text(UiText::ConfirmDismissed));
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{second_handle}:0"),
-        "focus to the next row's first control"
+        focus_before,
+        "a touch swipe with focus outside the row leaves focus where it was"
     );
     let undo = labelled(&view, text(UiText::Undo));
     assert_eq!(undo.len(), 1, "the snackbar's Undo");
@@ -310,6 +345,11 @@ fn a_hide_is_confirmed_announced_focused_and_undone_in_place() {
     );
     assert!(!view.window().get_snack_shown());
     assert_eq!(announced(&view), text(UiText::ActionUndone));
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first_handle}:0"),
+        "an Undo focuses the restored row's first control"
+    );
 }
 
 #[test]
@@ -423,13 +463,15 @@ fn a_conversation_whose_rows_are_all_hidden_keeps_its_header() {
     open(&mut view, &mut model, &direct(&alice));
     let title = view.window().get_header_title().to_string();
     assert!(!title.is_empty(), "control");
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    // Dismiss is the row's second action, after Keep.
+    tab_to(&view, &format!("action:{}:1", handle(&view, 0)));
+    press_focused(&view);
     let _ = turn(&mut view, &mut model);
     assert_eq!(view.window().get_header_title().as_str(), title);
-    assert_ne!(
+    assert_eq!(
         view.window().get_focus_id().as_str(),
-        "composer",
-        "no keyboard asked for"
+        "header-title",
+        "the header title, never the composer and its keyboard"
     );
 }
 
@@ -873,4 +915,143 @@ fn a_conversation_rows_swipe_says_hide() {
         .expect("a row");
     assert_eq!(row.hide_label.as_str(), text(UiText::HideShort));
     assert_ne!(text(UiText::HideShort), text(UiText::Dismiss));
+}
+
+// --- focus after a row leaves (swipe spec section 7, item 21) -------------
+
+/// Three read rows; focus placed on the `at`th row's Dismiss by the
+/// keyboard and pressed there.
+fn dismiss_by_keyboard(rows: usize, at: usize) -> (View, Vec<i32>) {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 0..rows {
+        read(&mut model, i64::try_from(n).unwrap() + 1, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    let handles: Vec<i32> = (0..rows).map(|i| handle(&view, i)).collect();
+    // Dismiss is the row's second action, after Keep.
+    tab_to(&view, &format!("action:{}:1", handles[at]));
+    press_focused(&view);
+    let _ = turn(&mut view, &mut model);
+    (view, handles)
+}
+
+#[test]
+fn a_dismiss_by_keyboard_focuses_the_next_rows_first_control() {
+    let (view, handles) = dismiss_by_keyboard(3, 1);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{}:0", handles[2])
+    );
+}
+
+#[test]
+fn a_dismiss_of_the_last_row_focuses_the_previous_one() {
+    let (view, handles) = dismiss_by_keyboard(3, 2);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{}:0", handles[1])
+    );
+}
+
+#[test]
+fn a_dismiss_of_the_only_row_focuses_the_header_title() {
+    let (view, _) = dismiss_by_keyboard(1, 0);
+    assert_eq!(view.window().get_focus_id().as_str(), "header-title");
+}
+
+#[test]
+fn a_touch_swipe_leaves_focus_held_in_another_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 1..=3 {
+        read(&mut model, n, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    let on = tab_to(&view, &format!("action:{}:", handle(&view, 2)));
+    swipe(&view, &row_key(&view, 0), -170.0, 0.0, 8);
+    let _ = turn(&mut view, &mut model);
+    assert!(view.window().get_snack_shown(), "control: it was dismissed");
+    assert_eq!(view.window().get_focus_id().as_str(), on, "focus stays");
+}
+
+#[test]
+fn a_touch_swipe_on_the_row_holding_focus_moves_it_as_a_button_would() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 1..=2 {
+        read(&mut model, n, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    let (first, second) = (handle(&view, 0), handle(&view, 1));
+    tab_to(&view, &format!("action:{first}:"));
+    swipe(&view, &row_key(&view, 0), -170.0, 0.0, 8);
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{second}:0")
+    );
+}
+
+#[test]
+fn hiding_the_only_conversation_from_its_row_focuses_the_lists_heading() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "only");
+    let _ = turn(&mut view, &mut model);
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row");
+    tab_to(&view, &format!("conversation:{}", row.handle));
+    swipe(&view, &format!("c:{}", row.handle), -170.0, 0.0, 8);
+    let _ = turn(&mut view, &mut model);
+    assert!(model.conversations().is_empty(), "control: hidden");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "conversations-heading"
+    );
+}
+
+#[test]
+fn hide_conversation_in_its_header_focuses_the_next_conversation_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    read(&mut model, 1, &alice, "a");
+    read(&mut model, 2, &bob, "b");
+    let _ = turn(&mut view, &mut model);
+    let rows = view.window().get_conversations();
+    let other = rows.row_data(1).expect("a row").handle;
+    let key = model.conversations()[0].key.clone();
+    open(&mut view, &mut model, &key);
+    tab_to(&view, "hide-conversation");
+    press_focused(&view);
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(model.conversations().len(), 1, "control: hidden");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("conversation:{other}")
+    );
+}
+
+#[test]
+fn the_two_headings_take_keyboard_focus_and_do_nothing() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "only");
+    open(&mut view, &mut model, &direct(&alice));
+    tab_to(&view, "conversations-heading");
+    press_focused(&view);
+    assert!(turn(&mut view, &mut model).is_empty());
+    tab_to(&view, "header-title");
+    press_focused(&view);
+    assert!(turn(&mut view, &mut model).is_empty());
+    assert_eq!(model.messages(&direct(&alice)).len(), 1, "nothing happened");
 }

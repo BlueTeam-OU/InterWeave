@@ -7,9 +7,12 @@
 // table, and every person action leaves as a raw input the Rust side
 // resolves against the model. Nothing here decides what is legal.
 //
-// The `focus-id` writes are test plumbing: Slint's element search has
-// no focus query, so each focusable element reports itself when it gains
-// focus. They are never shown and never person-facing.
+// Slint has no focus query, so every focusable element reports itself in
+// `focus-id` when it gains focus. Rust reads it to move focus after a
+// row is taken away only if focus was inside that row (swipe spec
+// section 7), and the tests read it too. Never shown, never
+// person-facing; an element that can take focus and does not report it
+// would leave a stale row named there.
 
 import { Palette as Style } from "std-widgets.slint";
 
@@ -148,6 +151,44 @@ component ActionButton inherits FocusScope {
         }
     }
     TouchArea { clicked => { root.pressed(); } }
+}
+
+// A heading that takes keyboard and screen-reader focus and does
+// nothing when activated (swipe spec section 7): where focus goes once
+// the rows below it are gone, so focus is never lost.
+component FocusHeading inherits FocusScope {
+    in property <string> text;
+    in property <string> description;
+    in property <string> focus-key;
+    in property <length> font-size: 16px;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    callback focused(string);
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    accessible-description: root.description;
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    // The layout is the only child, so the heading takes its text's
+    // height; the border shows where keyboard focus is.
+    VerticalLayout {
+        Rectangle {
+            border-width: root.has-focus ? 2px : 0px;
+            border-color: Palette.border;
+            HorizontalLayout {
+                Text {
+                    text: root.text;
+                    font-weight: 700;
+                    font-size: root.font-size;
+                    accessible-role: none;
+                }
+            }
+        }
+    }
 }
 
 // A link's control: its label is the full destination, which may be
@@ -428,7 +469,8 @@ export component AppWindow inherits Window {
     in property <bool> reduced-motion;
     // A focus request: Rust bumps the sequence once the rows it names are
     // drawn, and the control named by the target takes focus ("m:" and an
-    // item's handle, "c:" and a conversation's).
+    // item's handle, "c:" and a conversation's, "h" the open
+    // conversation's header title, "heading" the list's heading).
     in property <int> focus-seq;
     in property <string> focus-target;
     // The snackbar (swipe spec section 6): one at a time, in the
@@ -570,12 +612,12 @@ export component AppWindow inherits Window {
         VerticalLayout {
             padding: 12px;
             spacing: 6px;
-            Text {
+            FocusHeading {
                 text: root.conversations-heading;
-                font-weight: 700;
-                font-size: 16px;
-                accessible-role: text;
-                accessible-label: self.text;
+                focus-key: "conversations-heading";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "heading";
+                focused(k) => { root.focus-id = k; }
             }
             // Any number of conversations: the list scrolls rather than
             // raising the window's minimum height past the screen. A row
@@ -740,6 +782,9 @@ export component AppWindow inherits Window {
                 color: Palette.muted-text;
                 accessible-label: root.own-peer-id-label;
                 accessible-value: self.text;
+                changed has-focus => {
+                    if (self.has-focus) { root.focus-id = "own-peer-id"; }
+                }
             }
             // The add row under the explanation, above the list it adds to,
             // with a visible caption (the field's own accessible label).
@@ -810,6 +855,9 @@ export component AppWindow inherits Window {
                         single-line: true;
                         accessible-label: row.peer;
                         accessible-value: self.text;
+                        changed has-focus => {
+                            if (self.has-focus) { root.focus-id = "peer:" + row.handle; }
+                        }
                     }
                     Text {
                         text: row.origin;
@@ -917,13 +965,13 @@ export component AppWindow inherits Window {
                 }
             }
             }
-            Text {
+            FocusHeading {
                 text: root.header-title;
-                font-weight: 700;
-                font-size: 16px;
-                accessible-role: text;
-                accessible-label: self.text;
-                accessible-description: root.header-id;
+                description: root.header-id;
+                focus-key: "header-title";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "h";
+                focused(k) => { root.focus-id = k; }
             }
             // The equivalent of the list's hide swipe, for anyone who
             // cannot swipe (swipe spec section 10): shown only when the
@@ -953,6 +1001,9 @@ export component AppWindow inherits Window {
                 color: Palette.muted-text;
                 accessible-label: root.header-id-label;
                 accessible-value: self.text;
+                changed has-focus => {
+                    if (self.has-focus) { root.focus-id = "header-id"; }
+                }
             }
             // Updated in place: a path change is not an event a person is
             // interrupted for, so it is no live region either.
