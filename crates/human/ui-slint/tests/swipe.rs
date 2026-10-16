@@ -435,8 +435,8 @@ fn a_conversation_whose_rows_are_all_hidden_keeps_its_header() {
 
 /// A snackbar's closing and leaving for the list are never refused, so
 /// they coalesce instead: one closing per snackbar, one Left until a
-/// selection follows it (review F4 on #289; the bound `queued_inputs`
-/// states).
+/// selection follows it; a pane shown or hidden waits outside the queue
+/// (review F4 on #289; j84; the bound `queued_inputs` states).
 #[test]
 fn closings_and_leavings_wait_once_each() {
     let mut view = view();
@@ -451,11 +451,250 @@ fn closings_and_leavings_wait_once_each() {
     for _ in 0..50 {
         view.close_snackbar();
         view.window().invoke_left_conversation();
+        view.window().invoke_pane_changed();
     }
     assert_eq!(view.queued_inputs(), before + 2, "one closing, one Left");
     let _ = turn(&mut view, &mut model);
     assert!(model.snackbar().is_none());
     assert_eq!(view.queued_inputs(), 0);
+}
+
+/// A wide window whose trust settings closed, a message dismissed in the
+/// conversation it shows: the conversation's snackbar is up, and the
+/// list stays "shown" for when the window narrows (j84).
+fn dismissed_beside_a_list_kept_shown(view: &mut View, model: &mut UiModel) -> ConversationKey {
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let alice = peer();
+    read(model, 1, &alice, "first");
+    open(view, model, &direct(&alice));
+    labelled(view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    let _ = turn(view, model);
+    labelled(view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    let _ = turn(view, model);
+    labelled(view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(view, model);
+    assert!(
+        model.snackbar().is_some_and(|s| s.conversation.is_some()),
+        "control"
+    );
+    assert!(
+        model.messages(&direct(&alice)).is_empty(),
+        "control: dismissed"
+    );
+    direct(&alice)
+}
+
+/// Narrowed into the list, the conversation is left, and its snackbar
+/// closes as leaving it by Back does (§5; j84).
+#[test]
+fn a_resize_to_the_list_closes_the_conversations_snackbar() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let _ = dismissed_beside_a_list_kept_shown(&mut view, &mut model);
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+}
+
+/// An Undo pressed while the snackbar was up, then the window narrowed
+/// into the list before the root took either: the Undo is honoured, not
+/// lost to the closing the resize makes after it (j84).
+#[test]
+fn an_undo_before_a_resize_to_the_list_is_honoured() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let key = dismissed_beside_a_list_kept_shown(&mut view, &mut model);
+    labelled(&view, text(UiText::Undo))[0].invoke_accessible_default_action();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(model.messages(&key).len(), 1, "back in its place");
+    assert!(model.snackbar().is_none());
+}
+
+/// Back, then the same conversation picked again, before the root takes
+/// either: the person left it, so its snackbar closes (§5), though the
+/// pane is shown again by the take (review R1 on #291).
+#[test]
+fn leaving_and_coming_back_in_one_take_closes_the_snackbar() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_some(), "control");
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    // Picked again as a person picks it: the list hands the pane back.
+    view.select(direct(&alice));
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+}
+
+/// Back, the same conversation picked again, a Dismiss and a keystroke,
+/// all before the root takes: the snackbar that was up when the person
+/// left closes, and the one the Dismiss makes after they came back stays
+/// up, though the keystroke ends the first take early (review P3-1 on
+/// #291, round 2).
+#[test]
+fn a_snackbar_made_after_coming_back_stays_up() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    read(&mut model, 3, &alice, "third");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    let before = model.snackbar().expect("control: one up").id;
+    // The dismissed row is held while its space closes; then it goes.
+    std::thread::sleep(Duration::from_millis(200));
+    view.render(&model);
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    view.select(direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    view.window().invoke_draft_edited("h".into());
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(
+        model.messages(&direct(&alice)).len(),
+        1,
+        "control: both dismissed"
+    );
+    let after = model
+        .snackbar()
+        .expect("the second Dismiss's snackbar is up");
+    assert_ne!(after.id, before);
+}
+
+/// Back and the same conversation picked again before the root takes: the
+/// snackbar left with the person, so it is not drawn again with an Undo
+/// the queue would answer after closing it, and the Dismiss stands
+/// (review P2-1 on #291, round 4).
+#[test]
+fn no_undo_is_offered_after_leaving_and_coming_back() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(
+        labelled(&view, text(UiText::Undo)).len(),
+        1,
+        "control: offered"
+    );
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    view.select(direct(&alice));
+    assert!(
+        labelled(&view, text(UiText::Undo)).is_empty(),
+        "no Undo for a snackbar the person left"
+    );
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+    assert_eq!(
+        model.messages(&direct(&alice)).len(),
+        1,
+        "the Dismiss stands"
+    );
+}
+
+/// A Dismiss, then Back and the same conversation picked again, before
+/// the root takes -- with a keystroke between, which ends a take early, or
+/// without: in the person's order the snackbar was up when they left, so
+/// it closes (review P3-1 on #291, round 3, and its pre-existing case).
+#[test]
+fn a_dismiss_before_leaving_and_coming_back_leaves_no_snackbar() {
+    dismiss_leave_and_come_back(true);
+}
+
+/// The same with no keystroke: one take drains it all.
+#[test]
+fn a_dismiss_before_leaving_and_coming_back_in_one_take_leaves_no_snackbar() {
+    dismiss_leave_and_come_back(false);
+}
+
+fn dismiss_leave_and_come_back(keystroke: bool) {
+    {
+        let mut view = view();
+        view.window()
+            .window()
+            .set_size(slint::LogicalSize::new(390.0, 800.0));
+        let mut model = UiModel::new();
+        let alice = peer();
+        read(&mut model, 1, &alice, "first");
+        read(&mut model, 2, &alice, "second");
+        open(&mut view, &mut model, &direct(&alice));
+        assert!(model.snackbar().is_none(), "control: none up");
+        labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+        if keystroke {
+            view.window().invoke_draft_edited("h".into());
+        }
+        labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+        view.select(direct(&alice));
+        slint::platform::update_timers_and_animations();
+        let _ = turn(&mut view, &mut model);
+        assert_eq!(
+            model.messages(&direct(&alice)).len(),
+            1,
+            "control: dismissed"
+        );
+        assert!(model.snackbar().is_none(), "keystroke between: {keystroke}");
+    }
+}
+
+/// A Dismiss and a resize to the list before the root takes: the
+/// snackbar the Dismiss makes is for a conversation no longer on screen,
+/// so it closes too (review R2 on #291).
+#[test]
+fn a_dismiss_then_a_resize_to_the_list_in_one_take_leaves_no_snackbar() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "control: none up yet");
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(
+        model.messages(&direct(&alice)).is_empty(),
+        "control: dismissed"
+    );
+    assert!(model.snackbar().is_none());
 }
 
 /// What a cancel's snackbar says, by whether an attempt may have reached

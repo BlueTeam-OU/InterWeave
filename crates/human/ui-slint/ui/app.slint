@@ -433,7 +433,9 @@ export component AppWindow inherits Window {
     in property <string> focus-target;
     // The snackbar (swipe spec section 6): one at a time, in the
     // conversation above the composer, or on the conversation list.
-    in property <bool> snack-shown;
+    // Back clears it at once for a conversation's snackbar, so no Undo
+    // can be pressed on screen for one the queue has already closed.
+    in-out property <bool> snack-shown;
     in property <bool> snack-on-list;
     in property <int> snack-id;
     in property <string> snack-text;
@@ -478,9 +480,7 @@ export component AppWindow inherits Window {
     callback notice-pressed();
     callback draft-edited(string);
     callback open-trust();
-    // Closing the trust settings; `true` when it shows the list rather
-    // than the conversation (a narrow window).
-    callback close-trust(bool);
+    callback close-trust();
     callback trust-entry-edited(string);
     callback trust-add();
     callback trust-remove(int);
@@ -494,7 +494,12 @@ export component AppWindow inherits Window {
     callback undo(int);
     callback snack-closed(int);
     callback hide-conversation();
-    // A narrow window went back from a conversation to the list.
+    // The right-hand pane was shown or hidden: a narrow window went to
+    // the list or back, or a resize crossed `narrow` (`pane-shown`).
+    callback pane-changed();
+    // A narrow window's Back: the person left the conversation, even if a
+    // pick from the list shows it again before the window's next turn,
+    // when `pane-shown` is back where it was.
     callback left-conversation();
 
     // A window narrower than this shows one pane at a time -- the list,
@@ -503,6 +508,12 @@ export component AppWindow inherits Window {
     property <bool> narrow: root.width < 600px;
     // In a narrow window: the conversation list is the pane shown.
     in-out property <bool> list-shown: true;
+    // Whether the right-hand pane -- the conversation, or the trust
+    // settings in its place -- is on screen. The ONE answer: the view reads
+    // it to decide what a person can see, so a resize across `narrow`
+    // cannot leave a conversation counted as seen behind the list.
+    out property <bool> pane-shown: !root.narrow || !root.list-shown;
+    changed pane-shown => { root.pane-changed(); }
     // The bottom of the window an open virtual keyboard covers.
     property <length> keyboard-overlap: root.virtual-keyboard-size.height > 0
         ? max(0px, root.height - root.virtual-keyboard-position.y) : 0px;
@@ -517,7 +528,7 @@ export component AppWindow inherits Window {
     }
     function close-settings() {
         root.list-shown = true;
-        root.close-trust(root.narrow);
+        root.close-trust();
     }
 
     // The announcement, for a screen reader only: a sighted
@@ -685,7 +696,7 @@ export component AppWindow inherits Window {
             background: Palette.divider;
         }
         if root.trust-page: VerticalLayout {
-            visible: !root.narrow || !root.list-shown;
+            visible: root.pane-shown;
             padding: 12px;
             spacing: 8px;
             HorizontalLayout {
@@ -860,7 +871,7 @@ export component AppWindow inherits Window {
             }
         }
         if !root.trust-page: VerticalLayout {
-            visible: !root.narrow || !root.list-shown;
+            visible: root.pane-shown;
             padding: 12px;
             spacing: 8px;
             if root.narrow: HorizontalLayout {
@@ -870,6 +881,12 @@ export component AppWindow inherits Window {
                     focus-key: "back-to-list";
                     pressed => {
                         root.list-shown = true;
+                        // Leaving closes the conversation's snackbar (§5):
+                        // gone from the screen now, as Back closes it in
+                        // the queue (`no_undo_is_offered_after_leaving_and_coming_back`).
+                        if !root.snack-on-list {
+                            root.snack-shown = false;
+                        }
                         root.left-conversation();
                     }
                     focused(k) => { root.focus-id = k; }
