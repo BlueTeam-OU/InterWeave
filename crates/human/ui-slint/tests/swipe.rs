@@ -206,21 +206,40 @@ fn announced(view: &View) -> String {
     if a.is_empty() { b } else { a }
 }
 
+/// §7, item 13: every row button of every kind -- read, kept, pending --
+/// is at least 48 x 48, its touch area with it. On the Pixel the drawn
+/// border measured 125.5 px of 126, which this does not explain: the
+/// element is 48, so the likely cause is a row at a fractional pixel with
+/// its edge anti-aliased (not checked on the device).
 #[test]
-fn a_read_rows_buttons_are_keep_and_hide_each_48_by_48() {
+fn every_rows_buttons_are_48_by_48() {
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
-    read(&mut model, 1, &alice, "hello");
-    open(&mut view, &mut model, &direct(&alice));
-    for label in [text(UiText::Keep), text(UiText::Dismiss)] {
-        let found = labelled(&view, label);
-        assert_eq!(found.len(), 1, "one {label} button");
-        let size = found[0].size();
-        assert!(
-            size.width >= 48.0 && size.height >= 48.0,
-            "{label} is {size:?}, under 48 x 48"
-        );
+    read(&mut model, 1, &alice, "read");
+    read(&mut model, 2, &alice, "kept");
+    pending(&mut model, 3, &alice, "pending");
+    let key = direct(&alice);
+    let kept = model.messages(&key)[1].key;
+    model.kept(kept, RowId::from_stored(10));
+    open(&mut view, &mut model, &key);
+    for label in [
+        UiText::Keep,
+        UiText::Dismiss,
+        UiText::Unkeep,
+        UiText::Retry,
+        UiText::Cancel,
+        UiText::ShowSource,
+    ] {
+        let found = labelled(&view, text(label));
+        assert!(!found.is_empty(), "a {label:?} button");
+        for button in found {
+            let size = button.size();
+            assert!(
+                size.width >= 48.0 && size.height >= 48.0,
+                "{label:?} is {size:?}, under 48 x 48"
+            );
+        }
     }
 }
 
