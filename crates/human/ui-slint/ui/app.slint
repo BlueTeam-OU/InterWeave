@@ -433,7 +433,9 @@ export component AppWindow inherits Window {
     in property <string> focus-target;
     // The snackbar (swipe spec section 6): one at a time, in the
     // conversation above the composer, or on the conversation list.
-    in property <bool> snack-shown;
+    // Back clears it at once for a conversation's snackbar, so no Undo
+    // can be pressed on screen for one the queue has already closed.
+    in-out property <bool> snack-shown;
     in property <bool> snack-on-list;
     in property <int> snack-id;
     in property <string> snack-text;
@@ -879,6 +881,12 @@ export component AppWindow inherits Window {
                     focus-key: "back-to-list";
                     pressed => {
                         root.list-shown = true;
+                        // Leaving closes the conversation's snackbar (§5):
+                        // gone from the screen now, as Back closes it in
+                        // the queue (`no_undo_is_offered_after_leaving_and_coming_back`).
+                        if !root.snack-on-list {
+                            root.snack-shown = false;
+                        }
                         root.left-conversation();
                     }
                     focused(k) => { root.focus-id = k; }

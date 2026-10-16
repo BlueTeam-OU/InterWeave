@@ -584,6 +584,44 @@ fn a_snackbar_made_after_coming_back_stays_up() {
     assert_ne!(after.id, before);
 }
 
+/// Back and the same conversation picked again before the root takes: the
+/// snackbar left with the person, so it is not drawn again with an Undo
+/// the queue would answer after closing it, and the Dismiss stands
+/// (review P2-1 on #291, round 4).
+#[test]
+fn no_undo_is_offered_after_leaving_and_coming_back() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(
+        labelled(&view, text(UiText::Undo)).len(),
+        1,
+        "control: offered"
+    );
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    view.select(direct(&alice));
+    assert!(
+        labelled(&view, text(UiText::Undo)).is_empty(),
+        "no Undo for a snackbar the person left"
+    );
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+    assert_eq!(
+        model.messages(&direct(&alice)).len(),
+        1,
+        "the Dismiss stands"
+    );
+}
+
 /// A Dismiss, then Back and the same conversation picked again, before
 /// the root takes -- with a keystroke between, which ends a take early, or
 /// without: in the person's order the snackbar was up when they left, so
