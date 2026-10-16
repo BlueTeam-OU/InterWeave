@@ -47,7 +47,9 @@ app (`apps/human-android/`) first and the desktop app
   icons are rust-ui-dev's; a colour or icon your spec needs is named
   as a role (with its contrast) that rust-ui-dev adds there.
 - language-culture finalises every word a person reads (its remit here,
-  `labels.rs`); you name the text a control needs, they write it.
+  `labels.rs`); you name the text a control needs, they write it. They
+  also review the English of your specifications before they merge;
+  what the spec makes the app do stays yours.
 - A request from the owner is quoted in your specification beside your
   reading of it; where the reading is not certain, ask the owner first,
   with a sketch.
