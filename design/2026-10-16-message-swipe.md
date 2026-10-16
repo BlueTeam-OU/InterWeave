@@ -145,8 +145,10 @@ happened.
   action after the Cancel), that newer snackbar stays, with its Undo.
   The Cancel's success is then only announced, with §8's words, and
   has no snackbar and so no Undo. If the newer snackbar has already
-  closed when the success arrives, the Cancel's snackbar shows as
-  usual. A late answer never takes away the Undo of an action taken
+  closed when the success arrives and the person is still in the
+  conversation, the Cancel's snackbar shows as usual. If they have left
+  the conversation, the success is only announced, with no snackbar and
+  no Undo. A late answer never takes away the Undo of an action taken
   after the Cancel.
 - Shown for 6 s, or for `AccessibilityManager.getRecommendedTimeoutMillis(6000,
   FLAG_CONTENT_TEXT | FLAG_CONTENT_CONTROLS)` if that is longer (TalkBack
