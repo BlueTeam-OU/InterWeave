@@ -285,10 +285,10 @@ From the top:
     font; **quote** bars and **rules** in the bubble's text colour.
     Today's `Palette.pane` and `divider` become `surface-container` and
     `outline` wherever else they are used;
-  - the **route** ("Route: {route}"): a direct conversation is one route,
-    already in its title ("... / human"), so the bubble shows it only
-    when a message's route differs from the title's. TalkBack's
-    description of a bubble always includes it.
+  - the **route** ("Route: {route}") is no longer drawn on each bubble.
+    A direct conversation is keyed by its route, so every message in it
+    has the route its title already shows ("... / human"); a channel
+    message has none. The title and Details carry it.
 - **The "Messages" heading** is no longer drawn: the bubbles show where
   the messages are. It stays as a heading for screen-reader navigation.
 - **Row actions as chips**, under the bubble, on the bubble's side:
@@ -467,8 +467,7 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
     shows a check and never the words "Read" or "Seen".
 11. A reply shows its reply line in the bubble, a link opens as today's
     link button does, and code, quote and rule lines keep their look in
-    both bubble colours. A bubble whose route differs from the title's
-    shows it.
+    both bubble colours. No bubble shows a route line.
 12. Every chip, link, and the Send and back buttons measure at least
     48 × 48 dp to touch. Send is dimmed and does nothing while the field
     is empty.
