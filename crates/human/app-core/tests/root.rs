@@ -1086,3 +1086,52 @@ async fn the_cancelled_records_held_are_bounded() {
         "the cap's worth stay: {next:?}"
     );
 }
+
+/// Keep, then Hide of the same message, then a Hide of another, in one
+/// take: the kept message is still shown once its Keep is answered
+/// (review F1 on #289, round 2).
+#[tokio::test]
+async fn a_keep_on_its_way_keeps_its_message_through_a_hide() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "keep me")]);
+    bob.pump(1).await;
+    bob.will(vec![send(&direct(a.peer()), "and me")]);
+    bob.pump(2).await;
+    alice.pump(3).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(4).await;
+    let items: Vec<_> = alice
+        .model()
+        .messages(&from_bob)
+        .iter()
+        .map(|m| m.key)
+        .collect();
+    let keep = alice
+        .model()
+        .intent_for(items[0], RowAction::Keep)
+        .expect("offered");
+    alice.will(vec![
+        ViewEvent::Intent(keep),
+        ViewEvent::Intent(Intent::Hide(items[0])),
+        ViewEvent::Intent(Intent::Hide(items[1])),
+    ]);
+    alice.pump(5).await;
+    alice.pump(6).await;
+    let shown: Vec<_> = alice
+        .model()
+        .messages(&from_bob)
+        .iter()
+        .map(|m| m.key)
+        .collect();
+    assert_eq!(shown, [items[0]], "kept, and shown");
+    assert!(matches!(
+        alice.model().actions(items[0]).as_slice(),
+        [Intent::Unkeep(_)]
+    ));
+}

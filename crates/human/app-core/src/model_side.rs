@@ -333,7 +333,12 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             }
             Intent::Send { key, draft } => Command::Send { key, draft },
             Intent::MarkRead(row) => Command::MarkRead(row),
-            Intent::Keep { item, from } => Command::Keep { item, from },
+            Intent::Keep { item, from } => {
+                // A Keep on its way: Hide is not offered until it is
+                // answered.
+                self.model.keep_requested(&Intent::Keep { item, from });
+                Command::Keep { item, from }
+            }
             Intent::Unkeep(row) => Command::Unkeep(row),
             Intent::Retry(row) => Command::Retry(row),
             Intent::Cancel(row) => Command::Cancel(row),
