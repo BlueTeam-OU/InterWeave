@@ -17,6 +17,7 @@ use interweave_human_store::{HumanStore, StoreError, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_local_client_api::DataSessionBinding;
 pub use interweave_profile_config::runtime::AvailabilityMode;
+pub use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
@@ -109,7 +110,9 @@ struct Running {
     /// The posture's own executor for the facade's turns; `None` when
     /// the host's drives them.
     executor: Option<tokio::runtime::Runtime>,
-    facade: FacadeLoop,
+    /// `None` for the runtime alone (`start_runtime_alone`, the
+    /// android-e2e cases'): no store, no facade, no lease.
+    facade: Option<FacadeLoop>,
 }
 
 /// The process's one client host.
@@ -183,8 +186,9 @@ impl ServiceHost {
     /// [`start`](Self::start), with the facade's data binding wrapped in a
     /// recorder of every payload the runtime hands it, for the android-e2e
     /// cases that check what crossed (`interweave-android-e2e-cases`'
-    /// `human_chat`). Compiled under the `e2e-cases` feature alone, which
-    /// is off by default and which no build of the app turns on today.
+    /// `human_chat`). Compiled under the `e2e-cases` feature alone, off by
+    /// default; the app's debug build turns it on for its instrumentation
+    /// (apps/human-android/src/e2e.rs), its release build never does.
     ///
     /// # Errors
     /// [`StartRefused`], as for [`start`](Self::start).
@@ -197,6 +201,56 @@ impl ServiceHost {
         self.start_with(launch, move |host| {
             interweave_android_e2e_cases::Recording::new(host.binding(), tap)
         })
+    }
+
+    /// Start the runtime ALONE, as [`start`](Self::start) starts it -- the
+    /// same launch, identity and paths, the one host this process holds --
+    /// with no store, no facade and so no endpoint lease: what the
+    /// android-e2e cases of `NEED_A_RUNTIME` run on, leasing `human`
+    /// themselves (the seam agreed with p2p-network-dev-02, 01a128a6/
+    /// 01a128a8). A start while anything runs does nothing and succeeds.
+    /// TEST BUILDS ONLY, under `e2e-cases`.
+    ///
+    /// # Errors
+    /// [`StartRefused::Runtime`].
+    #[cfg(feature = "e2e-cases")]
+    pub fn start_runtime_alone(&self, launch: ServiceLaunch) -> Result<(), StartRefused> {
+        let mut running = self.lock();
+        if running.is_some() {
+            return Ok(());
+        }
+        let host = EmbeddedHost::start(EmbeddedLaunch {
+            app_data_dir: launch.app_data_dir,
+            profile: launch.profile,
+            identity: launch.identity,
+        })
+        .map_err(StartRefused::Runtime)?;
+        *running = Some(Running {
+            host: Some(Arc::new(host)),
+            executor: None,
+            facade: None,
+        });
+        Ok(())
+    }
+
+    /// The binding of the runtime now serving, for an android-e2e case to
+    /// open its own sessions on; `None` while no runtime runs. Under
+    /// `e2e-cases`, never a second host.
+    #[cfg(feature = "e2e-cases")]
+    #[must_use]
+    pub fn runtime_binding(
+        &self,
+    ) -> Option<
+        impl interweave_local_client_api::DataSessionBinding
+        + interweave_local_client_api::AdminBinding
+        + Clone
+        + Send
+        + 'static,
+    > {
+        self.lock()
+            .as_ref()
+            .and_then(|running| running.host.as_ref())
+            .map(|host| host.binding())
     }
 
     /// The start, with the facade's data binding made by `data` from the
@@ -259,7 +313,7 @@ impl ServiceHost {
         *running = Some(Running {
             host: Some(Arc::new(host)),
             executor: None,
-            facade,
+            facade: Some(facade),
         });
         Ok(())
     }
@@ -324,7 +378,7 @@ impl ServiceHost {
         *running = Some(Running {
             host: None,
             executor: Some(executor),
-            facade,
+            facade: Some(facade),
         });
         Ok(())
     }
@@ -347,6 +401,18 @@ impl ServiceHost {
             .as_ref()
             .and_then(|r| r.host.as_ref())
             .map(|host| host.availability())
+    }
+
+    /// The log level the running runtime loaded from its profile: the
+    /// level the app's platform log follows around every start while one
+    /// runs, since a start redelivered then starts nothing and the file
+    /// may have changed since. `None` while no runtime runs.
+    #[must_use]
+    pub fn log_level(&self) -> Option<LogLevel> {
+        self.lock()
+            .as_ref()
+            .and_then(|r| r.host.as_ref())
+            .map(|host| host.log_level())
     }
 
     /// Record the person's Stay-reachable choice: `Some` turns it on,
@@ -419,7 +485,7 @@ impl ServiceHost {
         let Some(host) = host else {
             // The network-denied posture: the facade and its executor are
             // all there is. Access is said again at the next start.
-            let session_closed = facade.close(FACADE_CLOSE);
+            let session_closed = facade.is_none_or(|f| f.close(FACADE_CLOSE));
             if let Some(executor) = executor {
                 executor.shutdown_timeout(FACADE_CLOSE);
             }
@@ -431,7 +497,7 @@ impl ServiceHost {
         // Releases a thread parked in `wait_ended` with this request: it
         // holds the host until it returns.
         let _ = host.request_shutdown(grace);
-        let session_closed = facade.close(FACADE_CLOSE);
+        let session_closed = facade.is_none_or(|f| f.close(FACADE_CLOSE));
         let deadline = Instant::now() + FACADE_CLOSE;
         let mut host = host;
         let runtime = loop {
@@ -458,6 +524,19 @@ impl ServiceHost {
             runtime,
         })
     }
+}
+
+/// The log level `profile`'s `config.yaml` names under `app_data_dir`
+/// (`observability.log_level`), read as a start reads the profile -- so
+/// the app's platform log can be filtered at it before the runtime logs
+/// its first line (plan section 20, the audit sink carried from section
+/// 18), and wherever no runtime runs to say which level it loaded.
+/// `None` when the profile cannot be read: a start refuses and says why.
+#[must_use]
+pub fn profile_log_level(app_data_dir: &std::path::Path, profile: &str) -> Option<LogLevel> {
+    let boundary = TrustBoundary::new(app_data_dir).ok()?;
+    let paths = ProfilePaths::resolve_embedded(profile, boundary).ok()?;
+    Some(ProfileConfig::load(&paths).ok()?.observability.log_level)
 }
 
 /// The endpoint the Android profile names for its service

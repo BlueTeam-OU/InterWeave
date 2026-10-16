@@ -494,15 +494,13 @@ pub(crate) fn human_chat(
         keys::PAYLOADS.to_owned(),
         payloads.to_string_lossy().into_owned().into(),
     );
-    out.insert(
-        keys::SENT.to_owned(),
-        Value::Array(
-            seen.sent
-                .iter()
-                .map(|e| serde_json::to_value(e).map_err(|e| format!("an envelope: {e}")))
-                .collect::<Result<_, _>>()?,
-        ),
-    );
+    // Text, as every value the instrumentation's status carries (keys::SENT).
+    let sent = seen
+        .sent
+        .iter()
+        .map(|e| serde_json::to_value(e).map_err(|e| format!("an envelope: {e}")))
+        .collect::<Result<Vec<_>, _>>()?;
+    out.insert(keys::SENT.to_owned(), Value::Array(sent).to_string().into());
     Ok(out)
 }
 

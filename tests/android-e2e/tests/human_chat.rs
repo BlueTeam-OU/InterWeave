@@ -422,6 +422,7 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
     // and a compressible message from its window, and D answers each
     // with one of either.
     let mut handed: Vec<(&str, Vec<Handed>)> = Vec::new();
+    let mut seen_paths: Vec<(&str, Option<PeerPath>)> = Vec::new();
     for (name, device, peer, path, sends, answers) in [
         (
             "R",
@@ -468,6 +469,18 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
             let out = run.passed(log);
             panic!("{name}'s case passed without D receiving its two: {out:?}");
         };
+        // Read while the case still runs: a phone's case stops its runtime
+        // when it answers, the peer disconnects, and the model drops that
+        // path (`PeerDisconnected`), so read after the loop it is gone.
+        // The stand-ins stay up to the end, which hid this on the host.
+        side.until(
+            clock,
+            &log,
+            &format!("D's route indicator to {name}"),
+            |s| s.path_to(peer).is_some(),
+        )
+        .await;
+        seen_paths.push((name, side.path_to(peer)));
         let replies = [
             desktop_envelope(answers[0], false),
             desktop_envelope(answers[1], true),
@@ -484,6 +497,11 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         })
         .await;
         let out = run.passed(log);
+        // The instrumentation's status carries strings alone: a value the
+        // stand-in hands back structured would arrive as text on a phone.
+        for (key, value) in &out {
+            assert!(value.is_string(), "{name}'s {key} is not text: {value}");
+        }
         side.until(
             clock,
             &log,
@@ -493,10 +511,10 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         .await;
 
         // What D was handed is what the Android side's facade composed.
-        let sent: Vec<HumanChatV2> = out
-            .get(keys::SENT)
-            .and_then(Value::as_array)
-            .expect("sent")
+        let sent: Vec<Value> =
+            serde_json::from_str(out.get(keys::SENT).and_then(Value::as_str).expect("sent"))
+                .expect("sent is a JSON array");
+        let sent: Vec<HumanChatV2> = sent
             .iter()
             .map(|v| HumanChatV2::parse(&v.to_string()).expect("an envelope"))
             .collect();
@@ -515,19 +533,15 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         handed.push((name, parse_payloads(&text).expect("the payload file")));
     }
 
-    // D's route indicator: relayed to R, direct to C.
-    side.until(
-        clock,
-        || d.log(),
-        "D's route indicators set",
-        |s| s.path_to(&r_peer).is_some() && s.path_to(&c_peer).is_some(),
-    )
-    .await;
-    assert_eq!(side.path_to(&r_peer), Some(PeerPath::Relayed), "D of R");
+    // D's route indicator, as read while each side was connected:
+    // relayed to R, direct to C.
     assert_eq!(
-        side.path_to(&c_peer),
-        Some(PeerPath::Direct),
-        "D of C, the control"
+        seen_paths,
+        [
+            ("R", Some(PeerPath::Relayed)),
+            ("C", Some(PeerPath::Direct))
+        ],
+        "D's route indicators: R relayed, C the direct control"
     );
     let seen = relay.seen().await;
     assert!(

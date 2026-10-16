@@ -25,11 +25,18 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 interweave-human-ui-model = { path = "../../crates/human/ui-model" }
+# The app's log (src/platform_log.rs): the runtime's events, through the
+# embedded host's own filter at the profile's level, to logcat. On every
+# target so the host tests the filter the phone writes with; the filter
+# comes through android-platform, the app's one way to the runtime.
+interweave-human-android-platform = { path = "../../crates/human/android-platform" }
+interweave-profile-config = { path = "../../crates/config/profile-config" }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # The Service's hold on the runtime, store and facade, and the hub the
-# Activity's view attaches to.
-interweave-human-android-platform = { path = "../../crates/human/android-platform" }
+# Activity's view attaches to: android-platform, in [dependencies].
 interweave-human-app-core = { path = "../../crates/human/app-core" }
 # The views with Slint's Android backend over NativeActivity.
 interweave-human-ui-slint = { path = "../../crates/human/ui-slint", features = ["android"] }
@@ -40,6 +47,11 @@ jni = { workspace = true }
 # The platform's log, which a started Service without an Activity
 # reaches only directly.
 ndk-sys = { workspace = true }
+# TEST BUILDS ONLY, under `e2e-cases`: the android-e2e cases the
+# instrumentation runs in the app's process (src/e2e.rs), and the JSON
+# their results travel as.
+interweave-android-e2e-cases = { path = "../../tests/android-e2e-cases", optional = true }
+serde_json = { workspace = true, optional = true }
 
 [features]
 # The first-run profile of crates/human/android-platform's stand_in, and
@@ -48,3 +60,13 @@ ndk-sys = { workspace = true }
 # on for the debug APK: without it a profile with no identity starts
 # nothing.
 dev-stand-ins = ["interweave-human-android-platform/dev-stand-ins"]
+# TEST-ONLY: the instrumentation's case entry (src/e2e.rs,
+# org.interweave.human.test.E2eCase.run). The Gradle build turns it on
+# for the debug APK beside dev-stand-ins, whose first-run profile and
+# identity a case starts on; the release build turns on neither.
+e2e-cases = [
+    "dev-stand-ins",
+    "dep:interweave-android-e2e-cases",
+    "dep:serde_json",
+    "interweave-human-android-platform/e2e-cases",
+]

@@ -64,7 +64,9 @@ pub mod keys {
     /// file's shape is [`crate::parse_payloads`]'s).
     pub const PAYLOADS: &str = "payloads";
     /// The envelopes this side sent, as its facade committed them
-    /// (`human_chat`): a JSON array.
+    /// (`human_chat`): a JSON array, as TEXT -- every value crosses the
+    /// instrumentation's status as a string, so a structured one would
+    /// arrive as a string on a device and as structure on the stand-in.
     pub const SENT: &str = "sent";
     /// The runtime root the embedded runtime's private directories lie
     /// under (`trust_boundary`).
@@ -120,9 +122,9 @@ pub mod cases {
     /// app's runtime with the app's launch, identity and paths, and no
     /// store and no facade, so the `human` lease is free for the case
     /// (01a128a6/01a128a8). On the host stand-in that is an `EmbeddedHost`
-    /// started so. On a phone it is to be a runtime-alone start in the
-    /// app's service host, which the instrumentation's PR (rust-ui-dev's
-    /// j66) adds; until then no phone runner exists. The others run
+    /// started so. On a phone it is a runtime-alone start in the app's
+    /// service host (`ServiceHost::start_runtime_alone`, called by the
+    /// instrumentation in apps/human-android/src/e2e.rs). The others run
     /// before it starts, as [`PROVISION`] must.
     pub const NEED_A_RUNTIME: &[&str] = &[PATHS, TRUST_BOUNDARY, AUDIT];
 
