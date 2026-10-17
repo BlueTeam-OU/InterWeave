@@ -228,10 +228,10 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     newer snackbar, an arrival (§8, §10), or the app going to the
     background (§5). Focus goes to the row that the closing snackbar's
     action was about: to its first control if the row is still in the
-    list (Keep, Unkeep, a dismissed message that came back), scrolled
-    into view if it was off screen. If the row was removed, focus goes
-    where it goes after a removal: the next row, else the previous one,
-    else the conversation's header title. On the
+    list (Keep, Unkeep, a dismissed message that came back). If the row
+    was removed, focus goes where it goes after a removal: the next row,
+    else the previous one, else the conversation's header title. In
+    every case the control that takes focus is scrolled into view. On the
     Chats list it goes to the conversation's row, or its place in the
     same way. Leaving the conversation closes the snackbar too, and
     focus then goes to that conversation's row on the Chats list.
@@ -689,7 +689,7 @@ passed.
     | the same, focus elsewhere | stays where it was | tests |
     | the snackbar times out, focus on its Undo | the first control of the action's row, or, for a removed row, as after a removal (§7) | keyboard |
     | the snackbar is swiped away or replaced, focus on its Undo | as for the timeout | keyboard |
-    | the snackbar closes, focus on its Undo, the action's row still in the list but scrolled off screen | that row's first control, scrolled into view | tests |
+    | the snackbar closes, focus on its Undo, the action's row (or, if removed, the row in its place) scrolled off screen | that row's first control, scrolled into view | keyboard; the ui-slint view tests |
     | leaving the conversation with focus on the snackbar's Undo | the conversation's row on the Chats list | keyboard |
     | the app goes to the background with focus on the snackbar's Undo, then returns | as for the timeout | keyboard |
     | Chats: a swipe with TalkBack on | cannot occur, as above | — |
