@@ -406,15 +406,34 @@ that exist.
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the overflow button's label, Android's own words for it |
 | `Today`, `Yesterday` | Today, Yesterday | day separators and list times |
-| weekdays (seven keys), months (twelve keys) | Monday … Sunday, January … December | list times within a week, and dates |
-| date templates | {month} {day}; {month} {day}, {year} | list times before this week; the year only when not this year |
-| time templates | {hour}:{minute} (24-hour); {hour}:{minute} {am_pm} (12-hour), with the AM and PM words | the time of day, by the phone's setting |
-
-The weekday, month, date and time rows are pending language-culture's
-final text.
+| weekdays (seven keys, e.g. `WeekdayMonday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | list times within the last seven days |
+| months (twelve keys, e.g. `MonthJanuary`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |
+| `DateThisYear` | {month} {day} | list times before the last seven days, this year: "Sep 30" |
+| `DateOtherYear` | {month} {day}, {year} | the same, another year: "Sep 30, 2025" |
+| `Time24` | {hour}:{minute} | the time of day, phone set to 24-hour: "01:18", "13:05" |
+| `TimeAm` | {hour}:{minute} AM | the time of day, phone set to 12-hour, before noon: "1:18 AM", "12:05 AM" just after midnight |
+| `TimePm` | {hour}:{minute} PM | the same, from noon: "1:05 PM", "12:30 PM" |
 | `ConversationDescription` (exists, new value) | {kind}, {unread}, {preview}, {time} | a list row's description as TalkBack reads it (§7), with unread messages. `{kind}` is `DirectConversation` or `ChannelConversation` as today, `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
 | `ConversationDescriptionRead` | {kind}, {preview}, {time} | the same, with nothing unread |
 | `ConversationDescriptionEmpty` | {kind}, {preview} | the same, with no message held: `{preview}` is "No messages", and there is no time |
+
+The weekday, month, date and time values are final (language-culture,
+2026-10-17). What the code fills in, and what a translation may change:
+- `{day}`, `{year}`, `{hour}` and `{minute}` are numbers in ASCII
+  digits. `{day}` has no leading zero. `{minute}` always has two
+  digits. In `Time24`, `{hour}` has two digits (00–23). In `TimeAm`
+  and `TimePm` it has no leading zero (1–12): 12 is the hour from
+  midnight to 1 AM, and from noon to 1 PM.
+- `{month}` is one of the twelve month values. Months are short (three
+  letters, no period) because the list's time column is narrow; a
+  screen reader reads "Sep 30" as the full date. Weekdays stay whole:
+  one word fits, and a short weekday is harder to read.
+- Each date and time is one whole template, never assembled: a
+  translation may reorder the parts ("30 Sep"), and may put its AM or
+  PM word before the time. That is why AM and PM are two templates,
+  not one template with an `{am_pm}` word.
+- A numeric date ("9/30") is not used: it reads differently in
+  different countries.
 
 A row's description is three templates, not one with optional parts,
 because `labels.rs` never joins strings: each case is a whole sentence
