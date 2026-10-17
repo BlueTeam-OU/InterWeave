@@ -24,7 +24,7 @@ fn conversation(element: &Element) -> bool {
 }
 
 /// The message item whose body is `text`, with the status `status`: its
-/// label is UiText::Item, "{author}: {body}. {status}, {time}".
+/// label is `UiText::Item`, "{author}: {body}. {status}, {time}".
 fn message<'a>(text: &'a str, status: &'a str) -> impl Fn(&Element) -> bool + 'a {
     move |e| {
         e.role == "list item"
