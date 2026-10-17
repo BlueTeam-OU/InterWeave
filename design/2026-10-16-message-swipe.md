@@ -222,13 +222,12 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   - **When the snackbar closes while its Undo holds focus**, the focused
     control is gone, whatever closed it: the timeout, a swipe-away, a
     newer snackbar, an arrival (§8, §10), or the app going to the
-    background (§5). Focus goes to the row
-    that the closing snackbar's action was about: to its first control
-    if the row is still in the list (Keep, Unkeep, a dismissed message
-    that came back), scrolled into view if it was off screen. If the
-    row was removed, focus goes where it goes after
-    a removal: the next row, else the previous one, else the
-    conversation's header title. On the
+    background (§5). Focus goes to the row that the closing snackbar's
+    action was about: to its first control if the row is still in the
+    list (Keep, Unkeep, a dismissed message that came back), scrolled
+    into view if it was off screen. If the row was removed, focus goes
+    where it goes after a removal: the next row, else the previous one,
+    else the conversation's header title. On the
     Chats list it goes to the conversation's row, or its place in the
     same way. Leaving the conversation closes the snackbar too, and
     focus then goes to that conversation's row on the Chats list.
@@ -243,8 +242,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     two headings. Today a conversation row and the headings draw nothing
     for focus, and a button only thickens its border by 1 px in the same
     colour, so a person cannot see where focus is (seen on the Pixel 9a,
-    2026-10-16). The indicator is a ring of at least 3:1 against what it
-    sits on; design/2026-10-16-android-look.md section 7 gives its look.
+    2026-10-16). The indicator is a ring with a contrast of at least 3:1
+    against what it sits on. `design/2026-10-16-android-look.md` §7
+    gives its look.
 - **Reduced motion.** When the system's animator duration scale is 0
   ("Remove animations"):
   - the row still follows the finger, since direct manipulation is not
@@ -575,7 +575,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
 12. With TalkBack on. **Precondition:** TalkBack reaches the app's
     controls. On main 761d72b3 it cannot: Slint 1.18.1's Android backend
     carries no accessibility bridge, so the window is one View with no
-    children. The bridge is rust-ui-dev's to build; how is
+    children. The bridge is rust-ui-dev's to build; how to build it is
     architect-cto's decision, on rust-ui-dev's measurement (2026-10-16).
     Until it lands, this item and every TalkBack row of item 21 are
     blocked, not passed:
@@ -639,8 +639,9 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     read it: on main 761d72b3 the Android build exposes the Slint window
     as one `View` with no children, and nothing in the repository
     bridges Slint's accessibility tree to Android's (seen on the Pixel
-    9a, 2026-10-16). Once the bridge item 12 needs exists,
-    `focused="true"` in the dump is the stronger check. "TalkBack" means the same
+    9a, 2026-10-16). Once the bridge that item 12 needs exists,
+    `focused="true"` in the dump is the stronger check. "TalkBack"
+    means the same
     with TalkBack's focus, a person's check (item 12). "Tests" means the
     ui-model or app-core tests, with a store that refuses writes where
     the case is a refusal.
@@ -663,7 +664,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     | Keep refused (storage degraded) | stays where it was | tests |
     | Cancel refused, focus had moved off the row | back to the row's first control | tests |
     | Cancel refused, focus had not moved | stays where it was | tests |
-    | Cancel refused after the person left the conversation | stays where it is; the refusal is announced only | tests |
+    | Cancel refused after the person left the conversation | stays where it is; the refusal is only announced | tests |
     | Unkeep refused | stays where it was | tests |
     | Undo of Keep refused | that row's first control | tests |
     | Undo of Unkeep refused | that row's first control | tests |
