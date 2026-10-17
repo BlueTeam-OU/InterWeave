@@ -59,14 +59,22 @@ LAN (Wireless debugging, `adb connect`), not USB; it is paired with
 rust-ui-dev's and ux-designer's logins (the owner, 2026-10-16). One
 account drives it at a time, on an adb server of its own: every login
 on the host shares adb's default port 5037, so a kill-server there drops
-what another account is running (live, 2026-10-16). A run on it is
-`fabric-lease pixel-9a -- bash -c 'export ANDROID_ADB_SERVER_PORT=$((15037
-+ $(id -u) % 1000)); adb kill-server; trap "adb disconnect; adb
-kill-server" EXIT; <the run>'`, and a run with quotes of its own is a
-script named there. The trap releases the phone however the run ends, a
-failure, a timeout or a signal included; a SIGKILL skips it, and the first
-kill-server clears what such a run of yours left. Both stop only your own
-server; `pgrep -a adb` after the run shows nothing of yours. The link drops with the phone's Wi-Fi and
+what another account is running (live, 2026-10-16). A run on it is, with
+`<the run>` a script when it has quotes of its own:
+
+```sh
+fabric-lease pixel-9a -- bash -c 'export ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)); adb kill-server; trap "adb disconnect; adb kill-server" EXIT; <the run>'
+```
+
+The trap releases the phone however the run ends, a failure, a timeout or
+a signal included, and stops only your own server. A SIGKILL skips it:
+your server then stays connected to the phone through the next holder's
+run, until your next run's first kill-server; so after a killed run, run
+`ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)) adb kill-server`
+yourself at once. `pgrep -u "$(id -u)" -a adb` after the run shows
+nothing.
+
+The link drops with the phone's Wi-Fi and
 Wireless debugging can switch itself off; a re-pair is a person's step at
 the phone, asked of the owner. What only a person can judge, TalkBack and
 the feel of a gesture, stays a person's check whoever runs the rest.
