@@ -633,6 +633,9 @@ pub struct View {
     /// Each conversation's preview, kept with the last message it is of:
     /// a body never changes.
     previews: HashMap<ConversationKey, (ItemKey, String)>,
+    /// The one wake at the next local midnight, and when it is due.
+    day_timer: slint::Timer,
+    day_due: Option<u64>,
 }
 
 impl View {
@@ -815,6 +818,8 @@ impl View {
             bodies: HashMap::new(),
             clock: clock::Clock::default(),
             previews: HashMap::new(),
+            day_timer: slint::Timer::default(),
+            day_due: None,
             seen: Seen::default(),
             next_slot_b: false,
             selection_unrendered: false,
@@ -1315,8 +1320,26 @@ impl View {
             .collect();
         self.previews.retain(|key, _| keys.contains(key));
         // "01:18" becomes "Yesterday" at midnight with nothing else changed.
+        // One timer, held here and moved only when midnight does: every
+        // render reaching this, a timer each would pile up all day and wake
+        // the root once per render at midnight
+        // (tests/look.rs, `renders_wake_the_root_once_at_midnight`).
         if !summaries.is_empty() {
-            self.wake_after(Duration::from_millis(self.clock.until_next_day_ms()));
+            let due = self.clock.next_day_ms();
+            if self.day_due != Some(due) || !self.day_timer.running() {
+                self.day_due = Some(due);
+                let shared = Rc::clone(&self.shared);
+                self.day_timer.start(
+                    slint::TimerMode::SingleShot,
+                    Duration::from_millis(due.saturating_sub(self.clock.now_ms())),
+                    move || {
+                        let wake = shared.borrow().wake.clone();
+                        if let Some(wake) = wake {
+                            wake();
+                        }
+                    },
+                );
+            }
         }
         let (mut keys, mut rows) = (keys, rows);
         let now = Instant::now();

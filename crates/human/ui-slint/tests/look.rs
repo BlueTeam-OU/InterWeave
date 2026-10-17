@@ -762,3 +762,25 @@ fn a_wrapped_bubble_holds_its_status_above_its_chips() {
         "the chip keeps its 48 px: {chip_h}"
     );
 }
+
+/// Review F1 on #295: the midnight wake is one timer, however many
+/// renders asked for it. A timer per render woke the root once per render
+/// at midnight, and each of those renders scheduled another.
+#[test]
+fn renders_wake_the_root_once_at_midnight() {
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW - MINUTE));
+    let mut view = view();
+    let woken = std::rc::Rc::new(std::cell::Cell::new(0));
+    let count = std::rc::Rc::clone(&woken);
+    view.set_wake(move || count.set(count.get() + 1));
+    for _ in 0..200 {
+        view.render(&model);
+    }
+    assert_eq!(woken.get(), 0, "nothing before midnight");
+    // 14:30 UTC: midnight is 9 h 30 min away.
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(
+        9 * 3600 + 30 * 60 + 1,
+    ));
+    assert_eq!(woken.get(), 1, "one wake at midnight");
+}

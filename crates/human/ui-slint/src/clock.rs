@@ -67,14 +67,25 @@ impl Clock {
         }
     }
 
-    /// How long until the day the list's times are reckoned from changes:
-    /// the next local midnight, when "01:18" becomes "Yesterday".
-    pub(crate) fn until_next_day_ms(&self) -> u64 {
+    /// When the day the list's times are reckoned from next changes, in
+    /// Unix milliseconds: the next local midnight, when "01:18" becomes
+    /// "Yesterday". Found in the zone's offset AT that midnight, not now's,
+    /// so a daylight saving change during the day does not put it an hour
+    /// off. At least a second ahead.
+    pub(crate) fn next_day_ms(&self) -> u64 {
+        const DAY_SECS: i64 = 86_400;
         let now = self.now_ms();
-        let local = self.local(now);
-        let into_day =
-            u64::from(local.hour) * 3_600_000 + u64::from(local.minute) * 60_000 + now % 60_000;
-        86_400_000u64.saturating_sub(into_day).max(1_000)
+        let offset = |ms: i64| i64::from((self.offset)(u64::try_from(ms).unwrap_or(0)));
+        let now_secs = i64::try_from(now / 1000).unwrap_or(i64::MAX / 2);
+        let today = (now_secs + offset(now_secs * 1000)).div_euclid(DAY_SECS);
+        let midnight = (today + 1) * DAY_SECS;
+        // First guess in now's offset, then corrected by the offset in
+        // force at that guess.
+        let guess = midnight - offset(now_secs * 1000);
+        let at = midnight - offset(guess * 1000);
+        u64::try_from(at.saturating_mul(1000))
+            .unwrap_or(u64::MAX)
+            .max(now.saturating_add(1_000))
     }
 }
 
@@ -213,6 +224,23 @@ mod tests {
         assert_eq!(clock.list_time(now - DAY), "Yesterday");
         assert_eq!(clock.list_time(now - 2 * DAY), "Thursday");
         assert_eq!(clock.list_time(now - 7 * DAY), "Oct 10");
-        assert_eq!(clock.until_next_day_ms(), 9 * 3_600_000 + 30 * 60_000);
+        assert_eq!(clock.next_day_ms(), now + 9 * 3_600_000 + 30 * 60_000);
+    }
+
+    #[test]
+    fn the_next_day_is_midnight_in_the_offset_then_in_force() {
+        const HOUR: u64 = 3_600_000;
+        const DAY: u64 = 24 * HOUR;
+        // 2026-10-17 14:30 UTC; the zone is UTC+1 until 18:00 UTC, then
+        // UTC+2, as on a spring-forward day.
+        let now = 20_743 * DAY + 14 * HOUR + 30 * 60_000;
+        let change = 20_743 * DAY + 18 * HOUR;
+        let clock = Clock::new(
+            move || now,
+            move |ms| if ms < change { 3_600 } else { 7_200 },
+        );
+        // Local midnight is 2026-10-18 00:00 at UTC+2: 22:00 UTC. Now's
+        // offset would have put it at 23:00, an hour late.
+        assert_eq!(clock.next_day_ms(), 20_743 * DAY + 22 * HOUR);
     }
 }
