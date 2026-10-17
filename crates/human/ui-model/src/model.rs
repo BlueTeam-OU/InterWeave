@@ -22,6 +22,7 @@ use crate::labels::{
     ErrorClass, LabelKey, UiText, fill, outbound_label, placeholder_en, send_error_class,
     session_problem_class, short_peer,
 };
+use crate::look::Avatar;
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
 mod swipe;
@@ -219,6 +220,44 @@ pub struct ConversationSummary {
     pub unread: usize,
     /// The latest local time of any of its messages.
     pub last_activity: u64,
+    /// Its avatar (design/2026-10-16-android-look.md section 5.1).
+    pub avatar: Avatar,
+    /// The last message it holds in this session, which the list
+    /// previews (section 5.2). There is always one: the list holds a
+    /// conversation only while it holds one of its messages. Previewing it
+    /// reads nothing: this is the model's state, handed out through
+    /// `&self`, and only a focused view of the conversation marks a
+    /// message read.
+    pub last: LastMessage,
+}
+
+/// The last message of a conversation, as the list previews it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LastMessage {
+    /// Its key.
+    pub key: ItemKey,
+    /// Which way it went: one's own is previewed as such.
+    pub direction: Direction,
+    /// Its status's label.
+    pub label: LabelKey,
+    /// The text, rendered within the subset: the preview is its first
+    /// line, as the conversation draws it.
+    pub body: Rendered,
+    /// The local time it reached this app: never the time a sender
+    /// asserts.
+    pub local_at: u64,
+}
+
+impl LastMessage {
+    /// Whether it is one's own and still on its way: the list shows a
+    /// clock in the badge's place for it when nothing is unread (section
+    /// 5) -- the two statuses a conversation draws with a clock (section
+    /// 6). One waiting for the person is not: it shows its error in the
+    /// conversation.
+    #[must_use]
+    pub const fn pending(&self) -> bool {
+        matches!(self.label, LabelKey::Sending | LabelKey::NotConfirmed)
+    }
 }
 
 /// A session state a person can act on (agreed item 3f).
@@ -789,7 +828,14 @@ impl UiModel {
     #[must_use]
     pub fn conversations(&self) -> Vec<ConversationSummary> {
         let mut by: BTreeMap<&ConversationKey, ConversationSummary> = BTreeMap::new();
-        for item in self.items.values().filter(|i| !i.hidden) {
+        for (key, item) in self.items.iter().filter(|(_, i)| !i.hidden) {
+            let last = || LastMessage {
+                key: *key,
+                direction: item.direction,
+                label: item.label(),
+                body: item.body.clone(),
+                local_at: item.local_at,
+            };
             let summary = by
                 .entry(&item.conversation)
                 .or_insert_with(|| ConversationSummary {
@@ -797,11 +843,18 @@ impl UiModel {
                     title: title(&item.conversation),
                     unread: 0,
                     last_activity: 0,
+                    avatar: Avatar::of(&item.conversation),
+                    last: last(),
                 });
             if item.outbound.is_none() && item.has(Table::Unread) {
                 summary.unread += 1;
             }
             summary.last_activity = summary.last_activity.max(item.local_at);
+            // The conversation's own order (`messages`): local time, then
+            // key.
+            if (item.local_at, *key) > (summary.last.local_at, summary.last.key) {
+                summary.last = last();
+            }
         }
         let mut list: Vec<_> = by.into_values().collect();
         list.sort_by(|a, b| {
