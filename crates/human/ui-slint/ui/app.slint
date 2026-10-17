@@ -1884,7 +1884,8 @@ export component AppWindow inherits Window {
             // The whole row -- its gap, its day separator and its item --
             // closes as it leaves: held at the height it had, then closed
             // to nothing, unless it hands its day's separator over to the
-            // row after it, when only its item closes (swipe spec section 5;
+            // row after it (after its run, when rows leave together), when
+            // only its item closes (swipe spec section 5;
             // tests/look.rs, `a_leaving_message_closes_its_space_without_a_jump`).
             // Clipped so it hides what it covered.
             for row[index] in root.messages: row-box := Rectangle {

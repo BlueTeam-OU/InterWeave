@@ -1596,7 +1596,7 @@ impl View {
         // `a_leaving_message_closes_its_space_without_a_jump`).
         let leaving: HashSet<ItemKey> = self.leaving_messages.iter().map(|(k, ..)| *k).collect();
         // Rows leaving next to each other hand over as one: the day passes
-        // from the first of them that heads it, which stays until the last
+        // from the last of them that heads a day, which stays until the last
         // of them has gone, so the separator changes hands once, where it
         // stands (`two_leaving_messages_hand_their_days_separator_on_as_one`).
         let mut held: Vec<(ItemKey, Instant)> = Vec::new();
@@ -1617,10 +1617,10 @@ impl View {
             ) else {
                 continue;
             };
-            // The first of the run that draws a separator, if the row after
-            // the run would take that same separator over.
+            // The last of the run that draws a separator -- the day the row
+            // after the run is in -- if that row would take it over.
             let day_head = (start..i)
-                .find(|&j| !rows[j].day.is_empty())
+                .rfind(|&j| !rows[j].day.is_empty())
                 .filter(|&first| rows[i].day == rows[first].day);
             let placed = self.placement(item, Some(before), channel);
             rows[i].day = placed.day.into();

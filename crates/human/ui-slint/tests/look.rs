@@ -1324,15 +1324,16 @@ fn two_leaving_messages_hand_their_days_separator_on_as_one() {
     model.hide(keys[0]);
     view.render(&model);
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
-    // The second goes while the first is still leaving. A leave's length
-    // is real time, which the mock clock does not move, so this follows
-    // the first render at once rather than some frames later.
+    // The second goes 60 ms later, while the first is still leaving (a
+    // leave is 170 ms of real time, which the mock clock does not move):
+    // the two leaves end 60 ms apart, and the renders below, every 5 ms,
+    // fall between the two ends.
+    std::thread::sleep(std::time::Duration::from_millis(60));
     model.hide(keys[1]);
     view.render(&model);
-    // A leave's end is real time. Rendering through both leaves in real
-    // time, the day keeps exactly one separator at every render: the
-    // first, which hands the day over, stays until the second has gone,
-    // and no render falls between the two ends.
+    // Rendering through both leaves in real time, the day keeps exactly one
+    // separator, drawn and read, at every render: the first, which hands the
+    // day over, stays until the second has gone.
     let started = std::time::Instant::now();
     while view.window().get_messages().iter().any(|row| row.leaving)
         && started.elapsed() < std::time::Duration::from_secs(2)
@@ -1343,6 +1344,7 @@ fn two_leaving_messages_hand_their_days_separator_on_as_one() {
             1,
             "one separator at every render of the leave"
         );
+        assert_eq!(labelled(&view, thursday).len(), 1, "and it is read");
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     let mut seen = vec![before];
@@ -1373,4 +1375,48 @@ fn two_leaving_messages_hand_their_days_separator_on_as_one() {
             "the rows below only rise: {seen:?}"
         );
     }
+}
+
+/// Re-review 1d50f8fd on #296: a leaving run that spans a day change hands
+/// over the separator of its last day -- the one the row after the run
+/// takes -- and it is read at every render of the leave.
+#[test]
+fn a_leaving_run_across_a_day_hands_over_its_last_days_separator() {
+    let thursday = placeholder_en::text(UiText::Thursday);
+    let mut model = UiModel::new();
+    // Wednesday's last message, Thursday's first, then Thursday's next.
+    let thursday_at = NOW - 2 * DAY;
+    for (row, at) in [
+        (1, thursday_at - DAY),
+        (2, thursday_at),
+        (3, thursday_at + 20_000),
+    ] {
+        let text = ["wednesday", "thursday", "below"][usize::try_from(row - 1).expect("small")];
+        model.received(received(row, text, at));
+        model.read(RowId::from_stored(row));
+    }
+    let mut view = opened(&model, false);
+    let keys: Vec<_> = model.messages(&direct()).iter().map(|m| m.key).collect();
+    model.hide(keys[0]);
+    view.render(&model);
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    model.hide(keys[1]);
+    view.render(&model);
+    let started = std::time::Instant::now();
+    while view.window().get_messages().iter().any(|row| row.leaving)
+        && started.elapsed() < std::time::Duration::from_secs(2)
+    {
+        view.render(&model);
+        assert_eq!(
+            labelled(&view, thursday).len(),
+            1,
+            "Thursday's separator is read"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(
+        labelled(&view, thursday).len(),
+        1,
+        "and ends on the row below"
+    );
 }
