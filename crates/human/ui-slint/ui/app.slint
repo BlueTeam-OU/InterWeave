@@ -153,10 +153,14 @@ component FocusRing inherits Rectangle {
     in property <bool> shown;
     // On the notice banner, whose background is light in both schemes.
     in property <bool> on-notice;
+    // On the snackbar, whose surface is the inverse of the screen's.
+    in property <bool> on-inverse;
     // The control's own corner radius; the ring follows its shape.
     in property <length> radius: 4px;
     border-width: 3px;
-    border-color: root.on-notice ? Palette.focus-ring-on-notice : Palette.focus-ring;
+    border-color: root.on-notice ? Palette.focus-ring-on-notice
+        : root.on-inverse ? Palette.focus-ring-on-inverse
+        : Palette.primary;
     border-radius: root.radius + 5px;
     // Opacity rather than `visible`, so a test reads it.
     opacity: root.shown ? 1 : 0;
@@ -198,20 +202,22 @@ component ActionButton inherits FocusScope {
     // border and ring take its colours, or a dark scheme's light label
     // was all but invisible on it (seen in the rendered window).
     in property <bool> on-notice;
+    // On the snackbar: the ring takes the inverse surface's colour.
+    in property <bool> on-inverse;
     min-height: root.target;
     // Never narrower than its label: squeezed beside a wrapping text, the
     // label ran out of the button (seen in the rendered window).
     min-width: max(root.target, label.preferred-width + 16px);
     Rectangle {
         border-width: 1px;
-        border-color: root.on-notice ? Palette.notice-text : Palette.border;
+        border-color: root.on-notice ? Palette.notice-text : Palette.outline;
         HorizontalLayout {
             padding-left: 8px;
             padding-right: 8px;
             // The caption is the button's label already: not a second node.
             label := Text {
                 text: root.text;
-                color: root.on-notice ? Palette.notice-text : Palette.foreground;
+                color: root.on-notice ? Palette.notice-text : Palette.on-surface;
                 vertical-alignment: center;
                 accessible-role: none;
             }
@@ -226,6 +232,7 @@ component ActionButton inherits FocusScope {
         radius: 0px;
         shown: root.has-focus;
         on-notice: root.on-notice;
+        on-inverse: root.on-inverse;
     }
 }
 
@@ -299,7 +306,7 @@ component LinkButton inherits FocusScope {
     VerticalLayout {
         Rectangle {
             border-width: 1px;
-            border-color: Palette.border;
+            border-color: Palette.outline;
             HorizontalLayout {
                 padding: 4px;
                 padding-left: 8px;
@@ -327,44 +334,72 @@ component LinkButton inherits FocusScope {
     }
 }
 
-// Colours, each pair holding at least WCAG AA contrast (4.5:1) for text
-// in the colour scheme the platform asks for: the window's background and
-// its default text follow the style's scheme, so every surface drawn here
-// follows it too -- a fixed light pane under a dark scheme's light text
-// was white on light grey (seen on the Android client, 2026-10-10).
-global Palette {
+// Colours: the roles of design/2026-10-16-android-look.md section 3, each
+// in the scheme the platform asks for. Every pair that section's contrast
+// table names holds its need in both schemes (tests/look.rs,
+// `every_contrast_pair_of_section_3_meets_its_need`, measures them from
+// here). Exported, and the scheme aliased, so that test can switch it.
+export global Palette {
+    in-out property <ColorScheme> scheme <=> Style.color-scheme;
     out property <bool> dark: Style.color-scheme == ColorScheme.dark;
-    out property <color> pane: dark ? #262626 : #f3f3f3;
-    out property <color> divider: dark ? #5c5c5c : #c8c8c8;
-    out property <color> border: dark ? #a0a0a0 : #444444;
-    out property <color> muted-text: dark ? #c8c8c8 : #4a4a4a;
+    out property <color> surface: dark ? #11152a : #f8f9ff;
+    out property <color> surface-container: dark ? #171c33 : #eef0fa;
+    out property <color> surface-container-high: dark ? #232a47 : #e6e9f5;
+    out property <color> on-surface: dark ? #e3e6f3 : #161b2e;
+    out property <color> on-surface-variant: dark ? #b9bfd6 : #4a5068;
+    out property <color> outline: dark ? #6b7396 : #767c95;
+    out property <color> primary: dark ? #5fdccd : #006a61;
+    out property <color> on-primary: dark ? #00201d : #ffffff;
+    out property <color> primary-container: dark ? #004d46 : #9ff2e5;
+    out property <color> on-primary-container: dark ? #b8fff4 : #00201d;
+    out property <color> tertiary: #ffb547;
+    out property <color> on-tertiary: #2a1800;
+    out property <color> unread-dot: dark ? #ffb547 : #7c5200;
+    out property <color> inverse-surface: dark ? #e3e6f3 : #2a3050;
+    out property <color> inverse-on-surface: dark ? #2a3050 : #eef0fb;
+    out property <color> inverse-primary: dark ? #006a61 : #5fdccd;
+    out property <color> error: dark ? #ffb4ab : #ba1a1a;
+    // Where keyboard focus is (section 7): `primary` on the surfaces and
+    // bubbles, these two on the snackbar and on a notice banner.
+    out property <color> focus-ring-on-inverse: dark ? #006a61 : #5fdccd;
+    out property <color> focus-ring-on-notice: #006a61;
+    // The storage notice stands apart from everything else on screen, in
+    // both schemes.
     out property <color> notice-background: #fff4ce;
     out property <color> notice-text: #3d2c00;
-    // The scheme's own text colour, which a Text takes when it names none.
-    out property <color> foreground: Style.foreground;
-    out property <color> refused-text: dark ? #ff9e9e : #8a1c1c;
-    out property <color> selected: dark ? #2e4a6e : #dde8f7;
-    // Where keyboard focus is (design/2026-10-16-android-look.md section
-    // 7): at least 3:1 against every surface it is drawn on -- dark 9.08
-    // on the pane, 5.43 on a selected row, 10 or more on any style's
-    // window background; light 5.85, 5.24 and 6.1 or more. The notice
-    // banner is light in both schemes, so its ring is the light one there
-    // (5.90 on #fff4ce).
-    out property <color> focus-ring: dark ? #5fdccd : #006a61;
-    out property <color> focus-ring-on-notice: #006a61;
-    // A row's background, which a swipe uncovers what is under.
-    out property <color> row: Style.background;
-    // The swipe roles (swipe spec section 7). One set serves both schemes:
-    // the neutral fill holds at least 3:1 against every row background
-    // drawn here (4.46 on #f3f3f3, 3.06 on #262626), and the label drawn
-    // on any fill at least 4.5:1 (white: 4.95 on neutral, 6.29 keep,
-    // 6.54 remove, 6.09 retry). The armed fills need no contrast against
-    // each other, since colour is never the only sign of arming.
-    out property <color> swipe-neutral: #707070;
+    // The swipe roles (swipe spec section 7, narrowed by section 3 here):
+    // the neutral fill holds 3:1 against every background a row has --
+    // the surfaces and both bubbles -- and its icon and label 4.5:1 on it,
+    // which in dark takes a dark ink, since white on that grey would fail.
+    // The armed fills need no contrast against each other, since colour is
+    // never the only sign of arming.
+    out property <color> swipe-neutral: dark ? #9aa1bb : #707070;
+    out property <color> swipe-on-neutral: dark ? #11152a : #ffffff;
     out property <color> swipe-keep: #1b6e3a;
     out property <color> swipe-remove: #b3261e;
     out property <color> swipe-retry: #1f5fbf;
     out property <color> swipe-on-fill: #ffffff;
+    // An avatar's three pairs (section 5.1), each 4.5:1 for its text.
+    out property <color> avatar-teal: dark ? #004d46 : #9ff2e5;
+    out property <color> on-avatar-teal: dark ? #b8fff4 : #00201d;
+    out property <color> avatar-amber: dark ? #5c3d00 : #ffdea8;
+    out property <color> on-avatar-amber: dark ? #ffdea8 : #2a1800;
+    out property <color> avatar-navy: dark ? #2e3a74 : #dde1ff;
+    out property <color> on-avatar-navy: dark ? #dde1ff : #141a3a;
+}
+
+// The type scale of section 4, in the platform's text size: `rem` is the
+// window's default font size, which the Android backend sets from the
+// system's font scale (14 at 100 %, Material's body medium), so every size
+// here follows the person's setting.
+global Type {
+    out property <relative-font-size> title-large: 22rem / 14;
+    out property <relative-font-size> title-medium: 16rem / 14;
+    out property <relative-font-size> title-small: 14rem / 14;
+    out property <relative-font-size> body-large: 16rem / 14;
+    out property <relative-font-size> body-medium: 14rem / 14;
+    out property <relative-font-size> body-small: 12rem / 14;
+    out property <relative-font-size> label-large: 14rem / 14;
 }
 
 // An action's icon, drawn here from first-party paths on a 24 x 24 grid:
@@ -449,14 +484,14 @@ component SwipeReveal inherits Rectangle {
         alignment: root.at-left ? start : end;
         icon := SwipeIcon {
             kind: root.kind;
-            ink: Palette.swipe-on-fill;
+            ink: root.armed ? Palette.swipe-on-fill : Palette.swipe-on-neutral;
             y: (parent.height - self.height) / 2;
             transform-scale: root.armed ? 1.2 : 1.0;
             animate transform-scale { duration: root.reduced-motion ? 0ms : 100ms; }
         }
         Text {
             text: root.label;
-            color: Palette.swipe-on-fill;
+            color: root.armed ? Palette.swipe-on-fill : Palette.swipe-on-neutral;
             vertical-alignment: center;
             accessible-role: none;
         }
@@ -479,9 +514,9 @@ component Snackbar inherits Rectangle {
     callback undo-pressed(int);
     callback dismissed(int);
     callback focused(string);
-    background: Palette.pane;
+    background: Palette.surface-container;
     border-width: 1px;
-    border-color: Palette.border;
+    border-color: Palette.outline;
     border-radius: 4px;
     SwipeGestureHandler {
         handle-swipe-left: true;
@@ -545,6 +580,7 @@ export component AppWindow inherits Window {
     // .desktop entry instead, which packaging/linux does not ship yet. On
     // Android the launcher icon is the manifest's.
     icon: @image-url("assets/interweave-icon-256.png");
+    background: Palette.surface;
     preferred-width: 900px;
     preferred-height: 640px;
     // The window's minimum is stated here rather than taken from the panes:
@@ -751,7 +787,7 @@ export component AppWindow inherits Window {
             width: !root.narrow ? 280px
                 : root.list-shown ? root.width - root.safe-area-insets.left - root.safe-area-insets.right
                 : 0px;
-            background: Palette.pane;
+            background: root.narrow ? Palette.surface : Palette.surface-container;
         VerticalLayout {
             padding: 12px;
             spacing: 6px;
@@ -834,7 +870,8 @@ export component AppWindow inherits Window {
                             duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
                             easing: ease-out;
                         }
-                        background: row.selected ? Palette.selected : Palette.pane;
+                        background: row.selected ? Palette.primary-container
+                            : root.narrow ? Palette.surface : Palette.surface-container;
                         border-radius: 4px;
                         summary := VerticalLayout {
                             padding: 6px;
@@ -843,7 +880,7 @@ export component AppWindow inherits Window {
                             Text { text: row.title; accessible-role: none; }
                             Text {
                                 text: row.description;
-                                color: Palette.muted-text;
+                                color: Palette.on-surface-variant;
                                 font-size: 12px;
                                 accessible-role: none;
                             }
@@ -888,7 +925,7 @@ export component AppWindow inherits Window {
         Rectangle {
             visible: !root.narrow;
             width: root.narrow ? 0px : 1px;
-            background: Palette.divider;
+            background: Palette.outline;
         }
         if root.trust-page: VerticalLayout {
             visible: root.pane-shown;
@@ -936,7 +973,7 @@ export component AppWindow inherits Window {
                     read-only: true;
                     single-line: true;
                     font-size: 12px;
-                    color: Palette.muted-text;
+                    color: Palette.on-surface-variant;
                     accessible-label: root.own-peer-id-label;
                     accessible-value: self.text;
                     changed has-focus => {
@@ -964,7 +1001,7 @@ export component AppWindow inherits Window {
                 height: 36px;
                 entry-box := Rectangle {
                     border-width: 1px;
-                    border-color: Palette.border;
+                    border-color: Palette.outline;
                     border-radius: 4px;
                     entry := TextInput {
                         x: 8px;
@@ -1001,7 +1038,7 @@ export component AppWindow inherits Window {
             }
             if root.trust-placeholder != "": Text {
                 text: root.trust-placeholder;
-                color: Palette.muted-text;
+                color: Palette.on-surface-variant;
                 accessible-role: text;
                 accessible-label: self.text;
             }
@@ -1049,7 +1086,7 @@ export component AppWindow inherits Window {
                     }
                     Text {
                         text: row.origin;
-                        color: Palette.muted-text;
+                        color: Palette.on-surface-variant;
                     }
                 }
                 ActionButton {
@@ -1126,7 +1163,7 @@ export component AppWindow inherits Window {
             }
             Text {
                 text: root.connectivity;
-                color: Palette.muted-text;
+                color: Palette.on-surface-variant;
                 font-size: 12px;
                 accessible-role: text;
                 accessible-label: self.text;
@@ -1193,7 +1230,7 @@ export component AppWindow inherits Window {
                     read-only: true;
                     single-line: true;
                     font-size: 12px;
-                    color: Palette.muted-text;
+                    color: Palette.on-surface-variant;
                     accessible-label: root.header-id-label;
                     accessible-value: self.text;
                     changed has-focus => {
@@ -1213,13 +1250,13 @@ export component AppWindow inherits Window {
             if root.header-path != "": Text {
                 text: root.header-path;
                 font-size: 12px;
-                color: Palette.muted-text;
+                color: Palette.on-surface-variant;
                 accessible-role: text;
                 accessible-label: self.text;
             }
             Text {
                 text: root.messages-heading;
-                color: Palette.muted-text;
+                color: Palette.on-surface-variant;
                 font-size: 12px;
                 accessible-role: text;
                 accessible-label: self.text;
@@ -1315,7 +1352,7 @@ export component AppWindow inherits Window {
                         padding-left: item.offset;
                         padding-right: -item.offset;
                     Rectangle {
-                        background: Palette.row;
+                        background: Palette.surface;
                 // Under the row's controls, the part of the row that is no
                 // control takes the press. Left to the handler, which grabs
                 // it, a drag the row does not offer ends with no callback,
@@ -1360,7 +1397,7 @@ export component AppWindow inherits Window {
                             spacing: 6px;
                             if line.quoted: Rectangle {
                                 width: 3px;
-                                background: Palette.divider;
+                                background: Palette.outline;
                             }
                             if line.marker != "": Text {
                                 horizontal-stretch: 0;
@@ -1370,11 +1407,11 @@ export component AppWindow inherits Window {
                             }
                             if line.kind == LineKind.rule: Rectangle {
                                 height: 1px;
-                                background: Palette.divider;
+                                background: Palette.outline;
                             }
                             if line.kind != LineKind.rule: Rectangle {
                                 horizontal-stretch: 1;
-                                background: line.kind == LineKind.code ? Palette.pane : transparent;
+                                background: line.kind == LineKind.code ? Palette.surface-container : transparent;
                                 HorizontalLayout {
                                     padding: line.kind == LineKind.code ? 6px : 0px;
                                     Text {
@@ -1474,7 +1511,7 @@ export component AppWindow inherits Window {
             // otherwise silent to a screen reader (rust-ui-dev F3).
             Text {
                 text: root.refused;
-                color: Palette.refused-text;
+                color: Palette.error;
                 accessible-role: text;
                 accessible-label: self.text;
                 accessible-live-region: polite;
@@ -1486,7 +1523,7 @@ export component AppWindow inherits Window {
                 height: 36px;
                 composer-box := Rectangle {
                     border-width: 1px;
-                    border-color: Palette.border;
+                    border-color: Palette.outline;
                     border-radius: 4px;
                     FocusRing {
                         x: -5px;

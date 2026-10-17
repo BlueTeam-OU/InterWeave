@@ -59,6 +59,9 @@ mod generated {
 }
 
 pub use generated::AppWindow;
+/// The colour roles of design/2026-10-16-android-look.md section 3, so a
+/// test can switch the scheme and measure every pair the section names.
+pub use generated::Palette;
 use generated::{ActionRow, BodyLine, ConversationRow, LineKind, LinkRow, MessageRow, TrustRow};
 
 /// The view's window, to run the event loop on: shows it, and returns
