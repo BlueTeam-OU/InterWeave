@@ -125,6 +125,9 @@ export struct MessageRow {
     gap: length,
     // The day separator above it; empty for none.
     day: string,
+    // A leaving row whose day separator the next row takes over once it is
+    // gone: its gap and separator stay while only its item closes.
+    hand-over: bool,
     // The source as received, shown on the person's request: always
     // viewable, however it rendered (HUMAN-CHAT.md).
     source: string,
@@ -1898,7 +1901,10 @@ export component AppWindow inherits Window {
                 // Held at its content's height, read from the content rather
                 // than kept by a change handler, which runs a turn late: a
                 // row leaving before it ran closed in one frame.
-                max-height: !row.leaving ? 100000px : self.collapsing ? 0px : row-content.preferred-height;
+                max-height: !row.leaving ? 100000px
+                    : !self.collapsing ? row-content.preferred-height
+                    : row.hand-over ? row.gap + day-measure.preferred-height + 4px
+                    : 0px;
                 animate max-height {
                     duration: self.collapsing && !root.reduced-motion ? 150ms : 0ms;
                     easing: ease-out;
@@ -1908,6 +1914,16 @@ export component AppWindow inherits Window {
                     running: row.leaving && !row-box.collapsing;
                     triggered => { row-box.collapsing = true; }
                 }
+                // The separator's height, measured: what a handed-over row
+                // keeps of itself while its item closes.
+                day-measure := Text {
+                    x: 0;
+                    y: 0;
+                    text: row.day;
+                    font-size: Type.body-small;
+                    visible: false;
+                    accessible-role: none;
+                }
             row-content := VerticalLayout {
                 padding-top: row.gap;
                 spacing: 4px;
@@ -1915,9 +1931,9 @@ export component AppWindow inherits Window {
                 // centred -- outside the message's item, so a screen reader
                 // reaches it as an item of its own before the run it heads
                 // (sections 6 and 9).
-                // A leaving row's separator closes with it, unread: the next
-                // row already carries its day's separator.
-                if row.day != "" && !row.leaving: Text {
+                // A leaving row's separator closes with it, unread, unless it
+                // hands it over: then it stays, the day's one separator.
+                if row.day != "" && (!row.leaving || row.hand-over): Text {
                     text: row.day;
                     font-size: Type.body-small;
                     color: Palette.on-surface-variant;
@@ -1925,7 +1941,7 @@ export component AppWindow inherits Window {
                     accessible-role: text;
                     accessible-label: self.text;
                 }
-                if row.day != "" && row.leaving: Text {
+                if row.day != "" && row.leaving && !row.hand-over: Text {
                     text: row.day;
                     font-size: Type.body-small;
                     color: Palette.on-surface-variant;
@@ -2031,9 +2047,9 @@ export component AppWindow inherits Window {
                         border-bottom-right-radius: item.at-left ? 18px : 6px;
                     }
                     content := VerticalLayout {
-                        // Room for a control's focus ring: the row clips. The
-                        // space above is section 6's: 2 px within a run, 8 px
-                        // between runs.
+                        // Room for a control's focus ring, which the list clips
+                        // (and the row, while it closes). Section 6's space
+                        // between rows is the row's gap, above.
                         padding: 5px;
                         spacing: 4px;
                         // A received message on the start side, a sent one on

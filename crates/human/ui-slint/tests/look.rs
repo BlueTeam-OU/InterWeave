@@ -1222,57 +1222,64 @@ fn a_changed_hour_setting_wakes_the_root() {
     assert_eq!(woken.get(), 1, "a change wakes the root");
 }
 
-/// Review F2 and N1 on #296, swipe spec section 5: when a message
-/// leaves, its space closes over the leave rather than in one frame -- its
-/// day separator and gap with it -- and one separator for its day shows
-/// throughout. Measured frame by frame on the message below: no step moves
-/// it more than half of the whole distance, and it ends where the space
-/// has closed.
+/// Review F2, N1 and N2 on #296, swipe spec section 5: when a message
+/// leaves, its space closes over the leave rather than in one frame, and
+/// the rows below only ever rise. Exactly one separator is drawn for the
+/// leaving message's day throughout: counted from the rows as drawn, the
+/// silent one included. Followed frame by frame on the message below, for
+/// a message heading a run of its day (the next one within a minute, and a
+/// minute or more later) and for a day's only message.
 #[test]
 fn a_leaving_message_closes_its_space_without_a_jump() {
     // Two days before NOW, a Saturday.
     let thursday = placeholder_en::text(UiText::Thursday);
-    // The leaving message heads its day's run, and it is its day's only one.
-    for (later_day, label) in [(false, "run head"), (true, "only of its day")] {
+    for (next_after, label) in [
+        (20_000, "run head, a run"),
+        (MINUTE, "run head, a new run"),
+        (DAY, "only of its day"),
+    ] {
         let mut model = UiModel::new();
         model.received(received(1, "leaving", NOW - 2 * DAY));
-        let next_at = if later_day {
-            NOW - DAY
-        } else {
-            NOW - 2 * DAY + MINUTE
-        };
-        model.received(received(2, "below", next_at));
-        model.read(RowId::from_stored(1));
-        model.read(RowId::from_stored(2));
+        model.received(received(2, "below", NOW - 2 * DAY + next_after));
+        model.received(received(3, "last", NOW - 2 * DAY + next_after + 10_000));
+        for row in 1..=3 {
+            model.read(RowId::from_stored(row));
+        }
         let mut view = opened(&model, false);
-        let y = |view: &View| labelled(view, "below")[0].absolute_position().y;
+        let y = |view: &View| labelled(view, "last")[0].absolute_position().y;
+        let drawn = |view: &View| {
+            view.window()
+                .get_messages()
+                .iter()
+                .filter(|row| row.day == thursday)
+                .count()
+        };
         let before = y(&view);
+        assert_eq!(drawn(&view), 1, "{label}: control, one separator");
         let leaving = model.messages(&direct())[0].key;
         model.hide(leaving);
         view.render(&model);
         let mut seen = vec![before];
         for _ in 0..30 {
             i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
-            if !later_day {
-                assert!(
-                    labelled(&view, thursday).len() <= 1,
-                    "{label}: one separator for the day"
-                );
-            }
+            assert!(drawn(&view) <= 1, "{label}: one separator for the day");
             seen.push(y(&view));
         }
         view.render(&model);
         i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        assert!(drawn(&view) <= 1, "{label}: one separator once it is gone");
         seen.push(y(&view));
-        let total = (seen.last().copied().unwrap_or(before) - before).abs();
+        let total = before - seen.last().copied().unwrap_or(before);
         assert!(total > 10.0, "{label}: the space closed: {seen:?}");
-        let largest = seen
-            .windows(2)
-            .map(|w| (w[1] - w[0]).abs())
-            .fold(0.0_f32, f32::max);
-        assert!(
-            largest <= total / 2.0,
-            "{label}: a step of {largest} of {total}: {seen:?}"
-        );
+        for step in seen.windows(2) {
+            assert!(
+                step[1] <= step[0] + 0.5,
+                "{label}: the rows below only rise: {seen:?}"
+            );
+            assert!(
+                step[0] - step[1] <= total / 2.0,
+                "{label}: no jump: {seen:?}"
+            );
+        }
     }
 }

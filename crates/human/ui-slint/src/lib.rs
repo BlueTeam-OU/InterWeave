@@ -633,6 +633,8 @@ pub struct View {
     /// Each conversation's preview, kept with the last message it is of:
     /// a body never changes.
     previews: HashMap<ConversationKey, (ItemKey, String)>,
+    /// The messages last drawn, by key, kept while a row leaves.
+    shown_items: HashMap<ItemKey, MessageItem>,
     /// The one wake at the next local midnight, and when it is due.
     day_timer: slint::Timer,
     day_due: Option<u64>,
@@ -818,6 +820,7 @@ impl View {
             bodies: HashMap::new(),
             clock: clock::Clock::default(),
             previews: HashMap::new(),
+            shown_items: HashMap::new(),
             day_timer: slint::Timer::default(),
             day_due: None,
             seen: Seen::default(),
@@ -1584,8 +1587,39 @@ impl View {
             keys.insert(at, *key);
             rows.insert(at, row.clone());
         }
+        // While a message leaves, the one after it is placed as if it were
+        // still there, and when the leaving one heads its day the separator
+        // stays with it -- handed over, its separator and gap held while
+        // only its item closes. So one separator shows for the day
+        // throughout, and when the leaving row goes the separator changes
+        // hands where it stands (swipe spec section 5; tests/look.rs,
+        // `a_leaving_message_closes_its_space_without_a_jump`).
+        let leaving: HashSet<ItemKey> = self.leaving_messages.iter().map(|(k, ..)| *k).collect();
+        for i in 1..keys.len() {
+            if !leaving.contains(&keys[i - 1]) || leaving.contains(&keys[i]) {
+                continue;
+            }
+            let (Some(before), Some(item)) = (
+                self.shown_items.get(&keys[i - 1]),
+                items.iter().find(|item| item.key == keys[i]),
+            ) else {
+                continue;
+            };
+            let hands_over = !rows[i - 1].day.is_empty() && rows[i].day == rows[i - 1].day;
+            let placed = self.placement(item, Some(before), channel);
+            rows[i].day = placed.day.into();
+            rows[i].gap = placed.gap;
+            rows[i].show_author = placed.show_author;
+            rows[i - 1].hand_over = hands_over;
+        }
         if !self.leaving_messages.is_empty() {
             self.wake_after(LEAVING);
+        }
+        // What each drawn message was, to place the one after it while it
+        // leaves.
+        self.shown_items.retain(|key, _| keys.contains(key));
+        for item in &items {
+            self.shown_items.insert(item.key, item.clone());
         }
         self.rendered_shown.clone_from(&self.shown);
         self.item_handles.retain(&keys);
@@ -2176,6 +2210,7 @@ fn message_row(
         author_id: author_id.into(),
         status: status.into(),
         outbound: item.direction == Direction::Outbound,
+        hand_over: false,
         show_author: placed.show_author,
         status_glyph: mark.glyph,
         status_dot: mark.dot,
