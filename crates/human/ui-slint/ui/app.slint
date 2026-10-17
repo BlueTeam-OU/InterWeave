@@ -37,11 +37,25 @@ export struct ConversationRow {
     // The row is leaving the list: its space closes.
     leaving: bool,
     title: string,
-    // Says direct or channel as text, never colour alone (U2a).
-    // Direct or channel and the unread count, from one template; the
-    // kind alone when nothing is unread.
+    // Says direct or channel as text, never colour alone (U2a), then the
+    // unread count when there is one, the preview and the time (section
+    // 7): one of two whole templates.
     description: string,
     selected: bool,
+    // The avatar (section 5.1): its letters, and its pair -- 0 teal,
+    // 1 amber, 2 navy.
+    avatar-letters: string,
+    avatar-hue: int,
+    // The last message's first line, as plain text (section 5.2).
+    preview: string,
+    // The last message's time, as the list shows it.
+    time: string,
+    // The unread count's digits; empty when nothing is unread, and then
+    // no badge is drawn.
+    unread: string,
+    // The last message is one's own and on its way: a clock in the
+    // badge's place, when nothing is unread.
+    pending: bool,
 }
 
 // What a body line is: how it is drawn (`body.rs`).
@@ -243,7 +257,9 @@ component FocusHeading inherits FocusScope {
     in property <string> text;
     in property <string> description;
     in property <string> focus-key;
-    in property <length> font-size: 16px;
+    in property <length> font-size: Type.title-medium;
+    in property <int> font-weight: 700;
+    in property <bool> rtl;
     in property <int> focus-seq;
     in property <bool> focus-wanted;
     changed focus-seq => {
@@ -262,8 +278,11 @@ component FocusHeading inherits FocusScope {
         HorizontalLayout {
             Text {
                 text: root.text;
-                font-weight: 700;
+                font-weight: root.font-weight;
                 font-size: root.font-size;
+                color: Palette.on-surface;
+                overflow: elide;
+                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 accessible-role: none;
             }
         }
@@ -402,61 +421,147 @@ global Type {
     out property <relative-font-size> label-large: 14rem / 14;
 }
 
-// An action's icon, drawn here from first-party paths on a 24 x 24 grid:
-// decorative beside its label, so no accessible name of its own.
-component SwipeIcon {
-    in property <SwipeKind> kind;
+// Every icon the views draw, from first-party paths on a 24 x 24 grid:
+// each is decorative beside a label or names a control that carries its
+// own, so none has an accessible name of its own.
+export enum Glyph {
+    none,
+    // The swipe's and the chips' actions (swipe spec section 7; section 6
+    // here).
+    keep, unkeep, hide, retry, cancel, source,
+    // The app bars (sections 5 and 6) and the composer.
+    shield, back, more, send,
+    // The statuses (section 6's table).
+    clock, check, check-outline, error, crossed, bookmark,
+}
+
+component GlyphIcon {
+    in property <Glyph> glyph;
     in property <color> ink;
+    // The back arrow points toward the line's start: right, right to left.
+    in property <bool> rtl;
     width: 24px;
     height: 24px;
-    // Keep: a bookmark. Unkeep: the bookmark struck through.
-    if root.kind == SwipeKind.keep || root.kind == SwipeKind.unkeep: Path {
-        width: 24px;
-        height: 24px;
+    property <string> stroked:
+        glyph == Glyph.keep ? "M 6 3 L 18 3 L 18 21 L 12 17 L 6 21 Z M 12 7 L 12 13 M 9 10 L 15 10"
+        : glyph == Glyph.unkeep ? "M 6 3 L 18 3 L 18 21 L 12 17 L 6 21 Z M 9 10 L 15 10"
+        : glyph == Glyph.hide ? "M 2 12 C 5 6 19 6 22 12 C 19 18 5 18 2 12 Z M 12 9 A 3 3 0 1 1 12 15 A 3 3 0 1 1 12 9 Z M 3 3 L 21 21"
+        : glyph == Glyph.retry ? "M 20 12 A 8 8 0 1 1 17.66 6.34 M 18 2 L 18 7 L 13 7"
+        : glyph == Glyph.cancel ? "M 6 6 L 18 18 M 18 6 L 6 18"
+        : glyph == Glyph.source ? "M 8 7 L 3 12 L 8 17 M 16 7 L 21 12 L 16 17"
+        : glyph == Glyph.shield ? "M 12 2 L 20 5 L 20 11 C 20 16 16.5 20 12 22 C 7.5 20 4 16 4 11 L 4 5 Z"
+        : glyph == Glyph.back && !rtl ? "M 20 12 L 4 12 M 10 6 L 4 12 L 10 18"
+        : glyph == Glyph.back ? "M 4 12 L 20 12 M 14 6 L 20 12 L 14 18"
+        : glyph == Glyph.clock ? "M 12 3 A 9 9 0 1 1 12 21 A 9 9 0 1 1 12 3 Z M 12 7 L 12 12 L 16 14"
+        : glyph == Glyph.check ? "M 5 12 L 10 17 L 19 7"
+        : glyph == Glyph.check-outline ? "M 12 3 A 9 9 0 1 1 12 21 A 9 9 0 1 1 12 3 Z M 8 12 L 11 15 L 16 9"
+        : glyph == Glyph.error ? "M 12 3 A 9 9 0 1 1 12 21 A 9 9 0 1 1 12 3 Z M 12 7 L 12 13 M 12 16 L 12 17"
+        : glyph == Glyph.crossed ? "M 12 3 A 9 9 0 1 1 12 21 A 9 9 0 1 1 12 3 Z M 5.6 5.6 L 18.4 18.4"
+        : "";
+    property <string> filled:
+        glyph == Glyph.more ? "M 12 4 A 2 2 0 1 1 12 8 A 2 2 0 1 1 12 4 Z M 12 10 A 2 2 0 1 1 12 14 A 2 2 0 1 1 12 10 Z M 12 16 A 2 2 0 1 1 12 20 A 2 2 0 1 1 12 16 Z"
+        : glyph == Glyph.send && !rtl ? "M 3 20 L 21 12 L 3 4 L 3 10 L 15 12 L 3 14 Z"
+        : glyph == Glyph.send ? "M 21 20 L 3 12 L 21 4 L 21 10 L 9 12 L 21 14 Z"
+        : glyph == Glyph.bookmark ? "M 6 3 L 18 3 L 18 21 L 12 17 L 6 21 Z"
+        : "";
+    if root.stroked != "": Path {
+        width: root.width;
+        height: root.height;
         viewbox-width: 24;
         viewbox-height: 24;
-        commands: "M 6 3 L 18 3 L 18 21 L 12 17 L 6 21 Z";
+        commands: root.stroked;
         stroke: root.ink;
         stroke-width: 2px;
     }
-    // Hide: an eye, struck through below.
-    if root.kind == SwipeKind.hide: Path {
-        width: 24px;
-        height: 24px;
+    if root.filled != "": Path {
+        width: root.width;
+        height: root.height;
         viewbox-width: 24;
         viewbox-height: 24;
-        commands: "M 2 12 C 5 6 19 6 22 12 C 19 18 5 18 2 12 Z M 12 9 A 3 3 0 1 1 12 15 A 3 3 0 1 1 12 9 Z";
-        stroke: root.ink;
-        stroke-width: 2px;
+        commands: root.filled;
+        fill: root.ink;
     }
-    if root.kind == SwipeKind.hide || root.kind == SwipeKind.unkeep: Path {
-        width: 24px;
-        height: 24px;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: "M 3 3 L 21 21";
-        stroke: root.ink;
-        stroke-width: 2px;
+}
+
+// An action's icon, as a swipe uncovers it.
+component SwipeIcon inherits GlyphIcon {
+    in property <SwipeKind> kind;
+    glyph: kind == SwipeKind.keep ? Glyph.keep
+        : kind == SwipeKind.unkeep ? Glyph.unkeep
+        : kind == SwipeKind.hide ? Glyph.hide
+        : kind == SwipeKind.retry ? Glyph.retry
+        : kind == SwipeKind.cancel ? Glyph.cancel
+        : Glyph.none;
+}
+
+// A control that is an icon: a round 48 px target (Android's and WCAG
+// 2.5.8's), its label the icon's meaning, and a round focus ring.
+component IconButton inherits FocusScope {
+    in property <Glyph> glyph;
+    in property <string> label;
+    in property <string> focus-key;
+    in property <color> ink: Palette.on-surface-variant;
+    in property <bool> rtl;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
     }
-    // Retry: a circular arrow.
-    if root.kind == SwipeKind.retry: Path {
-        width: 24px;
-        height: 24px;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: "M 20 12 A 8 8 0 1 1 17.66 6.34 M 18 2 L 18 7 L 13 7";
-        stroke: root.ink;
-        stroke-width: 2px;
+    callback pressed();
+    callback focused(string);
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.pressed(); }
+    key-pressed(event) => {
+        if (event.text == Key.Return || event.text == " ") {
+            root.pressed();
+            return accept;
+        }
+        reject
     }
-    // Cancel: a cross.
-    if root.kind == SwipeKind.cancel: Path {
-        width: 24px;
-        height: 24px;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: "M 6 6 L 18 18 M 18 6 L 6 18";
-        stroke: root.ink;
-        stroke-width: 2px;
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    width: 48px;
+    height: 48px;
+    GlyphIcon {
+        x: 12px;
+        y: 12px;
+        glyph: root.glyph;
+        ink: root.ink;
+        rtl: root.rtl;
+    }
+    TapArea { tapped => { root.pressed(); } }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        radius: 24px;
+        shown: root.has-focus;
+    }
+}
+
+// A conversation's avatar (section 5.1): decoration beside the name, never
+// read by a screen reader and never a trust signal.
+component Avatar inherits Rectangle {
+    in property <string> letters;
+    // 0 teal, 1 amber, 2 navy.
+    in property <int> hue;
+    in property <length> size: 40px;
+    accessible-role: none;
+    width: root.size;
+    height: root.size;
+    border-radius: root.size / 2;
+    background: hue == 1 ? Palette.avatar-amber : hue == 2 ? Palette.avatar-navy : Palette.avatar-teal;
+    Text {
+        text: root.letters;
+        font-size: Type.label-large;
+        font-weight: 500;
+        color: hue == 1 ? Palette.on-avatar-amber : hue == 2 ? Palette.on-avatar-navy : Palette.on-avatar-teal;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        accessible-role: none;
     }
 }
 
@@ -569,6 +674,30 @@ component Snackbar inherits Rectangle {
         text: root.undo-label;
         visible: false;
         accessible-role: none;
+    }
+}
+
+// The unread badge (section 5): the count on a tertiary pill, 20 px tall.
+// The row's description says the count; the badge is for sight.
+component UnreadBadge inherits Rectangle {
+    in property <string> count;
+    accessible-role: none;
+    height: 20px;
+    min-width: 20px;
+    border-radius: 10px;
+    background: Palette.tertiary;
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        Text {
+            text: root.count;
+            font-size: Type.body-small;
+            font-weight: 500;
+            color: Palette.on-tertiary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            accessible-role: none;
+        }
     }
 }
 
@@ -789,14 +918,49 @@ export component AppWindow inherits Window {
                 : 0px;
             background: root.narrow ? Palette.surface : Palette.surface-container;
         VerticalLayout {
-            padding: 12px;
-            spacing: 6px;
-            FocusHeading {
-                text: root.conversations-heading;
-                focus-key: "conversations-heading";
-                focus-seq: root.focus-seq;
-                focus-wanted: root.focus-target == "heading";
-                focused(k) => { root.focus-id = k; }
+            // The top app bar (section 5): the title at the start, Trust
+            // settings an icon button at the end. Trust is a settings
+            // action, apart from every conversation (human-client-ui.md
+            // section 8): nothing a message shows can reach it.
+            HorizontalLayout {
+                min-height: 64px;
+                padding-left: root.rtl ? 4px : 16px;
+                padding-right: root.rtl ? 16px : 4px;
+                spacing: 8px;
+                if root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.shield;
+                        label: root.trust-settings-label;
+                        focus-key: "open-trust";
+                        pressed => { root.open-settings(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    FocusHeading {
+                        text: root.conversations-heading;
+                        font-size: Type.title-large;
+                        font-weight: 400;
+                        rtl: root.rtl;
+                        focus-key: "conversations-heading";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "heading";
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                if !root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.shield;
+                        label: root.trust-settings-label;
+                        focus-key: "open-trust";
+                        pressed => { root.open-settings(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
             }
             // Any number of conversations: the list scrolls rather than
             // raising the window's minimum height past the screen. A row
@@ -808,7 +972,6 @@ export component AppWindow inherits Window {
                 interactive: !root.swipe-tracking;
             conversations-column := VerticalLayout {
                 width: parent.width;
-                spacing: 6px;
                 // Room for a row's focus ring, which the list would clip.
                 padding: 5px;
                 alignment: start;
@@ -819,6 +982,9 @@ export component AppWindow inherits Window {
                 changed focus-seq => {
                     if (root.focus-target == self.swipe-key) { self.focus(); }
                 }
+                // Read as one item: its name, then its description -- the
+                // kind, the unread count, the preview, the time (section 7).
+                // Never the avatar.
                 accessible-role: list-item;
                 accessible-label: row.title;
                 accessible-item-index: index;
@@ -837,10 +1003,14 @@ export component AppWindow inherits Window {
                 changed has-focus => {
                     if (self.has-focus) { root.focus-id = "conversation:" + row.handle; }
                 }
-                height: row.leaving ? 0px : max(48px, summary.preferred-height);
+                // At least 72 px, and taller when the text is: at 200 % the
+                // name and preview grow, and nothing is cut but the
+                // preview's one line (section 8).
+                height: row.leaving ? 0px : max(72px, summary.preferred-height);
                 animate height { duration: root.reduced-motion ? 0ms : 150ms; easing: ease-out; }
                 Rectangle {
                 clip: true;
+                border-radius: 12px;
                 // A left swipe hides the conversation (swipe spec section
                 // 10), a right one does nothing; mirrored right to left.
                 SwipeGestureHandler {
@@ -870,20 +1040,104 @@ export component AppWindow inherits Window {
                             duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
                             easing: ease-out;
                         }
+                        // The selection is a fill and a bar at the start
+                        // edge: the fill alone measures under 3:1 against
+                        // the pane (section 5).
                         background: row.selected ? Palette.primary-container
                             : root.narrow ? Palette.surface : Palette.surface-container;
-                        border-radius: 4px;
-                        summary := VerticalLayout {
-                            padding: 6px;
-                            alignment: center;
-                            // The row's label and description already say these.
-                            Text { text: row.title; accessible-role: none; }
-                            Text {
-                                text: row.description;
-                                color: Palette.on-surface-variant;
-                                font-size: 12px;
-                                accessible-role: none;
+                        border-radius: 12px;
+                        summary := HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            padding-top: 8px;
+                            padding-bottom: 8px;
+                            spacing: 16px;
+                            if !root.rtl: VerticalLayout {
+                                alignment: center;
+                                Avatar {
+                                    letters: row.avatar-letters;
+                                    hue: row.avatar-hue;
+                                }
                             }
+                            if root.rtl: VerticalLayout {
+                                alignment: center;
+                                spacing: 4px;
+                                Text {
+                                    text: row.time;
+                                    font-size: Type.body-small;
+                                    color: Palette.on-surface-variant;
+                                    horizontal-alignment: left;
+                                    accessible-role: none;
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    if row.unread != "": UnreadBadge { count: row.unread; }
+                                    if row.unread == "" && row.pending: GlyphIcon {
+                                        width: 20px;
+                                        height: 20px;
+                                        glyph: Glyph.clock;
+                                        ink: Palette.on-surface-variant;
+                                    }
+                                }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                // The row's label and description already
+                                // say these.
+                                Text {
+                                    text: row.title;
+                                    font-size: Type.body-large;
+                                    font-weight: row.unread != "" ? 700 : 400;
+                                    color: Palette.on-surface;
+                                    overflow: elide;
+                                    horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                                    accessible-role: none;
+                                }
+                                Text {
+                                    text: row.preview;
+                                    font-size: Type.body-medium;
+                                    color: Palette.on-surface-variant;
+                                    overflow: elide;
+                                    horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                                    accessible-role: none;
+                                }
+                            }
+                            if !root.rtl: VerticalLayout {
+                                alignment: center;
+                                spacing: 4px;
+                                Text {
+                                    text: row.time;
+                                    font-size: Type.body-small;
+                                    color: Palette.on-surface-variant;
+                                    horizontal-alignment: right;
+                                    accessible-role: none;
+                                }
+                                HorizontalLayout {
+                                    alignment: end;
+                                    if row.unread != "": UnreadBadge { count: row.unread; }
+                                    if row.unread == "" && row.pending: GlyphIcon {
+                                        width: 20px;
+                                        height: 20px;
+                                        glyph: Glyph.clock;
+                                        ink: Palette.on-surface-variant;
+                                    }
+                                }
+                            }
+                            if root.rtl: VerticalLayout {
+                                alignment: center;
+                                Avatar {
+                                    letters: row.avatar-letters;
+                                    hue: row.avatar-hue;
+                                }
+                            }
+                        }
+                        if row.selected: Rectangle {
+                            x: root.rtl ? parent.width - self.width : 0px;
+                            y: 0px;
+                            width: 4px;
+                            height: parent.height;
+                            background: Palette.primary;
                         }
                         TapArea { tapped => { root.choose(row.handle); } }
                     }
@@ -894,6 +1148,7 @@ export component AppWindow inherits Window {
                     y: -5px;
                     width: conversation.width + 10px;
                     height: conversation.height + 10px;
+                    radius: 12px;
                     shown: conversation.has-focus;
                 }
             }
@@ -909,15 +1164,6 @@ export component AppWindow inherits Window {
                 rtl: root.rtl;
                 undo-pressed(id) => { root.undo(id); }
                 dismissed(id) => { root.snack-closed(id); }
-                focused(k) => { root.focus-id = k; }
-            }
-            // Trust is a settings action, apart from every conversation
-            // (human-client-ui.md section 8): nothing a message shows can
-            // reach it.
-            ActionButton {
-                text: root.trust-settings-label;
-                focus-key: "open-trust";
-                pressed => { root.open-settings(); }
                 focused(k) => { root.focus-id = k; }
             }
         }

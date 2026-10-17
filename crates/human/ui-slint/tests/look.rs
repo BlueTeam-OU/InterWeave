@@ -2,7 +2,8 @@
 // Copyright 2026 Andrea Benetton
 //! The Android look (design/2026-10-16-android-look.md) through the
 //! compiled views: its colour roles, measured from the palette the window
-//! draws with in both schemes.
+//! draws with in both schemes, and what each screen shows -- section 11's
+//! items a test can check.
 //!
 //! What this cannot prove: that a screenshot on the phone measures the
 //! same (section 11 item 1 is a person's check there), or that every
@@ -11,9 +12,16 @@
 
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use interweave_human_ui_model::RuntimeHost;
+use i_slint_backend_testing::ElementHandle;
+use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
+use interweave_human_client_api::{Destination, Origin, Received};
+use interweave_human_core::RowId;
+use interweave_human_ui_model::{
+    ConversationKey, Intent, RuntimeHost, UiModel, UiText, ViewEvent, fill, placeholder_en,
+};
 use interweave_human_ui_slint::{Palette, View};
-use slint::{Color, ComponentHandle as _};
+use interweave_transport_api::{EndpointId, TransportIdentity};
+use slint::{Color, ComponentHandle as _, Model as _};
 
 /// WCAG 2.2's relative luminance of an sRGB colour.
 fn luminance(c: Color) -> f64 {
@@ -36,7 +44,9 @@ fn contrast(a: Color, b: Color) -> f64 {
 }
 
 /// Every pair section 3's contrast table names, with its need: the
-/// foreground's role, the background's, and the least ratio.
+/// foreground's role, the background's, and the least ratio. One list,
+/// as the section's table is one.
+#[allow(clippy::too_many_lines)]
 fn pairs(p: &Palette<'_>) -> Vec<(&'static str, Color, Color, f64)> {
     let white = Color::from_rgb_u8(0xff, 0xff, 0xff);
     let neutral_ink = if p.get_dark() {
@@ -272,4 +282,248 @@ fn every_contrast_pair_of_section_3_meets_its_need() {
         }
     }
     assert!(failed.is_empty(), "{failed:#?}");
+}
+
+// A canonical PeerId whose avatar is "h4" on the amber pair (ui-model's
+// tests/look.rs pins the pick).
+const ALICE: &str = "12D3KooWA284B2yjxoAAqAFwwVj6eRQ8DogF3t8wdpMzZ8Hh8wh4";
+
+fn alice() -> TransportIdentity {
+    TransportIdentity::parse(ALICE).expect("a PeerId")
+}
+
+fn human() -> EndpointId {
+    EndpointId::parse("human").expect("an endpoint")
+}
+
+fn direct() -> ConversationKey {
+    ConversationKey::Direct {
+        peer: alice(),
+        endpoint: Some(human()),
+    }
+}
+
+fn envelope(serial: u128, text: &str, sent_at_ms: Option<u64>) -> HumanChatV2 {
+    HumanChatV2 {
+        v: 2,
+        kind: MessageKind::Text,
+        app_message_id: format!("{serial:032x}"),
+        text: text.to_owned(),
+        reply_to: None,
+        sent_at_ms,
+        from_endpoint: None,
+    }
+}
+
+fn received(row: i64, text: &str, at: u64) -> Received {
+    Received {
+        row: RowId::from_stored(row),
+        origin: Origin::Direct {
+            peer: alice(),
+            endpoint: human(),
+        },
+        // The sender's clock says a year from now: never what is shown.
+        envelope: envelope(
+            u128::try_from(row).expect("positive") + 1_000,
+            text,
+            Some(at + 365 * DAY),
+        ),
+        received_at: at,
+    }
+}
+
+fn send(model: &mut UiModel, row: i64, text: &str, at: u64) {
+    model.sent(
+        RowId::from_stored(row),
+        &Destination::Direct {
+            peer: alice(),
+            endpoint: Some(human()),
+        },
+        envelope(u128::try_from(row).expect("positive"), text, None),
+        at,
+    );
+}
+
+const MINUTE: u64 = 60_000;
+const DAY: u64 = 86_400_000;
+// 2026-10-17 14:30 UTC.
+const NOW: u64 = 20_743 * DAY + 14 * 60 * MINUTE + 30 * MINUTE;
+
+fn view() -> View {
+    i_slint_backend_testing::init_no_event_loop();
+    let mut view = View::new(RuntimeHost::Embedded).expect("a view");
+    view.set_clock(|| NOW, |_| 0);
+    view.window().show().expect("shown");
+    view
+}
+
+fn all(view: &View) -> Vec<ElementHandle> {
+    let found = i_slint_backend_testing::ElementQuery::from_root(view.window()).find_all();
+    assert!(
+        !found.is_empty(),
+        "the tree is not empty: built with debug info"
+    );
+    found
+}
+
+fn labelled(view: &View, label: &str) -> Vec<ElementHandle> {
+    ElementHandle::find_by_accessible_label(view.window(), label).collect()
+}
+
+/// Every intent the view raises now, as the root takes them.
+fn intents(view: &mut View, model: &UiModel) -> Vec<Intent> {
+    view.take_events(model)
+        .into_iter()
+        .filter_map(|event| match event {
+            ViewEvent::Intent(intent) => Some(intent),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Section 11 item 2: the list's app bar holds its title and Trust
+/// settings as an icon button, and there is no other Trust settings
+/// control.
+#[test]
+fn the_list_bar_holds_the_title_and_trust_settings_as_its_one_button() {
+    let mut view = view();
+    view.render(&UiModel::new());
+    let title = labelled(&view, placeholder_en::text(UiText::Conversations));
+    assert_eq!(title.len(), 1, "the title, once");
+    let trust = labelled(&view, placeholder_en::text(UiText::TrustSettings));
+    assert_eq!(trust.len(), 1, "one Trust settings control");
+    assert_eq!(
+        trust[0].accessible_role(),
+        Some(i_slint_backend_testing::AccessibleRole::Button)
+    );
+    let (bar, button) = (title[0].absolute_position(), trust[0].absolute_position());
+    assert!(
+        (button.y - bar.y).abs() < 48.0,
+        "the button sits in the title's bar, not at the list's foot: {bar:?} {button:?}"
+    );
+    assert!(trust[0].size().width >= 48.0 && trust[0].size().height >= 48.0);
+}
+
+/// Section 11 items 3, 4 and 6: a row shows the avatar, the name, the
+/// last message as plain text from its first line, the time from when it
+/// reached this app, and the unread count -- and the name is bold exactly
+/// while the count shows.
+#[test]
+fn a_row_shows_avatar_name_preview_time_and_unread_count() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.received(received(1, "first", NOW - 3 * MINUTE));
+    model.received(received(
+        2,
+        "**Bold** and [the site](https://example.org)\nsecond line",
+        NOW - 13 * 60 * MINUTE - 12 * MINUTE,
+    ));
+    view.render(&model);
+    let rows = view.window().get_conversations();
+    assert_eq!(rows.row_count(), 1);
+    let row = rows.row_data(0).expect("a row");
+    assert_eq!(row.avatar_letters, "h4");
+    assert_eq!(row.avatar_hue, 1, "amber");
+    // The later of the two by local time is "first", whatever the order
+    // they arrived in.
+    assert_eq!(row.preview, "first");
+    assert_eq!(row.time, "14:27");
+    assert_eq!(row.unread, "2");
+    assert!(!row.pending);
+
+    model.received(received(
+        3,
+        "**Bold** and [the site](https://example.org)\nsecond line",
+        NOW,
+    ));
+    view.render(&model);
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row");
+    assert_eq!(
+        row.preview, "Bold and the site",
+        "markup gone, the link's text kept, one line"
+    );
+    assert_eq!(row.time, "14:30");
+    assert_eq!(row.unread, "3");
+    let names: Vec<_> = all(&view)
+        .into_iter()
+        .filter(|e| e.accessible_label().as_deref() == Some("h4"))
+        .collect();
+    assert!(names.is_empty(), "the avatar is never read");
+}
+
+/// Section 11 item 3's clock: one's own pending last message, with
+/// nothing unread, shows the clock in the badge's place and previews as
+/// one's own.
+#[test]
+fn ones_own_pending_last_message_shows_the_clock_and_previews_as_ones_own() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    send(&mut model, 1, "See you at six", NOW - DAY);
+    view.render(&model);
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row");
+    assert_eq!(row.unread, "");
+    assert!(row.pending);
+    assert_eq!(
+        row.preview,
+        fill(
+            placeholder_en::text(UiText::OwnLastMessage),
+            &[("message", "See you at six")]
+        )
+    );
+    assert_eq!(row.time, placeholder_en::text(UiText::Yesterday));
+    // With something unread, the badge shows and never the clock: the
+    // view draws the clock only for a row whose count is empty.
+    model.received(received(2, "ok", NOW - DAY - MINUTE));
+    view.render(&model);
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row");
+    assert_eq!(row.unread, "1");
+}
+
+/// Section 11 item 5: a list that previews two unread messages raises no
+/// read, and both stay unread for the store, until the conversation is
+/// opened.
+#[test]
+fn a_preview_reads_nothing() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.received(received(1, "one", NOW - 2 * MINUTE));
+    model.received(received(2, "two", NOW - MINUTE));
+    view.set_window_focused(true);
+    for _ in 0..3 {
+        view.render(&model);
+        slint::platform::update_timers_and_animations();
+        assert!(
+            intents(&mut view, &model).is_empty(),
+            "the list raises nothing"
+        );
+    }
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row");
+    assert_eq!(row.preview, "two");
+    assert_eq!(row.unread, "2");
+    // The control: opening it is what reads, both rows.
+    view.select(direct());
+    let raised = intents(&mut view, &model);
+    view.render(&model);
+    let raised = [raised, intents(&mut view, &model)].concat();
+    assert!(
+        raised.contains(&Intent::MarkRead(RowId::from_stored(1)))
+            && raised.contains(&Intent::MarkRead(RowId::from_stored(2))),
+        "{raised:?}"
+    );
 }

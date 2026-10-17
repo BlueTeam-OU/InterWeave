@@ -26,15 +26,16 @@ use std::time::{Duration, Instant};
 
 use interweave_human_client_api::TrustOrigin;
 use interweave_human_ui_model::{
-    Announce, ConversationKey, Direction, FocusTarget, HostText, Intent, ItemKey, ItemStatus,
-    MessageItem, Reply, Retention, RowAction, RuntimeHost, SessionNotice, Snackbar, TrustChange,
-    TrustInput, TrustOutcome, UiModel, UiText, fill, placeholder_en, short_peer,
-    visible_destination,
+    Announce, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget, HostText,
+    Intent, ItemKey, ItemStatus, MessageItem, Reply, Retention, RowAction, RuntimeHost,
+    SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, UiModel, UiText, fill,
+    placeholder_en, short_peer, visible_destination,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
 mod body;
+mod clock;
 mod gesture;
 mod swipe;
 
@@ -625,6 +626,11 @@ pub struct View {
     pressed: HashSet<ItemKey>,
     /// The model's last snackbar closing this view acted on.
     undo_closed_seen: Option<u64>,
+    /// Where a message's shown time comes from.
+    clock: clock::Clock,
+    /// Each conversation's preview, kept with the last message it is of:
+    /// a body never changes.
+    previews: HashMap<ConversationKey, (ItemKey, String)>,
 }
 
 impl View {
@@ -803,6 +809,8 @@ impl View {
             item_handles: Handles::new(),
             action_models: HashMap::new(),
             bodies: HashMap::new(),
+            clock: clock::Clock::default(),
+            previews: HashMap::new(),
             seen: Seen::default(),
             next_slot_b: false,
             selection_unrendered: false,
@@ -871,6 +879,26 @@ impl View {
         // the person picks it from the list.
         self.window.set_list_shown(false);
         let _ = self.shared.borrow_mut().push(Input::Select(key));
+    }
+
+    /// Read times from `now` (Unix milliseconds) and the local zone from
+    /// `offset` (seconds east of UTC at a given Unix millisecond) rather
+    /// than the system's: for a test, or a root that pins them.
+    pub fn set_clock(
+        &mut self,
+        now: impl Fn() -> u64 + 'static,
+        offset: impl Fn(u64) -> i32 + 'static,
+    ) {
+        let hour24 = self.clock.hour24;
+        self.clock = clock::Clock::new(now, offset);
+        self.clock.hour24 = hour24;
+    }
+
+    /// The platform's 12- or 24-hour setting (Android's
+    /// `DateFormat.is24HourFormat`), which every shown time follows; 24
+    /// until it is said.
+    pub const fn set_hour24(&mut self, hour24: bool) {
+        self.clock.hour24 = hour24;
     }
 
     /// The platform's touch values a swipe reads (§4, §6, §7): its touch
@@ -1232,10 +1260,16 @@ impl View {
                     ConversationKey::Direct { .. } => UiText::DirectConversation,
                     ConversationKey::Channel(_) => UiText::ChannelConversation,
                 });
+                let preview = self.preview(summary);
+                let time = self.clock.list_time(summary.last.local_at);
                 // A count of zero is read aloud on every row and says
-                // nothing, so a row with nothing unread is its kind alone.
+                // nothing, so a row with nothing unread has its own
+                // template, without one.
                 let description = if summary.unread == 0 {
-                    kind.to_owned()
+                    fill(
+                        placeholder_en::text(UiText::ConversationDescriptionRead),
+                        &[("kind", kind), ("preview", &preview), ("time", &time)],
+                    )
                 } else {
                     let count = summary.unread.to_string();
                     let unread = fill(
@@ -1244,7 +1278,12 @@ impl View {
                     );
                     fill(
                         placeholder_en::text(UiText::ConversationDescription),
-                        &[("kind", kind), ("unread", &unread)],
+                        &[
+                            ("kind", kind),
+                            ("unread", &unread),
+                            ("preview", &preview),
+                            ("time", &time),
+                        ],
                     )
                 };
                 let hide = model.conversation_hide_offered(&summary.key);
@@ -1256,9 +1295,29 @@ impl View {
                     hide: swipe::kind(hide.then_some(RowAction::Hide)),
                     hide_label: placeholder_en::text(UiText::HideShort).into(),
                     leaving: false,
+                    avatar_letters: summary.avatar.letters.as_str().into(),
+                    avatar_hue: match summary.avatar.hue {
+                        AvatarHue::Teal => 0,
+                        AvatarHue::Amber => 1,
+                        AvatarHue::Navy => 2,
+                    },
+                    preview: preview.into(),
+                    time: time.into(),
+                    unread: if summary.unread == 0 {
+                        SharedString::new()
+                    } else {
+                        summary.unread.to_string().into()
+                    },
+                    pending: summary.last.direction == Direction::Outbound
+                        && summary.last.pending(),
                 }
             })
             .collect();
+        self.previews.retain(|key, _| keys.contains(key));
+        // "01:18" becomes "Yesterday" at midnight with nothing else changed.
+        if !summaries.is_empty() {
+            self.wake_after(Duration::from_millis(self.clock.until_next_day_ms()));
+        }
         let (mut keys, mut rows) = (keys, rows);
         let now = Instant::now();
         let reduced = self.shared.borrow().touch.reduced_motion;
@@ -1332,6 +1391,31 @@ impl View {
             &keys,
             &rows,
         );
+    }
+
+    /// A conversation's preview (section 5.2): its last message's first
+    /// line as the conversation draws it, markup gone and a link's text
+    /// kept, and one's own in the "You: " template. From the model's
+    /// state alone: making it reads nothing.
+    fn preview(&mut self, summary: &ConversationSummary) -> String {
+        let last = &summary.last;
+        if let Some((key, text)) = self.previews.get(&summary.key)
+            && *key == last.key
+        {
+            return text.clone();
+        }
+        let first = body::first_line(&last.body, &image_text);
+        let text = if last.direction == Direction::Outbound {
+            fill(
+                placeholder_en::text(UiText::OwnLastMessage),
+                &[("message", &first)],
+            )
+        } else {
+            first
+        };
+        self.previews
+            .insert(summary.key.clone(), (last.key, text.clone()));
+        text
     }
 
     fn render_messages(&mut self, model: &UiModel) {
@@ -1900,15 +1984,18 @@ struct DrawnBody {
     plain: String,
 }
 
+/// An image's placeholder, in the view's words: its alt text, or only
+/// that it is an image when the alt text is empty or blank.
+fn image_text(alt: &str) -> String {
+    if alt.trim().is_empty() {
+        placeholder_en::text(UiText::ImageNotShownWithoutAlt).to_owned()
+    } else {
+        fill(placeholder_en::text(UiText::ImageNotShown), &[("alt", alt)])
+    }
+}
+
 fn drawn_body(item: &MessageItem) -> DrawnBody {
-    let image = |alt: &str| {
-        if alt.trim().is_empty() {
-            placeholder_en::text(UiText::ImageNotShownWithoutAlt).to_owned()
-        } else {
-            fill(placeholder_en::text(UiText::ImageNotShown), &[("alt", alt)])
-        }
-    };
-    let body = body::flatten(&item.body, &image);
+    let body = body::flatten(&item.body, &image_text);
     let plain = body
         .lines
         .iter()

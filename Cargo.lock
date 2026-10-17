@@ -3648,6 +3648,7 @@ dependencies = [
 name = "interweave-human-ui-slint"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "i-slint-backend-testing",
  "i-slint-common",
  "i-slint-compiler",

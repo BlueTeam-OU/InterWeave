@@ -1056,6 +1056,7 @@ fn an_image_without_alt_text_is_named_without_an_empty_alt() {
 #[test]
 fn a_conversation_with_nothing_unread_shows_no_count() {
     let mut view = view();
+    view.set_clock(|| 60_000, |_| 0);
     let mut model = UiModel::new();
     let alice = peer();
     let kind = text(UiText::DirectConversation);
@@ -1067,20 +1068,36 @@ fn a_conversation_with_nothing_unread_shows_no_count() {
     };
     sent(&mut model, 1, &alice, "hi");
     view.render(&model);
-    assert_eq!(described(&view, kind), 1, "the kind alone");
+    let own = interweave_human_ui_model::fill(text(UiText::OwnLastMessage), &[("message", "hi")]);
+    let read = interweave_human_ui_model::fill(
+        text(UiText::ConversationDescriptionRead),
+        &[("kind", kind), ("preview", &own), ("time", "00:00")],
+    );
+    assert_eq!(described(&view, &read), 1, "no count");
     model.received(received(2, &alice, "hello"));
     view.render(&model);
     let one = interweave_human_ui_model::fill(text(UiText::UnreadCount), &[("count", "1")]);
     let counted = interweave_human_ui_model::fill(
         text(UiText::ConversationDescription),
-        &[("kind", kind), ("unread", &one)],
+        &[
+            ("kind", kind),
+            ("unread", &one),
+            ("preview", "hello"),
+            ("time", "00:00"),
+        ],
     );
     assert_eq!(
         described(&view, &counted),
         1,
         "the control: a count once unread"
     );
-    assert_eq!(described(&view, kind), 0);
+    assert!(
+        all(&view)
+            .iter()
+            .filter_map(ElementHandle::accessible_description)
+            .all(|d| !d.contains(&*one) || d == counted),
+        "the count is said in the one row that has it"
+    );
 }
 
 /// The source as received is one activation away, and back again
@@ -1497,6 +1514,8 @@ fn a_render_keeps_focus_on_an_items_action() {
 #[test]
 fn no_rendered_text_leaves_a_placeholder_unfilled() {
     let mut view = view();
+    // A minute into the epoch, in UTC: every time shown reads "00:00".
+    view.set_clock(|| 60_000, |_| 0);
     let mut model = UiModel::new();
     let alice = peer();
     let general = ChannelId::parse("general").expect("a channel");
@@ -1567,8 +1586,20 @@ fn no_rendered_text_leaves_a_placeholder_unfilled() {
         interweave_human_ui_model::fill(
             text(UiText::ConversationDescription),
             &[
+                ("kind", text(UiText::ChannelConversation)),
+                ("unread", &unread_count),
+                ("preview", "a reply"),
+                ("time", "00:00"),
+            ],
+        ),
+        // Its read is raised, and not carried out here: still unread.
+        interweave_human_ui_model::fill(
+            text(UiText::ConversationDescription),
+            &[
                 ("kind", text(UiText::DirectConversation)),
                 ("unread", &unread_count),
+                ("preview", "direct hi"),
+                ("time", "00:00"),
             ],
         ),
         interweave_human_ui_model::fill(text(UiText::Route), &[("route", "human")]),

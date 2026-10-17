@@ -34,6 +34,8 @@ i-slint-common = { workspace = true }
 # this crate, not only those a backend feature selects (the workspace
 # manifest says why). Named for its feature; no code calls it.
 i-slint-core = { workspace = true }
+# The local time zone a message's time is shown in (`clock.rs`).
+chrono = { workspace = true }
 # The font stack's own loader, asked by `platform_check`.
 yeslogic-fontconfig-sys = { workspace = true }
 

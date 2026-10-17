@@ -234,6 +234,12 @@ i-slint-common = { version = "=1.18.1", default-features = false, features = ["f
 # backend) brings one along. Every backend already enables it, so this
 # adds no crate to the graph. Same exact pin as the toolkit.
 i-slint-core = { version = "=1.18.1", default-features = false, features = ["image-decoders"] }
+# The local time zone the human client's list reads a message's time in
+# (design/2026-10-16-android-look.md section 5.2): on Android from the
+# platform's own tzdata, on the desktop from the system's. The toolkit
+# already compiles it with these features, so this names the crate
+# rather than adding one.
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 # The loader the font stack above uses, named so the desktop app can ask
 # it at start whether fontconfig loaded: a host without the library
 # otherwise runs with no fonts, silently (plan section 18, carried from

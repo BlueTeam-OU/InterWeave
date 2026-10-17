@@ -121,16 +121,23 @@ ui_texts! {
     ConversationId => "Identifier, select to copy",
     /// Shown when no conversation is selected.
     NoConversation => "Select a conversation",
-    /// What a direct conversation is, beside its title.
+    /// What a direct conversation is, in its row's description.
     DirectConversation => "Direct conversation",
-    /// What a channel conversation is, beside its title.
+    /// What a channel conversation is, in its row's description.
     ChannelConversation => "Channel",
     /// A conversation's unread count. `{count}` is a number, never zero:
-    /// a conversation with nothing unread shows its kind alone.
+    /// a conversation with nothing unread is described without one
+    /// (`ConversationDescriptionRead`).
     UnreadCount => "{count} unread",
-    /// A conversation row's description: `{kind}` is what the
-    /// conversation is, `{unread}` its unread count's text.
-    ConversationDescription => "{kind}, {unread}",
+    /// A conversation row's description as a screen reader reads it after
+    /// its name, with unread messages (design/2026-10-16-android-look.md
+    /// sections 7 and 9): `{kind}` is what the conversation is, `{unread}`
+    /// its unread count's text, `{preview}` the last message as the list
+    /// shows it, `{time}` the list's time. Three whole templates rather than
+    /// one with optional parts, so a translation can reorder each.
+    ConversationDescription => "{kind}, {unread}, {preview}, {time}",
+    /// The same, with nothing unread.
+    ConversationDescriptionRead => "{kind}, {preview}, {time}",
     /// The list's preview of one's own last message: `{message}` is the
     /// preview text. A template, not a prefix.
     OwnLastMessage => "You: {message}",
@@ -323,8 +330,8 @@ ui_texts! {
     NetworkDenied => "Network access is off for this app. You can read your messages, but you cannot send or receive messages until you allow network access.",
     /// Ask for the network access the platform withholds.
     AllowNetwork => "Allow network access",
-    /// The control that opens the trust settings, at the foot of the
-    /// conversation list: a short button label.
+    /// The control that opens the trust settings: the shield icon button
+    /// in the conversation list's app bar, whose label this is.
     TrustSettings => "Trust settings",
     /// The control that leaves the trust settings for the conversations.
     BackToConversations => "Back to conversations",
