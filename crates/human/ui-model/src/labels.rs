@@ -131,6 +131,74 @@ ui_texts! {
     /// A conversation row's description: `{kind}` is what the
     /// conversation is, `{unread}` its unread count's text.
     ConversationDescription => "{kind}, {unread}",
+    /// The list's preview of one's own last message: `{message}` is the
+    /// preview text. A template, not a prefix.
+    OwnLastMessage => "You: {message}",
+    /// The overflow button in a conversation's app bar: Android's own
+    /// words for it.
+    MoreOptions => "More options",
+    /// The overflow menu's entry that shows the conversation's full
+    /// identifier, to read or copy.
+    Details => "Details",
+    /// A day separator in a conversation, for today.
+    Today => "Today",
+    /// The list's time, and a day separator, for yesterday.
+    Yesterday => "Yesterday",
+    /// A weekday: the list's time, and a day separator, within the last
+    /// seven days.
+    Monday => "Monday", // PLACEHOLDER (en)
+    /// A weekday.
+    Tuesday => "Tuesday", // PLACEHOLDER (en)
+    /// A weekday.
+    Wednesday => "Wednesday", // PLACEHOLDER (en)
+    /// A weekday.
+    Thursday => "Thursday", // PLACEHOLDER (en)
+    /// A weekday.
+    Friday => "Friday", // PLACEHOLDER (en)
+    /// A weekday.
+    Saturday => "Saturday", // PLACEHOLDER (en)
+    /// A weekday.
+    Sunday => "Sunday", // PLACEHOLDER (en)
+    /// A month's short name, in a date.
+    January => "Jan", // PLACEHOLDER (en)
+    /// A month's short name.
+    February => "Feb", // PLACEHOLDER (en)
+    /// A month's short name.
+    March => "Mar", // PLACEHOLDER (en)
+    /// A month's short name.
+    April => "Apr", // PLACEHOLDER (en)
+    /// A month's short name.
+    May => "May", // PLACEHOLDER (en)
+    /// A month's short name.
+    June => "Jun", // PLACEHOLDER (en)
+    /// A month's short name.
+    July => "Jul", // PLACEHOLDER (en)
+    /// A month's short name.
+    August => "Aug", // PLACEHOLDER (en)
+    /// A month's short name.
+    September => "Sep", // PLACEHOLDER (en)
+    /// A month's short name.
+    October => "Oct", // PLACEHOLDER (en)
+    /// A month's short name.
+    November => "Nov", // PLACEHOLDER (en)
+    /// A month's short name.
+    December => "Dec", // PLACEHOLDER (en)
+    /// A date earlier than the last seven days, in the current year:
+    /// `{month}` a month's short name, `{day}` the day's number.
+    DateThisYear => "{month} {day}", // PLACEHOLDER (en)
+    /// The same, in another year: `{year}` the four-digit year.
+    DateOtherYear => "{month} {day}, {year}", // PLACEHOLDER (en)
+    /// A clock time on a phone set to 24 hours: `{hour}` 00 to 23 and
+    /// `{minute}` 00 to 59, each two digits.
+    Time24 => "{hour}:{minute}", // PLACEHOLDER (en)
+    /// A clock time on a phone set to 12 hours: `{hour}` 1 to 12,
+    /// `{minute}` two digits, `{period}` the morning's or the
+    /// afternoon's mark.
+    Time12 => "{hour}:{minute} {period}", // PLACEHOLDER (en)
+    /// The morning's mark in a 12-hour time.
+    BeforeNoon => "AM", // PLACEHOLDER (en)
+    /// The afternoon's mark in a 12-hour time.
+    AfterNoon => "PM", // PLACEHOLDER (en)
     /// A route label: `{route}` is the `EndpointId`, verbatim -- a
     /// routing label, never a name.
     Route => "Route: {route}",
@@ -923,6 +991,15 @@ mod tests {
             ("reason", "busy"),
             ("kind", "Channel"),
             ("unread", "2 unread"),
+            ("preview", "You: hi"),
+            ("time", "01:18"),
+            ("message", "hi"),
+            ("month", "Oct"),
+            ("day", "9"),
+            ("year", "2025"),
+            ("hour", "01"),
+            ("minute", "18"),
+            ("period", "AM"),
             ("tail", "abcd1234"),
             ("peer", "…abcd1234"),
             ("destination", "https://example.org/a"),
