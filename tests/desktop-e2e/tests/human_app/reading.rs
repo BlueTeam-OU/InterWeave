@@ -23,18 +23,21 @@ fn conversation(element: &Element) -> bool {
     element.role == "list item" && element.actions.iter().any(|a| a == "click")
 }
 
-/// The message item whose body is `text`, with the status `status`.
+/// The message item whose body is `text`, with the status `status`: its
+/// label is UiText::Item, "{author}: {body}. {status}, {time}".
 fn message<'a>(text: &'a str, status: &'a str) -> impl Fn(&Element) -> bool + 'a {
     move |e| {
         e.role == "list item"
             && e.actions.is_empty()
-            && e.name.ends_with(&format!(", {status}: {text}"))
+            && e.name.contains(&format!(": {text}. {status}, "))
     }
 }
 
 /// Any message item whose body is `text`, whatever its status.
 fn any_message(text: &str) -> impl Fn(&Element) -> bool + '_ {
-    move |e| e.role == "list item" && e.actions.is_empty() && e.name.ends_with(&format!(": {text}"))
+    move |e| {
+        e.role == "list item" && e.actions.is_empty() && e.name.contains(&format!(": {text}. "))
+    }
 }
 
 /// The client on `world`'s side A: started, holding its lease, its
