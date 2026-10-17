@@ -211,6 +211,13 @@ pulldown-cmark = { version = "0.13", default-features = false }
 slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-2"] }
 slint-build = { version = "=1.18.1", default-features = false, features = ["compat-1-18"] }
 i-slint-backend-testing = { version = "=1.18.1", default-features = false }
+# The toolkit's compiler, already in the graph under slint-build, named
+# so a ui-slint test can compile the views and fail on any warning: the
+# build prints a warning and goes on, and a binding loop it warns of "may
+# cause panic at runtime". Same exact pin as the toolkit; `spin_on` drives
+# its compile future, as slint-build does.
+i-slint-compiler = { version = "=1.18.1", default-features = false }
+spin_on = { version = "0.1", default-features = false }
 # Named to turn on `fontconfig-dlopen`, which `slint` does not
 # forward: the toolkit's font stack (fontique, always present) otherwise
 # links the system fontconfig at BUILD time, so a build host without its

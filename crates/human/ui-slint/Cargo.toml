@@ -72,6 +72,10 @@ slint-build = { workspace = true }
 
 [dev-dependencies]
 i-slint-backend-testing = { workspace = true }
+# The views compiled again by a test that fails on any warning
+# (tests/compile.rs).
+i-slint-compiler = { workspace = true }
+spin_on = { workspace = true }
 interweave-human-chat-protocol = { path = "../chat-protocol" }
 interweave-human-core = { path = "../core" }
 interweave-profile-identity = { path = "../../identity/profile-identity" }
