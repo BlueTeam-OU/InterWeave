@@ -199,10 +199,14 @@ component FocusRing inherits Rectangle {
     in property <bool> shown;
     // On the notice banner, whose background is light in both schemes.
     in property <bool> on-notice;
+    // On the snackbar, whose surface is the inverse of the screen's.
+    in property <bool> on-inverse;
     // The control's own corner radius; the ring follows its shape.
     in property <length> radius: 4px;
     border-width: 3px;
-    border-color: root.on-notice ? Palette.focus-ring-on-notice : Palette.primary;
+    border-color: root.on-notice ? Palette.focus-ring-on-notice
+        : root.on-inverse ? Palette.focus-ring-on-inverse
+        : Palette.primary;
     border-radius: root.radius + 5px;
     // Opacity rather than `visible`, so a test reads it.
     opacity: root.shown ? 1 : 0;
@@ -244,12 +248,17 @@ component ActionButton inherits FocusScope {
     // border and ring take its colours, or a dark scheme's light label
     // was all but invisible on it (seen in the rendered window).
     in property <bool> on-notice;
+    // On the snackbar (section 7): its ring takes the inverse colour.
+    in property <bool> on-inverse;
+    // A text button: no border, the label in `ink` and label large.
+    in property <bool> text-button;
+    in property <color> ink: Palette.primary;
     min-height: root.target;
     // Never narrower than its label: squeezed beside a wrapping text, the
     // label ran out of the button (seen in the rendered window).
     min-width: max(root.target, label.preferred-width + 16px);
     Rectangle {
-        border-width: 1px;
+        border-width: root.text-button ? 0px : 1px;
         border-color: root.on-notice ? Palette.notice-text : Palette.outline;
         HorizontalLayout {
             padding-left: 8px;
@@ -257,7 +266,9 @@ component ActionButton inherits FocusScope {
             // The caption is the button's label already: not a second node.
             label := Text {
                 text: root.text;
-                color: root.on-notice ? Palette.notice-text : Palette.on-surface;
+                font-size: root.text-button ? Type.label-large : Type.body-medium;
+                font-weight: root.text-button ? 500 : 400;
+                color: root.text-button ? root.ink : root.on-notice ? Palette.notice-text : Palette.on-surface;
                 vertical-alignment: center;
                 accessible-role: none;
             }
@@ -272,6 +283,7 @@ component ActionButton inherits FocusScope {
         radius: 0px;
         shown: root.has-focus;
         on-notice: root.on-notice;
+        on-inverse: root.on-inverse;
     }
 }
 
@@ -411,15 +423,13 @@ export global Palette {
     out property <color> on-tertiary: #2a1800;
     out property <color> unread-dot: dark ? #ffb547 : #7c5200;
     out property <color> error: dark ? #ffb4ab : #ba1a1a;
-    // The snackbar's roles, for section 7's snackbar, which is not built
-    // yet: today it is surface-container with a `primary` ring. These three
-    // and focus-ring-on-inverse below are measured in tests/look.rs.
+    // The snackbar's roles (section 7): its surface, its text, its Undo,
+    // and focus-ring-on-inverse below for the Undo's ring.
     out property <color> inverse-surface: dark ? #e3e6f3 : #2a3050;
     out property <color> inverse-on-surface: dark ? #2a3050 : #eef0fb;
     out property <color> inverse-primary: dark ? #006a61 : #5fdccd;
     // Where keyboard focus is (section 7): `primary` on the surfaces and
-    // bubbles, these two on the snackbar (once it takes section 7's look)
-    // and on a notice banner.
+    // bubbles, these two on the snackbar and on a notice banner.
     out property <color> focus-ring-on-inverse: dark ? #006a61 : #5fdccd;
     out property <color> focus-ring-on-notice: #006a61;
     // The storage notice stands apart from everything else on screen, in
@@ -740,10 +750,11 @@ component Snackbar inherits Rectangle {
     callback undo-pressed(int);
     callback dismissed(int);
     callback focused(string);
-    background: Palette.surface-container;
-    border-width: 1px;
-    border-color: Palette.outline;
+    // Material's snackbar (section 7): the inverse surface, 4 px corners,
+    // at least 48 px tall.
+    background: Palette.inverse-surface;
     border-radius: 4px;
+    min-height: 48px;
     SwipeGestureHandler {
         handle-swipe-left: true;
         handle-swipe-right: true;
@@ -767,6 +778,8 @@ component Snackbar inherits Rectangle {
                 horizontal-stretch: 1;
                 horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 vertical-alignment: center;
+                font-size: Type.body-medium;
+                color: Palette.inverse-on-surface;
                 accessible-role: AccessibleRole.text;
                 accessible-label: self.text;
             }
@@ -783,6 +796,10 @@ component Snackbar inherits Rectangle {
             text: root.undo-label;
             detail: root.text;
             target: 48px;
+            // A text button in inverse-primary, its ring the inverse one.
+            text-button: true;
+            ink: Palette.inverse-primary;
+            on-inverse: true;
             focus-key: "undo";
             pressed => { root.undo-pressed(root.snack-id); }
             focused(k) => { root.focused(k); }
@@ -793,6 +810,8 @@ component Snackbar inherits Rectangle {
     property <length> undo-width: max(48px, undo-measure.preferred-width + 16px);
     undo-measure := Text {
         text: root.undo-label;
+        font-size: Type.label-large;
+        font-weight: 500;
         visible: false;
         accessible-role: none;
     }
@@ -1366,7 +1385,13 @@ export component AppWindow inherits Window {
             }
             }
             // A conversation hide's snackbar, on the list it left.
-            if root.snack-shown && root.snack-on-list: Snackbar {
+            // 12 px from the screen's sides and above the bottom of its
+            // safe area (section 7).
+            if root.snack-shown && root.snack-on-list: HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                padding-bottom: 12px;
+            Snackbar {
                 text: root.snack-text;
                 undo: root.snack-undo;
                 undo-label: root.undo-label;
@@ -1376,6 +1401,7 @@ export component AppWindow inherits Window {
                 undo-pressed(id) => { root.undo(id); }
                 dismissed(id) => { root.snack-closed(id); }
                 focused(k) => { root.focus-id = k; }
+            }
             }
         }
         }

@@ -1003,3 +1003,38 @@ fn send_does_nothing_while_the_field_is_empty() {
         "the control: with text, Send sends: {raised:?}"
     );
 }
+
+/// Section 7: the snackbar on the Chats list sits 12 px from the screen's
+/// sides, at least 48 px tall, its Undo a 48 x 48 target inside it.
+#[test]
+fn the_lists_snackbar_keeps_its_margins_and_its_targets() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    model.read(RowId::from_stored(1));
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    view.render(&model);
+    model.hide_conversation(&direct());
+    view.render(&model);
+    slint::platform::update_timers_and_animations();
+    assert!(view.window().get_snack_shown() && view.window().get_snack_on_list());
+    // The snackbar's text, not the window's announcement of it, which sits
+    // in a point at the window's corner.
+    let said: Vec<_> = labelled(&view, text(UiText::ConfirmConversationHidden))
+        .into_iter()
+        .filter(|e| e.absolute_position().y > 100.0)
+        .collect();
+    let undo = labelled(&view, text(UiText::Undo));
+    assert_eq!((said.len(), undo.len()), (1, 1));
+    let (s, u) = (said[0].absolute_position(), undo[0].absolute_position());
+    let us = undo[0].size();
+    assert!(s.x >= 12.0, "12 px from the start: {s:?}");
+    assert!(
+        u.x + us.width <= 390.0 - 12.0,
+        "12 px from the end: {u:?} {us:?}"
+    );
+    assert!(us.width >= 48.0 && us.height >= 48.0, "Undo is {us:?}");
+}
