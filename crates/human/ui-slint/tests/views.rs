@@ -772,6 +772,8 @@ fn every_action_element_has_a_default_action_giving_its_intent() {
 
     view.window().invoke_draft_edited("typed".into());
     intents(&mut view, &mut model);
+    // The root renders after every take; Send is active only with text.
+    view.render(&model);
     the(&view, text(UiText::Send)).invoke_accessible_default_action();
     assert_eq!(
         intents(&mut view, &mut model),

@@ -954,3 +954,52 @@ fn times_follow_the_platforms_hour_setting() {
     view.render(&model);
     assert_eq!(time(&view), "14:29");
 }
+
+/// Section 11 item 12, for the composer and the app bar: Send and Back
+/// are 48 x 48, and Send does nothing while the field is empty.
+#[test]
+fn send_does_nothing_while_the_field_is_empty() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    let mut view = opened(&model, false);
+    for label in [text(UiText::Send), text(UiText::BackToConversations)] {
+        let found = labelled(&view, label);
+        assert_eq!(found.len(), 1, "{label}");
+        let size = found[0].size();
+        assert!(
+            size.width >= 48.0 && size.height >= 48.0,
+            "{label} is {size:?}"
+        );
+    }
+    let send = || labelled(&view, text(UiText::Send))[0].clone();
+    // Inactive while empty: it says so to a screen reader, and is drawn
+    // dimmed; the model refuses an empty send besides.
+    assert_eq!(
+        send().accessible_enabled(),
+        Some(false),
+        "inactive while empty"
+    );
+    send().invoke_accessible_default_action();
+    assert!(
+        intents(&mut view, &model).is_empty(),
+        "nothing typed: nothing sent"
+    );
+    view.window().invoke_draft_edited("typed".into());
+    let _ = view.take_events(&model);
+    model.draft_changed(direct(), "typed".to_owned());
+    view.render(&model);
+    assert_eq!(
+        labelled(&view, text(UiText::Send))[0].accessible_enabled(),
+        Some(true),
+        "active with text"
+    );
+    labelled(&view, text(UiText::Send))[0].invoke_accessible_default_action();
+    let raised = intents(&mut view, &model);
+    assert!(
+        raised
+            .iter()
+            .any(|i| matches!(i, Intent::Send { draft, .. } if draft == "typed")),
+        "the control: with text, Send sends: {raised:?}"
+    );
+}

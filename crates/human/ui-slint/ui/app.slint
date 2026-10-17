@@ -527,6 +527,11 @@ component IconButton inherits FocusScope {
     in property <string> label;
     in property <string> focus-key;
     in property <color> ink: Palette.on-surface-variant;
+    // A filled round button: the icon in `on-primary` on `primary`.
+    in property <bool> filled;
+    // Inactive: drawn at 38 % and does nothing when pressed, though it
+    // still takes focus, so its label stays reachable.
+    in property <bool> active: true;
     in property <bool> rtl;
     in property <int> focus-seq;
     in property <bool> focus-wanted;
@@ -537,10 +542,14 @@ component IconButton inherits FocusScope {
     callback focused(string);
     accessible-role: button;
     accessible-label: root.label;
-    accessible-action-default => { root.pressed(); }
+    accessible-enabled: root.active;
+    accessible-action-default => { root.press(); }
+    function press() {
+        if (root.active) { root.pressed(); }
+    }
     key-pressed(event) => {
         if (event.text == Key.Return || event.text == " ") {
-            root.pressed();
+            root.press();
             return accept;
         }
         reject
@@ -550,14 +559,19 @@ component IconButton inherits FocusScope {
     }
     width: 48px;
     height: 48px;
-    GlyphIcon {
-        x: 12px;
-        y: 12px;
-        glyph: root.glyph;
-        ink: root.ink;
-        rtl: root.rtl;
+    Rectangle {
+        opacity: root.active ? 1 : 0.38;
+        background: root.filled ? Palette.primary : transparent;
+        border-radius: 24px;
+        GlyphIcon {
+            x: 12px;
+            y: 12px;
+            glyph: root.glyph;
+            ink: root.filled ? Palette.on-primary : root.ink;
+            rtl: root.rtl;
+        }
     }
-    TapArea { tapped => { root.pressed(); } }
+    TapArea { tapped => { root.press(); } }
     FocusRing {
         x: -5px;
         y: -5px;
@@ -2194,26 +2208,42 @@ export component AppWindow inherits Window {
                 accessible-label: self.text;
                 accessible-live-region: polite;
             }
-            // The composer exists only for an open conversation: an empty,
-            // disabled box would offer nothing to type into.
+            // The composer (section 6): a filled, fully rounded field and a
+            // round Send. It exists only for an open conversation: an
+            // empty, disabled box would offer nothing to type into.
             if root.composer-enabled: HorizontalLayout {
                 spacing: 8px;
-                height: 36px;
                 composer-box := Rectangle {
-                    border-width: 1px;
-                    border-color: Palette.outline;
-                    border-radius: 4px;
+                    min-height: 48px;
+                    background: Palette.surface-container-high;
+                    border-radius: self.height / 2;
                     FocusRing {
                         x: -5px;
                         y: -5px;
                         width: composer-box.width + 10px;
                         height: composer-box.height + 10px;
+                        radius: composer-box.height / 2;
                         shown: input.has-focus;
                     }
-                    input := TextInput {
-                        x: 8px;
-                        width: parent.width - 16px;
+                    // The placeholder: the field's own label, "Message",
+                    // shown while it is empty. Not a second node.
+                    if root.draft == "": Text {
+                        x: 20px;
+                        width: parent.width - 40px;
+                        height: parent.height;
+                        text: root.composer-label;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface-variant;
                         vertical-alignment: center;
+                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                        accessible-role: none;
+                    }
+                    input := TextInput {
+                        x: 20px;
+                        width: parent.width - 40px;
+                        vertical-alignment: center;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
                         text <=> root.draft;
                         enabled: root.composer-enabled;
                         accessible-label: root.composer-label;
@@ -2223,11 +2253,19 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                if root.composer-enabled: ActionButton {
-                    text: root.send-label;
-                    focus-key: "send";
-                    pressed => { root.send(); }
-                    focused(k) => { root.focus-id = k; }
+                VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.send;
+                        rtl: root.rtl;
+                        label: root.send-label;
+                        filled: true;
+                        // Dimmed and inactive while the field is empty.
+                        active: root.draft != "";
+                        focus-key: "send";
+                        pressed => { root.send(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
             }
         }
