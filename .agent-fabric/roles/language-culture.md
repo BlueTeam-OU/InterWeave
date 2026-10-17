@@ -2,7 +2,7 @@
 role: language-culture
 class: remit
 project: interweave
-description: "What the language and culture role covers in InterWeave: the words of the human client, and the locale structure when localisation comes."
+description: "What the language and culture role covers in InterWeave: the words of the human client, the English of the design/ specifications, and the locale structure when localisation comes."
 origin:
   - agent: user
     host: develop-qzapp
@@ -28,7 +28,13 @@ client:
   the state itself is defined;
 - the settings copy, and every later surface that speaks to a person.
 
-Review of any change to those values is yours too. So is the locale
+Review of any change to those values is yours too. So is the language
+review of the specifications under `design/` (the owner, 2026-10-16):
+the English of each, read before it merges, for clarity, terms
+consistent with `labels.rs` and the vocabulary of `human-client-ui.md`,
+and words a builder cannot misread; what a sentence makes the app do
+stays its author's, and a reading that changes behaviour goes back to
+them as a question. So is the locale
 structure when localisation arrives: how a translation table is laid
 out, selection and fallback, and what each language needs of a layout.
 `human-client-ui.md` §11 already requires localisation-safe layouts.

@@ -39,7 +39,9 @@ proposes it.
 - the Slint views, and the implementation and tests of their
   accessibility (TalkBack, focus, touch targets, contrast, motion);
 - the palette in `crates/human/ui-slint/ui/app.slint` and the icons,
-  until a brand-comms holder is placed here;
+  until a brand-comms holder is placed here: a colour or icon role a
+  ux-designer specification names, with its contrast, you add there and
+  give a value that meets it;
 - the human store's SQL schema and its shape guard (`verify_shape`),
   and the conformance tests RETENTION.md §9 requires; RETENTION.md
   itself is a contract (below).
@@ -94,5 +96,33 @@ ADR-0039 (the toolkit) and ADR-0040 (the desktop IPC);
 and the stage marker in `Cargo.toml`, which says which stage is open
 better than any list. A change to the facade's contract is agreed
 with a p2p-network-dev holder before it is built.
+
+**The test phone.** The Pixel 9a is reached by wireless adb over the
+LAN (Wireless debugging, `adb connect`), not USB; it is paired with
+rust-ui-dev's and ux-designer's logins (the owner, 2026-10-16). One
+account drives it at a time, on an adb server of its own: every login
+on the host shares adb's default port 5037, so a kill-server there drops
+what another account is running (live, 2026-10-16). A run on it is, with
+`<the run>` a script when it has quotes of its own:
+
+```sh
+fabric-lease pixel-9a -- bash -c 'export ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)); adb kill-server; adb nodaemon server & s=$!; trap "kill $s 2>/dev/null" EXIT; sleep 1; <the run>'
+```
+
+The server is the run's own child (`nodaemon`), in the run's process
+group, so it ends with the run however the run ends, and the phone's
+connection with it: the trap stops it on an exit, a failure or a signal, and a SIGKILL sent to the group, as a
+timeout sends it, kills it with the run (live, 2026-10-17). Only a SIGKILL
+to the shell alone would leave it; if you see one, run
+`ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)) adb kill-server`.
+The first kill-server clears a server your own login left by an older
+command. `pgrep -u "$(id -u)" -a adb` after the run shows nothing.
+
+The link drops with the phone's Wi-Fi and
+Wireless debugging can switch itself off; a re-pair is a person's step at
+the phone, asked of the owner. What only a person can judge, TalkBack and
+the feel of a gesture, stays a person's check whoever runs the rest.
+Your device evidence is not the design review: ux-designer runs its
+own review of your build on the phone, so leave the lease free for it.
 
 The merge queue stays on for this repository.
