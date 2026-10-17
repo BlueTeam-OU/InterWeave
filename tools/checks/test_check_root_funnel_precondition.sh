@@ -193,6 +193,34 @@ for prefix in "echo" "bash tools/ci/other.sh" "true ||"; do
     grep -qF -- "$prefix cargo test" "$R/.github/workflows/ci.yml" || { echo "FAIL the '$prefix' case did not apply" >&2; failures=$((failures + 1)); }
     expect "cargo test behind '$prefix': refused" 1 "$R" "has no command running"
 done
+# cargo nextest run counts as cargo test does, wrapped or not; the
+# refusals above apply to it, and so do its own ways of running fewer.
+scaffold "$R"; sed -i 's|run: cargo test|run: bash tools/ci/with_display.sh cargo nextest run|' "$R/.github/workflows/ci.yml"
+expect "cargo nextest run under the wrapper counts" 0 "$R" ""
+scaffold "$R"; sed -i 's|run: cargo test|run: cargo nextest run|; s/--locked/--locked --profile ci/' "$R/.github/workflows/ci.yml"
+expect "cargo nextest run with a profile counts" 0 "$R" ""
+for variant in "--no-run" "|| true" "-- some_filter" "-E 'not test(root_funnel)'" "-E'not test(root_funnel)'" "-Eall()" "--filterset=all()" "--filter-expr all()" "--partition count:1/2" "--run-ignored only"; do
+    scaffold "$R"; sed -i "s|run: cargo test|run: cargo nextest run|; s#--locked#--locked $variant#" "$R/.github/workflows/ci.yml"
+    expect "cargo nextest run … $variant: refused" 1 "$R" "has no command running"
+done
+scaffold "$R"; sed -i 's|run: cargo test|run: cargo nextest run|; s/--locked/--locked --exclude interweave-transport-libp2p/' "$R/.github/workflows/ci.yml"
+expect "cargo nextest run excluding the crate: refused" 1 "$R" "excludes interweave-transport-libp2p"
+scaffold "$R"; sed -i 's|run: cargo test|run: cargo nextest run|' "$R/.github/workflows/ci.yml"
+mkdir -p "$R/.config"; printf '[profile.ci]\ndefault-filter = "not test(root_funnel)"\n' > "$R/.config/nextest.toml"
+expect "a default-filter in .config/nextest.toml: refused" 1 "$R" "sets a default-filter"
+for spelling in '[profile]\nci.default-filter = "not test(x)"\n' '[profile.ci]\n"default-filter" = "not test(x)"\n' '[profile]\nci = { default-filter = "not test(x)" }\n'; do
+    scaffold "$R"; sed -i 's|run: cargo test|run: cargo nextest run|' "$R/.github/workflows/ci.yml"
+    mkdir -p "$R/.config"; printf "$spelling" > "$R/.config/nextest.toml"
+    expect "a default-filter spelt $(printf "$spelling" | tail -1): refused" 1 "$R" "sets a default-filter"
+done
+scaffold "$R"; sed -i 's|run: cargo test|run: cargo nextest run|' "$R/.github/workflows/ci.yml"
+mkdir -p "$R/.config"; printf '[profile.ci]\nfail-fast = false # no default-filter here\n' > "$R/.config/nextest.toml"
+expect "default-filter only in a comment: passes" 0 "$R" ""
+scaffold "$R"; mkdir -p "$R/.config"; printf '[profile.ci]\ndefault-filter = "all()"\n' > "$R/.config/nextest.toml"
+expect "a default-filter with cargo test, which never reads it: passes" 0 "$R" ""
+scaffold "$R"; sed -i 's|run: cargo test|run: cargo nextest run|' "$R/.github/workflows/ci.yml"
+mkdir -p "$R/.config"; printf '[profile.ci]\nfail-fast = false\n' > "$R/.config/nextest.toml"
+expect "a nextest config without a default-filter: passes" 0 "$R" ""
 scaffold "$R"; rm "$R/.github/workflows/ci.yml"
 expect "no ci.yml at all: refused" 1 "$R" "ci.yml is missing"
 scaffold "$R"; rm "$T"; sed -i 's/--all-targets/--lib/' "$R/.github/workflows/ci.yml"
