@@ -1473,7 +1473,6 @@ impl View {
             },
             show_author: channel && item.direction == Direction::Inbound && !run,
             time: clock::clock_text(local.hour, local.minute, self.clock.hour24),
-            spoken_time: self.clock.list_time(item.local_at),
         }
     }
 
@@ -2159,7 +2158,7 @@ fn message_row(
             ("author", &author),
             ("status", status),
             ("body", &drawn.plain),
-            ("time", &placed.spoken_time),
+            ("time", &placed.time),
         ],
     );
     MessageRow {
@@ -2360,11 +2359,10 @@ struct Placement {
     gap: f32,
     /// Whether its bubble opens with its author.
     show_author: bool,
-    /// Its local clock time.
+    /// Its local clock time: drawn in the bubble, and read in its label.
+    /// The day is the separator's, an item of its own before the run it
+    /// heads (design/2026-10-16-android-look.md sections 6 and 9, 025bb324).
     time: String,
-    /// Its time as the list says it, for its label: the clock time today,
-    /// else its day.
-    spoken_time: String,
 }
 
 /// How a status is marked beside its words (section 6's table): the

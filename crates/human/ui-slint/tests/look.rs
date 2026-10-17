@@ -889,3 +889,38 @@ fn tab_stays_in_details_and_escape_closes_it() {
     assert!(!view.window().get_details_open(), "Escape closes it");
     assert_eq!(view.window().get_focus_id().as_str(), "more-options");
 }
+
+/// ux-designer-01's ruling on #295 (spec 025bb324): a bubble's label says
+/// the clock time it shows, never its day, and the day separator heading
+/// its run is an item a screen reader reaches before the bubble.
+#[test]
+fn an_older_bubble_reads_its_clock_time_after_its_day_separator() {
+    let mut model = UiModel::new();
+    model.received(received(1, "from yesterday", NOW - DAY - 2 * 60 * MINUTE));
+    let view = opened(&model, false);
+    let label = fill(
+        placeholder_en::text(UiText::Item),
+        &[
+            ("author", &interweave_human_ui_model::short_peer(ALICE)),
+            ("body", "from yesterday"),
+            (
+                "status",
+                placeholder_en::label(interweave_human_ui_model::LabelKey::Unread),
+            ),
+            ("time", "12:30"),
+        ],
+    );
+    let bubble = labelled(&view, &label);
+    assert_eq!(bubble.len(), 1, "the label ends in the clock time: {label}");
+    let day = labelled(&view, placeholder_en::text(UiText::Yesterday));
+    assert_eq!(day.len(), 1, "the separator is an item of its own");
+    let tree: Vec<_> = all(&view)
+        .into_iter()
+        .filter_map(|e| e.accessible_label())
+        .collect();
+    let at = |l: &str| tree.iter().position(|t| t == l).expect("in the tree");
+    assert!(
+        at(placeholder_en::text(UiText::Yesterday)) < at(&label),
+        "the day before the bubble in reading order"
+    );
+}
