@@ -580,8 +580,13 @@ passed.
      the facade reports: Sending, or "Not confirmed, trying again" for a
      row an earlier attempt may have reached (`may_have_reached`, §5:
      for example after a timeout, or after the peer was unreachable),
-     the same as after the Retry button. A row whose only failures leave
-     that false (an unknown peer, for example) reads Sending;
+     the same as after the Retry button. Within one app session, a row
+     whose only failures leave that false (an unknown peer, for
+     example) reads Sending. After a restart, a row with any earlier
+     attempt reads "Not confirmed, trying again", since the outcome of
+     an attempt made before the restart is not known (`may_have_reached`
+     is rebuilt as `attempts > 0`, RETENTION.md §2). Items 6, 7 and 9
+     restart the app, so check this item's Sending case before them;
    - a drag left removes it and shows "Sending canceled";
    - Undo restores it in place, pending, with the same app message id
      and transport message id (the diagnostics view shows both).
