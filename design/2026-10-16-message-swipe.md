@@ -185,7 +185,12 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   "Sending canceled" or §8's may-have-reached text, and "Action undone"
   for an Undo; §9).
 - **Focus.** Every case below, and those in §8 and §10, is listed with
-  its check in §11 item 21, the one focus table.
+  its check in §11 item 21, the one focus table. A row's **first
+  control** is its first action button (Keep, Unkeep, Retry or Dismiss
+  as the row offers), else its Show source button. A link in the
+  message's text is never it. A row's **first remaining control** is
+  the same, counted after the row's buttons changed. Every message row
+  keeps Show source, so one always exists.
   - After Dismiss or Cancel removes a row, focus moves only if it was
     inside that row (keyboard, switch access or TalkBack focus). It goes
     to the next row's first control, or the previous row's if it was
@@ -217,8 +222,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   - **When a row's status changes its buttons** without the person
     acting (a pending row accepted by the remote or the local transport
     offers neither Retry nor Cancel), and focus was on a button that
-    went, focus goes to that row's first remaining control. Every
-    message row keeps its Show source button, so one always remains.
+    went, focus goes to that row's first remaining control (above).
   - **When the snackbar closes while its Undo holds focus**, the focused
     control is gone, whatever closed it: the timeout, a swipe-away, a
     newer snackbar, an arrival (§8, §10), or the app going to the
