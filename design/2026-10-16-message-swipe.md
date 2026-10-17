@@ -600,8 +600,10 @@ passed.
     - every focus case in item 21 marked "TalkBack" lands where the
       table says.
 13. Every row button and the snackbar's Undo measure at least 48 × 48 dp
-    (Layout Inspector or the Accessibility Scanner). Both tools read the
-    accessibility tree, so this item is under the precondition above.
+    (the Accessibility Scanner). It reads the accessibility tree, so this
+    item is under the precondition above. Layout Inspector cannot
+    measure it: it reads the View hierarchy, and the Slint window is one
+    View, with or without a bridge.
     Until it holds, the ui-slint view tests check each target's size, and
     a screenshot shows the drawn size.
 14. With "Remove animations" on, the row still follows the finger, but
