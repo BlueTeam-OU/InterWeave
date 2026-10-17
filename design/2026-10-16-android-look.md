@@ -355,7 +355,10 @@ From the top:
   shape: round for the back arrow and Send, rounded for chips and list
   items.
 - **TalkBack.** A bubble is read as one item: author ("You" for one's
-  own), the text, the status, the time. The chips follow it in order.
+  own), the text, the status, the time. Its label is `UiText::Item`,
+  whose value today is "{author}, {status}: {body}" with no time; it
+  takes the new value in §9 on every platform, so the desktop's screen
+  readers read the same order. The chips follow it in order.
   Swipe spec §7's labels are unchanged. A conversation row in the list
   is read as one item too: its name (the row's label), then its
   description: the kind (direct or channel, in words), the unread count
@@ -416,6 +419,7 @@ that exist.
 | `TimeAm` | {hour}:{minute} AM | the time of day, phone set to 12-hour, before noon: "1:18 AM", "12:05 AM" just after midnight |
 | `TimePm` | {hour}:{minute} PM | the same, from noon: "1:05 PM", "12:30 PM" |
 | `ConversationDescription` (exists, new value) | {kind}, {unread}, {preview}, {time} | a list row's description as TalkBack reads it (§7), with unread messages. `{kind}` is `DirectConversation` or `ChannelConversation` as today, `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
+| `Item` (exists, new value) | pending language-culture's text: {author}, then {body}, {status} and {time}, as a whole template | a message bubble's label, as TalkBack reads it (§7), on every platform |
 | `ConversationDescriptionRead` | {kind}, {preview}, {time} | the same, with nothing unread |
 
 The weekday, month, date and time values are final (language-culture,
