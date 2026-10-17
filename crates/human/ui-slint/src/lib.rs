@@ -1595,22 +1595,56 @@ impl View {
         // hands where it stands (swipe spec section 5; tests/look.rs,
         // `a_leaving_message_closes_its_space_without_a_jump`).
         let leaving: HashSet<ItemKey> = self.leaving_messages.iter().map(|(k, ..)| *k).collect();
-        for i in 1..keys.len() {
-            if !leaving.contains(&keys[i - 1]) || leaving.contains(&keys[i]) {
+        // Rows leaving next to each other hand over as one: the day passes
+        // from the first of them that heads it, which stays until the last
+        // of them has gone, so the separator changes hands once, where it
+        // stands (`two_leaving_messages_hand_their_days_separator_on_as_one`).
+        let mut held: Vec<(ItemKey, Instant)> = Vec::new();
+        let mut i = 0;
+        while i < keys.len() {
+            if !leaving.contains(&keys[i]) {
+                i += 1;
                 continue;
+            }
+            let start = i;
+            while i < keys.len() && leaving.contains(&keys[i]) {
+                i += 1;
             }
             let (Some(before), Some(item)) = (
                 self.shown_items.get(&keys[i - 1]),
-                items.iter().find(|item| item.key == keys[i]),
+                keys.get(i)
+                    .and_then(|key| items.iter().find(|item| item.key == *key)),
             ) else {
                 continue;
             };
-            let hands_over = !rows[i - 1].day.is_empty() && rows[i].day == rows[i - 1].day;
+            // The first of the run that draws a separator, if the row after
+            // the run would take that same separator over.
+            let day_head = (start..i)
+                .find(|&j| !rows[j].day.is_empty())
+                .filter(|&first| rows[i].day == rows[first].day);
             let placed = self.placement(item, Some(before), channel);
             rows[i].day = placed.day.into();
             rows[i].gap = placed.gap;
             rows[i].show_author = placed.show_author;
-            rows[i - 1].hand_over = hands_over;
+            for (j, row) in rows.iter_mut().enumerate().take(i).skip(start) {
+                row.hand_over = Some(j) == day_head;
+            }
+            if let Some(first) = day_head {
+                let last = self
+                    .leaving_messages
+                    .iter()
+                    .filter(|(key, ..)| keys[start..i].contains(key))
+                    .map(|(.., until)| *until)
+                    .max();
+                if let Some(last) = last {
+                    held.push((keys[first], last));
+                }
+            }
+        }
+        for (key, last) in held {
+            if let Some(entry) = self.leaving_messages.iter_mut().find(|(k, ..)| *k == key) {
+                entry.2 = entry.2.max(last);
+            }
         }
         if !self.leaving_messages.is_empty() {
             self.wake_after(LEAVING);

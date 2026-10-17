@@ -1260,9 +1260,16 @@ fn a_leaving_message_closes_its_space_without_a_jump() {
         model.hide(leaving);
         view.render(&model);
         let mut seen = vec![before];
+        // Where another message of the day follows, the day keeps exactly
+        // one separator a screen reader reads, throughout.
+        let read = |view: &View| labelled(view, thursday).len();
+        let followed = next_after < DAY;
         for _ in 0..30 {
             i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
             assert!(drawn(&view) <= 1, "{label}: one separator for the day");
+            if followed {
+                assert_eq!(read(&view), 1, "{label}: the day's separator is read");
+            }
             seen.push(y(&view));
         }
         view.render(&model);
@@ -1281,5 +1288,89 @@ fn a_leaving_message_closes_its_space_without_a_jump() {
                 "{label}: no jump: {seen:?}"
             );
         }
+    }
+}
+
+/// Re-review on #296: two neighbouring messages of one day leaving close
+/// together -- the second hidden while the first is still leaving -- hand
+/// the day's separator on as one: it is drawn and read exactly once
+/// throughout, and the rows below only rise.
+#[test]
+fn two_leaving_messages_hand_their_days_separator_on_as_one() {
+    let thursday = placeholder_en::text(UiText::Thursday);
+    let mut model = UiModel::new();
+    let start = NOW - 2 * DAY;
+    for (row, at) in [
+        (1, start),
+        (2, start + 20_000),
+        (3, start + 40_000),
+        (4, start + 50_000),
+    ] {
+        let text = ["first", "second", "below", "last"][usize::try_from(row - 1).expect("small")];
+        model.received(received(row, text, at));
+        model.read(RowId::from_stored(row));
+    }
+    let mut view = opened(&model, false);
+    let y = |view: &View| labelled(view, "last")[0].absolute_position().y;
+    let drawn = |view: &View| {
+        view.window()
+            .get_messages()
+            .iter()
+            .filter(|row| row.day == thursday)
+            .count()
+    };
+    let before = y(&view);
+    let keys: Vec<_> = model.messages(&direct()).iter().map(|m| m.key).collect();
+    model.hide(keys[0]);
+    view.render(&model);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+    // The second goes while the first is still leaving. A leave's length
+    // is real time, which the mock clock does not move, so this follows
+    // the first render at once rather than some frames later.
+    model.hide(keys[1]);
+    view.render(&model);
+    // A leave's end is real time. Rendering through both leaves in real
+    // time, the day keeps exactly one separator at every render: the
+    // first, which hands the day over, stays until the second has gone,
+    // and no render falls between the two ends.
+    let started = std::time::Instant::now();
+    while view.window().get_messages().iter().any(|row| row.leaving)
+        && started.elapsed() < std::time::Duration::from_secs(2)
+    {
+        view.render(&model);
+        assert_eq!(
+            drawn(&view),
+            1,
+            "one separator at every render of the leave"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let mut seen = vec![before];
+    for frame in 0..30 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        if frame % 12 == 11 {
+            view.render(&model);
+        }
+        assert_eq!(drawn(&view), 1, "frame {frame}: one separator drawn");
+        assert_eq!(
+            labelled(&view, thursday).len(),
+            1,
+            "frame {frame}: and read"
+        );
+        seen.push(y(&view));
+    }
+    view.render(&model);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+    seen.push(y(&view));
+    assert_eq!(
+        labelled(&view, thursday).len(),
+        1,
+        "the separator ends with the row below"
+    );
+    for step in seen.windows(2) {
+        assert!(
+            step[1] <= step[0] + 0.5,
+            "the rows below only rise: {seen:?}"
+        );
     }
 }
