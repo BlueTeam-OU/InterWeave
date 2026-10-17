@@ -527,6 +527,15 @@ snackbar Undo; right = nothing."
 Run on an Android phone or emulator with a debug build, once with
 TalkBack off and once with it on, and once with "Remove animations" on.
 
+**Precondition for every TalkBack check** (the TalkBack run, item 12,
+item 17's TalkBack sentence and every TalkBack row of item 21):
+TalkBack reaches the app's controls. On main 761d72b3 it cannot:
+Slint 1.18.1's Android backend carries no accessibility bridge, so the
+window is one View with no children. The bridge is rust-ui-dev's to
+build; how to build it is architect-cto's decision, on rust-ui-dev's
+measurement (2026-10-16). Until it lands, those checks are blocked, not
+passed.
+
 1. On a kind-A row:
    - a slow drag right past 40 % of its width shows the Keep icon and
      label, changes the fill and ticks once;
@@ -572,13 +581,7 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     than it moves vertically, scrolls and never swipes. That includes
     a drag 55–60° off horizontal, which Slint's own swipe handler
     would take.
-12. With TalkBack on. **Precondition:** TalkBack reaches the app's
-    controls. On main 761d72b3 it cannot: Slint 1.18.1's Android backend
-    carries no accessibility bridge, so the window is one View with no
-    children. The bridge is rust-ui-dev's to build; how to build it is
-    architect-cto's decision, on rust-ui-dev's measurement (2026-10-16).
-    Until it lands, this item and every TalkBack row of item 21 are
-    blocked, not passed:
+12. With TalkBack on (under the precondition above):
     - every action in 1–9 can be done with the row's buttons alone;
     - each result is announced;
     - every focus case in item 21 marked "TalkBack" lands where the
@@ -602,8 +605,8 @@ TalkBack off and once with it on, and once with "Remove animations" on.
     neither direction. Its screen's "Hide conversation" control does
     the same as the swipe and is shown only when the swipe is offered.
 
-    With TalkBack on, "Conversation hidden" is announced and Undo is
-    reachable. Where focus lands is item 21.
+    With TalkBack on (under the precondition above), "Conversation
+    hidden" is announced and Undo is reachable. Where focus lands is item 21.
 18. The ui-model tests show:
     - which swipes are offered is computed from `actions` and the
       Dismiss rule, for kinds A–D, and for a conversation from §10's rule,
