@@ -577,8 +577,10 @@ passed.
 8. On a kind-C row (no daemon or network, so it stays pending):
    - a drag right retries it and shows no snackbar. Its status is what
      the facade reports: Sending, or "Not confirmed, trying again" for a
-     row an earlier attempt may have reached, such as one that failed
-     with no network path (§5), the same as after the Retry button;
+     row an earlier attempt may have reached (`may_have_reached`, §5:
+     for example after a timeout, or a peer that was unreachable), the
+     same as after the Retry button. A row whose only failures leave
+     that false (an unknown peer, for one) reads Sending;
    - a drag left removes it and shows "Sending canceled";
    - Undo restores it in place, pending, with the same app message id
      and transport message id (the diagnostics view shows both).
