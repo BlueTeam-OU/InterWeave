@@ -592,7 +592,10 @@ passed.
     - every focus case in item 21 marked "TalkBack" lands where the
       table says.
 13. Every row button and the snackbar's Undo measure at least 48 × 48 dp
-    (Layout Inspector or the Accessibility Scanner).
+    (Layout Inspector or the Accessibility Scanner). Both tools read the
+    accessibility tree, so this item is under the precondition above.
+    Until it holds, the ui-slint view tests check each target's size, and
+    a screenshot shows the drawn size.
 14. With "Remove animations" on, the row still follows the finger, but
     spring-back and space-closing are instant.
 15. A swipe started at a screen edge, inside the back-gesture zone,
@@ -670,6 +673,7 @@ passed.
     | a pending row becomes accepted while its Retry or Cancel holds focus | that row's first remaining control (Show source) | tests |
     | Undo of Keep or Unkeep | that row's first control | keyboard, TalkBack |
     | Keep refused (storage degraded) | stays where it was | tests |
+    | Keep refused because the copy is gone (`CopyGone`): the row no longer offers Keep | that row's first remaining control | tests |
     | Cancel refused, focus had moved off the row | back to the row's first control | tests |
     | Cancel refused, focus had not moved | stays where it was | tests |
     | Cancel refused after the person left the conversation | stays where it is; the refusal is only announced | tests |
