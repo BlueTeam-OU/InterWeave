@@ -220,8 +220,8 @@ From the top:
 - A conversation is listed only while the app holds one of its
   messages, so every row has a last message to show. After a restart,
   a conversation whose messages were all read and not kept is not
-  listed at all. (Should contacts later list a conversation with no
-  message, its subtitle needs words then.)
+  listed at all. (If contacts later list a conversation with no
+  message, its subtitle will need words then.)
 - Every time on these screens is the local time the message reached
   this app (`local_at`), never the time a sender asserts
   (`sent_at_ms`), which a peer chooses. Day separators and the
@@ -419,8 +419,8 @@ that exist.
 | `TimeAm` | {hour}:{minute} AM | the time of day, phone set to 12-hour, before noon: "1:18 AM", "12:05 AM" just after midnight |
 | `TimePm` | {hour}:{minute} PM | the same, from noon: "1:05 PM", "12:30 PM" |
 | `ConversationDescription` (exists, new value) | {kind}, {unread}, {preview}, {time} | a list row's description as TalkBack reads it (§7), with unread messages. `{kind}` is `DirectConversation` or `ChannelConversation` as today, `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
-| `Item` (exists, new value) | pending language-culture's text: {author}, then {body}, {status} and {time}, as a whole template | a message bubble's label, as TalkBack reads it (§7), on every platform |
 | `ConversationDescriptionRead` | {kind}, {preview}, {time} | the same, with nothing unread |
+| `Item` (exists, new value) | {author}: {body}. {status}, {time} | a message bubble's label, as TalkBack reads it (§7), on every platform: "You: See you at six. Kept, 01:18" |
 
 The weekday, month, date and time values are final (language-culture,
 2026-10-17). What the code fills in, and what a translation may change:
@@ -449,6 +449,16 @@ subtitle no longer says "Direct conversation" or "Channel", and a "#"
 read aloud is not a kind (U2a, §7). The two values are final: with
 the name first, TalkBack reads a row as, for example, "…x6gY6Eri /
 human, Direct conversation, 2 unread, You: See you at six, 01:18".
+
+A bubble's label, `Item`, puts `{body}` between the author and the
+rest, in §7's reading order. `{body}` can be long, hold several lines
+and end with any punctuation, so the template marks both of its ends:
+a colon after the author, as in the list's "You: {message}", and a
+full stop after the body, so a screen reader pauses before the status
+even when the body ends with no punctuation. A body that ends in "?"
+or "!" then shows "?." to a braille reader; that costs less than a
+status run into the last word. The status and the time are short and
+are separated by a comma, as in the list's descriptions.
 
 The title stays "Conversations", not "Chats". The app calls each item
 a conversation ("Hide conversation", "Conversation hidden", "Back to
