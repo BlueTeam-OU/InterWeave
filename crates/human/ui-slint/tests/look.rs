@@ -527,3 +527,59 @@ fn a_preview_reads_nothing() {
         "{raised:?}"
     );
 }
+
+/// Press the one control labelled `label`, as a screen reader does.
+fn press(view: &View, label: &str) {
+    let found = labelled(view, label);
+    assert_eq!(found.len(), 1, "one control labelled {label:?}");
+    found[0].invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
+}
+
+/// Section 11 item 7: on a phone, the conversation's app bar has Back,
+/// the name and the connectivity line, and an overflow button labelled
+/// "More options" whose menu holds Details always and Hide conversation
+/// exactly when it is offered; Details shows the exact PeerId.
+#[test]
+fn the_overflow_menu_holds_details_and_hide_exactly_when_offered() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let text = placeholder_en::text;
+    // Something unread: Hide conversation is not offered.
+    model.received(received(1, "hi", NOW));
+    view.select(direct());
+    let _ = view.take_events(&model);
+    view.render(&model);
+    slint::platform::update_timers_and_animations();
+    assert_eq!(labelled(&view, text(UiText::BackToConversations)).len(), 1);
+    assert_eq!(
+        labelled(&view, &model.title(&direct())).len(),
+        1,
+        "the name"
+    );
+    press(&view, text(UiText::MoreOptions));
+    assert_eq!(labelled(&view, text(UiText::Details)).len(), 1);
+    assert!(
+        labelled(&view, text(UiText::HideConversation)).is_empty(),
+        "an unread message: not offered"
+    );
+    press(&view, text(UiText::Details));
+    let id = labelled(&view, text(UiText::ConversationId));
+    assert_eq!(id.len(), 1);
+    assert_eq!(id[0].accessible_value().as_deref(), Some(ALICE));
+    assert!(
+        labelled(&view, text(UiText::Details)).is_empty(),
+        "the menu closed"
+    );
+
+    // Read: now Hide conversation is offered, in the same menu.
+    model.read(RowId::from_stored(1));
+    view.render(&model);
+    view.window().set_details_open(false);
+    press(&view, text(UiText::MoreOptions));
+    assert_eq!(labelled(&view, text(UiText::HideConversation)).len(), 1);
+    assert_eq!(labelled(&view, text(UiText::Details)).len(), 1);
+}

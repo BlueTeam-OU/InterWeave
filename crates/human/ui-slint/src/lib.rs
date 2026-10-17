@@ -26,8 +26,8 @@ use std::time::{Duration, Instant};
 
 use interweave_human_client_api::TrustOrigin;
 use interweave_human_ui_model::{
-    Announce, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget, HostText,
-    Intent, ItemKey, ItemStatus, MessageItem, Reply, Retention, RowAction, RuntimeHost,
+    Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
+    HostText, Intent, ItemKey, ItemStatus, MessageItem, Reply, Retention, RowAction, RuntimeHost,
     SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, UiModel, UiText, fill,
     placeholder_en, short_peer, visible_destination,
 };
@@ -672,6 +672,8 @@ impl View {
         window.set_cancel_label(text(UiText::CancelChange));
         window.set_undo_label(text(UiText::Undo));
         window.set_hide_conversation_label(text(UiText::HideConversation));
+        window.set_more_options_label(text(UiText::MoreOptions));
+        window.set_details_label(text(UiText::Details));
         slint::ComponentHandle::global::<generated::Touch<'_>>(&window)
             .set_slop(TouchSettings::default().slop);
         let shared = Rc::new(RefCell::new(Shared {
@@ -1296,11 +1298,7 @@ impl View {
                     hide_label: placeholder_en::text(UiText::HideShort).into(),
                     leaving: false,
                     avatar_letters: summary.avatar.letters.as_str().into(),
-                    avatar_hue: match summary.avatar.hue {
-                        AvatarHue::Teal => 0,
-                        AvatarHue::Amber => 1,
-                        AvatarHue::Navy => 2,
-                    },
+                    avatar_hue: hue_index(summary.avatar.hue),
                     preview: preview.into(),
                     time: time.into(),
                     unread: if summary.unread == 0 {
@@ -1809,6 +1807,15 @@ impl View {
 
     fn render_chrome(&self, model: &UiModel) {
         let window = &self.window;
+        // The menu and Details are about the conversation they opened on:
+        // another one shown, or none, closes them. Decided here rather
+        // than by a change handler in the views, which runs a turn late
+        // and would close a menu opened in between.
+        let id = self.shown.as_ref().map(full_id).unwrap_or_default();
+        if window.get_header_id().as_str() != id {
+            window.set_menu_open(false);
+            window.set_details_open(false);
+        }
         window
             .set_connectivity(placeholder_en::connectivity(self.host, model.connectivity()).into());
         let notice = model.session_notice();
@@ -1830,6 +1837,7 @@ impl View {
             None => {
                 window.set_header_title(placeholder_en::text(UiText::NoConversation).into());
                 window.set_header_id(SharedString::new());
+                window.set_header_avatar_letters(SharedString::new());
                 window.set_header_path(SharedString::new());
                 window.set_composer_enabled(false);
                 window.set_refused(SharedString::new());
@@ -1838,6 +1846,9 @@ impl View {
                 let title = model.title(key);
                 window.set_header_title(title.into());
                 window.set_header_id(full_id(key).into());
+                let avatar = Avatar::of(key);
+                window.set_header_avatar_letters(avatar.letters.as_str().into());
+                window.set_header_avatar_hue(hue_index(avatar.hue));
                 let path = model.path(key).map(placeholder_en::path);
                 window.set_header_path(path.unwrap_or_default().into());
                 // No composer while nothing can be sent: without network
@@ -1982,6 +1993,15 @@ struct DrawnBody {
     /// The drawn text alone, for the item's label: what a screen reader
     /// reads is the text, not the source's markup.
     plain: String,
+}
+
+/// An avatar's pair as the views number it: 0 teal, 1 amber, 2 navy.
+const fn hue_index(hue: AvatarHue) -> i32 {
+    match hue {
+        AvatarHue::Teal => 0,
+        AvatarHue::Amber => 1,
+        AvatarHue::Navy => 2,
+    }
 }
 
 /// An image's placeholder, in the view's words: its alt text, or only

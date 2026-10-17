@@ -453,6 +453,9 @@ fn hide_conversation_is_offered_on_its_screen_only_when_the_swipe_is() {
     read(&mut model, 1, &alice, "first");
     open(&mut view, &mut model, &direct(&alice));
     assert!(view.window().get_hide_conversation_shown());
+    // In the overflow menu (android-look section 6): there once it opens.
+    assert!(labelled(&view, text(UiText::HideConversation)).is_empty());
+    labelled(&view, text(UiText::MoreOptions))[0].invoke_accessible_default_action();
     let control = labelled(&view, text(UiText::HideConversation));
     assert_eq!(control.len(), 1);
     control[0].invoke_accessible_default_action();
@@ -1049,7 +1052,13 @@ fn hide_conversation_in_its_header_focuses_the_next_conversation_row() {
     let other = rows.row_data(1).expect("a row").handle;
     let key = model.conversations()[0].key.clone();
     open(&mut view, &mut model, &key);
-    tab_to(&view, "hide-conversation");
+    // In the overflow menu (android-look section 6), which opens with
+    // focus on its first entry.
+    tab_to(&view, "more-options");
+    press_focused(&view);
+    // The entry takes focus once it is in the window, a timer's turn later.
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(10));
+    assert_eq!(view.window().get_focus_id().as_str(), "hide-conversation");
     press_focused(&view);
     let _ = turn(&mut view, &mut model);
     assert_eq!(model.conversations().len(), 1, "control: hidden");

@@ -861,7 +861,7 @@ fn every_tab_stop_draws_exactly_one_focus_ring() {
     );
     open(&mut view, &mut model, &direct(&bob));
     let chat = tab_each_draws_one_ring(&view, 40);
-    for wanted in ["header-id", "composer", "send", "notice"] {
+    for wanted in ["more-options", "composer", "send", "notice"] {
         assert!(chat.contains(wanted), "Tab reaches {wanted}: {chat:?}");
     }
     assert!(chat.iter().any(|r| r.starts_with("item:")), "{chat:?}");
@@ -944,6 +944,7 @@ fn remote_text_is_drawn_and_raises_nothing_but_the_read() {
                 text(UiText::Send),
                 text(UiText::ShowSource),
                 text(UiText::TrustSettings),
+                text(UiText::MoreOptions),
                 open_link("https://example.org").as_str(),
             ]
             .contains(&control.as_str()),
@@ -1799,8 +1800,8 @@ fn the_platform_check_passes_where_fontconfig_loads() {
 
 /// The open conversation's identifier is in the tree in exact canonical
 /// form, as a read-only field a person selects and copies
-/// (human-client-ui.md section 11); with no conversation open there is
-/// none.
+/// (human-client-ui.md section 11), in Details from the overflow menu
+/// (android-look section 6); with no conversation open there is none.
 #[test]
 fn the_open_conversations_identifier_is_exact_and_selectable() {
     let mut view = view();
@@ -1812,6 +1813,11 @@ fn the_open_conversations_identifier_is_exact_and_selectable() {
     );
     model.received(received(1, &alice, "hi"));
     open(&mut view, &mut model, &direct(&alice));
+    // In Details, from the overflow menu (android-look section 6), and
+    // not on the conversation screen itself.
+    assert!(labelled(&view, text(UiText::ConversationId)).is_empty());
+    press(&view, text(UiText::MoreOptions));
+    press(&view, text(UiText::Details));
     let field = the(&view, text(UiText::ConversationId));
     assert_eq!(
         field.accessible_value().as_deref(),

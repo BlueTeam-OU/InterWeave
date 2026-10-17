@@ -677,6 +677,71 @@ component Snackbar inherits Rectangle {
     }
 }
 
+// One entry of a menu: 48 px tall, its label at the start, a focus ring
+// that follows the row. Escape closes the menu.
+component MenuItem inherits FocusScope {
+    in property <string> text;
+    in property <string> detail;
+    in property <string> focus-key;
+    // The menu's first entry takes focus when the menu opens.
+    in property <bool> first;
+    in property <bool> rtl;
+    callback pressed();
+    callback closed();
+    callback focused(string);
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-description: root.detail;
+    accessible-action-default => { root.pressed(); }
+    key-pressed(event) => {
+        if (event.text == Key.Return || event.text == " ") {
+            root.pressed();
+            return accept;
+        }
+        if (event.text == Key.Escape) {
+            root.closed();
+            return accept;
+        }
+        reject
+    }
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    // Focus moves to it once it is in the window: a focus asked for from
+    // `init` is lost, since the entry is not in the focus chain yet.
+    property <bool> taken;
+    Timer {
+        interval: 1ms;
+        running: root.first && !root.taken;
+        triggered => {
+            root.taken = true;
+            root.focus();
+        }
+    }
+    min-height: 48px;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        Text {
+            text: root.text;
+            font-size: Type.body-large;
+            color: Palette.on-surface;
+            vertical-alignment: center;
+            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+            accessible-role: none;
+        }
+    }
+    TapArea { tapped => { root.pressed(); } }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        radius: 0px;
+        shown: root.has-focus;
+    }
+}
+
 // The unread badge (section 5): the count on a tertiary pill, 20 px tall.
 // The row's description says the count; the badge is for sight.
 component UnreadBadge inherits Rectangle {
@@ -734,6 +799,24 @@ export component AppWindow inherits Window {
     // The open direct conversation's route indicator, once the runtime has
     // said; empty for a channel or before it has (human-client-ui.md 7).
     in property <string> header-path;
+    // The open conversation's avatar (section 5.1).
+    in property <string> header-avatar-letters;
+    in property <int> header-avatar-hue;
+    in property <string> more-options-label;
+    in property <string> details-label;
+    // The overflow menu, and the Details it opens: shown over the window.
+    // Rust closes both when another conversation, or none, is shown.
+    in-out property <bool> menu-open;
+    in-out property <bool> details-open;
+    // Bumped when the menu or Details closes, so focus goes back to the
+    // overflow button that opened it.
+    property <int> menu-closed-seq;
+    function close-menu() {
+        root.menu-open = false;
+        root.details-open = false;
+        root.menu-closed-seq += 1;
+    }
+
     in property <string> connectivity;
     in property <bool> has-notice;
     in property <string> notice;
@@ -1395,31 +1478,92 @@ export component AppWindow inherits Window {
             visible: root.pane-shown;
             padding: 12px;
             spacing: 8px;
-            if root.narrow: HorizontalLayout {
-                alignment: start;
-                ActionButton {
-                    text: root.back-label;
-                    focus-key: "back-to-list";
-                    pressed => {
-                        root.list-shown = true;
-                        root.left-conversation();
+            // The top app bar (section 6): Back on a narrow screen, the
+            // avatar, the name over the connectivity line and, once known,
+            // the path line, and the overflow menu. The identifier is in
+            // Details, no longer on the screen itself.
+            HorizontalLayout {
+                min-height: 64px;
+                spacing: 8px;
+                if root.narrow: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.back;
+                        rtl: root.rtl;
+                        ink: Palette.on-surface;
+                        label: root.back-label;
+                        focus-key: "back-to-list";
+                        pressed => {
+                            root.list-shown = true;
+                            root.left-conversation();
+                        }
+                        focused(k) => { root.focus-id = k; }
                     }
-                    focused(k) => { root.focus-id = k; }
                 }
-            }
-            Text {
-                text: root.connectivity;
-                color: Palette.on-surface-variant;
-                font-size: 12px;
-                accessible-role: text;
-                accessible-label: self.text;
-                accessible-live-region: polite;
+                if root.header-id != "": VerticalLayout {
+                    alignment: center;
+                    Avatar {
+                        size: 36px;
+                        letters: root.header-avatar-letters;
+                        hue: root.header-avatar-hue;
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    FocusHeading {
+                        text: root.header-title;
+                        // The full PeerId or channel id, as a screen reader
+                        // reads it (U5a); shown in Details.
+                        description: root.header-id;
+                        font-size: Type.title-medium;
+                        font-weight: 500;
+                        rtl: root.rtl;
+                        focus-key: "header-title";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "h";
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    Text {
+                        text: root.connectivity;
+                        color: Palette.on-surface-variant;
+                        font-size: Type.body-small;
+                        overflow: elide;
+                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                        accessible-live-region: polite;
+                    }
+                    // Updated in place: a path change is not an event a
+                    // person is interrupted for, so it is no live region.
+                    if root.header-path != "": Text {
+                        text: root.header-path;
+                        font-size: Type.body-small;
+                        color: Palette.on-surface-variant;
+                        overflow: elide;
+                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                }
+                if root.header-id != "": VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.more;
+                        label: root.more-options-label;
+                        focus-key: "more-options";
+                        focus-seq: root.menu-closed-seq;
+                        focus-wanted: true;
+                        pressed => { root.menu-open = true; }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
             }
             if root.has-notice: Rectangle {
                 background: Palette.notice-background;
-                border-radius: 4px;
+                border-radius: 12px;
             HorizontalLayout {
-                padding: 8px;
+                padding: 12px;
                 spacing: 8px;
                 Text {
                     text: root.notice;
@@ -1439,73 +1583,24 @@ export component AppWindow inherits Window {
                 }
             }
             }
-            FocusHeading {
-                text: root.header-title;
-                description: root.header-id;
-                focus-key: "header-title";
-                focus-seq: root.focus-seq;
-                focus-wanted: root.focus-target == "h";
-                focused(k) => { root.focus-id = k; }
-            }
-            // The equivalent of the list's hide swipe, for anyone who
-            // cannot swipe (swipe spec section 10): shown only when the
-            // swipe is offered, and back to the list, where the snackbar is.
-            if root.hide-conversation-shown: HorizontalLayout {
-                alignment: start;
-                ActionButton {
-                    text: root.hide-conversation-label;
-                    detail: root.header-title;
-                    target: 48px;
-                    focus-key: "hide-conversation";
-                    pressed => {
-                        root.list-shown = true;
-                        root.hide-conversation();
-                    }
-                    focused(k) => { root.focus-id = k; }
-                }
-            }
-            // The identifier in exact canonical form, selectable so a person
-            // can copy it with the platform's own keys (human-client-ui.md
-            // section 11). Read-only: nothing typed here goes anywhere.
-            if root.header-id != "": header-id-box := Rectangle {
-                // Its field's height: a box in a layout stretches without one, and
-                // the field alone does not size it (both seen in the window).
-                height: header-id-input.preferred-height;
-                header-id-input := TextInput {
-                    text: root.header-id;
-                    read-only: true;
-                    single-line: true;
-                    font-size: 12px;
-                    color: Palette.on-surface-variant;
-                    accessible-label: root.header-id-label;
-                    accessible-value: self.text;
-                    changed has-focus => {
-                        if (self.has-focus) { root.focus-id = "header-id"; }
+            // Not drawn: the bubbles show where the messages are. Kept as a
+            // heading a screen reader can move to (section 6), clipped to
+            // a point rather than hidden, which would take it out of the
+            // tree.
+            Rectangle {
+                height: 0px;
+                Rectangle {
+                    x: 0;
+                    y: 0;
+                    width: 1px;
+                    height: 1px;
+                    clip: true;
+                    Text {
+                        text: root.messages-heading;
+                        accessible-role: text;
+                        accessible-label: self.text;
                     }
                 }
-                FocusRing {
-                    x: -5px;
-                    y: -5px;
-                    width: header-id-box.width + 10px;
-                    height: header-id-box.height + 10px;
-                    shown: header-id-input.has-focus;
-                }
-            }
-            // Updated in place: a path change is not an event a person is
-            // interrupted for, so it is no live region either.
-            if root.header-path != "": Text {
-                text: root.header-path;
-                font-size: 12px;
-                color: Palette.on-surface-variant;
-                accessible-role: text;
-                accessible-label: self.text;
-            }
-            Text {
-                text: root.messages-heading;
-                color: Palette.on-surface-variant;
-                font-size: 12px;
-                accessible-role: text;
-                accessible-label: self.text;
             }
             // A long conversation scrolls; the composer stays in view. The
             // built-in Flickable, not std-widgets' ScrollView, whose icons
@@ -1796,6 +1891,126 @@ export component AppWindow inherits Window {
                     focus-key: "send";
                     pressed => { root.send(); }
                     focused(k) => { root.focus-id = k; }
+                }
+            }
+        }
+    }
+    // Over everything: a press outside the menu or Details closes it, as
+    // Escape does.
+    if root.menu-open || root.details-open: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => { root.close-menu(); }
+        Rectangle {
+            background: root.details-open ? #00000052 : transparent;
+        }
+    }
+    // The overflow menu (section 6), under its button at the line's end.
+    if root.menu-open: Rectangle {
+        x: root.rtl ? root.safe-area-insets.left + 8px
+            : root.width - self.width - root.safe-area-insets.right - 8px;
+        y: root.safe-area-insets.top + 56px;
+        width: max(200px, menu-items.preferred-width);
+        height: menu-items.preferred-height;
+        background: Palette.surface-container-high;
+        border-radius: 4px;
+        drop-shadow-blur: 8px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: #00000052;
+        menu-items := VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            if root.hide-conversation-shown: MenuItem {
+                text: root.hide-conversation-label;
+                detail: root.header-title;
+                focus-key: "hide-conversation";
+                first: true;
+                rtl: root.rtl;
+                pressed => {
+                    root.close-menu();
+                    root.list-shown = true;
+                    root.hide-conversation();
+                }
+                closed => { root.close-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+            MenuItem {
+                text: root.details-label;
+                focus-key: "details";
+                first: !root.hide-conversation-shown;
+                rtl: root.rtl;
+                pressed => {
+                    root.menu-open = false;
+                    root.details-open = true;
+                }
+                closed => { root.close-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+        }
+    }
+    // Details (section 6): the identifier in exact canonical form, whole,
+    // selectable so a person can copy it with the platform's own keys
+    // (human-client-ui.md section 11). Read-only: nothing typed here goes
+    // anywhere.
+    if root.details-open: details := FocusScope {
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: min(root.width - 48px, 560px);
+        height: details-box.preferred-height;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.close-menu();
+                return accept;
+            }
+            reject
+        }
+        // Focus moves to the identifier once Details is in the window.
+        property <bool> taken;
+        Timer {
+            interval: 1ms;
+            running: !details.taken;
+            triggered => {
+                details.taken = true;
+                header-id-input.focus();
+            }
+        }
+        details-box := Rectangle {
+            background: Palette.surface-container-high;
+            border-radius: 28px;
+            VerticalLayout {
+                padding: 24px;
+                spacing: 12px;
+                Text {
+                    text: root.header-id-label;
+                    font-size: Type.body-small;
+                    font-weight: 700;
+                    color: Palette.on-surface-variant;
+                    accessible-role: none;
+                }
+                header-id-box := Rectangle {
+                    height: header-id-input.preferred-height;
+                    header-id-input := TextInput {
+                        text: root.header-id;
+                        read-only: true;
+                        single-line: false;
+                        wrap: char-wrap;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface;
+                        accessible-label: root.header-id-label;
+                        accessible-value: self.text;
+                        changed has-focus => {
+                            if (self.has-focus) { root.focus-id = "header-id"; }
+                        }
+                    }
+                    FocusRing {
+                        x: -5px;
+                        y: -5px;
+                        width: header-id-box.width + 10px;
+                        height: header-id-box.height + 10px;
+                        shown: header-id-input.has-focus;
+                    }
                 }
             }
         }
