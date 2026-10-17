@@ -191,8 +191,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   message's text is never the first control. A row's **first remaining control** is
   the same, counted after the row's buttons changed. Every message row
   keeps Show source, so one always exists. Whenever a rule below moves
-  focus, the control that takes it is scrolled into view; focus that
-  stays where it was scrolls nothing.
+  focus, the control that takes it is scrolled into view. When focus
+  stays where it was, nothing scrolls.
   - After Dismiss or Cancel removes a row, focus moves only if it was
     inside that row (keyboard, switch access or TalkBack focus). It goes
     to the next row's first control, or the previous row's if it was
@@ -243,9 +243,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     keyboard and TalkBack focus and reads its text. Nothing happens when
     it is activated.
   - **Every focus target here draws a visible focus indicator** when it
-    holds keyboard focus: every button (a link in a message's text
-    included), each conversation row, and the
-    two headings. Today a conversation row and the headings draw nothing
+    holds keyboard focus: every button, every link in a message's
+    text, each conversation row, and the two headings. Today a conversation row and the headings draw nothing
     for focus, and a button only thickens its border by 1 px in the same
     colour, so a person cannot see where focus is (seen on the Pixel 9a,
     2026-10-16). The indicator is a ring with a contrast of at least 3:1
@@ -424,8 +423,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     control (§7).
 - **Keep is refused because the copy is gone** (`CopyGone`: the
   message's stored copy was removed before the Keep reached the store).
-  The row stays read and not kept and no longer offers Keep, so it
-  cannot be kept. No snackbar is shown, and the refusal is announced.
+  The row stays read and not kept, and it no longer offers Keep: the
+  message can no longer be kept. No snackbar is shown, and the refusal
+  is announced.
   If focus was on its Keep, focus goes to the row's first remaining
   control; otherwise it stays where it was.
 - **Keep is refused because storage is degraded.** The row stays kind
@@ -579,9 +579,9 @@ passed.
    - a drag right retries it and shows no snackbar. Its status is what
      the facade reports: Sending, or "Not confirmed, trying again" for a
      row an earlier attempt may have reached (`may_have_reached`, §5:
-     for example after a timeout, or a peer that was unreachable), the
-     same as after the Retry button. A row whose only failures leave
-     that false (an unknown peer, for one) reads Sending;
+     for example after a timeout, or after the peer was unreachable),
+     the same as after the Retry button. A row whose only failures leave
+     that false (an unknown peer, for example) reads Sending;
    - a drag left removes it and shows "Sending canceled";
    - Undo restores it in place, pending, with the same app message id
      and transport message id (the diagnostics view shows both).
@@ -605,8 +605,8 @@ passed.
 13. Every row button and the snackbar's Undo measure at least 48 × 48 dp
     (the Accessibility Scanner). It reads the accessibility tree, so this
     item is under the precondition above. Layout Inspector cannot
-    measure it: it reads the View hierarchy, and the Slint window is one
-    View, with or without a bridge.
+    measure the targets: it reads the View hierarchy, and the Slint
+    window is one View, with or without a bridge.
     Until it holds, the ui-slint view tests check each target's size, and
     a screenshot shows the drawn size.
 14. With "Remove animations" on, the row still follows the finger, but
