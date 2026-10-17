@@ -420,6 +420,12 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     message (found in InterWeave#289's review, 2026-10-16). If the
     snackbar's Undo held focus, focus goes to the returned row's first
     control (§7).
+- **Keep is refused because the copy is gone** (`CopyGone`: the
+  message's stored copy was removed before the Keep reached the store).
+  The row stays read and not kept and no longer offers Keep, so it
+  cannot be kept. No snackbar is shown, and the refusal is announced.
+  If focus was on its Keep, focus goes to the row's first remaining
+  control; otherwise it stays where it was.
 - **Keep is refused because storage is degraded.** The row stays kind
   A, no snackbar is shown, the existing storage notice and refusal
   announcement apply, and focus stays where it was.
@@ -675,7 +681,8 @@ passed.
     | a pending row becomes accepted while its Retry or Cancel holds focus | that row's first remaining control (Show source) | tests |
     | Undo of Keep or Unkeep | that row's first control | keyboard, TalkBack |
     | Keep refused (storage degraded) | stays where it was | tests |
-    | Keep refused because the copy is gone (`CopyGone`): the row no longer offers Keep | that row's first remaining control | tests |
+    | Keep refused because the copy is gone (`CopyGone`), focus on that row's Keep | that row's first remaining control | tests |
+    | the same, focus elsewhere | stays where it was | tests |
     | Cancel refused, focus had moved off the row | back to the row's first control | tests |
     | Cancel refused, focus had not moved | stays where it was | tests |
     | Cancel refused after the person left the conversation | stays where it is; the refusal is only announced | tests |
