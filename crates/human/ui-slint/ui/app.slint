@@ -583,7 +583,7 @@ export component AppWindow inherits Window {
             // which reveals an item when it takes focus.
             Flickable {
                 vertical-stretch: 1;
-                viewport-height: conversations-column.preferred-height;
+                content-height: conversations-column.preferred-height;
                 interactive: !root.swipe-tracking;
             conversations-column := VerticalLayout {
                 width: parent.width;
@@ -790,7 +790,7 @@ export component AppWindow inherits Window {
             }
             Flickable {
                 vertical-stretch: 1;
-                viewport-height: trusted-column.preferred-height;
+                content-height: trusted-column.preferred-height;
             trusted-column := VerticalLayout {
                 width: parent.width;
                 spacing: 6px;
@@ -982,7 +982,7 @@ export component AppWindow inherits Window {
             // by wheel and touch, with no visible scrollbar.
             Flickable {
                 vertical-stretch: 1;
-                viewport-height: messages-column.preferred-height;
+                content-height: messages-column.preferred-height;
                 // A row tracking a swipe holds its touch: the list does
                 // not scroll for it (swipe spec section 4).
                 interactive: !root.swipe-tracking;
