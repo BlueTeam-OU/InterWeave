@@ -90,6 +90,11 @@ pub enum FocusTarget {
     Item(ItemKey),
     /// A conversation's row on the conversation list.
     Conversation(ConversationKey),
+    /// A conversation's header title, once no row of it is left: never
+    /// the composer, which would open the phone's keyboard unasked.
+    Header(ConversationKey),
+    /// The conversation list's heading, once no conversation is left on it.
+    ConversationsHeading,
 }
 
 /// What the view says once, through its polite live region.
@@ -113,6 +118,11 @@ pub struct Outcome {
     pub announce: Option<Announce>,
     /// Where focus goes, or `None` to leave it where it is.
     pub focus: Option<FocusTarget>,
+    /// The row this outcome took away, when it took one: `focus` is moved
+    /// only if focus was inside that row (§7, §10). A touch that swiped a
+    /// row leaves focus where it was, so the list does not jump. `None`:
+    /// `focus` is moved wherever focus is.
+    pub moves_from: Option<FocusTarget>,
 }
 
 /// What a closed snackbar's Undo no longer needs, for the root to let go
@@ -195,6 +205,12 @@ pub(super) struct SwipeState {
     /// Items whose Keep is on its way: one entry per Keep issued, each gone
     /// at its answer or its refusal, so bounded by the Keeps in flight.
     keeping: std::collections::HashSet<ItemKey>,
+    /// Cancels on their way, by the pending row each cancels, with the
+    /// sequence number when it was issued: a snackbar with a later id was
+    /// opened by an action taken after the Cancel, and the Cancel's answer
+    /// never takes it away (§6). Each gone at its answer or its refusal,
+    /// so bounded by the Cancels in flight.
+    cancelling: std::collections::HashMap<RowId, u64>,
     outcome: Option<Outcome>,
     released: Released,
 }
@@ -292,6 +308,15 @@ impl UiModel {
         }
     }
 
+    /// The root issued the Cancel of pending `row`: until it is answered
+    /// ([`Self::cancelled`]) or refused ([`Self::intent_refused`]), the
+    /// snackbar up now stays, with its Undo (§6).
+    pub fn cancel_requested(&mut self, row: RowId) {
+        // A second Cancel of the same row while the first waits keeps the
+        // first's mark: the snackbars after it are still the newer ones.
+        self.swipe.cancelling.entry(row).or_insert(self.swipe.seq);
+    }
+
     /// Whether conversation `key` may be hidden from the list (§10): it
     /// shows something, and every message it shows is a read, unkept
     /// received one or a sent one the transport is done with. Nothing
@@ -347,6 +372,7 @@ impl UiModel {
                 conversation: None,
             },
             focus,
+            Some(FocusTarget::Item(key)),
         );
     }
 
@@ -358,10 +384,14 @@ impl UiModel {
         }
         let list = self.conversations();
         let at = list.iter().position(|c| &c.key == key);
-        let focus = at.and_then(|i| {
-            list.get(i + 1)
-                .or_else(|| i.checked_sub(1).and_then(|p| list.get(p)))
-        });
+        let focus = at
+            .and_then(|i| {
+                list.get(i + 1)
+                    .or_else(|| i.checked_sub(1).and_then(|p| list.get(p)))
+            })
+            .map_or(FocusTarget::ConversationsHeading, |c| {
+                FocusTarget::Conversation(c.key.clone())
+            });
         let items: Vec<ItemKey> = self
             .items
             .iter()
@@ -380,14 +410,20 @@ impl UiModel {
                 items,
                 conversation: Some(key.clone()),
             },
-            focus.map(|c| FocusTarget::Conversation(c.key.clone())),
+            Some(focus),
+            Some(FocusTarget::Conversation(key.clone())),
         );
     }
 
     /// The facade cancelled pending `row` as the person asked: the row
     /// leaves the list, and `restorable` says whether the facade side
     /// holds the record an Undo would restore (§8).
+    ///
+    /// A snackbar opened after this Cancel was issued -- the person acted
+    /// again while it waited -- stays, with its Undo: the cancel is then
+    /// only announced, and offers no Undo of its own (§6).
     pub fn cancelled(&mut self, row: RowId, restorable: bool) {
+        let issued = self.swipe.cancelling.remove(&row);
         // The terminal update released the row, so it is found by the
         // pending row it last held: its first, or the one a restore gave it.
         let key = self
@@ -420,8 +456,24 @@ impl UiModel {
         if let Some(item) = self.items.get_mut(&key) {
             item.hidden = true;
         }
+        let confirms = Confirmation::Cancelled { may_have_reached };
+        let newer_up = issued.is_some_and(|at| self.swipe.open.as_ref().is_some_and(|o| o.id > at));
+        if newer_up {
+            // No snackbar, so no Undo: what an Undo would have needed goes
+            // now, as when a snackbar closes.
+            self.drop_items(&[key]);
+            if restorable {
+                self.swipe.released.cancelled.push(row);
+            }
+            self.set_outcome(
+                Some(Announce::Confirmed(confirms)),
+                focus,
+                Some(FocusTarget::Item(key)),
+            );
+            return;
+        }
         self.open(
-            Confirmation::Cancelled { may_have_reached },
+            confirms,
             Some(conversation),
             Undo::Restore {
                 item: key,
@@ -429,6 +481,7 @@ impl UiModel {
                 restorable,
             },
             focus,
+            Some(FocusTarget::Item(key)),
         );
     }
 
@@ -443,7 +496,7 @@ impl UiModel {
     pub(super) fn swipe_kept(&mut self, key: ItemKey, kept_row: RowId) {
         if self.swipe.awaiting == Some(Awaiting::Kept(key)) {
             self.swipe.awaiting = None;
-            self.set_outcome(Some(Announce::Restored), Some(FocusTarget::Item(key)));
+            self.set_outcome(Some(Announce::Restored), Some(FocusTarget::Item(key)), None);
             return;
         }
         let conversation = self.items.get(&key).map(|i| i.conversation.clone());
@@ -455,6 +508,7 @@ impl UiModel {
                 kept_row,
             },
             None,
+            None,
         );
     }
 
@@ -462,7 +516,7 @@ impl UiModel {
     pub(super) fn swipe_unkept(&mut self, key: ItemKey) {
         if self.swipe.awaiting == Some(Awaiting::Unkept(key)) {
             self.swipe.awaiting = None;
-            self.set_outcome(Some(Announce::Restored), Some(FocusTarget::Item(key)));
+            self.set_outcome(Some(Announce::Restored), Some(FocusTarget::Item(key)), None);
             return;
         }
         let conversation = self.items.get(&key).map(|i| i.conversation.clone());
@@ -470,6 +524,7 @@ impl UiModel {
             Confirmation::Unkept,
             conversation,
             Undo::Keep { item: key },
+            None,
             None,
         );
     }
@@ -504,7 +559,7 @@ impl UiModel {
             self.held_order.retain(|r| *r != row);
             self.apply(update);
         }
-        self.set_outcome(Some(Announce::Restored), Some(FocusTarget::Item(key)));
+        self.set_outcome(Some(Announce::Restored), Some(FocusTarget::Item(key)), None);
     }
 
     /// An intent was refused (storage degraded or full, or nothing left
@@ -518,11 +573,17 @@ impl UiModel {
     /// move focus: a row a swipe slid out for it -- a Cancel the store
     /// refused -- springs back on it, and focus stays (§8).
     pub fn intent_refused(&mut self, intent: &Intent) {
-        if let Intent::Keep { item, .. } = intent {
-            self.swipe.keeping.remove(item);
+        match intent {
+            Intent::Keep { item, .. } => {
+                self.swipe.keeping.remove(item);
+            }
+            Intent::Cancel(row) => {
+                self.swipe.cancelling.remove(row);
+            }
+            _ => {}
         }
         let Some(awaiting) = self.swipe.awaiting else {
-            self.set_outcome(None, None);
+            self.set_outcome(None, None, None);
             return;
         };
         let matches = match (awaiting, intent) {
@@ -535,13 +596,13 @@ impl UiModel {
             _ => false,
         };
         if !matches {
-            self.set_outcome(None, None);
+            self.set_outcome(None, None, None);
             return;
         }
         self.swipe.awaiting = None;
         match awaiting {
             Awaiting::Kept(key) | Awaiting::Unkept(key) => {
-                self.set_outcome(None, Some(FocusTarget::Item(key)));
+                self.set_outcome(None, Some(FocusTarget::Item(key)), None);
             }
             Awaiting::Restored(key) => {
                 let focus = self
@@ -553,7 +614,7 @@ impl UiModel {
                 if let Intent::Restore(row) = intent {
                     self.swipe.released.cancelled.push(*row);
                 }
-                self.set_outcome(None, focus);
+                self.set_outcome(None, focus, None);
             }
         }
     }
@@ -621,7 +682,7 @@ impl UiModel {
                     Some(c) => Some(FocusTarget::Conversation(c)),
                     None => items.first().map(|k| FocusTarget::Item(*k)),
                 };
-                self.set_outcome(Some(Announce::Restored), focus);
+                self.set_outcome(Some(Announce::Restored), focus, None);
                 None
             }
         }
@@ -657,6 +718,7 @@ impl UiModel {
         conversation: Option<ConversationKey>,
         undo: Undo,
         focus: Option<FocusTarget>,
+        moves_from: Option<FocusTarget>,
     ) {
         // One at a time: a new one replaces the old, and the old one's
         // Undo goes with it (§6).
@@ -670,15 +732,21 @@ impl UiModel {
             conversation,
             undo,
         });
-        self.set_outcome(Some(Announce::Confirmed(confirms)), focus);
+        self.set_outcome(Some(Announce::Confirmed(confirms)), focus, moves_from);
     }
 
-    fn set_outcome(&mut self, announce: Option<Announce>, focus: Option<FocusTarget>) {
+    fn set_outcome(
+        &mut self,
+        announce: Option<Announce>,
+        focus: Option<FocusTarget>,
+        moves_from: Option<FocusTarget>,
+    ) {
         self.swipe.seq += 1;
         self.swipe.outcome = Some(Outcome {
             id: self.swipe.seq,
             announce,
             focus,
+            moves_from,
         });
     }
 
@@ -763,9 +831,9 @@ impl UiModel {
     /// Where focus goes when `key` leaves `conversation`'s list: the next
     /// row, else the previous one. Placed by the list's own order, so a
     /// row already hidden -- a refused restore -- still has a place to
-    /// leave from. With no row left, nowhere: focus stays where it was --
-    /// the composer would open the phone's keyboard unasked (seen on the
-    /// Pixel), and the spec names no other place.
+    /// leave from. With no row left, the conversation's header title
+    /// (§7): never the composer, which would open the phone's keyboard
+    /// unasked (seen on the Pixel). `None` only for an item not held.
     fn focus_after_leaving(
         &self,
         conversation: &ConversationKey,
@@ -782,6 +850,10 @@ impl UiModel {
             .iter()
             .find(|p| **p > place)
             .or_else(|| shown.iter().rev().find(|p| **p < place))
-            .map(|p| FocusTarget::Item(p.1))
+            .map_or_else(
+                || FocusTarget::Header(conversation.clone()),
+                |p| FocusTarget::Item(p.1),
+            )
+            .into()
     }
 }

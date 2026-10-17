@@ -27,8 +27,9 @@ use std::time::{Duration, Instant};
 use interweave_human_client_api::TrustOrigin;
 use interweave_human_ui_model::{
     Announce, ConversationKey, Direction, FocusTarget, HostText, Intent, ItemKey, ItemStatus,
-    MessageItem, Reply, Retention, RowAction, RuntimeHost, SessionNotice, TrustChange, TrustInput,
-    TrustOutcome, UiModel, UiText, fill, placeholder_en, short_peer, visible_destination,
+    MessageItem, Reply, Retention, RowAction, RuntimeHost, SessionNotice, Snackbar, TrustChange,
+    TrustInput, TrustOutcome, UiModel, UiText, fill, placeholder_en, short_peer,
+    visible_destination,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -284,6 +285,11 @@ struct Shared {
     conversations: HashMap<i32, ConversationKey>,
     items: HashMap<i32, Pressable>,
     selected: Option<ConversationKey>,
+    /// The conversation the open conversation's "Hide conversation" was
+    /// last pressed for: focus moves after that hide wherever it was, as
+    /// after a swipe from inside the row (swipe spec section 10), since
+    /// the screen holding the control goes. Taken by the next outcome.
+    hidden_from_header: Option<ConversationKey>,
     /// A render showed a conversation with unread items, or the pane came
     /// back on screen: once the queue has drained, read the conversation
     /// then on screen if the window then has focus (rust-ui-dev F1).
@@ -293,8 +299,8 @@ struct Shared {
     /// window's `pane-shown`): back to the list, the trust settings
     /// closed to it, or a resize across the narrow width. Shown, it reads
     /// what is on screen once the queue has drained. (Hidden needs no
-    /// flag: every take closes a conversation's snackbar while the pane
-    /// is hidden.)
+    /// flag: every take closes a conversation's snackbar while that
+    /// conversation is off screen.)
     pane_moved: bool,
     notice: Option<SessionNotice>,
     /// The trusted peers as rendered, by handle.
@@ -313,16 +319,79 @@ struct Shared {
     touch: TouchSettings,
     /// The platform's haptic tick, played once as a swipe arms.
     haptic: Option<Rc<dyn Fn()>>,
-    /// The snackbar shown, by its id.
-    snack: Option<u64>,
+    /// The model's snackbar as last rendered, drawn or not.
+    snack: Option<SnackUp>,
+    /// The window, to take a snackbar off screen when an input that closes
+    /// it is queued.
+    window: slint::Weak<AppWindow>,
+}
+
+/// A snackbar, as the queue judges what closes it.
+#[derive(Clone)]
+struct SnackUp {
+    id: u64,
+    /// The conversation it is shown in; `None` on the list.
+    conversation: Option<ConversationKey>,
+}
+
+impl SnackUp {
+    fn of(snack: &Snackbar) -> Self {
+        Self {
+            id: snack.id,
+            conversation: snack.conversation.clone(),
+        }
+    }
+
+    /// Whether `input`, once taken, closes this snackbar: its own closing,
+    /// and for a conversation's, each input that leaves it (§5) -- Back, a
+    /// pick of another conversation, the trust settings opened in its
+    /// place. What [`View::take_events`] resolves each to.
+    fn closed_by(&self, input: &Input) -> bool {
+        match input {
+            Input::SnackClosed(id) => *id == self.id,
+            Input::Left | Input::TrustPage(true) => self.conversation.is_some(),
+            Input::Select(key) => self.conversation.as_ref().is_some_and(|c| c != key),
+            _ => false,
+        }
+    }
 }
 
 impl Shared {
     /// Queue `input`, and return the wake hook for the caller to run once
     /// it has RELEASED its borrow of this state: a hook that takes at
     /// once borrows it again (review F3).
+    ///
+    /// An input that will close the snackbar takes it off the screen now,
+    /// with its Undo: an Undo pressed after it would follow the close in
+    /// the queue and find nothing (review 5551078222 on #291;
+    /// `no_undo_is_offered_after_picking_another_conversation_and_coming_back`,
+    /// `a_timed_out_snackbar_leaves_the_screen_at_once`). A refused press
+    /// closes nothing, so it hides nothing
+    /// (`a_refused_pick_leaves_the_undo_on_screen`).
     #[must_use]
     fn push(&mut self, input: Input) -> Option<Rc<dyn Fn()>> {
+        let closes = self.snack.as_ref().is_some_and(|s| s.closed_by(&input));
+        let refused = self.refused;
+        let wake = self.queue(input);
+        if closes
+            && self.refused == refused
+            && let Some(window) = self.window.upgrade()
+        {
+            window.set_snack_shown(false);
+        }
+        wake
+    }
+
+    /// Whether a queued input will close `snack`: a render then leaves it
+    /// off screen
+    /// (`no_undo_is_offered_after_picking_another_conversation_and_coming_back`).
+    fn closing(&self, snack: &SnackUp) -> bool {
+        self.inputs.iter().any(|i| snack.closed_by(i))
+    }
+
+    /// Queue `input` by the rules below, or refuse it at the cap.
+    #[must_use]
+    fn queue(&mut self, input: Input) -> Option<Rc<dyn Fn()>> {
         // An edit is the composer's STATE: refusing it loses what the
         // person typed (review R2-1), so it is never refused. It replaces a
         // queued edit for the same conversation only while no later input
@@ -469,6 +538,14 @@ impl<K: Ord + Clone> Handles<K> {
     fn retain(&mut self, live: &[K]) {
         self.by_key.retain(|k, _| live.contains(k));
     }
+
+    /// The key `handle` stands for, while it is drawn.
+    fn key_of(&self, handle: i32) -> Option<&K> {
+        self.by_key
+            .iter()
+            .find(|(_, h)| **h == handle)
+            .map(|(k, _)| k)
+    }
 }
 
 /// What the right-hand pane shows.
@@ -569,7 +646,12 @@ impl View {
         window.set_cancel_label(text(UiText::CancelChange));
         window.set_undo_label(text(UiText::Undo));
         window.set_hide_conversation_label(text(UiText::HideConversation));
-        let shared = Rc::new(RefCell::new(Shared::default()));
+        slint::ComponentHandle::global::<generated::Touch<'_>>(&window)
+            .set_slop(TouchSettings::default().slop);
+        let shared = Rc::new(RefCell::new(Shared {
+            window: slint::ComponentHandle::as_weak(&window),
+            ..Shared::default()
+        }));
 
         let s = Rc::clone(&shared);
         window.on_select(move |handle| {
@@ -682,6 +764,7 @@ impl View {
         window.on_hide_conversation(move || {
             let selected = s.borrow().selected.clone();
             if let Some(key) = selected {
+                s.borrow_mut().hidden_from_header = Some(key.clone());
                 enqueue(&s, Input::HideConversation(key));
             }
         });
@@ -774,6 +857,9 @@ impl View {
     pub fn set_touch_settings(&self, settings: TouchSettings) {
         self.window.set_rtl(settings.rtl);
         self.window.set_reduced_motion(settings.reduced_motion);
+        // A control's tap ends at the same slop a swipe starts at.
+        slint::ComponentHandle::global::<generated::Touch<'_>>(&self.window)
+            .set_slop(settings.slop);
         self.shared.borrow_mut().touch = settings;
     }
 
@@ -786,7 +872,7 @@ impl View {
     /// The app left the foreground: the snackbar closes, its Undo with it
     /// (§5). The action itself has happened already.
     pub fn close_snackbar(&self) {
-        let shown = self.shared.borrow().snack;
+        let shown = self.shared.borrow().snack.as_ref().map(|s| s.id);
         if let Some(id) = shown {
             let _ = self.shared.borrow_mut().push(Input::SnackClosed(id));
         }
@@ -826,9 +912,11 @@ impl View {
     }
 
     /// Resolve queued inputs against `model`, oldest first, up to and
-    /// including the first draft edit: the root applies that edit and
-    /// calls again, so a send queued after an edit reads the edited draft
-    /// (agreed P2). A call also stops before a Back that follows an
+    /// including the first that the root must apply before the next is
+    /// judged: a draft edit, so a send queued after it reads the edited
+    /// draft (agreed P2); the trust settings opened or closed; an input in
+    /// them; and a selection that leaves them, which cancels a change
+    /// still waiting. A call also stops before a Back that follows an
     /// intent of its own take, leaving the Back first in the queue: the
     /// snackbar that intent may open exists only once the root applies
     /// it. The root calls again until a call returns nothing,
@@ -978,17 +1066,21 @@ impl View {
         // The queue has drained: a render's "viewed" is resolved against the
         // focus and the conversation of this moment, so it can only read
         // less than the person's order would.
-        // A conversation's snackbar is never left up behind the list (§5),
-        // judged at EVERY take rather than when the pane moved: one a
-        // press in this take makes exists only once the root applies it,
-        // and the root takes again then
-        // (`a_dismiss_then_a_resize_to_the_list_in_one_take_leaves_no_snackbar`).
+        // A conversation's snackbar is never left up while the conversation
+        // is not on screen (§5: leaving it) -- behind the list, the trust
+        // settings or another conversation -- judged at EVERY take rather
+        // than when the pane moved: one a press in this take makes exists
+        // only once the root applies it, and the root takes again then
+        // (`a_dismiss_then_a_resize_to_the_list_in_one_take_leaves_no_snackbar`,
+        // `opening_the_trust_settings_closes_the_conversations_snackbar`).
         // Last, so an Undo pressed while it was up is taken first
         // (`an_undo_before_a_resize_to_the_list_is_honoured`).
         let moved = std::mem::take(&mut self.shared.borrow_mut().pane_moved);
-        if !self.window.get_pane_shown()
-            && let Some(snack) = model.snackbar()
-            && snack.conversation.is_some()
+        if let Some(snack) = model.snackbar()
+            && snack
+                .conversation
+                .as_ref()
+                .is_some_and(|c| self.on_screen() != Some(c))
             && !out.contains(&ViewEvent::SnackbarClosed(snack.id))
         {
             out.push(ViewEvent::SnackbarClosed(snack.id));
@@ -1016,6 +1108,24 @@ impl View {
     /// (`a_conversation_under_the_trust_settings_reads_nothing`,
     /// `a_conversation_left_for_the_list_reads_nothing`,
     /// `a_resize_to_the_list_reads_nothing_before_its_handler_runs`).
+    /// The row focus is inside, by what its focused control reported in
+    /// `focus-id`: a message row or one of its controls, or a
+    /// conversation row.
+    fn focused_row(&self) -> Option<FocusTarget> {
+        let id = self.window.get_focus_id();
+        let id = id.as_str();
+        let handle = |rest: &str| rest.split(':').next()?.parse::<i32>().ok();
+        if let Some(rest) = id.strip_prefix("conversation:") {
+            let key = self.conversation_handles.key_of(handle(rest)?)?;
+            return Some(FocusTarget::Conversation(key.clone()));
+        }
+        let rest = ["item:", "action:", "link:", "source:"]
+            .into_iter()
+            .find_map(|prefix| id.strip_prefix(prefix))?;
+        let key = self.item_handles.key_of(handle(rest)?)?;
+        Some(FocusTarget::Item(*key))
+    }
+
     fn on_screen(&self) -> Option<&ConversationKey> {
         match self.page {
             Page::Conversation if self.window.get_pane_shown() => self.shown.as_ref(),
@@ -1034,6 +1144,8 @@ impl View {
     /// not wake the root, which is rendering: the root takes after it
     /// renders.
     pub fn render(&mut self, model: &UiModel) {
+        // Before the lists retire the handles of the rows they remove.
+        let focused = self.focused_row();
         self.render_conversations(model);
         self.render_messages(model);
         self.render_chrome(model);
@@ -1041,7 +1153,7 @@ impl View {
         // slot, and the first would never be heard (review F5).
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
-        let outcome = self.render_swipe(model);
+        let outcome = self.render_swipe(model, focused.as_ref());
         let said = [conversation, trust, outcome]
             .into_iter()
             .flatten()
@@ -1397,13 +1509,20 @@ impl View {
     /// The snackbar, the open conversation's hide control, a committed
     /// swipe's row, and the model's latest outcome: its announcement,
     /// returned for the render's one, and its focus, moved once the rows
-    /// it names are drawn.
-    fn render_swipe(&mut self, model: &UiModel) -> Option<String> {
+    /// it names are drawn -- and, after a row was taken away, only if
+    /// `focused`, the row focus was inside, is that row (swipe spec
+    /// section 7): a touch that swiped a row leaves focus where it was.
+    fn render_swipe(&mut self, model: &UiModel, focused: Option<&FocusTarget>) -> Option<String> {
         let window = &self.window;
         let snack = model.snackbar();
-        let shown = snack.as_ref().filter(|s| match &s.conversation {
-            None => true,
-            Some(c) => self.on_screen() == Some(c),
+        let up = snack.as_ref().map(SnackUp::of);
+        let closing = up.as_ref().is_some_and(|s| self.shared.borrow().closing(s));
+        let shown = snack.as_ref().filter(|s| {
+            !closing
+                && match &s.conversation {
+                    None => true,
+                    Some(c) => self.on_screen() == Some(c),
+                }
         });
         window.set_snack_shown(shown.is_some());
         if let Some(s) = shown {
@@ -1412,7 +1531,7 @@ impl View {
             window.set_snack_text(swipe::confirmation_text(s.confirms).into());
             window.set_snack_undo(s.undo);
         }
-        self.shared.borrow_mut().snack = snack.as_ref().map(|s| s.id);
+        self.shared.borrow_mut().snack = up;
         if let Some(s) = &snack
             && self.snack_timed != Some(s.id)
         {
@@ -1463,7 +1582,11 @@ impl View {
 
         let outcome = outcome.filter(|o| self.outcome_seen != Some(o.id))?;
         self.outcome_seen = Some(outcome.id);
-        if let Some(focus) = &outcome.focus {
+        let header = self.shared.borrow_mut().hidden_from_header.take();
+        let moves = outcome.moves_from.as_ref().is_none_or(|from| {
+            focused == Some(from) || header.map(FocusTarget::Conversation).as_ref() == Some(from)
+        });
+        if let Some(focus) = outcome.focus.as_ref().filter(|_| moves) {
             let target = match focus {
                 FocusTarget::Item(key) => self
                     .message_keys
@@ -1473,6 +1596,8 @@ impl View {
                     .conversation_keys
                     .contains(key)
                     .then(|| format!("c:{}", self.conversation_handles.of(key))),
+                FocusTarget::Header(key) => (self.on_screen() == Some(key)).then(|| "h".to_owned()),
+                FocusTarget::ConversationsHeading => Some("heading".to_owned()),
             };
             if let Some(target) = target {
                 let window = swipe::weak(&self.window);

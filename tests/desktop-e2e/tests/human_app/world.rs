@@ -296,11 +296,10 @@ impl Peer {
     }
 
     /// Send `envelope` and step B until A's daemon has admitted it
-    /// (`Accepted`). A send makes one attempt at once and every retry
-    /// waits for B's next step, so a case that then waits on A alone --
-    /// its store, its lease, its window -- delivers through here, or a
-    /// first attempt refused while the daemons were still connecting is
-    /// never retried.
+    /// (`Accepted`). A send makes no attempt: every attempt, the first
+    /// included, waits for B's next step. So a case that then waits on A
+    /// alone -- its store, its lease, its window -- delivers through
+    /// here, or B's message is never sent.
     pub(crate) async fn deliver(
         &mut self,
         peer: &TransportIdentity,

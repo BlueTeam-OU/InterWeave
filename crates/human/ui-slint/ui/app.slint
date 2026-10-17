@@ -7,9 +7,12 @@
 // table, and every person action leaves as a raw input the Rust side
 // resolves against the model. Nothing here decides what is legal.
 //
-// The `focus-id` writes are test plumbing: Slint's element search has
-// no focus query, so each focusable element reports itself when it gains
-// focus. They are never shown and never person-facing.
+// Slint has no focus query, so every focusable element reports itself in
+// `focus-id` when it gains focus. Rust reads it to move focus after a
+// row is taken away only if focus was inside that row (swipe spec
+// section 7), and the tests read it too. Never shown, never
+// person-facing; an element that can take focus and does not report it
+// would leave a stale row named there.
 
 import { Palette as Style } from "std-widgets.slint";
 
@@ -103,6 +106,40 @@ export struct TrustRow {
     origin: string,
 }
 
+// The platform's touch slop, which Rust sets from the system's
+// (swipe spec section 4).
+export global Touch {
+    in property <length> slop: 8px;
+}
+
+// A control's touch area: a press is its tap only while the finger stays
+// within the slop of where it went down (swipe spec section 4). A drag
+// that passes it is a swipe or a scroll, whether or not the row offers
+// one, and never presses the control under it -- a drag along a Chats
+// row once opened and read the conversation it crossed (tests/pointer.rs,
+// `a_drag_from_a_rows_button_never_presses_it_and_a_tap_does` and
+// `a_drag_on_a_conversation_row_offering_no_swipe_opens_and_reads_nothing`).
+// Inside a scrolling list the press reaches it about 100 ms late, and a
+// wander out and back before then is not seen: the release is checked
+// too, so only that is still a tap.
+component TapArea inherits TouchArea {
+    callback tapped();
+    property <bool> drifted;
+    function past-slop() -> bool {
+        abs(self.mouse-x - self.pressed-x) > Touch.slop
+            || abs(self.mouse-y - self.pressed-y) > Touch.slop
+    }
+    pointer-event(event) => {
+        if (event.kind == PointerEventKind.down) { self.drifted = false; }
+    }
+    moved => {
+        if (self.past-slop()) { self.drifted = true; }
+    }
+    clicked => {
+        if (!self.drifted && !self.past-slop()) { root.tapped(); }
+    }
+}
+
 component ActionButton inherits FocusScope {
     in property <string> text;
     in property <string> focus-key;
@@ -147,7 +184,45 @@ component ActionButton inherits FocusScope {
             Text { text: root.text; vertical-alignment: center; accessible-role: none; }
         }
     }
-    TouchArea { clicked => { root.pressed(); } }
+    TapArea { tapped => { root.pressed(); } }
+}
+
+// A heading that takes keyboard and screen-reader focus and does
+// nothing when activated (swipe spec section 7): where focus goes once
+// the rows below it are gone, so focus is never lost.
+component FocusHeading inherits FocusScope {
+    in property <string> text;
+    in property <string> description;
+    in property <string> focus-key;
+    in property <length> font-size: 16px;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    callback focused(string);
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    accessible-description: root.description;
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    // The layout is the only child, so the heading takes its text's
+    // height; the border shows where keyboard focus is.
+    VerticalLayout {
+        Rectangle {
+            border-width: root.has-focus ? 2px : 0px;
+            border-color: Palette.border;
+            HorizontalLayout {
+                Text {
+                    text: root.text;
+                    font-weight: 700;
+                    font-size: root.font-size;
+                    accessible-role: none;
+                }
+            }
+        }
+    }
 }
 
 // A link's control: its label is the full destination, which may be
@@ -193,7 +268,7 @@ component LinkButton inherits FocusScope {
                     accessible-role: none;
                 }
             }
-            TouchArea { clicked => { root.pressed(); } }
+            TapArea { tapped => { root.pressed(); } }
         }
     }
 }
@@ -334,6 +409,9 @@ component Snackbar inherits Rectangle {
     in property <string> undo-label;
     in property <int> snack-id;
     in property <int> focus-seq;
+    // A right-to-left layout: the Undo sits at the line's end, the left
+    // (swipe spec section 3).
+    in property <bool> rtl;
     callback undo-pressed(int);
     callback dismissed(int);
     callback focused(string);
@@ -345,29 +423,53 @@ component Snackbar inherits Rectangle {
         handle-swipe-left: true;
         handle-swipe-right: true;
         swiped => { root.dismissed(root.snack-id); }
+        // The Undo sits at the line's end in either direction. It is
+        // placed, not laid out, so the tree keeps the text before it in
+        // both: a screen reader reads what happened, then its Undo.
         HorizontalLayout {
             padding: 8px;
-            padding-left: 12px;
+            padding-left: root.rtl ? 8px : 12px;
+            padding-right: root.rtl ? 12px : 8px;
             spacing: 8px;
+            if root.undo && root.rtl: Rectangle {
+                width: root.undo-width;
+                min-height: 48px;
+            }
             Text {
                 text: root.text;
                 wrap: word-wrap;
                 min-width: 0;
                 horizontal-stretch: 1;
+                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 vertical-alignment: center;
                 accessible-role: AccessibleRole.text;
                 accessible-label: self.text;
             }
-            if root.undo: ActionButton {
-                horizontal-stretch: 0;
-                text: root.undo-label;
-                detail: root.text;
-                target: 48px;
-                focus-key: "undo";
-                pressed => { root.undo-pressed(root.snack-id); }
-                focused(k) => { root.focused(k); }
+            if root.undo && !root.rtl: Rectangle {
+                width: root.undo-width;
+                min-height: 48px;
             }
         }
+        if root.undo: ActionButton {
+            x: root.rtl ? 8px : parent.width - self.width - 8px;
+            y: (parent.height - self.height) / 2;
+            width: root.undo-width;
+            height: 48px;
+            text: root.undo-label;
+            detail: root.text;
+            target: 48px;
+            focus-key: "undo";
+            pressed => { root.undo-pressed(root.snack-id); }
+            focused(k) => { root.focused(k); }
+        }
+    }
+    // The Undo's width, from its label as ActionButton draws it (8 px each
+    // side), at least the 48 px touch target.
+    property <length> undo-width: max(48px, undo-measure.preferred-width + 16px);
+    undo-measure := Text {
+        text: root.undo-label;
+        visible: false;
+        accessible-role: none;
     }
 }
 
@@ -428,14 +530,15 @@ export component AppWindow inherits Window {
     in property <bool> reduced-motion;
     // A focus request: Rust bumps the sequence once the rows it names are
     // drawn, and the control named by the target takes focus ("m:" and an
-    // item's handle, "c:" and a conversation's).
+    // item's handle, "c:" and a conversation's, "h" the open
+    // conversation's header title, "heading" the list's heading).
     in property <int> focus-seq;
     in property <string> focus-target;
     // The snackbar (swipe spec section 6): one at a time, in the
     // conversation above the composer, or on the conversation list.
-    // Back clears it at once for a conversation's snackbar, so no Undo
-    // can be pressed on screen for one the queue has already closed.
-    in-out property <bool> snack-shown;
+    // Rust clears it when an input that closes the snackbar is queued, so
+    // no Undo can be pressed on screen for one the queue has closed.
+    in property <bool> snack-shown;
     in property <bool> snack-on-list;
     in property <int> snack-id;
     in property <string> snack-text;
@@ -570,12 +673,12 @@ export component AppWindow inherits Window {
         VerticalLayout {
             padding: 12px;
             spacing: 6px;
-            Text {
+            FocusHeading {
                 text: root.conversations-heading;
-                font-weight: 700;
-                font-size: 16px;
-                accessible-role: text;
-                accessible-label: self.text;
+                focus-key: "conversations-heading";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "heading";
+                focused(k) => { root.focus-id = k; }
             }
             // Any number of conversations: the list scrolls rather than
             // raising the window's minimum height past the screen. A row
@@ -661,7 +764,7 @@ export component AppWindow inherits Window {
                                 accessible-role: none;
                             }
                         }
-                        TouchArea { clicked => { root.choose(row.handle); } }
+                        TapArea { tapped => { root.choose(row.handle); } }
                     }
                 }
                 }
@@ -675,6 +778,7 @@ export component AppWindow inherits Window {
                 undo-label: root.undo-label;
                 snack-id: root.snack-id;
                 focus-seq: root.focus-seq;
+                rtl: root.rtl;
                 undo-pressed(id) => { root.undo(id); }
                 dismissed(id) => { root.snack-closed(id); }
                 focused(k) => { root.focus-id = k; }
@@ -740,6 +844,9 @@ export component AppWindow inherits Window {
                 color: Palette.muted-text;
                 accessible-label: root.own-peer-id-label;
                 accessible-value: self.text;
+                changed has-focus => {
+                    if (self.has-focus) { root.focus-id = "own-peer-id"; }
+                }
             }
             // The add row under the explanation, above the list it adds to,
             // with a visible caption (the field's own accessible label).
@@ -810,6 +917,9 @@ export component AppWindow inherits Window {
                         single-line: true;
                         accessible-label: row.peer;
                         accessible-value: self.text;
+                        changed has-focus => {
+                            if (self.has-focus) { root.focus-id = "peer:" + row.handle; }
+                        }
                     }
                     Text {
                         text: row.origin;
@@ -881,12 +991,6 @@ export component AppWindow inherits Window {
                     focus-key: "back-to-list";
                     pressed => {
                         root.list-shown = true;
-                        // Leaving closes the conversation's snackbar (§5):
-                        // gone from the screen now, as Back closes it in
-                        // the queue (`no_undo_is_offered_after_leaving_and_coming_back`).
-                        if !root.snack-on-list {
-                            root.snack-shown = false;
-                        }
                         root.left-conversation();
                     }
                     focused(k) => { root.focus-id = k; }
@@ -923,13 +1027,13 @@ export component AppWindow inherits Window {
                 }
             }
             }
-            Text {
+            FocusHeading {
                 text: root.header-title;
-                font-weight: 700;
-                font-size: 16px;
-                accessible-role: text;
-                accessible-label: self.text;
-                accessible-description: root.header-id;
+                description: root.header-id;
+                focus-key: "header-title";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "h";
+                focused(k) => { root.focus-id = k; }
             }
             // The equivalent of the list's hide swipe, for anyone who
             // cannot swipe (swipe spec section 10): shown only when the
@@ -959,6 +1063,9 @@ export component AppWindow inherits Window {
                 color: Palette.muted-text;
                 accessible-label: root.header-id-label;
                 accessible-value: self.text;
+                changed has-focus => {
+                    if (self.has-focus) { root.focus-id = "header-id"; }
+                }
             }
             // Updated in place: a path change is not an event a person is
             // interrupted for, so it is no live region either.
@@ -1066,6 +1173,15 @@ export component AppWindow inherits Window {
                         padding-right: -item.offset;
                     Rectangle {
                         background: Palette.row;
+                // Under the row's controls, the part of the row that is no
+                // control takes the press. Left to the handler, which grabs
+                // it, a drag the row does not offer ends with no callback,
+                // and the next drag on the row was read as its continuation
+                // (swipe spec section 11, item 5, on a device); taken here, the handler reports a drag only once
+                // it has taken it, and ends every drag it took
+                // (tests/pointer.rs,
+                // `a_drag_a_row_does_not_offer_leaves_the_next_drag_its_own`).
+                TouchArea {
                 content := VerticalLayout {
                     HorizontalLayout {
                         Text {
@@ -1181,6 +1297,7 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+                }
                     }
                     }
                 }
@@ -1196,6 +1313,7 @@ export component AppWindow inherits Window {
                 undo-label: root.undo-label;
                 snack-id: root.snack-id;
                 focus-seq: root.focus-seq;
+                rtl: root.rtl;
                 undo-pressed(id) => { root.undo(id); }
                 dismissed(id) => { root.snack-closed(id); }
                 focused(k) => { root.focus-id = k; }

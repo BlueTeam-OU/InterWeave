@@ -216,6 +216,9 @@ async fn case_1_client_the_transport_is_called_only_while_the_pending_copy_is_on
         )
         .await
         .expect("committed");
+    // The tick after the commit makes the first attempt; the second, the
+    // retry.
+    client.tick(0).await;
     client.tick(10_000).await;
     assert_eq!(*seen.lock().expect("lock"), [1, 1]);
     // The control: terminal, the copy is gone.
@@ -259,6 +262,7 @@ async fn case_5_client_every_message_drain_hands_over_is_already_an_unread_row()
             )
             .await
             .expect("sent");
+        sender.tick(0).await;
     }
     // The ServerState owed at open (LOCAL-CLIENT.md, #175) is taken
     // first: it takes a slot and yields no message.
