@@ -1283,3 +1283,191 @@ fn retry_by_its_button_leaves_focus_on_it() {
     );
     assert_eq!(view.window().get_focus_id().as_str(), retry);
 }
+
+// --- focus when the snackbar closes under its Undo (§7; §11 item 21) -------
+
+/// Let the snackbar's time run out, and turn.
+fn time_out(view: &mut View, model: &mut UiModel) {
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(6_100));
+    let _ = turn(view, model);
+}
+
+#[test]
+fn a_timed_out_dismiss_with_focus_on_its_undo_focuses_the_next_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 1..=3 {
+        read(&mut model, n, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    let second = handle(&view, 1);
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    tab_to(&view, "undo");
+    time_out(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "control: timed out");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{second}:0")
+    );
+}
+
+#[test]
+fn a_timed_out_keep_with_focus_on_its_undo_focuses_the_kept_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    let first = handle(&view, 0);
+    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    tab_to(&view, "undo");
+    time_out(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first}:0")
+    );
+}
+
+/// A touch swipe's snackbar replaces the one whose Undo held focus: focus
+/// goes to the older action's row's place, not left on the newer Undo.
+#[test]
+fn a_snackbar_replaced_under_its_focused_undo_focuses_the_older_actions_place() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 1..=3 {
+        read(&mut model, n, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    let (second, third) = (handle(&view, 1), handle(&view, 2));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    tab_to(&view, "undo");
+    swipe(&view, &format!("m:{third}"), 170.0, 0.0, 8);
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    assert_eq!(
+        model.snackbar().map(|s| s.confirms),
+        Some(interweave_human_ui_model::Confirmation::Kept),
+        "control: replaced"
+    );
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{second}:0")
+    );
+}
+
+/// Back, with focus on the Undo: the snackbar closes, and focus goes to the
+/// conversation's row on the list.
+#[test]
+fn leaving_with_focus_on_the_undo_focuses_the_conversations_row() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    tab_to(&view, "undo");
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "control: closed by leaving");
+    assert!(view.window().get_list_shown(), "control: on the list");
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("conversation:{row}")
+    );
+}
+
+/// A message brings a hidden conversation back while focus is on the
+/// hide's Undo: focus goes to the returned conversation's row (§10).
+#[test]
+fn a_message_into_a_hidden_conversation_moves_focus_from_the_undo_to_its_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    read(&mut model, 1, &alice, "a");
+    read(&mut model, 2, &bob, "b");
+    let _ = turn(&mut view, &mut model);
+    let first = model.conversations()[0].key.clone();
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    swipe(&view, &format!("c:{row}"), -170.0, 0.0, 8);
+    let _ = turn(&mut view, &mut model);
+    tab_to(&view, "undo");
+    let ConversationKey::Direct { peer: from, .. } = &first else {
+        panic!("direct");
+    };
+    model.received(Received {
+        row: RowId::from_stored(3),
+        origin: Origin::Direct {
+            peer: from.clone(),
+            endpoint: human(),
+        },
+        envelope: envelope(9_999, "again"),
+        received_at: 3,
+    });
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "control: the arrival closed it");
+    let back = view
+        .window()
+        .get_conversations()
+        .iter()
+        .find(|r| r.title == model.title(&first))
+        .expect("back on the list")
+        .handle;
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("conversation:{back}")
+    );
+}
+
+/// An Undo pressed from the keyboard whose answer has not come: the
+/// snackbar has gone, and a later snackbar's timeout, with focus nowhere,
+/// moves nothing -- the gone Undo's name no longer stands for focus.
+#[test]
+fn a_stale_undo_focus_moves_nothing_later() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 1..=3 {
+        read(&mut model, n, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    tab_to(&view, "undo");
+    press_focused(&view);
+    let intents = turn(&mut view, &mut model);
+    assert!(
+        matches!(intents.first(), Some(Intent::Unkeep(_))),
+        "control: {intents:?}"
+    );
+    assert_eq!(view.window().get_focus_id().as_str(), "", "cleared");
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    time_out(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "control: timed out");
+    assert_eq!(view.window().get_focus_id().as_str(), "");
+}

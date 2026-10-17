@@ -9,10 +9,10 @@
 //
 // Slint has no focus query, so every focusable element reports itself in
 // `focus-id` when it gains focus. Rust reads it to move focus after a
-// row is taken away only if focus was inside that row (swipe spec
-// section 7), and the tests read it too. Never shown, never
-// person-facing; an element that can take focus and does not report it
-// would leave a stale row named there.
+// row is taken away only if focus was inside that row, and after the
+// snackbar closes under its Undo (swipe spec section 7), and the tests
+// read it too. Never shown, never person-facing; an element that can
+// take focus and does not report it would leave a stale row named there.
 
 import { Palette as Style } from "std-widgets.slint";
 
@@ -578,7 +578,9 @@ export component AppWindow inherits Window {
     // the same sentence twice is still a change (rust-ui-dev F4).
     in property <string> announcement-a;
     in property <string> announcement-b;
-    out property <string> focus-id;
+    // In-out so Rust can clear a stale "undo": nothing reports the Undo
+    // losing focus when its snackbar goes.
+    in-out property <string> focus-id;
 
     // The one row a swipe moves ("m:" and an item's handle, "c:" and a
     // conversation's), how far, whether it is armed, and whether it

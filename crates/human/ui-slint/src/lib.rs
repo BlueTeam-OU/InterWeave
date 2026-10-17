@@ -202,6 +202,9 @@ fn code_font() -> SharedString {
 /// selected meanwhile, so the queue stays finite.
 pub const INPUT_CAP: usize = 64;
 
+/// The `focus-id` the snackbar's Undo reports (`app.slint`'s `Snackbar`).
+const UNDO_FOCUS: &str = "undo";
+
 /// How long a leaving row's space takes to close (swipe spec §5: 150 ms),
 /// with a frame to spare before it is dropped.
 const LEAVING: Duration = Duration::from_millis(170);
@@ -617,6 +620,8 @@ pub struct View {
     /// not answered yet: its outcome moves focus to the row wherever
     /// focus is (§7). Only rows still drawn are kept.
     pressed: HashSet<ItemKey>,
+    /// The model's last snackbar closing this view acted on.
+    undo_closed_seen: Option<u64>,
 }
 
 impl View {
@@ -813,6 +818,7 @@ impl View {
             outcome_seen: None,
             snack_timed: None,
             pressed: HashSet::new(),
+            undo_closed_seen: None,
         })
     }
 
@@ -1173,6 +1179,11 @@ impl View {
     pub fn render(&mut self, model: &UiModel) {
         // Before the lists retire the handles of the rows they remove.
         let focused = self.focused_row();
+        // The snackbar's Undo reports "undo" on gaining focus, and nothing
+        // reports its losing it: gone with its snackbar, it is still named
+        // here until focus goes somewhere, which is what tells the render
+        // the snackbar closed under it (§7). Cleared below once acted on.
+        let on_undo = self.window.get_focus_id() == UNDO_FOCUS;
         self.render_conversations(model);
         self.render_messages(model);
         self.render_chrome(model);
@@ -1180,7 +1191,7 @@ impl View {
         // slot, and the first would never be heard (review F5).
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
-        let outcome = self.render_swipe(model, focused.as_ref());
+        let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
         let said = [conversation, trust, outcome]
             .into_iter()
             .flatten()
@@ -1542,7 +1553,12 @@ impl View {
     /// buttons changed, only if `focused`, the row focus was inside, is
     /// that row, or the row's own button raised its Keep or Unkeep (swipe
     /// spec section 7): a touch that swiped a row leaves focus where it was.
-    fn render_swipe(&mut self, model: &UiModel, focused: Option<&FocusTarget>) -> Option<String> {
+    fn render_swipe(
+        &mut self,
+        model: &UiModel,
+        focused: Option<&FocusTarget>,
+        on_undo: bool,
+    ) -> Option<String> {
         let window = &self.window;
         let snack = model.snackbar();
         let up = snack.as_ref().map(SnackUp::of);
@@ -1610,47 +1626,82 @@ impl View {
             window.set_swipe_offset(0.0);
         }
 
-        let outcome = outcome.filter(|o| self.outcome_seen != Some(o.id))?;
-        self.outcome_seen = Some(outcome.id);
-        let header = self.shared.borrow_mut().hidden_from_header.take();
-        let pressed = match &outcome.moves_from {
-            Some(FocusTarget::Item(key)) => self.pressed.remove(key),
-            _ => false,
-        };
-        let moves = pressed
-            || outcome.moves_from.as_ref().is_none_or(|from| {
-                focused == Some(from)
-                    || header.map(FocusTarget::Conversation).as_ref() == Some(from)
-            });
-        if let Some(focus) = outcome.focus.as_ref().filter(|_| moves) {
-            let target = match focus {
-                FocusTarget::Item(key) => self
-                    .message_keys
-                    .contains(key)
-                    .then(|| format!("m:{}", self.item_handles.of(key))),
-                FocusTarget::Conversation(key) => self
-                    .conversation_keys
-                    .contains(key)
-                    .then(|| format!("c:{}", self.conversation_handles.of(key))),
-                FocusTarget::Header(key) => (self.on_screen() == Some(key)).then(|| "h".to_owned()),
-                FocusTarget::ConversationsHeading => Some("heading".to_owned()),
+        let outcome = outcome.filter(|o| self.outcome_seen != Some(o.id));
+        let mut focus_moved = false;
+        let said = outcome.map(|outcome| {
+            self.outcome_seen = Some(outcome.id);
+            let header = self.shared.borrow_mut().hidden_from_header.take();
+            let pressed = match &outcome.moves_from {
+                Some(FocusTarget::Item(key)) => self.pressed.remove(key),
+                _ => false,
             };
-            if let Some(target) = target {
-                let window = swipe::weak(&self.window);
-                // Once the rows it names exist: a restored row is drawn by
-                // this render, and its controls are made after it.
-                defer(move || {
-                    if let Some(window) = window.upgrade() {
-                        window.set_focus_target(target.into());
-                        window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
-                    }
+            let moves = pressed
+                || outcome.moves_from.as_ref().is_none_or(|from| {
+                    focused == Some(from)
+                        || header.map(FocusTarget::Conversation).as_ref() == Some(from)
                 });
+            if let Some(focus) = outcome.focus.as_ref().filter(|_| moves) {
+                focus_moved = self.focus_on(focus);
+            }
+            outcome.announce.map(|announce| match announce {
+                Announce::Confirmed(confirms) => swipe::confirmation_text(confirms).to_owned(),
+                Announce::Restored => placeholder_en::text(UiText::ActionUndone).to_owned(),
+            })
+        });
+        // A snackbar closed under its Undo: focus goes to the row its
+        // action was about, or that row's place -- unless this render's
+        // outcome focus_moved it already, an action taken since. Once the person
+        // has left the conversation, to its row on the list (§7).
+        let closed = model
+            .undo_closed()
+            .filter(|c| self.undo_closed_seen != Some(c.id))
+            .cloned();
+        if let Some(closed) = closed {
+            self.undo_closed_seen = Some(closed.id);
+            if on_undo && !focus_moved {
+                let focus = match closed.conversation {
+                    Some(c) if self.on_screen() != Some(&c) => FocusTarget::Conversation(c),
+                    _ => closed.focus,
+                };
+                focus_moved = self.focus_on(&focus);
             }
         }
-        outcome.announce.map(|announce| match announce {
-            Announce::Confirmed(confirms) => swipe::confirmation_text(confirms).to_owned(),
-            Announce::Restored => placeholder_en::text(UiText::ActionUndone).to_owned(),
-        })
+        // No snackbar, so no Undo: a stale "undo" must not move focus at a
+        // later snackbar's close (`a_stale_undo_focus_moves_nothing_later`).
+        if on_undo && !focus_moved && model.snackbar().is_none() {
+            self.window.set_focus_id(SharedString::new());
+        }
+        said.flatten()
+    }
+
+    /// Move focus to `focus` once the rows it names are drawn: whether it
+    /// names something on screen to move to.
+    fn focus_on(&mut self, focus: &FocusTarget) -> bool {
+        let target = match focus {
+            FocusTarget::Item(key) => self
+                .message_keys
+                .contains(key)
+                .then(|| format!("m:{}", self.item_handles.of(key))),
+            FocusTarget::Conversation(key) => self
+                .conversation_keys
+                .contains(key)
+                .then(|| format!("c:{}", self.conversation_handles.of(key))),
+            FocusTarget::Header(key) => (self.on_screen() == Some(key)).then(|| "h".to_owned()),
+            FocusTarget::ConversationsHeading => Some("heading".to_owned()),
+        };
+        let Some(target) = target else {
+            return false;
+        };
+        let window = swipe::weak(&self.window);
+        // Once the rows it names exist: a restored row is drawn by this
+        // render, and its controls are made after it.
+        defer(move || {
+            if let Some(window) = window.upgrade() {
+                window.set_focus_target(target.into());
+                window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
+            }
+        });
+        true
     }
 
     /// Wake the root after `delay`, so it renders again: a leaving row
