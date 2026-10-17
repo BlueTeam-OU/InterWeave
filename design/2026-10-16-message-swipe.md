@@ -190,7 +190,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   as the row offers), else its Show source button. A link in the
   message's text is never the first control. A row's **first remaining control** is
   the same, counted after the row's buttons changed. Every message row
-  keeps Show source, so one always exists.
+  keeps Show source, so one always exists. Whenever a rule below moves
+  focus, the control that takes it is scrolled into view; focus that
+  stays where it was scrolls nothing.
   - After Dismiss or Cancel removes a row, focus moves only if it was
     inside that row (keyboard, switch access or TalkBack focus). It goes
     to the next row's first control, or the previous row's if it was
@@ -230,8 +232,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     action was about: to its first control if the row is still in the
     list (Keep, Unkeep, a dismissed message that came back). If the row
     was removed, focus goes where it goes after a removal: the next row,
-    else the previous one, else the conversation's header title. In
-    every case the control that takes focus is scrolled into view. On the
+    else the previous one, else the conversation's header title. On the
     Chats list it goes to the conversation's row, or its place in the
     same way. Leaving the conversation closes the snackbar too, and
     focus then goes to that conversation's row on the Chats list.
@@ -703,7 +704,7 @@ passed.
     | the same, focus elsewhere | stays where it was | tests |
     | the snackbar times out, focus on its Undo | the first control of the action's row, or, for a removed row, as after a removal (§7) | keyboard |
     | the snackbar is swiped away or replaced, focus on its Undo | as for the timeout | keyboard |
-    | the snackbar closes, focus on its Undo, the action's row (or, if removed, the row in its place) scrolled off screen | that row's first control, scrolled into view | keyboard; the ui-slint view tests |
+    | any case above whose target is scrolled off screen (an Undo's restored row, a refused Cancel's row, the snackbar closing) | that target, scrolled into view | keyboard; the ui-slint view tests |
     | leaving the conversation with focus on the snackbar's Undo | the conversation's row on the Chats list | keyboard |
     | the app goes to the background with focus on the snackbar's Undo, then returns | as for the timeout | keyboard |
     | Chats: a swipe with TalkBack on | cannot occur, as above | — |
