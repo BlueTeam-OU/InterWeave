@@ -188,7 +188,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   its check in §11 item 21, the one focus table. A row's **first
   control** is its first action button (Keep, Unkeep, Retry or Dismiss
   as the row offers), else its Show source button. A link in the
-  message's text is never it. A row's **first remaining control** is
+  message's text is never the first control. A row's **first remaining control** is
   the same, counted after the row's buttons changed. Every message row
   keeps Show source, so one always exists.
   - After Dismiss or Cancel removes a row, focus moves only if it was
@@ -247,9 +247,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     for focus, and a button only thickens its border by 1 px in the same
     colour, so a person cannot see where focus is (seen on the Pixel 9a,
     2026-10-16). The indicator is a ring with a contrast of at least 3:1
-    against what it sits on. Its look is
-    `design/2026-10-16-android-look.md` §7 (InterWeave #293, in the merge
-    queue on 2026-10-17); this spec's item 22 checks the ring.
+    against what it sits on. Its look is in
+    `design/2026-10-16-android-look.md` §7 (InterWeave #293, in the
+    merge queue on 2026-10-17), and this spec's item 22 checks it.
 - **Reduced motion.** When the system's animator duration scale is 0
   ("Remove animations"):
   - the row still follows the finger, since direct manipulation is not
@@ -615,7 +615,8 @@ passed.
     the same as the swipe and is shown only when the swipe is offered.
 
     With TalkBack on (under the precondition above), "Conversation
-    hidden" is announced and Undo is reachable. Where focus lands is item 21.
+    hidden" is announced and Undo is reachable. Where focus lands is
+    item 21.
 18. The ui-model tests show:
     - which swipes are offered is computed from `actions` and the
       Dismiss rule, for kinds A–D, and for a conversation from §10's rule,
