@@ -1471,3 +1471,93 @@ fn a_stale_undo_focus_moves_nothing_later() {
     assert!(model.snackbar().is_none(), "control: timed out");
     assert_eq!(view.window().get_focus_id().as_str(), "");
 }
+
+// --- a Cancel's success after leaving (§6; §11 item 19) --------------------
+
+/// A pending row's Cancel raised by its button and not answered yet, in a
+/// conversation with a read row beside it.
+fn cancel_waiting(view: &mut View, model: &mut UiModel, alice: &TransportIdentity) -> Intent {
+    read(model, 1, alice, "in");
+    pending(model, 2, alice, "out");
+    open(view, model, &direct(alice));
+    labelled(view, text(UiText::Cancel))[0].invoke_accessible_default_action();
+    let intents = turn(view, model);
+    let Some(cancel @ Intent::Cancel(row)) = intents.first().cloned() else {
+        panic!("Cancel: {intents:?}");
+    };
+    model.cancel_requested(row);
+    cancel
+}
+
+fn cancel_succeeds(model: &mut UiModel, cancel: &Intent) {
+    let Intent::Cancel(row) = cancel else {
+        panic!("a Cancel");
+    };
+    model.client_event(ClientEvent::Outbound(OutboundUpdate {
+        row: *row,
+        app_message_id: AppMessageId::parse(format!("{:032x}", 2)).expect("id"),
+        status: OutboundStatus::Cancelled {
+            may_have_reached: false,
+        },
+        last_code: None,
+    }));
+    model.cancelled(*row, true);
+}
+
+/// Left by Back, the success is only announced: no snackbar, no Undo, and
+/// coming back shows none.
+#[test]
+fn a_cancels_success_after_leaving_by_back_is_only_announced() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    let cancel = cancel_waiting(&mut view, &mut model, &alice);
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(view.window().get_list_shown(), "control: left");
+    cancel_succeeds(&mut model, &cancel);
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(announced(&view), text(UiText::ConfirmSendingCanceled));
+    assert!(!view.window().get_snack_shown());
+    assert!(model.snackbar().is_none(), "no Undo held");
+    open(&mut view, &mut model, &direct(&alice));
+    assert!(!view.window().get_snack_shown(), "none on coming back");
+    assert!(labelled(&view, text(UiText::Undo)).is_empty());
+}
+
+/// Left by picking another conversation in a wide window: the same.
+#[test]
+fn a_cancels_success_after_picking_another_conversation_is_only_announced() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    read(&mut model, 7, &bob, "elsewhere");
+    let cancel = cancel_waiting(&mut view, &mut model, &alice);
+    open(&mut view, &mut model, &direct(&bob));
+    cancel_succeeds(&mut model, &cancel);
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(announced(&view), text(UiText::ConfirmSendingCanceled));
+    assert!(!view.window().get_snack_shown());
+    assert!(model.snackbar().is_none(), "no Undo held");
+}
+
+/// The control: still in the conversation, the Cancel's snackbar shows,
+/// with its Undo.
+#[test]
+fn a_cancels_success_in_the_conversation_shows_its_snackbar() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    let cancel = cancel_waiting(&mut view, &mut model, &alice);
+    cancel_succeeds(&mut model, &cancel);
+    let _ = turn(&mut view, &mut model);
+    assert!(view.window().get_snack_shown());
+    assert!(view.window().get_snack_undo());
+}

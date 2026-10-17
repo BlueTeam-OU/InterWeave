@@ -1107,7 +1107,11 @@ impl View {
         // (`a_dismiss_then_a_resize_to_the_list_in_one_take_leaves_no_snackbar`,
         // `opening_the_trust_settings_closes_the_conversations_snackbar`).
         // Last, so an Undo pressed while it was up is taken first
-        // (`an_undo_before_a_resize_to_the_list_is_honoured`).
+        // (`an_undo_before_a_resize_to_the_list_is_honoured`). It is also
+        // what makes a Cancel's success that arrives after the person left
+        // only announced: its snackbar opens off screen, is never drawn,
+        // and closes here with its Undo (§6;
+        // `a_cancels_success_after_leaving_by_back_is_only_announced`).
         let moved = std::mem::take(&mut self.shared.borrow_mut().pane_moved);
         if let Some(snack) = model.snackbar()
             && snack
