@@ -153,59 +153,60 @@ ui_texts! {
     Yesterday => "Yesterday",
     /// A weekday: the list's time, and a day separator, within the last
     /// seven days.
-    Monday => "Monday", // PLACEHOLDER (en)
+    Monday => "Monday",
     /// A weekday.
-    Tuesday => "Tuesday", // PLACEHOLDER (en)
+    Tuesday => "Tuesday",
     /// A weekday.
-    Wednesday => "Wednesday", // PLACEHOLDER (en)
+    Wednesday => "Wednesday",
     /// A weekday.
-    Thursday => "Thursday", // PLACEHOLDER (en)
+    Thursday => "Thursday",
     /// A weekday.
-    Friday => "Friday", // PLACEHOLDER (en)
+    Friday => "Friday",
     /// A weekday.
-    Saturday => "Saturday", // PLACEHOLDER (en)
+    Saturday => "Saturday",
     /// A weekday.
-    Sunday => "Sunday", // PLACEHOLDER (en)
+    Sunday => "Sunday",
     /// A month's short name, in a date.
-    January => "Jan", // PLACEHOLDER (en)
+    January => "Jan",
     /// A month's short name.
-    February => "Feb", // PLACEHOLDER (en)
+    February => "Feb",
     /// A month's short name.
-    March => "Mar", // PLACEHOLDER (en)
+    March => "Mar",
     /// A month's short name.
-    April => "Apr", // PLACEHOLDER (en)
+    April => "Apr",
     /// A month's short name.
-    May => "May", // PLACEHOLDER (en)
+    May => "May",
     /// A month's short name.
-    June => "Jun", // PLACEHOLDER (en)
+    June => "Jun",
     /// A month's short name.
-    July => "Jul", // PLACEHOLDER (en)
+    July => "Jul",
     /// A month's short name.
-    August => "Aug", // PLACEHOLDER (en)
+    August => "Aug",
     /// A month's short name.
-    September => "Sep", // PLACEHOLDER (en)
+    September => "Sep",
     /// A month's short name.
-    October => "Oct", // PLACEHOLDER (en)
+    October => "Oct",
     /// A month's short name.
-    November => "Nov", // PLACEHOLDER (en)
+    November => "Nov",
     /// A month's short name.
-    December => "Dec", // PLACEHOLDER (en)
+    December => "Dec",
     /// A date earlier than the last seven days, in the current year:
-    /// `{month}` a month's short name, `{day}` the day's number.
-    DateThisYear => "{month} {day}", // PLACEHOLDER (en)
+    /// `{month}` a month's short name, `{day}` the day's number in ASCII
+    /// digits with no leading zero. Never a numeric date, which reads
+    /// differently in different countries.
+    DateThisYear => "{month} {day}",
     /// The same, in another year: `{year}` the four-digit year.
-    DateOtherYear => "{month} {day}, {year}", // PLACEHOLDER (en)
+    DateOtherYear => "{month} {day}, {year}",
     /// A clock time on a phone set to 24 hours: `{hour}` 00 to 23 and
-    /// `{minute}` 00 to 59, each two digits.
-    Time24 => "{hour}:{minute}", // PLACEHOLDER (en)
-    /// A clock time on a phone set to 12 hours: `{hour}` 1 to 12,
-    /// `{minute}` two digits, `{period}` the morning's or the
-    /// afternoon's mark.
-    Time12 => "{hour}:{minute} {period}", // PLACEHOLDER (en)
-    /// The morning's mark in a 12-hour time.
-    BeforeNoon => "AM", // PLACEHOLDER (en)
-    /// The afternoon's mark in a 12-hour time.
-    AfterNoon => "PM", // PLACEHOLDER (en)
+    /// `{minute}` 00 to 59, each two digits, in ASCII digits.
+    Time24 => "{hour}:{minute}",
+    /// A clock time before noon on a phone set to 12 hours: `{hour}` 1 to
+    /// 12 with no leading zero (12 for the hour after midnight),
+    /// `{minute}` two digits. A whole template, with TimePm, so a
+    /// translation may put its word before the time.
+    TimeAm => "{hour}:{minute} AM",
+    /// The same, from noon (12 for the hour after noon).
+    TimePm => "{hour}:{minute} PM",
     /// A route label: `{route}` is the `EndpointId`, verbatim -- a
     /// routing label, never a name.
     Route => "Route: {route}",
@@ -1006,7 +1007,6 @@ mod tests {
             ("year", "2025"),
             ("hour", "01"),
             ("minute", "18"),
-            ("period", "AM"),
             ("tail", "abcd1234"),
             ("peer", "…abcd1234"),
             ("destination", "https://example.org/a"),

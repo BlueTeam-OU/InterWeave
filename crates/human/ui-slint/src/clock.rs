@@ -103,22 +103,18 @@ pub(crate) fn clock_text(hour: u8, minute: u8, hour24: bool) -> String {
             &[("hour", &format!("{hour:02}")), ("minute", &minute)],
         )
     } else {
-        let period = placeholder_en::text(if hour < 12 {
-            UiText::BeforeNoon
+        let template = if hour < 12 {
+            UiText::TimeAm
         } else {
-            UiText::AfterNoon
-        });
+            UiText::TimePm
+        };
         let twelve = match hour % 12 {
             0 => 12,
             h => h,
         };
         fill(
-            placeholder_en::text(UiText::Time12),
-            &[
-                ("hour", &twelve.to_string()),
-                ("minute", &minute),
-                ("period", period),
-            ],
+            placeholder_en::text(template),
+            &[("hour", &twelve.to_string()), ("minute", &minute)],
         )
     }
 }
@@ -186,8 +182,9 @@ mod tests {
         assert_eq!(clock_text(1, 18, true), "01:18");
         assert_eq!(clock_text(13, 5, true), "13:05");
         assert_eq!(clock_text(1, 18, false), "1:18 AM");
-        assert_eq!(clock_text(0, 0, false), "12:00 AM");
+        assert_eq!(clock_text(0, 5, false), "12:05 AM");
         assert_eq!(clock_text(12, 30, false), "12:30 PM");
+        assert_eq!(clock_text(13, 5, false), "1:05 PM");
         assert_eq!(clock_text(23, 59, false), "11:59 PM");
     }
 
