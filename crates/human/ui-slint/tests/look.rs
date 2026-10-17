@@ -1169,9 +1169,12 @@ fn a_quoted_list_line_mirrors_right_to_left() {
 }
 
 /// Section 7, "everything mirrors": right to left, the composer's Send
-/// sits at the line's end, on the left of the field.
+/// sits at the line's end, on the left of the field -- while Tab, in
+/// either direction, reaches the field and then Send, one order in the
+/// tree as the snackbar keeps (review F3 on #296).
 #[test]
 fn the_composer_mirrors_right_to_left() {
+    use slint::platform::{Key, WindowEvent};
     let text = placeholder_en::text;
     let mut model = UiModel::new();
     model.received(received(1, "hi", NOW));
@@ -1180,5 +1183,72 @@ fn the_composer_mirrors_right_to_left() {
         let send = left_of(&view, text(UiText::Send));
         let field = left_of(&view, text(UiText::Composer));
         assert_eq!(send < field, rtl, "rtl={rtl}: send {send}, field {field}");
+        let tab = |view: &View| {
+            let key: slint::SharedString = Key::Tab.into();
+            let window = view.window().window();
+            window.dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+            window.dispatch_event(WindowEvent::KeyReleased { text: key });
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1));
+            view.window().get_focus_id().to_string()
+        };
+        let mut reached = false;
+        for _ in 0..40 {
+            if tab(&view) == "composer" {
+                assert_eq!(tab(&view), "send", "rtl={rtl}: the field, then Send");
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached, "rtl={rtl}: Tab reaches the field");
     }
+}
+
+/// Review F1 on #296: a change of the hour setting while the window is
+/// shown wakes the root, so its next render redraws every time; the same
+/// setting again wakes nothing.
+#[test]
+fn a_changed_hour_setting_wakes_the_root() {
+    use interweave_human_ui_slint::TouchSettings;
+    let view = view();
+    let woken = std::rc::Rc::new(std::cell::Cell::new(0));
+    let count = std::rc::Rc::clone(&woken);
+    view.set_wake(move || count.set(count.get() + 1));
+    view.set_touch_settings(TouchSettings::default());
+    assert_eq!(woken.get(), 0, "the same setting: nothing to redraw");
+    view.set_touch_settings(TouchSettings {
+        hour24: false,
+        ..TouchSettings::default()
+    });
+    assert_eq!(woken.get(), 1, "a change wakes the root");
+}
+
+/// Review F2 on #296: when the message heading a day's run leaves, its
+/// day separator goes with it at once and the next message's takes over,
+/// so one separator shows throughout and the rows below do not jump.
+#[test]
+fn a_leaving_message_hands_its_day_separator_on() {
+    let yesterday = placeholder_en::text(UiText::Yesterday);
+    let mut model = UiModel::new();
+    model.received(received(1, "first", NOW - DAY));
+    model.received(received(2, "second", NOW - DAY + MINUTE));
+    model.read(RowId::from_stored(1));
+    model.read(RowId::from_stored(2));
+    let mut view = opened(&model, false);
+    assert_eq!(
+        labelled(&view, yesterday).len(),
+        1,
+        "control: one separator"
+    );
+    let first = model.messages(&direct())[0].key;
+    model.hide(first);
+    view.render(&model);
+    slint::platform::update_timers_and_animations();
+    let rows: Vec<_> = view.window().get_messages().iter().collect();
+    assert_eq!(rows.len(), 2, "the first is still drawn, leaving");
+    assert!(rows[0].leaving);
+    assert_eq!(
+        labelled(&view, yesterday).len(),
+        1,
+        "one separator while it leaves"
+    );
 }

@@ -914,7 +914,17 @@ impl View {
         touch.set_slop(settings.slop);
         // A press shows a ripple only while the system animates.
         touch.set_reduced_motion(settings.reduced_motion);
+        let hour_changed = self.shared.borrow().touch.hour24 != settings.hour24;
         self.shared.borrow_mut().touch = settings;
+        // Every time is drawn in the setting at render: a change while the
+        // window stays shown asks the root for one (tests/look.rs,
+        // `a_changed_hour_setting_wakes_the_root`).
+        if hour_changed {
+            let wake = self.shared.borrow().wake.clone();
+            if let Some(wake) = wake {
+                wake();
+            }
+        }
     }
 
     /// Play `tick` once each time a swipe arms (§4): the platform's
