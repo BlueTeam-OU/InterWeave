@@ -247,8 +247,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     for focus, and a button only thickens its border by 1 px in the same
     colour, so a person cannot see where focus is (seen on the Pixel 9a,
     2026-10-16). The indicator is a ring with a contrast of at least 3:1
-    against what it sits on. `design/2026-10-16-android-look.md` §7
-    gives its look.
+    against what it sits on. Its look is
+    `design/2026-10-16-android-look.md` §7 (InterWeave #293, in the merge
+    queue on 2026-10-17); this spec's item 22 checks the ring.
 - **Reduced motion.** When the system's animator duration scale is 0
   ("Remove animations"):
   - the row still follows the finger, since direct manipulation is not
@@ -696,3 +697,8 @@ passed.
 
     The two headings take focus (§7), and every case where the focused
     control goes names a target, so focus is never lost.
+22. **The focus indicator.** Tab through a conversation (every row
+    kind, a row with a link, the snackbar's Undo, the header title) and
+    the Chats list (each row, the "Conversations" heading): every stop
+    draws the ring of §7, and the ring measures 3:1 or more against what
+    it sits on, from a screenshot, in the dark and the light scheme.
