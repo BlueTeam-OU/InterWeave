@@ -62,9 +62,16 @@ desktop = [
 # the platform's NativeActivity. It draws with Skia, whatever renderer
 # feature is named (i-slint-backend-android-activity's window adapter), so
 # none is: the desktop's software renderer would be compiled and unused.
+# `slint/accessibility` is not named, because on this backend it switches
+# nothing on: in Slint 1.18.1 it is `i-slint-backend-selector/accessibility`,
+# which is `i-slint-backend-winit?/accessibility`, and winit is not in this
+# graph; i-slint-backend-android-activity has no accessibility adapter.
+# So TalkBack reads no tree from these views, and human-client-ui.md §13's
+# "accessibility tree contains meaningful labels/actions" is unmet on
+# Android (architect-cto, 2026-10-16: recorded, not waived) until an
+# adapter is built for it.
 android = [
     "slint/backend-android-activity-06",
-    "slint/accessibility",
 ]
 
 [build-dependencies]
