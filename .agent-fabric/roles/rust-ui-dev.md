@@ -102,21 +102,14 @@ LAN (Wireless debugging, `adb connect`), not USB; it is paired with
 rust-ui-dev's and ux-designer's logins (the owner, 2026-10-16). One
 account drives it at a time, on an adb server of its own: every login
 on the host shares adb's default port 5037, so a kill-server there drops
-what another account is running (live, 2026-10-16). A run on it is, with
-`<the run>` a script when it has quotes of its own:
-
-```sh
-fabric-lease pixel-9a -- bash -c 'export ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)); adb kill-server; adb nodaemon server & s=$!; trap "kill $s 2>/dev/null" EXIT; sleep 1; <the run>'
-```
-
-The server is the run's own child (`nodaemon`), in the run's process
-group, so it ends with the run however the run ends, and the phone's
-connection with it: the trap stops it on an exit, a failure or a signal, and a SIGKILL sent to the group, as a
-timeout sends it, kills it with the run (live, 2026-10-17). Only a SIGKILL
-to the shell alone would leave it; if you see one, run
-`ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)) adb kill-server`.
-The first kill-server clears a server your own login left by an older
-command. `pgrep -u "$(id -u)" -a adb` after the run shows nothing.
+what another account is running (live, 2026-10-16). A run on it is `.agent-fabric/bin/phone-run <command> [args...]`, from
+the working copy's root: it takes the `pixel-9a` lease (`fabric-lease`),
+starts an adb server of the login's own on a port of its own, runs the
+command, and exits with its status; a command with quotes of its own is a
+script. It leaves no adb process of the login on any path, a failure, a
+signal and a SIGKILL to the lease wrapper or to itself included (live,
+2026-10-17); `pgrep -u "$(id -u)" -a adb` after the run shows nothing.
+Never `adb kill-server` or any adb on the default port outside it.
 
 The link drops with the phone's Wi-Fi and
 Wireless debugging can switch itself off; a re-pair is a person's step at

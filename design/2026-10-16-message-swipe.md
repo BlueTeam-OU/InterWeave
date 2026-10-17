@@ -75,7 +75,7 @@ Slint maps 1:1 to dp on Android. Two words used below:
 | phase | what starts it | what the person sees and feels |
 |---|---|---|
 | idle | — | the row at rest |
-| tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the `swipe-neutral` fill shows, with the action's icon and its label drawn on it in `swipe-on-fill` (§7) |
+| tracking | horizontal movement passes the slop, and is larger than the vertical movement at that moment | the row follows the finger 1:1 in an allowed direction. The list stops scrolling for this touch. Under the row, on the side it uncovered, the `swipe-neutral` fill shows, with the action's icon and its label drawn on it in `swipe-on-neutral` (§7) |
 | armed | the row has moved at least the larger of 40 % of its width and 96 dp | the action colour fills the uncovered area, and the icon scales up once (100 → 120 %). One haptic tick plays (`HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE`, or `CONTEXT_CLICK` below API 34), once per crossing. Dragging back below the threshold disarms it, with no second tick |
 | commit | release while armed; **or** a fling: a release within 100 ms of the first move the row sees, having moved at least 48 dp in the allowed direction from the touch-down point (the press position Slint reports, not where the row first saw a move), armed or not. The rule uses this time window, not a speed, because on Slint 1.18.1 a press inside a scrolling list reaches the row about 100 ms late, so a fling's early moves are never seen (measured by rust-ui-dev-01 on a Pixel 9a, 2026-10-16). A fling whose whole movement ends within about 100 ms of touch-down is not seen in time: the row sees no move before the release. Nothing happens, the row returns to rest, and the person can swipe again or drag more slowly. If the row sees one late move and the release comes within 100 ms of it, the distance from touch-down decides, so a single late move of at least 48 dp is a fling | the row's result, §5 |
 | cancel | release while not armed (and not a qualifying fling); a second finger down; the touch cancelled by the system; the list scrolled under the finger | the row springs back to rest (200 ms, decelerate), nothing happens, no snackbar |
@@ -190,7 +190,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   as the row offers), else its Show source button. A link in the
   message's text is never the first control. A row's **first remaining control** is
   the same, counted after the row's buttons changed. Every message row
-  keeps Show source, so one always exists.
+  keeps Show source, so one always exists. Whenever a rule below moves
+  focus, the control that takes it is scrolled into view. When focus
+  stays where it was, nothing scrolls.
   - After Dismiss or Cancel removes a row, focus moves only if it was
     inside that row (keyboard, switch access or TalkBack focus). It goes
     to the next row's first control, or the previous row's if it was
@@ -230,8 +232,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     action was about: to its first control if the row is still in the
     list (Keep, Unkeep, a dismissed message that came back). If the row
     was removed, focus goes where it goes after a removal: the next row,
-    else the previous one, else the conversation's header title. In
-    every case the control that takes focus is scrolled into view. On the
+    else the previous one, else the conversation's header title. On the
     Chats list it goes to the conversation's row, or its place in the
     same way. Leaving the conversation closes the snackbar too, and
     focus then goes to that conversation's row on the Chats list.
@@ -242,8 +243,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     keyboard and TalkBack focus and reads its text. Nothing happens when
     it is activated.
   - **Every focus target here draws a visible focus indicator** when it
-    holds keyboard focus: every button, each conversation row, and the
-    two headings. Today a conversation row and the headings draw nothing
+    holds keyboard focus: every button, every link in a message's
+    text, each conversation row, and the two headings. Today a conversation row and the headings draw nothing
     for focus, and a button only thickens its border by 1 px in the same
     colour, so a person cannot see where focus is (seen on the Pixel 9a,
     2026-10-16). The indicator is a ring with a contrast of at least 3:1
@@ -272,7 +273,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   | `swipe-keep` | the armed fill for Keep | — |
   | `swipe-remove` | the armed fill for Dismiss, Unkeep, Cancel and the conversation hide | — |
   | `swipe-retry` | the armed fill for Retry | — |
-  | `swipe-on-fill` | the icon and label drawn on any of the four fills | icon ≥ 3:1 (WCAG 1.4.11) and label ≥ 4.5:1 (WCAG 1.4.3) against each fill |
+  | `swipe-on-fill` | the icon and label drawn on the three armed fills | icon ≥ 3:1 (WCAG 1.4.11) and label ≥ 4.5:1 (WCAG 1.4.3) against each fill |
+  | `swipe-on-neutral` | the icon and label drawn on `swipe-neutral` | the same, against `swipe-neutral`. In the dark scheme the neutral fill must be light to hold 3:1 against the bubbles of `design/2026-10-16-android-look.md`, so its label is dark there (that spec's §3) |
 
   The armed fills need no contrast against each other or against
   `swipe-neutral`, because colour is not the only signal of arming
@@ -419,6 +421,13 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     message (found in InterWeave#289's review, 2026-10-16). If the
     snackbar's Undo held focus, focus goes to the returned row's first
     control (§7).
+- **Keep is refused because the copy is gone** (`CopyGone`: the
+  message's stored copy was removed before the Keep reached the store).
+  The row stays read and not kept, and it no longer offers Keep: the
+  message can no longer be kept. No snackbar is shown, and the refusal
+  is announced.
+  If focus was on its Keep, focus goes to the row's first remaining
+  control; otherwise it stays where it was.
 - **Keep is refused because storage is degraded.** The row stays kind
   A, no snackbar is shown, the existing storage notice and refusal
   announcement apply, and focus stays where it was.
@@ -569,8 +578,15 @@ passed.
 8. On a kind-C row (no daemon or network, so it stays pending):
    - a drag right retries it and shows no snackbar. Its status is what
      the facade reports: Sending, or "Not confirmed, trying again" for a
-     row an earlier attempt may have reached, such as one that failed
-     with no network path (§5), the same as after the Retry button;
+     row an earlier attempt may have reached (`may_have_reached`, §5:
+     for example after a timeout, or after the peer was unreachable),
+     the same as after the Retry button. Within one app session, a row
+     whose only failures leave that false (an unknown peer, for
+     example) reads Sending. After a restart, a row with any earlier
+     attempt reads "Not confirmed, trying again", since the outcome of
+     an attempt made before the restart is not known (`may_have_reached`
+     is rebuilt as `attempts > 0`, RETENTION.md §2). Items 6, 7 and 9
+     restart the app, so check this item's Sending case before them;
    - a drag left removes it and shows "Sending canceled";
    - Undo restores it in place, pending, with the same app message id
      and transport message id (the diagnostics view shows both).
@@ -592,8 +608,10 @@ passed.
     - every focus case in item 21 marked "TalkBack" lands where the
       table says.
 13. Every row button and the snackbar's Undo measure at least 48 × 48 dp
-    (Layout Inspector or the Accessibility Scanner). Both tools read the
-    accessibility tree, so this item is under the precondition above.
+    (the Accessibility Scanner). It reads the accessibility tree, so this
+    item is under the precondition above. Layout Inspector cannot
+    measure the targets: it reads the View hierarchy, and the Slint
+    window is one View, with or without a bridge.
     Until it holds, the ui-slint view tests check each target's size, and
     a screenshot shows the drawn size.
 14. With "Remove animations" on, the row still follows the finger, but
@@ -674,7 +692,8 @@ passed.
     | a pending row becomes accepted while its Retry or Cancel holds focus | that row's first remaining control (Show source) | tests |
     | Undo of Keep or Unkeep | that row's first control | keyboard, TalkBack |
     | Keep refused (storage degraded) | stays where it was | tests |
-    | Keep refused because the copy is gone (`CopyGone`): the row no longer offers Keep | that row's first remaining control | tests |
+    | Keep refused because the copy is gone (`CopyGone`), focus on that row's Keep | that row's first remaining control | tests |
+    | the same, focus elsewhere | stays where it was | tests |
     | Cancel refused, focus had moved off the row | back to the row's first control | tests |
     | Cancel refused, focus had not moved | stays where it was | tests |
     | Cancel refused after the person left the conversation | stays where it is; the refusal is only announced | tests |
@@ -695,7 +714,7 @@ passed.
     | the same, focus elsewhere | stays where it was | tests |
     | the snackbar times out, focus on its Undo | the first control of the action's row, or, for a removed row, as after a removal (§7) | keyboard |
     | the snackbar is swiped away or replaced, focus on its Undo | as for the timeout | keyboard |
-    | the snackbar closes, focus on its Undo, the action's row (or, if removed, the row in its place) scrolled off screen | that row's first control, scrolled into view | keyboard; the ui-slint view tests |
+    | any case above whose target is scrolled off screen (an Undo's restored row, a refused Cancel's row, the snackbar closing) | that target, scrolled into view | keyboard; the ui-slint view tests |
     | leaving the conversation with focus on the snackbar's Undo | the conversation's row on the Chats list | keyboard |
     | the app goes to the background with focus on the snackbar's Undo, then returns | as for the timeout | keyboard |
     | Chats: a swipe with TalkBack on | cannot occur, as above | — |
