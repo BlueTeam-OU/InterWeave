@@ -889,3 +889,534 @@ fn tab_stays_in_details_and_escape_closes_it() {
     assert!(!view.window().get_details_open(), "Escape closes it");
     assert_eq!(view.window().get_focus_id().as_str(), "more-options");
 }
+
+/// ux-designer-01's ruling on #295 (spec 025bb324): a bubble's label says
+/// the clock time it shows, never its day, and the day separator heading
+/// its run is an item a screen reader reaches before the bubble.
+#[test]
+fn an_older_bubble_reads_its_clock_time_after_its_day_separator() {
+    let mut model = UiModel::new();
+    model.received(received(1, "from yesterday", NOW - DAY - 2 * 60 * MINUTE));
+    let view = opened(&model, false);
+    let label = fill(
+        placeholder_en::text(UiText::Item),
+        &[
+            ("author", &interweave_human_ui_model::short_peer(ALICE)),
+            ("body", "from yesterday"),
+            (
+                "status",
+                placeholder_en::label(interweave_human_ui_model::LabelKey::Unread),
+            ),
+            ("time", "12:30"),
+        ],
+    );
+    let bubble = labelled(&view, &label);
+    assert_eq!(bubble.len(), 1, "the label ends in the clock time: {label}");
+    let day = labelled(&view, placeholder_en::text(UiText::Yesterday));
+    assert_eq!(day.len(), 1, "the separator is an item of its own");
+    let tree: Vec<_> = all(&view)
+        .into_iter()
+        .filter_map(|e| e.accessible_label())
+        .collect();
+    let at = |l: &str| tree.iter().position(|t| t == l).expect("in the tree");
+    assert!(
+        at(placeholder_en::text(UiText::Yesterday)) < at(&label),
+        "the day before the bubble in reading order"
+    );
+}
+
+/// Section 5.2 and ux-designer-01's ruling (REPLY 01a14817): every shown
+/// time follows the platform's 12- or 24-hour setting, read at each render.
+#[test]
+fn times_follow_the_platforms_hour_setting() {
+    use interweave_human_ui_slint::TouchSettings;
+    let mut model = UiModel::new();
+    // 14:29 UTC.
+    model.received(received(1, "hi", NOW - MINUTE));
+    let mut view = view();
+    view.render(&model);
+    let time = |view: &View| {
+        view.window()
+            .get_conversations()
+            .row_data(0)
+            .expect("a row")
+            .time
+            .to_string()
+    };
+    assert_eq!(time(&view), "14:29", "24-hour until told");
+    view.set_touch_settings(TouchSettings {
+        hour24: false,
+        ..TouchSettings::default()
+    });
+    view.render(&model);
+    assert_eq!(time(&view), "2:29 PM");
+    view.set_touch_settings(TouchSettings::default());
+    view.render(&model);
+    assert_eq!(time(&view), "14:29");
+}
+
+/// Section 11 item 12, for the composer and the app bar: Send and Back
+/// are 48 x 48, and Send does nothing while the field is empty.
+#[test]
+fn send_does_nothing_while_the_field_is_empty() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    let mut view = opened(&model, false);
+    for label in [text(UiText::Send), text(UiText::BackToConversations)] {
+        let found = labelled(&view, label);
+        assert_eq!(found.len(), 1, "{label}");
+        let size = found[0].size();
+        assert!(
+            size.width >= 48.0 && size.height >= 48.0,
+            "{label} is {size:?}"
+        );
+    }
+    let send = || labelled(&view, text(UiText::Send))[0].clone();
+    // Inactive while empty: it says so to a screen reader, and is drawn
+    // dimmed; the model refuses an empty send besides.
+    assert_eq!(
+        send().accessible_enabled(),
+        Some(false),
+        "inactive while empty"
+    );
+    send().invoke_accessible_default_action();
+    assert!(
+        intents(&mut view, &model).is_empty(),
+        "nothing typed: nothing sent"
+    );
+    view.window().invoke_draft_edited("typed".into());
+    let _ = view.take_events(&model);
+    model.draft_changed(direct(), "typed".to_owned());
+    view.render(&model);
+    assert_eq!(
+        labelled(&view, text(UiText::Send))[0].accessible_enabled(),
+        Some(true),
+        "active with text"
+    );
+    labelled(&view, text(UiText::Send))[0].invoke_accessible_default_action();
+    let raised = intents(&mut view, &model);
+    assert!(
+        raised
+            .iter()
+            .any(|i| matches!(i, Intent::Send { draft, .. } if draft == "typed")),
+        "the control: with text, Send sends: {raised:?}"
+    );
+}
+
+/// Section 7: the snackbar on the Chats list sits 12 px from the screen's
+/// sides, at least 48 px tall, its Undo a 48 x 48 target inside it.
+#[test]
+fn the_lists_snackbar_keeps_its_margins_and_its_targets() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    model.read(RowId::from_stored(1));
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    view.render(&model);
+    model.hide_conversation(&direct());
+    view.render(&model);
+    slint::platform::update_timers_and_animations();
+    assert!(view.window().get_snack_shown() && view.window().get_snack_on_list());
+    // The snackbar's text, not the window's announcement of it, which sits
+    // in a point at the window's corner.
+    let said: Vec<_> = labelled(&view, text(UiText::ConfirmConversationHidden))
+        .into_iter()
+        .filter(|e| e.absolute_position().y > 100.0)
+        .collect();
+    let undo = labelled(&view, text(UiText::Undo));
+    assert_eq!((said.len(), undo.len()), (1, 1));
+    let (s, u) = (said[0].absolute_position(), undo[0].absolute_position());
+    let us = undo[0].size();
+    assert!(s.x >= 12.0, "12 px from the start: {s:?}");
+    assert!(
+        u.x + us.width <= 390.0 - 12.0,
+        "12 px from the end: {u:?} {us:?}"
+    );
+    assert!(us.width >= 48.0 && us.height >= 48.0, "Undo is {us:?}");
+}
+
+/// Section 7, motion: a press shows Material's state layer and, while the
+/// system animates, a ripple from the press point; with the system's
+/// animations off, the flat state layer alone (section 11 item 18).
+#[test]
+fn a_press_ripples_unless_animations_are_off() {
+    use interweave_human_ui_slint::TouchSettings;
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    model.read(RowId::from_stored(1));
+    for reduced in [false, true] {
+        let view = opened(&model, false);
+        view.set_touch_settings(TouchSettings {
+            reduced_motion: reduced,
+            ..TouchSettings::default()
+        });
+        let chip = labelled(&view, text(UiText::Keep));
+        assert_eq!(chip.len(), 1);
+        let (p, z) = (chip[0].absolute_position(), chip[0].size());
+        let position = slint::LogicalPosition::new(p.x + z.width / 2.0, p.y + z.height / 2.0);
+        let window = view.window().window();
+        window.dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: PointerEventButton::Left,
+        });
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(120));
+        let count = |kind: &str| {
+            all(&view)
+                .into_iter()
+                .filter(|e| e.type_name().as_deref() == Some(kind))
+                .count()
+        };
+        assert_eq!(count("StateLayer"), 1, "reduced={reduced}: the state layer");
+        assert_eq!(
+            count("Ripple"),
+            usize::from(!reduced),
+            "reduced={reduced}: the ripple"
+        );
+        window.dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        assert_eq!(count("StateLayer"), 0, "gone once released");
+    }
+}
+
+/// Section 6: a message's swipe fill spans the list's width in the
+/// bubble's height -- over its text and status, never its chips.
+#[test]
+fn a_bubbles_swipe_fill_takes_the_bubbles_height() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "swipe me", NOW));
+    model.read(RowId::from_stored(1));
+    let view = opened(&model, false);
+    let handle = view
+        .window()
+        .get_messages()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    view.window().set_swipe_key(format!("m:{handle}").into());
+    view.window().set_swipe_offset(40.0);
+    slint::platform::update_timers_and_animations();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    let fill: Vec<_> = all(&view)
+        .into_iter()
+        .filter(|e| e.type_name().as_deref() == Some("SwipeReveal"))
+        .collect();
+    assert_eq!(fill.len(), 1, "the row's fill is drawn");
+    let (top, height) = (fill[0].absolute_position().y, fill[0].size().height);
+    let bottom = top + height;
+    let body = labelled(&view, "swipe me");
+    let status = labelled(
+        &view,
+        placeholder_en::label(interweave_human_ui_model::LabelKey::ReadNotKept),
+    );
+    let chip = labelled(&view, text(UiText::Keep));
+    assert!(top <= body[0].absolute_position().y, "over the text");
+    assert!(
+        bottom >= status[0].absolute_position().y + status[0].size().height,
+        "over the status"
+    );
+    assert!(
+        bottom <= chip[0].absolute_position().y,
+        "not over the chips"
+    );
+    assert!(fill[0].size().width >= 390.0 - 40.0, "the list's width");
+}
+
+/// Section 7, "everything mirrors": inside a bubble, a quoted list item's
+/// indent sits on the line's start side -- the left, left to right, and
+/// the right, right to left -- measured against an unindented line of the
+/// same bubble, whose box spans the bubble's width.
+#[test]
+fn a_quoted_list_line_mirrors_right_to_left() {
+    let mut model = UiModel::new();
+    model.received(received(
+        1,
+        "a plain line, as wide as the bubble\n\n> - quoted item",
+        NOW,
+    ));
+    for rtl in [false, true] {
+        let view = opened(&model, rtl);
+        let bounds = |label: &str| {
+            let found = labelled(&view, label);
+            assert_eq!(found.len(), 1, "rtl={rtl}: {label}");
+            let (p, z) = (found[0].absolute_position(), found[0].size());
+            (p.x, p.x + z.width)
+        };
+        let (plain_left, plain_right) = bounds("a plain line, as wide as the bubble");
+        let (quoted_left, quoted_right) = bounds("• quoted item");
+        // Two levels deep (the quote and the list), 16 px each.
+        if rtl {
+            assert!(
+                quoted_right <= plain_right - 32.0,
+                "rtl: {quoted_right} vs {plain_right}"
+            );
+        } else {
+            assert!(
+                quoted_left >= plain_left + 32.0,
+                "ltr: {quoted_left} vs {plain_left}"
+            );
+        }
+    }
+}
+
+/// Section 7, "everything mirrors": right to left, the composer's Send
+/// sits at the line's end, on the left of the field -- while Tab, in
+/// either direction, reaches the field and then Send, one order in the
+/// tree as the snackbar keeps (review F3 on #296).
+#[test]
+fn the_composer_mirrors_right_to_left() {
+    use slint::platform::{Key, WindowEvent};
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    for rtl in [false, true] {
+        let view = opened(&model, rtl);
+        let send = left_of(&view, text(UiText::Send));
+        let field = left_of(&view, text(UiText::Composer));
+        assert_eq!(send < field, rtl, "rtl={rtl}: send {send}, field {field}");
+        let tab = |view: &View| {
+            let key: slint::SharedString = Key::Tab.into();
+            let window = view.window().window();
+            window.dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+            window.dispatch_event(WindowEvent::KeyReleased { text: key });
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1));
+            view.window().get_focus_id().to_string()
+        };
+        let mut reached = false;
+        for _ in 0..40 {
+            if tab(&view) == "composer" {
+                assert_eq!(tab(&view), "send", "rtl={rtl}: the field, then Send");
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached, "rtl={rtl}: Tab reaches the field");
+    }
+}
+
+/// Review F1 on #296: a change of the hour setting while the window is
+/// shown wakes the root, so its next render redraws every time; the same
+/// setting again wakes nothing.
+#[test]
+fn a_changed_hour_setting_wakes_the_root() {
+    use interweave_human_ui_slint::TouchSettings;
+    let view = view();
+    let woken = std::rc::Rc::new(std::cell::Cell::new(0));
+    let count = std::rc::Rc::clone(&woken);
+    view.set_wake(move || count.set(count.get() + 1));
+    view.set_touch_settings(TouchSettings::default());
+    assert_eq!(woken.get(), 0, "the same setting: nothing to redraw");
+    view.set_touch_settings(TouchSettings {
+        hour24: false,
+        ..TouchSettings::default()
+    });
+    assert_eq!(woken.get(), 1, "a change wakes the root");
+}
+
+/// Review F2, N1 and N2 on #296, swipe spec section 5: when a message
+/// leaves, its space closes over the leave rather than in one frame, and
+/// the rows below only ever rise. Exactly one separator is drawn for the
+/// leaving message's day throughout: counted from the rows as drawn, the
+/// silent one included. Followed frame by frame on the message below, for
+/// a message heading a run of its day (the next one within a minute, and a
+/// minute or more later) and for a day's only message.
+#[test]
+fn a_leaving_message_closes_its_space_without_a_jump() {
+    // Two days before NOW, a Saturday.
+    let thursday = placeholder_en::text(UiText::Thursday);
+    for (next_after, label) in [
+        (20_000, "run head, a run"),
+        (MINUTE, "run head, a new run"),
+        (DAY, "only of its day"),
+    ] {
+        let mut model = UiModel::new();
+        model.received(received(1, "leaving", NOW - 2 * DAY));
+        model.received(received(2, "below", NOW - 2 * DAY + next_after));
+        model.received(received(3, "last", NOW - 2 * DAY + next_after + 10_000));
+        for row in 1..=3 {
+            model.read(RowId::from_stored(row));
+        }
+        let mut view = opened(&model, false);
+        let y = |view: &View| labelled(view, "last")[0].absolute_position().y;
+        let drawn = |view: &View| {
+            view.window()
+                .get_messages()
+                .iter()
+                .filter(|row| row.day == thursday)
+                .count()
+        };
+        let before = y(&view);
+        assert_eq!(drawn(&view), 1, "{label}: control, one separator");
+        let leaving = model.messages(&direct())[0].key;
+        model.hide(leaving);
+        view.render(&model);
+        let mut seen = vec![before];
+        // Where another message of the day follows, the day keeps exactly
+        // one separator a screen reader reads, throughout.
+        let read = |view: &View| labelled(view, thursday).len();
+        let followed = next_after < DAY;
+        for _ in 0..30 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+            assert!(drawn(&view) <= 1, "{label}: one separator for the day");
+            if followed {
+                assert_eq!(read(&view), 1, "{label}: the day's separator is read");
+            }
+            seen.push(y(&view));
+        }
+        view.render(&model);
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        assert!(drawn(&view) <= 1, "{label}: one separator once it is gone");
+        seen.push(y(&view));
+        let total = before - seen.last().copied().unwrap_or(before);
+        assert!(total > 10.0, "{label}: the space closed: {seen:?}");
+        for step in seen.windows(2) {
+            assert!(
+                step[1] <= step[0] + 0.5,
+                "{label}: the rows below only rise: {seen:?}"
+            );
+            assert!(
+                step[0] - step[1] <= total / 2.0,
+                "{label}: no jump: {seen:?}"
+            );
+        }
+    }
+}
+
+/// Re-review on #296: two neighbouring messages of one day leaving close
+/// together -- the second hidden while the first is still leaving -- hand
+/// the day's separator on as one: it is drawn and read exactly once
+/// throughout, and the rows below only rise.
+#[test]
+fn two_leaving_messages_hand_their_days_separator_on_as_one() {
+    let thursday = placeholder_en::text(UiText::Thursday);
+    let mut model = UiModel::new();
+    let start = NOW - 2 * DAY;
+    for (row, at) in [
+        (1, start),
+        (2, start + 20_000),
+        (3, start + 40_000),
+        (4, start + 50_000),
+    ] {
+        let text = ["first", "second", "below", "last"][usize::try_from(row - 1).expect("small")];
+        model.received(received(row, text, at));
+        model.read(RowId::from_stored(row));
+    }
+    let mut view = opened(&model, false);
+    let y = |view: &View| labelled(view, "last")[0].absolute_position().y;
+    let drawn = |view: &View| {
+        view.window()
+            .get_messages()
+            .iter()
+            .filter(|row| row.day == thursday)
+            .count()
+    };
+    let before = y(&view);
+    let keys: Vec<_> = model.messages(&direct()).iter().map(|m| m.key).collect();
+    model.hide(keys[0]);
+    view.render(&model);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+    // The second goes 60 ms later, while the first is still leaving (a
+    // leave is 170 ms of real time, which the mock clock does not move):
+    // the two leaves end 60 ms apart, and the renders below, every 5 ms,
+    // fall between the two ends.
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    model.hide(keys[1]);
+    view.render(&model);
+    // Rendering through both leaves in real time, the day keeps exactly one
+    // separator, drawn and read, at every render: the first, which hands the
+    // day over, stays until the second has gone.
+    let started = std::time::Instant::now();
+    while view.window().get_messages().iter().any(|row| row.leaving)
+        && started.elapsed() < std::time::Duration::from_secs(2)
+    {
+        view.render(&model);
+        assert_eq!(
+            drawn(&view),
+            1,
+            "one separator at every render of the leave"
+        );
+        assert_eq!(labelled(&view, thursday).len(), 1, "and it is read");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let mut seen = vec![before];
+    for frame in 0..30 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        if frame % 12 == 11 {
+            view.render(&model);
+        }
+        assert_eq!(drawn(&view), 1, "frame {frame}: one separator drawn");
+        assert_eq!(
+            labelled(&view, thursday).len(),
+            1,
+            "frame {frame}: and read"
+        );
+        seen.push(y(&view));
+    }
+    view.render(&model);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+    seen.push(y(&view));
+    assert_eq!(
+        labelled(&view, thursday).len(),
+        1,
+        "the separator ends with the row below"
+    );
+    for step in seen.windows(2) {
+        assert!(
+            step[1] <= step[0] + 0.5,
+            "the rows below only rise: {seen:?}"
+        );
+    }
+}
+
+/// Re-review 1d50f8fd on #296: a leaving run that spans a day change hands
+/// over the separator of its last day -- the one the row after the run
+/// takes -- and it is read at every render of the leave.
+#[test]
+fn a_leaving_run_across_a_day_hands_over_its_last_days_separator() {
+    let thursday = placeholder_en::text(UiText::Thursday);
+    let mut model = UiModel::new();
+    // Wednesday's last message, Thursday's first, then Thursday's next.
+    let thursday_at = NOW - 2 * DAY;
+    for (row, at) in [
+        (1, thursday_at - DAY),
+        (2, thursday_at),
+        (3, thursday_at + 20_000),
+    ] {
+        let text = ["wednesday", "thursday", "below"][usize::try_from(row - 1).expect("small")];
+        model.received(received(row, text, at));
+        model.read(RowId::from_stored(row));
+    }
+    let mut view = opened(&model, false);
+    let keys: Vec<_> = model.messages(&direct()).iter().map(|m| m.key).collect();
+    model.hide(keys[0]);
+    view.render(&model);
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    model.hide(keys[1]);
+    view.render(&model);
+    let started = std::time::Instant::now();
+    while view.window().get_messages().iter().any(|row| row.leaving)
+        && started.elapsed() < std::time::Duration::from_secs(2)
+    {
+        view.render(&model);
+        assert_eq!(
+            labelled(&view, thursday).len(),
+            1,
+            "Thursday's separator is read"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(
+        labelled(&view, thursday).len(),
+        1,
+        "and ends on the row below"
+    );
+}

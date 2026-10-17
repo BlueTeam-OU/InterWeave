@@ -633,6 +633,8 @@ pub struct View {
     /// Each conversation's preview, kept with the last message it is of:
     /// a body never changes.
     previews: HashMap<ConversationKey, (ItemKey, String)>,
+    /// The messages last drawn, by key, kept while a row leaves.
+    shown_items: HashMap<ItemKey, MessageItem>,
     /// The one wake at the next local midnight, and when it is due.
     day_timer: slint::Timer,
     day_due: Option<u64>,
@@ -818,6 +820,7 @@ impl View {
             bodies: HashMap::new(),
             clock: clock::Clock::default(),
             previews: HashMap::new(),
+            shown_items: HashMap::new(),
             day_timer: slint::Timer::default(),
             day_due: None,
             seen: Seen::default(),
@@ -903,13 +906,6 @@ impl View {
         self.clock.hour24 = hour24;
     }
 
-    /// The platform's 12- or 24-hour setting (Android's
-    /// `DateFormat.is24HourFormat`), which every shown time follows; 24
-    /// until it is said.
-    pub const fn set_hour24(&mut self, hour24: bool) {
-        self.clock.hour24 = hour24;
-    }
-
     /// The platform's touch values a swipe reads (§4, §6, §7): its touch
     /// slop, its gesture insets, the layout's direction, whether motion
     /// is off, and the snackbar's time up. A desktop keeps the defaults.
@@ -917,9 +913,21 @@ impl View {
         self.window.set_rtl(settings.rtl);
         self.window.set_reduced_motion(settings.reduced_motion);
         // A control's tap ends at the same slop a swipe starts at.
-        slint::ComponentHandle::global::<generated::Touch<'_>>(&self.window)
-            .set_slop(settings.slop);
+        let touch = slint::ComponentHandle::global::<generated::Touch<'_>>(&self.window);
+        touch.set_slop(settings.slop);
+        // A press shows a ripple only while the system animates.
+        touch.set_reduced_motion(settings.reduced_motion);
+        let hour_changed = self.shared.borrow().touch.hour24 != settings.hour24;
         self.shared.borrow_mut().touch = settings;
+        // Every time is drawn in the setting at render: a change while the
+        // window stays shown asks the root for one (tests/look.rs,
+        // `a_changed_hour_setting_wakes_the_root`).
+        if hour_changed {
+            let wake = self.shared.borrow().wake.clone();
+            if let Some(wake) = wake {
+                wake();
+            }
+        }
     }
 
     /// Play `tick` once each time a swipe arms (§4): the platform's
@@ -1221,6 +1229,9 @@ impl View {
     /// not wake the root, which is rendering: the root takes after it
     /// renders.
     pub fn render(&mut self, model: &UiModel) {
+        // Every time drawn this render follows the platform's setting as
+        // it is now.
+        self.clock.hour24 = self.shared.borrow().touch.hour24;
         // Before the lists retire the handles of the rows they remove.
         let focused = self.focused_row();
         // The snackbar's Undo reports "undo" on gaining focus, and nothing
@@ -1473,7 +1484,6 @@ impl View {
             },
             show_author: channel && item.direction == Direction::Inbound && !run,
             time: clock::clock_text(local.hour, local.minute, self.clock.hour24),
-            spoken_time: self.clock.list_time(item.local_at),
         }
     }
 
@@ -1577,8 +1587,73 @@ impl View {
             keys.insert(at, *key);
             rows.insert(at, row.clone());
         }
+        // While a message leaves, the one after it is placed as if it were
+        // still there, and when the leaving one heads its day the separator
+        // stays with it -- handed over, its separator and gap held while
+        // only its item closes. So one separator shows for the day
+        // throughout, and when the leaving row goes the separator changes
+        // hands where it stands (swipe spec section 5; tests/look.rs,
+        // `a_leaving_message_closes_its_space_without_a_jump`).
+        let leaving: HashSet<ItemKey> = self.leaving_messages.iter().map(|(k, ..)| *k).collect();
+        // Rows leaving next to each other hand over as one: the day passes
+        // from the last of them that heads a day, which stays until the last
+        // of them has gone, so the separator changes hands once, where it
+        // stands (`two_leaving_messages_hand_their_days_separator_on_as_one`).
+        let mut held: Vec<(ItemKey, Instant)> = Vec::new();
+        let mut i = 0;
+        while i < keys.len() {
+            if !leaving.contains(&keys[i]) {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < keys.len() && leaving.contains(&keys[i]) {
+                i += 1;
+            }
+            let (Some(before), Some(item)) = (
+                self.shown_items.get(&keys[i - 1]),
+                keys.get(i)
+                    .and_then(|key| items.iter().find(|item| item.key == *key)),
+            ) else {
+                continue;
+            };
+            // The last of the run that draws a separator -- the day the row
+            // after the run is in -- if that row would take it over.
+            let day_head = (start..i)
+                .rfind(|&j| !rows[j].day.is_empty())
+                .filter(|&first| rows[i].day == rows[first].day);
+            let placed = self.placement(item, Some(before), channel);
+            rows[i].day = placed.day.into();
+            rows[i].gap = placed.gap;
+            rows[i].show_author = placed.show_author;
+            for (j, row) in rows.iter_mut().enumerate().take(i).skip(start) {
+                row.hand_over = Some(j) == day_head;
+            }
+            if let Some(first) = day_head {
+                let last = self
+                    .leaving_messages
+                    .iter()
+                    .filter(|(key, ..)| keys[start..i].contains(key))
+                    .map(|(.., until)| *until)
+                    .max();
+                if let Some(last) = last {
+                    held.push((keys[first], last));
+                }
+            }
+        }
+        for (key, last) in held {
+            if let Some(entry) = self.leaving_messages.iter_mut().find(|(k, ..)| *k == key) {
+                entry.2 = entry.2.max(last);
+            }
+        }
         if !self.leaving_messages.is_empty() {
             self.wake_after(LEAVING);
+        }
+        // What each drawn message was, to place the one after it while it
+        // leaves.
+        self.shown_items.retain(|key, _| keys.contains(key));
+        for item in &items {
+            self.shown_items.insert(item.key, item.clone());
         }
         self.rendered_shown.clone_from(&self.shown);
         self.item_handles.retain(&keys);
@@ -2159,7 +2234,7 @@ fn message_row(
             ("author", &author),
             ("status", status),
             ("body", &drawn.plain),
-            ("time", &placed.spoken_time),
+            ("time", &placed.time),
         ],
     );
     MessageRow {
@@ -2169,6 +2244,7 @@ fn message_row(
         author_id: author_id.into(),
         status: status.into(),
         outbound: item.direction == Direction::Outbound,
+        hand_over: false,
         show_author: placed.show_author,
         status_glyph: mark.glyph,
         status_dot: mark.dot,
@@ -2360,11 +2436,10 @@ struct Placement {
     gap: f32,
     /// Whether its bubble opens with its author.
     show_author: bool,
-    /// Its local clock time.
+    /// Its local clock time: drawn in the bubble, and read in its label.
+    /// The day is the separator's, an item of its own before the run it
+    /// heads (design/2026-10-16-android-look.md sections 6 and 9, 025bb324).
     time: String,
-    /// Its time as the list says it, for its label: the clock time today,
-    /// else its day.
-    spoken_time: String,
 }
 
 /// How a status is marked beside its words (section 6's table): the

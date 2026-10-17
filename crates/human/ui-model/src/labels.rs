@@ -212,7 +212,8 @@ ui_texts! {
     /// A message item as a screen reader reads it, one order on every
     /// platform (design/2026-10-16-android-look.md section 7): `{author}`
     /// short ("You" for one's own), the `{body}`, its `{status}`, then
-    /// `{time}`, the list's time words for when it reached this app.
+    /// `{time}`, the clock time it reached this app, as the bubble shows
+    /// it; the day is said once per run by the day separator.
     Item => "{author}: {body}. {status}, {time}",
     /// A link's control, after the message body: `{destination}` is the
     /// link's full destination as `visible_destination` shows it -- every
