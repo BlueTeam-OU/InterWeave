@@ -63,17 +63,19 @@ what another account is running (live, 2026-10-16). A run on it is, with
 `<the run>` a script when it has quotes of its own:
 
 ```sh
-fabric-lease pixel-9a -- bash -c 'export ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)); adb kill-server; adb nodaemon server & s=$!; trap "kill $s 2>/dev/null" EXIT; sleep 1; <the run>'
+fabric-lease pixel-9a -- bash -c 'export ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)); adb kill-server; adb nodaemon server & s=$!; trap "kill $s 2>/dev/null" EXIT; w=$PPID; (while kill -0 $w 2>/dev/null; do sleep 1; done; kill 0) & until (: </dev/tcp/127.0.0.1/$ANDROID_ADB_SERVER_PORT) 2>/dev/null; do kill -0 $s || exit 1; sleep 0.1; done; <the run>'
 ```
 
-The server is the run's own child (`nodaemon`), in the run's process
-group, so it ends with the run however the run ends, and the phone's
-connection with it: the trap stops it on an exit, a failure or a signal, and a SIGKILL sent to the group, as a
-timeout sends it, kills it with the run (live, 2026-10-17). Only a SIGKILL
-to the shell alone would leave it; if you see one, run
-`ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)) adb kill-server`.
-The first kill-server clears a server your own login left by an older
-command. `pgrep -u "$(id -u)" -a adb` after the run shows nothing.
+The server is the run's own child (`nodaemon`), and the run waits for its
+port without starting another (an adb client would fork a daemon of its
+own). The trap stops it on an exit, a failure or a signal; a SIGKILL to
+the group kills it with the run; and the watcher ends the whole run, the
+server and the phone's connection with it, within a second of the lease
+wrapper's death, a SIGKILL to the wrapper included, which frees the lease
+(live, 2026-10-17: wrapper KILL, group TERM and a failed run each left no
+adb process of the login). The first kill-server clears a server your own
+login left by an older command. `pgrep -u "$(id -u)" -a adb` after the
+run shows nothing.
 
 The link drops with the phone's Wi-Fi and
 Wireless debugging can switch itself off; a re-pair is a person's step at
