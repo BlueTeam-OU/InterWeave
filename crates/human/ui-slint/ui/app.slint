@@ -411,10 +411,9 @@ export global Palette {
     out property <color> on-tertiary: #2a1800;
     out property <color> unread-dot: dark ? #ffb547 : #7c5200;
     out property <color> error: dark ? #ffb4ab : #ba1a1a;
-    // The snackbar's roles. Section 7's snackbar is not built yet: it is
-    // still surface-container with a `primary` ring, so these three and
-    // focus-ring-on-inverse below are only measured (tests/look.rs) until
-    // it is.
+    // The snackbar's roles, for section 7's snackbar, which is not built
+    // yet: today it is surface-container with a `primary` ring. These three
+    // and focus-ring-on-inverse below are measured in tests/look.rs.
     out property <color> inverse-surface: dark ? #e3e6f3 : #2a3050;
     out property <color> inverse-on-surface: dark ? #2a3050 : #eef0fb;
     out property <color> inverse-primary: dark ? #006a61 : #5fdccd;
