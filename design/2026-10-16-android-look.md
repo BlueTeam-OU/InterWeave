@@ -217,8 +217,11 @@ From the top:
   761d72b3 a drag on a Chats row reads the conversation's messages
   unseen (found on the Pixel 9a, 2026-10-16, running swipe spec §11
   item 17). A preview must not add a second way to do that.
-- With no message held (all were read, not kept, and a restart removed
-  them), the subtitle is "No messages", in `on-surface-variant`.
+- A conversation is listed only while the app holds one of its
+  messages, so every row has a last message to show. After a restart,
+  a conversation whose messages were all read and not kept is not
+  listed at all. (Should contacts later list a conversation with no
+  message, its subtitle needs words then.)
 - Every time on these screens is the local time the message reached
   this app (`local_at`), never the time a sender asserts
   (`sent_at_ms`), which a peer chooses. Day separators and the
@@ -401,7 +404,6 @@ that exist.
 |---|---|---|
 | `Conversations` (exists) | Conversations | the list's app bar title, in place of today's heading: the same key and the same text |
 | `Composer` (exists) | Message | the composer's placeholder. The placeholder is the text field's label, so it is the same key. A second key with the same text would fail the `labels.rs` test that every `UiText` is distinct |
-| `NoMessages` | No messages | the list's subtitle when nothing is held |
 | `OwnLastMessage` | You: {message} | the list's subtitle when the last message is one's own. `{message}` is the preview text. A template, not a prefix: `labels.rs` fills a template by placeholder and never joins strings, so a translation can reorder it |
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the overflow button's label, Android's own words for it |
@@ -415,7 +417,6 @@ that exist.
 | `TimePm` | {hour}:{minute} PM | the same, from noon: "1:05 PM", "12:30 PM" |
 | `ConversationDescription` (exists, new value) | {kind}, {unread}, {preview}, {time} | a list row's description as TalkBack reads it (§7), with unread messages. `{kind}` is `DirectConversation` or `ChannelConversation` as today, `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
 | `ConversationDescriptionRead` | {kind}, {preview}, {time} | the same, with nothing unread |
-| `ConversationDescriptionEmpty` | {kind}, {preview} | the same, with no message held: `{preview}` is "No messages", and there is no time |
 
 The weekday, month, date and time values are final (language-culture,
 2026-10-17). What the code fills in, and what a translation may change:
@@ -435,13 +436,13 @@ The weekday, month, date and time values are final (language-culture,
 - A numeric date ("9/30") is not used: it reads differently in
   different countries.
 
-A row's description is three templates, not one with optional parts,
+A row's description is two templates, not one with optional parts,
 because `labels.rs` never joins strings: each case is a whole sentence
 a translation can reorder. The commas give TalkBack its pauses. The
 row's accessible label stays its name (`row.title`, as today), so the
 description does not repeat it. The description keeps `{kind}`: the
 subtitle no longer says "Direct conversation" or "Channel", and a "#"
-read aloud is not a kind (U2a, §7). The three values are final: with
+read aloud is not a kind (U2a, §7). The two values are final: with
 the name first, TalkBack reads a row as, for example, "…x6gY6Eri /
 human, Direct conversation, 2 unread, You: See you at six, 01:18".
 
@@ -476,8 +477,8 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
    screenshot, in both schemes. The avatar pairs (§5.1) hold 4.5:1.
 2. Chats: the app bar's title is "Conversations" and Trust settings is
    an icon button in it. The bottom outlined button is gone.
-3. Chats: each row shows the avatar, the name, the last message (or
-   "No messages"), the time and, with unread messages, the badge with
+3. Chats: each row shows the avatar, the name, the last message, the
+   time and, with unread messages, the badge with
    their count. The name is bold exactly when the badge shows. With
    nothing unread and one's own pending last message, the clock shows
    in the badge's place.
