@@ -434,13 +434,15 @@ fn the_notice_action_resolves_only_while_its_notice_is_shown() {
     );
 }
 
-/// §13, the accessibility tree: message, route and connectivity controls
-/// carry meaningful labels, roles and descriptions; connectivity is a
-/// polite live region and an item's status is not; the full `PeerId` is on the
-/// author and the header, never in an item's label (U5a).
+/// §13, the accessibility tree: message and connectivity controls carry
+/// meaningful labels, roles and descriptions; connectivity is a polite
+/// live region and an item's status is not; the full `PeerId` is on the
+/// header (and a channel's author, tests/look.rs), never in an item's
+/// label (U5a); and no bubble draws a route line (android-look section 6).
 #[test]
 fn the_tree_labels_message_route_and_connectivity_controls() {
     let mut view = view();
+    view.set_clock(|| 60_000, |_| 0);
     let mut model = UiModel::new();
     let alice = peer();
     model.received(received(1, &alice, "hello alice"));
@@ -455,7 +457,18 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
     );
     let unread = placeholder_en::label(interweave_human_ui_model::LabelKey::Unread);
 
-    let item = the(&view, &format!("{short}, {unread}: hello alice"));
+    let item = the(
+        &view,
+        &interweave_human_ui_model::fill(
+            text(UiText::Item),
+            &[
+                ("author", &short),
+                ("status", unread),
+                ("body", "hello alice"),
+                ("time", "00:00"),
+            ],
+        ),
+    );
     assert_eq!(
         item.accessible_role(),
         Some(i_slint_backend_testing::AccessibleRole::ListItem)
@@ -465,19 +478,22 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
         "the full PeerId is not read on every item"
     );
 
-    let authors: Vec<_> = labelled(&view, &short)
-        .into_iter()
-        .filter(|e| e.accessible_description().as_deref() == Some(id))
-        .collect();
-    assert_eq!(authors.len(), 1, "the author carries the exact PeerId");
-
-    let route = the(
-        &view,
-        &interweave_human_ui_model::fill(text(UiText::Route), &[("route", "human")]),
+    // A direct conversation has two parties, and the bubble's side says
+    // which: no author line (android-look section 6). The channel's,
+    // which carries the exact PeerId, is tests/look.rs's.
+    assert!(
+        labelled(&view, &short).is_empty(),
+        "no author line in a direct conversation"
     );
-    assert_eq!(
-        route.accessible_role(),
-        Some(i_slint_backend_testing::AccessibleRole::Text)
+    // Nor a route line: the title carries the route (section 6), and the
+    // only text naming the route is the title's.
+    assert!(
+        all(&view)
+            .iter()
+            .filter_map(ElementHandle::accessible_label)
+            .filter(|l| l.contains("human"))
+            .all(|l| l.contains(short.as_str())),
+        "no route line"
     );
 
     let status = the(&view, unread);
@@ -1582,6 +1598,7 @@ fn no_rendered_text_leaves_a_placeholder_unfilled() {
                 ("author", &short),
                 ("status", unread),
                 ("body", "direct hi"),
+                ("time", "00:00"),
             ],
         ),
         interweave_human_ui_model::fill(
@@ -1603,7 +1620,6 @@ fn no_rendered_text_leaves_a_placeholder_unfilled() {
                 ("time", "00:00"),
             ],
         ),
-        interweave_human_ui_model::fill(text(UiText::Route), &[("route", "human")]),
     ] {
         let shown = all(&view).iter().any(|e| {
             e.accessible_label().as_deref() == Some(expected.as_str())
@@ -2140,6 +2156,7 @@ fn long_content_wraps_inside_the_window() {
 #[test]
 fn a_conversation_pressed_is_shown_by_the_take_alone() {
     let mut view = view();
+    view.set_clock(|| 60_000, |_| 0);
     let mut model = UiModel::new();
     let alice = peer();
     model.received(received(1, &alice, "shown at once"));
@@ -2162,7 +2179,19 @@ fn a_conversation_pressed_is_shown_by_the_take_alone() {
     let short = interweave_human_ui_model::short_peer(alice.as_str());
     let unread = placeholder_en::label(interweave_human_ui_model::LabelKey::Unread);
     assert_eq!(
-        labelled(&view, &format!("{short}, {unread}: shown at once")).len(),
+        labelled(
+            &view,
+            &interweave_human_ui_model::fill(
+                text(UiText::Item),
+                &[
+                    ("author", &short),
+                    ("status", unread),
+                    ("body", "shown at once"),
+                    ("time", "00:00"),
+                ],
+            )
+        )
+        .len(),
         1,
         "its message is in the list"
     );

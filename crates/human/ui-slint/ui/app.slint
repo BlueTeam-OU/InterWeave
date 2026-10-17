@@ -16,17 +16,34 @@
 
 import { Palette as Style } from "std-widgets.slint";
 
+// What a row's swipe does in one direction (design/2026-10-16-message-
+// swipe.md section 3): `none` when it does nothing that way, and then the
+// row does not move that way.
+export enum SwipeKind { none, keep, hide, unkeep, retry, cancel }
+
+// Every icon the views draw, from first-party paths on a 24 x 24 grid:
+// each is decorative beside a label or names a control that carries its
+// own, so none has an accessible name of its own.
+export enum Glyph {
+    none,
+    // The swipe's and the chips' actions (swipe spec section 7; section 6
+    // here).
+    keep, unkeep, hide, retry, cancel, source,
+    // The app bars (sections 5 and 6) and the composer.
+    shield, back, more, send,
+    // The statuses (section 6's table).
+    clock, check, check-outline, error, crossed, bookmark,
+}
+
 export struct ActionRow {
     // Position in the item's rendered actions: identifies the press,
     // which the Rust side turns back into the action as rendered.
     index: int,
     text: string,
+    // Which action it is, for its chip's icon.
+    kind: SwipeKind,
 }
 
-// What a row's swipe does in one direction (design/2026-10-16-message-
-// swipe.md section 3): `none` when it does nothing that way, and then the
-// row does not move that way.
-export enum SwipeKind { none, keep, hide, unkeep, retry, cancel }
 
 export struct ConversationRow {
     handle: int,
@@ -91,8 +108,23 @@ export struct MessageRow {
     // The full PeerId of an inbound author, exact (§11, U5a); empty for
     // this client's own.
     author-id: string,
-    route: string,
     status: string,
+    // Sent by this client: the bubble sits on the end side (section 6).
+    outbound: bool,
+    // The bubble opens with its author: a channel's received message,
+    // once per run from one author.
+    show-author: bool,
+    // The status's icon, the unread dot before it, and whether both and
+    // the words take the error colour (section 6's table).
+    status-glyph: Glyph,
+    status-dot: bool,
+    status-error: bool,
+    // The local time it reached this app.
+    time: string,
+    // The space above it: 2 px within a run, 8 px between runs.
+    gap: length,
+    // The day separator above it; empty for none.
+    day: string,
     // The source as received, shown on the person's request: always
     // viewable, however it rendered (HUMAN-CHAT.md).
     source: string,
@@ -302,6 +334,9 @@ component FocusHeading inherits FocusScope {
 component LinkButton inherits FocusScope {
     in property <string> text;
     in property <string> focus-key;
+    // Its colour: `primary` in a received bubble, the bubble's own text
+    // colour in a sent one (section 6).
+    in property <color> ink: Palette.primary;
     callback pressed();
     callback focused(string);
     accessible-role: button;
@@ -323,21 +358,29 @@ component LinkButton inherits FocusScope {
     // lines below overlapped the next control (seen in the rendered
     // window). The focus ring is placed by x and y, and so not counted.
     VerticalLayout {
+        // A 48 px target, as the link buttons were (section 6).
+        min-height: 48px;
+        alignment: center;
         Rectangle {
-            border-width: 1px;
-            border-color: Palette.outline;
-            HorizontalLayout {
-                padding: 4px;
-                padding-left: 8px;
-                padding-right: 8px;
+            VerticalLayout {
+                padding-top: 4px;
+                padding-bottom: 4px;
+                spacing: 1px;
                 Text {
                     text: root.text;
+                    color: root.ink;
+                    font-size: Type.body-medium;
                     wrap: word-wrap;
                     // A word longer than the line breaks inside itself
                     // rather than widening the list (seen with a long URL).
                     min-width: 0;
                     horizontal-alignment: left;
                     accessible-role: none;
+                }
+                // Underlined: Slint's Text has no underline of its own.
+                Rectangle {
+                    height: 1px;
+                    background: root.ink;
                 }
             }
             TapArea { tapped => { root.pressed(); } }
@@ -419,20 +462,6 @@ global Type {
     out property <relative-font-size> body-medium: 14rem / 14;
     out property <relative-font-size> body-small: 12rem / 14;
     out property <relative-font-size> label-large: 14rem / 14;
-}
-
-// Every icon the views draw, from first-party paths on a 24 x 24 grid:
-// each is decorative beside a label or names a control that carries its
-// own, so none has an accessible name of its own.
-export enum Glyph {
-    none,
-    // The swipe's and the chips' actions (swipe spec section 7; section 6
-    // here).
-    keep, unkeep, hide, retry, cancel, source,
-    // The app bars (sections 5 and 6) and the composer.
-    shield, back, more, send,
-    // The statuses (section 6's table).
-    clock, check, check-outline, error, crossed, bookmark,
 }
 
 component GlyphIcon {
@@ -562,6 +591,87 @@ component Avatar inherits Rectangle {
         horizontal-alignment: center;
         vertical-alignment: center;
         accessible-role: none;
+    }
+}
+
+// A row action as a Material outlined chip (section 6): 32 px drawn and
+// 48 px to touch, the touch area 8 px above and below, an 18 px icon in
+// `primary` before its label.
+component Chip inherits FocusScope {
+    in property <string> text;
+    in property <SwipeKind> kind;
+    // An icon that is no swipe's: Show source's.
+    in property <Glyph> glyph: Glyph.none;
+    in property <string> detail;
+    in property <string> focus-key;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    callback pressed();
+    callback focused(string);
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-description: root.detail;
+    accessible-action-default => { root.pressed(); }
+    key-pressed(event) => {
+        if (event.text == Key.Return || event.text == " ") {
+            root.pressed();
+            return accept;
+        }
+        reject
+    }
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    min-height: 48px;
+    min-width: max(48px, chip-row.preferred-width);
+    chip := Rectangle {
+        y: (root.height - self.height) / 2;
+        width: root.width;
+        height: max(32px, chip-row.preferred-height);
+        border-width: 1px;
+        border-color: Palette.outline;
+        border-radius: 8px;
+        chip-row := HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 12px;
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                if root.glyph != Glyph.none: GlyphIcon {
+                    width: 18px;
+                    height: 18px;
+                    glyph: root.glyph;
+                    ink: Palette.primary;
+                }
+                if root.glyph == Glyph.none: SwipeIcon {
+                    width: 18px;
+                    height: 18px;
+                    kind: root.kind;
+                    ink: Palette.primary;
+                }
+            }
+            // The chip's label already: not a second node.
+            Text {
+                text: root.text;
+                font-size: Type.label-large;
+                font-weight: 500;
+                color: Palette.on-surface;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
+        }
+    }
+    TapArea { tapped => { root.pressed(); } }
+    FocusRing {
+        x: -5px;
+        y: chip.y - 5px;
+        width: root.width + 10px;
+        height: chip.height + 10px;
+        radius: 8px;
+        shown: root.has-focus;
     }
 }
 
@@ -933,6 +1043,13 @@ export component AppWindow inherits Window {
     // or a conversation or the trust settings with a way back -- rather
     // than cutting the second pane off (a phone, plan section 20).
     property <bool> narrow: root.width < 600px;
+    // The width a message row has to draw in: the conversation pane's,
+    // inside its padding and the list's ring room. From the window's width
+    // rather than the row's, which the layout computes from what is in it:
+    // a bubble's width read from its row loops through the layout.
+    property <length> message-width: max(0px,
+        (root.narrow ? root.width : root.width - 281px)
+            - root.safe-area-insets.left - root.safe-area-insets.right - 34px);
     // In a narrow window: the conversation list is the pane shown.
     in-out property <bool> list-shown: true;
     // Whether the right-hand pane -- the conversation, or the trust
@@ -1627,6 +1744,18 @@ export component AppWindow inherits Window {
                 // while this is the row it moves.
                 property <length> offset: root.swipe-key == self.swipe-key ? root.swipe-offset : 0px;
                 property <bool> focus-here: root.focus-target == self.swipe-key;
+                // The bubble's text colour, on its fill.
+                property <color> ink: row.outbound ? Palette.on-primary-container : Palette.on-surface;
+                // The bubble sits at the left: received left to right, or
+                // sent right to left.
+                property <bool> at-left: row.outbound == root.rtl;
+                property <TextHorizontalAlignment> text-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                property <string> source-label: item.show-source ? root.show-formatted-label : root.show-source-label;
+                // Show source's chip, measured as Chip draws it: its icon,
+                // label and padding, at least 48 px.
+                property <length> source-chip-width: max(48px, source-measure.preferred-width + 18px + 8px + 20px);
+                property <bool> chips-wrap: row.actions.length > 0
+                    && actions-row.preferred-width + 8px + item.source-chip-width > root.message-width;
                 accessible-role: list-item;
                 accessible-label: row.label;
                 accessible-item-index: index;
@@ -1703,115 +1832,263 @@ export component AppWindow inherits Window {
                 // (tests/pointer.rs,
                 // `a_drag_a_row_does_not_offer_leaves_the_next_drag_its_own`).
                 TouchArea {
+                // The bubble's fill (section 6), drawn under its content and
+                // placed on the content's own geometry, so it covers exactly
+                // what the bubble draws.
+                Rectangle {
+                    x: bubble-column.absolute-position.x - content.absolute-position.x;
+                    y: bubble-column.absolute-position.y - content.absolute-position.y;
+                    width: bubble-column.width;
+                    height: bubble-column.height;
+                    background: row.outbound ? Palette.primary-container : Palette.surface-container-high;
+                    // 18 px corners, the one nearest the sender 6 px.
+                    border-top-left-radius: 18px;
+                    border-top-right-radius: 18px;
+                    border-bottom-left-radius: item.at-left ? 6px : 18px;
+                    border-bottom-right-radius: item.at-left ? 18px : 6px;
+                }
                 content := VerticalLayout {
-                    // Room for a control's focus ring: the row clips.
+                    // Room for a control's focus ring: the row clips. The
+                    // space above is section 6's: 2 px within a run, 8 px
+                    // between runs.
                     padding: 5px;
-                    HorizontalLayout {
-                        Text {
-                            text: row.author;
-                            accessible-role: text;
-                            accessible-label: self.text;
-                            accessible-description: row.author-id;
-                        }
-                        Text {
-                            text: row.route;
-                            accessible-role: text;
-                            accessible-label: self.text;
-                        }
-                        // Not a live region: the window's one announcement
-                        // says what changed (rust-ui-dev F4).
-                        Text {
-                            text: row.status;
-                            accessible-role: text;
-                            accessible-label: self.text;
-                        }
-                    }
-                    if row.reply != "": Text {
-                        text: row.reply;
+                    padding-top: 5px + row.gap;
+                    spacing: 4px;
+                    // A day change: "Today", "Yesterday", a weekday or the
+                    // date, centred.
+                    if row.day != "": Text {
+                        vertical-stretch: 0;
+                        text: row.day;
+                        font-size: Type.body-small;
+                        color: Palette.on-surface-variant;
+                        horizontal-alignment: center;
                         accessible-role: text;
                         accessible-label: self.text;
                     }
-                    if !item.show-source: VerticalLayout {
-                        spacing: 4px;
-                        for line in row.lines: HorizontalLayout {
-                            padding-left: line.depth * 16px;
-                            spacing: 6px;
-                            if line.quoted: Rectangle {
-                                width: 3px;
-                                background: Palette.outline;
-                            }
-                            if line.marker != "": Text {
-                                horizontal-stretch: 0;
-                                text: line.marker;
-                                // Said with the line's own label.
-                                accessible-role: none;
-                            }
-                            if line.kind == LineKind.rule: Rectangle {
-                                height: 1px;
-                                background: Palette.outline;
-                            }
-                            if line.kind != LineKind.rule: Rectangle {
-                                horizontal-stretch: 1;
-                                background: line.kind == LineKind.code ? Palette.surface-container : transparent;
-                                HorizontalLayout {
-                                    padding: line.kind == LineKind.code ? 6px : 0px;
+                    // A received message on the start side, a sent one on
+                    // the end side, mirrored right to left.
+                    HorizontalLayout {
+                        alignment: row.outbound != root.rtl ? end : start;
+                        vertical-stretch: 1;
+                            bubble-column := VerticalLayout {
+                                // At most 80 % of the list's width: the
+                                // text wraps inside it.
+                                width: min(self.preferred-width, root.message-width * 0.8);
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-top: 8px;
+                                padding-bottom: 6px;
+                                spacing: 4px;
+                                // In a channel only: received bubbles come
+                                // from several peers (section 6). The full
+                                // PeerId is its description (U5a).
+                                if row.show-author: Text {
+                                    text: row.author;
+                                    font-size: Type.title-small;
+                                    font-weight: 500;
+                                    color: Palette.primary;
+                                    horizontal-alignment: item.text-alignment;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
+                                    accessible-description: row.author-id;
+                                }
+                                if row.reply != "": HorizontalLayout {
+                                    spacing: 6px;
+                                    Rectangle {
+                                        width: 3px;
+                                        background: item.ink;
+                                    }
                                     Text {
-                                        text: line.text;
+                                        text: row.reply;
+                                        font-size: Type.body-small;
+                                        color: Palette.on-surface-variant;
                                         wrap: word-wrap;
-                                        // A word longer than the line breaks inside itself rather
-                                        // than widening the list (seen with a long URL in the body).
                                         min-width: 0;
-                                        font-family: line.kind == LineKind.code ? root.code-font : "";
-                                        font-weight: line.kind == LineKind.heading || line.kind == LineKind.table-header ? 700 : 400;
-                                        font-size: line.kind == LineKind.heading ? max(14px, 24px - line.level * 2px) : 14px;
+                                        horizontal-stretch: 1;
                                         accessible-role: text;
-                                        accessible-label: line.marker != "" ? line.marker + " " + self.text : self.text;
+                                        accessible-label: self.text;
+                                    }
+                                }
+                                if !item.show-source: VerticalLayout {
+                                    spacing: 4px;
+                                    for line in row.lines: HorizontalLayout {
+                                        padding-left: line.depth * 16px;
+                                        spacing: 6px;
+                                        if line.quoted: Rectangle {
+                                            width: 3px;
+                                            background: item.ink;
+                                        }
+                                        if line.marker != "": Text {
+                                            horizontal-stretch: 0;
+                                            text: line.marker;
+                                            color: item.ink;
+                                            font-size: Type.body-large;
+                                            // Said with the line's own label.
+                                            accessible-role: none;
+                                        }
+                                        if line.kind == LineKind.rule: Rectangle {
+                                            height: 1px;
+                                            background: item.ink;
+                                        }
+                                        // Running text, a heading or a table row.
+                                        if line.kind != LineKind.rule && line.kind != LineKind.code: Text {
+                                            horizontal-stretch: 1;
+                                            text: line.text;
+                                            wrap: word-wrap;
+                                            // A word longer than the line breaks inside itself rather
+                                            // than widening the list (seen with a long URL in the body).
+                                            min-width: 0;
+                                            color: item.ink;
+                                            font-weight: line.kind == LineKind.heading || line.kind == LineKind.table-header ? 700 : 400;
+                                            // Section 4: headings 20, 18, then 16 like the text.
+                                            font-size: line.kind != LineKind.heading ? Type.body-large
+                                                : line.level == 1 ? 20rem / 14
+                                                : line.level == 2 ? 18rem / 14
+                                                : Type.body-large;
+                                            horizontal-alignment: item.text-alignment;
+                                            accessible-role: text;
+                                            accessible-label: line.marker != "" ? line.marker + " " + self.text : self.text;
+                                        }
+                                        if line.kind == LineKind.code: Rectangle {
+                                            horizontal-stretch: 1;
+                                            background: Palette.surface;
+                                            border-radius: 4px;
+                                            // Its text's height, padded 6 px round.
+                                            height: code-text.preferred-height + 12px;
+                                            code-text := Text {
+                                                x: 6px;
+                                                y: 6px;
+                                                width: parent.width - 12px;
+                                                text: line.text;
+                                                wrap: word-wrap;
+                                                color: Palette.on-surface;
+                                                font-family: root.code-font;
+                                                font-size: Type.body-medium;
+                                                accessible-role: text;
+                                                accessible-label: line.marker != "" ? line.marker + " " + self.text : self.text;
+                                            }
+                                        }
+                                    }
+                                }
+                                if item.show-source: Text {
+                                    text: row.source;
+                                    wrap: word-wrap;
+                                    // A word longer than the line breaks inside itself rather
+                                    // than widening the list (seen with a long URL in the body).
+                                    min-width: 0;
+                                    color: item.ink;
+                                    font-family: root.code-font;
+                                    font-size: Type.body-medium;
+                                    accessible-role: text;
+                                    accessible-label: self.text;
+                                }
+                                // One control per link, after the text it came from, its full
+                                // destination as its label; nothing opens but a person's
+                                // activation. Part of the drawn body: the source shown in
+                                // its place has none, as a body past a bound has none.
+                                if !item.show-source: VerticalLayout {
+                                    for link in row.links: LinkButton {
+                                        text: link.label;
+                                        ink: row.outbound ? Palette.on-primary-container : Palette.primary;
+                                        focus-key: "link:" + row.handle + ":" + link.index;
+                                        pressed => { root.link(row.handle, link.index); }
+                                        focused(k) => { root.focus-id = k; }
+                                    }
+                                }
+                                // The status with its icon, then the time, at
+                                // the bubble's end (section 6). Not a live
+                                // region: the window's one announcement says
+                                // what changed (rust-ui-dev F4).
+                                HorizontalLayout {
+                                    alignment: root.rtl ? start : end;
+                                    spacing: 4px;
+                                    if row.status-dot: VerticalLayout {
+                                        alignment: center;
+                                        Rectangle {
+                                            width: 8px;
+                                            height: 8px;
+                                            border-radius: 4px;
+                                            background: Palette.unread-dot;
+                                        }
+                                    }
+                                    if row.status-glyph != Glyph.none: VerticalLayout {
+                                        alignment: center;
+                                        GlyphIcon {
+                                            width: 16px;
+                                            height: 16px;
+                                            glyph: row.status-glyph;
+                                            ink: row.status-error ? Palette.error : Palette.on-surface-variant;
+                                        }
+                                    }
+                                    Text {
+                                        text: row.status;
+                                        font-size: Type.body-small;
+                                        color: row.status-error ? Palette.error : Palette.on-surface-variant;
+                                        accessible-role: text;
+                                        accessible-label: self.text;
+                                    }
+                                    Text {
+                                        text: "·";
+                                        font-size: Type.body-small;
+                                        color: Palette.on-surface-variant;
+                                        accessible-role: none;
+                                    }
+                                    Text {
+                                        text: row.time;
+                                        font-size: Type.body-small;
+                                        color: Palette.on-surface-variant;
+                                        accessible-role: text;
+                                        accessible-label: self.text;
                                     }
                                 }
                             }
-                        }
                     }
-                    if item.show-source: Text {
-                        text: row.source;
-                        wrap: word-wrap;
-                        // A word longer than the line breaks inside itself rather
-                        // than widening the list (seen with a long URL in the body).
-                        min-width: 0;
-                        font-family: root.code-font;
-                        accessible-role: text;
-                        accessible-label: self.text;
-                    }
-                    // One control per link, after the text it came from, its full
-                    // destination as its label; nothing opens but a person's
-                    // activation. Part of the drawn body: the source shown in
-                    // its place has none, as a body past a bound has none.
-                    if !item.show-source: VerticalLayout {
-                        for link in row.links: LinkButton {
-                            text: link.label;
-                            focus-key: "link:" + row.handle + ":" + link.index;
-                            pressed => { root.link(row.handle, link.index); }
-                            focused(k) => { root.focus-id = k; }
-                        }
-                    }
+                    // The row's actions as chips under the bubble, on its
+                    // side (section 6): the swipe's equivalent, always
+                    // shown. Show source goes to a second line when the
+                    // chips do not fit on one, as at 200 % (section 8).
                     HorizontalLayout {
-                        spacing: 6px;
-                        alignment: start;
-                        for action in row.actions: ActionButton {
-                            text: action.text;
-                            // What the action acts on: the message, as
-                            // the row itself is read.
+                        alignment: row.outbound != root.rtl ? end : start;
+                        spacing: 8px;
+                        // Its own height, never more: the bubble above takes
+                        // what the row has left. Stretched, the chips took
+                        // the room a wrapped bubble's last lines needed.
+                        vertical-stretch: 0;
+                        // The action chips alone, measured to decide where
+                        // Show source goes.
+                        actions-row := HorizontalLayout {
+                            spacing: 8px;
+                            for action in row.actions: Chip {
+                                text: action.text;
+                                kind: action.kind;
+                                // What the action acts on: the message, as
+                                // the row itself is read.
+                                detail: row.label;
+                                focus-key: "action:" + row.handle + ":" + action.index;
+                                focus-seq: root.focus-seq;
+                                focus-wanted: item.focus-here && action.index == 0;
+                                pressed => { root.action(row.handle, action.index); }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                        }
+                        if !item.chips-wrap: Chip {
+                            text: item.source-label;
+                            glyph: Glyph.source;
                             detail: row.label;
-                            target: 48px;
-                            focus-key: "action:" + row.handle + ":" + action.index;
+                            focus-key: "source:" + row.handle;
                             focus-seq: root.focus-seq;
-                            focus-wanted: item.focus-here && action.index == 0;
-                            pressed => { root.action(row.handle, action.index); }
+                            focus-wanted: item.focus-here && row.actions.length == 0;
+                            pressed => { item.show-source = !item.show-source; }
                             focused(k) => { root.focus-id = k; }
                         }
-                        ActionButton {
-                            text: item.show-source ? root.show-formatted-label : root.show-source-label;
+                    }
+                    if item.chips-wrap: HorizontalLayout {
+                        alignment: row.outbound != root.rtl ? end : start;
+                        vertical-stretch: 0;
+                        Chip {
+                            text: item.source-label;
+                            glyph: Glyph.source;
                             detail: row.label;
-                            target: 48px;
                             focus-key: "source:" + row.handle;
                             focus-seq: root.focus-seq;
                             focus-wanted: item.focus-here && row.actions.length == 0;
@@ -1824,6 +2101,17 @@ export component AppWindow inherits Window {
                     }
                     }
                 }
+                }
+                // Show source's label, measured for its chip. Placed, so it
+                // takes no room in the row.
+                source-measure := Text {
+                    x: 0;
+                    y: 0;
+                    text: item.source-label;
+                    font-size: Type.label-large;
+                    font-weight: 500;
+                    visible: false;
+                    accessible-role: none;
                 }
                 FocusRing {
                     x: -5px;

@@ -27,9 +27,9 @@ use std::time::{Duration, Instant};
 use interweave_human_client_api::TrustOrigin;
 use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
-    HostText, Intent, ItemKey, ItemStatus, MessageItem, Reply, Retention, RowAction, RuntimeHost,
-    SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, UiModel, UiText, fill,
-    placeholder_en, short_peer, visible_destination,
+    HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
+    RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, UiModel, UiText,
+    fill, placeholder_en, short_peer, visible_destination,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -60,6 +60,8 @@ mod generated {
 }
 
 pub use generated::AppWindow;
+/// The icons the views draw; a test reads which one a status takes.
+pub use generated::Glyph;
 /// The colour roles of design/2026-10-16-android-look.md section 3, so a
 /// test can switch the scheme and measure every pair the section names.
 pub use generated::Palette;
@@ -1416,6 +1418,42 @@ impl View {
         text
     }
 
+    /// Where a message sits among those before it (section 6): a day
+    /// separator when its local day differs from the previous message's,
+    /// 2 px from a message of the same side (and in a channel the same
+    /// author) within a minute and 8 px otherwise, and its author line
+    /// only in a channel, once per such run. All by `local_at`, never the
+    /// time a sender asserts.
+    fn placement(
+        &self,
+        item: &MessageItem,
+        previous: Option<&MessageItem>,
+        channel: bool,
+    ) -> Placement {
+        let local = self.clock.local(item.local_at);
+        let day = match previous {
+            Some(before) if self.clock.local(before.local_at).day == local.day => String::new(),
+            _ => clock::day_text(local.day),
+        };
+        let run = previous.is_some_and(|before| {
+            day.is_empty()
+                && before.direction == item.direction
+                && before.author == item.author
+                && item.local_at.saturating_sub(before.local_at) < 60_000
+        });
+        Placement {
+            day,
+            gap: match (previous, run) {
+                (None, _) => 0.0,
+                (Some(_), true) => 2.0,
+                (Some(_), false) => 8.0,
+            },
+            show_author: channel && item.direction == Direction::Inbound && !run,
+            time: clock::clock_text(local.hour, local.minute, self.clock.hour24),
+            spoken_time: self.clock.list_time(item.local_at),
+        }
+    }
+
     fn render_messages(&mut self, model: &UiModel) {
         let items = self
             .shown
@@ -1424,9 +1462,13 @@ impl View {
         let mut keys: Vec<ItemKey> = items.iter().map(|i| i.key).collect();
         let mut rendered = HashMap::new();
         let mut swipes = HashMap::new();
+        let channel = matches!(self.shown, Some(ConversationKey::Channel(_)));
+        let mut previous: Option<&MessageItem> = None;
         let mut rows: Vec<MessageRow> = items
             .iter()
             .map(|item| {
+                let placed = self.placement(item, previous, channel);
+                previous = Some(item);
                 let handle = self.item_handles.of(&item.key);
                 let actions = model.row_actions(item.key);
                 let model_rc = match self.action_models.get(&handle) {
@@ -1447,7 +1489,7 @@ impl View {
                     format!("m:{handle}"),
                     swipe::Swipeable::Item(item.key, offer),
                 );
-                let row = message_row(handle, item, model_rc, drawn, offer);
+                let row = message_row(handle, item, model_rc, drawn, offer, placed);
                 rendered.insert(
                     handle,
                     Pressable {
@@ -1978,6 +2020,7 @@ fn action_model(actions: &[RowAction]) -> ModelRc<ActionRow> {
             Some(ActionRow {
                 index: i32::try_from(index).ok()?,
                 text: swipe::action_text(*action).into(),
+                kind: swipe::kind(Some(*action)),
             })
         })
         .collect();
@@ -2074,22 +2117,14 @@ fn message_row(
     actions: ModelRc<ActionRow>,
     drawn: &DrawnBody,
     offer: interweave_human_ui_model::SwipeOffer,
+    placed: Placement,
 ) -> MessageRow {
     let (author, author_id) = match (&item.direction, &item.author) {
         (Direction::Inbound, Some(peer)) => (short_peer(peer.as_str()), peer.as_str().to_owned()),
         _ => (placeholder_en::text(UiText::You).to_owned(), String::new()),
     };
     let status = status_text(item);
-    let route = item
-        .route_label
-        .as_ref()
-        .map(|r| {
-            fill(
-                placeholder_en::text(UiText::Route),
-                &[("route", r.as_str())],
-            )
-        })
-        .unwrap_or_default();
+    let mark = status_mark(item);
     let reply = match &item.reply {
         Some(Reply::Present(_)) => placeholder_en::text(UiText::ReplyPresent),
         Some(Reply::Unavailable(_)) => placeholder_en::text(UiText::ReplyUnavailable),
@@ -2101,6 +2136,7 @@ fn message_row(
             ("author", &author),
             ("status", status),
             ("body", &drawn.plain),
+            ("time", &placed.spoken_time),
         ],
     );
     MessageRow {
@@ -2108,8 +2144,15 @@ fn message_row(
         label: label.into(),
         author: author.into(),
         author_id: author_id.into(),
-        route: route.into(),
         status: status.into(),
+        outbound: item.direction == Direction::Outbound,
+        show_author: placed.show_author,
+        status_glyph: mark.glyph,
+        status_dot: mark.dot,
+        status_error: mark.error,
+        time: placed.time.into(),
+        gap: placed.gap,
+        day: placed.day.into(),
         source: item.source.as_str().into(),
         lines: drawn.lines.clone(),
         links: drawn.link_rows.clone(),
@@ -2282,6 +2325,51 @@ fn status_text(item: &MessageItem) -> &'static str {
             placeholder_en::text(UiText::UnreadAlsoKept)
         }
         _ => placeholder_en::label(item.label),
+    }
+}
+
+/// Where a message sits among those before it, as `View::placement`
+/// decides it.
+struct Placement {
+    /// The day separator drawn above it; empty for none.
+    day: String,
+    /// The space above it, in logical pixels.
+    gap: f32,
+    /// Whether its bubble opens with its author.
+    show_author: bool,
+    /// Its local clock time.
+    time: String,
+    /// Its time as the list says it, for its label: the clock time today,
+    /// else its day.
+    spoken_time: String,
+}
+
+/// How a status is marked beside its words (section 6's table): the
+/// words are always there, so the mark is never the only sign.
+struct StatusMark {
+    glyph: Glyph,
+    /// The unread dot, before any glyph.
+    dot: bool,
+    /// The icon and words in the error colour.
+    error: bool,
+}
+
+fn status_mark(item: &MessageItem) -> StatusMark {
+    let mark = |glyph, dot, error| StatusMark { glyph, dot, error };
+    match item.label {
+        LabelKey::Unread if item.kept => mark(Glyph::Bookmark, true, false),
+        LabelKey::Unread => mark(Glyph::None, true, false),
+        LabelKey::ReadNotKept => mark(Glyph::None, false, false),
+        LabelKey::Kept => mark(Glyph::Bookmark, false, false),
+        LabelKey::Sending | LabelKey::NotConfirmed => mark(Glyph::Clock, false, false),
+        LabelKey::NeedsAttention | LabelKey::NeedsAttentionMayHaveBeenReceived => {
+            mark(Glyph::Error, false, true)
+        }
+        LabelKey::AcceptedByRemoteTransport => mark(Glyph::Check, false, false),
+        LabelKey::PublishedLocally => mark(Glyph::CheckOutline, false, false),
+        LabelKey::Cancelled | LabelKey::CancelledMayHaveBeenReceived => {
+            mark(Glyph::Crossed, false, false)
+        }
     }
 }
 

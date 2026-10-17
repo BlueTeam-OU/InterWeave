@@ -350,7 +350,13 @@ const DAY: u64 = 86_400_000;
 const NOW: u64 = 20_743 * DAY + 14 * 60 * MINUTE + 30 * MINUTE;
 
 fn view() -> View {
-    i_slint_backend_testing::init_no_event_loop();
+    thread_local! {
+        static PLATFORM: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    // The platform is set once per thread, and a test may make two views.
+    if !PLATFORM.replace(true) {
+        i_slint_backend_testing::init_no_event_loop();
+    }
     let mut view = View::new(RuntimeHost::Embedded).expect("a view");
     view.set_clock(|| NOW, |_| 0);
     view.window().show().expect("shown");
@@ -539,7 +545,7 @@ fn press(view: &View, label: &str) {
 /// Section 11 item 7: on a phone, the conversation's app bar has Back,
 /// the name and the connectivity line, and an overflow button labelled
 /// "More options" whose menu holds Details always and Hide conversation
-/// exactly when it is offered; Details shows the exact PeerId.
+/// exactly when it is offered; Details shows the exact `PeerId`.
 #[test]
 fn the_overflow_menu_holds_details_and_hide_exactly_when_offered() {
     let mut view = view();
@@ -582,4 +588,177 @@ fn the_overflow_menu_holds_details_and_hide_exactly_when_offered() {
     press(&view, text(UiText::MoreOptions));
     assert_eq!(labelled(&view, text(UiText::HideConversation)).len(), 1);
     assert_eq!(labelled(&view, text(UiText::Details)).len(), 1);
+}
+
+/// Open the direct conversation in a phone-sized window.
+fn opened(model: &UiModel, rtl: bool) -> View {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 1600.0));
+    view.window().set_rtl(rtl);
+    view.select(direct());
+    let _ = view.take_events(model);
+    view.render(model);
+    slint::platform::update_timers_and_animations();
+    view
+}
+
+/// The left edge of the one element labelled `label`.
+fn left_of(view: &View, label: &str) -> f32 {
+    let found = labelled(view, label);
+    assert_eq!(found.len(), 1, "one element labelled {label:?}");
+    found[0].absolute_position().x
+}
+
+/// Section 11 item 8: received on the start side and sent on the end
+/// side, swapped right to left; 2 px within a minute on one side, 8 px
+/// otherwise; a day change shows its separator.
+#[test]
+fn bubbles_sit_on_their_side_grouped_by_the_minute_with_day_separators() {
+    let mut model = UiModel::new();
+    model.received(received(1, "yesterday's", NOW - DAY));
+    model.received(received(2, "first", NOW - 3 * MINUTE));
+    model.received(received(3, "second", NOW - 3 * MINUTE + 20_000));
+    send(&mut model, 4, "mine", NOW - MINUTE);
+    for rtl in [false, true] {
+        let view = opened(&model, rtl);
+        let (theirs, mine) = (left_of(&view, "first"), left_of(&view, "mine"));
+        if rtl {
+            assert!(theirs > mine, "right to left, received on the right");
+        } else {
+            assert!(theirs < mine, "received on the left");
+        }
+        let rows = view.window().get_messages();
+        let gaps: Vec<f32> = rows.iter().map(|r| r.gap).collect();
+        assert_eq!(gaps, [0.0, 8.0, 2.0, 8.0], "a run, then a change of side");
+        let days: Vec<String> = rows.iter().map(|r| r.day.to_string()).collect();
+        assert_eq!(
+            days,
+            [
+                placeholder_en::text(UiText::Yesterday),
+                placeholder_en::text(UiText::Today),
+                "",
+                ""
+            ]
+        );
+        assert_eq!(
+            labelled(&view, placeholder_en::text(UiText::Today)).len(),
+            1
+        );
+    }
+}
+
+/// Section 11 item 9: in a channel each received bubble opens with its
+/// author, described by the full `PeerId`; in a direct conversation none
+/// does.
+#[test]
+fn a_channels_bubbles_name_their_author_and_a_direct_ones_do_not() {
+    let general = interweave_transport_api::ChannelId::parse("general").expect("a channel");
+    let mut model = UiModel::new();
+    model.received(Received {
+        row: RowId::from_stored(1),
+        origin: Origin::Channel {
+            channel: general.clone(),
+            publisher: alice(),
+        },
+        envelope: envelope(1, "to all", None),
+        received_at: NOW,
+    });
+    model.received(received(2, "to me", NOW));
+    let mut view = view();
+    view.select(ConversationKey::Channel(general));
+    let _ = view.take_events(&model);
+    view.render(&model);
+    let short = interweave_human_ui_model::short_peer(ALICE);
+    let author = labelled(&view, &short);
+    assert_eq!(author.len(), 1, "the author line");
+    assert_eq!(author[0].accessible_description().as_deref(), Some(ALICE));
+
+    let view = opened(&model, false);
+    assert!(labelled(&view, &short).is_empty(), "no author line");
+}
+
+/// Section 11 item 10: each status shows its words and its icon, and an
+/// accepted message a check, never the words "Read" or "Seen".
+#[test]
+fn each_status_has_its_words_and_its_icon() {
+    use interweave_human_client_api::{ClientEvent, OutboundStatus, OutboundUpdate};
+    use interweave_human_core::AppMessageId;
+    use interweave_human_ui_model::LabelKey;
+    let mut model = UiModel::new();
+    model.received(received(1, "unread", NOW));
+    send(&mut model, 2, "accepted", NOW);
+    model.client_event(ClientEvent::Outbound(OutboundUpdate {
+        row: RowId::from_stored(2),
+        app_message_id: AppMessageId::parse(format!("{:032x}", 2)).expect("an id"),
+        status: OutboundStatus::Accepted { endpoint: human() },
+        last_code: None,
+    }));
+    send(&mut model, 3, "sending", NOW);
+    let view = opened(&model, false);
+    let rows: Vec<_> = view.window().get_messages().iter().collect();
+    let by_status = |label: LabelKey| {
+        rows.iter()
+            .find(|r| r.status == placeholder_en::label(label))
+            .unwrap_or_else(|| panic!("a row whose status is {label:?}"))
+    };
+    let unread = by_status(LabelKey::Unread);
+    assert!(unread.status_dot, "the unread dot");
+    let accepted = by_status(LabelKey::AcceptedByRemoteTransport);
+    assert_eq!(
+        accepted.status_glyph,
+        interweave_human_ui_slint::Glyph::Check
+    );
+    assert!(!accepted.status_dot);
+    let words = accepted.status.to_lowercase();
+    assert!(
+        !words.contains("read") && !words.contains("seen"),
+        "{words}"
+    );
+    let sending = by_status(LabelKey::Sending);
+    assert_eq!(
+        sending.status_glyph,
+        interweave_human_ui_slint::Glyph::Clock
+    );
+    for status in [unread, accepted, sending] {
+        assert_eq!(
+            labelled(&view, &status.status).len(),
+            1,
+            "its words are drawn"
+        );
+    }
+}
+
+/// Section 8, a very long message: the bubble wraps and holds every line
+/// of it, its status included, and the chips under it keep their 48 px.
+/// A stretched chip row once took the room the wrapped text needed, so
+/// the bubble's last line and its status ran past the fill, and its
+/// Show source chip grew to 86 px (seen in the rendered window).
+#[test]
+fn a_wrapped_bubble_holds_its_status_above_its_chips() {
+    let mut model = UiModel::new();
+    let long =
+        "A long message with no link at all that goes past the width of the row for sure and wraps";
+    model.received(received(6, long, NOW - 30_000));
+    let view = opened(&model, false);
+    let one = |label: &str| {
+        let found = labelled(&view, label);
+        assert_eq!(found.len(), 1, "one {label:?}");
+        let (p, z) = (found[0].absolute_position(), found[0].size());
+        (p.y, z.height, z.width)
+    };
+    let (text_y, text_h, text_w) = one(long);
+    let (status_y, status_h, _) = one(placeholder_en::label(
+        interweave_human_ui_model::LabelKey::Unread,
+    ));
+    let (chip_y, chip_h, _) = one(placeholder_en::text(UiText::ShowSource));
+    assert!(text_h > 2.0 * status_h, "the text wrapped: {text_h}");
+    assert!(text_w <= 390.0 * 0.8, "inside 80 % of the width: {text_w}");
+    assert!(status_y >= text_y + text_h, "the status under the text");
+    assert!(chip_y >= status_y + status_h, "the chips under the bubble");
+    assert!(
+        (chip_h - 48.0).abs() < 0.5,
+        "the chip keeps its 48 px: {chip_h}"
+    );
 }

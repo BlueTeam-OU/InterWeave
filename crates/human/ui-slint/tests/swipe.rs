@@ -222,6 +222,10 @@ fn every_rows_buttons_are_48_by_48() {
     let key = direct(&alice);
     let kept = model.messages(&key)[1].key;
     model.kept(kept, RowId::from_stored(10));
+    // Room for every row: the list draws only the rows in view.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(900.0, 1200.0));
     open(&mut view, &mut model, &key);
     for label in [
         UiText::Keep,

@@ -202,19 +202,18 @@ ui_texts! {
     Time24 => "{hour}:{minute}",
     /// A clock time before noon on a phone set to 12 hours: `{hour}` 1 to
     /// 12 with no leading zero (12 for the hour after midnight),
-    /// `{minute}` two digits. A whole template, with TimePm, so a
+    /// `{minute}` two digits. A whole template, with `TimePm`, so a
     /// translation may put its word before the time.
     TimeAm => "{hour}:{minute} AM",
     /// The same, from noon (12 for the hour after noon).
     TimePm => "{hour}:{minute} PM",
-    /// A route label: `{route}` is the `EndpointId`, verbatim -- a
-    /// routing label, never a name.
-    Route => "Route: {route}",
     /// The author of this client's own messages.
     You => "You",
-    /// A message item as a screen reader reads it: `{author}` short,
-    /// then `{status}`, then `{body}` (U5a).
-    Item => "{author}, {status}: {body}",
+    /// A message item as a screen reader reads it, one order on every
+    /// platform (design/2026-10-16-android-look.md section 7): `{author}`
+    /// short ("You" for one's own), the `{body}`, its `{status}`, then
+    /// `{time}`, the list's time words for when it reached this app.
+    Item => "{author}: {body}. {status}, {time}",
     /// A link's control, after the message body: `{destination}` is the
     /// link's full destination as `visible_destination` shows it -- every
     /// character as sent, a hidden one as its code point -- so the person
