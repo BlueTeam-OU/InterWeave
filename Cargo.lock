@@ -3650,6 +3650,7 @@ version = "0.0.0"
 dependencies = [
  "i-slint-backend-testing",
  "i-slint-common",
+ "i-slint-compiler",
  "i-slint-core",
  "interweave-human-chat-protocol",
  "interweave-human-client-api",
@@ -3660,6 +3661,7 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
+ "spin_on",
  "yeslogic-fontconfig-sys",
 ]
 

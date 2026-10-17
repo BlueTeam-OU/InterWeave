@@ -547,6 +547,16 @@ export component AppWindow inherits Window {
     icon: @image-url("assets/interweave-icon-256.png");
     preferred-width: 900px;
     preferred-height: 640px;
+    // The window's minimum is stated here rather than taken from the panes:
+    // reading a Window's size reads the layout it takes its size from, and
+    // the panes' widths follow `narrow`, which reads the width -- a binding
+    // loop Slint 1.18 warns may panic, and which held a desktop window
+    // wider than 600 px whatever it was resized to, so `narrow` was never
+    // reached by resizing. 320 px is WCAG 1.4.10's reflow width, the
+    // narrowest a layout is expected to work at. The height is the panes'
+    // own minimum, as before.
+    min-width: 320px;
+    min-height: panes.min-height;
 
     in property <string> conversations-heading;
     in property <string> messages-heading;
@@ -725,7 +735,13 @@ export component AppWindow inherits Window {
     }
     // The system bars' and the virtual keyboard's edges are drawn under
     // but hold nothing a person must reach (Window.safe-area-insets).
-    HorizontalLayout {
+    // Placed, so the window's size is not taken from it (the minimum
+    // above says why).
+    panes := HorizontalLayout {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
         padding-top: root.safe-area-insets.top;
         padding-left: root.safe-area-insets.left;
         padding-right: root.safe-area-insets.right;
@@ -752,7 +768,7 @@ export component AppWindow inherits Window {
             // which reveals an item when it takes focus.
             Flickable {
                 vertical-stretch: 1;
-                viewport-height: conversations-column.preferred-height;
+                content-height: conversations-column.preferred-height;
                 interactive: !root.swipe-tracking;
             conversations-column := VerticalLayout {
                 width: parent.width;
@@ -991,7 +1007,7 @@ export component AppWindow inherits Window {
             }
             Flickable {
                 vertical-stretch: 1;
-                viewport-height: trusted-column.preferred-height;
+                content-height: trusted-column.preferred-height;
             trusted-column := VerticalLayout {
                 width: parent.width;
                 spacing: 6px;
@@ -1214,7 +1230,7 @@ export component AppWindow inherits Window {
             // by wheel and touch, with no visible scrollbar.
             Flickable {
                 vertical-stretch: 1;
-                viewport-height: messages-column.preferred-height;
+                content-height: messages-column.preferred-height;
                 // A row tracking a swipe holds its touch: the list does
                 // not scroll for it (swipe spec section 4).
                 interactive: !root.swipe-tracking;
