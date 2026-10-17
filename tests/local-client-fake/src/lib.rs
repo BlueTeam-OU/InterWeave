@@ -270,6 +270,20 @@ impl FakeNode {
     pub fn open_sessions(&self) -> usize {
         lock(&self.0.state).sessions.len()
     }
+
+    /// Sessions on this node holding a route to `peer`: what a test waits
+    /// on before driving a change it means to be owed as one. A send's
+    /// route is held only once the far end accepted it, as the runtime's,
+    /// so the far end can hold the message first, and a change in that
+    /// window is the path the route begins on, not a change from it.
+    #[must_use]
+    pub fn routed_sessions(&self, peer: &TransportIdentity) -> usize {
+        lock(&self.0.state)
+            .sessions
+            .values()
+            .filter(|queues| queues.routes.contains(peer))
+            .count()
+    }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
