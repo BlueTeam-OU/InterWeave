@@ -1869,22 +1869,54 @@ export component AppWindow inherits Window {
                 interactive: !root.swipe-tracking;
             messages-column := VerticalLayout {
                 width: parent.width;
-                spacing: 10px;
+                // The space between rows is each row's gap (section 6: 2 px
+                // within a run, 8 px between runs), and none of the list's:
+                // a closed row would otherwise keep its share until removed.
+                spacing: 0px;
                 // Room for a row's focus ring, which the list would clip.
                 padding: 5px;
                 alignment: start;
             // The space above it is section 6's: 2 px within a run, 8 px
             // between runs.
-            // A leaving row gives up its gap and its day separator at once:
-            // only its item closes, and the next row takes the separator
-            // over (tests/look.rs, `a_leaving_message_hands_its_day_separator_on`).
-            for row[index] in root.messages: VerticalLayout {
-                padding-top: row.leaving ? 0px : row.gap;
+            // The whole row -- its gap, its day separator and its item --
+            // closes as it leaves: held at the height it had, then closed
+            // to nothing (swipe spec section 5; tests/look.rs,
+            // `a_leaving_message_closes_its_space_without_a_jump`), clipped
+            // so it hides what it covered.
+            for row[index] in root.messages: row-box := Rectangle {
+                // Clipped only while it closes: a clipped row is skipped when
+                // focus moves to rows outside the window, so a long list
+                // could not be tabbed through
+                // (`a_long_conversation_brings_the_focused_message_into_view`).
+                clip: row.leaving;
+                // A leaving row takes no minimum from its content, or its
+                // closing maximum would lose to it and it would never close.
+                // Any other row keeps its content's, so a long list scrolls
+                // rather than squeezing its rows into the window.
+                min-height: row.leaving ? 0px : row-content.min-height;
+                property <bool> collapsing: false;
+                // Held at its content's height, read from the content rather
+                // than kept by a change handler, which runs a turn late: a
+                // row leaving before it ran closed in one frame.
+                max-height: !row.leaving ? 100000px : self.collapsing ? 0px : row-content.preferred-height;
+                animate max-height {
+                    duration: self.collapsing && !root.reduced-motion ? 150ms : 0ms;
+                    easing: ease-out;
+                }
+                Timer {
+                    interval: 16ms;
+                    running: row.leaving && !row-box.collapsing;
+                    triggered => { row-box.collapsing = true; }
+                }
+            row-content := VerticalLayout {
+                padding-top: row.gap;
                 spacing: 4px;
                 // A day change: "Today", "Yesterday", a weekday or the date,
                 // centred -- outside the message's item, so a screen reader
                 // reaches it as an item of its own before the run it heads
                 // (sections 6 and 9).
+                // A leaving row's separator closes with it, unread: the next
+                // row already carries its day's separator.
                 if row.day != "" && !row.leaving: Text {
                     text: row.day;
                     font-size: Type.body-small;
@@ -1892,6 +1924,13 @@ export component AppWindow inherits Window {
                     horizontal-alignment: center;
                     accessible-role: text;
                     accessible-label: self.text;
+                }
+                if row.day != "" && row.leaving: Text {
+                    text: row.day;
+                    font-size: Type.body-small;
+                    color: Palette.on-surface-variant;
+                    horizontal-alignment: center;
+                    accessible-role: none;
                 }
                 item := FocusScope {
                     // The person's choice for this message, kept with its row
@@ -1925,27 +1964,7 @@ export component AppWindow inherits Window {
                         duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
                         easing: ease-out;
                     }
-                    // The row's height is the layout's, at the row's real width:
-                    // a long body wraps. As the row leaves, it is held at the
-                    // height it had, then closes to nothing (swipe spec section 5).
-                    property <length> natural;
-                    property <bool> collapsing: false;
-                    changed height => {
-                        if (!row.leaving) { self.natural = self.height; }
-                    }
-                    max-height: !row.leaving ? 100000px : self.collapsing ? 0px : self.natural;
-                    animate max-height {
-                        duration: self.collapsing && !root.reduced-motion ? 150ms : 0ms;
-                        easing: ease-out;
-                    }
-                    Timer {
-                        interval: 16ms;
-                        running: row.leaving && !item.collapsing;
-                        triggered => { item.collapsing = true; }
-                    }
-                    // Clipped, so a closing row hides what it covered.
                     Rectangle {
-                    clip: true;
                     // The toolkit's handler takes a drag away from the controls
                     // inside it once it moves in a direction this row offers;
                     // what the drag MEANS is decided in Rust (gesture.rs), by
@@ -2295,6 +2314,7 @@ export component AppWindow inherits Window {
                         shown: item.has-focus;
                     }
                 }
+            }
             }
             }
             }

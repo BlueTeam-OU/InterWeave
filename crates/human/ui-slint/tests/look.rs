@@ -1222,33 +1222,57 @@ fn a_changed_hour_setting_wakes_the_root() {
     assert_eq!(woken.get(), 1, "a change wakes the root");
 }
 
-/// Review F2 on #296: when the message heading a day's run leaves, its
-/// day separator goes with it at once and the next message's takes over,
-/// so one separator shows throughout and the rows below do not jump.
+/// Review F2 and N1 on #296, swipe spec section 5: when a message
+/// leaves, its space closes over the leave rather than in one frame -- its
+/// day separator and gap with it -- and one separator for its day shows
+/// throughout. Measured frame by frame on the message below: no step moves
+/// it more than half of the whole distance, and it ends where the space
+/// has closed.
 #[test]
-fn a_leaving_message_hands_its_day_separator_on() {
-    let yesterday = placeholder_en::text(UiText::Yesterday);
-    let mut model = UiModel::new();
-    model.received(received(1, "first", NOW - DAY));
-    model.received(received(2, "second", NOW - DAY + MINUTE));
-    model.read(RowId::from_stored(1));
-    model.read(RowId::from_stored(2));
-    let mut view = opened(&model, false);
-    assert_eq!(
-        labelled(&view, yesterday).len(),
-        1,
-        "control: one separator"
-    );
-    let first = model.messages(&direct())[0].key;
-    model.hide(first);
-    view.render(&model);
-    slint::platform::update_timers_and_animations();
-    let rows: Vec<_> = view.window().get_messages().iter().collect();
-    assert_eq!(rows.len(), 2, "the first is still drawn, leaving");
-    assert!(rows[0].leaving);
-    assert_eq!(
-        labelled(&view, yesterday).len(),
-        1,
-        "one separator while it leaves"
-    );
+fn a_leaving_message_closes_its_space_without_a_jump() {
+    // Two days before NOW, a Saturday.
+    let thursday = placeholder_en::text(UiText::Thursday);
+    // The leaving message heads its day's run, and it is its day's only one.
+    for (later_day, label) in [(false, "run head"), (true, "only of its day")] {
+        let mut model = UiModel::new();
+        model.received(received(1, "leaving", NOW - 2 * DAY));
+        let next_at = if later_day {
+            NOW - DAY
+        } else {
+            NOW - 2 * DAY + MINUTE
+        };
+        model.received(received(2, "below", next_at));
+        model.read(RowId::from_stored(1));
+        model.read(RowId::from_stored(2));
+        let mut view = opened(&model, false);
+        let y = |view: &View| labelled(view, "below")[0].absolute_position().y;
+        let before = y(&view);
+        let leaving = model.messages(&direct())[0].key;
+        model.hide(leaving);
+        view.render(&model);
+        let mut seen = vec![before];
+        for _ in 0..30 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+            if !later_day {
+                assert!(
+                    labelled(&view, thursday).len() <= 1,
+                    "{label}: one separator for the day"
+                );
+            }
+            seen.push(y(&view));
+        }
+        view.render(&model);
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
+        seen.push(y(&view));
+        let total = (seen.last().copied().unwrap_or(before) - before).abs();
+        assert!(total > 10.0, "{label}: the space closed: {seen:?}");
+        let largest = seen
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            largest <= total / 2.0,
+            "{label}: a step of {largest} of {total}: {seen:?}"
+        );
+    }
 }
