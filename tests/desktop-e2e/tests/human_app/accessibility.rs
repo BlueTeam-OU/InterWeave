@@ -74,35 +74,25 @@ async fn the_tree_read_over_atspi_labels_message_route_and_connectivity_controls
         .await;
     window.activate(&row, "click").await;
 
-    // The message: the item read as author, status and the drawn body; the
-    // author carrying the exact PeerId; the route as a routing label; the
+    // The message: the item read as author, the drawn body, then its status
+    // and time (android-look section 7); the conversation's header
+    // carrying the exact PeerId, since a direct conversation's bubbles
+    // have no author line and its title carries the route (section 6); the
     // link a control naming its full destination; the source one press
     // away.
     window
         .until(
             "the message item",
             |e: &Element| {
-                e.role == "list item"
-                    && e.name.starts_with(&format!("{short}, "))
-                    && e.name.ends_with(": see the docs")
+                e.role == "list item" && e.name.starts_with(&format!("{short}: see the docs. "))
             },
             log,
         )
         .await;
     window
         .until(
-            "the author, with the exact PeerId",
-            |e: &Element| e.role == "label" && e.name == short && e.description == b,
-            log,
-        )
-        .await;
-    window
-        .until(
-            "the route",
-            |e: &Element| {
-                e.role == "label"
-                    && e.name == fill(text(UiText::Route), &[("route", human().as_str())])
-            },
+            "the header, with the exact PeerId",
+            |e: &Element| e.name == title && e.description == b,
             log,
         )
         .await;

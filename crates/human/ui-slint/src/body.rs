@@ -75,6 +75,7 @@ pub(crate) fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Bo
             let mut walk = Walk {
                 body: &mut body,
                 image,
+                soft_break: ' ',
             };
             for block in blocks {
                 walk.block(block, 0, false, "");
@@ -84,9 +85,47 @@ pub(crate) fn flatten(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> Bo
     body
 }
 
+/// The first line of `rendered` as the person wrote it, as plain text:
+/// the first non-blank line of the drawn text, with a soft line break
+/// ending a line as it did in the source (design/2026-10-16-android-look.md
+/// section 5.2: markup gone, a link's text kept). Empty when nothing is.
+pub(crate) fn first_line(rendered: &Rendered, image: &dyn Fn(&str) -> String) -> String {
+    let mut body = Body::default();
+    match rendered {
+        Rendered::PlainText { source, .. } => {
+            return source
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .unwrap_or_default()
+                .to_owned();
+        }
+        Rendered::Markdown(blocks) => {
+            let mut walk = Walk {
+                body: &mut body,
+                image,
+                soft_break: '\n',
+            };
+            for block in blocks {
+                walk.block(block, 0, false, "");
+            }
+        }
+    }
+    body.lines
+        .iter()
+        .flat_map(|line| line.text.lines())
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default()
+        .to_owned()
+}
+
 struct Walk<'a> {
     body: &'a mut Body,
     image: &'a dyn Fn(&str) -> String,
+    /// What a soft line break becomes: a space where the body is drawn,
+    /// and the line's end for a preview, which shows only the first.
+    soft_break: char,
 }
 
 impl Walk<'_> {
@@ -180,7 +219,7 @@ impl Walk<'_> {
                     let alt = self.inlines(alt);
                     out.push_str(&(self.image)(&alt));
                 }
-                Inline::SoftBreak => out.push(' '),
+                Inline::SoftBreak => out.push(self.soft_break),
                 Inline::HardBreak => out.push('\n'),
             }
         }
@@ -192,6 +231,24 @@ mod tests {
     use interweave_human_chat_protocol::render;
 
     use super::{Body, Kind, Line, flatten};
+
+    #[test]
+    fn a_preview_is_the_first_line_as_written_with_its_markup_gone() {
+        let first =
+            |source: &str| super::first_line(&render(source), &|alt| format!("[image: {alt}]"));
+        assert_eq!(
+            first("**Bold** and [the site](https://example.org)\nsecond"),
+            "Bold and the site"
+        );
+        assert_eq!(first("\n\n# Title\n\nbody"), "Title");
+        assert_eq!(first("---\n\n- item one\n- item two"), "item one");
+        assert_eq!(first("```\nlet x = 1;\nlet y = 2;\n```"), "let x = 1;");
+        assert_eq!(
+            first("![a cat](https://example.org/c.png) hi"),
+            "[image: a cat] hi"
+        );
+        assert_eq!(first(""), "");
+    }
 
     fn body(source: &str) -> Body {
         flatten(&render(source), &|alt| format!("[image: {alt}]"))

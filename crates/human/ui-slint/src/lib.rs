@@ -20,21 +20,22 @@
 // handwritten line in this crate.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use interweave_human_client_api::TrustOrigin;
 use interweave_human_ui_model::{
-    Announce, ConversationKey, Direction, FocusTarget, HostText, Intent, ItemKey, ItemStatus,
-    MessageItem, Reply, Retention, RowAction, RuntimeHost, SessionNotice, Snackbar, TrustChange,
-    TrustInput, TrustOutcome, UiModel, UiText, fill, placeholder_en, short_peer,
-    visible_destination,
+    Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
+    HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
+    RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, UiModel, UiText,
+    fill, placeholder_en, short_peer, visible_destination,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
 mod body;
+mod clock;
 mod gesture;
 mod swipe;
 
@@ -59,6 +60,11 @@ mod generated {
 }
 
 pub use generated::AppWindow;
+/// The icons the views draw; a test reads which one a status takes.
+pub use generated::Glyph;
+/// The colour roles of design/2026-10-16-android-look.md section 3, so a
+/// test can switch the scheme and measure every pair the section names.
+pub use generated::Palette;
 use generated::{ActionRow, BodyLine, ConversationRow, LineKind, LinkRow, MessageRow, TrustRow};
 
 /// The view's window, to run the event loop on: shows it, and returns
@@ -202,6 +208,9 @@ fn code_font() -> SharedString {
 /// selected meanwhile, so the queue stays finite.
 pub const INPUT_CAP: usize = 64;
 
+/// The `focus-id` the snackbar's Undo reports (`app.slint`'s `Snackbar`).
+const UNDO_FOCUS: &str = "undo";
+
 /// How long a leaving row's space takes to close (swipe spec §5: 150 ms),
 /// with a frame to spare before it is dropped.
 const LEAVING: Duration = Duration::from_millis(170);
@@ -222,8 +231,9 @@ enum Input {
     Focus(bool),
     /// An item action, by IDENTITY: the item and the action as rendered,
     /// never a position a re-render could move (agreed P1). A row button
-    /// and a committed swipe make the same input.
-    Action(ItemKey, RowAction),
+    /// and a committed swipe raise the same intent; which made it decides
+    /// only where focus goes after a Keep or Unkeep (§7).
+    Action(ItemKey, RowAction, By),
     /// Hide a conversation from the list: its row's swipe, or the open
     /// conversation's own control.
     HideConversation(ConversationKey),
@@ -249,6 +259,13 @@ enum Input {
     /// What the person did in the trust settings: a removal names its
     /// peer by identity, as rendered.
     Trust(TrustInput),
+}
+
+/// What made an item action: its row button, or a touch swipe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum By {
+    Button,
+    Swipe,
 }
 
 /// What a press on an item resolves against: the item, its actions and
@@ -605,6 +622,20 @@ pub struct View {
     outcome_seen: Option<u64>,
     /// The snackbar whose timeout is running.
     snack_timed: Option<u64>,
+    /// Rows whose Keep or Unkeep was raised by the row's own button and
+    /// not answered yet: its outcome moves focus to the row wherever
+    /// focus is (§7). Only rows still drawn are kept.
+    pressed: HashSet<ItemKey>,
+    /// The model's last snackbar closing this view acted on.
+    undo_closed_seen: Option<u64>,
+    /// Where a message's shown time comes from.
+    clock: clock::Clock,
+    /// Each conversation's preview, kept with the last message it is of:
+    /// a body never changes.
+    previews: HashMap<ConversationKey, (ItemKey, String)>,
+    /// The one wake at the next local midnight, and when it is due.
+    day_timer: slint::Timer,
+    day_due: Option<u64>,
 }
 
 impl View {
@@ -646,6 +677,8 @@ impl View {
         window.set_cancel_label(text(UiText::CancelChange));
         window.set_undo_label(text(UiText::Undo));
         window.set_hide_conversation_label(text(UiText::HideConversation));
+        window.set_more_options_label(text(UiText::MoreOptions));
+        window.set_details_label(text(UiText::Details));
         slint::ComponentHandle::global::<generated::Touch<'_>>(&window)
             .set_slop(TouchSettings::default().slop);
         let shared = Rc::new(RefCell::new(Shared {
@@ -669,7 +702,7 @@ impl View {
                     .map(|action| (item.key, *action))
             });
             if let Some((key, action)) = pressed {
-                enqueue(&s, Input::Action(key, action));
+                enqueue(&s, Input::Action(key, action, By::Button));
             }
         });
         let s = Rc::clone(&shared);
@@ -783,6 +816,10 @@ impl View {
             item_handles: Handles::new(),
             action_models: HashMap::new(),
             bodies: HashMap::new(),
+            clock: clock::Clock::default(),
+            previews: HashMap::new(),
+            day_timer: slint::Timer::default(),
+            day_due: None,
             seen: Seen::default(),
             next_slot_b: false,
             selection_unrendered: false,
@@ -800,6 +837,8 @@ impl View {
             rendered_shown: None,
             outcome_seen: None,
             snack_timed: None,
+            pressed: HashSet::new(),
+            undo_closed_seen: None,
         })
     }
 
@@ -849,6 +888,26 @@ impl View {
         // the person picks it from the list.
         self.window.set_list_shown(false);
         let _ = self.shared.borrow_mut().push(Input::Select(key));
+    }
+
+    /// Read times from `now` (Unix milliseconds) and the local zone from
+    /// `offset` (seconds east of UTC at a given Unix millisecond) rather
+    /// than the system's: for a test, or a root that pins them.
+    pub fn set_clock(
+        &mut self,
+        now: impl Fn() -> u64 + 'static,
+        offset: impl Fn(u64) -> i32 + 'static,
+    ) {
+        let hour24 = self.clock.hour24;
+        self.clock = clock::Clock::new(now, offset);
+        self.clock.hour24 = hour24;
+    }
+
+    /// The platform's 12- or 24-hour setting (Android's
+    /// `DateFormat.is24HourFormat`), which every shown time follows; 24
+    /// until it is said.
+    pub const fn set_hour24(&mut self, hour24: bool) {
+        self.clock.hour24 = hour24;
     }
 
     /// The platform's touch values a swipe reads (§4, §6, §7): its touch
@@ -980,8 +1039,22 @@ impl View {
                 // Judged NOW, against the model: a row whose state changed
                 // since it was drawn -- under the finger, even -- raises
                 // nothing (swipe spec section 8).
-                Input::Action(key, action) => {
-                    out.extend(model.intent_for(key, action).map(ViewEvent::Intent));
+                Input::Action(key, action, by) => {
+                    let intent = model.intent_for(key, action);
+                    // A Keep or Unkeep by its button moves focus to the
+                    // row's first control however it was pressed -- a tap
+                    // does not focus the button -- and a swipe only from
+                    // inside the row (§7). Any other action of the row
+                    // ends the claim, so a refused one leaves none behind.
+                    if intent.is_some()
+                        && by == By::Button
+                        && matches!(action, RowAction::Keep | RowAction::Unkeep)
+                    {
+                        self.pressed.insert(key);
+                    } else {
+                        self.pressed.remove(&key);
+                    }
+                    out.extend(intent.map(ViewEvent::Intent));
                 }
                 Input::HideConversation(key) => {
                     if let Some(intent) = model.hide_conversation_intent(&key) {
@@ -1074,7 +1147,11 @@ impl View {
         // (`a_dismiss_then_a_resize_to_the_list_in_one_take_leaves_no_snackbar`,
         // `opening_the_trust_settings_closes_the_conversations_snackbar`).
         // Last, so an Undo pressed while it was up is taken first
-        // (`an_undo_before_a_resize_to_the_list_is_honoured`).
+        // (`an_undo_before_a_resize_to_the_list_is_honoured`). It is also
+        // what makes a Cancel's success that arrives after the person left
+        // only announced: its snackbar opens off screen, is never drawn,
+        // and closes here with its Undo (§6;
+        // `a_cancels_success_after_leaving_by_back_is_only_announced`).
         let moved = std::mem::take(&mut self.shared.borrow_mut().pane_moved);
         if let Some(snack) = model.snackbar()
             && snack
@@ -1146,6 +1223,11 @@ impl View {
     pub fn render(&mut self, model: &UiModel) {
         // Before the lists retire the handles of the rows they remove.
         let focused = self.focused_row();
+        // The snackbar's Undo reports "undo" on gaining focus, and nothing
+        // reports its losing it: gone with its snackbar, it is still named
+        // here until focus goes somewhere, which is what tells the render
+        // the snackbar closed under it (§7). Cleared below once acted on.
+        let on_undo = self.window.get_focus_id() == UNDO_FOCUS;
         self.render_conversations(model);
         self.render_messages(model);
         self.render_chrome(model);
@@ -1153,7 +1235,7 @@ impl View {
         // slot, and the first would never be heard (review F5).
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
-        let outcome = self.render_swipe(model, focused.as_ref());
+        let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
         let said = [conversation, trust, outcome]
             .into_iter()
             .flatten()
@@ -1187,10 +1269,16 @@ impl View {
                     ConversationKey::Direct { .. } => UiText::DirectConversation,
                     ConversationKey::Channel(_) => UiText::ChannelConversation,
                 });
+                let preview = self.preview(summary);
+                let time = self.clock.list_time(summary.last.local_at);
                 // A count of zero is read aloud on every row and says
-                // nothing, so a row with nothing unread is its kind alone.
+                // nothing, so a row with nothing unread has its own
+                // template, without one.
                 let description = if summary.unread == 0 {
-                    kind.to_owned()
+                    fill(
+                        placeholder_en::text(UiText::ConversationDescriptionRead),
+                        &[("kind", kind), ("preview", &preview), ("time", &time)],
+                    )
                 } else {
                     let count = summary.unread.to_string();
                     let unread = fill(
@@ -1199,7 +1287,12 @@ impl View {
                     );
                     fill(
                         placeholder_en::text(UiText::ConversationDescription),
-                        &[("kind", kind), ("unread", &unread)],
+                        &[
+                            ("kind", kind),
+                            ("unread", &unread),
+                            ("preview", &preview),
+                            ("time", &time),
+                        ],
                     )
                 };
                 let hide = model.conversation_hide_offered(&summary.key);
@@ -1211,9 +1304,43 @@ impl View {
                     hide: swipe::kind(hide.then_some(RowAction::Hide)),
                     hide_label: placeholder_en::text(UiText::HideShort).into(),
                     leaving: false,
+                    avatar_letters: summary.avatar.letters.as_str().into(),
+                    avatar_hue: hue_index(summary.avatar.hue),
+                    preview: preview.into(),
+                    time: time.into(),
+                    unread: if summary.unread == 0 {
+                        SharedString::new()
+                    } else {
+                        summary.unread.to_string().into()
+                    },
+                    pending: summary.last.direction == Direction::Outbound
+                        && summary.last.pending(),
                 }
             })
             .collect();
+        self.previews.retain(|key, _| keys.contains(key));
+        // "01:18" becomes "Yesterday" at midnight with nothing else changed.
+        // One timer, held here and moved only when midnight does: every
+        // render reaching this, a timer each would pile up all day and wake
+        // the root once per render at midnight
+        // (tests/look.rs, `renders_wake_the_root_once_at_midnight`).
+        if !summaries.is_empty() {
+            let due = self.clock.next_day_ms();
+            if self.day_due != Some(due) || !self.day_timer.running() {
+                self.day_due = Some(due);
+                let shared = Rc::clone(&self.shared);
+                self.day_timer.start(
+                    slint::TimerMode::SingleShot,
+                    Duration::from_millis(due.saturating_sub(self.clock.now_ms())),
+                    move || {
+                        let wake = shared.borrow().wake.clone();
+                        if let Some(wake) = wake {
+                            wake();
+                        }
+                    },
+                );
+            }
+        }
         let (mut keys, mut rows) = (keys, rows);
         let now = Instant::now();
         let reduced = self.shared.borrow().touch.reduced_motion;
@@ -1289,6 +1416,67 @@ impl View {
         );
     }
 
+    /// A conversation's preview (section 5.2): its last message's first
+    /// line as the conversation draws it, markup gone and a link's text
+    /// kept, and one's own in the "You: " template. From the model's
+    /// state alone: making it reads nothing.
+    fn preview(&mut self, summary: &ConversationSummary) -> String {
+        let last = &summary.last;
+        if let Some((key, text)) = self.previews.get(&summary.key)
+            && *key == last.key
+        {
+            return text.clone();
+        }
+        let first = body::first_line(&last.body, &image_text);
+        let text = if last.direction == Direction::Outbound {
+            fill(
+                placeholder_en::text(UiText::OwnLastMessage),
+                &[("message", &first)],
+            )
+        } else {
+            first
+        };
+        self.previews
+            .insert(summary.key.clone(), (last.key, text.clone()));
+        text
+    }
+
+    /// Where a message sits among those before it (section 6): a day
+    /// separator when its local day differs from the previous message's,
+    /// 2 px from a message of the same side (and in a channel the same
+    /// author) within a minute and 8 px otherwise, and its author line
+    /// only in a channel, once per such run. All by `local_at`, never the
+    /// time a sender asserts.
+    fn placement(
+        &self,
+        item: &MessageItem,
+        previous: Option<&MessageItem>,
+        channel: bool,
+    ) -> Placement {
+        let local = self.clock.local(item.local_at);
+        let day = match previous {
+            Some(before) if self.clock.local(before.local_at).day == local.day => String::new(),
+            _ => clock::day_text(local.day),
+        };
+        let run = previous.is_some_and(|before| {
+            day.is_empty()
+                && before.direction == item.direction
+                && before.author == item.author
+                && item.local_at.saturating_sub(before.local_at) < 60_000
+        });
+        Placement {
+            day,
+            gap: match (previous, run) {
+                (None, _) => 0.0,
+                (Some(_), true) => 2.0,
+                (Some(_), false) => 8.0,
+            },
+            show_author: channel && item.direction == Direction::Inbound && !run,
+            time: clock::clock_text(local.hour, local.minute, self.clock.hour24),
+            spoken_time: self.clock.list_time(item.local_at),
+        }
+    }
+
     fn render_messages(&mut self, model: &UiModel) {
         let items = self
             .shown
@@ -1297,9 +1485,13 @@ impl View {
         let mut keys: Vec<ItemKey> = items.iter().map(|i| i.key).collect();
         let mut rendered = HashMap::new();
         let mut swipes = HashMap::new();
+        let channel = matches!(self.shown, Some(ConversationKey::Channel(_)));
+        let mut previous: Option<&MessageItem> = None;
         let mut rows: Vec<MessageRow> = items
             .iter()
             .map(|item| {
+                let placed = self.placement(item, previous, channel);
+                previous = Some(item);
                 let handle = self.item_handles.of(&item.key);
                 let actions = model.row_actions(item.key);
                 let model_rc = match self.action_models.get(&handle) {
@@ -1320,7 +1512,7 @@ impl View {
                     format!("m:{handle}"),
                     swipe::Swipeable::Item(item.key, offer),
                 );
-                let row = message_row(handle, item, model_rc, drawn, offer);
+                let row = message_row(handle, item, model_rc, drawn, offer, placed);
                 rendered.insert(
                     handle,
                     Pressable {
@@ -1400,6 +1592,8 @@ impl View {
             shared.swipes.extend(swipes);
         }
         update_by_key(&*self.messages, &mut self.message_keys, &keys, &rows);
+        let drawn = &self.message_keys;
+        self.pressed.retain(|key| drawn.contains(key));
     }
 
     /// Announce what changed since the last render, in the window's one
@@ -1509,10 +1703,16 @@ impl View {
     /// The snackbar, the open conversation's hide control, a committed
     /// swipe's row, and the model's latest outcome: its announcement,
     /// returned for the render's one, and its focus, moved once the rows
-    /// it names are drawn -- and, after a row was taken away, only if
-    /// `focused`, the row focus was inside, is that row (swipe spec
-    /// section 7): a touch that swiped a row leaves focus where it was.
-    fn render_swipe(&mut self, model: &UiModel, focused: Option<&FocusTarget>) -> Option<String> {
+    /// it names are drawn -- and, after a row was taken away or its
+    /// buttons changed, only if `focused`, the row focus was inside, is
+    /// that row, or the row's own button raised its Keep or Unkeep (swipe
+    /// spec section 7): a touch that swiped a row leaves focus where it was.
+    fn render_swipe(
+        &mut self,
+        model: &UiModel,
+        focused: Option<&FocusTarget>,
+        on_undo: bool,
+    ) -> Option<String> {
         let window = &self.window;
         let snack = model.snackbar();
         let up = snack.as_ref().map(SnackUp::of);
@@ -1580,41 +1780,82 @@ impl View {
             window.set_swipe_offset(0.0);
         }
 
-        let outcome = outcome.filter(|o| self.outcome_seen != Some(o.id))?;
-        self.outcome_seen = Some(outcome.id);
-        let header = self.shared.borrow_mut().hidden_from_header.take();
-        let moves = outcome.moves_from.as_ref().is_none_or(|from| {
-            focused == Some(from) || header.map(FocusTarget::Conversation).as_ref() == Some(from)
-        });
-        if let Some(focus) = outcome.focus.as_ref().filter(|_| moves) {
-            let target = match focus {
-                FocusTarget::Item(key) => self
-                    .message_keys
-                    .contains(key)
-                    .then(|| format!("m:{}", self.item_handles.of(key))),
-                FocusTarget::Conversation(key) => self
-                    .conversation_keys
-                    .contains(key)
-                    .then(|| format!("c:{}", self.conversation_handles.of(key))),
-                FocusTarget::Header(key) => (self.on_screen() == Some(key)).then(|| "h".to_owned()),
-                FocusTarget::ConversationsHeading => Some("heading".to_owned()),
+        let outcome = outcome.filter(|o| self.outcome_seen != Some(o.id));
+        let mut focus_moved = false;
+        let said = outcome.map(|outcome| {
+            self.outcome_seen = Some(outcome.id);
+            let header = self.shared.borrow_mut().hidden_from_header.take();
+            let pressed = match &outcome.moves_from {
+                Some(FocusTarget::Item(key)) => self.pressed.remove(key),
+                _ => false,
             };
-            if let Some(target) = target {
-                let window = swipe::weak(&self.window);
-                // Once the rows it names exist: a restored row is drawn by
-                // this render, and its controls are made after it.
-                defer(move || {
-                    if let Some(window) = window.upgrade() {
-                        window.set_focus_target(target.into());
-                        window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
-                    }
+            let moves = pressed
+                || outcome.moves_from.as_ref().is_none_or(|from| {
+                    focused == Some(from)
+                        || header.map(FocusTarget::Conversation).as_ref() == Some(from)
                 });
+            if let Some(focus) = outcome.focus.as_ref().filter(|_| moves) {
+                focus_moved = self.focus_on(focus);
+            }
+            outcome.announce.map(|announce| match announce {
+                Announce::Confirmed(confirms) => swipe::confirmation_text(confirms).to_owned(),
+                Announce::Restored => placeholder_en::text(UiText::ActionUndone).to_owned(),
+            })
+        });
+        // A snackbar closed under its Undo: focus goes to the row its
+        // action was about, or that row's place -- unless this render's
+        // outcome focus_moved it already, an action taken since. Once the person
+        // has left the conversation, to its row on the list (§7).
+        let closed = model
+            .undo_closed()
+            .filter(|c| self.undo_closed_seen != Some(c.id))
+            .cloned();
+        if let Some(closed) = closed {
+            self.undo_closed_seen = Some(closed.id);
+            if on_undo && !focus_moved {
+                let focus = match closed.conversation {
+                    Some(c) if self.on_screen() != Some(&c) => FocusTarget::Conversation(c),
+                    _ => closed.focus,
+                };
+                focus_moved = self.focus_on(&focus);
             }
         }
-        outcome.announce.map(|announce| match announce {
-            Announce::Confirmed(confirms) => swipe::confirmation_text(confirms).to_owned(),
-            Announce::Restored => placeholder_en::text(UiText::ActionUndone).to_owned(),
-        })
+        // No snackbar, so no Undo: a stale "undo" must not move focus at a
+        // later snackbar's close (`a_stale_undo_focus_moves_nothing_later`).
+        if on_undo && !focus_moved && model.snackbar().is_none() {
+            self.window.set_focus_id(SharedString::new());
+        }
+        said.flatten()
+    }
+
+    /// Move focus to `focus` once the rows it names are drawn: whether it
+    /// names something on screen to move to.
+    fn focus_on(&mut self, focus: &FocusTarget) -> bool {
+        let target = match focus {
+            FocusTarget::Item(key) => self
+                .message_keys
+                .contains(key)
+                .then(|| format!("m:{}", self.item_handles.of(key))),
+            FocusTarget::Conversation(key) => self
+                .conversation_keys
+                .contains(key)
+                .then(|| format!("c:{}", self.conversation_handles.of(key))),
+            FocusTarget::Header(key) => (self.on_screen() == Some(key)).then(|| "h".to_owned()),
+            FocusTarget::ConversationsHeading => Some("heading".to_owned()),
+        };
+        let Some(target) = target else {
+            return false;
+        };
+        let window = swipe::weak(&self.window);
+        // Once the rows it names exist: a restored row is drawn by this
+        // render, and its controls are made after it.
+        defer(move || {
+            if let Some(window) = window.upgrade() {
+                window.set_focus_target(target.into());
+                window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
+            }
+        });
+        true
     }
 
     /// Wake the root after `delay`, so it renders again: a leaving row
@@ -1631,6 +1872,15 @@ impl View {
 
     fn render_chrome(&self, model: &UiModel) {
         let window = &self.window;
+        // The menu and Details are about the conversation they opened on:
+        // another one shown, or none, closes them. Decided here rather
+        // than by a change handler in the views, which runs a turn late
+        // and would close a menu opened in between.
+        let id = self.shown.as_ref().map(full_id).unwrap_or_default();
+        if window.get_header_id().as_str() != id {
+            window.set_menu_open(false);
+            window.set_details_open(false);
+        }
         window
             .set_connectivity(placeholder_en::connectivity(self.host, model.connectivity()).into());
         let notice = model.session_notice();
@@ -1652,6 +1902,7 @@ impl View {
             None => {
                 window.set_header_title(placeholder_en::text(UiText::NoConversation).into());
                 window.set_header_id(SharedString::new());
+                window.set_header_avatar_letters(SharedString::new());
                 window.set_header_path(SharedString::new());
                 window.set_composer_enabled(false);
                 window.set_refused(SharedString::new());
@@ -1660,6 +1911,9 @@ impl View {
                 let title = model.title(key);
                 window.set_header_title(title.into());
                 window.set_header_id(full_id(key).into());
+                let avatar = Avatar::of(key);
+                window.set_header_avatar_letters(avatar.letters.as_str().into());
+                window.set_header_avatar_hue(hue_index(avatar.hue));
                 let path = model.path(key).map(placeholder_en::path);
                 window.set_header_path(path.unwrap_or_default().into());
                 // No composer while nothing can be sent: without network
@@ -1789,6 +2043,7 @@ fn action_model(actions: &[RowAction]) -> ModelRc<ActionRow> {
             Some(ActionRow {
                 index: i32::try_from(index).ok()?,
                 text: swipe::action_text(*action).into(),
+                kind: swipe::kind(Some(*action)),
             })
         })
         .collect();
@@ -1806,15 +2061,27 @@ struct DrawnBody {
     plain: String,
 }
 
+/// An avatar's pair as the views number it: 0 teal, 1 amber, 2 navy.
+const fn hue_index(hue: AvatarHue) -> i32 {
+    match hue {
+        AvatarHue::Teal => 0,
+        AvatarHue::Amber => 1,
+        AvatarHue::Navy => 2,
+    }
+}
+
+/// An image's placeholder, in the view's words: its alt text, or only
+/// that it is an image when the alt text is empty or blank.
+fn image_text(alt: &str) -> String {
+    if alt.trim().is_empty() {
+        placeholder_en::text(UiText::ImageNotShownWithoutAlt).to_owned()
+    } else {
+        fill(placeholder_en::text(UiText::ImageNotShown), &[("alt", alt)])
+    }
+}
+
 fn drawn_body(item: &MessageItem) -> DrawnBody {
-    let image = |alt: &str| {
-        if alt.trim().is_empty() {
-            placeholder_en::text(UiText::ImageNotShownWithoutAlt).to_owned()
-        } else {
-            fill(placeholder_en::text(UiText::ImageNotShown), &[("alt", alt)])
-        }
-    };
-    let body = body::flatten(&item.body, &image);
+    let body = body::flatten(&item.body, &image_text);
     let plain = body
         .lines
         .iter()
@@ -1873,22 +2140,14 @@ fn message_row(
     actions: ModelRc<ActionRow>,
     drawn: &DrawnBody,
     offer: interweave_human_ui_model::SwipeOffer,
+    placed: Placement,
 ) -> MessageRow {
     let (author, author_id) = match (&item.direction, &item.author) {
         (Direction::Inbound, Some(peer)) => (short_peer(peer.as_str()), peer.as_str().to_owned()),
         _ => (placeholder_en::text(UiText::You).to_owned(), String::new()),
     };
     let status = status_text(item);
-    let route = item
-        .route_label
-        .as_ref()
-        .map(|r| {
-            fill(
-                placeholder_en::text(UiText::Route),
-                &[("route", r.as_str())],
-            )
-        })
-        .unwrap_or_default();
+    let mark = status_mark(item);
     let reply = match &item.reply {
         Some(Reply::Present(_)) => placeholder_en::text(UiText::ReplyPresent),
         Some(Reply::Unavailable(_)) => placeholder_en::text(UiText::ReplyUnavailable),
@@ -1900,6 +2159,7 @@ fn message_row(
             ("author", &author),
             ("status", status),
             ("body", &drawn.plain),
+            ("time", &placed.spoken_time),
         ],
     );
     MessageRow {
@@ -1907,8 +2167,15 @@ fn message_row(
         label: label.into(),
         author: author.into(),
         author_id: author_id.into(),
-        route: route.into(),
         status: status.into(),
+        outbound: item.direction == Direction::Outbound,
+        show_author: placed.show_author,
+        status_glyph: mark.glyph,
+        status_dot: mark.dot,
+        status_error: mark.error,
+        time: placed.time.into(),
+        gap: placed.gap,
+        day: placed.day.into(),
         source: item.source.as_str().into(),
         lines: drawn.lines.clone(),
         links: drawn.link_rows.clone(),
@@ -2081,6 +2348,51 @@ fn status_text(item: &MessageItem) -> &'static str {
             placeholder_en::text(UiText::UnreadAlsoKept)
         }
         _ => placeholder_en::label(item.label),
+    }
+}
+
+/// Where a message sits among those before it, as `View::placement`
+/// decides it.
+struct Placement {
+    /// The day separator drawn above it; empty for none.
+    day: String,
+    /// The space above it, in logical pixels.
+    gap: f32,
+    /// Whether its bubble opens with its author.
+    show_author: bool,
+    /// Its local clock time.
+    time: String,
+    /// Its time as the list says it, for its label: the clock time today,
+    /// else its day.
+    spoken_time: String,
+}
+
+/// How a status is marked beside its words (section 6's table): the
+/// words are always there, so the mark is never the only sign.
+struct StatusMark {
+    glyph: Glyph,
+    /// The unread dot, before any glyph.
+    dot: bool,
+    /// The icon and words in the error colour.
+    error: bool,
+}
+
+fn status_mark(item: &MessageItem) -> StatusMark {
+    let mark = |glyph, dot, error| StatusMark { glyph, dot, error };
+    match item.label {
+        LabelKey::Unread if item.kept => mark(Glyph::Bookmark, true, false),
+        LabelKey::Unread => mark(Glyph::None, true, false),
+        LabelKey::ReadNotKept => mark(Glyph::None, false, false),
+        LabelKey::Kept => mark(Glyph::Bookmark, false, false),
+        LabelKey::Sending | LabelKey::NotConfirmed => mark(Glyph::Clock, false, false),
+        LabelKey::NeedsAttention | LabelKey::NeedsAttentionMayHaveBeenReceived => {
+            mark(Glyph::Error, false, true)
+        }
+        LabelKey::AcceptedByRemoteTransport => mark(Glyph::Check, false, false),
+        LabelKey::PublishedLocally => mark(Glyph::CheckOutline, false, false),
+        LabelKey::Cancelled | LabelKey::CancelledMayHaveBeenReceived => {
+            mark(Glyph::Crossed, false, false)
+        }
     }
 }
 

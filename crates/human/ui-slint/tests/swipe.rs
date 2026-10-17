@@ -222,6 +222,10 @@ fn every_rows_buttons_are_48_by_48() {
     let key = direct(&alice);
     let kept = model.messages(&key)[1].key;
     model.kept(kept, RowId::from_stored(10));
+    // Room for every row: the list draws only the rows in view.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(900.0, 1200.0));
     open(&mut view, &mut model, &key);
     for label in [
         UiText::Keep,
@@ -453,6 +457,9 @@ fn hide_conversation_is_offered_on_its_screen_only_when_the_swipe_is() {
     read(&mut model, 1, &alice, "first");
     open(&mut view, &mut model, &direct(&alice));
     assert!(view.window().get_hide_conversation_shown());
+    // In the overflow menu (android-look section 6): there once it opens.
+    assert!(labelled(&view, text(UiText::HideConversation)).is_empty());
+    labelled(&view, text(UiText::MoreOptions))[0].invoke_accessible_default_action();
     let control = labelled(&view, text(UiText::HideConversation));
     assert_eq!(control.len(), 1);
     control[0].invoke_accessible_default_action();
@@ -1049,7 +1056,13 @@ fn hide_conversation_in_its_header_focuses_the_next_conversation_row() {
     let other = rows.row_data(1).expect("a row").handle;
     let key = model.conversations()[0].key.clone();
     open(&mut view, &mut model, &key);
-    tab_to(&view, "hide-conversation");
+    // In the overflow menu (android-look section 6), which opens with
+    // focus on its first entry.
+    tab_to(&view, "more-options");
+    press_focused(&view);
+    // The entry takes focus once it is in the window, a timer's turn later.
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(10));
+    assert_eq!(view.window().get_focus_id().as_str(), "hide-conversation");
     press_focused(&view);
     let _ = turn(&mut view, &mut model);
     assert_eq!(model.conversations().len(), 1, "control: hidden");
@@ -1130,4 +1143,434 @@ fn the_snackbar_mirrors_right_to_left() {
             "rtl {rtl}: Undo on screen"
         );
     }
+}
+
+// --- focus after Keep, Unkeep and Retry (§7; §11 item 21) ------------------
+
+/// Carry out what `turn` returned that changes a row's buttons: a Keep
+/// kept as stored row `kept`, an Unkeep released. Then render, as the
+/// root does once the store has answered.
+fn answer(view: &mut View, model: &mut UiModel, intents: &[Intent], kept: i64) {
+    for intent in intents {
+        match intent {
+            Intent::Keep { item, .. } => model.kept(*item, RowId::from_stored(kept)),
+            Intent::Unkeep(row) => model.unkept(*row),
+            _ => {}
+        }
+    }
+    let _ = turn(view, model);
+}
+
+/// Two read rows, the second's control focused by the keyboard first, as
+/// the place focus is "elsewhere".
+fn two_read_rows_focus_on_the_second() -> (View, UiModel, i32, String) {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    let first = handle(&view, 0);
+    let elsewhere = tab_to(&view, &format!("action:{}:", handle(&view, 1)));
+    (view, model, first, elsewhere)
+}
+
+#[test]
+fn keep_by_its_button_from_the_keyboard_focuses_the_rows_first_control() {
+    let (mut view, mut model, first, _) = two_read_rows_focus_on_the_second();
+    tab_to(&view, &format!("action:{first}:0"));
+    press_focused(&view);
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    assert_eq!(
+        view.window()
+            .get_messages()
+            .row_data(0)
+            .expect("row")
+            .actions
+            .row_count(),
+        1,
+        "control: the row now offers Unkeep alone"
+    );
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first}:0"),
+        "the pressed Keep is gone; focus is on the row's Unkeep"
+    );
+}
+
+/// A tap on the button does not focus it, and focus still goes to the
+/// row: the spec names the button, not where focus was.
+#[test]
+fn keep_and_unkeep_by_a_tap_on_the_button_focus_the_rows_first_control() {
+    let (mut view, mut model, first, elsewhere) = two_read_rows_focus_on_the_second();
+    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id().as_str(), elsewhere, "control");
+    answer(&mut view, &mut model, &intents, 10);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first}:0")
+    );
+
+    let on = tab_to(&view, &format!("action:{}:", handle(&view, 1)));
+    labelled(&view, text(UiText::Unkeep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id().as_str(), on, "control");
+    answer(&mut view, &mut model, &intents, 0);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first}:0")
+    );
+}
+
+#[test]
+fn keep_by_a_touch_swipe_leaves_focus_held_in_another_row() {
+    let (mut view, mut model, _, elsewhere) = two_read_rows_focus_on_the_second();
+    swipe(&view, &row_key(&view, 0), 170.0, 0.0, 8);
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    assert!(model.snackbar().is_some(), "control: it was kept");
+    assert_eq!(view.window().get_focus_id().as_str(), elsewhere);
+}
+
+/// A swipe raised after a button press of the same row ends the button's
+/// claim: the swipe's Unkeep moves focus only from inside the row.
+#[test]
+fn a_swipe_after_a_refused_press_moves_focus_only_from_inside_the_row() {
+    let (mut view, mut model, first, _) = two_read_rows_focus_on_the_second();
+    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    let keep = intents.first().expect("Keep").clone();
+    model.intent_refused(&keep);
+    let _ = turn(&mut view, &mut model);
+    let elsewhere = view.window().get_focus_id().to_string();
+    swipe(&view, &format!("m:{first}"), 170.0, 0.0, 8);
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    assert!(model.snackbar().is_some(), "control: it was kept");
+    assert_eq!(view.window().get_focus_id().as_str(), elsewhere);
+}
+
+#[test]
+fn unkeep_by_a_touch_swipe_on_the_row_holding_focus_focuses_its_first_control() {
+    let (mut view, mut model, first, _) = two_read_rows_focus_on_the_second();
+    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    // Focus on the row's Show source, after its Unkeep.
+    tab_to(&view, &format!("source:{first}"));
+    swipe(&view, &format!("m:{first}"), -170.0, 0.0, 8);
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 0);
+    assert_eq!(
+        view.window()
+            .get_messages()
+            .row_data(0)
+            .expect("row")
+            .actions
+            .row_count(),
+        2,
+        "control: Keep and Dismiss again"
+    );
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first}:0")
+    );
+}
+
+#[test]
+fn retry_by_its_button_leaves_focus_on_it() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    pending(&mut model, 1, &alice, "out");
+    open(&mut view, &mut model, &direct(&alice));
+    let retry = format!("action:{}:0", handle(&view, 0));
+    tab_to(&view, &retry);
+    press_focused(&view);
+    let intents = turn(&mut view, &mut model);
+    assert!(
+        matches!(intents.first(), Some(Intent::Retry(_))),
+        "{intents:?}"
+    );
+    assert_eq!(view.window().get_focus_id().as_str(), retry);
+}
+
+// --- focus when the snackbar closes under its Undo (§7; §11 item 21) -------
+
+/// Let the snackbar's time run out, and turn.
+fn time_out(view: &mut View, model: &mut UiModel) {
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(6_100));
+    let _ = turn(view, model);
+}
+
+#[test]
+fn a_timed_out_dismiss_with_focus_on_its_undo_focuses_the_next_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 1..=3 {
+        read(&mut model, n, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    let second = handle(&view, 1);
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    tab_to(&view, "undo");
+    time_out(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "control: timed out");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{second}:0")
+    );
+}
+
+#[test]
+fn a_timed_out_keep_with_focus_on_its_undo_focuses_the_kept_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    let first = handle(&view, 0);
+    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    tab_to(&view, "undo");
+    time_out(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first}:0")
+    );
+}
+
+/// A touch swipe's snackbar replaces the one whose Undo held focus: focus
+/// goes to the older action's row's place, not left on the newer Undo.
+#[test]
+fn a_snackbar_replaced_under_its_focused_undo_focuses_the_older_actions_place() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 1..=3 {
+        read(&mut model, n, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    let (second, third) = (handle(&view, 1), handle(&view, 2));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    tab_to(&view, "undo");
+    swipe(&view, &format!("m:{third}"), 170.0, 0.0, 8);
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    assert_eq!(
+        model.snackbar().map(|s| s.confirms),
+        Some(interweave_human_ui_model::Confirmation::Kept),
+        "control: replaced"
+    );
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{second}:0")
+    );
+}
+
+/// Back, with focus on the Undo: the snackbar closes, and focus goes to the
+/// conversation's row on the list.
+#[test]
+fn leaving_with_focus_on_the_undo_focuses_the_conversations_row() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    tab_to(&view, "undo");
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "control: closed by leaving");
+    assert!(view.window().get_list_shown(), "control: on the list");
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("conversation:{row}")
+    );
+}
+
+/// A message brings a hidden conversation back while focus is on the
+/// hide's Undo: focus goes to the returned conversation's row (§10).
+#[test]
+fn a_message_into_a_hidden_conversation_moves_focus_from_the_undo_to_its_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    read(&mut model, 1, &alice, "a");
+    read(&mut model, 2, &bob, "b");
+    let _ = turn(&mut view, &mut model);
+    let first = model.conversations()[0].key.clone();
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    swipe(&view, &format!("c:{row}"), -170.0, 0.0, 8);
+    let _ = turn(&mut view, &mut model);
+    tab_to(&view, "undo");
+    let ConversationKey::Direct { peer: from, .. } = &first else {
+        panic!("direct");
+    };
+    model.received(Received {
+        row: RowId::from_stored(3),
+        origin: Origin::Direct {
+            peer: from.clone(),
+            endpoint: human(),
+        },
+        envelope: envelope(9_999, "again"),
+        received_at: 3,
+    });
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "control: the arrival closed it");
+    let back = view
+        .window()
+        .get_conversations()
+        .iter()
+        .find(|r| r.title == model.title(&first))
+        .expect("back on the list")
+        .handle;
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("conversation:{back}")
+    );
+}
+
+/// An Undo pressed from the keyboard whose answer has not come: the
+/// snackbar has gone, and a later snackbar's timeout, with focus nowhere,
+/// moves nothing -- the gone Undo's name no longer stands for focus.
+#[test]
+fn a_stale_undo_focus_moves_nothing_later() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 1..=3 {
+        read(&mut model, n, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    answer(&mut view, &mut model, &intents, 10);
+    tab_to(&view, "undo");
+    press_focused(&view);
+    let intents = turn(&mut view, &mut model);
+    assert!(
+        matches!(intents.first(), Some(Intent::Unkeep(_))),
+        "control: {intents:?}"
+    );
+    assert_eq!(view.window().get_focus_id().as_str(), "", "cleared");
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    time_out(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "control: timed out");
+    assert_eq!(view.window().get_focus_id().as_str(), "");
+}
+
+// --- a Cancel's success after leaving (§6; §11 item 19) --------------------
+
+/// A pending row's Cancel raised by its button and not answered yet, in a
+/// conversation with a read row beside it.
+fn cancel_waiting(view: &mut View, model: &mut UiModel, alice: &TransportIdentity) -> Intent {
+    read(model, 1, alice, "in");
+    pending(model, 2, alice, "out");
+    open(view, model, &direct(alice));
+    labelled(view, text(UiText::Cancel))[0].invoke_accessible_default_action();
+    let intents = turn(view, model);
+    let Some(cancel @ Intent::Cancel(row)) = intents.first().cloned() else {
+        panic!("Cancel: {intents:?}");
+    };
+    model.cancel_requested(row);
+    cancel
+}
+
+fn cancel_succeeds(model: &mut UiModel, cancel: &Intent) {
+    let Intent::Cancel(row) = cancel else {
+        panic!("a Cancel");
+    };
+    model.client_event(ClientEvent::Outbound(OutboundUpdate {
+        row: *row,
+        app_message_id: AppMessageId::parse(format!("{:032x}", 2)).expect("id"),
+        status: OutboundStatus::Cancelled {
+            may_have_reached: false,
+        },
+        last_code: None,
+    }));
+    model.cancelled(*row, true);
+}
+
+/// Left by Back, the success is only announced: no snackbar, no Undo, and
+/// coming back shows none.
+#[test]
+fn a_cancels_success_after_leaving_by_back_is_only_announced() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    let cancel = cancel_waiting(&mut view, &mut model, &alice);
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(view.window().get_list_shown(), "control: left");
+    cancel_succeeds(&mut model, &cancel);
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(announced(&view), text(UiText::ConfirmSendingCanceled));
+    assert!(!view.window().get_snack_shown());
+    assert!(model.snackbar().is_none(), "no Undo held");
+    open(&mut view, &mut model, &direct(&alice));
+    assert!(!view.window().get_snack_shown(), "none on coming back");
+    assert!(labelled(&view, text(UiText::Undo)).is_empty());
+}
+
+/// Left by picking another conversation in a wide window: the same.
+#[test]
+fn a_cancels_success_after_picking_another_conversation_is_only_announced() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    read(&mut model, 7, &bob, "elsewhere");
+    let cancel = cancel_waiting(&mut view, &mut model, &alice);
+    open(&mut view, &mut model, &direct(&bob));
+    cancel_succeeds(&mut model, &cancel);
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(announced(&view), text(UiText::ConfirmSendingCanceled));
+    assert!(!view.window().get_snack_shown());
+    assert!(model.snackbar().is_none(), "no Undo held");
+}
+
+/// The control: still in the conversation, the Cancel's snackbar shows,
+/// with its Undo.
+#[test]
+fn a_cancels_success_in_the_conversation_shows_its_snackbar() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    let cancel = cancel_waiting(&mut view, &mut model, &alice);
+    cancel_succeeds(&mut model, &cancel);
+    let _ = turn(&mut view, &mut model);
+    assert!(view.window().get_snack_shown());
+    assert!(view.window().get_snack_undo());
 }
