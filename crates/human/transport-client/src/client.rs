@@ -129,6 +129,33 @@ impl Row {
     }
 }
 
+/// A pending record an explicit cancel deleted, held so the person can
+/// take the cancel back ([`TransportClient::restore`]). Opaque: it carries
+/// the stored bytes, and only the facade that cancelled it reads it.
+pub struct CancelledSend {
+    record: PendingOutbound,
+    may_have_reached: bool,
+}
+
+impl CancelledSend {
+    /// The row the cancel ended.
+    #[must_use]
+    pub const fn row(&self) -> RowId {
+        self.record.row_id
+    }
+}
+
+impl std::fmt::Debug for CancelledSend {
+    // Never the payload: a log line is not a place for content.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CancelledSend")
+            .field("row", &self.record.row_id)
+            .field("attempts", &self.record.attempts)
+            .field("may_have_reached", &self.may_have_reached)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The human client's transport facade.
 pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     binding: B,
@@ -298,8 +325,11 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
         }
     }
 
-    /// Compose: commit the pending copy FIRST, then attempt it if the
-    /// session is ready (`RETENTION.md` §2's order).
+    /// Compose: commit the pending copy FIRST (`RETENTION.md` §2's
+    /// order); the next [`Self::tick`] attempts it if the session is
+    /// ready. Not attempted here: the caller hands the new row to the
+    /// person before an attempt to an unreachable peer has taken its time
+    /// to fail (`the_first_attempt_waits_for_the_next_tick`).
     ///
     /// # Errors
     /// See [`SendError`]: no row exists after any of them.
@@ -363,41 +393,102 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             },
         );
         self.report(row_id);
-        if matches!(self.state, SessionState::Ready { .. }) {
-            self.attempt_row(row_id, now).await;
-        }
         Ok(row_id)
     }
 
-    /// Retry a row now, whatever its state: the person's "try again".
+    /// Retry a row now, whatever its state: the person's "try again". It
+    /// is due at once, and the next [`Self::tick`] attempts it, so the
+    /// caller reports its `Sending` before the attempt's answer.
     ///
     /// # Errors
     /// [`RowError::NoSuchRow`] for a row that is not pending.
-    pub async fn retry(&mut self, row_id: RowId, now: u64) -> Result<(), RowError> {
+    pub fn retry(&mut self, row_id: RowId, now: u64) -> Result<(), RowError> {
         let row = self.rows.get_mut(&row_id).ok_or(RowError::NoSuchRow)?;
         row.attention = None;
         row.next_at = Some(now);
         self.report(row_id);
-        if matches!(self.state, SessionState::Ready { .. }) {
-            self.attempt_row(row_id, now).await;
-        }
         Ok(())
     }
 
     /// Cancel a row: it is transport-terminal and its pending copy goes.
     ///
+    /// Returns the record the cancel deleted, for the person to take the
+    /// cancel back with [`Self::restore`] (`RETENTION.md` §2), or `None`
+    /// when no restore could be written: the record could not be read
+    /// first, or storage is degraded. Without it the cancel still holds,
+    /// and nothing offers an undo that would fail.
+    ///
     /// # Errors
     /// [`RowError::NoSuchRow`] for a row that is not pending, or
     /// [`RowError::StorageUnavailable`] if the store could not remove it
     /// (the row stays pending).
-    pub fn cancel(&mut self, row_id: RowId) -> Result<(), RowError> {
+    pub fn cancel(&mut self, row_id: RowId) -> Result<Option<CancelledSend>, RowError> {
         let row = self.rows.get(&row_id).ok_or(RowError::NoSuchRow)?;
         let may_have_reached = row.may_have_reached;
+        // Read before the delete: after it nothing holds the bytes.
+        let record = self.store.pending_outbound_row(row_id).ok().flatten();
         self.store
             .transport_terminal(row_id, TerminalCause::Cancelled)
             .map_err(|_| RowError::StorageUnavailable)?;
         self.finish(row_id, OutboundStatus::Cancelled { may_have_reached });
-        Ok(())
+        Ok(record
+            .filter(|_| self.store.health() != StorageHealth::Degraded)
+            .map(|record| CancelledSend {
+                record,
+                may_have_reached,
+            }))
+    }
+
+    /// Take back a cancel: commit the cancelled record again, unchanged
+    /// but for a new row id, due at once: the next [`Self::tick`]
+    /// attempts it as a retry if the session is ready (`RETENTION.md`
+    /// §2, case 16). The same message, never a new
+    /// one: a receiver that admitted the cancelled attempt answers this
+    /// one from its dedup entry while it holds it.
+    ///
+    /// # Errors
+    /// [`SendError::NotConfigured`] if this session cannot send there,
+    /// [`SendError::AlreadyPending`] if a pending row holds the same
+    /// application id, or [`SendError::StorageUnavailable`] if the store
+    /// cannot commit it: nothing is sent and no row exists.
+    pub async fn restore(
+        &mut self,
+        cancelled: CancelledSend,
+        now: u64,
+    ) -> Result<RowId, SendError> {
+        let CancelledSend {
+            record,
+            may_have_reached,
+        } = cancelled;
+        if !self.config.allows(&record.destination) {
+            return Err(SendError::NotConfigured);
+        }
+        let row_id = match self.store.restore_pending_outbound(&record) {
+            Ok(row_id) => row_id,
+            Err(e) if e.is_duplicate() => return Err(SendError::AlreadyPending),
+            Err(_) => {
+                if self.store.health() == StorageHealth::Degraded {
+                    self.enter_degraded(now).await;
+                }
+                return Err(SendError::StorageUnavailable);
+            }
+        };
+        self.rows.insert(
+            row_id,
+            Row {
+                app_message_id: record.app_message_id,
+                attempts: record.attempts,
+                attention: None,
+                next_at: Some(now),
+                last_problem: None,
+                last_code: None,
+                // What the cancelled row said: an attempt that may have
+                // reached the remote still may have.
+                may_have_reached,
+            },
+        );
+        self.report(row_id);
+        Ok(row_id)
     }
 
     /// Take up to `max` inbound messages: each is committed as unread
@@ -709,14 +800,6 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
     }
 
     // --- one attempt -------------------------------------------------------
-
-    async fn attempt_row(&mut self, row_id: RowId, now: u64) {
-        match self.store.pending_outbound_row(row_id) {
-            Ok(Some(pending)) => self.attempt(&pending, now).await,
-            Ok(None) => {}
-            Err(_) => self.diagnostics.pending_unreadable += 1,
-        }
-    }
 
     async fn attempt(&mut self, pending: &PendingOutbound, now: u64) {
         let row_id = pending.row_id;

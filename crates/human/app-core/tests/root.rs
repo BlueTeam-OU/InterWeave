@@ -17,13 +17,13 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 
 use interweave_human_app_core::{
-    Command, FacadeSide, Failure, ModelSide, Opener, Problem, Surface, Update,
+    CANCELLED_CAP, Command, FacadeSide, Failure, ModelSide, Opener, Problem, Surface, Update,
 };
 use interweave_human_store::{HumanStore, InboundOrigin, NewInbound, RowId, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
-    ConversationKey, Intent, LabelKey, Table, TrustChange, TrustInput, TrustOutcome, UiModel,
-    ViewEvent,
+    Announce, Confirmation, ConversationKey, Intent, LabelKey, RowAction, Table, TrustChange,
+    TrustInput, TrustOutcome, UiModel, ViewEvent,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
@@ -142,19 +142,29 @@ impl Root {
     }
 
     /// One pass of the loop: the facade's turn, the model side's turn,
-    /// and every command it asked for.
+    /// and every command it asked for -- then the facade's turn again,
+    /// as both roots run one after the commands they carried out: a send,
+    /// a retry or a restore is attempted there, not by its command.
     async fn pump(&mut self, now: u64) {
-        for update in self.facade.turn(now).await {
-            self.updates.push(update.clone());
-            self.model.apply(update);
-        }
+        self.facade_turn(now).await;
         let commands = self.model.turn();
         self.commands.extend(commands.iter().cloned());
+        let any = !commands.is_empty();
         for command in commands {
             for update in self.facade.execute(command, now).await {
                 self.updates.push(update.clone());
                 self.model.apply(update);
             }
+        }
+        if any {
+            self.facade_turn(now).await;
+        }
+    }
+
+    async fn facade_turn(&mut self, now: u64) {
+        for update in self.facade.turn(now).await {
+            self.updates.push(update.clone());
+            self.model.apply(update);
         }
     }
 
@@ -759,6 +769,36 @@ async fn a_trust_proposal_is_rendered_in_the_turn_that_took_it() {
     );
 }
 
+/// A Hide asks the facade nothing, so no update brings another turn: the
+/// turn that took it renders it, as it does a trust input (seen on the
+/// phone: the row held slid out and no snackbar until the next turn).
+#[tokio::test]
+async fn a_hide_is_rendered_in_the_turn_that_took_it() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "hide me")]);
+    bob.pump(1).await;
+    alice.pump(2).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let item = alice.model().messages(&from_bob)[0].key;
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(3).await;
+
+    alice.will(vec![ViewEvent::Intent(Intent::Hide(item))]);
+    let before = alice.model.surface().renders;
+    alice.model.turn();
+    assert_eq!(
+        alice.model.surface().renders,
+        before + 2,
+        "the turn's own render, and one more once the Hide was taken"
+    );
+    assert!(alice.model().snackbar().is_some());
+}
+
 /// A trust intent handed over bare -- by a surface that built one rather
 /// than confirming the change shown -- reaches nothing: trust changes only
 /// through the settings' inputs.
@@ -808,4 +848,581 @@ async fn a_change_not_read_back_is_read_again_by_the_next_turn() {
     });
     root.model.apply(Update::Done(commands[0].clone()));
     assert_eq!(root.model.turn(), vec![Command::ReadTrust], "read again");
+}
+
+/// The snackbar now up, which the scripted person answers by its id.
+fn snack(root: &Root) -> u64 {
+    root.model().snackbar().expect("a snackbar").id
+}
+
+#[tokio::test]
+async fn an_undone_cancel_goes_out_as_the_same_message_once() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    // Not taken, so the row stays pending to be cancelled.
+    b.inject_send(TransportError::Overloaded);
+    let to_alice = direct(a.peer());
+    bob.will(vec![send(&to_alice, "take it back")]);
+    bob.pump(1).await;
+    let item = bob.model().messages(&to_alice)[0].key;
+    let Some(Intent::Cancel(row)) = bob.model().intent_for(item, RowAction::Cancel) else {
+        panic!("Cancel is offered on a pending row");
+    };
+
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(row))]);
+    bob.pump(2).await;
+    assert!(bob.model().messages(&to_alice).is_empty(), "the row left");
+    let id = snack(&bob);
+    assert!(bob.model().snackbar().expect("up").undo);
+
+    bob.will(vec![ViewEvent::Undo(id)]);
+    bob.pump(3).await;
+    let restored = match bob.updates.iter().rev().find_map(|u| match u {
+        Update::Restored { cancelled, row } => Some((*cancelled, *row)),
+        _ => None,
+    }) {
+        Some((cancelled, restored)) => {
+            assert_eq!(cancelled, row);
+            restored
+        }
+        None => panic!("restored: {:?}", bob.updates),
+    };
+    assert_ne!(restored, row);
+    assert_eq!(
+        bob.model()
+            .messages(&to_alice)
+            .iter()
+            .map(|m| m.key)
+            .collect::<Vec<_>>(),
+        [item],
+        "back in its place, under its key"
+    );
+
+    // The restore's attempt went out; Alice holds one message.
+    alice.pump(4).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let shown: Vec<_> = alice
+        .model()
+        .messages(&from_bob)
+        .into_iter()
+        .map(|m| m.source)
+        .collect();
+    assert_eq!(shown, ["take it back"]);
+    assert!(
+        !bob.updates
+            .iter()
+            .any(|u| matches!(u, Update::Failed { .. })),
+        "{:?}",
+        bob.updates
+    );
+}
+
+#[tokio::test]
+async fn a_hidden_message_lets_go_of_its_copy_when_the_snackbar_closes() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "hide me")]);
+    bob.pump(1).await;
+    alice.pump(2).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let item = alice.model().messages(&from_bob)[0].key;
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(3).await;
+    let Some(Intent::Keep { from, .. }) = alice.model().intent_for(item, RowAction::Keep) else {
+        panic!("Keep offered after read");
+    };
+
+    alice.will(vec![ViewEvent::Intent(Intent::Hide(item))]);
+    alice.pump(4).await;
+    assert!(alice.model().messages(&from_bob).is_empty());
+    assert!(
+        !alice.commands.contains(&Command::ForgetCopy(from)),
+        "held while its Undo is offered"
+    );
+    let id = snack(&alice);
+    alice.will(vec![ViewEvent::SnackbarClosed(id)]);
+    alice.pump(5).await;
+    assert!(alice.commands.contains(&Command::ForgetCopy(from)));
+    // A Keep raised now, from a stale view, is not issued: the message is
+    // gone from the model.
+    alice.will(vec![ViewEvent::Intent(Intent::Keep { item, from })]);
+    alice.pump(6).await;
+    assert!(
+        !alice
+            .commands
+            .iter()
+            .any(|c| matches!(c, Command::Keep { .. }))
+    );
+    // And the facade side holds no copy to keep any more.
+    let updates = alice.facade.execute(Command::Keep { item, from }, 7).await;
+    assert!(updates.iter().any(|u| matches!(
+        u,
+        Update::Failed {
+            why: Failure::CopyGone,
+            ..
+        }
+    )));
+}
+
+#[tokio::test]
+async fn an_undone_unkeep_is_kept_in_the_store() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let (mut alice, _) = Root::new(facade(
+        &a,
+        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+    ));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "keep me")]);
+    bob.pump(1).await;
+    alice.pump(2).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let item = alice.model().messages(&from_bob)[0].key;
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(3).await;
+    let keep = alice
+        .model()
+        .intent_for(item, RowAction::Keep)
+        .expect("offered");
+    alice.will(vec![ViewEvent::Intent(keep)]);
+    alice.pump(4).await;
+    let unkeep = alice
+        .model()
+        .intent_for(item, RowAction::Unkeep)
+        .expect("offered");
+    alice.will(vec![ViewEvent::Intent(unkeep)]);
+    alice.pump(5).await;
+    let id = snack(&alice);
+    alice.will(vec![ViewEvent::Undo(id)]);
+    alice.pump(6).await;
+    assert!(alice.model().snackbar().is_none());
+    assert!(
+        !alice
+            .updates
+            .iter()
+            .any(|u| matches!(u, Update::Failed { .. })),
+        "{:?}",
+        alice.updates
+    );
+    alice.facade.close().await;
+    drop(alice);
+
+    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopen");
+    assert_eq!(store.kept_inbound().expect("kept").len(), 1, "kept again");
+}
+
+/// Pending rows to `to` that stay pending: every attempt is refused as
+/// not taken.
+async fn pending_rows(
+    root: &mut Root,
+    node: &FakeNode,
+    to: &TransportIdentity,
+    n: usize,
+    now: u64,
+) -> Vec<RowId> {
+    let mut rows = Vec::new();
+    for i in 0..n {
+        node.inject_send(TransportError::Overloaded);
+        root.will(vec![send(&direct(to), &format!("pending {i}"))]);
+        root.pump(now).await;
+        let row = root
+            .updates
+            .iter()
+            .rev()
+            .find_map(|u| match u {
+                Update::Sent { row, .. } => Some(*row),
+                _ => None,
+            })
+            .expect("sent");
+        rows.push(row);
+    }
+    rows
+}
+
+/// A cancel can run before the Undo of the snackbar it replaces: the
+/// offered Undo still finds its record (review F2 on #289).
+#[tokio::test]
+async fn an_undo_of_cancel_survives_a_cancel_queued_before_it() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), 2, 1).await;
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[0]))]);
+    bob.pump(2).await;
+    let first = snack(&bob);
+    assert!(bob.model().snackbar().expect("up").undo);
+    // In one take: cancel the second, then undo the first.
+    bob.will(vec![
+        ViewEvent::Intent(Intent::Cancel(rows[1])),
+        ViewEvent::Undo(first),
+    ]);
+    bob.pump(3).await;
+    assert!(
+        bob.updates.iter().any(|u| matches!(
+            u,
+            Update::Restored { cancelled, .. } if *cancelled == rows[0]
+        )),
+        "{:?}",
+        bob.updates
+    );
+}
+
+/// Swipe spec section 11 item 19 (as #286 carries it): while a Cancel
+/// waits for the facade, a newer action's snackbar stays with its Undo
+/// when the Cancel's success comes, and the Cancel is only announced.
+/// The facade is slowed by holding the first Cancel's command back.
+#[tokio::test]
+async fn a_cancels_late_success_leaves_a_newer_snackbar_and_its_undo() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), 2, 1).await;
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[0]))]);
+    let held = bob.model.turn();
+    assert_eq!(held, [Command::Cancel(rows[0])]);
+    // The person acts again while it waits.
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[1]))]);
+    bob.pump(2).await;
+    let newer = bob.model().snackbar().expect("the second cancel's");
+    assert!(newer.undo, "control: the newer snackbar offers Undo");
+    for command in held {
+        for update in bob.facade.execute(command, 3).await {
+            bob.model.apply(update);
+        }
+    }
+    assert_eq!(bob.model().snackbar(), Some(newer.clone()), "it stays");
+    assert!(matches!(
+        bob.model().outcome().and_then(|o| o.announce),
+        Some(Announce::Confirmed(Confirmation::Cancelled { .. }))
+    ));
+    // Its Undo still restores the second.
+    bob.will(vec![ViewEvent::Undo(newer.id)]);
+    bob.pump(4).await;
+    assert!(
+        bob.updates.iter().any(|u| matches!(
+            u,
+            Update::Restored { cancelled, .. } if *cancelled == rows[1]
+        )),
+        "{:?}",
+        bob.updates
+    );
+}
+
+/// The control: once the newer snackbar has closed, the late Cancel shows
+/// its own, with its Undo.
+#[tokio::test]
+async fn a_cancels_late_success_after_the_newer_snackbar_closed_shows_its_own() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), 2, 1).await;
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[0]))]);
+    let held = bob.model.turn();
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[1]))]);
+    bob.pump(2).await;
+    let newer = snack(&bob);
+    bob.will(vec![ViewEvent::SnackbarClosed(newer)]);
+    bob.pump(3).await;
+    for command in held {
+        for update in bob.facade.execute(command, 4).await {
+            bob.model.apply(update);
+        }
+    }
+    let own = bob.model().snackbar().expect("the late cancel's own");
+    assert!(matches!(own.confirms, Confirmation::Cancelled { .. }));
+    assert!(own.undo);
+}
+
+/// The records held for an Undo are bounded: past the cap the oldest goes.
+#[tokio::test]
+async fn the_cancelled_records_held_are_bounded() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), CANCELLED_CAP + 1, 1).await;
+    for row in &rows {
+        let _ = bob.facade.execute(Command::Cancel(*row), 2).await;
+    }
+    let oldest = bob.facade.execute(Command::Restore(rows[0]), 3).await;
+    assert!(
+        matches!(
+            oldest.last(),
+            Some(Update::Failed {
+                why: Failure::NoSuchRow,
+                ..
+            })
+        ),
+        "the oldest went: {oldest:?}"
+    );
+    let next = bob.facade.execute(Command::Restore(rows[1]), 3).await;
+    assert!(
+        next.iter().any(|u| matches!(u, Update::Restored { .. })),
+        "the cap's worth stay: {next:?}"
+    );
+}
+
+/// Keep, then Hide of the same message, then a Hide of another, in one
+/// take: the kept message is still shown once its Keep is answered
+/// (review F1 on #289, round 2).
+#[tokio::test]
+async fn a_keep_on_its_way_keeps_its_message_through_a_hide() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "keep me")]);
+    bob.pump(1).await;
+    bob.will(vec![send(&direct(a.peer()), "and me")]);
+    bob.pump(2).await;
+    alice.pump(3).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(4).await;
+    let items: Vec<_> = alice
+        .model()
+        .messages(&from_bob)
+        .iter()
+        .map(|m| m.key)
+        .collect();
+    let keep = alice
+        .model()
+        .intent_for(items[0], RowAction::Keep)
+        .expect("offered");
+    alice.will(vec![
+        ViewEvent::Intent(keep),
+        ViewEvent::Intent(Intent::Hide(items[0])),
+        ViewEvent::Intent(Intent::Hide(items[1])),
+    ]);
+    alice.pump(5).await;
+    alice.pump(6).await;
+    let shown: Vec<_> = alice
+        .model()
+        .messages(&from_bob)
+        .iter()
+        .map(|m| m.key)
+        .collect();
+    assert_eq!(shown, [items[0]], "kept, and shown");
+    assert!(matches!(
+        alice.model().actions(items[0]).as_slice(),
+        [Intent::Unkeep(_)]
+    ));
+}
+
+/// More cancels than the old cap of eight queued in one take before an
+/// Undo: the Undo still finds its record (review F2 on #289, round 2).
+#[tokio::test]
+async fn an_undo_of_cancel_survives_many_cancels_queued_before_it() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), 10, 1).await;
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[0]))]);
+    bob.pump(2).await;
+    let first = snack(&bob);
+    let mut take: Vec<ViewEvent> = rows[1..]
+        .iter()
+        .map(|row| ViewEvent::Intent(Intent::Cancel(*row)))
+        .collect();
+    take.push(ViewEvent::Undo(first));
+    bob.will(take);
+    bob.pump(3).await;
+    assert!(
+        bob.updates.iter().any(|u| matches!(
+            u,
+            Update::Restored { cancelled, .. } if *cancelled == rows[0]
+        )),
+        "{:?}",
+        bob.updates
+    );
+}
+
+/// However late the facade answers, the model side keeps no more cancels
+/// in flight than the facade side can hold records for (review F2 on #289,
+/// round 3).
+#[tokio::test]
+async fn cancels_in_flight_stay_within_what_can_be_held() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), CANCELLED_CAP + 2, 1).await;
+    // Every cancel pressed, none answered: the facade is busy elsewhere.
+    bob.will(
+        rows.iter()
+            .map(|row| ViewEvent::Intent(Intent::Cancel(*row)))
+            .collect(),
+    );
+    let commands = bob.model.turn();
+    let cancels = commands
+        .iter()
+        .filter(|c| matches!(c, Command::Cancel(_)))
+        .count();
+    assert_eq!(cancels, CANCELLED_CAP - 2);
+    // The four past it are reported, never silent.
+    let too_many = bob
+        .model
+        .take_problems()
+        .into_iter()
+        .filter(|p| {
+            matches!(
+                p,
+                Problem::Command {
+                    command: Command::Cancel(_),
+                    why: Failure::TooMany
+                }
+            )
+        })
+        .count();
+    assert_eq!(too_many, 4);
+}
+
+/// What closed snackbars no longer need is let go ahead of the next
+/// turn's cancels (review of #289, round 4).
+#[tokio::test]
+async fn released_records_go_before_the_next_cancels() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    bob.pump(0).await;
+    let rows = pending_rows(&mut bob, &b, a.peer(), 4, 1).await;
+    bob.will(vec![
+        ViewEvent::Intent(Intent::Cancel(rows[0])),
+        ViewEvent::Intent(Intent::Cancel(rows[1])),
+        ViewEvent::Intent(Intent::Cancel(rows[2])),
+    ]);
+    bob.pump(2).await;
+    bob.will(vec![ViewEvent::Intent(Intent::Cancel(rows[3]))]);
+    let commands = bob.model.turn();
+    let cancel = commands
+        .iter()
+        .position(|c| matches!(c, Command::Cancel(_)))
+        .expect("the cancel");
+    let forgets: Vec<_> = commands[..cancel]
+        .iter()
+        .filter(|c| matches!(c, Command::ForgetCancelled(_)))
+        .collect();
+    assert_eq!(
+        forgets.len(),
+        2,
+        "both replaced snackbars' records first: {commands:?}"
+    );
+}
+
+/// Dismiss, then Keep of the same message, then another Dismiss, in one
+/// take: the Keep, judged by the view before the Dismiss was applied, is
+/// not issued for a dismissed message, and nothing the store holds is
+/// lost (review P-1 on #289, round 4).
+#[tokio::test]
+async fn a_keep_taken_after_its_dismiss_is_not_issued() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "first")]);
+    bob.pump(1).await;
+    bob.will(vec![send(&direct(a.peer()), "second")]);
+    bob.pump(2).await;
+    alice.pump(3).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(4).await;
+    let items: Vec<_> = alice
+        .model()
+        .messages(&from_bob)
+        .iter()
+        .map(|m| m.key)
+        .collect();
+    let keep = alice
+        .model()
+        .intent_for(items[0], RowAction::Keep)
+        .expect("offered");
+    alice.commands.clear();
+    alice.will(vec![
+        ViewEvent::Intent(Intent::Hide(items[0])),
+        ViewEvent::Intent(keep),
+        ViewEvent::Intent(Intent::Hide(items[1])),
+    ]);
+    alice.pump(5).await;
+    alice.pump(6).await;
+    assert!(
+        !alice
+            .commands
+            .iter()
+            .any(|c| matches!(c, Command::Keep { .. })),
+        "no Keep for a dismissed message: {:?}",
+        alice.commands
+    );
+    // Reported, not silent.
+    assert!(alice.model.take_problems().iter().any(|p| matches!(
+        p,
+        Problem::Command {
+            command: Command::Keep { .. },
+            why: Failure::NoSuchRow
+        }
+    )));
+}
+
+/// Keep of a message, then a Dismiss of it and a hide of its conversation,
+/// in one take: the Keep is issued, the two hides are dropped without a
+/// report, and the message stays shown -- the Keep's confirmation answers
+/// them (the README's "Hide writes nothing" rule; review of #289, round 7).
+#[tokio::test]
+async fn hides_after_a_keep_in_one_take_leave_the_keep_and_report_nothing() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut alice, _) = Root::new(facade(&a, memory()));
+    let (mut bob, _) = Root::new(facade(&b, memory()));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    bob.will(vec![send(&direct(a.peer()), "keep me")]);
+    bob.pump(1).await;
+    alice.pump(2).await;
+    let from_bob = alice.model().conversations()[0].key.clone();
+    let read = alice.model().conversation_viewed(&from_bob, true);
+    alice.will(read.into_iter().map(ViewEvent::Intent).collect());
+    alice.pump(3).await;
+    let item = alice.model().messages(&from_bob)[0].key;
+    let keep = alice
+        .model()
+        .intent_for(item, RowAction::Keep)
+        .expect("offered");
+    let _ = alice.model.take_problems();
+    alice.commands.clear();
+    alice.will(vec![
+        ViewEvent::Intent(keep),
+        ViewEvent::Intent(Intent::Hide(item)),
+        ViewEvent::Intent(Intent::HideConversation(from_bob.clone())),
+    ]);
+    alice.pump(4).await;
+    assert_eq!(
+        alice
+            .commands
+            .iter()
+            .filter(|c| matches!(c, Command::Keep { .. }))
+            .count(),
+        1
+    );
+    assert!(alice.model.take_problems().is_empty(), "no report");
+    assert_eq!(
+        alice
+            .model()
+            .messages(&from_bob)
+            .iter()
+            .map(|m| m.key)
+            .collect::<Vec<_>>(),
+        [item],
+        "not hidden"
+    );
 }

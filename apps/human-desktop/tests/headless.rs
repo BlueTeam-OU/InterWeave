@@ -112,17 +112,21 @@ fn a_message_reaches_the_window_and_closing_releases_the_lease_not_the_daemon() 
     let mut bob = facade(b.clone());
     let sent = runtime.block_on(async {
         let _ = bob.turn(0).await;
-        bob.execute(
-            Command::Send {
-                key: ConversationKey::Direct {
-                    peer: a.peer().clone(),
-                    endpoint: None,
+        let sent = bob
+            .execute(
+                Command::Send {
+                    key: ConversationKey::Direct {
+                        peer: a.peer().clone(),
+                        endpoint: None,
+                    },
+                    draft: "hello alice".to_owned(),
                 },
-                draft: "hello alice".to_owned(),
-            },
-            1,
-        )
-        .await
+                1,
+            )
+            .await;
+        // The turn after the command attempts it, as a root's loop runs.
+        let _ = bob.turn(1).await;
+        sent
     });
     assert!(
         sent.iter().any(|u| matches!(u, Update::Sent { .. })),
@@ -639,6 +643,8 @@ fn a_path_change_reaches_the_route_indicator_and_nothing_else() {
                 1,
             )
             .await;
+        // The turn after the command attempts it, as a root's loop runs.
+        let _ = bob.turn(1).await;
     });
     pump_until(&mut alice, "bob's message", |app| {
         app.side().model().conversations().len() == 1

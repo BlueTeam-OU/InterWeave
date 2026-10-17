@@ -28,8 +28,8 @@ use interweave_human_ui_model::{
 use interweave_human_ui_slint::{INPUT_CAP, View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
-use slint::ComponentHandle as _;
 use slint::platform::{Key, WindowEvent};
+use slint::{ComponentHandle as _, Model as _};
 
 fn peer() -> TransportIdentity {
     ProfileIdentity::generate()
@@ -117,9 +117,27 @@ fn intents(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
                 ViewEvent::Intent(intent) => out.push(intent),
                 ViewEvent::DraftChanged { key, draft } => model.draft_changed(key, draft),
                 ViewEvent::Trust(input) => out.extend(model.trust_settings_mut().input(input)),
+                ViewEvent::Undo(id) => out.extend(model.undo(id)),
+                ViewEvent::SnackbarClosed(id) => model.snackbar_closed(id),
             }
         }
     }
+}
+
+/// Give the window `width` and let it run its change handlers, as its
+/// event loop does before it draws: a phone's 390, a desktop's 1000.
+fn resize(view: &View, width: f32) {
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(width, 800.0));
+    slint::platform::update_timers_and_animations();
+}
+
+/// Press the one control labelled `label`, as a screen reader does, and
+/// let the window run its change handlers.
+fn press(view: &View, label: &str) {
+    the(view, label).invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
 }
 
 /// Select `key` and let the view show it.
@@ -1298,6 +1316,40 @@ fn a_queue_drained_at_each_take_holds_at_most_four_times_the_cap_plus_three() {
     );
 }
 
+/// The queue's bound with leaving for the list too, at its worst order: a
+/// focus change beside every input, an edit and a Left beside every
+/// selection, while a pane shown or hidden waits outside the queue -- six
+/// times the cap plus one here, and with the two snackbar closings and a
+/// focus change beside each, six times the cap plus nine at most (review
+/// F4 on #289, rounds 1 and 2; j84).
+#[test]
+fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    model.received(received(1, &alice, "unread"));
+    open(&mut view, &mut model, &direct(&alice));
+    let handle = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    for n in 0..INPUT_CAP * 2 {
+        view.set_window_focused(true);
+        view.window().invoke_select(handle);
+        view.set_window_focused(false);
+        type_into(&view, &format!("draft {n}"));
+        view.set_window_focused(true);
+        view.window().invoke_left_conversation();
+        view.window().invoke_pane_changed();
+    }
+    // Each press with its edit, its Left and three focus changes, and one
+    // focus change more; no pane change among them.
+    assert_eq!(view.queued_inputs(), 6 * INPUT_CAP + 1);
+    assert!(view.queued_inputs() <= 6 * INPUT_CAP + 9);
+}
+
 /// Review F1: a render that changes nothing about an item keeps focus on
 /// its action button -- the next Tab continues from it.
 #[test]
@@ -2344,6 +2396,227 @@ fn leaving_drops_a_waiting_change_and_a_non_peer_id_is_said() {
         model.trust_settings().pending(),
         None,
         "dropped, never made"
+    );
+}
+
+/// A narrow window that went back to the list no longer shows the
+/// conversation: a message arriving in it is not read, and stays unread
+/// until the person opens it again.
+#[test]
+fn a_conversation_left_for_the_list_reads_nothing() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let read = open(&mut view, &mut model, &direct(&bob));
+    assert_eq!(
+        read,
+        vec![Intent::MarkRead(RowId::from_stored(1))],
+        "control"
+    );
+    model.read(RowId::from_stored(1));
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+
+    model.received(received(2, &bob, "arrives while the list is shown"));
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read from the list: {raised:?}");
+
+    let read = open(&mut view, &mut model, &direct(&bob));
+    assert_eq!(
+        read,
+        vec![Intent::MarkRead(RowId::from_stored(2))],
+        "read once opened again"
+    );
+}
+
+/// Closing the trust settings in a narrow window shows the list, so the
+/// conversation they covered is still not on screen: an arrival there is
+/// not read. In a wide window it is shown again, and read (review PE1 on
+/// #289).
+#[test]
+fn closing_the_trust_settings_to_the_list_reads_nothing() {
+    assert!(!arrival_read_after_closing_trust(390.0));
+}
+
+/// Back to the list and the trust settings opened in one take, then
+/// closed back to the list: the conversation is not on screen (review N1
+/// on #289).
+#[test]
+fn back_then_the_trust_settings_in_one_take_reads_nothing() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    view.render(&model);
+    model.read(RowId::from_stored(1));
+    press(&view, text(UiText::BackToConversations));
+    press(&view, text(UiText::TrustSettings));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    model.received(received(2, &bob, "arrives on the list"));
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read from the list: {raised:?}");
+}
+
+/// The same through the settings' own back control in a narrow window:
+/// the window says it shows the list (review N2 on #289).
+#[test]
+fn the_narrow_settings_back_control_returns_to_the_list() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(400.0, 800.0));
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    model.read(RowId::from_stored(1));
+    view.window().invoke_open_trust();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    let back = labelled(&view, text(UiText::BackToConversations));
+    assert_eq!(back.len(), 1, "the settings' back control alone");
+    back[0].invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    model.received(received(2, &bob, "arrives on the list"));
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read from the list: {raised:?}");
+}
+
+/// The control: a wide window shows the conversation again, and reads it.
+#[test]
+fn closing_the_trust_settings_to_the_conversation_reads_it() {
+    assert!(arrival_read_after_closing_trust(1000.0));
+}
+
+/// Whether a message arriving after the trust settings close, through
+/// their own control, in a window `width` wide, is read.
+fn arrival_read_after_closing_trust(width: f32) -> bool {
+    let mut view = view();
+    resize(&view, width);
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    model.read(RowId::from_stored(1));
+    // A narrow window reaches the settings from the list only.
+    if labelled(&view, text(UiText::TrustSettings)).is_empty() {
+        press(&view, text(UiText::BackToConversations));
+        let _ = intents(&mut view, &mut model);
+    }
+    press(&view, text(UiText::TrustSettings));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+
+    model.received(received(2, &bob, "arrives after the settings"));
+    view.render(&model);
+    intents(&mut view, &mut model).contains(&Intent::MarkRead(RowId::from_stored(2)))
+}
+
+/// A wide window whose trust settings closed keeps the list "shown" for
+/// when it narrows. Narrowed -- a phone turned upright -- it shows the
+/// list, and the conversation behind it reads nothing: not before the
+/// window's change handler has run, and not after (j84, from the
+/// re-review of #289).
+#[test]
+fn a_resize_to_the_list_reads_nothing_before_its_handler_runs() {
+    let mut view = view();
+    resize(&view, 1000.0);
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    model.read(RowId::from_stored(1));
+    press(&view, text(UiText::TrustSettings));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    model.received(received(2, &bob, "arrives as the window narrows"));
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read before the handler: {raised:?}");
+    slint::platform::update_timers_and_animations();
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "nor after it: {raised:?}");
+}
+
+/// A selection the root makes, then Back pressed before the root takes
+/// it: the conversation is behind the list when the selection resolves,
+/// so nothing in it is read (review P3-2 on #291).
+#[test]
+fn a_selection_behind_the_list_by_its_take_reads_nothing() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    model.received(received(1, &alice, "seen"));
+    model.received(received(2, &bob, "unread"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&alice));
+    model.read(RowId::from_stored(1));
+    view.select(direct(&bob));
+    press(&view, text(UiText::BackToConversations));
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "not read behind the list: {raised:?}");
+    let read = open(&mut view, &mut model, &direct(&bob));
+    assert_eq!(
+        read,
+        vec![Intent::MarkRead(RowId::from_stored(2))],
+        "control: read once shown"
+    );
+}
+
+/// The other way: a narrow window back on the list, widened, shows the
+/// conversation beside it again, and what arrived there meanwhile is read
+/// at once -- the pane's return is the only event (j84).
+#[test]
+fn a_resize_back_from_the_list_reads_what_it_shows() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    model.read(RowId::from_stored(1));
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    model.received(received(2, &bob, "arrives on the list"));
+    view.render(&model);
+    let raised = intents(&mut view, &mut model);
+    assert!(raised.is_empty(), "control: unread on the list: {raised:?}");
+
+    resize(&view, 1000.0);
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::MarkRead(RowId::from_stored(2))],
+        "read once the window shows it"
     );
 }
 

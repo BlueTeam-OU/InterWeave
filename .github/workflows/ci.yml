@@ -25,10 +25,11 @@
 # `android check (aarch64-linux-android)`, and the advisory one CLAUDE.md
 # §9 names apart, `android apk (assembleDebug)`.
 #
-# Deliberately NOT conditional-per-surface. The run is ~8.5 minutes wall
-# clock, and all of it is `rust` (tree checks and tool self-tests ~2.7
-# min each, in parallel beside it; 12 runs, 2026-09-29), which every PR
-# that touches a crate needs anyway. A `changes` job and per-surface
+# Deliberately NOT conditional-per-surface. The run's wall clock is
+# `rust`'s, ~10 minutes with its cargo cache warm (2026-10-16; the job's
+# own note has the figures), while tree checks and tool self-tests take
+# ~2.7 min each in parallel beside it (12 runs, 2026-09-29), and every PR
+# that touches a crate needs `rust` anyway. A `changes` job and per-surface
 # `run` inputs would skip only the two short jobs, and on a public
 # repository the minutes cost nothing: machinery that costs more to
 # understand than the runners it saves.
@@ -77,6 +78,12 @@ env:
   # tool-suites its self-test, and both must judge with one release.
   CARGO_MACHETE_VERSION: "v0.9.2"
   CARGO_MACHETE_SHA256: "48200087f54c55aabcd4db4af1e25742b49846c02a1b1bfa134711945b35b2e9"
+  # cargo-nextest, which runs the `rust` job's tests (.config/nextest.toml
+  # says what it changes against `cargo test`). One job installs it; the
+  # pin is here with the others so every tool's release is read in one
+  # place. The checksum is the release's own published .sha256, compared.
+  CARGO_NEXTEST_VERSION: "0.9.148"
+  CARGO_NEXTEST_SHA256: "223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc"
 
 jobs:
   rust:
@@ -88,13 +95,28 @@ jobs:
     # third time; xtask is the local entry point, not a CI wrapper.
     name: rust
     runs-on: ubuntu-latest
-    # Measured 8.5 min over 12 runs, 2026-09-29 (clippy 74 s, test build
-    # 177 s, 104 test binaries ~215 s); the cap is for a hang, which
-    # otherwise runs to GitHub's six-hour default. A miss on the
-    # previous-builds cache (below) adds a cold release build of every
-    # entry: 7m38s for the first on a 6-core host, 2026-10-08, not yet
-    # timed on a runner.
+    # Measured on #288, 2026-10-16: 10m03s with the cargo cache (below)
+    # warm (clippy 29 s, test build 3m36s, 3206 tests in 204 binaries
+    # 233 s under nextest), 14m29s with it cold. Before both, on main
+    # the same day: 19m22s (clippy 141 s, test build 7m05s, the binaries
+    # one after another 432 s), close enough to the cap to be the reason
+    # for this change. The cap is for a hang, which otherwise runs to
+    # GitHub's six-hour default; it holds the cold run plus a miss on the
+    # previous-builds cache (below), which adds a cold release build of
+    # every entry: 7m38s for the first on a 6-core host, 2026-10-08, not
+    # yet timed on a runner.
     timeout-minutes: 25
+    env:
+      # Incremental compilation pays off only when a build is redone in
+      # place. Here every run starts from a fresh checkout, so it is
+      # extra work and extra disk, and it would grow the cache below.
+      CARGO_INCREMENTAL: "0"
+      # What the cargo cache holds, once, for the restore and the save.
+      CARGO_CACHE_PATHS: |
+        ~/.cargo/registry/index
+        ~/.cargo/registry/cache
+        ~/.cargo/git/db
+        target
     steps:
       # Pinned to a commit, not a tag. A tag is mutable by whoever owns
       # the action, so `@v7` is a promise from a third party rather than
@@ -122,6 +144,40 @@ jobs:
       # rust-version bumped alone, fails by name.
       - name: The pinned toolchain is the one in use, and rust-version states it
         run: bash tools/checks/check_rustc_pin.sh
+
+      # THE DEPENDENCIES' BUILDS ARE CACHED, and only theirs: before the
+      # save, tools/ci/prune_cargo_target.sh removes everything this
+      # workspace built, which a fresh checkout rebuilds anyway and whose
+      # test executables are most of the directory. Before this the job
+      # had no cache at all, and compiled the whole graph twice on every
+      # run (clippy's check build, then the test build).
+      #
+      # The key: the toolchain (a new compiler can use nothing of the old
+      # one's builds), the ISO week, and Cargo.lock. A lock change restores
+      # the same week's newest cache and builds only what moved; the save
+      # then holds that week's stale versions too, so the WEEK bounds how
+      # much a cache accumulates — a push to main in a new week restores
+      # nothing and starts clean, once. A pull request or a queue build may
+      # also fall back to an earlier week's cache: it never saves, so what
+      # it restores goes nowhere.
+      #
+      # Restored everywhere, saved only from main (the job's last steps),
+      # as the tree-checks cargo cache is and for its reason: a cache saved
+      # from a pull request is readable by that ref alone, and held the
+      # repository at its 10 GB limit.
+      - name: The cargo cache's week
+        id: cargo-week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the cargo registry and the dependency builds
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: rust-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ steps.cargo-week.outputs.week }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            rust-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}-${{ steps.cargo-week.outputs.week }}-
+            ${{ github.event_name != 'push' && format('rust-cargo-{0}-{1}-', runner.os, hashFiles('rust-toolchain.toml')) || '' }}
 
       - name: Formatting
         run: cargo fmt --all --check
@@ -223,8 +279,26 @@ jobs:
       # live AT-SPI bus (see above): the wrapper refuses, exit 125 and the
       # step named, before running any test on a session it could not
       # stand up, so a missing display never reads as a failing window.
+      #
+      # Run by cargo-nextest, so the binaries run at once rather than one
+      # after another: .config/nextest.toml says what that changes and
+      # which tests it keeps apart. Installed as cargo-deny is (the
+      # tree-checks job says why), into a directory this job creates.
+      - name: Install cargo-nextest
+        run: |
+          set -euo pipefail
+          asset="cargo-nextest-${CARGO_NEXTEST_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          url="https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${CARGO_NEXTEST_VERSION}/${asset}"
+          curl -fsSL -o "$asset" "$url"
+          echo "${CARGO_NEXTEST_SHA256}  ${asset}" | sha256sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/bin"
+          tar -xzf "$asset" -C "${RUNNER_TEMP}/bin" cargo-nextest
+          rm -f "$asset"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/bin/cargo-nextest" nextest --version
+
       - name: Tests
-        run: bash tools/ci/with_display.sh cargo test --workspace --all-targets --locked
+        run: bash tools/ci/with_display.sh cargo nextest run --workspace --all-targets --locked --profile ci
 
       # After Tests, so the listing reuses the binary it built.
       - name: The root funnel's measurement tests are compiled and not ignored (plan §15)
@@ -235,6 +309,19 @@ jobs:
         # so here rather than letting a green run attest to a graph the
         # commit does not carry.
         run: git diff --exit-code -- Cargo.lock
+
+      # The save's condition, on both steps: main, green, and no exact hit
+      # (an exact hit holds this key already, and a save of it would fail).
+      - name: Prune the workspace's own builds from the cargo cache (main only)
+        if: success() && github.event_name == 'push' && steps.cargo-cache.outputs.cache-hit != 'true'
+        run: bash tools/ci/prune_cargo_target.sh target
+
+      - name: Save the cargo cache (main only)
+        if: success() && github.event_name == 'push' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
   android-check:
     # CONTEXT NAME: `android check (aarch64-linux-android)`. Required (the
@@ -524,7 +611,7 @@ jobs:
       # relay client or the authorised-identify opt-ins only while the root
       # funnel's measurement is committed as a test and runs. The relay
       # client is on in every valid profile, so this binds unconditionally.
-      - name: The root funnel's test file is present and CI runs cargo test --all-targets (plan §15)
+      - name: The root funnel's test file is present and CI runs cargo test (or cargo nextest run) --all-targets (plan §15)
         run: bash tools/checks/check_root_funnel_precondition.sh
 
       # A spike harness is its own workspace. It used to path-depend on

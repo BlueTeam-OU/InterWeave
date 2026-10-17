@@ -9,6 +9,7 @@ use std::collections::{HashSet, VecDeque};
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_ui_model::{ConversationKey, Intent, UiModel, ViewEvent};
 
+use crate::facade::CANCELLED_CAP;
 use crate::protocol::{Command, Failure, Update};
 
 /// A view as the root drives it: show the model, then hand back what the
@@ -194,6 +195,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::Read(row) => self.model.read(row),
             Update::Kept { item, row } => self.model.kept(item, row),
             Update::Unkept(row) => self.model.unkept(row),
+            Update::Cancelled { row, restorable } => self.model.cancelled(row, restorable),
+            Update::Restored { cancelled, row } => self.model.restored(cancelled, row),
             Update::TrustRead(answer) => self.model.trust_settings_mut().read(answer),
             Update::TrustSet { change, answer } => {
                 self.model.trust_settings_mut().set(change, answer);
@@ -206,6 +209,22 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 if let (Command::Keep { item, .. }, Failure::CopyGone) = (&command, why) {
                     // The content is gone: stop offering what cannot work.
                     self.model.copy_gone(*item);
+                }
+                // A refused Undo closes nothing more, but focus goes where
+                // the action itself sent it; a refused Cancel's row, slid
+                // out by its swipe, springs back.
+                let undone = match &command {
+                    Command::Keep { item, from } => Some(Intent::Keep {
+                        item: *item,
+                        from: *from,
+                    }),
+                    Command::Unkeep(row) => Some(Intent::Unkeep(*row)),
+                    Command::Restore(row) => Some(Intent::Restore(*row)),
+                    Command::Cancel(row) => Some(Intent::Cancel(*row)),
+                    _ => None,
+                };
+                if let Some(intent) = undone {
+                    self.model.intent_refused(&intent);
                 }
                 self.problem(Problem::Command { command, why });
             }
@@ -222,24 +241,36 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         // here reaches the screen at the next turn's render, and the view
         // never writes over text it is still holding.
         self.surface.render(&self.model);
+        // What closed snackbars no longer need goes first, ahead of any
+        // cancel this turn issues.
         let mut commands = Vec::new();
+        let released = self.model.take_released();
+        commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
+        commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
         // A trust input changes what the settings show -- a proposal to
         // confirm, why a typed value was not proposed -- and may ask the
         // facade nothing, so no update would bring another turn: the
         // view would sit on its press. One more render once the takes
         // drain, then takes until empty again (the shipped client over
-        // AT-SPI showed a removal never reaching its confirmation).
-        let mut trust_unrendered = false;
+        // AT-SPI showed a removal never reaching its confirmation). The
+        // same holds for what the model does alone: a Hide, an Undo, a
+        // snackbar closing (seen on the phone: a hidden row held slid out,
+        // no snackbar, until something else turned the root).
+        let mut unrendered = false;
         loop {
             let events = self.surface.take_events(&self.model);
             if events.is_empty() {
+                // What a closed or replaced snackbar's Undo no longer needs.
+                let released = self.model.take_released();
+                commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
+                commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
                 // A change's answer may have left the list to read again.
                 if let Some(intent) = self.model.trust_settings_mut().take_reread()
                     && let Some(command) = self.command_for(intent)
                 {
                     commands.push(command);
                 }
-                if std::mem::take(&mut trust_unrendered) {
+                if std::mem::take(&mut unrendered) {
                     self.surface.render(&self.model);
                     continue;
                 }
@@ -251,7 +282,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                         self.model.draft_changed(key, draft);
                     }
                     ViewEvent::Trust(input) => {
-                        trust_unrendered = true;
+                        unrendered = true;
                         if let Some(intent) = self.model.trust_settings_mut().input(input)
                             && let Some(command) = self.command_for(intent)
                         {
@@ -264,9 +295,23 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     // (`a_trust_intent_handed_over_bare_reaches_nothing`).
                     ViewEvent::Intent(Intent::ReadTrust | Intent::SetTrust(_)) => {}
                     ViewEvent::Intent(intent) => {
+                        unrendered |=
+                            matches!(intent, Intent::Hide(_) | Intent::HideConversation(_));
                         if let Some(command) = self.command_for(intent) {
                             commands.push(command);
                         }
+                    }
+                    ViewEvent::Undo(id) => {
+                        unrendered = true;
+                        if let Some(intent) = self.model.undo(id)
+                            && let Some(command) = self.command_for(intent)
+                        {
+                            commands.push(command);
+                        }
+                    }
+                    ViewEvent::SnackbarClosed(id) => {
+                        unrendered = true;
+                        self.model.snackbar_closed(id);
                     }
                 }
             }
@@ -276,6 +321,24 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// The command for `intent`, or `None` when it needs none -- a link is
     /// opened here -- or the same action is still in flight.
     fn command_for(&mut self, intent: Intent) -> Option<Command> {
+        // Only what the model offers now: an earlier input of the same take
+        // may have changed it (a Dismiss before a Keep of the same message).
+        if !self.model.offers(&intent) {
+            // What an earlier input of the same take makes no longer
+            // offered: a Keep after a Dismiss of the same
+            // message, reported, since the person asked for it and nothing
+            // else will say so (`a_keep_taken_after_its_dismiss_is_not_issued`);
+            // and a Dismiss or a conversation hide after a Keep of a message
+            // in it, which the Keep's own confirmation answers
+            // (`hides_after_a_keep_in_one_take_leave_the_keep_and_report_nothing`).
+            if let Intent::Keep { item, from } = intent {
+                self.problem(Problem::Command {
+                    command: Command::Keep { item, from },
+                    why: Failure::NoSuchRow,
+                });
+            }
+            return None;
+        }
         let command = match intent {
             Intent::OpenLink(destination) => {
                 // The model raises it only for an allowlisted link a person
@@ -294,10 +357,47 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             }
             Intent::Send { key, draft } => Command::Send { key, draft },
             Intent::MarkRead(row) => Command::MarkRead(row),
-            Intent::Keep { item, from } => Command::Keep { item, from },
+            Intent::Keep { item, from } => {
+                // A Keep on its way: Hide is not offered until it is
+                // answered.
+                self.model.keep_requested(&Intent::Keep { item, from });
+                Command::Keep { item, from }
+            }
             Intent::Unkeep(row) => Command::Unkeep(row),
             Intent::Retry(row) => Command::Retry(row),
-            Intent::Cancel(row) => Command::Cancel(row),
+            Intent::Cancel(row) => {
+                // Each cancel's record is held for its Undo until its
+                // snackbar goes, and the facade side evicts the oldest past
+                // CANCELLED_CAP. The open snackbar's record is the newest
+                // answer applied, so only cancels still in flight come
+                // after it; keeping at most CANCELLED_CAP - 2 of them in
+                // flight keeps it, however late the answers come. A cancel
+                // past that is refused and reported, and its row springs back at
+                // the view's commit bound (review F2 on #289, rounds 3 to 5).
+                let in_flight = self
+                    .in_flight
+                    .iter()
+                    .filter(|f| matches!(f, InFlight::Other(Command::Cancel(_))))
+                    .count();
+                if in_flight >= CANCELLED_CAP - 2 {
+                    self.problem(Problem::Command {
+                        command: Command::Cancel(row),
+                        why: Failure::TooMany,
+                    });
+                    return None;
+                }
+                Command::Cancel(row)
+            }
+            Intent::Restore(row) => Command::Restore(row),
+            // Hiding writes nothing: the model's alone.
+            Intent::Hide(item) => {
+                self.model.hide(item);
+                return None;
+            }
+            Intent::HideConversation(key) => {
+                self.model.hide_conversation(&key);
+                return None;
+            }
             Intent::Reopen => Command::Reopen,
             Intent::RecheckStorage => Command::RecheckStorage,
             Intent::ReadTrust => Command::ReadTrust,
@@ -310,6 +410,11 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             // The answer may touch the composer only if it is not edited
             // after this press.
             self.model.send_pressed(key);
+        }
+        if let Command::Cancel(row) = &command {
+            // Until it is answered, the snackbar up now stays; one opened
+            // after it is never taken away by its answer (§6).
+            self.model.cancel_requested(*row);
         }
         Some(command)
     }

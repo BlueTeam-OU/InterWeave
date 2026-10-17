@@ -204,6 +204,40 @@ ui_texts! {
     Keep => "Keep",
     /// Remove Keep from a kept message.
     Unkeep => "Stop keeping",
+    /// Dismiss a read, unkept message for the rest of this session: a
+    /// row button, and the label beside the icon a swipe uncovers. Nothing
+    /// is deleted from anywhere -- its stored copy went when it was read --
+    /// and it does not come back in this session (the owner's ruling,
+    /// 2026-10-16: a message is dismissed, a conversation hidden).
+    Dismiss => "Dismiss",
+    /// The label beside the icon a conversation row's swipe uncovers: the
+    /// conversation leaves the list.
+    HideShort => "Hide",
+    /// The conversation screen's header control that hides the whole
+    /// conversation from the list, offered only when it holds nothing
+    /// unread, kept or pending. A short button label.
+    HideConversation => "Hide conversation",
+    /// The snackbar after Keep, a few words above the composer for about
+    /// six seconds, beside an Undo button; also announced.
+    ConfirmKept => "Kept",
+    /// The snackbar after Dismiss: the message left the list.
+    ConfirmDismissed => "Dismissed",
+    /// The snackbar after the person removed Keep: the stored copy is
+    /// already deleted when this shows.
+    ConfirmUnkept => "No longer kept",
+    /// The snackbar on the conversation list after a conversation was
+    /// hidden from it.
+    ConfirmConversationHidden => "Conversation hidden",
+    /// The snackbar's button that reverses what it confirms. A touch
+    /// target of its own, so one word.
+    Undo => "Undo",
+    /// The snackbar after a Cancel: the message will not be sent again.
+    ConfirmSendingCanceled => "Sending canceled",
+    /// The same, when an earlier attempt may have been received.
+    ConfirmSendingCanceledMayHaveReached => "Sending canceled, may have reached the peer",
+    /// Announced to a screen reader after an Undo put things back as they
+    /// were before the action.
+    ActionUndone => "Action undone",
     /// The session is re-opening on its own.
     Reconnecting => "Reconnecting",
     /// Storage cannot hold new messages.

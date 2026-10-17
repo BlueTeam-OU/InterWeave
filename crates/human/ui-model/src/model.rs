@@ -24,6 +24,12 @@ use crate::labels::{
 };
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
+mod swipe;
+
+pub use swipe::{
+    Announce, Confirmation, FocusTarget, Outcome, Released, RowAction, Snackbar, SwipeOffer,
+};
+
 /// How many items the model holds that the store no longer does --
 /// read-and-unkept inbound and terminal outbound -- before it evicts the
 /// oldest of them (agreed item 3g). Everything else can be re-listed from
@@ -102,6 +108,12 @@ pub enum ViewEvent {
     /// [`TrustSettings::input`] before taking the view's events again, and
     /// carries out the intent it returns.
     Trust(TrustInput),
+    /// The person pressed the Undo of the snackbar with this id: the root
+    /// passes it to [`UiModel::undo`] and carries out what it returns.
+    Undo(u64),
+    /// The snackbar with this id closed without an Undo: the root passes
+    /// it to [`UiModel::snackbar_closed`].
+    SnackbarClosed(u64),
 }
 
 /// Which table an item's row is in: a row id names a row within one.
@@ -266,6 +278,16 @@ pub enum Intent {
     Retry(RowId),
     /// Cancel a pending row.
     Cancel(RowId),
+    /// Hide a read, unkept message for the rest of the session: writes
+    /// nothing, and the root carries it out on the model
+    /// ([`UiModel::hide`]).
+    Hide(ItemKey),
+    /// Hide a conversation from the list, every message in it as `Hide`
+    /// hides one ([`UiModel::hide_conversation`]).
+    HideConversation(ConversationKey),
+    /// Take a cancel back: restore the pending record the cancel of this
+    /// row deleted. Raised only by [`UiModel::undo`].
+    Restore(RowId),
     /// Send the conversation's draft.
     Send {
         /// Where.
@@ -363,6 +385,12 @@ struct Item {
     /// read of an unread row, or an unkeep of a kept one. Keep is offered
     /// only with one, since the store keeps only content it handed back.
     released_from: Option<(Table, RowId)>,
+    /// The pending row an outbound message last held: its first, or the
+    /// one an undone cancel restored it as. A cancel names it.
+    last_pending: Option<RowId>,
+    /// Hidden by the person (Hide, a conversation hide, a cancel): not
+    /// shown, and dropped once the snackbar that could undo it closes.
+    hidden: bool,
 }
 
 impl Item {
@@ -446,6 +474,8 @@ pub struct UiModel {
     session: SessionState,
     diagnostics: Diagnostics,
     trust: TrustSettings,
+    /// The snackbar, its Undo and the latest outcome.
+    swipe: swipe::SwipeState,
 }
 
 impl Default for UiModel {
@@ -482,6 +512,7 @@ impl UiModel {
             },
             diagnostics: Diagnostics::default(),
             trust: TrustSettings::default(),
+            swipe: swipe::SwipeState::default(),
         }
     }
 
@@ -700,18 +731,25 @@ impl UiModel {
 
     /// The root kept the read message `key` as `kept_row`.
     pub fn kept(&mut self, key: ItemKey, kept_row: RowId) {
+        self.keep_answered(key);
         if let Some(item) = self.items.get_mut(&key) {
             item.rows.push((Table::Kept, kept_row));
             self.by_row.insert((Table::Kept, kept_row), key);
             if self.ephemeral_set.remove(&key) {
                 self.ephemeral.retain(|k| *k != key);
             }
+            self.row_attached(key);
+            self.swipe_kept(key, kept_row);
         }
     }
 
     /// The root removed Keep from `kept_row`.
     pub fn unkept(&mut self, kept_row: RowId) {
+        let key = self.by_row.get(&(Table::Kept, kept_row)).copied();
         self.release(Table::Kept, kept_row);
+        if let Some(key) = key {
+            self.swipe_unkept(key);
+        }
     }
 
     /// The view shows conversation `key`: if the window has focus, its
@@ -750,7 +788,7 @@ impl UiModel {
     #[must_use]
     pub fn conversations(&self) -> Vec<ConversationSummary> {
         let mut by: BTreeMap<&ConversationKey, ConversationSummary> = BTreeMap::new();
-        for item in self.items.values() {
+        for item in self.items.values().filter(|i| !i.hidden) {
             let summary = by
                 .entry(&item.conversation)
                 .or_insert_with(|| ConversationSummary {
@@ -773,6 +811,14 @@ impl UiModel {
         list
     }
 
+    /// A conversation's title, as the list shows it: for a conversation
+    /// the list no longer holds too -- every message in it hidden while it
+    /// is open.
+    #[must_use]
+    pub fn title(&self, key: &ConversationKey) -> String {
+        title(key)
+    }
+
     /// A conversation's messages, in LOCAL time order (A3). Replies are
     /// resolved here, within the conversation, so a target that was
     /// evicted or is ambiguous reads `Unavailable` (review F5).
@@ -781,7 +827,7 @@ impl UiModel {
         let mut list: Vec<MessageItem> = self
             .items
             .iter()
-            .filter(|(_, i)| &i.conversation == key)
+            .filter(|(_, i)| &i.conversation == key && !i.hidden)
             .map(|(k, i)| MessageItem {
                 key: *k,
                 direction: i.direction,
@@ -805,7 +851,8 @@ impl UiModel {
     /// that comes from a focused view alone (review F1).
     #[must_use]
     pub fn actions(&self, key: ItemKey) -> Vec<Intent> {
-        let Some(item) = self.items.get(&key) else {
+        // A hidden item offers nothing: it is on its way out of the session.
+        let Some(item) = self.items.get(&key).filter(|i| !i.hidden) else {
             return Vec::new();
         };
         if let Some(status) = &item.outbound {
@@ -823,6 +870,27 @@ impl UiModel {
         } else {
             Vec::new()
         }
+    }
+
+    /// Whether the model offers `intent` NOW. A view judges a whole take
+    /// against the model as it was rendered, so the root asks again as it
+    /// issues each: a Dismiss taken earlier in the same take may have
+    /// changed what is legal (review P-1 on #289, round 4).
+    #[must_use]
+    pub fn offers(&self, intent: &Intent) -> bool {
+        let key = match intent {
+            Intent::Keep { item, .. } | Intent::Hide(item) => Some(*item),
+            Intent::Unkeep(row) => self.by_row.get(&(Table::Kept, *row)).copied(),
+            Intent::Retry(row) | Intent::Cancel(row) => {
+                self.by_row.get(&(Table::Pending, *row)).copied()
+            }
+            Intent::HideConversation(key) => return self.conversation_hide_offered(key),
+            _ => return true,
+        };
+        key.is_some_and(|key| match intent {
+            Intent::Hide(_) => self.row_actions(key).contains(&RowAction::Hide),
+            _ => self.actions(key).contains(intent),
+        })
     }
 
     /// An outbound row's raw failure, for the diagnostics view only.
@@ -1006,6 +1074,7 @@ impl UiModel {
             if self.ephemeral_set.remove(&existing) {
                 self.ephemeral.retain(|k| *k != existing);
             }
+            self.row_attached(existing);
             return;
         }
         let key = ItemKey(table, row);
@@ -1015,6 +1084,7 @@ impl UiModel {
             .or_default()
             .push(key);
         self.by_row.insert((table, row), key);
+        let conversation_key = conversation.clone();
         self.items.insert(
             key,
             Item {
@@ -1029,8 +1099,11 @@ impl UiModel {
                 last_code: None,
                 local_at: at,
                 released_from: None,
+                last_pending: None,
+                hidden: false,
             },
         );
+        self.arrived_in(&conversation_key);
     }
 
     fn outbound(
@@ -1060,6 +1133,7 @@ impl UiModel {
             } => Some(RouteLabel::from(endpoint)),
             _ => None,
         };
+        let conversation_key = conversation.clone();
         self.items.insert(
             key,
             Item {
@@ -1078,8 +1152,11 @@ impl UiModel {
                 last_code: None,
                 local_at: at,
                 released_from: None,
+                last_pending: Some(row),
+                hidden: false,
             },
         );
+        self.arrived_in(&conversation_key);
         // A status the facade reported before the row was listed.
         if let Some(update) = self.held.remove(&row) {
             self.held_order.retain(|r| *r != row);
@@ -1148,8 +1225,10 @@ impl UiModel {
             .by_app
             .get(&(conversation.clone(), target.to_owned()))
             .map(|keys| {
+                // A hidden message is not held as far as a reply is
+                // concerned: the neutral placeholder (§15).
                 keys.iter()
-                    .filter(|k| self.items.contains_key(k))
+                    .filter(|k| self.items.get(k).is_some_and(|i| !i.hidden))
                     .copied()
                     .collect::<Vec<_>>()
             })
@@ -1177,17 +1256,34 @@ impl UiModel {
     }
 
     /// Evict the oldest session-only items past [`SESSION_ITEM_CAP`]:
-    /// only those, since everything else is re-listed from the store.
+    /// only those, since everything else is re-listed from the store, and
+    /// never one an open snackbar's Undo needs (it goes once that closes).
     fn evict(&mut self) {
         while self.ephemeral.len() > SESSION_ITEM_CAP {
-            let Some(key) = self.ephemeral.pop_front() else {
+            let Some(at) = self.ephemeral.iter().position(|k| !self.swipe.protects(k)) else {
                 return;
             };
-            self.ephemeral_set.remove(&key);
-            if let Some(item) = self.items.remove(&key) {
+            let Some(key) = self.ephemeral.remove(at) else {
+                return;
+            };
+            self.drop_items(&[key]);
+        }
+    }
+
+    /// Forget `keys` entirely: shown nowhere, offered nothing, no reply
+    /// resolved to them. Only items no store row holds.
+    fn drop_items(&mut self, keys: &[ItemKey]) {
+        for key in keys {
+            if self.ephemeral_set.remove(key) {
+                self.ephemeral.retain(|k| k != key);
+            }
+            if let Some(item) = self.items.remove(key) {
+                for row in &item.rows {
+                    self.by_row.remove(row);
+                }
                 let index = (item.conversation, item.envelope.app_message_id);
                 if let Some(keys) = self.by_app.get_mut(&index) {
-                    keys.retain(|k| *k != key);
+                    keys.retain(|k| k != key);
                     if keys.is_empty() {
                         self.by_app.remove(&index);
                     }

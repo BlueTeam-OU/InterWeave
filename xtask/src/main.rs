@@ -149,7 +149,7 @@ fn tree_checks() -> Vec<Task> {
             &["tools/checks/check_bridge_default_features.sh"],
         ),
         Task::new(
-            "the root funnel's test file is present and CI runs cargo test --all-targets",
+            "the root funnel's test file is present and CI runs cargo test (or cargo nextest run) --all-targets",
             "bash",
             &["tools/checks/check_root_funnel_precondition.sh"],
         ),
@@ -306,12 +306,18 @@ fn clippy_task() -> Task {
     )
 }
 
-/// The workspace tests as CI's `Tests` step runs them: under
+/// The workspace tests as CI's `Tests` step selects them: under
 /// `tools/ci/with_display.sh`, since the desktop client's end-to-end cases
 /// open a window and read it over AT-SPI. Run bare, those cases fail on a
 /// host without a session bus while CI passes them, and a local run that is
 /// always red hides the failure that matters. Where the wrapper cannot
 /// stand the session up it refuses (125) and the task fails, named.
+///
+/// `cargo test`, where CI runs `cargo nextest run --profile ci` over the
+/// same arguments: the same binaries and tests, so a host needs no
+/// nextest to run them, at the cost of running one binary at a time and
+/// sharing a process between a binary's tests, which CI does not
+/// (`.config/nextest.toml`).
 fn test_task() -> Task {
     let cargo = cargo();
     Task::new(
@@ -541,7 +547,10 @@ mod tests {
     }
 
     /// The local test task is CI's `Tests` step: the same wrapper and the
-    /// same cargo arguments, read from the workflow.
+    /// same cargo arguments, read from the workflow. CI runs them through
+    /// `cargo nextest run`, whose `--profile ci` is the one argument
+    /// `cargo test` has no counterpart for (`test_task` says why the
+    /// runner differs).
     #[test]
     fn the_test_task_is_ci_s_tests_step() {
         let root = repo_root().expect("the xtask package has a parent directory");
@@ -549,20 +558,25 @@ mod tests {
             fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("ci.yml is readable");
         let step = workflow
             .lines()
-            .filter_map(|line| {
+            .find_map(|line| {
                 line.trim()
-                    .strip_prefix("run: bash tools/ci/with_display.sh ")
+                    .strip_prefix("run: bash tools/ci/with_display.sh cargo nextest run ")
             })
-            .find(|rest| rest.starts_with("cargo test"))
-            .expect("CI runs cargo test under with_display.sh");
+            .expect("CI runs cargo nextest run under with_display.sh");
         let task = test_task();
         assert_eq!(task.program, "bash");
         assert_eq!(
             task.args.first().map(String::as_str),
             Some("tools/ci/with_display.sh")
         );
-        let ours: Vec<&str> = task.args.iter().skip(2).map(String::as_str).collect();
-        let ci: Vec<&str> = step.split_whitespace().skip(1).collect();
+        assert_eq!(task.args.get(2).map(String::as_str), Some("test"));
+        let ours: Vec<&str> = task.args.iter().skip(3).map(String::as_str).collect();
+        let mut ci: Vec<&str> = step.split_whitespace().collect();
+        let profile = ci
+            .windows(2)
+            .position(|w| w == ["--profile", "ci"])
+            .expect("CI's nextest run names --profile ci");
+        ci.drain(profile..profile + 2);
         assert_eq!(ours, ci, "xtask's cargo test arguments are CI's");
     }
 

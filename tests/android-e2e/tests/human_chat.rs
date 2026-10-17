@@ -294,6 +294,8 @@ impl<B: DataSessionBinding + AdminBinding + Clone> Side<B> {
         let row = Box::pin(self.client.send(destination.clone(), envelope, 0))
             .await
             .expect("the facade commits it");
+        // Attempted by the tick after the commit, as a root's loop runs it.
+        Box::pin(self.client.tick(0)).await;
         self.model
             .sent(row, &destination, envelope.clone(), wall_ms());
     }

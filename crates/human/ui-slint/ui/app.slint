@@ -7,9 +7,12 @@
 // table, and every person action leaves as a raw input the Rust side
 // resolves against the model. Nothing here decides what is legal.
 //
-// The `focus-id` writes are test plumbing: Slint's element search has
-// no focus query, so each focusable element reports itself when it gains
-// focus. They are never shown and never person-facing.
+// Slint has no focus query, so every focusable element reports itself in
+// `focus-id` when it gains focus. Rust reads it to move focus after a
+// row is taken away only if focus was inside that row (swipe spec
+// section 7), and the tests read it too. Never shown, never
+// person-facing; an element that can take focus and does not report it
+// would leave a stale row named there.
 
 import { Palette as Style } from "std-widgets.slint";
 
@@ -20,8 +23,19 @@ export struct ActionRow {
     text: string,
 }
 
+// What a row's swipe does in one direction (design/2026-10-16-message-
+// swipe.md section 3): `none` when it does nothing that way, and then the
+// row does not move that way.
+export enum SwipeKind { none, keep, hide, unkeep, retry, cancel }
+
 export struct ConversationRow {
     handle: int,
+    // A left swipe hides the conversation (section 10): offered only when
+    // it holds nothing unread, kept or pending.
+    hide: SwipeKind,
+    hide-label: string,
+    // The row is leaving the list: its space closes.
+    leaving: bool,
     title: string,
     // Says direct or channel as text, never colour alone (U2a).
     // Direct or channel and the unread count, from one template; the
@@ -73,6 +87,14 @@ export struct MessageRow {
     links: [LinkRow],
     reply: string,
     actions: [ActionRow],
+    // The swipe toward the end of a line (right, left to right) and
+    // toward its start, and the label beside each one's icon.
+    end-kind: SwipeKind,
+    end-label: string,
+    start-kind: SwipeKind,
+    start-label: string,
+    // The row is leaving the list: its space closes.
+    leaving: bool,
 }
 
 // A trusted peer: its full PeerId, exact, where it comes from (the
@@ -84,9 +106,53 @@ export struct TrustRow {
     origin: string,
 }
 
+// The platform's touch slop, which Rust sets from the system's
+// (swipe spec section 4).
+export global Touch {
+    in property <length> slop: 8px;
+}
+
+// A control's touch area: a press is its tap only while the finger stays
+// within the slop of where it went down (swipe spec section 4). A drag
+// that passes it is a swipe or a scroll, whether or not the row offers
+// one, and never presses the control under it -- a drag along a Chats
+// row once opened and read the conversation it crossed (tests/pointer.rs,
+// `a_drag_from_a_rows_button_never_presses_it_and_a_tap_does` and
+// `a_drag_on_a_conversation_row_offering_no_swipe_opens_and_reads_nothing`).
+// Inside a scrolling list the press reaches it about 100 ms late, and a
+// wander out and back before then is not seen: the release is checked
+// too, so only that is still a tap.
+component TapArea inherits TouchArea {
+    callback tapped();
+    property <bool> drifted;
+    function past-slop() -> bool {
+        abs(self.mouse-x - self.pressed-x) > Touch.slop
+            || abs(self.mouse-y - self.pressed-y) > Touch.slop
+    }
+    pointer-event(event) => {
+        if (event.kind == PointerEventKind.down) { self.drifted = false; }
+    }
+    moved => {
+        if (self.past-slop()) { self.drifted = true; }
+    }
+    clicked => {
+        if (!self.drifted && !self.past-slop()) { root.tapped(); }
+    }
+}
+
 component ActionButton inherits FocusScope {
     in property <string> text;
     in property <string> focus-key;
+    // The least touch target: 48 on a message row and the snackbar,
+    // Android's and WCAG 2.5.8's (swipe spec section 7).
+    in property <length> target: 24px;
+    // A focus request: each new `focus-seq` focuses the one control whose
+    // `focus-wanted` is true then (swipe spec section 7's focus rules).
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
     // What the control acts on, when its label alone does not say it: a
     // list's "Remove trust" names its peer here.
     in property <string> detail;
@@ -106,7 +172,8 @@ component ActionButton inherits FocusScope {
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
     }
-    min-height: 24px;
+    min-height: root.target;
+    min-width: root.target;
     Rectangle {
         border-width: root.has-focus ? 2px : 1px;
         border-color: Palette.border;
@@ -117,7 +184,45 @@ component ActionButton inherits FocusScope {
             Text { text: root.text; vertical-alignment: center; accessible-role: none; }
         }
     }
-    TouchArea { clicked => { root.pressed(); } }
+    TapArea { tapped => { root.pressed(); } }
+}
+
+// A heading that takes keyboard and screen-reader focus and does
+// nothing when activated (swipe spec section 7): where focus goes once
+// the rows below it are gone, so focus is never lost.
+component FocusHeading inherits FocusScope {
+    in property <string> text;
+    in property <string> description;
+    in property <string> focus-key;
+    in property <length> font-size: 16px;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    callback focused(string);
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    accessible-description: root.description;
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    // The layout is the only child, so the heading takes its text's
+    // height; the border shows where keyboard focus is.
+    VerticalLayout {
+        Rectangle {
+            border-width: root.has-focus ? 2px : 0px;
+            border-color: Palette.border;
+            HorizontalLayout {
+                Text {
+                    text: root.text;
+                    font-weight: 700;
+                    font-size: root.font-size;
+                    accessible-role: none;
+                }
+            }
+        }
+    }
 }
 
 // A link's control: its label is the full destination, which may be
@@ -163,7 +268,7 @@ component LinkButton inherits FocusScope {
                     accessible-role: none;
                 }
             }
-            TouchArea { clicked => { root.pressed(); } }
+            TapArea { tapped => { root.pressed(); } }
         }
     }
 }
@@ -183,6 +288,189 @@ global Palette {
     out property <color> notice-text: #3d2c00;
     out property <color> refused-text: dark ? #ff9e9e : #8a1c1c;
     out property <color> selected: dark ? #2e4a6e : #dde8f7;
+    // A row's background, which a swipe uncovers what is under.
+    out property <color> row: Style.background;
+    // The swipe roles (swipe spec section 7). One set serves both schemes:
+    // the neutral fill holds at least 3:1 against every row background
+    // drawn here (4.46 on #f3f3f3, 3.06 on #262626), and the label drawn
+    // on any fill at least 4.5:1 (white: 4.95 on neutral, 6.29 keep,
+    // 6.54 remove, 6.09 retry). The armed fills need no contrast against
+    // each other, since colour is never the only sign of arming.
+    out property <color> swipe-neutral: #707070;
+    out property <color> swipe-keep: #1b6e3a;
+    out property <color> swipe-remove: #b3261e;
+    out property <color> swipe-retry: #1f5fbf;
+    out property <color> swipe-on-fill: #ffffff;
+}
+
+// An action's icon, drawn here from first-party paths on a 24 x 24 grid:
+// decorative beside its label, so no accessible name of its own.
+component SwipeIcon {
+    in property <SwipeKind> kind;
+    in property <color> ink;
+    width: 24px;
+    height: 24px;
+    // Keep: a bookmark. Unkeep: the bookmark struck through.
+    if root.kind == SwipeKind.keep || root.kind == SwipeKind.unkeep: Path {
+        width: 24px;
+        height: 24px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 6 3 L 18 3 L 18 21 L 12 17 L 6 21 Z";
+        stroke: root.ink;
+        stroke-width: 2px;
+    }
+    // Hide: an eye, struck through below.
+    if root.kind == SwipeKind.hide: Path {
+        width: 24px;
+        height: 24px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 2 12 C 5 6 19 6 22 12 C 19 18 5 18 2 12 Z M 12 9 A 3 3 0 1 1 12 15 A 3 3 0 1 1 12 9 Z";
+        stroke: root.ink;
+        stroke-width: 2px;
+    }
+    if root.kind == SwipeKind.hide || root.kind == SwipeKind.unkeep: Path {
+        width: 24px;
+        height: 24px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 3 3 L 21 21";
+        stroke: root.ink;
+        stroke-width: 2px;
+    }
+    // Retry: a circular arrow.
+    if root.kind == SwipeKind.retry: Path {
+        width: 24px;
+        height: 24px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 20 12 A 8 8 0 1 1 17.66 6.34 M 18 2 L 18 7 L 13 7";
+        stroke: root.ink;
+        stroke-width: 2px;
+    }
+    // Cancel: a cross.
+    if root.kind == SwipeKind.cancel: Path {
+        width: 24px;
+        height: 24px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 6 6 L 18 18 M 18 6 L 6 18";
+        stroke: root.ink;
+        stroke-width: 2px;
+    }
+}
+
+// What a swipe uncovers: the action's icon and its label on the side the
+// row left, on the neutral fill until armed and the action's colour once
+// armed -- with the icon scaled up, so colour is never the only sign
+// (swipe spec section 7). For sight only: the row's buttons are what a
+// screen reader reaches.
+component SwipeReveal inherits Rectangle {
+    in property <SwipeKind> kind;
+    in property <string> label;
+    in property <bool> armed;
+    // The uncovered side is the left (the row moved right).
+    in property <bool> at-left;
+    in property <bool> reduced-motion;
+    accessible-role: none;
+    background: !root.armed ? Palette.swipe-neutral
+        : root.kind == SwipeKind.keep ? Palette.swipe-keep
+        : root.kind == SwipeKind.retry ? Palette.swipe-retry
+        : Palette.swipe-remove;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 8px;
+        alignment: root.at-left ? start : end;
+        icon := SwipeIcon {
+            kind: root.kind;
+            ink: Palette.swipe-on-fill;
+            y: (parent.height - self.height) / 2;
+            transform-scale: root.armed ? 1.2 : 1.0;
+            animate transform-scale { duration: root.reduced-motion ? 0ms : 100ms; }
+        }
+        Text {
+            text: root.label;
+            color: Palette.swipe-on-fill;
+            vertical-alignment: center;
+            accessible-role: none;
+        }
+    }
+}
+
+// The snackbar: what a swipe or a row button did, and its Undo while one
+// is offered (swipe spec section 6). Its text is announced through the
+// window's one live region when it opens, not by itself. A swipe either
+// way dismisses it.
+component Snackbar inherits Rectangle {
+    in property <string> text;
+    in property <bool> undo;
+    in property <string> undo-label;
+    in property <int> snack-id;
+    in property <int> focus-seq;
+    // A right-to-left layout: the Undo sits at the line's end, the left
+    // (swipe spec section 3).
+    in property <bool> rtl;
+    callback undo-pressed(int);
+    callback dismissed(int);
+    callback focused(string);
+    background: Palette.pane;
+    border-width: 1px;
+    border-color: Palette.border;
+    border-radius: 4px;
+    SwipeGestureHandler {
+        handle-swipe-left: true;
+        handle-swipe-right: true;
+        swiped => { root.dismissed(root.snack-id); }
+        // The Undo sits at the line's end in either direction. It is
+        // placed, not laid out, so the tree keeps the text before it in
+        // both: a screen reader reads what happened, then its Undo.
+        HorizontalLayout {
+            padding: 8px;
+            padding-left: root.rtl ? 8px : 12px;
+            padding-right: root.rtl ? 12px : 8px;
+            spacing: 8px;
+            if root.undo && root.rtl: Rectangle {
+                width: root.undo-width;
+                min-height: 48px;
+            }
+            Text {
+                text: root.text;
+                wrap: word-wrap;
+                min-width: 0;
+                horizontal-stretch: 1;
+                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                vertical-alignment: center;
+                accessible-role: AccessibleRole.text;
+                accessible-label: self.text;
+            }
+            if root.undo && !root.rtl: Rectangle {
+                width: root.undo-width;
+                min-height: 48px;
+            }
+        }
+        if root.undo: ActionButton {
+            x: root.rtl ? 8px : parent.width - self.width - 8px;
+            y: (parent.height - self.height) / 2;
+            width: root.undo-width;
+            height: 48px;
+            text: root.undo-label;
+            detail: root.text;
+            target: 48px;
+            focus-key: "undo";
+            pressed => { root.undo-pressed(root.snack-id); }
+            focused(k) => { root.focused(k); }
+        }
+    }
+    // The Undo's width, from its label as ActionButton draws it (8 px each
+    // side), at least the 48 px touch target.
+    property <length> undo-width: max(48px, undo-measure.preferred-width + 16px);
+    undo-measure := Text {
+        text: root.undo-label;
+        visible: false;
+        accessible-role: none;
+    }
 }
 
 export component AppWindow inherits Window {
@@ -228,6 +516,38 @@ export component AppWindow inherits Window {
     in property <string> announcement-b;
     out property <string> focus-id;
 
+    // The one row a swipe moves ("m:" and an item's handle, "c:" and a
+    // conversation's), how far, whether it is armed, and whether it
+    // follows the finger now -- set by Rust, which decides the gesture
+    // (gesture.rs), from the positions the rows report.
+    in property <string> swipe-key;
+    in property <length> swipe-offset;
+    in property <bool> swipe-armed;
+    in property <bool> swipe-tracking;
+    // A right-to-left layout: the swipe directions mirror.
+    in property <bool> rtl;
+    // The system's animations are off: nothing animates.
+    in property <bool> reduced-motion;
+    // A focus request: Rust bumps the sequence once the rows it names are
+    // drawn, and the control named by the target takes focus ("m:" and an
+    // item's handle, "c:" and a conversation's, "h" the open
+    // conversation's header title, "heading" the list's heading).
+    in property <int> focus-seq;
+    in property <string> focus-target;
+    // The snackbar (swipe spec section 6): one at a time, in the
+    // conversation above the composer, or on the conversation list.
+    // Rust clears it when an input that closes the snackbar is queued, so
+    // no Undo can be pressed on screen for one the queue has closed.
+    in property <bool> snack-shown;
+    in property <bool> snack-on-list;
+    in property <int> snack-id;
+    in property <string> snack-text;
+    in property <bool> snack-undo;
+    in property <string> undo-label;
+    // The open conversation's "Hide conversation", when it is offered.
+    in property <bool> hide-conversation-shown;
+    in property <string> hide-conversation-label;
+
     // The trust settings (human-client-ui.md section 8), shown in place of
     // the conversation: every string from Rust, every press back to it.
     in property <bool> trust-page;
@@ -269,6 +589,21 @@ export component AppWindow inherits Window {
     callback trust-remove(int);
     callback trust-confirm();
     callback trust-cancel();
+    // A row's swipe: the press and the current position, in window
+    // coordinates, and the row's width; then its end or its cancel.
+    callback swipe-moved(string, length, length, length, length, length, length);
+    callback swipe-ended(string);
+    callback swipe-cancelled(string);
+    callback undo(int);
+    callback snack-closed(int);
+    callback hide-conversation();
+    // The right-hand pane was shown or hidden: a narrow window went to
+    // the list or back, or a resize crossed `narrow` (`pane-shown`).
+    callback pane-changed();
+    // A narrow window's Back: the person left the conversation, even if a
+    // pick from the list shows it again before the window's next turn,
+    // when `pane-shown` is back where it was.
+    callback left-conversation();
 
     // A window narrower than this shows one pane at a time -- the list,
     // or a conversation or the trust settings with a way back -- rather
@@ -276,6 +611,12 @@ export component AppWindow inherits Window {
     property <bool> narrow: root.width < 600px;
     // In a narrow window: the conversation list is the pane shown.
     in-out property <bool> list-shown: true;
+    // Whether the right-hand pane -- the conversation, or the trust
+    // settings in its place -- is on screen. The ONE answer: the view reads
+    // it to decide what a person can see, so a resize across `narrow`
+    // cannot leave a conversation counted as seen behind the list.
+    out property <bool> pane-shown: !root.narrow || !root.list-shown;
+    changed pane-shown => { root.pane-changed(); }
     // The bottom of the window an open virtual keyboard covers.
     property <length> keyboard-overlap: root.virtual-keyboard-size.height > 0
         ? max(0px, root.height - root.virtual-keyboard-position.y) : 0px;
@@ -332,12 +673,12 @@ export component AppWindow inherits Window {
         VerticalLayout {
             padding: 12px;
             spacing: 6px;
-            Text {
+            FocusHeading {
                 text: root.conversations-heading;
-                font-weight: 700;
-                font-size: 16px;
-                accessible-role: text;
-                accessible-label: self.text;
+                focus-key: "conversations-heading";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "heading";
+                focused(k) => { root.focus-id = k; }
             }
             // Any number of conversations: the list scrolls rather than
             // raising the window's minimum height past the screen. A row
@@ -346,11 +687,18 @@ export component AppWindow inherits Window {
             Flickable {
                 vertical-stretch: 1;
                 viewport-height: conversations-column.preferred-height;
+                interactive: !root.swipe-tracking;
             conversations-column := VerticalLayout {
                 width: parent.width;
                 spacing: 6px;
                 alignment: start;
-            for row[index] in root.conversations: FocusScope {
+            for row[index] in root.conversations: conversation := FocusScope {
+                property <string> swipe-key: "c:" + row.handle;
+                property <length> offset: root.swipe-key == self.swipe-key ? root.swipe-offset : 0px;
+                property <int> focus-seq: root.focus-seq;
+                changed focus-seq => {
+                    if (root.focus-target == self.swipe-key) { self.focus(); }
+                }
                 accessible-role: list-item;
                 accessible-label: row.title;
                 accessible-item-index: index;
@@ -369,25 +717,71 @@ export component AppWindow inherits Window {
                 changed has-focus => {
                     if (self.has-focus) { root.focus-id = "conversation:" + row.handle; }
                 }
-                min-height: 44px;
+                height: row.leaving ? 0px : max(48px, summary.preferred-height);
+                animate height { duration: root.reduced-motion ? 0ms : 150ms; easing: ease-out; }
                 Rectangle {
-                    background: row.selected ? Palette.selected : transparent;
-                    border-radius: 4px;
-                }
-                VerticalLayout {
-                    padding: 6px;
-                    // The row's label and description already say these.
-                    Text { text: row.title; accessible-role: none; }
-                    Text {
-                        text: row.description;
-                        color: Palette.muted-text;
-                        font-size: 12px;
-                        accessible-role: none;
+                clip: true;
+                // A left swipe hides the conversation (swipe spec section
+                // 10), a right one does nothing; mirrored right to left.
+                SwipeGestureHandler {
+                    enabled: row.hide != SwipeKind.none;
+                    handle-swipe-left: !root.rtl && row.hide != SwipeKind.none;
+                    handle-swipe-right: root.rtl && row.hide != SwipeKind.none;
+                    moved => {
+                        root.swipe-moved(conversation.swipe-key,
+                            self.absolute-position.x + self.pressed-position.x,
+                            self.absolute-position.y + self.pressed-position.y,
+                            self.absolute-position.x + self.current-position.x,
+                            self.absolute-position.y + self.current-position.y,
+                            self.width, root.width);
+                    }
+                    swiped => { root.swipe-ended(conversation.swipe-key); }
+                    cancelled => { root.swipe-cancelled(conversation.swipe-key); }
+                    if conversation.offset != 0px: SwipeReveal {
+                        kind: row.hide;
+                        label: row.hide-label;
+                        armed: root.swipe-armed;
+                        at-left: conversation.offset > 0px;
+                        reduced-motion: root.reduced-motion;
+                    }
+                    Rectangle {
+                        x: conversation.offset;
+                        animate x {
+                            duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
+                            easing: ease-out;
+                        }
+                        background: row.selected ? Palette.selected : Palette.pane;
+                        border-radius: 4px;
+                        summary := VerticalLayout {
+                            padding: 6px;
+                            alignment: center;
+                            // The row's label and description already say these.
+                            Text { text: row.title; accessible-role: none; }
+                            Text {
+                                text: row.description;
+                                color: Palette.muted-text;
+                                font-size: 12px;
+                                accessible-role: none;
+                            }
+                        }
+                        TapArea { tapped => { root.choose(row.handle); } }
                     }
                 }
-                TouchArea { clicked => { root.choose(row.handle); } }
+                }
             }
             }
+            }
+            // A conversation hide's snackbar, on the list it left.
+            if root.snack-shown && root.snack-on-list: Snackbar {
+                text: root.snack-text;
+                undo: root.snack-undo;
+                undo-label: root.undo-label;
+                snack-id: root.snack-id;
+                focus-seq: root.focus-seq;
+                rtl: root.rtl;
+                undo-pressed(id) => { root.undo(id); }
+                dismissed(id) => { root.snack-closed(id); }
+                focused(k) => { root.focus-id = k; }
             }
             // Trust is a settings action, apart from every conversation
             // (human-client-ui.md section 8): nothing a message shows can
@@ -406,7 +800,7 @@ export component AppWindow inherits Window {
             background: Palette.divider;
         }
         if root.trust-page: VerticalLayout {
-            visible: !root.narrow || !root.list-shown;
+            visible: root.pane-shown;
             padding: 12px;
             spacing: 8px;
             HorizontalLayout {
@@ -450,6 +844,9 @@ export component AppWindow inherits Window {
                 color: Palette.muted-text;
                 accessible-label: root.own-peer-id-label;
                 accessible-value: self.text;
+                changed has-focus => {
+                    if (self.has-focus) { root.focus-id = "own-peer-id"; }
+                }
             }
             // The add row under the explanation, above the list it adds to,
             // with a visible caption (the field's own accessible label).
@@ -520,6 +917,9 @@ export component AppWindow inherits Window {
                         single-line: true;
                         accessible-label: row.peer;
                         accessible-value: self.text;
+                        changed has-focus => {
+                            if (self.has-focus) { root.focus-id = "peer:" + row.handle; }
+                        }
                     }
                     Text {
                         text: row.origin;
@@ -581,7 +981,7 @@ export component AppWindow inherits Window {
             }
         }
         if !root.trust-page: VerticalLayout {
-            visible: !root.narrow || !root.list-shown;
+            visible: root.pane-shown;
             padding: 12px;
             spacing: 8px;
             if root.narrow: HorizontalLayout {
@@ -589,7 +989,10 @@ export component AppWindow inherits Window {
                 ActionButton {
                     text: root.back-label;
                     focus-key: "back-to-list";
-                    pressed => { root.list-shown = true; }
+                    pressed => {
+                        root.list-shown = true;
+                        root.left-conversation();
+                    }
                     focused(k) => { root.focus-id = k; }
                 }
             }
@@ -624,13 +1027,30 @@ export component AppWindow inherits Window {
                 }
             }
             }
-            Text {
+            FocusHeading {
                 text: root.header-title;
-                font-weight: 700;
-                font-size: 16px;
-                accessible-role: text;
-                accessible-label: self.text;
-                accessible-description: root.header-id;
+                description: root.header-id;
+                focus-key: "header-title";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "h";
+                focused(k) => { root.focus-id = k; }
+            }
+            // The equivalent of the list's hide swipe, for anyone who
+            // cannot swipe (swipe spec section 10): shown only when the
+            // swipe is offered, and back to the list, where the snackbar is.
+            if root.hide-conversation-shown: HorizontalLayout {
+                alignment: start;
+                ActionButton {
+                    text: root.hide-conversation-label;
+                    detail: root.header-title;
+                    target: 48px;
+                    focus-key: "hide-conversation";
+                    pressed => {
+                        root.list-shown = true;
+                        root.hide-conversation();
+                    }
+                    focused(k) => { root.focus-id = k; }
+                }
             }
             // The identifier in exact canonical form, selectable so a person
             // can copy it with the platform's own keys (human-client-ui.md
@@ -643,6 +1063,9 @@ export component AppWindow inherits Window {
                 color: Palette.muted-text;
                 accessible-label: root.header-id-label;
                 accessible-value: self.text;
+                changed has-focus => {
+                    if (self.has-focus) { root.focus-id = "header-id"; }
+                }
             }
             // Updated in place: a path change is not an event a person is
             // interrupted for, so it is no live region either.
@@ -667,6 +1090,9 @@ export component AppWindow inherits Window {
             Flickable {
                 vertical-stretch: 1;
                 viewport-height: messages-column.preferred-height;
+                // A row tracking a swipe holds its touch: the list does
+                // not scroll for it (swipe spec section 4).
+                interactive: !root.swipe-tracking;
             messages-column := VerticalLayout {
                 width: parent.width;
                 spacing: 10px;
@@ -675,6 +1101,11 @@ export component AppWindow inherits Window {
                 // The person's choice for this message, kept with its row
                 // while the row exists: the drawn body, or the source.
                 in-out property <bool> show-source: false;
+                property <string> swipe-key: "m:" + row.handle;
+                // How far the row's content sits from rest: the swipe's,
+                // while this is the row it moves.
+                property <length> offset: root.swipe-key == self.swipe-key ? root.swipe-offset : 0px;
+                property <bool> focus-here: root.focus-target == self.swipe-key;
                 accessible-role: list-item;
                 accessible-label: row.label;
                 accessible-item-index: index;
@@ -682,7 +1113,76 @@ export component AppWindow inherits Window {
                 changed has-focus => {
                     if (self.has-focus) { root.focus-id = "item:" + row.handle; }
                 }
-                VerticalLayout {
+                animate offset {
+                    duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
+                    easing: ease-out;
+                }
+                // The row's height is the layout's, at the row's real width:
+                // a long body wraps. As the row leaves, it is held at the
+                // height it had, then closes to nothing (swipe spec section 5).
+                property <length> natural;
+                property <bool> collapsing: false;
+                changed height => {
+                    if (!row.leaving) { self.natural = self.height; }
+                }
+                max-height: !row.leaving ? 100000px : self.collapsing ? 0px : self.natural;
+                animate max-height {
+                    duration: self.collapsing && !root.reduced-motion ? 150ms : 0ms;
+                    easing: ease-out;
+                }
+                Timer {
+                    interval: 16ms;
+                    running: row.leaving && !item.collapsing;
+                    triggered => { item.collapsing = true; }
+                }
+                // Clipped, so a closing row hides what it covered.
+                Rectangle {
+                clip: true;
+                // The toolkit's handler takes a drag away from the controls
+                // inside it once it moves in a direction this row offers;
+                // what the drag MEANS is decided in Rust (gesture.rs), by
+                // section 4's rule rather than the handler's own.
+                SwipeGestureHandler {
+                    enabled: row.end-kind != SwipeKind.none || row.start-kind != SwipeKind.none;
+                    handle-swipe-right: root.rtl ? row.start-kind != SwipeKind.none : row.end-kind != SwipeKind.none;
+                    handle-swipe-left: root.rtl ? row.end-kind != SwipeKind.none : row.start-kind != SwipeKind.none;
+                    moved => {
+                        root.swipe-moved(item.swipe-key,
+                            self.absolute-position.x + self.pressed-position.x,
+                            self.absolute-position.y + self.pressed-position.y,
+                            self.absolute-position.x + self.current-position.x,
+                            self.absolute-position.y + self.current-position.y,
+                            self.width, root.width);
+                    }
+                    swiped => { root.swipe-ended(item.swipe-key); }
+                    cancelled => { root.swipe-cancelled(item.swipe-key); }
+                    if item.offset != 0px: SwipeReveal {
+                        // The row moved toward the line's end: its end action.
+                        property <bool> toward-end: (item.offset > 0px) != root.rtl;
+                        kind: self.toward-end ? row.end-kind : row.start-kind;
+                        label: self.toward-end ? row.end-label : row.start-label;
+                        armed: root.swipe-armed;
+                        at-left: item.offset > 0px;
+                        reduced-motion: root.reduced-motion;
+                    }
+                    // Moved by its padding rather than its x, which would
+                    // take it out of the layout that sizes the row: the
+                    // two paddings cancel, so the content keeps its width.
+                    HorizontalLayout {
+                        padding-left: item.offset;
+                        padding-right: -item.offset;
+                    Rectangle {
+                        background: Palette.row;
+                // Under the row's controls, the part of the row that is no
+                // control takes the press. Left to the handler, which grabs
+                // it, a drag the row does not offer ends with no callback,
+                // and the next drag on the row was read as its continuation
+                // (swipe spec section 11, item 5, on a device); taken here, the handler reports a drag only once
+                // it has taken it, and ends every drag it took
+                // (tests/pointer.rs,
+                // `a_drag_a_row_does_not_offer_leaves_the_next_drag_its_own`).
+                TouchArea {
+                content := VerticalLayout {
                     HorizontalLayout {
                         Text {
                             text: row.author;
@@ -775,20 +1275,48 @@ export component AppWindow inherits Window {
                         alignment: start;
                         for action in row.actions: ActionButton {
                             text: action.text;
+                            // What the action acts on: the message, as
+                            // the row itself is read.
+                            detail: row.label;
+                            target: 48px;
                             focus-key: "action:" + row.handle + ":" + action.index;
+                            focus-seq: root.focus-seq;
+                            focus-wanted: item.focus-here && action.index == 0;
                             pressed => { root.action(row.handle, action.index); }
                             focused(k) => { root.focus-id = k; }
                         }
                         ActionButton {
                             text: item.show-source ? root.show-formatted-label : root.show-source-label;
+                            detail: row.label;
+                            target: 48px;
                             focus-key: "source:" + row.handle;
+                            focus-seq: root.focus-seq;
+                            focus-wanted: item.focus-here && row.actions.length == 0;
                             pressed => { item.show-source = !item.show-source; }
                             focused(k) => { root.focus-id = k; }
                         }
                     }
                 }
+                }
+                    }
+                    }
+                }
+                }
             }
             }
+            }
+            // The snackbar (swipe spec section 6): above the composer,
+            // never over it; one at a time.
+            if root.snack-shown && !root.snack-on-list: Snackbar {
+                text: root.snack-text;
+                undo: root.snack-undo;
+                undo-label: root.undo-label;
+                snack-id: root.snack-id;
+                focus-seq: root.focus-seq;
+                rtl: root.rtl;
+                undo-pressed(id) => { root.undo(id); }
+                dismissed(id) => { root.snack-closed(id); }
+                focused(k) => { root.focus-id = k; }
             }
             // A refused send is announced: the primary action's failure is
             // otherwise silent to a screen reader (rust-ui-dev F3).

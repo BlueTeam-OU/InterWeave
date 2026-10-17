@@ -1,0 +1,1133 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Andrea Benetton
+//! A row's swipe, its buttons and the snackbar, through Slint's testing
+//! backend (`design/2026-10-16-message-swipe.md`).
+//!
+//! A swipe is driven here through the window's own callbacks, with the
+//! positions the row's handler would report: what is proved is the view's
+//! half -- which positions commit what, what the window then shows, says
+//! and focuses. NOT proved here: that Slint's handler reports those
+//! positions on a device, that the list does not take the touch first,
+//! the system's slop, insets and haptics, or what the screen reader reads. Those
+//! are the Android build's, checked on a device.
+
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+
+use std::cell::Cell;
+use std::rc::Rc;
+use std::time::Duration;
+
+use i_slint_backend_testing::ElementHandle;
+use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
+use interweave_human_client_api::{
+    ClientEvent, Destination, Origin, OutboundStatus, OutboundUpdate, Received,
+};
+use interweave_human_core::AppMessageId;
+use interweave_human_core::RowId;
+use interweave_human_ui_model::{
+    ConversationKey, Intent, RuntimeHost, UiModel, UiText, placeholder_en,
+};
+use interweave_human_ui_slint::{INPUT_CAP, TouchSettings, View, ViewEvent};
+use interweave_profile_identity::ProfileIdentity;
+use interweave_transport_api::{EndpointId, TransportIdentity};
+use slint::platform::{Key, WindowEvent};
+use slint::{ComponentHandle as _, Model as _};
+
+fn peer() -> TransportIdentity {
+    ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a peer id")
+}
+
+fn human() -> EndpointId {
+    EndpointId::parse("human").expect("an endpoint")
+}
+
+fn envelope(serial: u128, text: &str) -> HumanChatV2 {
+    HumanChatV2 {
+        v: 2,
+        kind: MessageKind::Text,
+        app_message_id: format!("{serial:032x}"),
+        text: text.to_owned(),
+        reply_to: None,
+        sent_at_ms: None,
+        from_endpoint: None,
+    }
+}
+
+fn direct(peer: &TransportIdentity) -> ConversationKey {
+    ConversationKey::Direct {
+        peer: peer.clone(),
+        endpoint: Some(human()),
+    }
+}
+
+/// A message from `from`, read: kind A.
+fn read(model: &mut UiModel, row: i64, from: &TransportIdentity, text: &str) {
+    model.received(Received {
+        row: RowId::from_stored(row),
+        origin: Origin::Direct {
+            peer: from.clone(),
+            endpoint: human(),
+        },
+        envelope: envelope(u128::try_from(row).expect("positive") + 1_000, text),
+        received_at: u64::try_from(row).expect("positive"),
+    });
+    model.read(RowId::from_stored(row));
+}
+
+/// A message to `to`, pending: kind C.
+fn pending(model: &mut UiModel, row: i64, to: &TransportIdentity, text: &str) {
+    model.sent(
+        RowId::from_stored(row),
+        &Destination::Direct {
+            peer: to.clone(),
+            endpoint: Some(human()),
+        },
+        envelope(u128::try_from(row).expect("positive"), text),
+        u64::try_from(row).expect("positive"),
+    );
+}
+
+fn view() -> View {
+    i_slint_backend_testing::init_no_event_loop();
+    let view = View::new(RuntimeHost::Embedded).expect("a window");
+    view.window().show().expect("shown");
+    view
+}
+
+fn text(t: UiText) -> &'static str {
+    placeholder_en::text(t)
+}
+
+/// The root's half, as app-core's model side does it: what writes nothing
+/// is done on the model, an Undo resolved by it, and the facade's
+/// intents returned.
+fn turn(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
+    let mut out = Vec::new();
+    loop {
+        let events = view.take_events(model);
+        if events.is_empty() {
+            break;
+        }
+        for event in events {
+            match event {
+                ViewEvent::Intent(Intent::Hide(item)) => model.hide(item),
+                ViewEvent::Intent(Intent::HideConversation(key)) => model.hide_conversation(&key),
+                ViewEvent::Intent(intent) => out.push(intent),
+                ViewEvent::Undo(id) => out.extend(model.undo(id)),
+                ViewEvent::SnackbarClosed(id) => model.snackbar_closed(id),
+                ViewEvent::DraftChanged { key, draft } => model.draft_changed(key, draft),
+                ViewEvent::Trust(_) => {}
+            }
+        }
+    }
+    view.render(model);
+    // A focus request is carried out once its rows are drawn.
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(0));
+    out
+}
+
+fn open(view: &mut View, model: &mut UiModel, key: &ConversationKey) {
+    view.select(key.clone());
+    let _ = turn(view, model);
+}
+
+/// Tab until the focused control's `focus-id` starts with `prefix`.
+fn tab_to(view: &View, prefix: &str) -> String {
+    for _ in 0..60 {
+        key(view, Key::Tab);
+        let on = view.window().get_focus_id().to_string();
+        if on.starts_with(prefix) {
+            return on;
+        }
+    }
+    panic!("Tab never reached {prefix}");
+}
+
+fn key(view: &View, key: Key) {
+    let text: slint::SharedString = key.into();
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+    window.dispatch_event(WindowEvent::KeyReleased { text });
+}
+
+/// Activate the focused control from the keyboard.
+fn press_focused(view: &View) {
+    key(view, Key::Return);
+}
+
+/// The handle of the message row at `index` as drawn.
+fn handle(view: &View, index: usize) -> i32 {
+    view.window()
+        .get_messages()
+        .row_data(index)
+        .expect("a row")
+        .handle
+}
+
+/// The swipe key of the message row at `index` as drawn.
+fn row_key(view: &View, index: usize) -> String {
+    let row = view.window().get_messages().row_data(index).expect("a row");
+    format!("m:{}", row.handle)
+}
+
+const WIDTH: f32 = 360.0;
+const WINDOW: f32 = 400.0;
+
+/// Drag the row `key` from x 200 by `(dx, dy)` in `steps` reports, then
+/// lift: what the row's handler would report.
+fn swipe(view: &View, key: &str, dx: f32, dy: f32, steps: u32) {
+    let window = view.window();
+    for i in 1..=steps {
+        #[allow(clippy::cast_precision_loss)]
+        let f = i as f32 / steps as f32;
+        window.invoke_swipe_moved(
+            key.into(),
+            200.0,
+            300.0,
+            200.0 + dx * f,
+            300.0 + dy * f,
+            WIDTH,
+            WINDOW,
+        );
+    }
+    window.invoke_swipe_ended(key.into());
+}
+
+fn labelled(view: &View, label: &str) -> Vec<ElementHandle> {
+    ElementHandle::find_by_accessible_label(view.window(), label).collect()
+}
+
+/// What the window's announcement says now.
+fn announced(view: &View) -> String {
+    let a = view.window().get_announcement_a().to_string();
+    let b = view.window().get_announcement_b().to_string();
+    if a.is_empty() { b } else { a }
+}
+
+/// §7, checked by §11 item 13: every row button of every kind -- read,
+/// kept, pending -- is at least 48 x 48, its touch area with it. On the Pixel the drawn
+/// border measured 125.5 px of 126, which this does not explain: the
+/// element is 48, so the likely cause is a row at a fractional pixel with
+/// its edge anti-aliased (not checked on the device).
+#[test]
+fn every_rows_buttons_are_48_by_48() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "read");
+    read(&mut model, 2, &alice, "kept");
+    pending(&mut model, 3, &alice, "pending");
+    let key = direct(&alice);
+    let kept = model.messages(&key)[1].key;
+    model.kept(kept, RowId::from_stored(10));
+    open(&mut view, &mut model, &key);
+    for label in [
+        UiText::Keep,
+        UiText::Dismiss,
+        UiText::Unkeep,
+        UiText::Retry,
+        UiText::Cancel,
+        UiText::ShowSource,
+    ] {
+        let found = labelled(&view, text(label));
+        assert!(!found.is_empty(), "a {label:?} button");
+        for button in found {
+            let size = button.size();
+            assert!(
+                size.width >= 48.0 && size.height >= 48.0,
+                "{label:?} is {size:?}, under 48 x 48"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_swipe_past_the_threshold_raises_the_rows_action_and_ticks_once() {
+    let mut view = view();
+    let ticks = Rc::new(Cell::new(0));
+    let t = Rc::clone(&ticks);
+    view.on_haptic(move || t.set(t.get() + 1));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "hello");
+    open(&mut view, &mut model, &direct(&alice));
+    let key = row_key(&view, 0);
+
+    let window = view.window();
+    window.invoke_swipe_moved(
+        key.as_str().into(),
+        200.0,
+        300.0,
+        250.0,
+        302.0,
+        WIDTH,
+        WINDOW,
+    );
+    assert!(
+        window.get_swipe_tracking(),
+        "the list stops scrolling for it"
+    );
+    assert_eq!(window.get_swipe_key().as_str(), key);
+    assert!((window.get_swipe_offset() - 50.0).abs() < 0.01, "1:1");
+    swipe(&view, &key, 160.0, 0.0, 8);
+    assert_eq!(ticks.get(), 1, "one tick as it armed");
+    let intents = turn(&mut view, &mut model);
+    assert!(
+        matches!(intents.as_slice(), [Intent::Keep { .. }]),
+        "{intents:?}"
+    );
+    assert!(!view.window().get_swipe_tracking());
+}
+
+#[test]
+fn a_drag_55_degrees_off_horizontal_never_moves_the_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "hello");
+    open(&mut view, &mut model, &direct(&alice));
+    let key = row_key(&view, 0);
+    let (dy, dx) = 55.0_f32.to_radians().sin_cos();
+    swipe(&view, &key, dx * 300.0, dy * 300.0, 30);
+    assert!(!view.window().get_swipe_tracking());
+    assert!(view.window().get_swipe_offset().abs() < 0.01);
+    assert!(
+        turn(&mut view, &mut model).is_empty(),
+        "it scrolls, never swipes"
+    );
+}
+
+#[test]
+fn right_to_left_mirrors_the_directions() {
+    let mut view = view();
+    view.set_touch_settings(TouchSettings {
+        rtl: true,
+        ..TouchSettings::default()
+    });
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "hello");
+    open(&mut view, &mut model, &direct(&alice));
+    let key = row_key(&view, 0);
+    swipe(&view, &key, -170.0, 0.0, 8);
+    let intents = turn(&mut view, &mut model);
+    assert!(
+        matches!(intents.as_slice(), [Intent::Keep { .. }]),
+        "a swipe to the left keeps: {intents:?}"
+    );
+}
+
+#[test]
+fn a_hide_is_confirmed_announced_and_undone_in_place() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    let first = row_key(&view, 0);
+    let first_handle = view
+        .window()
+        .get_messages()
+        .row_data(0)
+        .expect("row")
+        .handle;
+    let focus_before = view.window().get_focus_id().to_string();
+
+    swipe(&view, &first, -170.0, 0.0, 8);
+    let intents = turn(&mut view, &mut model);
+    assert!(intents.is_empty(), "Hide is the model's alone: {intents:?}");
+    assert_eq!(model.messages(&direct(&alice)).len(), 1);
+    assert!(view.window().get_snack_shown());
+    assert_eq!(
+        view.window().get_snack_text().as_str(),
+        text(UiText::ConfirmDismissed)
+    );
+    assert_eq!(announced(&view), text(UiText::ConfirmDismissed));
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        focus_before,
+        "a touch swipe with focus outside the row leaves focus where it was"
+    );
+    let undo = labelled(&view, text(UiText::Undo));
+    assert_eq!(undo.len(), 1, "the snackbar's Undo");
+    assert!(undo[0].size().width >= 48.0 && undo[0].size().height >= 48.0);
+
+    undo[0].invoke_accessible_default_action();
+    assert!(turn(&mut view, &mut model).is_empty());
+    assert_eq!(
+        model.messages(&direct(&alice)).len(),
+        2,
+        "back in its place"
+    );
+    assert!(!view.window().get_snack_shown());
+    assert_eq!(announced(&view), text(UiText::ActionUndone));
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first_handle}:0"),
+        "an Undo focuses the restored row's first control"
+    );
+}
+
+#[test]
+fn a_leaving_rows_space_closes_and_then_it_goes() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    let hide = labelled(&view, text(UiText::Dismiss));
+    hide[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    let rows = view.window().get_messages();
+    assert_eq!(rows.row_count(), 2, "kept while its space closes");
+    assert!(rows.row_data(0).expect("row").leaving);
+    std::thread::sleep(Duration::from_millis(200));
+    view.render(&model);
+    assert_eq!(view.window().get_messages().row_count(), 1, "then gone");
+}
+
+#[test]
+fn a_cancel_swipe_holds_its_row_out_until_the_answer_and_a_refusal_springs_it_back() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    pending(&mut model, 1, &alice, "out");
+    open(&mut view, &mut model, &direct(&alice));
+    let key = row_key(&view, 0);
+    swipe(&view, &key, -170.0, 0.0, 8);
+    assert!(
+        (view.window().get_swipe_offset() + WIDTH).abs() < 0.01,
+        "slid out"
+    );
+    let intents = turn(&mut view, &mut model);
+    let Some(cancel @ Intent::Cancel(_)) = intents.first().cloned() else {
+        panic!("Cancel at commit: {intents:?}");
+    };
+    view.render(&model);
+    assert!(
+        (view.window().get_swipe_offset() + WIDTH).abs() < 0.01,
+        "held out while the facade answers"
+    );
+    model.intent_refused(&cancel);
+    view.render(&model);
+    assert!(
+        view.window().get_swipe_offset().abs() < 0.01,
+        "springs back, still pending"
+    );
+    assert!(!view.window().get_snack_shown(), "no snackbar");
+}
+
+#[test]
+fn the_snackbar_closes_after_its_time() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let intents = turn(&mut view, &mut model);
+    let Some(Intent::Keep { item, .. }) = intents.first() else {
+        panic!("Keep: {intents:?}");
+    };
+    model.kept(*item, RowId::from_stored(10));
+    view.render(&model);
+    assert!(view.window().get_snack_shown());
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(5_000));
+    let _ = turn(&mut view, &mut model);
+    assert!(view.window().get_snack_shown(), "up for 6 s");
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1_100));
+    let _ = turn(&mut view, &mut model);
+    assert!(!view.window().get_snack_shown(), "then closed");
+    assert!(model.snackbar().is_none());
+}
+
+#[test]
+fn hide_conversation_is_offered_on_its_screen_only_when_the_swipe_is() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    open(&mut view, &mut model, &direct(&alice));
+    assert!(view.window().get_hide_conversation_shown());
+    let control = labelled(&view, text(UiText::HideConversation));
+    assert_eq!(control.len(), 1);
+    control[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.conversations().is_empty());
+    assert!(view.window().get_snack_shown() && view.window().get_snack_on_list());
+    assert_eq!(
+        view.window().get_snack_text().as_str(),
+        text(UiText::ConfirmConversationHidden)
+    );
+
+    let bob = peer();
+    pending(&mut model, 5, &bob, "out");
+    open(&mut view, &mut model, &direct(&bob));
+    assert!(
+        !view.window().get_hide_conversation_shown(),
+        "a pending message: not offered"
+    );
+}
+
+#[test]
+fn a_conversation_whose_rows_are_all_hidden_keeps_its_header() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "only");
+    open(&mut view, &mut model, &direct(&alice));
+    let title = view.window().get_header_title().to_string();
+    assert!(!title.is_empty(), "control");
+    // Dismiss is the row's second action, after Keep.
+    tab_to(&view, &format!("action:{}:1", handle(&view, 0)));
+    press_focused(&view);
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(view.window().get_header_title().as_str(), title);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "header-title",
+        "the header title, never the composer and its keyboard"
+    );
+}
+
+/// A snackbar's closing and leaving for the list are never refused, so
+/// they coalesce instead: one closing per snackbar, one Left until a
+/// selection follows it; a pane shown or hidden waits outside the queue
+/// (review F4 on #289; j84; the bound `queued_inputs` states).
+#[test]
+fn closings_and_leavings_wait_once_each() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_some(), "control");
+    let before = view.queued_inputs();
+    for _ in 0..50 {
+        view.close_snackbar();
+        view.window().invoke_left_conversation();
+        view.window().invoke_pane_changed();
+    }
+    assert_eq!(view.queued_inputs(), before + 2, "one closing, one Left");
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+    assert_eq!(view.queued_inputs(), 0);
+}
+
+/// A wide window whose trust settings closed, a message dismissed in the
+/// conversation it shows: the conversation's snackbar is up, and the
+/// list stays "shown" for when the window narrows (j84).
+fn dismissed_beside_a_list_kept_shown(view: &mut View, model: &mut UiModel) -> ConversationKey {
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let alice = peer();
+    read(model, 1, &alice, "first");
+    open(view, model, &direct(&alice));
+    labelled(view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    let _ = turn(view, model);
+    labelled(view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    let _ = turn(view, model);
+    labelled(view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(view, model);
+    assert!(
+        model.snackbar().is_some_and(|s| s.conversation.is_some()),
+        "control"
+    );
+    assert!(
+        model.messages(&direct(&alice)).is_empty(),
+        "control: dismissed"
+    );
+    direct(&alice)
+}
+
+/// Narrowed into the list, the conversation is left, and its snackbar
+/// closes as leaving it by Back does (§5; j84).
+#[test]
+fn a_resize_to_the_list_closes_the_conversations_snackbar() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let _ = dismissed_beside_a_list_kept_shown(&mut view, &mut model);
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+}
+
+/// An Undo pressed while the snackbar was up, then the window narrowed
+/// into the list before the root took either: the Undo is honoured, not
+/// lost to the closing the resize makes after it (j84).
+#[test]
+fn an_undo_before_a_resize_to_the_list_is_honoured() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let key = dismissed_beside_a_list_kept_shown(&mut view, &mut model);
+    labelled(&view, text(UiText::Undo))[0].invoke_accessible_default_action();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(model.messages(&key).len(), 1, "back in its place");
+    assert!(model.snackbar().is_none());
+}
+
+/// Back, then the same conversation picked again, before the root takes
+/// either: the person left it, so its snackbar closes (§5), though the
+/// pane is shown again by the take (review R1 on #291).
+#[test]
+fn leaving_and_coming_back_in_one_take_closes_the_snackbar() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_some(), "control");
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    // Picked again as a person picks it: the list hands the pane back.
+    view.select(direct(&alice));
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+}
+
+/// Back, the same conversation picked again, a Dismiss and a keystroke,
+/// all before the root takes: the snackbar that was up when the person
+/// left closes, and the one the Dismiss makes after they came back stays
+/// up, though the keystroke ends the first take early (review P3-1 on
+/// #291, round 2).
+#[test]
+fn a_snackbar_made_after_coming_back_stays_up() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    read(&mut model, 3, &alice, "third");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    let before = model.snackbar().expect("control: one up").id;
+    // The dismissed row is held while its space closes; then it goes.
+    std::thread::sleep(Duration::from_millis(200));
+    view.render(&model);
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    view.select(direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    view.window().invoke_draft_edited("h".into());
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(
+        model.messages(&direct(&alice)).len(),
+        1,
+        "control: both dismissed"
+    );
+    let after = model
+        .snackbar()
+        .expect("the second Dismiss's snackbar is up");
+    assert_ne!(after.id, before);
+}
+
+/// Back and the same conversation picked again before the root takes: the
+/// snackbar left with the person, so it is not drawn again with an Undo
+/// the queue would answer after closing it, and the Dismiss stands
+/// (review P2-1 on #291, round 4).
+#[test]
+fn no_undo_is_offered_after_leaving_and_coming_back() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(
+        labelled(&view, text(UiText::Undo)).len(),
+        1,
+        "control: offered"
+    );
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    view.select(direct(&alice));
+    assert!(
+        labelled(&view, text(UiText::Undo)).is_empty(),
+        "no Undo for a snackbar the person left"
+    );
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+    assert_eq!(
+        model.messages(&direct(&alice)).len(),
+        1,
+        "the Dismiss stands"
+    );
+}
+
+/// Two conversations side by side in a wide window, a message dismissed
+/// in the first: its snackbar is up with an Undo. Returns the two.
+fn dismissed_in_a_wide_window(
+    view: &mut View,
+    model: &mut UiModel,
+) -> (ConversationKey, ConversationKey) {
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let (alice, bob) = (peer(), peer());
+    read(model, 1, &alice, "first");
+    read(model, 2, &alice, "second");
+    read(model, 3, &bob, "hello");
+    open(view, model, &direct(&alice));
+    labelled(view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(view, model);
+    assert_eq!(
+        labelled(view, text(UiText::Undo)).len(),
+        1,
+        "control: offered"
+    );
+    (direct(&alice), direct(&bob))
+}
+
+/// Another conversation picked, then the first again, before the root
+/// takes: the pick closes the snackbar in the queue, so it is gone from
+/// the screen at the pick, a render before the take draws it no more, and
+/// no Undo is offered that the queue would answer after the close (review
+/// 5551078222 on #291, pre-existing item 1).
+#[test]
+fn no_undo_is_offered_after_picking_another_conversation_and_coming_back() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = dismissed_in_a_wide_window(&mut view, &mut model);
+    view.select(bob);
+    assert!(
+        labelled(&view, text(UiText::Undo)).is_empty(),
+        "gone at the pick"
+    );
+    view.select(alice.clone());
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::Undo)).is_empty(),
+        "not drawn again while its closing waits"
+    );
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+    assert_eq!(model.messages(&alice).len(), 1, "the Dismiss stands");
+}
+
+/// A pick of another conversation refused at a full queue closes nothing,
+/// so the snackbar and its Undo stay on screen, and the Undo still works.
+#[test]
+fn a_refused_pick_leaves_the_undo_on_screen() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = dismissed_in_a_wide_window(&mut view, &mut model);
+    for _ in 0..INPUT_CAP {
+        view.select(alice.clone());
+    }
+    view.select(bob);
+    assert_eq!(view.refused_inputs(), 1, "control: refused");
+    assert_eq!(labelled(&view, text(UiText::Undo)).len(), 1);
+    let _ = turn(&mut view, &mut model);
+    labelled(&view, text(UiText::Undo))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(model.messages(&alice).len(), 2, "undone");
+}
+
+/// Picking the conversation already shown leaves its snackbar and its
+/// Undo where they are: only a pick of ANOTHER closes it.
+#[test]
+fn picking_the_shown_conversation_keeps_its_undo() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, _) = dismissed_in_a_wide_window(&mut view, &mut model);
+    view.select(alice.clone());
+    assert_eq!(labelled(&view, text(UiText::Undo)).len(), 1);
+    labelled(&view, text(UiText::Undo))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(model.messages(&alice).len(), 2, "undone");
+}
+
+/// The snackbar's time runs out before the root takes the closing: its
+/// Undo goes from the screen then, not at the next turn, so it cannot be
+/// pressed after the close it would follow in the queue (review
+/// 5551078222 on #291, its first risk).
+#[test]
+fn a_timed_out_snackbar_leaves_the_screen_at_once() {
+    closing_leaves_the_screen_at_once(|_| {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(6_100));
+    });
+}
+
+/// The app leaves the foreground before the root takes the closing: as
+/// for a timeout, the Undo goes from the screen at once.
+#[test]
+fn a_snackbar_closed_by_the_background_leaves_the_screen_at_once() {
+    closing_leaves_the_screen_at_once(View::close_snackbar);
+}
+
+fn closing_leaves_the_screen_at_once(close: impl FnOnce(&View)) {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, _) = dismissed_in_a_wide_window(&mut view, &mut model);
+    close(&view);
+    assert_eq!(view.queued_inputs(), 1, "control: the closing waits");
+    assert!(
+        labelled(&view, text(UiText::Undo)).is_empty(),
+        "gone at once"
+    );
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+    assert_eq!(model.messages(&alice).len(), 1, "the Dismiss stands");
+}
+
+/// The trust settings opened in the conversation's place: the person left
+/// it, so its snackbar closes (§5), and is not drawn again with its Undo
+/// when the settings close.
+#[test]
+fn opening_the_trust_settings_closes_the_conversations_snackbar() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, _) = dismissed_in_a_wide_window(&mut view, &mut model);
+    labelled(&view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    assert!(
+        labelled(&view, text(UiText::Undo)).is_empty(),
+        "gone at the press"
+    );
+    let _ = turn(&mut view, &mut model);
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none());
+    assert!(labelled(&view, text(UiText::Undo)).is_empty());
+    assert_eq!(model.messages(&alice).len(), 1, "the Dismiss stands");
+}
+
+/// A Dismiss, then Back and the same conversation picked again, before
+/// the root takes -- with a keystroke between, which ends a take early, or
+/// without: in the person's order the snackbar was up when they left, so
+/// it closes (review P3-1 on #291, round 3, and its pre-existing case).
+#[test]
+fn a_dismiss_before_leaving_and_coming_back_leaves_no_snackbar() {
+    dismiss_leave_and_come_back(true);
+}
+
+/// The same with no keystroke: one take drains it all.
+#[test]
+fn a_dismiss_before_leaving_and_coming_back_in_one_take_leaves_no_snackbar() {
+    dismiss_leave_and_come_back(false);
+}
+
+fn dismiss_leave_and_come_back(keystroke: bool) {
+    {
+        let mut view = view();
+        view.window()
+            .window()
+            .set_size(slint::LogicalSize::new(390.0, 800.0));
+        let mut model = UiModel::new();
+        let alice = peer();
+        read(&mut model, 1, &alice, "first");
+        read(&mut model, 2, &alice, "second");
+        open(&mut view, &mut model, &direct(&alice));
+        assert!(model.snackbar().is_none(), "control: none up");
+        labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+        if keystroke {
+            view.window().invoke_draft_edited("h".into());
+        }
+        labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+        view.select(direct(&alice));
+        slint::platform::update_timers_and_animations();
+        let _ = turn(&mut view, &mut model);
+        assert_eq!(
+            model.messages(&direct(&alice)).len(),
+            1,
+            "control: dismissed"
+        );
+        assert!(model.snackbar().is_none(), "keystroke between: {keystroke}");
+    }
+}
+
+/// A Dismiss and a resize to the list before the root takes: the
+/// snackbar the Dismiss makes is for a conversation no longer on screen,
+/// so it closes too (review R2 on #291).
+#[test]
+fn a_dismiss_then_a_resize_to_the_list_in_one_take_leaves_no_snackbar() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "control: none up yet");
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    slint::platform::update_timers_and_animations();
+    let _ = turn(&mut view, &mut model);
+    assert!(
+        model.messages(&direct(&alice)).is_empty(),
+        "control: dismissed"
+    );
+    assert!(model.snackbar().is_none());
+}
+
+/// What a cancel's snackbar says, by whether an attempt may have reached
+/// the peer (review N3 on #289).
+#[test]
+fn a_cancels_snackbar_says_whether_it_may_have_reached_the_peer() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for (row, may_have_reached, said) in [
+        (1, false, UiText::ConfirmSendingCanceled),
+        (2, true, UiText::ConfirmSendingCanceledMayHaveReached),
+    ] {
+        pending(&mut model, row, &alice, "out");
+        model.client_event(ClientEvent::Outbound(OutboundUpdate {
+            row: RowId::from_stored(row),
+            app_message_id: AppMessageId::parse(format!("{row:032x}")).expect("id"),
+            status: OutboundStatus::Cancelled { may_have_reached },
+            last_code: None,
+        }));
+        model.cancelled(RowId::from_stored(row), true);
+        open(&mut view, &mut model, &direct(&alice));
+        assert_eq!(view.window().get_snack_text().as_str(), text(said));
+    }
+}
+
+/// A conversation row's swipe is labelled "Hide", a message's "Dismiss".
+#[test]
+fn a_conversation_rows_swipe_says_hide() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "only");
+    open(&mut view, &mut model, &direct(&alice));
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row");
+    assert_eq!(row.hide_label.as_str(), text(UiText::HideShort));
+    assert_ne!(text(UiText::HideShort), text(UiText::Dismiss));
+}
+
+// --- focus after a row leaves (swipe spec section 7; section 11 item 21) --
+
+/// Three read rows; focus placed on the `at`th row's Dismiss by the
+/// keyboard and pressed there.
+fn dismiss_by_keyboard(rows: usize, at: usize) -> (View, Vec<i32>) {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 0..rows {
+        read(&mut model, i64::try_from(n).unwrap() + 1, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    let handles: Vec<i32> = (0..rows).map(|i| handle(&view, i)).collect();
+    // Dismiss is the row's second action, after Keep.
+    tab_to(&view, &format!("action:{}:1", handles[at]));
+    press_focused(&view);
+    let _ = turn(&mut view, &mut model);
+    (view, handles)
+}
+
+#[test]
+fn a_dismiss_by_keyboard_focuses_the_next_rows_first_control() {
+    let (view, handles) = dismiss_by_keyboard(3, 1);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{}:0", handles[2])
+    );
+}
+
+#[test]
+fn a_dismiss_of_the_last_row_focuses_the_previous_one() {
+    let (view, handles) = dismiss_by_keyboard(3, 2);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{}:0", handles[1])
+    );
+}
+
+#[test]
+fn a_dismiss_of_the_only_row_focuses_the_header_title() {
+    let (view, _) = dismiss_by_keyboard(1, 0);
+    assert_eq!(view.window().get_focus_id().as_str(), "header-title");
+}
+
+#[test]
+fn a_touch_swipe_leaves_focus_held_in_another_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 1..=3 {
+        read(&mut model, n, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    let on = tab_to(&view, &format!("action:{}:", handle(&view, 2)));
+    swipe(&view, &row_key(&view, 0), -170.0, 0.0, 8);
+    let _ = turn(&mut view, &mut model);
+    assert!(view.window().get_snack_shown(), "control: it was dismissed");
+    assert_eq!(view.window().get_focus_id().as_str(), on, "focus stays");
+}
+
+#[test]
+fn a_touch_swipe_on_the_row_holding_focus_moves_it_as_a_button_would() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 1..=2 {
+        read(&mut model, n, &alice, "text");
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    let (first, second) = (handle(&view, 0), handle(&view, 1));
+    tab_to(&view, &format!("action:{first}:"));
+    swipe(&view, &row_key(&view, 0), -170.0, 0.0, 8);
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{second}:0")
+    );
+}
+
+#[test]
+fn hiding_the_only_conversation_from_its_row_focuses_the_lists_heading() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "only");
+    let _ = turn(&mut view, &mut model);
+    let row = view
+        .window()
+        .get_conversations()
+        .row_data(0)
+        .expect("a row");
+    tab_to(&view, &format!("conversation:{}", row.handle));
+    swipe(&view, &format!("c:{}", row.handle), -170.0, 0.0, 8);
+    let _ = turn(&mut view, &mut model);
+    assert!(model.conversations().is_empty(), "control: hidden");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "conversations-heading"
+    );
+}
+
+#[test]
+fn hide_conversation_in_its_header_focuses_the_next_conversation_row() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    read(&mut model, 1, &alice, "a");
+    read(&mut model, 2, &bob, "b");
+    let _ = turn(&mut view, &mut model);
+    let rows = view.window().get_conversations();
+    let other = rows.row_data(1).expect("a row").handle;
+    let key = model.conversations()[0].key.clone();
+    open(&mut view, &mut model, &key);
+    tab_to(&view, "hide-conversation");
+    press_focused(&view);
+    let _ = turn(&mut view, &mut model);
+    assert_eq!(model.conversations().len(), 1, "control: hidden");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("conversation:{other}")
+    );
+}
+
+#[test]
+fn the_two_headings_take_keyboard_focus_and_do_nothing() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "only");
+    open(&mut view, &mut model, &direct(&alice));
+    tab_to(&view, "conversations-heading");
+    press_focused(&view);
+    assert!(turn(&mut view, &mut model).is_empty());
+    tab_to(&view, "header-title");
+    press_focused(&view);
+    assert!(turn(&mut view, &mut model).is_empty());
+    assert_eq!(model.messages(&direct(&alice)).len(), 1, "nothing happened");
+}
+
+/// §3: the snackbar follows the layout direction. Its Undo is at the
+/// line's end, the right left to right and the left right to left, at
+/// least 48 x 48, inside the snackbar, and never over its text.
+#[test]
+fn the_snackbar_mirrors_right_to_left() {
+    let mut view = view();
+    for rtl in [false, true] {
+        view.set_touch_settings(TouchSettings {
+            rtl,
+            ..TouchSettings::default()
+        });
+        let mut model = UiModel::new();
+        let alice = peer();
+        read(&mut model, 1, &alice, "first");
+        open(&mut view, &mut model, &direct(&alice));
+        labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+        let _ = turn(&mut view, &mut model);
+        assert!(view.window().get_snack_shown());
+        let undo = labelled(&view, text(UiText::Undo));
+        assert_eq!(undo.len(), 1, "one Undo");
+        let u = &undo[0];
+        // The announcement says it too: the snackbar's is the one beside
+        // its Undo.
+        let (uy, uh) = (u.absolute_position().y, u.size().height);
+        let said: Vec<ElementHandle> = labelled(&view, text(UiText::ConfirmDismissed))
+            .into_iter()
+            .filter(|t| {
+                let mid = t.absolute_position().y + t.size().height / 2.0;
+                t.size().width > 1.0 && mid > uy && mid < uy + uh
+            })
+            .collect();
+        assert_eq!(said.len(), 1, "rtl {rtl}: its text beside the Undo");
+        let t = &said[0];
+        let (ux, uw) = (u.absolute_position().x, u.size().width);
+        let (tx, tw) = (t.absolute_position().x, t.size().width);
+        assert!(
+            u.size().width >= 48.0 && u.size().height >= 48.0,
+            "rtl {rtl}: Undo {:?}",
+            u.size()
+        );
+        if rtl {
+            assert!(
+                ux + uw <= tx,
+                "rtl: Undo {ux}+{uw} left of the text at {tx}"
+            );
+        } else {
+            assert!(tx + tw <= ux, "ltr: text {tx}+{tw} left of Undo at {ux}");
+        }
+        let window = view.window().window();
+        let width = window.size().to_logical(window.scale_factor()).width;
+        assert!(
+            ux >= 0.0 && ux + uw <= width + 0.5,
+            "rtl {rtl}: Undo on screen"
+        );
+    }
+}
