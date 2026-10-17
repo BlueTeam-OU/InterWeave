@@ -106,16 +106,17 @@ what another account is running (live, 2026-10-16). A run on it is, with
 `<the run>` a script when it has quotes of its own:
 
 ```sh
-fabric-lease pixel-9a -- bash -c 'export ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)); adb kill-server; trap "adb disconnect; adb kill-server" EXIT; <the run>'
+fabric-lease pixel-9a -- bash -c 'export ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)); adb kill-server; adb nodaemon server & s=$!; trap "kill $s 2>/dev/null" EXIT; sleep 1; <the run>'
 ```
 
-The trap releases the phone however the run ends, a failure, a timeout or
-a signal included, and stops only your own server. A SIGKILL skips it:
-your server then stays connected to the phone through the next holder's
-run, until your next run's first kill-server; so after a killed run, run
-`ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)) adb kill-server`
-yourself at once. `pgrep -u "$(id -u)" -a adb` after the run shows
-nothing.
+The server is the run's own child (`nodaemon`), in the run's process
+group, so it ends with the run however the run ends, and the phone's
+connection with it: the trap stops it on an exit, a failure or a signal, and a SIGKILL sent to the group, as a
+timeout sends it, kills it with the run (live, 2026-10-17). Only a SIGKILL
+to the shell alone would leave it; if you see one, run
+`ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000)) adb kill-server`.
+The first kill-server clears a server your own login left by an older
+command. `pgrep -u "$(id -u)" -a adb` after the run shows nothing.
 
 The link drops with the phone's Wi-Fi and
 Wireless debugging can switch itself off; a re-pair is a person's step at
