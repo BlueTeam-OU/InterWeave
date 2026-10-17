@@ -1167,3 +1167,18 @@ fn a_quoted_list_line_mirrors_right_to_left() {
         }
     }
 }
+
+/// Section 7, "everything mirrors": right to left, the composer's Send
+/// sits at the line's end, on the left of the field.
+#[test]
+fn the_composer_mirrors_right_to_left() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    for rtl in [false, true] {
+        let view = opened(&model, rtl);
+        let send = left_of(&view, text(UiText::Send));
+        let field = left_of(&view, text(UiText::Composer));
+        assert_eq!(send < field, rtl, "rtl={rtl}: send {send}, field {field}");
+    }
+}

@@ -2322,6 +2322,21 @@ export component AppWindow inherits Window {
             // empty, disabled box would offer nothing to type into.
             if root.composer-enabled: HorizontalLayout {
                 spacing: 8px;
+                // Right to left, Send at the line's end, on the left.
+                if root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.send;
+                        rtl: root.rtl;
+                        label: root.send-label;
+                        filled: true;
+                        // Dimmed and inactive while the field is empty.
+                        active: root.draft != "";
+                        focus-key: "send";
+                        pressed => { root.send(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
                 composer-box := Rectangle {
                     min-height: 48px;
                     background: Palette.surface-container-high;
@@ -2351,6 +2366,7 @@ export component AppWindow inherits Window {
                         x: 20px;
                         width: parent.width - 40px;
                         vertical-alignment: center;
+                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                         font-size: Type.body-large;
                         color: Palette.on-surface;
                         text <=> root.draft;
@@ -2362,7 +2378,7 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-                VerticalLayout {
+                if !root.rtl: VerticalLayout {
                     alignment: center;
                     IconButton {
                         glyph: Glyph.send;
