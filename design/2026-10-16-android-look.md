@@ -223,9 +223,17 @@ From the top:
   this app (`local_at`), never the time a sender asserts
   (`sent_at_ms`), which a peer chooses. Day separators and the
   one-minute grouping use it too.
-- The time is the last message's: "01:18" today, "Yesterday", the day
-  of the week within the last seven days, else the date, in the phone's
-  locale format.
+- The time is the last message's, computed in the phone's time zone:
+  the time of day for today, "Yesterday", the day of the week within
+  the last seven days, else the month and day (and the year when it is
+  not this year). The time of day follows the phone's 12- or 24-hour
+  setting (`DateFormat.is24HourFormat`), read again when it changes
+  while the app is open: a person sets it once for the whole phone.
+  The words (weekdays, months, the date and time templates) come from
+  `labels.rs` in English; other locales' formats wait for the
+  localisation contract to carry a second locale (ruled 2026-10-17 on
+  rust-ui-dev's question: the app has no locale formatter, and one call
+  into Android's per row was judged too costly for now).
 
 ## 6. A conversation
 
@@ -398,6 +406,12 @@ that exist.
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the overflow button's label, Android's own words for it |
 | `Today`, `Yesterday` | Today, Yesterday | day separators and list times |
+| weekdays (seven keys), months (twelve keys) | Monday … Sunday, January … December | list times within a week, and dates |
+| date templates | {month} {day}; {month} {day}, {year} | list times before this week; the year only when not this year |
+| time templates | {hour}:{minute} (24-hour); {hour}:{minute} {am_pm} (12-hour), with the AM and PM words | the time of day, by the phone's setting |
+
+The weekday, month, date and time rows are pending language-culture's
+final text.
 | `ConversationDescription` (exists, new value) | {kind}, {unread}, {preview}, {time} | a list row's description as TalkBack reads it (§7), with unread messages. `{kind}` is `DirectConversation` or `ChannelConversation` as today, `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
 | `ConversationDescriptionRead` | {kind}, {preview}, {time} | the same, with nothing unread |
 | `ConversationDescriptionEmpty` | {kind}, {preview} | the same, with no message held: `{preview}` is "No messages", and there is no time |
@@ -457,8 +471,11 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
    it still has both messages unread.
 6. The preview is the first line with markdown removed, a link showing
    its text. One's own reads "You: …". The time reads as §5.2 says for
-   a message from today, yesterday, this week and earlier, and comes
-   from `local_at` (a ui-model test with a peer-asserted time far off).
+   a message from today, yesterday, this week, earlier this year and a
+   past year, and comes from `local_at` (a ui-model test with a
+   peer-asserted time far off). With the phone set to 12-hour the time
+   of day shows AM or PM, and switching the setting while the app is
+   open changes the list's times.
 7. A conversation's app bar has the back arrow, avatar, name,
    connectivity line and, when known, path line. The overflow button is
    labelled "More options" and holds Details, and Hide conversation
