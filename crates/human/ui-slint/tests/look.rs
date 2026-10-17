@@ -924,3 +924,33 @@ fn an_older_bubble_reads_its_clock_time_after_its_day_separator() {
         "the day before the bubble in reading order"
     );
 }
+
+/// Section 5.2 and ux-designer-01's ruling (REPLY 01a14817): every shown
+/// time follows the platform's 12- or 24-hour setting, read at each render.
+#[test]
+fn times_follow_the_platforms_hour_setting() {
+    use interweave_human_ui_slint::TouchSettings;
+    let mut model = UiModel::new();
+    // 14:29 UTC.
+    model.received(received(1, "hi", NOW - MINUTE));
+    let mut view = view();
+    view.render(&model);
+    let time = |view: &View| {
+        view.window()
+            .get_conversations()
+            .row_data(0)
+            .expect("a row")
+            .time
+            .to_string()
+    };
+    assert_eq!(time(&view), "14:29", "24-hour until told");
+    view.set_touch_settings(TouchSettings {
+        hour24: false,
+        ..TouchSettings::default()
+    });
+    view.render(&model);
+    assert_eq!(time(&view), "2:29 PM");
+    view.set_touch_settings(TouchSettings::default());
+    view.render(&model);
+    assert_eq!(time(&view), "14:29");
+}

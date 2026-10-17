@@ -903,13 +903,6 @@ impl View {
         self.clock.hour24 = hour24;
     }
 
-    /// The platform's 12- or 24-hour setting (Android's
-    /// `DateFormat.is24HourFormat`), which every shown time follows; 24
-    /// until it is said.
-    pub const fn set_hour24(&mut self, hour24: bool) {
-        self.clock.hour24 = hour24;
-    }
-
     /// The platform's touch values a swipe reads (§4, §6, §7): its touch
     /// slop, its gesture insets, the layout's direction, whether motion
     /// is off, and the snackbar's time up. A desktop keeps the defaults.
@@ -1221,6 +1214,9 @@ impl View {
     /// not wake the root, which is rendering: the root takes after it
     /// renders.
     pub fn render(&mut self, model: &UiModel) {
+        // Every time drawn this render follows the platform's setting as
+        // it is now.
+        self.clock.hour24 = self.shared.borrow().touch.hour24;
         // Before the lists retire the handles of the rows they remove.
         let focused = self.focused_row();
         // The snackbar's Undo reports "undo" on gaining focus, and nothing

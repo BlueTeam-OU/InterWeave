@@ -37,10 +37,15 @@ pub struct TouchSettings {
     /// recommended timeout for content with controls, never under 6 s,
     /// never over 2 minutes (§6).
     pub snackbar_ms: u64,
+    /// The platform's 12- or 24-hour setting (Android's
+    /// `DateFormat.is24HourFormat`), which every shown time follows
+    /// (design/2026-10-16-android-look.md section 5.2).
+    pub hour24: bool,
 }
 
 impl Default for TouchSettings {
-    /// A desktop's: no gesture insets, left to right, motion on.
+    /// A desktop's: no gesture insets, left to right, motion on, 24-hour
+    /// times.
     fn default() -> Self {
         Self {
             slop: 8.0,
@@ -49,6 +54,7 @@ impl Default for TouchSettings {
             rtl: false,
             reduced_motion: false,
             snackbar_ms: SNACKBAR_MIN_MS,
+            hour24: true,
         }
     }
 }
