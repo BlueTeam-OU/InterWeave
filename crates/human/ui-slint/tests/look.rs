@@ -784,3 +784,69 @@ fn renders_wake_the_root_once_at_midnight() {
     ));
     assert_eq!(woken.get(), 1, "one wake at midnight");
 }
+
+/// Review F2 on #295, section 7: right to left the conversation's app bar
+/// mirrors -- Back at the line's start on the right, More options at its
+/// end on the left -- and the menu opens on More's side.
+#[test]
+fn the_conversation_bar_and_its_menu_mirror_right_to_left() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    model.read(RowId::from_stored(1));
+    for rtl in [false, true] {
+        let view = opened(&model, rtl);
+        let back = left_of(&view, text(UiText::BackToConversations));
+        let more = left_of(&view, text(UiText::MoreOptions));
+        assert_eq!(back > more, rtl, "rtl={rtl}: back {back}, more {more}");
+        press(&view, text(UiText::MoreOptions));
+        let centre = |label: &str| {
+            let found = labelled(&view, label);
+            assert_eq!(found.len(), 1, "one {label:?}");
+            found[0].absolute_position().x + found[0].size().width / 2.0
+        };
+        let (menu, button) = (
+            centre(text(UiText::Details)),
+            centre(text(UiText::MoreOptions)),
+        );
+        assert_eq!(
+            menu < 195.0,
+            button < 195.0,
+            "rtl={rtl}: the menu on More's side"
+        );
+        view.window().set_menu_open(false);
+    }
+}
+
+/// Review F3 on #295: Shift+Tab out of Details' identifier never stops on
+/// the dialog itself, which draws no ring and reports no focus.
+#[test]
+fn shift_tab_out_of_details_lands_on_a_control() {
+    use slint::platform::{Key, WindowEvent};
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    let view = opened(&model, false);
+    press(&view, text(UiText::MoreOptions));
+    press(&view, text(UiText::Details));
+    // The field takes focus from a timer, and reports it a turn later.
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "header-id",
+        "control: in the field"
+    );
+    let back_tab: slint::SharedString = Key::Backtab.into();
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::KeyPressed {
+        text: back_tab.clone(),
+    });
+    window.dispatch_event(WindowEvent::KeyReleased { text: back_tab });
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    assert_ne!(
+        view.window().get_focus_id().as_str(),
+        "header-id",
+        "focus left the field for a control that says so"
+    );
+}

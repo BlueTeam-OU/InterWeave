@@ -199,14 +199,10 @@ component FocusRing inherits Rectangle {
     in property <bool> shown;
     // On the notice banner, whose background is light in both schemes.
     in property <bool> on-notice;
-    // On the snackbar, whose surface is the inverse of the screen's.
-    in property <bool> on-inverse;
     // The control's own corner radius; the ring follows its shape.
     in property <length> radius: 4px;
     border-width: 3px;
-    border-color: root.on-notice ? Palette.focus-ring-on-notice
-        : root.on-inverse ? Palette.focus-ring-on-inverse
-        : Palette.primary;
+    border-color: root.on-notice ? Palette.focus-ring-on-notice : Palette.primary;
     border-radius: root.radius + 5px;
     // Opacity rather than `visible`, so a test reads it.
     opacity: root.shown ? 1 : 0;
@@ -248,8 +244,6 @@ component ActionButton inherits FocusScope {
     // border and ring take its colours, or a dark scheme's light label
     // was all but invisible on it (seen in the rendered window).
     in property <bool> on-notice;
-    // On the snackbar: the ring takes the inverse surface's colour.
-    in property <bool> on-inverse;
     min-height: root.target;
     // Never narrower than its label: squeezed beside a wrapping text, the
     // label ran out of the button (seen in the rendered window).
@@ -278,7 +272,6 @@ component ActionButton inherits FocusScope {
         radius: 0px;
         shown: root.has-focus;
         on-notice: root.on-notice;
-        on-inverse: root.on-inverse;
     }
 }
 
@@ -417,12 +410,16 @@ export global Palette {
     out property <color> tertiary: #ffb547;
     out property <color> on-tertiary: #2a1800;
     out property <color> unread-dot: dark ? #ffb547 : #7c5200;
+    // The snackbar's roles. Section 7's snackbar is not built yet: it is
+    // still surface-container with a `primary` ring, so these four are only
+    // measured (tests/look.rs) until it is.
     out property <color> inverse-surface: dark ? #e3e6f3 : #2a3050;
     out property <color> inverse-on-surface: dark ? #2a3050 : #eef0fb;
     out property <color> inverse-primary: dark ? #006a61 : #5fdccd;
     out property <color> error: dark ? #ffb4ab : #ba1a1a;
     // Where keyboard focus is (section 7): `primary` on the surfaces and
-    // bubbles, these two on the snackbar and on a notice banner.
+    // bubbles, these two on the snackbar (once it takes section 7's look)
+    // and on a notice banner.
     out property <color> focus-ring-on-inverse: dark ? #006a61 : #5fdccd;
     out property <color> focus-ring-on-notice: #006a61;
     // The storage notice stands apart from everything else on screen, in
@@ -1602,7 +1599,11 @@ export component AppWindow inherits Window {
             HorizontalLayout {
                 min-height: 64px;
                 spacing: 8px;
-                if root.narrow: VerticalLayout {
+                // A layout has no direction of its own: right to left, the
+                // children come in the mirrored order, so Back sits at the
+                // line's start on the right and More at its end on the left
+                // (section 7), where its menu opens.
+                if root.narrow && !root.rtl: VerticalLayout {
                     alignment: center;
                     IconButton {
                         glyph: Glyph.back;
@@ -1617,12 +1618,24 @@ export component AppWindow inherits Window {
                         focused(k) => { root.focus-id = k; }
                     }
                 }
-                if root.header-id != "": VerticalLayout {
+                if root.header-id != "" && !root.rtl: VerticalLayout {
                     alignment: center;
                     Avatar {
                         size: 36px;
                         letters: root.header-avatar-letters;
                         hue: root.header-avatar-hue;
+                    }
+                }
+                if root.header-id != "" && root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.more;
+                        label: root.more-options-label;
+                        focus-key: "more-options";
+                        focus-seq: root.menu-closed-seq;
+                        focus-wanted: true;
+                        pressed => { root.menu-open = true; }
+                        focused(k) => { root.focus-id = k; }
                     }
                 }
                 VerticalLayout {
@@ -1663,7 +1676,7 @@ export component AppWindow inherits Window {
                         accessible-label: self.text;
                     }
                 }
-                if root.header-id != "": VerticalLayout {
+                if root.header-id != "" && !root.rtl: VerticalLayout {
                     alignment: center;
                     IconButton {
                         glyph: Glyph.more;
@@ -1672,6 +1685,29 @@ export component AppWindow inherits Window {
                         focus-seq: root.menu-closed-seq;
                         focus-wanted: true;
                         pressed => { root.menu-open = true; }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                if root.header-id != "" && root.rtl: VerticalLayout {
+                    alignment: center;
+                    Avatar {
+                        size: 36px;
+                        letters: root.header-avatar-letters;
+                        hue: root.header-avatar-hue;
+                    }
+                }
+                if root.narrow && root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.back;
+                        rtl: root.rtl;
+                        ink: Palette.on-surface;
+                        label: root.back-label;
+                        focus-key: "back-to-list";
+                        pressed => {
+                            root.list-shown = true;
+                            root.left-conversation();
+                        }
                         focused(k) => { root.focus-id = k; }
                     }
                 }
@@ -1894,7 +1930,9 @@ export component AppWindow inherits Window {
                                 }
                                 if row.reply != "": HorizontalLayout {
                                     spacing: 6px;
-                                    Rectangle {
+                                    // The start bar: on the right, right to
+                                    // left.
+                                    if !root.rtl: Rectangle {
                                         width: 3px;
                                         background: item.ink;
                                     }
@@ -1905,8 +1943,13 @@ export component AppWindow inherits Window {
                                         wrap: word-wrap;
                                         min-width: 0;
                                         horizontal-stretch: 1;
+                                        horizontal-alignment: item.text-alignment;
                                         accessible-role: text;
                                         accessible-label: self.text;
+                                    }
+                                    if root.rtl: Rectangle {
+                                        width: 3px;
+                                        background: item.ink;
                                     }
                                 }
                                 if !item.show-source: VerticalLayout {
@@ -2243,6 +2286,9 @@ export component AppWindow inherits Window {
     // (human-client-ui.md section 11). Read-only: nothing typed here goes
     // anywhere.
     if root.details-open: details := FocusScope {
+        // Not a Tab stop of its own: it only hears Escape from the field
+        // inside it, and a stop here drew no ring and reported no focus.
+        focus-on-tab-navigation: false;
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;
         width: min(root.width - 48px, 560px);
