@@ -243,7 +243,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     keyboard and TalkBack focus and reads its text. Nothing happens when
     it is activated.
   - **Every focus target here draws a visible focus indicator** when it
-    holds keyboard focus: every button, each conversation row, and the
+    holds keyboard focus: every button (a link in a message's text
+    included), each conversation row, and the
     two headings. Today a conversation row and the headings draw nothing
     for focus, and a button only thickens its border by 1 px in the same
     colour, so a person cannot see where focus is (seen on the Pixel 9a,
