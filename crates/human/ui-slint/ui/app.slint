@@ -2067,14 +2067,18 @@ export component AppWindow inherits Window {
                                     }
                                     if !item.show-source: VerticalLayout {
                                         spacing: 4px;
+                                        // Mirrored right to left (section 7): the
+                                        // indent, the quote bar and a list's marker
+                                        // at the line's start, on the right.
                                         for line in row.lines: HorizontalLayout {
-                                            padding-left: line.depth * 16px;
+                                            padding-left: root.rtl ? 0px : line.depth * 16px;
+                                            padding-right: root.rtl ? line.depth * 16px : 0px;
                                             spacing: 6px;
-                                            if line.quoted: Rectangle {
+                                            if line.quoted && !root.rtl: Rectangle {
                                                 width: 3px;
                                                 background: item.ink;
                                             }
-                                            if line.marker != "": Text {
+                                            if line.marker != "" && !root.rtl: Text {
                                                 horizontal-stretch: 0;
                                                 text: line.marker;
                                                 color: item.ink;
@@ -2123,6 +2127,17 @@ export component AppWindow inherits Window {
                                                     accessible-role: text;
                                                     accessible-label: line.marker != "" ? line.marker + " " + self.text : self.text;
                                                 }
+                                            }
+                                            if line.marker != "" && root.rtl: Text {
+                                                horizontal-stretch: 0;
+                                                text: line.marker;
+                                                color: item.ink;
+                                                font-size: Type.body-large;
+                                                accessible-role: none;
+                                            }
+                                            if line.quoted && root.rtl: Rectangle {
+                                                width: 3px;
+                                                background: item.ink;
                                             }
                                         }
                                     }

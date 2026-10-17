@@ -1130,3 +1130,40 @@ fn a_bubbles_swipe_fill_takes_the_bubbles_height() {
     );
     assert!(fill[0].size().width >= 390.0 - 40.0, "the list's width");
 }
+
+/// Section 7, "everything mirrors": inside a bubble, a quoted list item's
+/// indent sits on the line's start side -- the left, left to right, and
+/// the right, right to left -- measured against an unindented line of the
+/// same bubble, whose box spans the bubble's width.
+#[test]
+fn a_quoted_list_line_mirrors_right_to_left() {
+    let mut model = UiModel::new();
+    model.received(received(
+        1,
+        "a plain line, as wide as the bubble\n\n> - quoted item",
+        NOW,
+    ));
+    for rtl in [false, true] {
+        let view = opened(&model, rtl);
+        let bounds = |label: &str| {
+            let found = labelled(&view, label);
+            assert_eq!(found.len(), 1, "rtl={rtl}: {label}");
+            let (p, z) = (found[0].absolute_position(), found[0].size());
+            (p.x, p.x + z.width)
+        };
+        let (plain_left, plain_right) = bounds("a plain line, as wide as the bubble");
+        let (quoted_left, quoted_right) = bounds("• quoted item");
+        // Two levels deep (the quote and the list), 16 px each.
+        if rtl {
+            assert!(
+                quoted_right <= plain_right - 32.0,
+                "rtl: {quoted_right} vs {plain_right}"
+            );
+        } else {
+            assert!(
+                quoted_left >= plain_left + 32.0,
+                "ltr: {quoted_left} vs {plain_left}"
+            );
+        }
+    }
+}
