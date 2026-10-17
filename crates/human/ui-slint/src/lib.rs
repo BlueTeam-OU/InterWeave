@@ -910,8 +910,10 @@ impl View {
         self.window.set_rtl(settings.rtl);
         self.window.set_reduced_motion(settings.reduced_motion);
         // A control's tap ends at the same slop a swipe starts at.
-        slint::ComponentHandle::global::<generated::Touch<'_>>(&self.window)
-            .set_slop(settings.slop);
+        let touch = slint::ComponentHandle::global::<generated::Touch<'_>>(&self.window);
+        touch.set_slop(settings.slop);
+        // A press shows a ripple only while the system animates.
+        touch.set_reduced_motion(settings.reduced_motion);
         self.shared.borrow_mut().touch = settings;
     }
 

@@ -156,6 +156,36 @@ export struct TrustRow {
 // (swipe spec section 4).
 export global Touch {
     in property <length> slop: 8px;
+    // The system's animations are off: a press shows no ripple.
+    in property <bool> reduced-motion;
+}
+
+// The pressed state layer: clipped to the control's shape, so a ripple in
+// it never spills past the control.
+component StateLayer inherits Rectangle {
+    in property <length> radius;
+    clip: true;
+    border-radius: root.radius;
+    background: Palette.on-surface.with-alpha(0.1);
+    accessible-role: none;
+}
+
+// A ripple: a circle growing from the press point until it covers the
+// control. Only drawn while animations are on.
+component Ripple inherits Rectangle {
+    in property <length> cx;
+    in property <length> cy;
+    in property <length> reach;
+    property <length> size: 0px;
+    init => { self.size = root.reach * 2; }
+    animate size { duration: 250ms; easing: ease-out; }
+    x: root.cx - self.size / 2;
+    y: root.cy - self.size / 2;
+    width: self.size;
+    height: self.size;
+    border-radius: self.size / 2;
+    background: Palette.on-surface.with-alpha(0.12);
+    accessible-role: none;
 }
 
 // A control's touch area: a press is its tap only while the finger stays
@@ -170,6 +200,11 @@ export global Touch {
 // too, so only that is still a tap.
 component TapArea inherits TouchArea {
     callback tapped();
+    // The pressed control's corner radius, which its press feedback keeps,
+    // and how far its drawn shape sits inside the touch area top and
+    // bottom (a chip is drawn 32 px in a 48 px target).
+    in property <length> radius;
+    in property <length> inset-y;
     property <bool> drifted;
     function past-slop() -> bool {
         abs(self.mouse-x - self.pressed-x) > Touch.slop
@@ -184,7 +219,24 @@ component TapArea inherits TouchArea {
     clicked => {
         if (!self.drifted && !self.past-slop()) { root.tapped(); }
     }
+    // A press's feedback (section 7): Material's state layer, on-surface at
+    // 10 %, while a tap is still possible, and over it the ripple from the
+    // press point -- unless the system's animations are off, when the flat
+    // layer alone shows it (tests/look.rs,
+    // `a_press_ripples_unless_animations_are_off`).
+    if root.pressed && !root.drifted: StateLayer {
+        y: root.inset-y;
+        height: root.height - 2 * root.inset-y;
+        radius: root.radius;
+        if !Touch.reduced-motion: Ripple {
+            cx: root.pressed-x;
+            cy: root.pressed-y - root.inset-y;
+            reach: sqrt((root.width / 1px) * (root.width / 1px) + (root.height / 1px) * (root.height / 1px)) * 1px;
+        }
+    }
 }
+
+
 
 // Where keyboard focus is: a 3 px ring 2 px outside the control's edge
 // (design/2026-10-16-android-look.md section 7), so focus never depends on
@@ -581,7 +633,10 @@ component IconButton inherits FocusScope {
             rtl: root.rtl;
         }
     }
-    TapArea { tapped => { root.press(); } }
+    TapArea {
+        radius: 24px;
+        tapped => { root.press(); }
+    }
     FocusRing {
         x: -5px;
         y: -5px;
@@ -685,7 +740,11 @@ component Chip inherits FocusScope {
             }
         }
     }
-    TapArea { tapped => { root.pressed(); } }
+    TapArea {
+        radius: 8px;
+        inset-y: chip.y;
+        tapped => { root.pressed(); }
+    }
     FocusRing {
         x: -5px;
         y: chip.y - 5px;
@@ -1369,7 +1428,10 @@ export component AppWindow inherits Window {
                             height: parent.height;
                             background: Palette.primary;
                         }
-                        TapArea { tapped => { root.choose(row.handle); } }
+                        TapArea {
+                            radius: 12px;
+                            tapped => { root.choose(row.handle); }
+                        }
                     }
                 }
                 }

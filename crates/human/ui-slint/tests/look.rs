@@ -1038,3 +1038,51 @@ fn the_lists_snackbar_keeps_its_margins_and_its_targets() {
     );
     assert!(us.width >= 48.0 && us.height >= 48.0, "Undo is {us:?}");
 }
+
+/// Section 7, motion: a press shows Material's state layer and, while the
+/// system animates, a ripple from the press point; with the system's
+/// animations off, the flat state layer alone (section 11 item 18).
+#[test]
+fn a_press_ripples_unless_animations_are_off() {
+    use interweave_human_ui_slint::TouchSettings;
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    model.read(RowId::from_stored(1));
+    for reduced in [false, true] {
+        let view = opened(&model, false);
+        view.set_touch_settings(TouchSettings {
+            reduced_motion: reduced,
+            ..TouchSettings::default()
+        });
+        let chip = labelled(&view, text(UiText::Keep));
+        assert_eq!(chip.len(), 1);
+        let (p, z) = (chip[0].absolute_position(), chip[0].size());
+        let position = slint::LogicalPosition::new(p.x + z.width / 2.0, p.y + z.height / 2.0);
+        let window = view.window().window();
+        window.dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: PointerEventButton::Left,
+        });
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(120));
+        let count = |kind: &str| {
+            all(&view)
+                .into_iter()
+                .filter(|e| e.type_name().as_deref() == Some(kind))
+                .count()
+        };
+        assert_eq!(count("StateLayer"), 1, "reduced={reduced}: the state layer");
+        assert_eq!(
+            count("Ripple"),
+            usize::from(!reduced),
+            "reduced={reduced}: the ripple"
+        );
+        window.dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        assert_eq!(count("StateLayer"), 0, "gone once released");
+    }
+}
