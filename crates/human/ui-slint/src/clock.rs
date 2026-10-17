@@ -80,9 +80,17 @@ impl Clock {
         let today = (now_secs + offset(now_secs * 1000)).div_euclid(DAY_SECS);
         let midnight = (today + 1) * DAY_SECS;
         // First guess in now's offset, then corrected by the offset in
-        // force at that guess.
+        // force at that guess. Where the clocks jump over midnight, the
+        // corrected instant is still the old day, an hour before the
+        // change: then the new day begins at the change, which is the guess.
         let guess = midnight - offset(now_secs * 1000);
-        let at = midnight - offset(guess * 1000);
+        let corrected = midnight - offset(guess * 1000);
+        let on_next_day = |at: i64| (at + offset(at * 1000)).div_euclid(DAY_SECS) > today;
+        let at = if on_next_day(corrected) {
+            corrected
+        } else {
+            guess
+        };
         u64::try_from(at.saturating_mul(1000))
             .unwrap_or(u64::MAX)
             .max(now.saturating_add(1_000))
@@ -225,6 +233,33 @@ mod tests {
         assert_eq!(clock.list_time(now - 2 * DAY), "Thursday");
         assert_eq!(clock.list_time(now - 7 * DAY), "Oct 10");
         assert_eq!(clock.next_day_ms(), now + 9 * 3_600_000 + 30 * 60_000);
+    }
+
+    #[test]
+    fn where_midnight_does_not_exist_the_next_day_begins_at_the_change() {
+        const HOUR: u64 = 3_600_000;
+        const DAY: u64 = 24 * HOUR;
+        // A zone at UTC-4 whose clocks go from 00:00 to 01:00 (UTC-3) as
+        // the day changes, so local midnight never happens: the change is
+        // at 04:00 UTC on 2026-10-18. Now is 22:00 local, 02:00 UTC.
+        let change = 20_744 * DAY + 4 * HOUR;
+        let now = change - 2 * HOUR;
+        let clock = Clock::new(
+            move || now,
+            move |ms| if ms < change { -4 * 3_600 } else { -3 * 3_600 },
+        );
+        assert_eq!(
+            clock.next_day_ms(),
+            change,
+            "the first instant of the new day"
+        );
+        // An hour before the change, still the same: never a second away.
+        let later = change - HOUR / 2;
+        let clock = Clock::new(
+            move || later,
+            move |ms| if ms < change { -4 * 3_600 } else { -3 * 3_600 },
+        );
+        assert_eq!(clock.next_day_ms(), change);
     }
 
     #[test]

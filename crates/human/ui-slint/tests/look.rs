@@ -818,35 +818,74 @@ fn the_conversation_bar_and_its_menu_mirror_right_to_left() {
     }
 }
 
-/// Review F3 on #295: Shift+Tab out of Details' identifier never stops on
-/// the dialog itself, which draws no ring and reports no focus.
+/// Review F3 on #295 and its re-review: Details is a modal dialog. Tab
+/// and Shift+Tab stay on its identifier field -- never on the dialog
+/// itself, which draws no ring, nor on the controls behind the scrim --
+/// and Escape closes it, giving focus back to More options.
 #[test]
-fn shift_tab_out_of_details_lands_on_a_control() {
+fn tab_stays_in_details_and_escape_closes_it() {
     use slint::platform::{Key, WindowEvent};
     let text = placeholder_en::text;
     let mut model = UiModel::new();
     model.received(received(1, "hi", NOW));
     let view = opened(&model, false);
+    // The field's ring is the one shown: focus is on a control that draws
+    // it, never on the dialog, which draws none.
+    let rings = || {
+        all(&view)
+            .into_iter()
+            .filter(|e| e.type_name().as_deref() == Some("FocusRing"))
+            .filter(|r| r.computed_opacity() > 0.0)
+            .count()
+    };
+    let send = |key: Key| {
+        let key: slint::SharedString = key.into();
+        let window = view.window().window();
+        window.dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text: key });
+        // A focus moves on a timer's turn and is reported a turn later.
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    };
     press(&view, text(UiText::MoreOptions));
     press(&view, text(UiText::Details));
-    // The field takes focus from a timer, and reports it a turn later.
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
     assert_eq!(
         view.window().get_focus_id().as_str(),
         "header-id",
-        "control: in the field"
+        "in the field"
     );
-    let back_tab: slint::SharedString = Key::Backtab.into();
-    let window = view.window().window();
-    window.dispatch_event(WindowEvent::KeyPressed {
-        text: back_tab.clone(),
-    });
-    window.dispatch_event(WindowEvent::KeyReleased { text: back_tab });
+    for key in [Key::Backtab, Key::Tab, Key::Tab, Key::Backtab] {
+        send(key);
+        assert_eq!(
+            view.window().get_focus_id().as_str(),
+            "header-id",
+            "still in the field"
+        );
+        assert_eq!(rings(), 1, "its ring shown");
+        assert!(view.window().get_details_open());
+    }
+    // A press on the dialog's padding, beside the field, leaves focus there.
+    let field = labelled(&view, text(UiText::ConversationId));
+    assert_eq!(field.len(), 1);
+    let (at, window) = (field[0].absolute_position(), view.window().window());
+    let position = slint::LogicalPosition::new(at.x - 12.0, at.y + 4.0);
+    let button = slint::platform::PointerEventButton::Left;
+    window.dispatch_event(WindowEvent::PointerPressed { position, button });
+    window.dispatch_event(WindowEvent::PointerReleased { position, button });
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
-    assert_ne!(
+    assert_eq!(
         view.window().get_focus_id().as_str(),
         "header-id",
-        "focus left the field for a control that says so"
+        "a press beside it"
     );
+    assert_eq!(rings(), 1, "the field keeps focus and its ring");
+    assert!(
+        view.window().get_details_open(),
+        "a press inside the dialog keeps it"
+    );
+    send(Key::Escape);
+    assert!(!view.window().get_details_open(), "Escape closes it");
+    assert_eq!(view.window().get_focus_id().as_str(), "more-options");
 }

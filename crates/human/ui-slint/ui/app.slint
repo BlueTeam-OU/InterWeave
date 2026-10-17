@@ -410,13 +410,14 @@ export global Palette {
     out property <color> tertiary: #ffb547;
     out property <color> on-tertiary: #2a1800;
     out property <color> unread-dot: dark ? #ffb547 : #7c5200;
+    out property <color> error: dark ? #ffb4ab : #ba1a1a;
     // The snackbar's roles. Section 7's snackbar is not built yet: it is
-    // still surface-container with a `primary` ring, so these four are only
-    // measured (tests/look.rs) until it is.
+    // still surface-container with a `primary` ring, so these three and
+    // focus-ring-on-inverse below are only measured (tests/look.rs) until
+    // it is.
     out property <color> inverse-surface: dark ? #e3e6f3 : #2a3050;
     out property <color> inverse-on-surface: dark ? #2a3050 : #eef0fb;
     out property <color> inverse-primary: dark ? #006a61 : #5fdccd;
-    out property <color> error: dark ? #ffb4ab : #ba1a1a;
     // Where keyboard focus is (section 7): `primary` on the surfaces and
     // bubbles, these two on the snackbar (once it takes section 7's look)
     // and on a notice banner.
@@ -2286,9 +2287,6 @@ export component AppWindow inherits Window {
     // (human-client-ui.md section 11). Read-only: nothing typed here goes
     // anywhere.
     if root.details-open: details := FocusScope {
-        // Not a Tab stop of its own: it only hears Escape from the field
-        // inside it, and a stop here drew no ring and reported no focus.
-        focus-on-tab-navigation: false;
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;
         width: min(root.width - 48px, 560px);
@@ -2296,6 +2294,13 @@ export component AppWindow inherits Window {
         key-pressed(event) => {
             if (event.text == Key.Escape) {
                 root.close-menu();
+                return accept;
+            }
+            // A modal dialog keeps focus: its one control is the field, so
+            // Tab either way stays on it -- never on this scope, which draws
+            // no ring and reports no focus, nor on the controls behind the
+            // scrim (tests/look.rs, `tab_stays_in_details_and_escape_closes_it`).
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
                 return accept;
             }
             reject
@@ -2313,6 +2318,11 @@ export component AppWindow inherits Window {
         details-box := Rectangle {
             background: Palette.surface-container-high;
             border-radius: 28px;
+            // A press on the dialog is the dialog's and moves no focus:
+            // without this it reached this scope, which took the field's
+            // focus and draws no ring (tests/look.rs,
+            // `tab_stays_in_details_and_escape_closes_it`).
+            TouchArea {}
             VerticalLayout {
                 padding: 24px;
                 spacing: 12px;
