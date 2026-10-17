@@ -1086,3 +1086,47 @@ fn a_press_ripples_unless_animations_are_off() {
         assert_eq!(count("StateLayer"), 0, "gone once released");
     }
 }
+
+/// Section 6: a message's swipe fill spans the list's width in the
+/// bubble's height -- over its text and status, never its chips.
+#[test]
+fn a_bubbles_swipe_fill_takes_the_bubbles_height() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "swipe me", NOW));
+    model.read(RowId::from_stored(1));
+    let view = opened(&model, false);
+    let handle = view
+        .window()
+        .get_messages()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    view.window().set_swipe_key(format!("m:{handle}").into());
+    view.window().set_swipe_offset(40.0);
+    slint::platform::update_timers_and_animations();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    let fill: Vec<_> = all(&view)
+        .into_iter()
+        .filter(|e| e.type_name().as_deref() == Some("SwipeReveal"))
+        .collect();
+    assert_eq!(fill.len(), 1, "the row's fill is drawn");
+    let (top, height) = (fill[0].absolute_position().y, fill[0].size().height);
+    let bottom = top + height;
+    let body = labelled(&view, "swipe me");
+    let status = labelled(
+        &view,
+        placeholder_en::label(interweave_human_ui_model::LabelKey::ReadNotKept),
+    );
+    let chip = labelled(&view, text(UiText::Keep));
+    assert!(top <= body[0].absolute_position().y, "over the text");
+    assert!(
+        bottom >= status[0].absolute_position().y + status[0].size().height,
+        "over the status"
+    );
+    assert!(
+        bottom <= chip[0].absolute_position().y,
+        "not over the chips"
+    );
+    assert!(fill[0].size().width >= 390.0 - 40.0, "the list's width");
+}

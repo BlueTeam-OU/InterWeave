@@ -1947,7 +1947,7 @@ export component AppWindow inherits Window {
                     // inside it once it moves in a direction this row offers;
                     // what the drag MEANS is decided in Rust (gesture.rs), by
                     // section 4's rule rather than the handler's own.
-                    SwipeGestureHandler {
+                    swipe-area := SwipeGestureHandler {
                         enabled: row.end-kind != SwipeKind.none || row.start-kind != SwipeKind.none;
                         handle-swipe-right: root.rtl ? row.start-kind != SwipeKind.none : row.end-kind != SwipeKind.none;
                         handle-swipe-left: root.rtl ? row.end-kind != SwipeKind.none : row.start-kind != SwipeKind.none;
@@ -1969,6 +1969,12 @@ export component AppWindow inherits Window {
                             armed: root.swipe-armed;
                             at-left: item.offset > 0px;
                             reduced-motion: root.reduced-motion;
+                            // Across the list's full width, in the bubble's
+                            // height and corners (section 6): only its shape
+                            // follows the bubble.
+                            y: bubble-column.absolute-position.y - swipe-area.absolute-position.y;
+                            height: bubble-column.height;
+                            border-radius: 18px;
                         }
                         // Moved by its padding rather than its x, which would
                         // take it out of the layout that sizes the row: the
