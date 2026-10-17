@@ -345,7 +345,8 @@ extern "system" fn Java_org_interweave_human_Native_waitHaptic<'caller>(
 }
 
 /// `Native.touch(...)`: the platform's touch values, in dp -- which Slint's
-/// logical pixels are on Android -- and the snackbar's recommended time.
+/// logical pixels are on Android -- the snackbar's recommended time, and
+/// the 12- or 24-hour setting.
 #[allow(
     unsafe_code,
     clippy::too_many_arguments,
@@ -361,6 +362,7 @@ extern "system" fn Java_org_interweave_human_Native_touch<'caller>(
     rtl: jboolean,
     reduced_motion: jboolean,
     recommended_ms: jlong,
+    hour24: jboolean,
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         crate::activity::touch_changed(TouchSettings {
@@ -370,6 +372,7 @@ extern "system" fn Java_org_interweave_human_Native_touch<'caller>(
             rtl,
             reduced_motion,
             snackbar_ms: snackbar_ms(u64::try_from(recommended_ms).unwrap_or(0)),
+            hour24,
         });
         Ok(())
     })

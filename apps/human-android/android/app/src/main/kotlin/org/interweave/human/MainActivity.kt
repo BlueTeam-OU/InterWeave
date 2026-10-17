@@ -17,6 +17,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.text.format.DateFormat
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewConfiguration
@@ -110,8 +111,8 @@ class MainActivity : NativeActivity() {
     }
 
     /**
-     * A screen reader's timeouts or the animation scale changed while the
-     * window stays shown -- beside Settings in split screen, or by `adb
+     * A screen reader's timeouts, the animation scale or the 12/24-hour
+     * setting changed while the window stays shown -- beside Settings in split screen, or by `adb
      * shell settings put` -- with no resume to read them: a snackbar
      * opened after it still got the old time (ux review of 761d72b3, N3).
      * The AccessibilityManager learns a timeout from the system on its
@@ -135,6 +136,7 @@ class MainActivity : NativeActivity() {
             Settings.Secure.getUriFor(INTERACTIVE_UI_TIMEOUT),
             Settings.Secure.getUriFor(NON_INTERACTIVE_UI_TIMEOUT),
             Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
+            Settings.System.getUriFor(Settings.System.TIME_12_24),
         )) {
             contentResolver.registerContentObserver(uri, false, settingsObserver)
         }
@@ -146,8 +148,9 @@ class MainActivity : NativeActivity() {
     /**
      * Hand the swipe its platform values: the touch slop and the system
      * gesture insets (the back-gesture zones) in dp, the layout's
-     * direction, whether animations are off, and the snackbar's
-     * recommended time for content with a control. Sent only when they
+     * direction, whether animations are off, the snackbar's recommended
+     * time for content with a control, and the 12- or 24-hour setting
+     * every shown time follows. Sent only when they
      * change.
      */
     private fun touch() {
@@ -169,6 +172,7 @@ class MainActivity : NativeActivity() {
                             AccessibilityManager.FLAG_CONTENT_TEXT or AccessibilityManager.FLAG_CONTENT_CONTROLS,
                         ) ?: SNACKBAR_MS
                     ).toLong(),
+                hour24 = DateFormat.is24HourFormat(this),
             )
         if (values == sentTouch) return
         sentTouch = values
@@ -179,6 +183,7 @@ class MainActivity : NativeActivity() {
             values.rtl,
             values.reducedMotion,
             values.recommendedMs,
+            values.hour24,
         )
     }
 
@@ -190,6 +195,7 @@ class MainActivity : NativeActivity() {
         val rtl: Boolean,
         val reducedMotion: Boolean,
         val recommendedMs: Long,
+        val hour24: Boolean,
     )
 
     private var sentTouch: Touch? = null
