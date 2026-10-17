@@ -862,8 +862,19 @@ mod tests {
             .take_message(&session, &peer(), &text, Duration::from_secs(5))
             .await
             .expect("the Android side's message");
-        // The Android side has sent, so its session holds the route the
-        // notice is owed on.
+        // Holding the message does not mean the Android side holds its
+        // route: that is recorded once its send returns, and a change
+        // before then is the path the route begins on, with no previous
+        // (the fake's `routed_sessions`). Without this wait the
+        // previous-path test passed by timing (#294's queue build).
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        while android.routed_sessions(&other_peer()) == 0 {
+            assert!(
+                std::time::Instant::now() < until,
+                "the Android side's route"
+            );
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
         match told {
             Notice::Connected(path) => android.connected(&other_peer(), path),
             Notice::WithPrevious(previous, current) => {
