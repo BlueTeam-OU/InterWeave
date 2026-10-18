@@ -416,8 +416,8 @@ that exist.
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the overflow button's label, Android's own words for it |
 | `Today`, `Yesterday` | Today, Yesterday | day separators; `Yesterday` also in list times (for today the list shows the time of day) |
-| weekdays (seven keys, e.g. `WeekdayMonday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | day separators and list times within the last seven days |
-| months (twelve keys, e.g. `MonthJanuary`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |
+| weekdays (seven keys, `Monday` to `Sunday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | day separators and list times within the last seven days |
+| months (twelve keys, `January` to `December`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |
 | `DateThisYear` | {month} {day} | day separators and list times before the last seven days, this year: "Sep 30" |
 | `DateOtherYear` | {month} {day}, {year} | the same, another year: "Sep 30, 2025" |
 | `Time24` | {hour}:{minute} | the time of day, phone set to 24-hour: "01:18", "13:05" |
@@ -523,7 +523,8 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 8. Received messages are on the start side and sent on the end side,
    with §6's fills, corners and width (at most 80 %). In an RTL locale
    the sides swap. Same-side messages within a minute sit 2 dp apart,
-   and a day change shows its separator.
+   and a day change shows its separator in §6's words: a message two to
+   six days old under its weekday, an older one under its date.
 9. In a channel, each received bubble shows its author, and the
    author's description is the full PeerId. In a direct conversation
    no bubble shows an author line.
