@@ -4973,7 +4973,8 @@ whole client is one empty `View` to every accessibility service —
 switches nothing on there (the manifest comment of 156c450c says so).
 The cause is one backend's missing adapter, not the toolkit: ADR-0039's
 accessibility revisit trigger is NOT fired by it (architect-cto's REPLY
-01a146b2, 2026-10-16), and the desktop's AT-SPI tree is unaffected.
+01a146b2-0833-791d-b4f2-3968484b6bf7, 2026-10-16), and the desktop's
+AT-SPI tree is unaffected.
 
 The bridge, as measured on the Pixel 9a (rust-ui-dev-01, 2026-10-18,
 a one-day prototype at 839e5ac7 on a scratch branch, nothing landed):
@@ -5001,9 +5002,11 @@ person, when it is built.
 
 What follows, by lane: rust-ui-dev keeps the prototype branch and
 builds nothing of it until the rest of this stage's packages and
-platform tests are done and the owner asks; the swipe spec's TalkBack
-items (`design/2026-10-16-message-swipe.md`, the bridge as their
-precondition) stay unmet with that reason, not failed; the closing
+platform tests are done and the owner asks; ux-designer's swipe spec
+(`design/2026-10-16-message-swipe.md`) keeps the bridge as the
+precondition of its TalkBack items, which stay unmet with that reason,
+not failed — its precondition paragraph stands as written, and no
+change to it is asked of ux-designer; architect-cto's §20 closing
 record carries human-client-ui.md §13's accessibility bullet for
 Android to the owner's release gate citing this subsection; the ADR for
 the vendored backend is architect-cto's, written when the build is
