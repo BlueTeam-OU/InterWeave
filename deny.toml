@@ -70,19 +70,23 @@ ignore = [
     # `zvariant_derive` 5.15.0 -- is unmaintained as standalone crates, not
     # vulnerable: all three were folded into `zbus` 6.0.0 (its `wire` and
     # `names` modules and its derives), and none has a patched release.
-    # They are reached only through the desktop's AT-SPI accessibility
-    # path (slint -> i-slint-backend-winit -> accesskit_winit ->
-    # accesskit_unix -> zbus 5), and as dev-dependencies through atspi in
-    # tests/desktop-e2e; not on the Android graph. `zvariant_derive` is a
+    # They are reached by two paths, both through zbus 5 and neither on
+    # the Android graph: the desktop's AT-SPI accessibility path (slint ->
+    # i-slint-backend-winit -> accesskit_winit -> accesskit_unix -> zbus
+    # 5), and tests/desktop-e2e's own direct dev-dependencies on zbus 5.19
+    # and atspi 0.29, which listen to that bus. `zvariant_derive` is a
     # proc-macro, but `zvariant` and `zbus_names` are runtime code in the
     # desktop binary: the D-Bus wire format and name types it speaks to
     # the session's accessibility bus. i-slint-backend-winit 1.18.1, the
-    # latest Slint, names zbus 5 directly, so no update of ours removes
-    # them. Revisit at the next Slint or accesskit bump, and delete these
-    # entries the moment the graph no longer names the crates.
-    { id = "RUSTSEC-2026-0370", reason = "zvariant (D-Bus wire format) is reached only through Slint's AT-SPI accessibility path (accesskit_unix -> zbus 5); merged into zbus 6; unmaintained, not vulnerable, no patched release; revisit at the next Slint or accesskit bump" },
-    { id = "RUSTSEC-2026-0371", reason = "zbus_names is reached only through Slint's AT-SPI accessibility path (accesskit_unix -> zbus 5); merged into zbus 6; unmaintained, not vulnerable, no patched release; revisit at the next Slint or accesskit bump" },
-    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive is a proc-macro reached only through Slint's AT-SPI accessibility path (accesskit_unix -> zbus 5); merged into zbus 6; unmaintained, not vulnerable, no patched release; revisit at the next Slint or accesskit bump" },
+    # latest Slint, names zbus 5 directly, so no update can remove them
+    # today, and moving the e2e suite's pins alone would not either.
+    # Revisit at the next Slint or accesskit bump together with
+    # tests/desktop-e2e's zbus/atspi pins -- a Slint bump alone leaves the
+    # crates in the graph through those pins -- and delete these entries
+    # the moment the graph no longer names the crates.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant (D-Bus wire format) is reached through Slint's AT-SPI accessibility path (accesskit_unix -> zbus 5) and tests/desktop-e2e's zbus 5 / atspi 0.29 dev-dependencies; merged into zbus 6; unmaintained, not vulnerable, no patched release; revisit at the next Slint or accesskit bump, together with the e2e suite's zbus/atspi pins" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names is reached through Slint's AT-SPI accessibility path (accesskit_unix -> zbus 5) and tests/desktop-e2e's zbus 5 / atspi 0.29 dev-dependencies; merged into zbus 6; unmaintained, not vulnerable, no patched release; revisit at the next Slint or accesskit bump, together with the e2e suite's zbus/atspi pins" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive is a proc-macro reached through Slint's AT-SPI accessibility path (accesskit_unix -> zbus 5) and tests/desktop-e2e's zbus 5 / atspi 0.29 dev-dependencies; merged into zbus 6; unmaintained, not vulnerable, no patched release; revisit at the next Slint or accesskit bump, together with the e2e suite's zbus/atspi pins" },
 ]
 
 [licenses]
