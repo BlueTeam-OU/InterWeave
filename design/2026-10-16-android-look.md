@@ -229,8 +229,9 @@ From the top:
 - The time is the last message's, computed in the phone's time zone:
   the time of day for today, "Yesterday", the day of the week within
   the last seven days (today and the six calendar days before it),
-  else the month and day (and the year when it is
-  not this year). The time of day follows the phone's 12- or 24-hour
+  else the month and day (and the year when it is not this year). A
+  time later than now (a clock set back) counts as today, never as a
+  day that has not come. The time of day follows the phone's 12- or 24-hour
   setting (`DateFormat.is24HourFormat`), read again when it changes
   while the app is open: a person sets it once for the whole phone.
   The words (weekdays, months, the date and time templates) come from
@@ -283,11 +284,11 @@ From the top:
     means read (§5 there).
   - Consecutive messages from the same side within a minute sit 2 dp
     apart. A change of side, 8 dp. A day change shows a centred
-    separator in body small, naming the day: "Today",
-    "Yesterday", the day of the week within the last seven days, else
-    the month and day (and the year when it is not this year). For a
-    screen reader, the separator is an item of its own. It is read
-    before the messages of its day.
+    separator in body small, naming the day: "Today", "Yesterday", the
+    day of the week within the last seven days, else the month and day
+    (and the year when it is not this year), counted as §5.2 counts
+    them. For a screen reader, the separator is an item of its own. It
+    is read before the messages of its day.
   - In a **direct** conversation the author line ("...x6gY6Eri", "You")
     is removed: there are two parties and the bubble's side shows which.
     In a **channel**, received bubbles come from several peers, so each
@@ -524,9 +525,9 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 8. Received messages are on the start side and sent on the end side,
    with §6's fills, corners and width (at most 80 %). In an RTL locale
    the sides swap. Same-side messages within a minute sit 2 dp apart,
-   and a day change shows its separator in §6's words: a message from
-   two to six days before today under its weekday, an older one under
-   its date.
+   and a day change shows its separator as section 6 says: a message
+   from two to six days before today under its weekday, an older one
+   under its date.
 9. In a channel, each received bubble shows its author, and the
    author's description is the full PeerId. In a direct conversation
    no bubble shows an author line.
