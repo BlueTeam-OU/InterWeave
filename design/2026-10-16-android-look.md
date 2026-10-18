@@ -228,7 +228,8 @@ From the top:
   one-minute grouping use it too.
 - The time is the last message's, computed in the phone's time zone:
   the time of day for today, "Yesterday", the day of the week within
-  the last seven days, else the month and day (and the year when it is
+  the last seven days (today and the six calendar days before it),
+  else the month and day (and the year when it is
   not this year). The time of day follows the phone's 12- or 24-hour
   setting (`DateFormat.is24HourFormat`), read again when it changes
   while the app is open: a person sets it once for the whole phone.
@@ -282,7 +283,7 @@ From the top:
     means read (§5 there).
   - Consecutive messages from the same side within a minute sit 2 dp
     apart. A change of side, 8 dp. A day change shows a centred
-    separator in body small, naming the day in §5.2's words: "Today",
+    separator in body small, naming the day: "Today",
     "Yesterday", the day of the week within the last seven days, else
     the month and day (and the year when it is not this year). For a
     screen reader, the separator is an item of its own. It is read
@@ -523,8 +524,9 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 8. Received messages are on the start side and sent on the end side,
    with §6's fills, corners and width (at most 80 %). In an RTL locale
    the sides swap. Same-side messages within a minute sit 2 dp apart,
-   and a day change shows its separator in §6's words: a message two to
-   six days old under its weekday, an older one under its date.
+   and a day change shows its separator in §6's words: a message from
+   two to six days before today under its weekday, an older one under
+   its date.
 9. In a channel, each received bubble shows its author, and the
    author's description is the full PeerId. In a direct conversation
    no bubble shows an author line.
