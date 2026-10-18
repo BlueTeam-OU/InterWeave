@@ -425,7 +425,9 @@ jobs:
 
       # As the android check job's cache. Its own key, because a full
       # build holds what a check never makes (object code, the build
-      # scripts' C), and BEFORE the install, for cargo-ndk. Measured on
+      # scripts' C), and BEFORE the install, for cargo-ndk. The key adds
+      # app/build.gradle.kts: this build takes its NDK, API level and
+      # android.jar from there, not from the pins file. Measured on
       # the host for interweave-human-android at these features,
       # 2026-10-18: 124 s cold, 66 s with only the workspace's own crates
       # to rebuild (the library's link is most of what remains).
@@ -439,10 +441,10 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.CARGO_CACHE_PATHS }}
-          key: android-apk-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins') }}-${{ steps.cargo-week.outputs.week }}-${{ hashFiles('Cargo.lock') }}
+          key: android-apk-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins', 'apps/human-android/android/app/build.gradle.kts') }}-${{ steps.cargo-week.outputs.week }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            android-apk-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins') }}-${{ steps.cargo-week.outputs.week }}-
-            ${{ github.event_name != 'push' && format('android-apk-cargo-{0}-{1}-', runner.os, hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins')) || '' }}
+            android-apk-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins', 'apps/human-android/android/app/build.gradle.kts') }}-${{ steps.cargo-week.outputs.week }}-
+            ${{ github.event_name != 'push' && format('android-apk-cargo-{0}-{1}-', runner.os, hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins', 'apps/human-android/android/app/build.gradle.kts')) || '' }}
 
       - name: Install the pinned JDK, SDK packages, Rust target and cargo-ndk
         working-directory: .
