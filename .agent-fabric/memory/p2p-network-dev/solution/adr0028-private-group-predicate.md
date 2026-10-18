@@ -5,7 +5,7 @@ topic: "adr0028-private-group-predicate"
 description: "ADR-0028 A 2026-10-08 (third), architect-cto seq 24751: a group-writable ancestor passes only when its group is the owner's private group (NSS name equality + empty gr_mem), failing closed"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

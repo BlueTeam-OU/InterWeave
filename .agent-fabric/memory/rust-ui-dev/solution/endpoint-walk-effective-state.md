@@ -5,7 +5,7 @@ topic: "endpoint-walk-effective-state"
 description: "How the human client picks its endpoint since #261's persisted endpoint overlay — facade walks config order past EndpointDisabled; no admin.endpoints read (j70)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "labels-english-supplier"
 description: "who finalises English for crates/human/ui-model/src/labels.rs values, how it reaches my PR, and the conventions a new placeholder should follow"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

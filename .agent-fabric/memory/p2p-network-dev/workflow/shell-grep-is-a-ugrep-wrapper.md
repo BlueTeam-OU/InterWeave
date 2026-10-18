@@ -5,7 +5,7 @@ topic: "shell-grep-is-a-ugrep-wrapper"
 description: "In this harness's Bash, `grep` is a function wrapping ugrep; `|` in a pattern can alternate, so a wait-loop predicate on '|COMPLETED|' lied three times"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

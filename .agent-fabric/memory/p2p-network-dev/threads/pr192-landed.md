@@ -5,7 +5,7 @@ topic: "pr192-landed"
 description: "#192 (external review 2026-10-04, j15 + j18) merged f2b771ea on 2026-10-05; what it carries forward"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
