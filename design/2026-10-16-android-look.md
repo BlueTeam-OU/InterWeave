@@ -281,10 +281,12 @@ From the top:
     The words stay those of `human-client-ui.md` §5. A check never
     means read (§5 there).
   - Consecutive messages from the same side within a minute sit 2 dp
-    apart. A change of side, 8 dp. A day change shows a centred "Today",
-    "Yesterday" or the date, in body small. For a screen reader, the
-    separator is an item of its own. It is read before the messages of
-    its day.
+    apart. A change of side, 8 dp. A day change shows a centred
+    separator in body small, naming the day in §5.2's words: "Today",
+    "Yesterday", the day of the week within the last seven days, else
+    the month and day (and the year when it is not this year). For a
+    screen reader, the separator is an item of its own. It is read
+    before the messages of its day.
   - In a **direct** conversation the author line ("...x6gY6Eri", "You")
     is removed: there are two parties and the bubble's side shows which.
     In a **channel**, received bubbles come from several peers, so each
@@ -357,10 +359,11 @@ From the top:
   shape: round for the back arrow and Send, rounded for chips and list
   items.
 - **TalkBack.** A bubble is read as one item: author ("You" for one's
-  own), the text, the status, the time. Its label is `UiText::Item`,
-  whose value today is "{author}, {status}: {body}" with no time; it
-  takes the new value in §9 on every platform, so the desktop's screen
-  readers read the same order. The chips follow it in order.
+  own), the text, the status, the time. Its label is `UiText::Item`
+  (§9), on every platform, so the desktop's screen readers read the
+  same order. The chips follow it in order. A day separator is an item
+  of its own, read before the messages of its day (§6), so the day is
+  heard there and not on every bubble.
   Swipe spec §7's labels are unchanged. A conversation row in the list
   is read as one item too: its name (the row's label), then its
   description: the kind (direct or channel, in words), the unread count
@@ -412,10 +415,10 @@ that exist.
 | `OwnLastMessage` | You: {message} | the list's subtitle when the last message is one's own. `{message}` is the preview text. A template, not a prefix: `labels.rs` fills a template by placeholder and never joins strings, so a translation can reorder it |
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the overflow button's label, Android's own words for it |
-| `Today`, `Yesterday` | Today, Yesterday | day separators and list times |
-| weekdays (seven keys, e.g. `WeekdayMonday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | list times within the last seven days |
+| `Today`, `Yesterday` | Today, Yesterday | day separators; `Yesterday` also in list times (for today the list shows the time of day) |
+| weekdays (seven keys, e.g. `WeekdayMonday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | day separators and list times within the last seven days |
 | months (twelve keys, e.g. `MonthJanuary`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |
-| `DateThisYear` | {month} {day} | list times before the last seven days, this year: "Sep 30" |
+| `DateThisYear` | {month} {day} | day separators and list times before the last seven days, this year: "Sep 30" |
 | `DateOtherYear` | {month} {day}, {year} | the same, another year: "Sep 30, 2025" |
 | `Time24` | {hour}:{minute} | the time of day, phone set to 24-hour: "01:18", "13:05" |
 | `TimeAm` | {hour}:{minute} AM | the time of day, phone set to 12-hour, before noon: "1:18 AM", "12:05 AM" just after midnight |
@@ -546,7 +549,8 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 17. Every swipe spec §11 item still passes. Only the swipe's look has
     changed; the neutral fill holds §3's contrasts.
 18. Under "Remove animations" no ripple plays.
-19. TalkBack reads a bubble as author, text, status, time, and a
+19. TalkBack reads a bubble as author, text, status, time; a day
+    separator as its own item, before the messages of its day; and a
     conversation row as name, kind, unread count, last message, time,
     the name once, and never the avatar: a person's
     check, as swipe spec §11 item 12, blocked until TalkBack reaches the
