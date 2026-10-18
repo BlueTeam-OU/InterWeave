@@ -4958,6 +4958,57 @@ Carried here from Stage 14 (§17): human-client-ui.md §13's render-parity bulle
 
 Carried here from Stage 15 (§18): the trust-audit sink — the embedded host installs a log sink that admits the composition's audit target (`interweave::audit`) at INFO whatever level it otherwise filters at, as the daemon does (LOCAL-CLIENT.md §5, A 2026-10-04); a platform test proves a trust set appears in it.
 
+### Decided 2026-10-18 (architect-cto, on the owner's word in session, after rust-ui-dev-01's OBSERVATION 01a146af-dad3-7023-92fd-38f5747b9e8c and device report 01a14db9-d8e4-79cf-9cf3-b6421528a70a)
+
+**TalkBack on Android is carried to the owner's release gate, and the
+bridge that would serve it is built after everything else in this
+stage.** The reach gate (f) allows that carry when the reason is named;
+this record names it, so §20's closing record cites this subsection
+rather than re-arguing it.
+
+The gap, as measured: Slint 1.18.1's Android backend
+(`i-slint-backend-android-activity`) has no AccessKit adapter, so the
+whole client is one empty `View` to every accessibility service —
+`uiautomator dump` sees no node, and ui-slint's `slint/accessibility`
+switches nothing on there (the manifest comment of 156c450c says so).
+The cause is one backend's missing adapter, not the toolkit: ADR-0039's
+accessibility revisit trigger is NOT fired by it (architect-cto's REPLY
+01a146b2, 2026-10-16), and the desktop's AT-SPI tree is unaffected.
+
+The bridge, as measured on the Pixel 9a (rust-ui-dev-01, 2026-10-18,
+a one-day prototype at 839e5ac7 on a scratch branch, nothing landed):
+an app-side adapter in ui-slint on `accesskit_android 0.7.5` (the
+release that fits the lock's `accesskit 0.24.1`), built from
+`i-slint-core`'s doc-hidden tree API (we pin `=1.18.1`, so each Slint
+bump re-checks it), feeds the platform tree — an accessibility client
+sees the Chats heading, every conversation row as a focusable node with
+its title, and the Trust settings button — and follows Slint's input
+focus within its 50 ms poll; about 440 lines and three dependencies
+already on the licence allow-list. Three gaps in that tree are known:
+no node advertises itself clickable, a row's description is not
+exposed, and Slint's `AccessibilityAction` has no scroll, so no
+`SCROLL_FORWARD`/`BACKWARD` exists. Explore-by-touch needs a one-line
+change in the backend (`HoverMove` answered `Unhandled` while an adapter
+is active); the Slint Royalty-free 2.0 licence grants a modified copy
+under the attribution duty already owed, so that patch would land as a
+vendored crate in the ADR-0051/0053/0054 shape, by an ADR of its own.
+Whether TalkBack's double-tap activates a row and whether touch
+exploration needs the patch were not measured: the gestures cannot be
+injected over adb, and the finger run was voided by the platform's
+"Allow TalkBack to make and manage phone calls?" dialog standing in
+front of the app. They are the acceptance tests of the build, run by a
+person, when it is built.
+
+What follows, by lane: rust-ui-dev keeps the prototype branch and
+builds nothing of it until the rest of this stage's packages and
+platform tests are done and the owner asks; the swipe spec's TalkBack
+items (`design/2026-10-16-message-swipe.md`, the bridge as their
+precondition) stay unmet with that reason, not failed; the closing
+record carries human-client-ui.md §13's accessibility bullet for
+Android to the owner's release gate citing this subsection; the ADR for
+the vendored backend is architect-cto's, written when the build is
+asked for and not before.
+
 ### Exit gate
 
 **State (2026-10-09):** open since 2026-10-06, when Stage 16's closing
