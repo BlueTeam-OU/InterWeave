@@ -282,7 +282,9 @@ From the top:
     means read (§5 there).
   - Consecutive messages from the same side within a minute sit 2 dp
     apart. A change of side, 8 dp. A day change shows a centred "Today",
-    "Yesterday" or the date, in body small.
+    "Yesterday" or the date, in body small. The separator is an item of
+    its own for a screen reader, read before the run of messages it
+    heads.
   - In a **direct** conversation the author line ("...x6gY6Eri", "You")
     is removed: there are two parties and the bubble's side shows which.
     In a **channel**, received bubbles come from several peers, so each
@@ -420,7 +422,7 @@ that exist.
 | `TimePm` | {hour}:{minute} PM | the same, from noon: "1:05 PM", "12:30 PM" |
 | `ConversationDescription` (exists, new value) | {kind}, {unread}, {preview}, {time} | a list row's description as TalkBack reads it (§7), with unread messages. `{kind}` is `DirectConversation` or `ChannelConversation` as today, `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
 | `ConversationDescriptionRead` | {kind}, {preview}, {time} | the same, with nothing unread |
-| `Item` (exists, new value) | {author}: {body}. {status}, {time} | a message bubble's label, as TalkBack reads it (§7), on every platform: "You: See you at six. Kept, 01:18" |
+| `Item` (exists, new value) | {author}: {body}. {status}, {time} | a message bubble's label, as TalkBack reads it (§7), on every platform: "You: See you at six. Kept, 01:18". `{time}` is the clock time the bubble shows, for a message of any day: the day is read once, from the separator before the run, not on every bubble |
 
 The weekday, month, date and time values are final (language-culture,
 2026-10-17). What the code fills in, and what a translation may change:
