@@ -334,9 +334,17 @@ jobs:
     # scripts read them there; this job only says which components it needs.
     name: android check (aarch64-linux-android)
     runs-on: ubuntu-latest
-    # Not yet measured with interweave-human-android in the set (Slint's
-    # closure, cold). The cap is for a hang.
+    # 2m26s on main with no cargo cache (400b42b6, 2026-10-17), 100 s of
+    # it the cargo check. The cap is for a hang.
     timeout-minutes: 40
+    env:
+      # As the rust job's, for its reason.
+      CARGO_INCREMENTAL: "0"
+      CARGO_CACHE_PATHS: |
+        ~/.cargo/registry/index
+        ~/.cargo/registry/cache
+        ~/.cargo/git/db
+        target
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -348,8 +356,38 @@ jobs:
       - name: Install the pinned JDK, SDK packages and Rust target
         run: bash tools/ci/android_ci_toolchain.sh jdk sdk rust
 
+      # THE DEPENDENCIES' BUILDS ARE CACHED, as the rust job's are: its
+      # comment has the key's reasoning and the save's rule. This key adds
+      # the pins file, whose NDK clang and API level build the graph's C.
+      # Measured on the host for the same packages, 2026-10-18: 65 s cold,
+      # 13 s with only the workspace's own crates to rebuild.
+      - name: The cargo cache's week
+        id: cargo-week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the cargo registry and the dependency builds
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: android-check-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins') }}-${{ steps.cargo-week.outputs.week }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            android-check-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins') }}-${{ steps.cargo-week.outputs.week }}-
+            ${{ github.event_name != 'push' && format('android-check-cargo-{0}-{1}-', runner.os, hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins')) || '' }}
+
       - name: cargo check for aarch64-linux-android
         run: bash tools/ci/check_android_target.sh
+
+      - name: Prune the workspace's own builds from the cargo cache (main only)
+        if: success() && github.event_name == 'push' && steps.cargo-cache.outputs.cache-hit != 'true'
+        run: bash tools/ci/prune_cargo_target.sh target
+
+      - name: Save the cargo cache (main only)
+        if: success() && github.event_name == 'push' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
   android-apk:
     # CONTEXT NAME: `android apk (assembleDebug)`. ADVISORY (CLAUDE.md §9's
@@ -358,9 +396,25 @@ jobs:
     # the Gradle project is on main and a run time is measured.
     name: android apk (assembleDebug)
     runs-on: ubuntu-latest
-    # Not yet measured: a cold cargo build of interweave-human-android for
-    # the target plus Gradle's first resolution. The cap is for a hang.
+    # 5m27s on main with no cargo cache (400b42b6, 2026-10-17): 69 s of
+    # toolchain install, ~30 s of it compiling cargo-ndk, and 252 s of
+    # assembleDebug, most of it the cargo build. The cap is for a hang.
     timeout-minutes: 60
+    env:
+      # As the rust job's, for its reason; Gradle's Exec passes the
+      # environment on to cargo-ndk and the cargo it runs.
+      CARGO_INCREMENTAL: "0"
+      # The android check job's paths, plus cargo-ndk itself and the
+      # records `cargo install` reads, so the install below finds the
+      # pinned version in place and builds nothing.
+      CARGO_CACHE_PATHS: |
+        ~/.cargo/registry/index
+        ~/.cargo/registry/cache
+        ~/.cargo/git/db
+        ~/.cargo/bin/cargo-ndk*
+        ~/.cargo/.crates.toml
+        ~/.cargo/.crates2.json
+        target
     defaults:
       run:
         working-directory: apps/human-android/android
@@ -368,6 +422,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # As the android check job's cache. Its own key, because a full
+      # build holds what a check never makes (object code, the build
+      # scripts' C), and BEFORE the install, for cargo-ndk. The key adds
+      # app/build.gradle.kts: this build takes its NDK, API level and
+      # android.jar from there, not from the pins file. Measured on
+      # the host for interweave-human-android at these features,
+      # 2026-10-18: 124 s cold, 66 s with only the workspace's own crates
+      # to rebuild (the library's link is most of what remains).
+      - name: The cargo cache's week
+        id: cargo-week
+        working-directory: .
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the cargo registry, cargo-ndk and the dependency builds
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: android-apk-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins', 'apps/human-android/android/app/build.gradle.kts') }}-${{ steps.cargo-week.outputs.week }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            android-apk-cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins', 'apps/human-android/android/app/build.gradle.kts') }}-${{ steps.cargo-week.outputs.week }}-
+            ${{ github.event_name != 'push' && format('android-apk-cargo-{0}-{1}-', runner.os, hashFiles('rust-toolchain.toml', 'tools/host/android/android-toolchain.pins', 'apps/human-android/android/app/build.gradle.kts')) || '' }}
 
       - name: Install the pinned JDK, SDK packages, Rust target and cargo-ndk
         working-directory: .
@@ -405,6 +482,18 @@ jobs:
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
           key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
+
+      - name: Prune the workspace's own builds from the cargo cache (main only)
+        if: success() && github.event_name == 'push' && steps.cargo-cache.outputs.cache-hit != 'true'
+        working-directory: .
+        run: bash tools/ci/prune_cargo_target.sh target
+
+      - name: Save the cargo cache (main only)
+        if: success() && github.event_name == 'push' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
   tree-checks:
     name: tree checks
