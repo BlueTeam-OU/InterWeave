@@ -1513,12 +1513,102 @@ fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() 
             })
             .collect();
         assert!(!newest.is_empty(), "the message is in the tree");
+        // Anchored at its newest message: its end is in view above the
+        // keyboard, however little of it the space can hold (step 5).
         assert!(
             newest.iter().any(|e| {
-                let (y, h) = (e.absolute_position().y, e.size().height);
-                y >= 0.0 && y + h <= above
+                let end = e.absolute_position().y + e.size().height;
+                end > 0.0 && end <= above + 0.5
             }),
             "covered {covered}: the newest message in view"
         );
     }
+}
+
+/// #304 F3, round 1: a touch user who closes the keyboard leaves the
+/// composer, whose insertion handle otherwise stayed drawn on the empty
+/// field. Typed while the keyboard is up, a letter reaches the draft;
+/// after it closes, none does: the field let focus go.
+#[test]
+fn closing_the_keyboard_after_a_tap_lets_the_composer_go() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    let view = opened(&model, false);
+    let window = view.window();
+    let field = labelled(&view, text(UiText::Composer));
+    let (p, z) = (field[0].absolute_position(), field[0].size());
+    let position = slint::LogicalPosition::new(p.x + z.width / 2.0, p.y + z.height / 2.0);
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    let typed = |letter: &str| {
+        let key: slint::SharedString = letter.into();
+        window
+            .window()
+            .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+        window
+            .window()
+            .dispatch_event(WindowEvent::KeyReleased { text: key });
+        slint::platform::update_timers_and_animations();
+    };
+    window.set_keyboard_overlap(300.0);
+    slint::platform::update_timers_and_animations();
+    typed("a");
+    assert_eq!(
+        window.get_draft().as_str(),
+        "a",
+        "control: the tapped field types"
+    );
+    window.set_keyboard_overlap(0.0);
+    slint::platform::update_timers_and_animations();
+    typed("b");
+    assert_eq!(window.get_draft().as_str(), "a", "the field let focus go");
+}
+
+/// #304 F9 step 5: with the keyboard up in landscape, a conversation
+/// longer than the space left shows its newest message, not its top.
+#[test]
+fn with_the_keyboard_up_a_long_conversation_shows_its_newest_message() {
+    let mut model = UiModel::new();
+    for n in 1..=14_u64 {
+        let row = i64::try_from(n).expect("small");
+        model.received(received(
+            row,
+            &format!("message number {n}"),
+            NOW - 60_000 * (20 - n),
+        ));
+    }
+    let view = opened(&model, false);
+    let window = view.window();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(915.0, 411.0));
+    window.set_keyboard_overlap(200.0);
+    // The list settles at its newest message within a few turns: its
+    // content's height lags the change by one.
+    for _ in 0..4 {
+        slint::platform::update_timers_and_animations();
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(5));
+    }
+    let above = 411.0 - 200.0;
+    // In view: its end is above the keyboard and below the list's top.
+    let shown = |label: &str| {
+        all(&view).into_iter().any(|e| {
+            e.accessible_label().is_some_and(|l| l.contains(label)) && {
+                let end = e.absolute_position().y + e.size().height;
+                end > 0.0 && end <= above + 0.5
+            }
+        })
+    };
+    assert!(shown("message number 14"), "the newest message in view");
+    assert!(!shown("message number 1."), "control: not the top");
 }

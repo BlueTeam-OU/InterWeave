@@ -2523,6 +2523,27 @@ export component AppWindow inherits Window {
                 // A row tracking a swipe holds its touch: the list does
                 // not scroll for it (swipe spec section 4).
                 interactive: !root.swipe-tracking;
+                // While the keyboard is up the list is anchored at its
+                // newest message, whatever space it keeps: as the keyboard
+                // opens, as the space changes, as a message arrives (#304
+                // F9 step 5).
+                // The content's height can lag the change a turn (read
+                // early it is the padding alone); its own change anchors
+                // again, so the list settles at its newest message.
+                function to-newest() {
+                    self.content-y = min(0px, self.height - self.content-height);
+                }
+                property <bool> anchored: root.typing;
+                changed anchored => {
+                    if (self.anchored) { self.to-newest(); }
+                }
+                changed height => {
+                    if (self.anchored) { self.to-newest(); }
+                }
+                property <length> content: self.content-height;
+                changed content => {
+                    if (self.anchored) { self.to-newest(); }
+                }
             messages-column := VerticalLayout {
                 width: parent.width;
                 // The space between rows is each row's gap (section 6: 2 px
@@ -2542,6 +2563,7 @@ export component AppWindow inherits Window {
             // tests/look.rs, `a_leaving_message_closes_its_space_without_a_jump`).
             // Clipped so it hides what it covered.
             for row[index] in root.messages: row-box := Rectangle {
+
                 // Clipped only while it closes: a clipped row is skipped when
                 // focus moves to rows outside the window, so a long list
                 // could not be tabbed through
@@ -3068,6 +3090,17 @@ export component AppWindow inherits Window {
                             text <=> root.draft;
                             enabled: root.composer-enabled;
                             accessible-label: root.composer-label;
+                            // A touch user who closes the keyboard (Back, or
+                            // the keyboard's own key) is done typing: the field
+                            // lets focus go, and its insertion handle with it,
+                            // which stayed drawn on the empty field (#304 F3,
+                            // round 1). A keyboard user keeps focus.
+                            property <bool> keyboard-up: root.keyboard-overlap > 0;
+                            changed keyboard-up => {
+                                if (!self.keyboard-up && !FocusMode.keyboard && self.has-focus) {
+                                    self.clear-focus();
+                                }
+                            }
                             edited => { root.draft-edited(self.text); }
                             changed has-focus => {
                                 if (self.has-focus) { root.focus-id = "composer"; }
