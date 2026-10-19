@@ -432,3 +432,118 @@ fn a_confirmed_peer_never_replaces_an_established_record() {
 fn paths(app: &App) -> ProfilePaths {
     ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b")).expect("p")
 }
+
+mod onboarding {
+    use super::*;
+    use interweave_human_android_platform::onboarding::{
+        self, Creation, PHRASE_WORDS, WriteRefused, english,
+    };
+
+    /// C1 to C4: the words come from BIP-39's list and name the `PeerId`
+    /// shown; nothing is on disk until the seal; the sealed record unlocks
+    /// to that `PeerId`.
+    #[test]
+    fn a_creation_writes_nothing_until_the_seal_and_unlocks_the_peer_shown() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        let (creation, words, peer, check) = Creation::new().expect("a creation");
+        assert!(words.iter().all(|w| english().binary_search(w).is_ok()));
+        assert_ne!(check[0], check[1]);
+        assert!(check.iter().all(|&p| p < PHRASE_WORDS));
+        assert_eq!(
+            onboarding::check(words.join(" ")),
+            Some(peer.clone()),
+            "the words shown derive the PeerId shown"
+        );
+        assert!(
+            !custody::custody_file(&paths(&app)).exists(),
+            "nothing sealed yet"
+        );
+
+        onboarding::seal(&app.dir, PROFILE, &keystore, &creation).expect("sealed");
+        let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
+            .expect("the record unlocks");
+        assert_eq!(started.transport_identity().expect("a PeerId"), peer);
+    }
+
+    /// Another first run sealed first: the words shown were never used,
+    /// and the record stays the other identity's.
+    #[test]
+    fn a_seal_over_a_provisioned_profile_is_refused_and_changes_nothing() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("provisioned");
+        let before = record(&app);
+        let (creation, ..) = Creation::new().expect("a creation");
+        assert_eq!(
+            onboarding::seal(&app.dir, PROFILE, &keystore, &creation),
+            Err(WriteRefused::AlreadyProvisioned)
+        );
+        assert_eq!(record(&app), before);
+    }
+
+    /// The read-back (#303 round 2): a seal refused after the record is
+    /// on disk -- here a second tap of Continue, refused as provisioned --
+    /// is success when the record names the identity just shown.
+    #[test]
+    fn a_refused_seal_whose_record_names_this_identity_is_success() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        let (creation, ..) = Creation::new().expect("a creation");
+        onboarding::seal(&app.dir, PROFILE, &keystore, &creation).expect("sealed");
+        assert_eq!(
+            onboarding::seal(&app.dir, PROFILE, &keystore, &creation),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_phrase_that_fails_its_checksum_derives_nothing() {
+        assert_eq!(onboarding::check(["abandon"; 24].join(" ")), None);
+        assert_eq!(onboarding::check("not a phrase".to_owned()), None);
+    }
+
+    /// R1 to R4 on a fresh install, from the typed text.
+    #[test]
+    fn a_fresh_install_restores_the_confirmed_peer_from_the_typed_words() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        let (_, words, peer, _) = Creation::new().expect("an identity to restore");
+        let derived = onboarding::check(words.join(" ")).expect("a phrase");
+        assert_eq!(derived, peer);
+        onboarding::restore(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            words.join(" "),
+            Expected::Confirmed(&derived),
+        )
+        .expect("restored");
+        let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
+            .expect("the record unlocks");
+        assert_eq!(started.transport_identity().expect("a PeerId"), peer);
+    }
+
+    /// The marker holds nothing but its existence, and clearing an absent
+    /// one is no error.
+    #[test]
+    fn the_void_paper_marker_is_an_empty_flag() {
+        let app = app();
+        assert!(!onboarding::void_paper(&app.dir, PROFILE));
+        onboarding::set_void_paper(&app.dir, PROFILE, true).expect("set");
+        assert!(onboarding::void_paper(&app.dir, PROFILE));
+        let marker = paths(&app).human_dir().join("void-paper");
+        assert_eq!(std::fs::read(&marker).expect("the marker").len(), 0);
+        assert_eq!(
+            std::fs::metadata(&marker)
+                .expect("its mode")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        onboarding::set_void_paper(&app.dir, PROFILE, false).expect("cleared");
+        onboarding::set_void_paper(&app.dir, PROFILE, false).expect("cleared again");
+        assert!(!onboarding::void_paper(&app.dir, PROFILE));
+    }
+}

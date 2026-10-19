@@ -21,6 +21,7 @@ pub mod identity;
 pub mod network;
 pub mod notice;
 pub mod offline;
+pub mod onboarding;
 pub mod service;
 #[cfg(feature = "dev-stand-ins")]
 pub mod stand_in;

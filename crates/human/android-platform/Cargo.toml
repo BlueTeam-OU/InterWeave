@@ -20,6 +20,9 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+# BIP-39's English list for the recovery-phrase picker; the same pin
+# profile-identity encodes the phrase with.
+bip39 = { workspace = true }
 interweave-human-app-core = { path = "../app-core" }
 interweave-human-store = { path = "../store" }
 interweave-human-transport-client = { path = "../transport-client" }
@@ -38,6 +41,8 @@ interweave-android-e2e-cases = { path = "../../../tests/android-e2e-cases", opti
 # The facade's command channel and its turn timer, on the embedded
 # runtime's executor.
 tokio = { workspace = true, features = ["sync", "time", "macros"] }
+# C3's two check positions.
+rand = { workspace = true }
 
 [features]
 # The first-run profile, until profile-config's provisioning lands
