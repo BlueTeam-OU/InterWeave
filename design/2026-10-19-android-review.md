@@ -206,6 +206,14 @@ but does not re-rank these.
     menu or an action bar, as the reference apps do) and by the swipe;
     the swipe spec §7's equivalents for anyone who cannot swipe stay
     reachable from that long-press, without a gesture beyond it.
+  - Specified 2026-10-19 on rust-ui-dev-01's proposal (QUESTION
+    01a1533b-4905): `design/2026-10-16-message-swipe.md` §4 and §7 and
+    `design/2026-10-16-android-look.md` §6 are revised in this PR. A
+    Material menu anchored to the bubble, opened by long-press (the
+    platform's timeout, one haptic tick), Enter, the Menu key,
+    Shift+F10, a secondary click on the desktop, and the bubble's
+    accessible default action; the bubble is the row's one focus stop
+    besides its links; the desktop shares the interaction.
 - **F3. The composer draws wrongly, and its height follows the free
   space on the screen.**
   - Seen: unfocused, it is a tall pill about 250 px high, with a

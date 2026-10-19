@@ -309,10 +309,13 @@ From the top:
     message has none. The title carries it.
 - **The "Messages" heading** is no longer drawn: the bubbles show where
   the messages are. It stays as a heading for screen-reader navigation.
-- **Row actions as chips**, under the bubble, on the bubble's side:
-  - outlined chips, 32 dp drawn and 48 dp to touch (the touch area
-    extends 8 dp above and below), 8 dp apart, each with an 18 dp icon
-    in `primary` before its label:
+- **Row actions in the bubble's menu** (revised 2026-10-19 by
+  `design/2026-10-19-android-review.md` F2; until then they were
+  outlined chips under every bubble, visible at rest, which on the
+  device took more room than the messages):
+  - a Material menu anchored to the bubble, opened as the swipe spec's
+    §7 says; each item 48 dp high, with a 24 dp icon in
+    `on-surface-variant` before its label:
 
     | action | icon |
     |---|---|
@@ -323,8 +326,9 @@ From the top:
     | Cancel | close |
     | Show source | code |
 
-  - They stay visible on every row. They are the swipe's equivalent
-    (swipe spec §7) and its primary control.
+  - Nothing shows under a bubble at rest. While its menu is open, the
+    bubble keeps a pressed state layer (`on-surface` at 10 %) so the
+    person sees which message the menu is about.
 - **The swipe on a bubble.** The fill is drawn under the bubble's
   shape, across the list's full width, with the same colours, icon and
   label as today. Only its shape follows the bubble.
@@ -352,13 +356,14 @@ From the top:
   `focus-ring-on-notice` on a notice banner (§3, each 3:1 or more). Today the Chats list
   draws none and a conversation's buttons only thicken a grey border
   from 1 to 2 px, which is hard to see. The ring follows the control's
-  shape: round for the back arrow and Send, rounded for chips and list
-  items.
+  shape: round for the back arrow and Send, rounded for bubbles, menu items
+  and list items.
 - **TalkBack.** A bubble is read as one item: author ("You" for one's
   own), the text, the status, the time. Its label is `UiText::Item`,
   whose value today is "{author}, {status}: {body}" with no time; it
   takes the new value in §9 on every platform, so the desktop's screen
-  readers read the same order. The chips follow it in order.
+  readers read the same order. Its default action opens its menu
+  (swipe spec §7).
   Swipe spec §7's labels are unchanged. A conversation row in the list
   is read as one item too: its name (the row's label), then its
   description: the kind (direct or channel, in words), the unread count
@@ -383,8 +388,8 @@ From the top:
 ## 8. Edge cases
 
 - **System font size 200 %.** The list item grows in height and nothing
-  is cut, apart from the subtitle's one line. A chip row wraps to a
-  second line. The app bar's title and subtitle each take one line,
+  is cut, apart from the subtitle's one line. A menu item's label
+  wraps rather than being cut. The app bar's title and subtitle each take one line,
   cut with an ellipsis. Every control keeps its 48 dp target.
 - **A very long message.** The bubble wraps. It never widens the list.
 - **A message with no text** (only a part this client cannot show). The
@@ -527,7 +532,7 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 11. A reply shows its reply line in the bubble, a link opens as today's
     link button does, and code, quote and rule lines keep their look in
     both bubble colours. No bubble shows a route line.
-12. Every chip, link, and the Send and back buttons measure at least
+12. Every menu item, link, and the Send and back buttons measure at least
     48 × 48 dp to touch. Send is dimmed and does nothing while the field
     is empty.
 13. Every focusable control shows the 3 dp ring under Tab: on the Chats
