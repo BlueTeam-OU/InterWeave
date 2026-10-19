@@ -6,17 +6,19 @@
 //! a phrase they entered, restore one, and keep the one non-secret marker
 //! that says a creation showed its words and never finished.
 //!
-//! Every write that answers a refusal is read back before it is reported
-//! as failed (#303 round 2): a seal or a restore can refuse after its
-//! record is on disk -- the directory's sync after publishing, a key of the
-//! other policy that could not be retired -- and a person told "nothing was
-//! changed" about the very identity their paper holds would be told
-//! something false. A record that names the `PeerId` just shown or
-//! confirmed is success; the next start's reseal finishes the rest.
+//! Two refusals come after the record is published, and only those are
+//! read back (#303 rounds 2 and 3): a key of the other policy that could
+//! not be retired (`OldKeyRemains`), and the directory's sync after the
+//! publish (`Unsynced`). The read-back is an unlock: success only when the
+//! record opens, under the cipher, to the `PeerId` just shown or
+//! confirmed. Reading the record's `PeerId` field alone would not do: at
+//! a recovery the old record names that `PeerId` already, so a write that
+//! failed before publishing would read as done. Every other refusal is
+//! reported as it is.
 
 use std::path::{Path, PathBuf};
 
-use interweave_profile_config::{ProfilePaths, TrustBoundary};
+use interweave_profile_config::{PersistError, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
 use interweave_transport_api::TransportIdentity;
 use interweave_transport_embedded::custody::{self, CipherFailure, CustodyRefused, SeedCipher};
@@ -128,10 +130,12 @@ fn paths(app_data_dir: &Path, profile: &str) -> Result<ProfilePaths, WriteRefuse
         .map_err(|e| WriteRefused::Storage(e.to_string()))
 }
 
-/// Whether the record on disk names `peer`: the read-back after a refused
-/// write.
-fn record_names(paths: &ProfilePaths, peer: &TransportIdentity) -> bool {
-    matches!(custody::recorded_identity(paths), Ok(Some(named)) if named == *peer)
+/// The read-back: whether the record opens, under `cipher`, to `peer`.
+fn opens_to(paths: &ProfilePaths, cipher: &dyn SeedCipher, peer: &TransportIdentity) -> bool {
+    custody::unlock(paths, cipher)
+        .ok()
+        .and_then(|identity| identity.transport_identity().ok())
+        .is_some_and(|opened| opened == *peer)
 }
 
 /// Seal `creation` under the profile's configured unlock policy (C4).
@@ -152,12 +156,17 @@ pub fn seal(
         .key_unlock_policy;
     match custody::provision(&paths, cipher, &creation.identity, policy) {
         Ok(_) => Ok(()),
-        Err(refused) if record_names(&paths, &creation.peer) => {
-            // Written and naming this identity: the paper is right. What
-            // refused (an old key's retire, the directory's sync) the next
-            // start's reseal finishes.
-            let _ = refused;
-            Ok(())
+        // Refused after the publish: done if the record opens to this
+        // identity, and the next start's reseal finishes the rest.
+        Err(
+            refused @ (CustodyRefused::OldKeyRemains(_)
+            | CustodyRefused::Storage(PersistError::Unsynced(_))),
+        ) => {
+            if opens_to(&paths, cipher, &creation.peer) {
+                Ok(())
+            } else {
+                Err(WriteRefused::Storage(format!("{refused:?}")))
+            }
         }
         Err(CustodyRefused::AlreadyProvisioned) => Err(WriteRefused::AlreadyProvisioned),
         Err(CustodyRefused::ProfileLocked) => Err(WriteRefused::Busy),
@@ -192,35 +201,33 @@ pub fn restore(
 ) -> Result<(), WriteRefused> {
     let phrase = RecoveryPhrase::parse(&text).map_err(|_| WriteRefused::OtherIdentity)?;
     drop(text);
-    let target = match expected {
-        Expected::Confirmed(peer) => Some(peer.clone()),
-        Expected::Recorded => paths(app_data_dir, profile)
-            .ok()
-            .and_then(|paths| custody::recorded_identity(&paths).ok().flatten()),
-    };
     match restore_identity(app_data_dir, profile, cipher, &phrase, expected) {
         Ok(_) => Ok(()),
-        Err(refused) => {
-            let written = target.is_some_and(|peer| {
-                crate::identity::phrase_peer(&phrase).is_ok_and(|derived| derived == peer)
-                    && paths(app_data_dir, profile).is_ok_and(|paths| record_names(&paths, &peer))
-                    && matches!(refused, RestoreRefused::Unavailable(_))
-            });
-            if written {
-                return Ok(());
+        // Published, then the directory's sync failed: done if the record
+        // opens to the phrase's identity. (OldKeyRemains is success
+        // already, in restore_identity.)
+        Err(RestoreRefused::Unsynced(why)) => {
+            let peer = crate::identity::phrase_peer(&phrase).ok();
+            let opened = peer
+                .zip(paths(app_data_dir, profile).ok())
+                .is_some_and(|(peer, paths)| opens_to(&paths, cipher, &peer));
+            if opened {
+                Ok(())
+            } else {
+                Err(WriteRefused::Storage(why))
             }
-            Err(match refused {
-                RestoreRefused::Busy => WriteRefused::Busy,
-                RestoreRefused::UserNotAuthenticated => WriteRefused::UserNotAuthenticated,
-                RestoreRefused::OtherIdentity => WriteRefused::OtherIdentity,
-                RestoreRefused::NoRecord
-                | RestoreRefused::RecordExists
-                | RestoreRefused::RecordUnreadable(_) => WriteRefused::NoRestore,
-                RestoreRefused::Paths(why) | RestoreRefused::Unavailable(why) => {
-                    WriteRefused::Storage(why)
-                }
-            })
         }
+        Err(refused) => Err(match refused {
+            RestoreRefused::Busy => WriteRefused::Busy,
+            RestoreRefused::UserNotAuthenticated => WriteRefused::UserNotAuthenticated,
+            RestoreRefused::OtherIdentity => WriteRefused::OtherIdentity,
+            RestoreRefused::NoRecord
+            | RestoreRefused::RecordExists
+            | RestoreRefused::RecordUnreadable(_) => WriteRefused::NoRestore,
+            RestoreRefused::Paths(why)
+            | RestoreRefused::Unavailable(why)
+            | RestoreRefused::Unsynced(why) => WriteRefused::Storage(why),
+        }),
     }
 }
 

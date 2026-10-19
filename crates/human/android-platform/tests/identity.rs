@@ -482,19 +482,75 @@ mod onboarding {
         assert_eq!(record(&app), before);
     }
 
-    /// The read-back (#303 round 2): a seal refused after the record is
-    /// on disk -- here a second tap of Continue, refused as provisioned --
-    /// is success when the record names the identity just shown.
+    /// The read-back (#303 rounds 2 and 3): a seal refused after the
+    /// publish -- here a key of the other policy that could not be retired
+    /// -- is success when the record opens to the identity just shown.
     #[test]
-    fn a_refused_seal_whose_record_names_this_identity_is_success() {
+    fn a_seal_refused_after_its_publish_is_read_back_and_succeeds() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        *keystore.retire_fails.lock().unwrap() = true;
+        let (creation, _, peer, _) = Creation::new().expect("a creation");
+        assert_eq!(
+            onboarding::seal(&app.dir, PROFILE, &keystore, &creation),
+            Ok(())
+        );
+        *keystore.retire_fails.lock().unwrap() = false;
+        let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
+            .expect("the record unlocks");
+        assert_eq!(started.transport_identity().expect("a PeerId"), peer);
+    }
+
+    /// A second Continue over the record just sealed is not read back: it
+    /// is a provisioned profile, whatever the record names.
+    #[test]
+    fn a_seal_over_its_own_record_is_already_provisioned() {
         let app = app();
         let keystore = FakeKeystore::default();
         let (creation, ..) = Creation::new().expect("a creation");
         onboarding::seal(&app.dir, PROFILE, &keystore, &creation).expect("sealed");
         assert_eq!(
             onboarding::seal(&app.dir, PROFILE, &keystore, &creation),
-            Ok(())
+            Err(WriteRefused::AlreadyProvisioned)
         );
+    }
+
+    /// #303 round 3's P1: at a recovery the old record already names the
+    /// expected `PeerId`, so a restore whose write fails before it
+    /// publishes must not read as done.
+    #[test]
+    fn a_recovery_whose_write_fails_before_publishing_is_not_reported_done() {
+        let app = app();
+        let identity = start_identity(
+            &app.dir,
+            PROFILE,
+            &FakeKeystore::default(),
+            FirstRun::Create,
+        )
+        .expect("provisioned");
+        let words = onboarding::words_of(&identity.recovery_phrase().expect("a phrase"))
+            .expect("its words");
+        let keystore = FakeKeystore::default();
+        let before = record(&app);
+        let identity_dir = paths(&app).identity_dir().to_owned();
+        std::fs::set_permissions(&identity_dir, std::fs::Permissions::from_mode(0o500))
+            .expect("read-only");
+        let outcome = onboarding::restore(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            words.join(" "),
+            Expected::Recorded,
+        );
+        std::fs::set_permissions(&identity_dir, std::fs::Permissions::from_mode(0o700))
+            .expect("writable again");
+        assert!(
+            matches!(outcome, Err(WriteRefused::Storage(_) | WriteRefused::Busy)),
+            "{outcome:?}"
+        );
+        // Not by unlocking again: this fake makes the same key again for
+        // an alias, which a Keystore never does.
+        assert_eq!(record(&app), before, "nothing was restored");
     }
 
     #[test]

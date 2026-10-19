@@ -146,6 +146,10 @@ pub enum RestoreRefused {
     /// The cipher or the storage failed for a reason that says nothing
     /// about the phrase: try again.
     Unavailable(String),
+    /// The record was published and the directory's sync after it
+    /// failed: it may be on disk. Only this, of the storage failures, is
+    /// read back (design #303 round 3).
+    Unsynced(String),
 }
 
 /// Which `PeerId` a restore must give back.
@@ -215,6 +219,9 @@ pub fn restore_identity(
             Err(RestoreRefused::UserNotAuthenticated)
         }
         Err(CustodyRefused::Unreadable(why)) => Err(RestoreRefused::RecordUnreadable(why)),
+        Err(CustodyRefused::Storage(interweave_profile_config::PersistError::Unsynced(e))) => {
+            Err(RestoreRefused::Unsynced(e.to_string()))
+        }
         Err(other) => Err(RestoreRefused::Unavailable(format!("{other:?}"))),
     }
 }
