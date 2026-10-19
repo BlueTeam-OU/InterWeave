@@ -949,6 +949,14 @@ impl View {
         }
     }
 
+    /// The platform's Back: the screen showing takes it -- the identity
+    /// flow, a menu, the trust settings, a narrow window's conversation --
+    /// or, false, there is no way back and the platform leaves the app.
+    #[must_use]
+    pub fn back(&self) -> bool {
+        self.window.invoke_handle_back()
+    }
+
     /// Hand each identity-page input to `input`, which applies it to the
     /// flow ([`apply_identity`]) and shows the page again.
     pub fn on_identity(&self, input: impl Fn(IdentityInput) + 'static) {

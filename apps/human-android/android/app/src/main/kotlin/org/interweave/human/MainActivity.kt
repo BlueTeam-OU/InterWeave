@@ -8,6 +8,8 @@ import android.hardware.biometrics.BiometricManager.Authenticators
 import android.hardware.biometrics.BiometricPrompt
 import android.os.CancellationSignal
 import android.view.WindowManager
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -52,6 +54,19 @@ class MainActivity : NativeActivity() {
         shown = true
         Thread({ relayAsks() }, "interweave-network-ask").start()
         Thread({ relayHaptics() }, "interweave-haptic").start()
+        Thread({ relayLeave() }, "interweave-leave").start()
+        // Back goes to the window, whatever has focus: the views' backend
+        // delivers it as a key, which reaches nothing when no control is
+        // focused, and then finishes the Activity -- Back in a
+        // conversation left the app (ux-designer-01, ffce28df). Ours is
+        // registered after the backend's, at a higher priority, so it is
+        // the one called.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_OVERLAY,
+                back,
+            )
+        }
         window.decorView.viewTreeObserver.addOnGlobalLayoutListener(layout)
         watchSettings(true)
         touch()
@@ -97,6 +112,9 @@ class MainActivity : NativeActivity() {
 
     override fun onStop() {
         shown = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
+        }
         window.decorView.viewTreeObserver.removeOnGlobalLayoutListener(layout)
         watchSettings(false)
         // A recreation for a configuration change keeps the binding: the
@@ -233,6 +251,25 @@ class MainActivity : NativeActivity() {
                     window.decorView.performHapticFeedback(tick)
                 }
             }
+        }
+    }
+
+    /** Back below API 33, where no callback is registered. */
+    @Deprecated("The platform's own deprecation; API 33+ uses the callback")
+    override fun onBackPressed() {
+        Native.back()
+    }
+
+    /**
+     * Back on API 33+, to the window. Lazy: the callback's class exists
+     * from API 33 only, and is made only inside the version checks.
+     */
+    private val back by lazy { OnBackInvokedCallback { Native.back() } }
+
+    /** Back found no way back: leave, as the platform would. */
+    private fun relayLeave() {
+        while (shown) {
+            if (Native.waitLeave(ASK_WAIT_MS) && shown) runOnUiThread { finish() }
         }
     }
 

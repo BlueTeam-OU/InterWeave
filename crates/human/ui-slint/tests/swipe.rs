@@ -1574,3 +1574,54 @@ fn a_cancels_success_in_the_conversation_shows_its_snackbar() {
     assert!(view.window().get_snack_shown());
     assert!(view.window().get_snack_undo());
 }
+
+/// The platform's Back in a narrow window's conversation leaves it as the
+/// header's Back does, the snackbar closing with it (§5); a second Back
+/// finds the list, with no way back, so the platform leaves the app.
+/// Before, Back with no control focused reached nothing and left the app
+/// from the conversation (ux-designer-01's review of ffce28df).
+#[test]
+fn platform_back_leaves_the_conversation_then_the_app() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_some(), "control");
+    assert!(view.back(), "the conversation takes Back");
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "left as by the header's Back");
+    assert!(!view.back(), "the list has no way back");
+}
+
+/// Back on the trust settings closes them, and only then leaves the app.
+#[test]
+fn platform_back_closes_the_trust_settings_first() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    open(&mut view, &mut model, &direct(&alice));
+    assert!(
+        !view.back(),
+        "control: a wide window's conversation has no way back"
+    );
+    labelled(&view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(view.back(), "the trust settings take Back");
+    let _ = turn(&mut view, &mut model);
+    assert!(
+        labelled(&view, text(UiText::BackToConversations)).is_empty(),
+        "the trust settings are closed"
+    );
+    assert!(!view.back());
+}

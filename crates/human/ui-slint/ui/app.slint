@@ -1636,6 +1636,30 @@ export component AppWindow inherits Window {
         root.list-shown = false;
         root.open-trust();
     }
+    // The platform's Back (Android's gesture or key), from the Rust side:
+    // it reaches the window even when no control has focus, which a key
+    // handler never sees. True when a screen took it; false means there
+    // is no way back here, and the platform leaves the app.
+    public function handle-back() -> bool {
+        if (root.identity-active) {
+            root.identity-back();
+            return true;
+        }
+        if (root.menu-open || root.details-open) {
+            root.close-menu();
+            return true;
+        }
+        if (root.trust-page) {
+            root.close-settings();
+            return true;
+        }
+        if (root.narrow && !root.list-shown) {
+            root.list-shown = true;
+            root.left-conversation();
+            return true;
+        }
+        return false;
+    }
     function close-settings() {
         root.list-shown = true;
         root.close-trust();

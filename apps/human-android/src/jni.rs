@@ -687,3 +687,39 @@ extern "system" fn Java_org_interweave_human_Native_prompted<'caller>(
     })
     .resolve::<ThrowRuntimeExAndDefault>();
 }
+
+/// `Native.back()`: the platform's Back, for the window (activity.rs).
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_back<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::activity::back();
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.waitLeave(timeoutMs)`: true when Back found no way back and the
+/// Activity is to finish.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_waitLeave<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    timeout_ms: jlong,
+) -> jboolean {
+    env.with_env(|_| -> Result<jboolean, jni::errors::Error> {
+        let timeout = Duration::from_millis(u64::try_from(timeout_ms).unwrap_or(0));
+        Ok(crate::activity::LEAVE.wait(timeout))
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}

@@ -152,6 +152,15 @@ internal object Native {
     /** The identity screens' next ask of the Activity ([Ask]), or 0. BLOCKS. */
     @JvmStatic external fun waitIdentityAsk(timeoutMs: Long): Int
 
+    /**
+     * The platform's Back, for the window: a screen with a way back takes
+     * it, else [waitLeave] answers true and the Activity finishes.
+     */
+    @JvmStatic external fun back()
+
+    /** True when Back found no way back: finish. BLOCKS. */
+    @JvmStatic external fun waitLeave(timeoutMs: Long): Boolean
+
     /** The credential prompt's answer, for the identity screens. */
     @JvmStatic external fun prompted(granted: Boolean)
 }
