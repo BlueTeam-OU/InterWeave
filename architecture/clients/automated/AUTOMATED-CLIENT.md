@@ -1,6 +1,6 @@
 # The automated client — what the transport promises it, and what it owes itself
 
-**Status:** architecture/design, bound to ADR-0055 (Proposed until the owner arms the pull request that lands both). An automated client is any long-lived machine process that is a consumer of a profile's daemon — an agent, a bot, a gateway, a test harness. It stands beside the human client (`../human/`) and the Claude Code Channel bridge (`../../plugin/`) with the same standing and under the same transport rules; nothing here narrows the human client, and no coordination protocol is named here, because the transport is general purpose and a deployment's protocol is the deployment's.
+**Status:** architecture/design, bound to ADR-0055 (Accepted 2026-10-19 by the arming of the pull request that landed both; plan §28 names it). An automated client is any long-lived machine process that is a consumer of a profile's daemon — an agent, a bot, a gateway, a test harness. It stands beside the human client (`../human/`) and the Claude Code Channel bridge (`../../plugin/`) with the same standing and under the same transport rules; nothing here narrows the human client, and no coordination protocol is named here, because the transport is general purpose and a deployment's protocol is the deployment's.
 
 Every fact below names the case that holds it in `tests/automated-client/tests/automated_client.rs` or the contract that states it. A constant is cited, never restated: the suite reads the ingress bucket's constants from the runtime crate, and the ceilings from the contracts.
 

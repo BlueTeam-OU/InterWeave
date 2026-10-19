@@ -1,6 +1,6 @@
 # Automated clients are first-party consumers above a general-purpose transport: durability, receipts, fan-out and framing live in the client, and the fleet's own agents are the first deployment
 
-**Status:** Proposed — awaiting the owner's acceptance, given by arming the pull request that lands this record (the ratification-by-merge rule of 2026-09-27)
+**Status:** Accepted (2026-10-19; the owner's word "Arm #305" of 2026-10-19, given by the arming of the pull request that landed this record, under the ratification-by-merge rule of 2026-09-27; the status flipped in the series that closes Stage 20, plan §28, which names the merge)
 
 ## Context
 
