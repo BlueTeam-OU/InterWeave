@@ -434,6 +434,7 @@ that exist.
 | `OwnLastMessage` | You: {message} | the list's subtitle when the last message is one's own. `{message}` is the preview text. A template, not a prefix: `labels.rs` fills a template by placeholder and never joins strings, so a translation can reorder it |
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the overflow button's label, Android's own words for it |
+| `AppOptions` (new) | App options | the Chats app bar's overflow button's label (Android review F12). It must say the menu is the app's, not a conversation's, since both buttons show side by side on a wide screen. A proposal; the words are language-culture's |
 | `Today`, `Yesterday` | Today, Yesterday | day separators and list times |
 | weekdays (seven keys, e.g. `WeekdayMonday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | list times within the last seven days |
 | months (twelve keys, e.g. `MonthJanuary`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |

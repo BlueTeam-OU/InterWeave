@@ -461,7 +461,16 @@ but does not re-rank these.
     name.
   - What has to change, as seen:
     - the shield goes; Chats' app bar ends with a ⋮ overflow, as a
-      conversation's does, labelled "More options";
+      conversation's does. Its accessible name is its own, never the
+      conversation's "More options": where the list and a
+      conversation show side by side, both buttons are on screen, and
+      a screen reader user must tell which is which from the name
+      alone (WCAG 2.4.6, labels that describe; rust-ui-dev-01,
+      QUESTION 01a154c9-e84c). The name says these are the app's
+      options, not a conversation's, and it is the same in every
+      layout (WCAG 3.2.4, consistent identification). The conversation's
+      button keeps "More options", the platform's own words. A
+      tooltip on long press shows the same name;
     - its menu has a named "Trust" entry that opens the Trust screen,
       and nothing else for now: the screens it could hold beside
       Trust (settings, the recovery flow's entry) are steps 7-8's and
