@@ -2,8 +2,8 @@
 
 Status: proposal for plan §20 steps 7–8, 2026-10-19. rust-ui-dev builds
 it on `develop-qzapp/rust-ui-dev-01/feat/j111-android-recovery`. The
-open questions in §11 are architect-cto's. Until they are answered, the
-default this note gives is what is built.
+four questions in §11 were answered by architect-cto on 2026-10-19, and
+the custody doc says the first two (425ec5d0).
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's purpose and space, never its text. The rules
@@ -42,7 +42,7 @@ From the contracts; listed so a reviewer can check each screen:
 - Words are entered only through the in-app picker (§4): never the
   system keyboard, never a free-text field.
 - No announcement, log, notification, saved-instance state or snapshot
-  carries a word. See §11 Q2 for what a screen reader may read aloud.
+  carries a word. §8 and §11 Q2 say what a screen reader may speak.
 - The network service is stopped, and the profile lock held, while
   words are shown or entered. Creation shows its words before the
   service first starts.
@@ -75,18 +75,23 @@ first display writes one non-secret marker, "words were shown,
 nothing committed". It is a flag with no word, seed or PeerId. C4
 clears it.
 - While the marker is set, W shows a notice above its actions
-  (`IdVoidPaper`): the words shown last time were never used, they are
-  not this phone's identity, and that paper should be destroyed.
+  (`IdVoidPaper`): the words shown last time were never used and are
+  not this phone's identity, so keep only the paper from the creation
+  that completes. An unsealed phrase is harmless, because nobody holds
+  that identity (§11 Q3). The risk is a person who keeps the wrong
+  paper as their backup.
 - Starting a new creation, or a restore that completes, clears the
   marker.
 
 ### 3.2 Create
 
 **C1, Before you see your words.** What the phrase is and why it
-matters, in three short points:
+matters, in four short points:
 - these 24 words are your identity;
 - write them on paper and keep it safe;
-- anyone who has them can be you.
+- anyone who has them can be you;
+- the identity exists only once creation is complete, after the check
+  of two words.
 
 Screenshots of these screens are blocked, and there is no copy. The
 PeerId is written down beside the words. Primary: show my words (→ C2).
@@ -128,8 +133,9 @@ cost about ten taps, and the picker already exists.
 **C4, Identity created.** The PeerId in full again, then one line that
 the network is about to start. Primary: continue. This commits the
 identity, starts the service, and opens the Chats screen. There is no
-Back: the identity now exists (§11 Q3 asks whether commit at C4 can be
-built). After this, the words reach the screen only through §3.5.
+Back: the identity now exists. It is sealed here, after the person's
+confirmation and before anything starts (§11 Q3). After this, the words
+reach the screen only through §3.5.
 
 ### 3.3 Restore on a fresh install (no record)
 
@@ -178,7 +184,11 @@ one: R2, then R3.
 
 The person never gets a "start over with a new identity" action here,
 because a new identity would replace an established profile
-(`IDENTITY-RECOVERY.md`). See §11 Q4.
+(`IDENTITY-RECOVERY.md`, ADR-0042; §11 Q4). Q1 names the one way out
+when the words are lost (`IdQLost`), in plain text below its primary
+action, with no button: clearing the app's data in the phone's
+settings starts over with a new identity, which every contact must
+trust afresh.
 
 A restore that matches goes to R4. A phrase that derives another PeerId
 stays on R2, with the mismatch state (§6).
@@ -297,16 +307,17 @@ do.
   discard the words entered (`IdDiscardTitle`). The actions are discard
   and keep entering; keep is the default focus. With nothing entered,
   Back goes straight back.
-- **The app leaves the screen.** Home, a call, or another app opening:
-  - Default, until §11 Q1 is answered: on return, any words entered
-    are gone. R2 or C3 then shows a notice (`IdCleared`) that the words
-    were cleared when the app was left, and starts again at position 1.
-  - S2 returns to Settings with nothing shown; showing the words again
-    needs the prompt again.
-  - C2 shows the same words again, because the identity is not yet
-    committed.
-- **Process death:** the flow restarts at its first screen (W, Q1 or
-  Settings). Nothing entered survives. Nothing half-done is committed.
+- **The app leaves the screen.** Home, a call, or another app opening.
+  A stopped Activity is neither completion nor cancellation (§11 Q1):
+  - on return, every screen shows what it showed, with entered words
+    kept in memory only, never in saved-instance state;
+  - S2 shows its words again with no new prompt while it is the same
+    Activity instance; a new instance is a new display, behind the
+    prompt.
+- **Finish, cancellation, completion or process death** drops the
+  words. After process death the flow restarts at its first screen (W,
+  Q1 or Settings), with nothing entered and nothing half-done
+  committed.
 - **Rotation** keeps everything on screen, entered words included. A
   rotation is not leaving.
 
@@ -328,7 +339,9 @@ access.
 
 TalkBack does not reach the app yet (plan §20, Decided 2026-10-18). The
 screens are built so that it can later: every key, chip and position is
-a labelled control. §11 Q2 asks what a screen reader may read.
+a labelled control. A screen reader may speak a focused word
+control's own label; no live region, announcement, hint or error text
+ever carries a word (§11 Q2).
 
 ## 9. Strings
 
@@ -339,9 +352,9 @@ could hold one. `{n}` and `{peer_id}` are the only placeholders.
 | Key | Purpose | Space |
 |---|---|---|
 | `IdWelcomeTitle`, `IdWelcomeBody` | What the app is, on first launch | Title one line; body two lines |
-| `IdVoidPaper` | W's notice (§3.1): the words shown last time were never used and are not this phone's identity; destroy that paper. Plain, not alarming | Three lines |
+| `IdVoidPaper` | W's notice (§3.1): the words shown last time were never used and are not this phone's identity; keep only the paper from the creation that completes. Plain, not alarming | Three lines |
 | `IdCreate`, `IdRestore` | W's two actions | A button, about 24 characters |
-| `IdC1Title`, `IdC1Points` (three) | Why the words matter: they are the identity, write them on paper, anyone with them can be you. Calm, not alarming | Title one line; each point at most two lines at 100 % |
+| `IdC1Title`, `IdC1Points` (four) | Why the words matter: they are the identity, write them on paper, anyone with them can be you, the identity exists only once creation is complete. Calm, not alarming | Title one line; each point at most two lines at 100 % |
 | `IdShowWords` | C1's primary action | Button |
 | `IdWordsTitle`, `IdPeerIdLabel` | C2 and S2's heading; the PeerId's label (§5): write it down with the words, safe to share | Title one line; label two lines |
 | `IdWrittenDown` | C2's primary: I've written them down | Button |
@@ -361,7 +374,7 @@ could hold one. `{n}` and `{peer_id}` are the only placeholders.
 | `IdChecksumFailed`, `IdOtherIdentity` | §6's banners. `IdOtherIdentity` labels the derived and expected PeerIds | Three lines each, with PeerIds below |
 | `IdBusy`, `IdStorageFailed`, `IdRetry` | §6's notices | Two lines each; button |
 | `IdDiscardTitle`, `IdDiscard`, `IdKeepEntering` | §7's dialog | Title two lines; buttons |
-| `IdCleared` | §7: words cleared when the app was left | Two lines |
+| `IdQLost` | Q1's way out when the words are lost (§3.4): clearing the app's data in the phone's settings starts a new identity that contacts must trust again. Plain text, no button | Three lines |
 | `IdKeyDelete`, `IdKeyClear`, `IdReviewWords` | The keypad's two keys (their accessible labels) and the grid's button at large font | Labels; button |
 
 ## 10. Acceptance
@@ -407,9 +420,12 @@ landscape:
     - a succeeded prompt shows `IdGoingOffline`, then the words;
     - connectivity reads offline while they are shown;
     - Done restarts the service and returns to Settings.
-11. Leaving R2 with words entered and returning shows `IdCleared` and
-    position 1 empty (until §11 Q1 changes it). Rotation keeps every
-    word.
+11. Leaving R2 with words entered (Home) and returning shows every
+    word still entered. After the process is killed (`adb shell am
+    kill` while in the background), the next launch starts at the
+    flow's first screen with nothing entered. Rotation keeps every
+    word. Leaving S2 and returning to the same instance shows the
+    words with no new prompt.
 12. Profile busy and storage failure, by rust-ui-dev's test hooks, show
     §6's notices. Retry works, and Back leaves with nothing changed.
 13. At 200 % on the Pixel 9a, R2's keypad, suggestions and primary
@@ -430,35 +446,30 @@ scale would also be a finding of the Android review
     `adb logcat -d` searched for the fixture's 24 words, and by the
     test harness.
 
-## 11. Open questions
+## 11. Questions answered
 
-All four are for architect-cto. The default this note uses holds until
-each is answered.
+architect-cto, 2026-10-19 (REPLY 01a15282-ac06), against
+`android-key-custody.md` and ADR-0042 and ADR-0033:
 
-- **Q1. Is a merely stopped Activity "leaving the screen"?** The rule
-  says the words never persist and leaving drops them. Read strictly, a
-  call coming in during R2 costs the person every word entered. The
-  proposal: keep them in memory only, never in saved-instance state,
-  while the Activity is stopped. Drop them when it finishes or when the
-  process dies. FLAG_SECURE already keeps them out of Recents.
-  - Default: dropped on stop (§7).
-- **Q2. What may a screen reader read?** "Accessibility announcements
-  must never contain phrase words." A blind person can only use C2, R2
-  or S2 if a word is spoken when its control has focus.
-  - The proposal: no announcement or live region ever carries a word,
-    and a focused word or chip may be read as its label.
-  - Default: as proposed, because TalkBack does not reach the app yet
-    in any case.
-- **Q3. Commit at C4.** Can the new identity stay uncommitted until C4?
-  That means not sealed and not written, so that Back from C2 or
-  process death leaves no identity and the next launch is a first run.
-  If sealing must happen earlier, a Back from C2 needs another rule.
-  - Default: commit at C4.
-- **Q4. Q1 has no way out but the phrase.** The person cannot use the
-  app at all without their words. Should Q1 offer a new identity that
-  replaces the established profile, through an explicit replace path
-  with its own warning? That would be a product decision.
-  - Default: no such action.
+- **Q1. Is a stopped Activity "leaving the screen"?** No. The words stay
+  in process memory only, never in saved-instance state. They go on
+  finish, cancellation, completion or process death. An on-demand
+  display does not ask its prompt again on resume of the same Activity
+  instance (§7). The custody doc says so (425ec5d0).
+- **Q2. What may a screen reader speak?** A focused word control's own
+  label, which is the secure screen read aloud at the person's request.
+  No live region, announcement, hint or error text ever carries a word
+  (§8). This too is in 425ec5d0.
+- **Q3. Commit at C4?** Yes. The seed is generated in memory, the phrase
+  is shown and verified (C3), and the seal happens on the last screen,
+  straight after the person's confirmation. Back or process death
+  before it leaves a first run and no record. C1 says that the identity
+  exists only once creation is complete.
+- **Q4. A new identity from Q1?** Not in v1. Q1's text names the way
+  out instead (`IdQLost`). Whether v1.x gets an in-app start-over path
+  (delete the whole profile, then provision; never mint over the
+  record) is the owner's product call. architect-cto carries it by
+  name in the Stage 17 closing record.
 
 ## 12. Deliberately left out
 
