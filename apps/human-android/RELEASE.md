@@ -35,8 +35,9 @@ and under which licences, is `STORE-CHECK.md`.
   debug key each developer's build uses is not it, and a debug build is
   never published.
 - **What the page shows of it:** the signing certificate's SHA-256
-  fingerprint, the same on every release, so a person can check a
-  download (`apksigner verify --print-certs`) as well as its file hash.
+  fingerprint, the same on every release, printed as `apksigner verify
+  --print-certs` prints it (lowercase hex, no colons), so a person can
+  check a download against it as well as against its file hash.
 
 Creating the key and wiring the release run's Gradle signing config
 (read from the run's environment, never from a committed file) are
@@ -44,8 +45,8 @@ Stage 19's.
 
 ## The release page
 
-`release/release-page.md` is the template the release run fills, one
-page per release. It carries what ADR-0057 decision 1 names:
+`release/release-page.md.in` is the template the release run fills,
+one page per release. It carries what ADR-0057 decision 1 names:
 
 - the APK and its SHA-256, and the signing certificate's fingerprint;
 - the release notes;
@@ -58,5 +59,7 @@ page per release. It carries what ADR-0057 decision 1 names:
   among them, which the release run fills from the licence files of the
   sources it built: the template carries none of those texts itself.
 
-The page's words are placeholders until language-culture finalises
-them; the facts in them are this file's.
+The page's English is final (language-culture-en, 2026-10-19); the
+facts in it are this file's. Where a person finds the next release has
+no stable address yet: the release run names it (Stage 19), and the
+page then says to come back there.

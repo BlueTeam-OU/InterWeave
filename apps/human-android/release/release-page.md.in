@@ -1,0 +1,85 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- The release page's template (RELEASE.md), a template and not a
+     document: the release run fills each {placeholder} and publishes the
+     result. {freetype_credit} takes the credit line FreeType's
+     LICENSE.TXT asks for and {third_party_notice_texts} each bundled
+     component's licence text, both read from the sources the build used;
+     {cert_sha256} is printed as apksigner prints it, lowercase hex with
+     no colons, so a reader compares like with like. English final per
+     language-culture-en, REPLY 01a15425-8aed. -->
+# InterWeave for Android {version}
+
+Download [`interweave-{version}-arm64-v8a.apk`]({apk_url}).
+
+It runs on Android 11 or later, on a phone with a 64-bit ARM processor
+(`arm64-v8a`). On any other phone, Android does not install it.
+
+Use these two values to check that the file is the one published here:
+
+- SHA-256 of the file: `{apk_sha256}`
+- SHA-256 of the signing certificate, the same for every release:
+  `{cert_sha256}`
+
+## What is new
+
+{release_notes}
+
+## Installing and updating
+
+InterWeave is not in any app store. You install it and update it
+yourself, from its release pages.
+
+To install it, open the downloaded file on your phone. If you
+downloaded it on a computer, copy it to the phone first. Android may
+say that your browser or file manager cannot install apps. Then tap
+Settings, turn on "Allow from this source", go back, and tap Install.
+These words can be different on some phones.
+
+To update, download a newer release from its page and install it in
+the same way. Android updates the app you have, and your messages and
+your identity stay on the phone. The app does not check for updates,
+so it cannot tell you that a new release exists.
+
+Do not uninstall the app to update it. If you uninstall it, Android
+deletes all of its data from the phone. This includes your messages
+and your identity.
+
+On a computer, you can check the downloaded file before you install
+it:
+
+- The file's SHA-256 (for example, from `sha256sum`) must be the same
+  as the SHA-256 of the file above.
+- `apksigner verify --print-certs interweave-{version}-arm64-v8a.apk`
+  must show the SHA-256 of the signing certificate above. `apksigner`
+  is part of the Android SDK Build Tools.
+
+If either value is different, do not install the file. Delete it and
+download it again from this page.
+
+## Made with Slint
+
+[![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/v1.18.1/logo/MadeWithSlint-logo-light.svg)](https://slint.dev)
+
+The InterWeave interface is made with [Slint](https://slint.dev).
+InterWeave uses Slint under the Slint Royalty-free License 2.0.
+
+## Third-party notices
+
+The app contains Skia, a graphics library, and the libraries that Skia
+includes. Each of them is under its own licence:
+
+- Skia and skcms: BSD-3-Clause
+- libjpeg-turbo: IJG License, BSD-3-Clause and zlib License
+- FreeType: FreeType License
+- libpng: PNG Reference Library License version 2
+- zlib: zlib License
+- Expat: MIT
+- Wuffs: Apache-2.0
+- Vulkan Memory Allocator: MIT
+- cpu_features: BSD-2-Clause
+
+The credit that FreeType asks for, and the licence texts, follow.
+
+{freetype_credit}
+
+{third_party_notice_texts}

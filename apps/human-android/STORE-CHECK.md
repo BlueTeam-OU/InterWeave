@@ -83,7 +83,7 @@ run builds it from source instead). What it bundles, read from its
 | component | built in as | licence | notice owed |
 |---|---|---|---|
 | Skia, with skcms | `core`, `gpu`, `pdf`, `pathops`, `libskcms` and the rest | BSD-3-Clause (`LICENSE_SKIA` in the archive) | yes |
-| libjpeg-turbo | `libjpeg`, `libjpeg12`, `libjpeg16` | IJG and a BSD-style licence (its LICENSE.md) | yes |
+| libjpeg-turbo | `libjpeg`, `libjpeg12`, `libjpeg16` | IJG License, BSD-3-Clause, and the zlib License for parts of its SIMD code (its LICENSE.md) | yes |
 | FreeType 2 | `libfreetype2` | FreeType License, of its two (LICENSE.TXT); the other is GPL-2.0 | yes, the credit line the FTL requires |
 | libpng | `libpng` | PNG Reference Library License v2 | yes |
 | zlib (Chromium's, with its SIMD parts) | `libzlib`, `zlib_*` | zlib (1.2.12's LICENSE) | yes |
