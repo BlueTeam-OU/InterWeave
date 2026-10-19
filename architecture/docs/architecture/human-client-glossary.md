@@ -72,7 +72,7 @@ headings. A complete sentence ends with a period.
 | Screenshots are blocked on this screen | `FLAG_SECURE` on the recovery Activity (android-key-custody.md). | secure mode, protected mode |
 | one device at a time | A restored PeerId does not run on two devices at once; restoring on a new device is moving, not copying (android-key-custody.md, "Recovery"). | sync, copy to another device, multi-device |
 
-## 5. Store-listing words (Android step 10)
+## 5. Release-page words (Android step 10)
 
 | Term (en) | Names | Stays out until the owner verifies the fact |
 |---|---|---|
