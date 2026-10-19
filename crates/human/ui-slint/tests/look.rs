@@ -1612,3 +1612,50 @@ fn with_the_keyboard_up_a_long_conversation_shows_its_newest_message() {
     assert!(shown("message number 14"), "the newest message in view");
     assert!(!shown("message number 1."), "control: not the top");
 }
+
+/// #304 round 2 (ux-designer-01, REPLY 01a153b5): a long status, as a
+/// pending message that may have reached the peer has, wraps inside the
+/// bubble, and its time stays whole and inside it, on a phone-wide
+/// window.
+#[test]
+fn a_long_status_wraps_and_its_time_stays_whole_inside_the_bubble() {
+    use interweave_human_client_api::{ClientEvent, OutboundStatus, OutboundUpdate, SendProblem};
+    use interweave_human_core::AppMessageId;
+    let mut model = UiModel::new();
+    send(&mut model, 1, "w1", NOW);
+    model.client_event(ClientEvent::Outbound(OutboundUpdate {
+        row: RowId::from_stored(1),
+        app_message_id: AppMessageId::parse(format!("{:032x}", 1)).expect("an id"),
+        status: OutboundStatus::NeedsAttention {
+            problem: SendProblem::NoNetworkPath,
+            may_have_reached: true,
+        },
+        last_code: None,
+    }));
+    let view = opened(&model, false);
+    let row = view.window().get_messages().row_data(0).expect("a row");
+    assert_eq!(
+        row.status.as_str(),
+        placeholder_en::label(
+            interweave_human_ui_model::LabelKey::NeedsAttentionMayHaveBeenReceived
+        ),
+        "control: the long status"
+    );
+    let time = labelled(&view, row.time.as_str());
+    assert_eq!(time.len(), 1, "the time is drawn once");
+    let (at, size) = (time[0].absolute_position(), time[0].size());
+    let status = labelled(&view, row.status.as_str());
+    let words = status
+        .iter()
+        .map(|s| s.size().width)
+        .fold(0.0_f32, f32::max);
+    assert!(
+        at.x + size.width <= 390.0 - 12.0,
+        "the time inside the bubble: {at:?} {size:?}"
+    );
+    assert!(size.width >= 20.0, "the time is whole: {size:?}");
+    assert!(
+        words <= 390.0 * 0.8,
+        "the status wraps inside the bubble: {words}"
+    );
+}

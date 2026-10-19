@@ -2975,10 +2975,16 @@ export component AppWindow inherits Window {
                                                 ink: row.status-error ? Palette.error : Palette.on-surface-variant;
                                             }
                                         }
+                                        // The words may wrap; the time never shrinks:
+                                        // a long status ran the time off the bubble's
+                                        // end on a phone (#304 round 2).
                                         Text {
                                             text: row.status;
                                             font-size: Type.body-small;
                                             color: row.status-error ? Palette.error : Palette.on-surface-variant;
+                                            wrap: word-wrap;
+                                            min-width: 0px;
+                                            horizontal-alignment: root.rtl ? TextHorizontalAlignment.left : TextHorizontalAlignment.right;
                                             accessible-role: text;
                                             accessible-label: self.text;
                                         }
@@ -2986,12 +2992,14 @@ export component AppWindow inherits Window {
                                             text: "·";
                                             font-size: Type.body-small;
                                             color: Palette.on-surface-variant;
+                                            min-width: self.preferred-width;
                                             accessible-role: none;
                                         }
                                         Text {
                                             text: row.time;
                                             font-size: Type.body-small;
                                             color: Palette.on-surface-variant;
+                                            min-width: self.preferred-width;
                                             accessible-role: text;
                                             accessible-label: self.text;
                                         }

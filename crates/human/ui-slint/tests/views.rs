@@ -3061,7 +3061,10 @@ fn settings_offer_the_recovery_phrase_only_where_the_platform_does() {
     view.render(&model);
     let item = the(&view, text(UiText::IdShowPhraseItem));
     let size = item.size();
-    assert!(size.width >= 48.0 && size.height >= 48.0, "a 48 target: {size:?}");
+    assert!(
+        size.width >= 48.0 && size.height >= 48.0,
+        "a 48 target: {size:?}"
+    );
     item.invoke_accessible_default_action();
     assert_eq!(asked.get(), 1);
 }
