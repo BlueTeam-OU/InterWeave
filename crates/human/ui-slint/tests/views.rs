@@ -3059,7 +3059,10 @@ fn settings_offer_the_recovery_phrase_only_where_the_platform_does() {
     let counted = std::rc::Rc::clone(&asked);
     view.offer_show_phrase(move || counted.set(counted.get() + 1));
     view.render(&model);
-    the(&view, text(UiText::IdShowPhraseItem)).invoke_accessible_default_action();
+    let item = the(&view, text(UiText::IdShowPhraseItem));
+    let size = item.size();
+    assert!(size.width >= 48.0 && size.height >= 48.0, "a 48 target: {size:?}");
+    item.invoke_accessible_default_action();
     assert_eq!(asked.get(), 1);
 }
 

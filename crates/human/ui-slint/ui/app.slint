@@ -2160,8 +2160,12 @@ export component AppWindow inherits Window {
             }
             if root.show-phrase-offered: HorizontalLayout {
                 alignment: start;
+                // A text button, as Trust's others are (#304 F14; F4's
+                // spec at 3b19110a).
                 ActionButton {
                     text: root.show-phrase-label;
+                    text-button: true;
+                    target: 48px;
                     focus-key: "show-phrase";
                     pressed => { root.show-phrase(); }
                     focused(k) => { root.focus-id = k; }
