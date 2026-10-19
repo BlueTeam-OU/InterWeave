@@ -64,13 +64,21 @@ cat "$SANDBOX/rustc-says"
 EOF
 chmod +x "$SANDBOX/bin/rustc"
 
-# clippy-driver: `--rustc --version` prints the compiler it is built on,
-# $SANDBOX/clippy-says if set, else the pinned 1.98.1; fails on
-# $SANDBOX/clippy-fails.
-cat > "$SANDBOX/bin/clippy-driver" <<STUB
+# clippy-driver, the toolchain's that rustup names: `--rustc --version`
+# prints the compiler it is built on, $SANDBOX/clippy-says if set, else
+# the pinned 1.98.1; fails on $SANDBOX/clippy-fails. The one on PATH is
+# another binary, the distribution's beside a rustup, reading
+# $SANDBOX/path-clippy-says, so a case can tell which was asked.
+mkdir -p "$SANDBOX/toolchain/bin"
+cat > "$SANDBOX/toolchain/bin/clippy-driver" <<STUB
 #!/usr/bin/env bash
 [[ -e "$SANDBOX/clippy-fails" ]] && { echo "error: clippy-driver: component not installed" >&2; exit 1; }
 [[ -s "$SANDBOX/clippy-says" ]] && exec cat "$SANDBOX/clippy-says"
+echo "rustc 1.98.1 (48a229cea 2026-09-01)"
+STUB
+cat > "$SANDBOX/bin/clippy-driver" <<STUB
+#!/usr/bin/env bash
+[[ -s "$SANDBOX/path-clippy-says" ]] && exec cat "$SANDBOX/path-clippy-says"
 echo "rustc 1.98.1 (48a229cea 2026-09-01)"
 STUB
 # rustup: 'which rustfmt' names the sandbox's rustfmt, so a runner's real
@@ -97,7 +105,7 @@ lib="librustc_driver-aaaa1111.so"
 [[ -n "\$lib" ]] && echo "	\$lib => /somewhere/\$lib (0x0000785d3e800000)"
 echo "	libc.so.6 => /lib64/libc.so.6 (0x00007f)"
 STUB
-chmod +x "$SANDBOX/bin/clippy-driver" "$SANDBOX/bin/rustup" "$SANDBOX/bin/ldd" "$SANDBOX/bin/rustfmt" "$SANDBOX/toolchain/bin/rustfmt"
+chmod +x "$SANDBOX/bin/clippy-driver" "$SANDBOX/toolchain/bin/clippy-driver" "$SANDBOX/bin/rustup" "$SANDBOX/bin/ldd" "$SANDBOX/bin/rustfmt" "$SANDBOX/toolchain/bin/rustfmt"
 
 # pin <channel line>: the pin file, and a Cargo.toml whose rust-version
 # states the same version, as the repository's does; manifest <version>
@@ -195,6 +203,17 @@ rm -f "$SANDBOX/clippy-says"
 touch "$SANDBOX/clippy-fails"
 expect 2 "a clippy-driver that cannot run is a failure to check" "clippy-driver --rustc --version\` failed"
 rm -f "$SANDBOX/clippy-fails"
+# Beside a rustup, cargo clippy runs the toolchain's clippy-driver, and a
+# PATH whose first clippy-driver is the distribution's (rustup linking
+# only some proxies) must not decide.
+printf 'rustc 1.99.0 (b940084d7 2026-09-28) (Fedora 1.99.0-1.fc43)\n' > "$SANDBOX/path-clippy-says"
+expect 0 "rustup's clippy-driver is asked, not a distribution one first on PATH"
+printf 'rustc 1.99.0 (aaaaaaaaa 2026-10-01)\n' > "$SANDBOX/clippy-says"
+expect 1 "  and rustup's built on another compiler fails, naming its path" "$SANDBOX/toolchain/bin/clippy-driver: rustc 1.99.0"
+rm -f "$SANDBOX/clippy-says"
+touch "$SANDBOX/no-rustup"
+expect 1 "without rustup, the clippy-driver on PATH is the one asked" "$SANDBOX/bin/clippy-driver: rustc 1.99.0"
+rm -f "$SANDBOX/no-rustup" "$SANDBOX/path-clippy-says"
 printf 'librustc_driver-bbbb2222.so' > "$SANDBOX/fmt-links"
 expect 1 "a rustfmt linking another compiler's librustc_driver fails, naming it" "links librustc_driver-bbbb2222.so, which is not rustc 1.98.1's"
 printf '' > "$SANDBOX/fmt-links"
