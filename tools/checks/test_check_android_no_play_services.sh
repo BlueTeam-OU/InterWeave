@@ -123,6 +123,21 @@ printf '// x\n' > "$R/apps/human-android/android/lib/build.gradle.kts"
 printf 'com.android.billingclient:billing:7.1.1=releaseRuntimeClasspath\nempty=\n' > "$R/apps/human-android/android/lib/gradle.lockfile"
 expect_fail "$R" "lib/gradle.lockfile" "lib/gradle.lockfile: com.android.billingclient:billing:7.1.1"
 
+echo "a clone under a directory named build or .gradle is still read"
+# -path once matched the root's own prefix, so such a clone read nothing
+# and printed OK (review of #307, finding 1).
+for d in build .gradle; do
+    R="$(mktemp -d "$TMP/$d.XXXXXX")"; mkdir -p "$R/$d"
+    T="$(tree)"; mv "$T" "$R/$d/clone"; R="$R/$d/clone"
+    add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.firebase:firebase-messaging:24.1.0=releaseRuntimeClasspath"
+    expect_fail "$R" "a clone below $d/" "com.google.firebase:firebase-messaging:24.1.0 on releaseRuntimeClasspath"
+done
+
+echo "Gradle's output directories below the root are not read"
+R="$(tree)"; mkdir -p "$R/apps/human-android/android/app/build/tmp"
+printf 'com.google.android.gms:x:1.0=releaseRuntimeClasspath\n' > "$R/apps/human-android/android/app/build/tmp/gradle.lockfile"
+expect_pass "$R" "a lockfile under app/build/"
+
 echo "the lock itself must be trustworthy"
 R="$(tree)"; rm "$R/apps/human-android/android/app/gradle.lockfile"
 expect_fail "$R" "no app lockfile" "app/gradle.lockfile: missing"
@@ -134,6 +149,8 @@ R="$(tree)"; sed -i 's/lockAllConfigurations()/lockAllConfigurations()\n        
 expect_fail "$R" "LockMode.LENIENT" "LockMode.LENIENT"
 R="$(tree)"; mkdir -p "$R/apps/human-android/android/lib"; printf '// x\n' > "$R/apps/human-android/android/lib/build.gradle.kts"
 expect_fail "$R" "a subproject with no lockfile" "android/lib: a project with no gradle.lockfile"
+R="$(tree)"; mkdir -p "$R/apps/human-android/android/lib"; printf '// x\n' > "$R/apps/human-android/android/lib/build.gradle"
+expect_fail "$R" "a Groovy subproject with no lockfile" "android/lib: a project with no gradle.lockfile"
 
 echo "the real repository passes its own guard"
 if [ "$(run_code "$REPO")" = "0" ]; then ok "this repository"; else bad "this repository fails: $(run "$REPO")"; fi

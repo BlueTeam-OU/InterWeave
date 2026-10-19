@@ -52,8 +52,10 @@
 # when the lock could have stopped describing the build:
 #   - no apps/human-android/android/app/gradle.lockfile (an absent input
 #     is not a clean one);
-#   - a project directory with a build.gradle.kts and no gradle.lockfile
-#     beside it;
+#   - the app lockfile present but not among the files read (a search
+#     that read nothing is not a clean result);
+#   - a project directory with a build.gradle.kts or build.gradle and no
+#     gradle.lockfile beside it;
 #   - the app lockfile not naming `releaseRuntimeClasspath`, the
 #     classpath the shipped APK is built from (the control that the
 #     lockfile covers what ships);
@@ -93,6 +95,14 @@ GRADLE="$ROOT/apps/human-android/android"
 problems=0
 fail() { echo "$1"; problems=$((problems + 1)); }
 
+# Files under the Gradle root, Gradle's own output and cache directories
+# pruned BELOW it. Pruned by name and not by `-not -path '*/build/*'`:
+# -path matches the whole path, the root's included, so a clone under any
+# directory named build read nothing at all (review of #307, finding 1).
+gradle_files() {
+    find "$GRADLE" \( \( -name build -o -name .gradle \) -type d -prune \) -o \( "$@" \) -type f -print 2>/dev/null | sort
+}
+
 [ -f "$GRADLE/app/gradle.lockfile" ] || fail "apps/human-android/android/app/gradle.lockfile: missing -- the app's classpath is unlocked or the lockfile was not committed"
 
 root_build="$GRADLE/build.gradle.kts"
@@ -107,14 +117,14 @@ else
 fi
 
 # Every subproject (a directory below the Gradle root holding a
-# build.gradle.kts) owes a lockfile beside it.
+# build.gradle.kts or a Groovy build.gradle) owes a lockfile beside it.
 while IFS= read -r build; do
     [ -n "$build" ] || continue
     dir="$(dirname "$build")"
     [ "$dir" = "$GRADLE" ] && continue
     [ -f "$dir/gradle.lockfile" ] || fail "${dir#"$ROOT"/}: a project with no gradle.lockfile"
 done <<EOF
-$(find "$GRADLE" -name build.gradle.kts -not -path '*/build/*' -not -path '*/.gradle/*' 2>/dev/null | sort)
+$(gradle_files -name build.gradle.kts -o -name build.gradle)
 EOF
 
 if [ -f "$GRADLE/app/gradle.lockfile" ] \
@@ -124,9 +134,11 @@ fi
 
 lockfiles=0
 artifacts=0
+read_locks="|"
 while IFS= read -r lock; do
     [ -n "$lock" ] || continue
     lockfiles=$((lockfiles + 1))
+    read_locks="$read_locks$lock|"
     rel="${lock#"$ROOT"/}"
     # One line per artifact: `group:name:version=conf1,conf2`. awk does
     # the matching and prints one finding per banned artifact on an
@@ -168,8 +180,15 @@ while IFS= read -r lock; do
         esac
     done <<<"$out"
 done <<EOF
-$(find "$GRADLE" \( -name gradle.lockfile -o -name '*-gradle.lockfile' \) -not -path '*/build/*' -not -path '*/.gradle/*' 2>/dev/null | sort)
+$(gradle_files -name gradle.lockfile -o -name '*-gradle.lockfile')
 EOF
+
+# The app lockfile was checked for above by its path; what was READ is a
+# separate question, and an unread input is not a clean one.
+case "$read_locks" in
+    *"|$GRADLE/app/gradle.lockfile|"*) ;;
+    *) fail "apps/human-android/android/app/gradle.lockfile: not read -- the guard's search missed the app's classpath" ;;
+esac
 
 if [ "$problems" -gt 0 ]; then
     printf '\ncheck_android_no_play_services: %d problem(s); ADR-0056 decision 2 (ADR-0057 decision 2, as amended 2026-10-19) forbids these on the application classpath.\n' "$problems" >&2
