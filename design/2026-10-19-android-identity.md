@@ -6,7 +6,7 @@ four questions in §11 were answered by architect-cto on 2026-10-19, and
 the custody doc says the first two (425ec5d0).
 
 Owner of the design: ux-designer. The words are language-culture's: §9
-gives each string's purpose and space, never its text. The rules
+gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
 Recovery UI hardening, at ecf20942), `IDENTITY-RECOVERY.md` (Restore
 semantics) and `human-client-ui.md` §2 and §9. This note decides how a
