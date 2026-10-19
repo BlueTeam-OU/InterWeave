@@ -155,8 +155,9 @@ reach the screen only through §3.5.
 
 **R1, Restore your identity.** What is needed: the 24 words, and the
 PeerId to compare at R3. The PeerId is the one written beside the
-words, or else the one a contact's app shows for this phone (a contact
-can hold one PeerId per device, `human-client-ui.md` §3). The
+words, or else the one a contact has for the phone that had these
+words (a contact can hold one PeerId per device, `human-client-ui.md`
+§3). The
 network stays off until the restore is done. One line
 (`IdR1Settings`) states what `human-client-ui.md` §9 requires: a
 complete recovery needs the recovery phrase and a separate backup of
@@ -182,7 +183,7 @@ enabled.
   person's paper decides.
 - A person with the words but no PeerId on paper reads a line under
   the question (`IdR3NoPeerId`): compare with the PeerId a contact's
-  app shows for this phone, and restore only after that. They leave by Back,
+  has for the phone that had these words, and restore only after that. They leave by Back,
   with their words kept while the Activity lives (§7). There is no
   third button: confirming a PeerId nobody compared is exactly what R3
   exists to prevent.
@@ -209,7 +210,9 @@ on the next launch until the restore succeeds.
 
 If the record names no readable PeerId (its field is missing or
 unreadable, or the entry is not a file), K1 has no primary action. It
-shows only its reason and `IdQLost`. The phrase-only path (R2 and then
+shows `IdQTitleNoPath`, `IdQReasonNoPath` and `IdQNoPath` in place of
+its usual title, reason and `IdQLost`, because the words cannot help
+there. The phrase-only path (R2 and then
 R3) is never offered over a record that exists. The custody design
 allows that path only where no record survives, and
 `IDENTITY-RECOVERY.md` refuses to replace an established profile
@@ -335,7 +338,7 @@ comparison a matter of groups, not of single characters.
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
 | Storage fails (`Unavailable`, a write error) | Where the write runs: C4's continue (the seal); R3's yes (a fresh-install restore); R2's check after K1 (a restore against the record). R4 shows only after a restore succeeded | A notice (`IdStorageFailed`): nothing was changed, with Try again. Entered words stay while the screen is open. | Try again, or Back (words dropped) |
 | Restored, but the old key remains (`OldKeyRemains`) | R3's yes, R2's check after K1 | Success, as below: the record is written and opens. The app retries the retire at its next start (`reseal`). No person-facing text; one diagnostic line, never a word | Continue |
-| Another first run sealed first (`AlreadyProvisioned`) | C4's continue | `IdVoidPaper` on C4: the words shown were never used. Continue then opens the identity the phone holds | Continue |
+| Another first run sealed first (`AlreadyProvisioned`) | C4's continue | `IdAlreadyCreated` on C4: the words just shown were not used. Continue then opens the identity the phone holds | Continue |
 | The record names another identity, or is unreadable (`RecordNamesOther`, `Unreadable`) | R2's check after K1 | Not reachable: K1 offers R2 only with the record's own PeerId (§3.4). If a build reaches it, `IdOtherIdentity` with nothing restored | Back |
 | Success | C4 after its seal; R4 after a restore | The PeerId, and continue | Continue |
 
@@ -515,10 +518,10 @@ landscape:
    PeerId. The right phrase restores with no R3. Another identity's
    phrase shows `IdOtherIdentity` with both PeerIds and restores
    nothing. With the record's PeerId field made unreadable (a test
-   hook), K1 shows its reason and `IdQLost` with no primary action, and
+   hook), K1 shows `IdQTitleNoPath`, `IdQReasonNoPath` and `IdQNoPath` with no primary action, and
    no R2 or R3 is reachable. A restore that answers `OldKeyRemains`
    (a test hook) reaches R4, and the next start retries the retire.
-   A C4 that answers `AlreadyProvisioned` shows `IdVoidPaper`.
+   A C4 that answers `AlreadyProvisioned` shows `IdAlreadyCreated`.
 10. Show my phrase:
     - a cancelled prompt shows nothing and no error;
     - a succeeded prompt shows `IdGoingOffline`, then the words;
@@ -589,7 +592,7 @@ architect-cto, 2026-10-19 (REPLY 01a15282-ac06), against
   made either way on C1 and R1. If there is no such backup, the person
   is told of a need they cannot meet; that would be a gap to decide.
 - **Q6.** K1 over a record with no readable PeerId offers no path but
-  `IdQLost` (§3.4). Does this case get one, for example an explicit
+  `IdQNoPath` (§3.4). Does this case get one, for example an explicit
   replace with a warning about the contacts and messages the profile
   holds? Default: none.
 
