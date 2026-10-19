@@ -402,19 +402,20 @@ names are suggestions; rust-ui-dev names them.
 | Key | Text | Where, and why this text |
 |---|---|---|
 | `IdWelcomeTitle` | Welcome to InterWeave | W's title |
-| `IdWelcomeBody` (pending reword, language-culture: #303 r1 F8: no "directly", relays are normal) | Exchange messages with the people you trust, directly from this phone. There is no account to create. | W's body, two lines |
+| `IdWelcomeBody` | Exchange messages with the people you trust, from this phone. There is no account to create. | W's body, two lines. No "directly": a message may go through a relay |
 | `IdVoidPaper` | The words shown last time were never used. They are not your identity, so do not use that paper as your backup. | W's notice while the void-paper marker is set (§3.1), three lines. It says what the old paper is not, and what not to do with it |
+| `IdAlreadyCreated` (new) | This phone already has an identity, so the words you just saw were not used. Do not use that paper as your backup. | C4 when another first run sealed first (`AlreadyProvisioned`, §6). `IdVoidPaper` says "shown last time", which is false on C4 |
 | `IdCreate` | Create a new identity | W's primary |
 | `IdRestore` | Restore my identity | W's secondary |
 | `IdC1Title` | About your recovery phrase | C1's title |
-| `IdC1Point1` (pending reword, language-culture: #303 r1 F9: a move to a new phone, not a second phone) | These 24 words are the key to your identity. With them, you can restore it on another phone. | C1, first point |
-| `IdC1Point2` | Write them on paper, in order, with your PeerId. Store the paper in a safe place. | C1, second point. The PeerId is named here, because R1 asks for it later |
-| `IdC1Point3` | Anyone who has these words can act as you in InterWeave. Do not show them to anyone. | C1, third point: "can be you", without alarm |
-| `IdC1Point0` (pending, language-culture) | C1's new first point: an InterWeave identity recovery phrase, not a cryptocurrency wallet seed (`IDENTITY-RECOVERY.md`). Keys renumber as language-culture sees fit | C1, two lines |
-| `IdC1Point4` (pending reword, language-culture: §9's full statement, #303 r1 F3) | The words bring back your identity only, not your contacts or your settings. | C1, fourth point (`human-client-ui.md` §9). Trust is one of the settings (the trust settings), so it is not named apart |
-| `IdC1Point5` | Your identity exists only after you finish, by checking two of the words. | C1, fifth point (§11 Q3) |
+| `IdC1Point1` | These 24 words are the key to your identity. With them, you can move it to a new phone. | C1, first point: a move to a new phone, not a second phone in use at the same time |
+| `IdC1Point2` | They are an InterWeave identity recovery phrase, not a cryptocurrency wallet seed. | C1, second point, in the order of §3.2's list (`IDENTITY-RECOVERY.md`) |
+| `IdC1Point3` | Write them on paper, in order, with your PeerId. Store the paper in a safe place. | C1, third point. The PeerId is named here, because R1 asks for it later |
+| `IdC1Point4` | Anyone who has these words can act as you in InterWeave. Do not show them to anyone. | C1, fourth point: "can be you", without alarm |
+| `IdC1Point5` | To recover everything, you need these words and a separate backup of your contacts, trust and settings. | C1, fifth point: `human-client-ui.md` §9's statement, whole |
+| `IdC1Point6` | Your identity exists only after you finish, by checking two of the words. | C1, sixth point (§11 Q3) |
 | `IdShowWords` | Show my words | C1's primary |
-| `IdNotWalletSeed` (pending, language-culture) | C2 and S2, above the words: an InterWeave identity recovery phrase, not a cryptocurrency wallet seed | One line, two at 200 % |
+| `IdNotWalletSeed` | InterWeave identity recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen: 68 characters. The contract's label also says "transport"; it is left out as a word the person does not know |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
 | `IdPeerIdLabel` | Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share. | The PeerId's label (§5) on C2 and S2, where the person writes |
 | `IdPeerIdLabelShown` (new) | Your PeerId. It is the one on your paper. It is not a password, and it is safe to share. | The PeerId's label on C4 and R4, where the person has already written it. One label cannot be true on both kinds of screen |
@@ -431,11 +432,11 @@ names are suggestions; rust-ui-dev names them.
 | `IdCreatedBody` | When you continue, the app connects to the network with this identity. | C4's and R4's body |
 | `IdContinue` | Continue | C4's and R4's primary |
 | `IdR1Title` | Restore your identity | R1's title |
-| `IdR1Body` (pending reword, language-culture: #303 r1 F10: this phone's PeerId) | You need your 24 words, and your PeerId from your paper or from a contact's app. The app stays offline until the restore is done. | R1's body, three lines |
+| `IdR1Body` | You need your 24 words, and the PeerId that goes with them: from your paper, or from a contact who has it. The app stays offline until the restore is done. | R1's body, three lines. "The PeerId that goes with them" is true whether the person moved phones or reinstalled on the same one |
 | `IdEnterWords` | Enter my words | R1's primary |
 | `IdCheckWords` | Check my words | R2's primary |
-| `IdR1Settings` (pending reword, language-culture: §9's full statement, #303 r1 F3) | The words bring back your identity only. Your contacts and settings are not part of them. | R1's line under the body, two lines. It states the fact and gives no advice: "restored separately" would advise a step the app may not offer yet, which ux-designer's Android review checks. When the app offers it, the line gains that step |
-| `IdR3NoPeerId` (pending reword, language-culture: #303 r1 F10: this phone's PeerId) | If you have no PeerId on paper, ask a contact to read yours from their app. Restore only if it matches. | R3, two lines under the question |
+| `IdR1Settings` | Your words restore your identity only. Your contacts, trust and settings come from a separate backup. | R1's line under the body, two lines: `human-client-ui.md` §9's statement, whole |
+| `IdR3NoPeerId` | If the PeerId is not on your paper, ask a contact for the one they have for the phone that had these words. Restore only if it matches. | R3, under the question: about three lines at 100 %, one over the space. A contact can hold one PeerId per device, so the text names which one |
 | `IdR3Question` | Is this the PeerId that you wrote down? If it is not, a word may be wrong. | R3's question, two lines. It asks; it never says the PeerId is right, and it says what a "no" usually means |
 | `IdR3Yes` | Yes, restore it | R3's primary |
 | `IdR3No` | No, check my words | R3's secondary |
@@ -444,6 +445,9 @@ names are suggestions; rust-ui-dev names them.
 | `IdQReasonRecord` | The app cannot read your identity on this phone. Restore it with your recovery phrase. | K1 for `Record`, `Authentication` and `WrongIdentity` |
 | `IdEnterPhrase` | Enter my recovery phrase | K1's primary |
 | `IdQLost` | If your words are lost, clear this app's data in the phone's settings. That starts a new identity, which each contact must trust again. | K1's plain text below its primary (§3.4), three lines |
+| `IdQTitleNoPath` (new) | The app cannot open your identity | K1's title when the record names no readable PeerId (§3.4). `IdQTitle` asks for the phrase, which cannot help there |
+| `IdQReasonNoPath` (new) | The app cannot read your identity on this phone, and it cannot be restored here. | K1's reason in the same case. Both other reasons end with "Restore it with your recovery phrase", which is false there |
+| `IdQNoPath` (new) | To use the app again, clear this app's data in the phone's settings. That starts a new identity, which each contact must trust again. | K1's plain text in the same case, in place of `IdQLost`, whose "If your words are lost" suggests the words would help |
 | `IdExpectedPeerId` (new) | PeerId this phone expects | The label of the expected PeerId, on K1 and in `IdOtherIdentity`'s banner |
 | `IdDerivedPeerId` (new) | PeerId from your words | The label of the derived PeerId in `IdOtherIdentity`'s banner |
 | `IdShowPhraseItem` | Show recovery phrase | The Settings item (§3.5) |
@@ -462,8 +466,8 @@ names are suggestions; rust-ui-dev names them.
 | `IdKeyClear` | Clear this word | The keypad's clear key (its accessible label) |
 | `IdReviewWords` | Show all my words | The grid's button at large font (§4) |
 
-Against the list the proposal gave: `IdC1Points` is five keys, one per
-point, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
+Against the list the proposal gave: `IdC1Points` is six keys, one per
+point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
 `IdExpectedPeerId` and `IdDerivedPeerId` are added. `IdTryAgain` and
 `IdRetry` are both `TryAgain`. `IdKeepEntering` is
 `IdContinueEntering`.
