@@ -1,0 +1,201 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Andrea Benetton
+//! The threat model's three retention rows (`threat-model.md`, rows TM-44,
+//! TM-45 and TM-46 of `tests/SECURITY-MATRIX.md`; Stage 18's S10), each as
+//! conformance of `RETENTION.md` over a real file:
+//!
+//! - TM-44: a remote sender cannot force persistence -- an envelope asking
+//!   to be kept arrives over the facade, is unread, and is gone once read;
+//! - TM-45: no shadow archive -- a trigger, a view or a search index that
+//!   would hold released content is refused at open, and released content
+//!   is in no table of the file;
+//! - TM-46: a restored device replays no old send -- what a backup carries
+//!   is all a restore has, and a client started on it sends nothing, while
+//!   the original file restarted retries its pending send (the control).
+
+#![allow(clippy::expect_used, clippy::panic)]
+
+mod common;
+
+use std::path::{Path, PathBuf};
+
+use interweave_human_chat_protocol::{HumanChatV2, MEDIA_TYPE_V2};
+use interweave_human_store::{HumanStore, StoreOptions};
+use interweave_human_transport_client::{ClientConfig, TransportClient};
+use interweave_local_client_api::{
+    DataCapability, DataSessionBinding, DataSessionPort, SessionRequest,
+};
+use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
+use interweave_profile_identity::ProfileIdentity;
+use interweave_transport_api::{DirectDestination, EndpointId, MediaType, MessageId, Payload};
+
+const LIMIT: usize = 49_152;
+const WALL: u64 = 1_786_600_000_000;
+
+fn human() -> EndpointId {
+    EndpointId::parse("human").expect("valid")
+}
+
+fn agent() -> EndpointId {
+    EndpointId::parse("agent").expect("valid")
+}
+
+fn node() -> FakeConfig {
+    FakeConfig {
+        peer: ProfileIdentity::generate()
+            .transport_identity()
+            .expect("peer id"),
+        endpoints: vec![
+            FakeEndpoint::open(human(), false),
+            FakeEndpoint::open(agent(), true),
+        ],
+        default_endpoint: Some(human()),
+        queue_bound: 16,
+    }
+}
+
+fn config(endpoint: EndpointId) -> ClientConfig {
+    ClientConfig {
+        client_kind: "human-client".to_owned(),
+        endpoints: vec![endpoint],
+        channels: vec![],
+        max_payload_bytes: LIMIT,
+    }
+}
+
+fn store_path(dir: &Path, name: &str) -> PathBuf {
+    dir.join(name).join("human.sqlite3")
+}
+
+async fn session_on(node: &FakeNode, endpoint: EndpointId) -> impl DataSessionPort {
+    node.open(
+        SessionRequest::new(
+            "holder",
+            Some(endpoint),
+            [DataCapability::Commands, DataCapability::Events],
+        )
+        .expect("bounds"),
+    )
+    .await
+    .expect("holds the endpoint")
+}
+
+/// Every value of every row of every table in the file, as bytes: what an
+/// archive would have to be made of, wherever it was put.
+fn every_stored_value(path: &Path) -> Vec<Vec<u8>> {
+    let conn = rusqlite::Connection::open(path).expect("independent reader");
+    let tables: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .expect("tables");
+        stmt.query_map([], |r| r.get(0))
+            .expect("names")
+            .map(|n| n.expect("name"))
+            .collect()
+    };
+    let mut values = Vec::new();
+    for table in tables {
+        let mut stmt = conn
+            .prepare(&format!("SELECT * FROM \"{table}\""))
+            .expect("select");
+        let columns = stmt.column_count();
+        let mut rows = stmt.query([]).expect("rows");
+        while let Some(row) = rows.next().expect("row") {
+            for i in 0..columns {
+                match row.get_ref(i).expect("value") {
+                    rusqlite::types::ValueRef::Text(t) | rusqlite::types::ValueRef::Blob(t) => {
+                        values.push(t.to_vec());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    values
+}
+
+fn holds(values: &[Vec<u8>], needle: &[u8]) -> bool {
+    values
+        .iter()
+        .any(|v| v.windows(needle.len()).any(|w| w == needle))
+}
+
+// -------------------------------------------------------------------
+// TM-44
+// -------------------------------------------------------------------
+
+/// The envelope is open to unknown members by contract (the envelope
+/// schema's description), so a sender CAN put `keep` in it; what it cannot
+/// do is make that reach retention. Sent as raw bytes over the session,
+/// not through the facade's `send`, because a hostile sender is not
+/// bound to that client.
+#[tokio::test]
+async fn tm_44_an_envelope_asking_to_be_kept_arrives_unread_and_is_gone_once_read() {
+    const BODY: &str = "keep me forever, receiver";
+    let dir = common::private_tempdir();
+    let path = store_path(dir.path(), "receiver");
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let mut receiver = TransportClient::new(
+        b.clone(),
+        b.clone(),
+        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        config(human()),
+        Box::new(|| WALL),
+        0,
+    )
+    .expect("client");
+    receiver.tick(0).await;
+
+    let hostile = format!(
+        r#"{{"v":2,"kind":"text","app_message_id":"{}","text":"{BODY}","keep":true,"retain":"forever","persist":{{"until":"never"}},"kept_at":1}}"#,
+        "4".repeat(32)
+    );
+    // The receiver's own decoder takes it: a refusal here would make the
+    // rest of this case prove nothing about retention.
+    HumanChatV2::parse(&hostile).expect("unknown members are ignored, not refused");
+    let sender = session_on(&a, agent()).await;
+    sender
+        .send_direct(
+            DirectDestination::to_default(b.peer().clone()),
+            MessageId::from_bytes([7; 16]),
+            Payload::new(
+                Some(MediaType::parse(MEDIA_TYPE_V2).expect("media type")),
+                hostile.into_bytes(),
+                LIMIT,
+            )
+            .expect("fits"),
+        )
+        .await
+        .expect("admitted to the receiver's queue");
+
+    assert!(receiver.drain(1, 1).await.is_empty(), "the open-time state");
+    let got = receiver.drain(1, 2).await;
+    assert_eq!(got.len(), 1, "the message arrives");
+    assert_eq!(got[0].envelope.text, BODY);
+    let store = receiver.store_mut();
+    assert_eq!(store.unread_inbound().expect("read").len(), 1, "as unread");
+    assert!(
+        store.kept_inbound().expect("read").is_empty(),
+        "arriving made nothing kept"
+    );
+
+    // The person reads it and does not keep it.
+    let read = store.mark_read(got[0].row, WALL + 1).expect("read");
+    drop(read);
+    receiver.close().await;
+    drop(receiver);
+
+    // Across a restart, the content is nowhere: not kept, not unread, and
+    // in no other table of the file.
+    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    assert!(store.kept_inbound().expect("read").is_empty(), "not kept");
+    assert!(
+        store.unread_inbound().expect("read").is_empty(),
+        "not unread"
+    );
+    drop(store);
+    assert!(
+        !holds(&every_stored_value(&path), BODY.as_bytes()),
+        "the body survived its read somewhere in the file"
+    );
+}

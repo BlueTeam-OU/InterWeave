@@ -115,7 +115,7 @@ empty.
 | TM-41 | circuit flood hides original source IP | — | `tests/security/tests/relayed_preauth.rs::fresh_identities_through_one_relay_share_its_bucket_and_a_direct_peer_from_its_host_does_not`; `crates/transport/libp2p/src/preauth_gate.rs::a_relayed_inbound_is_charged_to_the_relay_not_the_source` | A malicious relay can spend its own bucket and its share of the global caps until it is blocked (threat-model.md). |
 | TM-42 | Android remote message triggers admin action | S12 (02) | owed | — |
 | TM-43 | Android key extraction from filesystem | S12 (02) | owed | — |
-| TM-44 | remote sender attempts to force message persistence | S10 (02, with rust-ui-dev) | owed | — |
+| TM-44 | remote sender attempts to force message persistence | — | `tests/human-retention/tests/threat_rows.rs::tm_44_an_envelope_asking_to_be_kept_arrives_unread_and_is_gone_once_read`; `tests/human-retention/tests/retention_conformance.rs::case_9_nothing_a_sender_controls_can_produce_a_kept_row` | A compromised human client can violate its own local policy (threat-model.md). The facade runs over the in-memory fake, not a daemon. |
 | TM-45 | logs/notifications/search indexes become shadow chat archive | S10 (02, with rust-ui-dev) | owed | — |
 | TM-46 | restored pending outbox replays old sends | S10 (02, with rust-ui-dev) | owed | — |
 | TM-47 | OS kills Android runtime | S12 (02) | owed | — |
