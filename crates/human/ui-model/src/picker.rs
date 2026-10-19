@@ -26,8 +26,16 @@ pub const MAX_CHIPS: usize = 4;
 /// What the suggestions row shows for the letters typed so far.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Suggestions {
-    /// More than [`MAX_CHIPS`] words match: how many.
-    Count(usize),
+    /// More than [`MAX_CHIPS`] words match: how many, and the letters
+    /// typed as a chip when they are a whole word that also begins the
+    /// others -- BIP-39's act, can, car, cat, man and win, which no fourth
+    /// letter could reach otherwise (design §4, #303 review F1).
+    Count {
+        /// How many words match.
+        n: usize,
+        /// The typed letters, when they are a word.
+        exact: Option<&'static str>,
+    },
     /// These words match, each a chip, in list order.
     Words(&'static [&'static str]),
 }
@@ -35,7 +43,9 @@ pub enum Suggestions {
 impl fmt::Debug for Suggestions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Count(n) => write!(f, "Count({n})"),
+            Self::Count { n, exact } => {
+                write!(f, "Count({n}, exact: {})", exact.is_some())
+            }
             Self::Words(words) => write!(f, "Words(<{} redacted>)", words.len()),
         }
     }
@@ -112,9 +122,26 @@ impl WordPicker {
     pub fn suggestions(&self) -> Suggestions {
         let matches = self.matches();
         if matches.len() > MAX_CHIPS {
-            Suggestions::Count(matches.len())
+            // A sorted list puts the whole word first among its matches.
+            let exact = matches.first().copied().filter(|w| *w == self.typed);
+            Suggestions::Count {
+                n: matches.len(),
+                exact,
+            }
         } else {
             Suggestions::Words(matches)
+        }
+    }
+}
+
+impl WordPicker {
+    /// `chip`, if it is one the row shows now: a suggestion, or the
+    /// whole-word chip beside a count.
+    #[must_use]
+    pub fn chip(&self, chip: &str) -> Option<&'static str> {
+        match self.suggestions() {
+            Suggestions::Words(words) => words.iter().copied().find(|w| *w == chip),
+            Suggestions::Count { exact, .. } => exact.filter(|w| *w == chip),
         }
     }
 }
@@ -172,10 +199,7 @@ impl PhraseEntry {
     /// empty position (or stays, when none is left). A word that is not a
     /// current chip is refused: only a word the person saw is entered.
     pub fn choose(&mut self, chip: &str) -> bool {
-        let Suggestions::Words(words) = self.picker.suggestions() else {
-            return false;
-        };
-        let Some(word) = words.iter().copied().find(|word| *word == chip) else {
+        let Some(word) = self.picker.chip(chip) else {
             return false;
         };
         self.positions[self.current] = Some(word);
@@ -246,7 +270,8 @@ mod tests {
     // by its first four letters, with words sharing longer prefixes.
     const WORDS: &[&str] = &[
         "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd",
-        "abuse", "access", "accident", "zebra", "zero", "zone", "zoo",
+        "abuse", "access", "accident", "car", "carbon", "card", "cargo", "carpet", "carry",
+        "zebra", "zero", "zone", "zoo",
     ];
 
     #[test]
@@ -266,7 +291,10 @@ mod tests {
     fn more_than_four_matches_show_a_count_and_four_or_fewer_show_chips() {
         let mut picker = WordPicker::new(WORDS);
         picker.press('a');
-        assert_eq!(picker.suggestions(), Suggestions::Count(12));
+        assert_eq!(
+            picker.suggestions(),
+            Suggestions::Count { n: 12, exact: None }
+        );
         for letter in "bs".chars() {
             picker.press(letter);
         }
@@ -294,6 +322,24 @@ mod tests {
         assert_eq!(entry.word(0), Some("zebra"));
         assert_eq!(entry.current(), 1);
         assert_eq!(entry.picker().typed(), "");
+    }
+
+    #[test]
+    fn a_whole_word_that_begins_five_others_is_its_own_chip_beside_the_count() {
+        let mut entry = PhraseEntry::new(WORDS);
+        for letter in "car".chars() {
+            entry.picker_mut().press(letter);
+        }
+        assert_eq!(
+            entry.picker().suggestions(),
+            Suggestions::Count {
+                n: 6,
+                exact: Some("car")
+            }
+        );
+        assert!(!entry.choose("carbon"), "not shown as a chip");
+        assert!(entry.choose("car"));
+        assert_eq!(entry.word(0), Some("car"));
     }
 
     #[test]

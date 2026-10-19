@@ -17,7 +17,7 @@ use std::fmt;
 
 use interweave_transport_api::TransportIdentity;
 
-use crate::picker::{PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
+use crate::picker::{PHRASE_WORDS, PhraseEntry, WordPicker};
 
 /// A phrase's words, as references into the word list.
 pub type Words = [&'static str; PHRASE_WORDS];
@@ -60,6 +60,10 @@ pub enum StepFailed {
     /// Storage or the cipher failed; nothing was changed
     /// (`IdStorageFailed`).
     Storage,
+    /// C4's seal found the profile already provisioned: another first run
+    /// sealed first, so the words shown were never used (`IdVoidPaper`,
+    /// #303 review F5).
+    AlreadyProvisioned,
 }
 
 /// What the root must do.
@@ -115,6 +119,9 @@ pub enum Notice {
     Busy,
     /// `IdStorageFailed`.
     StorageFailed,
+    /// `IdVoidPaper` on C4: the phone holds another identity, and
+    /// Continue opens it.
+    VoidPaper,
 }
 
 impl From<StepFailed> for Notice {
@@ -122,6 +129,7 @@ impl From<StepFailed> for Notice {
         match failed {
             StepFailed::Busy => Self::Busy,
             StepFailed::Storage => Self::StorageFailed,
+            StepFailed::AlreadyProvisioned => Self::VoidPaper,
         }
     }
 }
@@ -132,11 +140,11 @@ impl From<StepFailed> for Notice {
 enum Origin {
     /// R1, a fresh install: R3 asks the person.
     Fresh,
-    /// K1. With a `PeerId` the record names, R2 restores against it and
-    /// there is no R3; without one, R3 asks as on a fresh install.
+    /// K1, whose record names `expected`: R2 restores against it and
+    /// there is no R3.
     Recovery {
         reason: RecoveryReason,
-        expected: Option<TransportIdentity>,
+        expected: TransportIdentity,
     },
 }
 
@@ -146,7 +154,7 @@ impl Origin {
             Self::Fresh => Screen::R1,
             Self::Recovery { reason, expected } => Screen::K1 {
                 reason: *reason,
-                expected: expected.clone(),
+                expected: Some(expected.clone()),
             },
         }
     }
@@ -185,7 +193,9 @@ enum Screen {
         derived: TransportIdentity,
         notice: Option<Notice>,
     },
-    R4,
+    R4 {
+        peer: Option<TransportIdentity>,
+    },
     K1 {
         reason: RecoveryReason,
         expected: Option<TransportIdentity>,
@@ -277,7 +287,7 @@ impl IdentityFlow {
             Screen::R1 => ScreenId::R1,
             Screen::R2 { .. } => ScreenId::R2,
             Screen::R3 { .. } => ScreenId::R3,
-            Screen::R4 => ScreenId::R4,
+            Screen::R4 { .. } => ScreenId::R4,
             Screen::K1 { .. } => ScreenId::K1,
             Screen::S1 { .. } => ScreenId::S1,
             Screen::S2 => ScreenId::S2,
@@ -289,6 +299,18 @@ impl IdentityFlow {
     #[must_use]
     pub fn void_paper(&self) -> bool {
         matches!(self.screen, Screen::Welcome { void_paper: true })
+    }
+
+    /// K1 offers a restore: its record names a `PeerId`.
+    #[must_use]
+    pub fn can_restore(&self) -> bool {
+        matches!(
+            self.screen,
+            Screen::K1 {
+                expected: Some(_),
+                ..
+            }
+        )
     }
 
     /// K1's reason and the `PeerId` the record names.
@@ -309,12 +331,13 @@ impl IdentityFlow {
         }
     }
 
-    /// The `PeerId` C2, C4 or R3 shows.
+    /// The `PeerId` C2, C4, R3, R4 or S2 shows.
     #[must_use]
     pub fn peer(&self) -> Option<&TransportIdentity> {
         match &self.screen {
-            Screen::C2 | Screen::C4 { .. } => self.peer.as_ref(),
+            Screen::C2 | Screen::C4 { .. } | Screen::S2 => self.peer.as_ref(),
             Screen::R3 { derived, .. } => Some(derived),
+            Screen::R4 { peer } => peer.as_ref(),
             _ => None,
         }
     }
@@ -412,6 +435,17 @@ impl IdentityFlow {
                 });
                 Vec::new()
             }
+            Screen::C4 {
+                notice: Some(Notice::VoidPaper),
+            } => {
+                self.drop_created();
+                self.screen = Screen::Done;
+                vec![
+                    Effect::VoidPaper(false),
+                    Effect::StartService,
+                    Effect::OpenChats,
+                ]
+            }
             Screen::C4 { .. } => vec![Effect::Seal],
             Screen::R1 => {
                 self.screen = Self::r2(self.list, Origin::Fresh);
@@ -430,7 +464,7 @@ impl IdentityFlow {
                 Some(phrase) => vec![Effect::RestoreConfirmed(phrase, derived.clone())],
                 None => Vec::new(),
             },
-            Screen::R4 => {
+            Screen::R4 { .. } => {
                 self.screen = Screen::Done;
                 vec![
                     Effect::VoidPaper(false),
@@ -438,7 +472,13 @@ impl IdentityFlow {
                     Effect::OpenChats,
                 ]
             }
-            Screen::K1 { reason, expected } => {
+            // A record that names no readable PeerId offers no restore:
+            // the phrase-only path never runs over a record that exists
+            // (design §3.4, #303 review F4).
+            Screen::K1 {
+                reason,
+                expected: Some(expected),
+            } => {
                 let origin = Origin::Recovery {
                     reason: *reason,
                     expected: expected.clone(),
@@ -448,7 +488,7 @@ impl IdentityFlow {
             }
             Screen::S1 { going_offline, .. } if !*going_offline => vec![Effect::Prompt],
             Screen::S2 => self.leave_s2(),
-            Screen::C3(_) | Screen::S1 { .. } | Screen::Done => Vec::new(),
+            Screen::C3(_) | Screen::K1 { .. } | Screen::S1 { .. } | Screen::Done => Vec::new(),
         }
     }
 
@@ -479,7 +519,7 @@ impl IdentityFlow {
                 Vec::new()
             }
             // The identity is about to be sealed: there is no way back.
-            Screen::C4 { .. } | Screen::R4 | Screen::Done => Vec::new(),
+            Screen::C4 { .. } | Screen::R4 { .. } | Screen::Done => Vec::new(),
             Screen::R1 => {
                 self.screen = Screen::Welcome { void_paper: false };
                 Vec::new()
@@ -537,6 +577,14 @@ impl IdentityFlow {
         }
     }
 
+    /// C3, after a wrong word: "Try again" takes the error away; the entry
+    /// is already clear.
+    pub fn try_again(&mut self) {
+        if let Screen::C3(check) = &mut self.screen {
+            check.wrong = None;
+        }
+    }
+
     /// C3, after a wrong word: show the words again (→ C2); the same two
     /// positions are asked on return.
     pub fn show_words_again(&mut self) {
@@ -583,10 +631,7 @@ impl IdentityFlow {
                 Vec::new()
             }
             Screen::C3(check) => {
-                let Suggestions::Words(words) = check.picker.suggestions() else {
-                    return Vec::new();
-                };
-                let Some(word) = words.iter().copied().find(|w| *w == chip) else {
+                let Some(word) = check.picker.chip(chip) else {
                     return Vec::new();
                 };
                 let position = check.positions[check.done];
@@ -660,11 +705,8 @@ impl IdentityFlow {
             return Vec::new();
         };
         let expected = match origin {
-            Origin::Recovery {
-                expected: Some(expected),
-                ..
-            } => Some(expected.clone()),
-            _ => None,
+            Origin::Recovery { expected, .. } => Some(expected.clone()),
+            Origin::Fresh => None,
         };
         match expected {
             None => {
@@ -695,8 +737,17 @@ impl IdentityFlow {
     /// A restore's outcome, from R2 (against the record) or R3.
     pub fn restored(&mut self, outcome: Result<(), StepFailed>) -> Vec<Effect> {
         match (&mut self.screen, outcome) {
-            (Screen::R2 { .. } | Screen::R3 { .. }, Ok(())) => {
-                self.screen = Screen::R4;
+            (Screen::R2 { origin, .. }, Ok(())) => {
+                let peer = match origin {
+                    Origin::Recovery { expected, .. } => Some(expected.clone()),
+                    Origin::Fresh => None,
+                };
+                self.screen = Screen::R4 { peer };
+                Vec::new()
+            }
+            (Screen::R3 { derived, .. }, Ok(())) => {
+                let peer = Some(derived.clone());
+                self.screen = Screen::R4 { peer };
                 Vec::new()
             }
             (
@@ -735,9 +786,12 @@ impl IdentityFlow {
         vec![Effect::GoOffline]
     }
 
-    /// The service is offline and the words re-derived (→ S2), or it
-    /// could not be taken offline.
-    pub fn offline(&mut self, outcome: Result<Words, StepFailed>) -> Vec<Effect> {
+    /// The service is offline and the words and `PeerId` re-derived
+    /// (→ S2), or it could not be taken offline.
+    pub fn offline(
+        &mut self,
+        outcome: Result<(Words, TransportIdentity), StepFailed>,
+    ) -> Vec<Effect> {
         let Screen::S1 {
             going_offline,
             notice,
@@ -747,8 +801,9 @@ impl IdentityFlow {
         };
         *going_offline = false;
         match outcome {
-            Ok(words) => {
+            Ok((words, peer)) => {
                 self.words = Some(words);
+                self.peer = Some(peer);
                 self.screen = Screen::S2;
                 Vec::new()
             }
@@ -802,6 +857,7 @@ impl IdentityFlow {
 
     fn leave_s2(&mut self) -> Vec<Effect> {
         self.words = None;
+        self.peer = None;
         self.screen = Screen::Done;
         vec![Effect::StartService, Effect::OpenSettings]
     }
@@ -851,9 +907,7 @@ mod tests {
     /// Type `word`'s letters until it is a chip, then tap it.
     fn enter(flow: &mut IdentityFlow, word: &str) -> Vec<Effect> {
         for letter in word.chars() {
-            if let Some(Suggestions::Words(chips)) = flow.picker().map(WordPicker::suggestions)
-                && chips.contains(&word)
-            {
+            if flow.picker().and_then(|p| p.chip(word)).is_some() {
                 break;
             }
             assert!(flow.press(letter), "{letter} is enabled");
@@ -906,6 +960,9 @@ mod tests {
         enter(&mut flow, "zebra");
         assert_eq!(flow.check(), Some((6, Some(6))));
         assert_eq!(flow.picker().map(WordPicker::typed), Some(""), "cleared");
+        flow.try_again();
+        assert_eq!(flow.check(), Some((6, None)));
+        enter(&mut flow, "zebra");
         flow.show_words_again();
         assert_eq!(flow.screen(), ScreenId::C2);
         assert_eq!(flow.primary(), [], "the marker is already set");
@@ -982,6 +1039,7 @@ mod tests {
         assert_eq!(flow.notice(), Some(&Notice::Busy));
         assert_eq!(flow.restored(Ok(())), []);
         assert_eq!(flow.screen(), ScreenId::R4);
+        assert_eq!(flow.peer(), Some(&mine()), "R4 shows what was restored");
         assert_eq!(
             flow.primary(),
             [
@@ -1022,10 +1080,11 @@ mod tests {
         assert_eq!(flow.screen(), ScreenId::R2, "no R3 against a record");
         flow.restored(Ok(()));
         assert_eq!(flow.screen(), ScreenId::R4);
+        assert_eq!(flow.peer(), Some(&mine()));
     }
 
     #[test]
-    fn a_record_naming_no_peer_asks_at_r3_and_back_returns_to_k1() {
+    fn a_record_naming_no_peer_offers_no_restore_at_all() {
         let mut flow = IdentityFlow::new(
             LIST,
             Start::Recovery {
@@ -1033,17 +1092,49 @@ mod tests {
                 expected: None,
             },
         );
+        assert!(!flow.can_restore());
+        assert_eq!(flow.primary(), []);
+        assert_eq!(flow.screen(), ScreenId::K1, "no R2 over a record");
+        assert_eq!(flow.back(), [Effect::Finish]);
+    }
+
+    #[test]
+    fn back_from_r2_after_k1_returns_to_k1_with_its_reason() {
+        let mut flow = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Record,
+                expected: Some(mine()),
+            },
+        );
         flow.primary();
-        fill(&mut flow);
-        flow.primary();
-        flow.checked(Some(mine()));
-        assert_eq!(flow.screen(), ScreenId::R3);
+        enter(&mut flow, "acid");
         flow.back();
-        assert_eq!(flow.screen(), ScreenId::R2);
-        flow.back();
-        assert!(flow.discard_asked());
         flow.discard(true);
-        assert_eq!(flow.recovery(), Some((RecoveryReason::Record, None)));
+        assert_eq!(
+            flow.recovery(),
+            Some((RecoveryReason::Record, Some(&mine())))
+        );
+    }
+
+    #[test]
+    fn a_seal_that_finds_another_identity_warns_of_a_void_paper_and_opens_it() {
+        let mut flow = created_at_c2();
+        flow.primary();
+        enter(&mut flow, "galaxy");
+        enter(&mut flow, "saddle");
+        flow.primary();
+        flow.sealed(Err(StepFailed::AlreadyProvisioned));
+        assert_eq!(flow.notice(), Some(&Notice::VoidPaper));
+        assert_eq!(
+            flow.primary(),
+            [
+                Effect::VoidPaper(false),
+                Effect::StartService,
+                Effect::OpenChats
+            ],
+            "Continue opens what the phone holds, and seals nothing"
+        );
     }
 
     #[test]
@@ -1086,9 +1177,10 @@ mod tests {
         assert_eq!(flow.notice(), Some(&Notice::Busy));
         flow.primary();
         flow.prompted(true);
-        flow.offline(Ok(words()));
+        flow.offline(Ok((words(), mine())));
         assert_eq!(flow.screen(), ScreenId::S2);
         assert_eq!(flow.words(), Some(&words()));
+        assert_eq!(flow.peer(), Some(&mine()));
         assert_eq!(flow.back(), [Effect::StartService, Effect::OpenSettings]);
         assert_eq!(flow.words(), None);
     }
