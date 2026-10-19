@@ -113,6 +113,42 @@ pub(crate) fn signal(pid: u32, name: &str) {
     assert!(sent.success(), "SIG{name} was delivered");
 }
 
+/// Stop process `pid` and return once every one of its threads is
+/// stopped. `kill -STOP` returns before that: the kernel wakes one
+/// thread to start the stop, and until it is scheduled the others run
+/// on -- under load for milliseconds, long enough to answer a client
+/// (seen in CI on InterWeave#298, and reproduced here under load).
+pub(crate) fn stop(pid: u32) {
+    signal(pid, "STOP");
+    let deadline = Instant::now() + PATIENCE;
+    let states = || -> String {
+        std::fs::read_dir(format!("/proc/{pid}/task"))
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .map(|task| {
+                // `pid (comm) S ...`: the state follows the last `)`, as
+                // the command name may itself hold one.
+                std::fs::read_to_string(task.path().join("stat"))
+                    .ok()
+                    .and_then(|stat| stat.rsplit_once(") ")?.1.chars().next())
+                    .unwrap_or('?')
+            })
+            .collect()
+    };
+    loop {
+        let now = states();
+        if !now.is_empty() && now.chars().all(|state| state == 'T') {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "process {pid} stops on SIGSTOP; its threads are in states {now:?}"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
 /// Start the client for `home`'s profile on the display.
 pub(crate) fn start(home: &Home) -> App {
     start_with(home, &[])
