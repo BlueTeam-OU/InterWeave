@@ -155,7 +155,8 @@ reach the screen only through §3.5.
 
 **R1, Restore your identity.** What is needed: the 24 words, and the
 PeerId to compare at R3. The PeerId is the one written beside the
-words, or else the one a contact's app shows for this person. The
+words, or else the one a contact's app shows for this phone (a contact
+can hold one PeerId per device, `human-client-ui.md` §3). The
 network stays off until the restore is done. One line
 (`IdR1Settings`) states what `human-client-ui.md` §9 requires: a
 complete recovery needs the recovery phrase and a separate backup of
@@ -181,7 +182,7 @@ enabled.
   person's paper decides.
 - A person with the words but no PeerId on paper reads a line under
   the question (`IdR3NoPeerId`): compare with the PeerId a contact's
-  app shows for you, and restore only after that. They leave by Back,
+  app shows for this phone, and restore only after that. They leave by Back,
   with their words kept while the Activity lives (§7). There is no
   third button: confirming a PeerId nobody compared is exactly what R3
   exists to prevent.
@@ -401,12 +402,12 @@ names are suggestions; rust-ui-dev names them.
 | Key | Text | Where, and why this text |
 |---|---|---|
 | `IdWelcomeTitle` | Welcome to InterWeave | W's title |
-| `IdWelcomeBody` | Exchange messages with the people you trust, directly from this phone. There is no account to create. | W's body, two lines |
+| `IdWelcomeBody` (pending reword, language-culture: #303 r1 F8: no "directly", relays are normal) | Exchange messages with the people you trust, directly from this phone. There is no account to create. | W's body, two lines |
 | `IdVoidPaper` | The words shown last time were never used. They are not your identity, so do not use that paper as your backup. | W's notice while the void-paper marker is set (§3.1), three lines. It says what the old paper is not, and what not to do with it |
 | `IdCreate` | Create a new identity | W's primary |
 | `IdRestore` | Restore my identity | W's secondary |
 | `IdC1Title` | About your recovery phrase | C1's title |
-| `IdC1Point1` | These 24 words are the key to your identity. With them, you can restore it on another phone. | C1, first point |
+| `IdC1Point1` (pending reword, language-culture: #303 r1 F9: a move to a new phone, not a second phone) | These 24 words are the key to your identity. With them, you can restore it on another phone. | C1, first point |
 | `IdC1Point2` | Write them on paper, in order, with your PeerId. Store the paper in a safe place. | C1, second point. The PeerId is named here, because R1 asks for it later |
 | `IdC1Point3` | Anyone who has these words can act as you in InterWeave. Do not show them to anyone. | C1, third point: "can be you", without alarm |
 | `IdC1Point0` (pending, language-culture) | C1's new first point: an InterWeave identity recovery phrase, not a cryptocurrency wallet seed (`IDENTITY-RECOVERY.md`). Keys renumber as language-culture sees fit | C1, two lines |
@@ -430,11 +431,11 @@ names are suggestions; rust-ui-dev names them.
 | `IdCreatedBody` | When you continue, the app connects to the network with this identity. | C4's and R4's body |
 | `IdContinue` | Continue | C4's and R4's primary |
 | `IdR1Title` | Restore your identity | R1's title |
-| `IdR1Body` | You need your 24 words, and your PeerId from your paper or from a contact's app. The app stays offline until the restore is done. | R1's body, three lines |
+| `IdR1Body` (pending reword, language-culture: #303 r1 F10: this phone's PeerId) | You need your 24 words, and your PeerId from your paper or from a contact's app. The app stays offline until the restore is done. | R1's body, three lines |
 | `IdEnterWords` | Enter my words | R1's primary |
 | `IdCheckWords` | Check my words | R2's primary |
 | `IdR1Settings` (pending reword, language-culture: §9's full statement, #303 r1 F3) | The words bring back your identity only. Your contacts and settings are not part of them. | R1's line under the body, two lines. It states the fact and gives no advice: "restored separately" would advise a step the app may not offer yet, which ux-designer's Android review checks. When the app offers it, the line gains that step |
-| `IdR3NoPeerId` | If you have no PeerId on paper, ask a contact to read yours from their app. Restore only if it matches. | R3, two lines under the question |
+| `IdR3NoPeerId` (pending reword, language-culture: #303 r1 F10: this phone's PeerId) | If you have no PeerId on paper, ask a contact to read yours from their app. Restore only if it matches. | R3, two lines under the question |
 | `IdR3Question` | Is this the PeerId that you wrote down? If it is not, a word may be wrong. | R3's question, two lines. It asks; it never says the PeerId is right, and it says what a "no" usually means |
 | `IdR3Yes` | Yes, restore it | R3's primary |
 | `IdR3No` | No, check my words | R3's secondary |
@@ -576,6 +577,17 @@ architect-cto, 2026-10-19 (REPLY 01a15282-ac06), against
   (delete the whole profile, then provision; never mint over the
   record) is the owner's product call. architect-cto carries it by
   name in the Stage 17 closing record.
+
+## 11a. Open with architect-cto (from #303's review)
+
+- **Q5.** Does the Android app have, or will it have, a backup of the
+  contacts, trust and settings? `human-client-ui.md` §9's statement is
+  made either way on C1 and R1. If there is no such backup, the person
+  is told of a need they cannot meet; that would be a gap to decide.
+- **Q6.** K1 over a record with no readable PeerId offers no path but
+  `IdQLost` (§3.4). Does this case get one, for example an explicit
+  replace with a warning about the contacts and messages the profile
+  holds? Default: none.
 
 ## 12. Deliberately left out
 
