@@ -678,3 +678,31 @@ B:
         );
     }
 }
+
+/// A port held by a socket of this account WITHOUT `SO_REUSEPORT` refuses
+/// the daemon's listen (`EADDRINUSE`: the kernel lets a second socket
+/// share a port only when every holder set the option), and the daemon
+/// exits 1 -- the code its unit's `Restart=on-failure` retries and
+/// `RestartPreventExitStatus=2` does not exclude (ADR-0055 decision 5).
+/// `std::net::TcpListener` sets `SO_REUSEADDR` and never `SO_REUSEPORT`,
+/// so it is the plain holder. The same profile started once the holder
+/// lets go is the control: the configuration was never the refusal.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_port_held_without_reuseport_refuses_the_start() {
+    let base = private_tempdir();
+    let mut a = Profile::mint(base.path(), "profile-0");
+    let b = Profile::mint(base.path(), "profile-1");
+    a.render(&[&b]);
+    let holder = std::net::TcpListener::bind((loopback(), a.port)).expect("the port is free");
+    let mut refused = a.home.start(&[]);
+    let status = refused.exit().await;
+    assert_eq!(status.code(), Some(1), "{}", refused.log());
+    assert!(
+        refused.log().contains("Address already in use"),
+        "refused for the held port, not another cause:\n{}",
+        refused.log()
+    );
+    drop(holder);
+    a.start().await;
+    a.stop().await;
+}
