@@ -5,7 +5,7 @@ topic: "stage-16-channel-core"
 description: "Stage 16 (Claude Code Channel bridge, plan §19) — how step 2 (channel-core) was built and what step 3 (apps/claude-channel) inherits"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

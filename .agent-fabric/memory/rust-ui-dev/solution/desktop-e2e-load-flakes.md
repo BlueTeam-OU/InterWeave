@@ -5,7 +5,7 @@ topic: "desktop-e2e-load-flakes"
 description: "j15 -- how to reproduce desktop-e2e timeouts under load, and the send-without-step defect found (Peer::deliver)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

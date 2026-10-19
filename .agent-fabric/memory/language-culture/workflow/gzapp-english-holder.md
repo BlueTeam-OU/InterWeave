@@ -5,7 +5,7 @@ topic: "gzapp-english-holder"
 description: "I hold English (en-US) in gzapp too, since 2026-10-10; how a gzapp en-US supply is delivered and validated from this account"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 8cb09bf97f7df098
+  - e3fdad871df77bab
 ---
 
 ## I hold English (en-US) in gzapp too, since 2026-10-10; how a gzapp en-US supply is delivered and validated from this account
@@ -38,8 +39,9 @@ derived_from:
 - An error that only a direct API caller can trigger (a bad wire value the screen never sends) keeps the WIRE terms, not the screen's: state-invalid says draft/active/retired (backend-dev-02, 01a127a5, 2026-10-10). Check who can trigger an error before aligning its words.
 - Inbox watch: only ever `gzcoord-inbox --until-delivery` as a background Bash command; never start-and-kill one in a shell line (twice on 2026-10-10; a reader killed mid-poll could swallow a delivery). Check --history after any such slip.
 - Before changing an en-US value, find every test that reads the real dictionary TRANSITIVELY (e.g. status_web imports it via src/i18n/dictionaries.ts), not only files importing en-US.json directly: #1099 review F1, 2026-10-11.
+- Proactive i18n work in gzapp: offer it as a contributor branch to an open PR that already touches product/i18n, not as a standalone PR (the CI-minutes programme targets standalone i18n-only PRs; the owner said "fold" for #1107, 2026-10-13).
 Related: [[interweave-copy-conventions]]
 
 *References: interweave-copy-conventions*
 
-*Observed 2026-10-11 (language-culture)*
+*Observed 2026-10-13 (language-culture)*

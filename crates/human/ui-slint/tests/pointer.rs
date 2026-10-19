@@ -278,11 +278,27 @@ fn control_centre(view: &View, label: &str) -> (f32, f32) {
     (at.x + size.width / 2.0, at.y + size.height / 2.0)
 }
 
-/// §4: a drag that starts on a row's button presses nothing, in a
-/// direction the row does not offer too, even released over the button;
-/// a tap on it presses it.
-#[test]
-fn a_drag_from_a_rows_button_never_presses_it_and_a_tap_does() {
+/// Open message row `index`'s menu as a screen reader does, by the row's
+/// default action.
+fn open_menu(view: &View, index: usize) {
+    let label = view
+        .window()
+        .get_messages()
+        .row_data(index)
+        .expect("a row")
+        .label;
+    i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .match_accessible_role(i_slint_backend_testing::AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().as_deref() == Some(label.as_str()))
+        .expect("the row's item")
+        .invoke_accessible_default_action();
+    tick(2);
+}
+
+/// A kept row, read, in a phone-sized view: it offers Unkeep.
+fn kept_row() -> (View, UiModel) {
     let mut view = phone();
     let mut model = UiModel::new();
     let alice = peer();
@@ -294,12 +310,120 @@ fn a_drag_from_a_rows_button_never_presses_it_and_a_tap_does() {
     let item = model.messages(&key)[0].key;
     model.kept(item, RowId::from_stored(10));
     let _ = turn(&mut view, &mut model);
+    (view, model)
+}
+
+/// §4 (revised for #304 F2): a press held within the slop for the
+/// platform's long-press time opens the row's menu; a press that passed
+/// the slop first never does, however long it is held; neither raises an
+/// intent. The menu opens with one haptic tick.
+#[test]
+fn a_press_held_within_the_slop_opens_the_rows_menu_and_one_past_it_never_does() {
+    let (mut view, mut model) = kept_row();
+    view.set_touch_settings(TouchSettings {
+        long_press_ms: 400,
+        ..TouchSettings::default()
+    });
+    let ticks = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = std::rc::Rc::clone(&ticks);
+    view.on_haptic(move || counted.set(counted.get() + 1));
+    let at = message_text_at(&view, 0);
+    let handle = view
+        .window()
+        .get_messages()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    let press = |view: &View, moved: f32, hold: u64| {
+        let position = |dx: f32| LogicalPosition::new(at.0 + dx, at.1);
+        event(
+            view,
+            WindowEvent::PointerPressed {
+                position: position(0.0),
+                button: PointerEventButton::Left,
+            },
+        );
+        tick(120);
+        if moved != 0.0 {
+            event(
+                view,
+                WindowEvent::PointerMoved {
+                    position: position(moved),
+                },
+            );
+        }
+        tick(hold);
+        let opened = view.window().get_row_menu();
+        event(
+            view,
+            WindowEvent::PointerReleased {
+                position: position(moved),
+                button: PointerEventButton::Left,
+            },
+        );
+        tick(16);
+        opened
+    };
+    assert_eq!(
+        press(&view, 0.0, 200),
+        -1,
+        "control: under the long-press time"
+    );
+    assert_eq!(
+        press(&view, 0.0, 400),
+        handle,
+        "held within the slop: its menu"
+    );
+    assert_eq!(ticks.get(), 1, "one haptic tick as it opens");
+    view.window().invoke_close_row_menu();
+    // To the right, which a kept row does not offer, so no swipe takes it.
+    assert_eq!(press(&view, 30.0, 800), -1, "past the slop first: never");
+    assert!(turn(&mut view, &mut model).is_empty());
+}
+
+/// §7: a secondary click on a bubble opens its menu at once.
+#[test]
+fn a_secondary_click_opens_the_rows_menu() {
+    let (view, _) = kept_row();
+    let at = message_text_at(&view, 0);
+    let handle = view
+        .window()
+        .get_messages()
+        .row_data(0)
+        .expect("a row")
+        .handle;
+    let position = LogicalPosition::new(at.0, at.1);
+    event(
+        &view,
+        WindowEvent::PointerPressed {
+            position,
+            button: PointerEventButton::Right,
+        },
+    );
+    tick(16);
+    event(
+        &view,
+        WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Right,
+        },
+    );
+    tick(16);
+    assert_eq!(view.window().get_row_menu(), handle);
+}
+
+/// §4: a drag that starts on an item of an open menu presses nothing,
+/// even released over it; a tap on it presses it.
+#[test]
+fn a_drag_from_a_menu_item_never_presses_it_and_a_tap_does() {
+    let (mut view, mut model) = kept_row();
+    open_menu(&view, 0);
     let unkeep = placeholder_en::text(UiText::Unkeep);
     let on = control_centre(&view, unkeep);
 
-    // 30 is past the slop and still over the button.
+    // 30 is past the slop and still over the item.
     drag(&view, on, 30.0);
-    assert_eq!(control_centre(&view, unkeep), on, "the row did not move");
+    assert_eq!(control_centre(&view, unkeep), on, "the menu stayed");
     let raised = turn(&mut view, &mut model);
     assert!(raised.is_empty(), "a right drag from {unkeep}: {raised:?}");
 
@@ -317,25 +441,15 @@ fn a_drag_from_a_rows_button_never_presses_it_and_a_tap_does() {
 }
 
 /// The tap's slop is the platform's, as the swipe's is: with a slop of 40
-/// a 30 dp wander, the way a kept row does not move, is still the
-/// button's tap.
+/// a 30 dp wander is still the menu item's tap.
 #[test]
 fn a_taps_slop_is_the_platforms() {
-    let mut view = phone();
+    let (mut view, mut model) = kept_row();
     view.set_touch_settings(TouchSettings {
         slop: 40.0,
         ..TouchSettings::default()
     });
-    let mut model = UiModel::new();
-    let alice = peer();
-    received(&mut model, 1, &alice, "kept");
-    model.read(RowId::from_stored(1));
-    let key = direct(&alice);
-    view.select(key.clone());
-    let _ = turn(&mut view, &mut model);
-    let item = model.messages(&key)[0].key;
-    model.kept(item, RowId::from_stored(10));
-    let _ = turn(&mut view, &mut model);
+    open_menu(&view, 0);
     let unkeep = placeholder_en::text(UiText::Unkeep);
     drag_via(&view, control_centre(&view, unkeep), &[30.0, 0.0]);
     let raised = turn(&mut view, &mut model);
@@ -343,4 +457,40 @@ fn a_taps_slop_is_the_platforms() {
         matches!(raised.as_slice(), [Intent::Unkeep(_)]),
         "within a 40 slop: {raised:?}"
     );
+}
+
+/// #304 F5: the focus ring is for keyboard focus only. A tap that opens
+/// the conversation's menu, whose first item then takes focus, draws no
+/// ring; a Tab draws one; a tap clears it again.
+#[test]
+fn the_focus_ring_shows_for_the_keyboard_never_for_a_tap() {
+    let (view, _) = kept_row();
+    let rings = |view: &View| {
+        i_slint_backend_testing::ElementQuery::from_root(view.window())
+            .find_all()
+            .into_iter()
+            .filter(|e| e.type_name().as_deref() == Some("FocusRing"))
+            .filter(|r| r.computed_opacity() > 0.0)
+            .count()
+    };
+    tap(
+        &view,
+        control_centre(&view, placeholder_en::text(UiText::MoreOptions)),
+    );
+    tick(10);
+    tick(10);
+    assert!(view.window().get_menu_open(), "control: the tap opened it");
+    assert!(
+        !view.window().get_focus_id().is_empty(),
+        "control: focus moved"
+    );
+    assert_eq!(rings(&view), 0, "a tap draws no ring");
+    let key: slint::SharedString = slint::platform::Key::Tab.into();
+    event(&view, WindowEvent::KeyPressed { text: key.clone() });
+    event(&view, WindowEvent::KeyReleased { text: key });
+    tick(10);
+    assert_eq!(rings(&view), 1, "a Tab draws one");
+    tap(&view, message_text_at(&view, 0));
+    tick(10);
+    assert_eq!(rings(&view), 0, "a tap clears it");
 }

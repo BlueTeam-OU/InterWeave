@@ -28,8 +28,8 @@ use interweave_human_client_api::TrustOrigin;
 use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
     HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
-    RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, UiModel, UiText,
-    fill, placeholder_en, short_peer, visible_destination,
+    RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, TrustSettings,
+    UiModel, UiText, fill, placeholder_en, short_peer, visible_destination,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -37,9 +37,13 @@ use slint::{Model as _, ModelRc, SharedString, VecModel};
 mod body;
 mod clock;
 mod gesture;
+mod identity;
 mod swipe;
 
 pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
+pub use identity::{
+    IdentityInput, apply as apply_identity, grouped as grouped_peer, page as identity_page,
+};
 
 #[allow(
     missing_docs,
@@ -62,6 +66,7 @@ mod generated {
 pub use generated::AppWindow;
 /// The icons the views draw; a test reads which one a status takes.
 pub use generated::Glyph;
+pub use generated::IdentityPage;
 /// The colour roles of design/2026-10-16-android-look.md section 3, so a
 /// test can switch the scheme and measure every pair the section names.
 pub use generated::Palette;
@@ -178,21 +183,26 @@ pub fn platform_check() -> Result<(), PlatformProblem> {
 /// asks the font stack the renderer itself uses which family that generic
 /// is. Empty -- the default font -- when it names none, or without a
 /// window.
+///
+/// On Android too: the backend lays text out with the same font stack,
+/// which reads the platform's fonts.xml, and there too "monospace" is a
+/// generic, not a family name -- given by name, every `PeerId` and code
+/// line drew in the body font on the phone (#304 F4, round 2).
+#[cfg(any(feature = "desktop", feature = "android"))]
 fn code_font() -> SharedString {
-    #[cfg(feature = "desktop")]
-    {
-        use i_slint_common::sharedfontique::fontique::{
-            Collection, CollectionOptions, GenericFamily,
-        };
-        let mut fonts = Collection::new(CollectionOptions {
-            shared: false,
-            system_fonts: true,
-        });
-        let family = fonts.generic_families(GenericFamily::Monospace).next();
-        if let Some(name) = family.and_then(|id| fonts.family_name(id)) {
-            return name.into();
-        }
-    }
+    use i_slint_common::sharedfontique::fontique::{Collection, CollectionOptions, GenericFamily};
+    let mut fonts = Collection::new(CollectionOptions {
+        shared: false,
+        system_fonts: true,
+    });
+    let family = fonts.generic_families(GenericFamily::Monospace).next();
+    family
+        .and_then(|id| fonts.family_name(id))
+        .map_or_else(SharedString::new, SharedString::from)
+}
+
+#[cfg(not(any(feature = "desktop", feature = "android")))]
+fn code_font() -> SharedString {
     SharedString::new()
 }
 
@@ -325,6 +335,9 @@ struct Shared {
     /// The trust change the confirmation shows, as rendered: what a press
     /// of Confirm names.
     pending_shown: Option<TrustChange>,
+    /// The confirmation was closed by its act, not by "Do not change":
+    /// where focus goes once it has closed.
+    trust_confirmed: bool,
     wake: Option<Rc<dyn Fn()>>,
     /// The rows a swipe can move, as rendered, by their swipe key.
     swipes: HashMap<String, swipe::Swipeable>,
@@ -606,6 +619,18 @@ pub struct View {
     trusted: Rc<VecModel<TrustRow>>,
     trusted_keys: Vec<TransportIdentity>,
     trusted_handles: Handles<TransportIdentity>,
+    /// The trust change the last render showed, to tell when its dialog
+    /// closed, and where its row stood then: the answer that closes it
+    /// may already list the peer gone.
+    pending_was: Option<(TrustChange, Option<usize>)>,
+    /// A confirmed removal whose row is still listed, and where it stood:
+    /// focus stays on its button until the row goes, then moves to the
+    /// next row, else the previous, else the heading (#304 F4).
+    removing: Option<(TransportIdentity, usize)>,
+    /// The focus move [`Self::focus_key`] has scheduled and not applied:
+    /// one at a time, the latest replacing an earlier, since two
+    /// zero-delay timers of one turn fire in no promised order.
+    focus_wanted: Rc<RefCell<Option<String>>>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
     /// Where the runtime runs, which the texts that name it follow.
@@ -630,6 +655,9 @@ pub struct View {
     undo_closed_seen: Option<u64>,
     /// Where a message's shown time comes from.
     clock: clock::Clock,
+    /// The monotonic time a leaving row closes by: `Instant::now`, or a
+    /// test's, which steps it rather than sleeping through it under load.
+    monotonic: Rc<dyn Fn() -> Instant>,
     /// Each conversation's preview, kept with the last message it is of:
     /// a body never changes.
     previews: HashMap<ConversationKey, (ItemKey, String)>,
@@ -638,7 +666,15 @@ pub struct View {
     /// The one wake at the next local midnight, and when it is due.
     day_timer: slint::Timer,
     day_due: Option<u64>,
+    /// What runs once the next frame has been drawn
+    /// ([`View::after_next_frame`]); `None` until the window's one
+    /// rendering notifier is set.
+    frame_tasks: Option<FrameTasks>,
 }
+
+/// The tasks [`View::after_next_frame`] queued, which the window's
+/// rendering notifier runs.
+type FrameTasks = Rc<RefCell<Vec<Box<dyn FnOnce()>>>>;
 
 impl View {
     /// A view over a new window, for a client whose runtime runs on
@@ -669,6 +705,7 @@ impl View {
         window.set_trust_settings_label(text(UiText::TrustSettings));
         window.set_back_label(text(UiText::BackToConversations));
         window.set_trust_heading(text(UiText::TrustHeading));
+        window.set_show_phrase_label(text(UiText::IdShowPhraseItem));
         window.set_trust_explanation(text(UiText::TrustExplanation));
         window.set_own_peer_id_label(text(UiText::OwnPeerId));
         window.set_trusted_heading(text(UiText::TrustedPeers));
@@ -695,6 +732,7 @@ impl View {
                 enqueue(&s, Input::Select(key));
             }
         });
+        connect_menu_haptic(&window, &shared);
         let s = Rc::clone(&shared);
         window.on_action(move |handle, index| {
             let pressed = s.borrow().items.get(&handle).and_then(|item| {
@@ -761,6 +799,7 @@ impl View {
         window.on_trust_confirm(move || {
             let shown = s.borrow().pending_shown.clone();
             if let Some(change) = shown {
+                s.borrow_mut().trust_confirmed = true;
                 enqueue(&s, Input::Trust(TrustInput::Confirm(change)));
             }
         });
@@ -819,10 +858,12 @@ impl View {
             action_models: HashMap::new(),
             bodies: HashMap::new(),
             clock: clock::Clock::default(),
+            monotonic: Rc::new(Instant::now),
             previews: HashMap::new(),
             shown_items: HashMap::new(),
             day_timer: slint::Timer::default(),
             day_due: None,
+            frame_tasks: None,
             seen: Seen::default(),
             next_slot_b: false,
             selection_unrendered: false,
@@ -832,6 +873,9 @@ impl View {
             trusted,
             trusted_keys: Vec::new(),
             trusted_handles: Handles::new(),
+            pending_was: None,
+            removing: None,
+            focus_wanted: Rc::new(RefCell::new(None)),
             trust_announced: 0,
             host,
             shared,
@@ -906,6 +950,12 @@ impl View {
         self.clock.hour24 = hour24;
     }
 
+    /// Read the monotonic time a leaving row's space closes by from
+    /// `now` rather than the system's: for a test, which then steps it.
+    pub fn set_monotonic(&mut self, now: impl Fn() -> Instant + 'static) {
+        self.monotonic = Rc::new(now);
+    }
+
     /// The platform's touch values a swipe reads (§4, §6, §7): its touch
     /// slop, its gesture insets, the layout's direction, whether motion
     /// is off, and the snackbar's time up. A desktop keeps the defaults.
@@ -917,6 +967,7 @@ impl View {
         touch.set_slop(settings.slop);
         // A press shows a ripple only while the system animates.
         touch.set_reduced_motion(settings.reduced_motion);
+        touch.set_long_press(i64::try_from(settings.long_press_ms).unwrap_or(i64::MAX));
         let hour_changed = self.shared.borrow().touch.hour24 != settings.hour24;
         self.shared.borrow_mut().touch = settings;
         // Every time is drawn in the setting at render: a change while the
@@ -928,6 +979,108 @@ impl View {
                 wake();
             }
         }
+    }
+
+    /// Run `task` once a frame rendered after this call has been handed to
+    /// the display: what is cleared then, as a secure flag, is off the
+    /// screen's next frame. Slint's `AfterRendering` comes before the
+    /// buffer swap, so the task waits for the event loop's next turn,
+    /// which the render's swap precedes on this thread (#309 review N3).
+    /// A redraw is asked for. False, and `task` dropped unrun, when the
+    /// renderer cannot say when it rendered (the testing backend).
+    pub fn after_next_frame(&mut self, task: impl FnOnce() + 'static) -> bool {
+        if self.frame_tasks.is_none() {
+            let tasks: FrameTasks = Rc::new(RefCell::new(Vec::new()));
+            let queued = Rc::clone(&tasks);
+            let set = slint::ComponentHandle::window(&self.window).set_rendering_notifier(
+                move |state, _| {
+                    if matches!(state, slint::RenderingState::AfterRendering) {
+                        let due: Vec<_> = queued.borrow_mut().drain(..).collect();
+                        if !due.is_empty() {
+                            slint::Timer::single_shot(Duration::ZERO, move || {
+                                for task in due {
+                                    task();
+                                }
+                            });
+                        }
+                    }
+                },
+            );
+            if set.is_err() {
+                return false;
+            }
+            self.frame_tasks = Some(tasks);
+        }
+        let Some(tasks) = &self.frame_tasks else {
+            return false;
+        };
+        tasks.borrow_mut().push(Box::new(task));
+        slint::ComponentHandle::window(&self.window).request_redraw();
+        true
+    }
+
+    /// Show the identity screens' `page` over everything, or hide them
+    /// with `None` (design/2026-10-19-android-identity.md). The page is
+    /// rebuilt from the flow by [`identity_page`] after every input.
+    pub fn show_identity(&self, page: Option<IdentityPage>) {
+        if let Some(page) = page {
+            self.window.set_identity(page);
+            self.window.set_identity_active(true);
+        } else {
+            self.window.set_identity_active(false);
+            // Its words leave the view with it (section 7).
+            self.window.set_identity(IdentityPage::default());
+        }
+    }
+
+    /// Offer Show recovery phrase on Settings, under the `PeerId`, calling
+    /// `show` when it is pressed: Android's, where the phrase is the only
+    /// way to keep the identity (design section 3.5).
+    pub fn offer_show_phrase(&self, show: impl Fn() + 'static) {
+        self.window.set_show_phrase_offered(true);
+        self.window.on_show_phrase(show);
+    }
+
+    /// The platform's Back: the screen showing takes it -- the identity
+    /// flow, a menu, the trust settings, a narrow window's conversation --
+    /// or, false, there is no way back and the platform leaves the app.
+    #[must_use]
+    pub fn back(&self) -> bool {
+        self.window.invoke_handle_back()
+    }
+
+    /// Hand each identity-page input to `input`, which applies it to the
+    /// flow ([`apply_identity`]) and shows the page again.
+    pub fn on_identity(&self, input: impl Fn(IdentityInput) + 'static) {
+        let input = Rc::new(input);
+        let w = &self.window;
+        let i = Rc::clone(&input);
+        w.on_identity_primary(move || i(IdentityInput::Primary));
+        let i = Rc::clone(&input);
+        w.on_identity_secondary(move || i(IdentityInput::Secondary));
+        let i = Rc::clone(&input);
+        w.on_identity_tertiary(move || i(IdentityInput::Tertiary));
+        let i = Rc::clone(&input);
+        w.on_identity_back(move || i(IdentityInput::Back));
+        let i = Rc::clone(&input);
+        w.on_identity_key(move |letter| {
+            if let Some(letter) = letter.chars().next() {
+                i(IdentityInput::Key(letter));
+            }
+        });
+        let i = Rc::clone(&input);
+        w.on_identity_delete(move || i(IdentityInput::Delete));
+        let i = Rc::clone(&input);
+        w.on_identity_clear(move || i(IdentityInput::Clear));
+        let i = Rc::clone(&input);
+        w.on_identity_chip(move |word| i(IdentityInput::Chip(word.to_string())));
+        let i = Rc::clone(&input);
+        w.on_identity_slot(move |slot| {
+            if let Ok(slot) = usize::try_from(slot) {
+                i(IdentityInput::Slot(slot));
+            }
+        });
+        w.on_identity_dialog(move |delete| input(IdentityInput::Dialog(delete)));
     }
 
     /// Play `tick` once each time a swipe arms (§4): the platform's
@@ -1353,7 +1506,7 @@ impl View {
             }
         }
         let (mut keys, mut rows) = (keys, rows);
-        let now = Instant::now();
+        let now = (self.monotonic)();
         let reduced = self.shared.borrow().touch.reduced_motion;
         if !reduced {
             for (index, key) in self.conversation_keys.iter().enumerate() {
@@ -1497,6 +1650,11 @@ impl View {
         let mut swipes = HashMap::new();
         let channel = matches!(self.shown, Some(ConversationKey::Channel(_)));
         let mut previous: Option<&MessageItem> = None;
+        // A message's open menu shows its actions as they were: one that
+        // changes them, or takes the row away, closes it (swipe spec
+        // section 7).
+        let menu = self.window.get_row_menu();
+        let mut menu_stale = menu >= 0;
         let mut rows: Vec<MessageRow> = items
             .iter()
             .map(|item| {
@@ -1505,7 +1663,12 @@ impl View {
                 let handle = self.item_handles.of(&item.key);
                 let actions = model.row_actions(item.key);
                 let model_rc = match self.action_models.get(&handle) {
-                    Some((same, rc)) if *same == actions => rc.clone(),
+                    Some((same, rc)) if *same == actions => {
+                        if handle == menu {
+                            menu_stale = false;
+                        }
+                        rc.clone()
+                    }
                     _ => {
                         let rc = action_model(&actions);
                         self.action_models
@@ -1534,10 +1697,19 @@ impl View {
                 row
             })
             .collect();
+        if menu_stale {
+            if rendered.contains_key(&menu) {
+                // Its actions changed: focus back on its bubble.
+                self.window.invoke_close_row_menu();
+            } else {
+                // Its row is gone: where focus goes is the removal's rule.
+                self.window.set_row_menu(-1);
+            }
+        }
         // A row gone from the conversation still shown leaves: its space
         // closes rather than the rows below jumping up (swipe spec §5).
         // One gone because another conversation is shown just goes.
-        let now = Instant::now();
+        let now = (self.monotonic)();
         let reduced = self.shared.borrow().touch.reduced_motion;
         if self.rendered_shown == self.shown && !reduced {
             for (index, key) in self.message_keys.iter().enumerate() {
@@ -1752,6 +1924,16 @@ impl View {
             window.set_trust_entry(settings.entry().into());
         }
         self.shared.borrow_mut().pending_shown = settings.pending().cloned();
+        self.trust_focus(settings, &keys);
+        let window = &self.window;
+        window.set_confirm_label(
+            placeholder_en::text(if settings.pending().is_some_and(|c| c.allowed) {
+                UiText::TrustPeer
+            } else {
+                UiText::RemoveTrust
+            })
+            .into(),
+        );
         let pending = settings.pending().map(|change| {
             let template = placeholder_en::text(if change.allowed {
                 UiText::ConfirmAllow
@@ -1766,7 +1948,11 @@ impl View {
         let said = outcome
             .map(|outcome| outcome_text(self.host, outcome))
             .unwrap_or_default();
-        window.set_trust_outcome(said.as_str().into());
+        // The entry's problem goes under its field; every other outcome
+        // where it was. Either is announced the same way below.
+        let entry = matches!(outcome, Some(TrustOutcome::Entry(_)));
+        window.set_entry_error(if entry { said.as_str() } else { "" }.into());
+        window.set_trust_outcome(if entry { "" } else { said.as_str() }.into());
         if count == self.trust_announced || said.is_empty() {
             self.trust_announced = count;
             return None;
@@ -1921,16 +2107,92 @@ impl View {
         let Some(target) = target else {
             return false;
         };
-        let window = swipe::weak(&self.window);
         // Once the rows it names exist: a restored row is drawn by this
         // render, and its controls are made after it.
+        self.focus_key(target);
+        true
+    }
+
+    /// Where focus goes when the trust dialog closes (#304 F4 at
+    /// 3b19110a): back to the row's Remove trust, or to "Trust this peer"
+    /// for an addition; after a removal, once its row has gone, to the
+    /// next row, else the previous, else the "Trusted peers" heading. A
+    /// removal that was refused leaves its row, and focus, where they are.
+    fn trust_focus(&mut self, settings: &TrustSettings, keys: &[TransportIdentity]) {
+        let now = settings.pending().cloned();
+        let closed = match (self.pending_was.take(), &now) {
+            (Some(was), None) => Some(was),
+            (Some(was), Some(change)) if was.0 == *change => {
+                self.pending_was = Some(was);
+                None
+            }
+            _ => None,
+        };
+        if self.pending_was.is_none() {
+            self.pending_was = now.map(|change| {
+                let at = keys.iter().position(|p| *p == change.peer);
+                (change, at)
+            });
+        }
+        if self.page != Page::Trust {
+            self.removing = None;
+            return;
+        }
+        let row = |handles: &mut Handles<TransportIdentity>, peer: &TransportIdentity| {
+            format!("remove:{}", handles.of(peer))
+        };
+        if let Some((change, stood)) = closed {
+            let confirmed = std::mem::take(&mut self.shared.borrow_mut().trust_confirmed);
+            if change.allowed {
+                self.focus_key("trust-add".to_owned());
+            } else if keys.contains(&change.peer) {
+                // Still listed: its own button, and, once confirmed, the
+                // next row's when it goes.
+                if confirmed && let Some(index) = stood {
+                    self.removing = Some((change.peer.clone(), index));
+                }
+                let target = row(&mut self.trusted_handles, &change.peer);
+                self.focus_key(target);
+            } else if let Some(index) = stood {
+                // Gone with the answer that closed the dialog.
+                self.removing = Some((change.peer.clone(), index));
+            }
+        }
+        let Some((peer, index)) = self.removing.clone() else {
+            return;
+        };
+        if keys.contains(&peer) {
+            if matches!(settings.outcome().0, Some(TrustOutcome::Problem(_))) {
+                self.removing = None;
+            }
+            return;
+        }
+        self.removing = None;
+        let target = keys
+            .get(index)
+            .or_else(|| index.checked_sub(1).and_then(|i| keys.get(i)))
+            .map_or_else(
+                || "trusted-heading".to_owned(),
+                |p| row(&mut self.trusted_handles, p),
+            );
+        self.focus_key(target);
+    }
+
+    /// Focus the control whose focus key is `target`, once the render that
+    /// draws it is done.
+    fn focus_key(&self, target: String) {
+        if self.focus_wanted.borrow_mut().replace(target).is_some() {
+            // Already scheduled: it applies this target instead.
+            return;
+        }
+        let (window, wanted) = (swipe::weak(&self.window), Rc::clone(&self.focus_wanted));
         defer(move || {
-            if let Some(window) = window.upgrade() {
+            let target = wanted.borrow_mut().take();
+            if let (Some(window), Some(target)) = (window.upgrade(), target) {
                 window.set_focus_target(target.into());
                 window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
             }
         });
-        true
     }
 
     /// Wake the root after `delay`, so it renders again: a leaving row
@@ -2110,6 +2372,18 @@ fn update_by_key<K: PartialEq + Clone, R: Clone + PartialEq>(
 
 /// The buttons for `actions`, in order: a press is recorded by its index
 /// into the actions as rendered.
+/// A long-press opening a message's menu plays the platform's haptic
+/// tick, as a swipe arming does (swipe spec section 7).
+fn connect_menu_haptic(window: &generated::AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let s = Rc::clone(shared);
+    window.on_menu_haptic(move || {
+        let tick = s.borrow().haptic.clone();
+        if let Some(tick) = tick {
+            tick();
+        }
+    });
+}
+
 fn action_model(actions: &[RowAction]) -> ModelRc<ActionRow> {
     let rows: Vec<ActionRow> = actions
         .iter()

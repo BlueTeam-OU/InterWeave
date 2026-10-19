@@ -5,7 +5,7 @@ topic: "logging-is-a-privacy-decision"
 description: "Before adding any log line (what, identifiers, level, placement), ask architect-cto; the owner treats every logging change as a security/privacy decision"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

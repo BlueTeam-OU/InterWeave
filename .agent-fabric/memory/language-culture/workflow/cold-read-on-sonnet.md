@@ -5,7 +5,7 @@ topic: "cold-read-on-sonnet"
 description: "Cold reads are Explore dispatches on model sonnet, not opus (since 2026-10-10)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

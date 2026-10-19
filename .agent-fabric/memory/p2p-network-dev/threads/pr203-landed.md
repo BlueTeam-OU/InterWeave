@@ -5,7 +5,7 @@ topic: "pr203-landed"
 description: "#203 (Stage 16 steps 4+5) merged f7b2c46b 2026-10-06; carried P3 and risks for the next change in claude_channel.rs or s16_run.py"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

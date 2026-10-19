@@ -5,7 +5,7 @@ topic: "carry-commits-count-as-work"
 description: "The gate's work count is authoritative; arm without asking as soon as pr-gate.sh shows 8 work commits; below 8, add work to the batch instead of asking"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

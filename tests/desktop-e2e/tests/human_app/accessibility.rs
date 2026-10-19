@@ -37,10 +37,9 @@ async fn the_tree_read_over_atspi_labels_message_route_and_connectivity_controls
 
     let b = world.b_peer.as_str();
     let short = short_peer(b);
-    let title = fill(
-        text(UiText::DirectTitle),
-        &[("peer", &short), ("route", human().as_str())],
-    );
+    // B's only conversation: titled by the short PeerId alone
+    // (human-client-ui.md §4).
+    let title = short.clone();
     let log = || client.log();
 
     // A message arrives in a conversation not open: the announcement names
@@ -80,7 +79,7 @@ async fn the_tree_read_over_atspi_labels_message_route_and_connectivity_controls
     // have no author line and its title carries the route (section 6); the
     // link a control naming its full destination; the source one press
     // away.
-    window
+    let item = window
         .until(
             "the message item",
             |e: &Element| {
@@ -98,7 +97,6 @@ async fn the_tree_read_over_atspi_labels_message_route_and_connectivity_controls
         .await;
     for control in [
         fill(text(UiText::OpenLink), &[("destination", destination)]),
-        text(UiText::ShowSource).to_owned(),
         text(UiText::Send).to_owned(),
     ] {
         window
@@ -109,6 +107,19 @@ async fn the_tree_read_over_atspi_labels_message_route_and_connectivity_controls
             )
             .await;
     }
+    // The message's own actions are in its menu, which its default
+    // action opens (swipe spec section 7, #304 F2): Show source is one
+    // activation of the item, then one of the menu's item, away.
+    window.activate(&item, "click").await;
+    window
+        .until(
+            "the menu's Show source",
+            |e: &Element| {
+                e.role == "button" && e.name == text(UiText::ShowSource) && e.actions == ["click"]
+            },
+            log,
+        )
+        .await;
     window
         .until(
             "the composer",

@@ -5,7 +5,7 @@ topic: "shared-target-worktree"
 description: "Never point a scratch worktree's build at the main checkout's target/ — binaries keep the worktree's CARGO_MANIFEST_DIR after it is deleted"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

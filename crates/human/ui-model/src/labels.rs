@@ -416,6 +416,135 @@ ui_texts! {
     /// not be read: it may not show that change. Never says that nothing
     /// changed. Opening the settings again reads it.
     TrustNotReadAgain => "The list of trusted peers could not be read again, so it may not show the latest change. Open the trust settings again to read it.",
+    /// ANDROID, identity screens: W's title.
+    IdWelcomeTitle => "Welcome to InterWeave",
+    /// ANDROID, identity screens: W's body, two lines.
+    IdWelcomeBody => "Exchange messages with the people you trust, directly from this phone. There is no account to create.",
+    /// ANDROID, identity screens: W's notice while the void-paper marker
+    /// is set (§3.1), three lines.
+    IdVoidPaper => "The words shown last time were never used. They are not your identity, so do not use that paper as your backup.",
+    /// ANDROID, identity screens: W's primary.
+    IdCreate => "Create a new identity",
+    /// ANDROID, identity screens: W's secondary.
+    IdRestore => "Restore my identity",
+    /// ANDROID, identity screens: C1's title.
+    IdC1Title => "About your recovery phrase",
+    /// ANDROID, identity screens: C1, first point.
+    IdC1Point1 => "These 24 words are the key to your identity. With them, you can restore it on another phone.",
+    /// ANDROID, identity screens: C1, second point.
+    IdC1Point2 => "Write them on paper, in order, with your PeerId. Store the paper in a safe place.",
+    /// ANDROID, identity screens: C1, third point: "can be you", without
+    /// alarm.
+    IdC1Point3 => "Anyone who has these words can act as you in InterWeave. Do not show them to anyone.",
+    /// ANDROID, identity screens: C1, fourth point (human-client-ui.md
+    /// §9).
+    IdC1Point4 => "The words bring back your identity only, not your contacts or your settings.",
+    /// ANDROID, identity screens: C1, fifth point (§11 Q3).
+    IdC1Point5 => "Your identity exists only after you finish, by checking two of the words.",
+    /// ANDROID, identity screens: C1's primary.
+    IdShowWords => "Show my words",
+    /// ANDROID, identity screens: C2's and S2's title.
+    IdWordsTitle => "Your 24 words",
+    /// ANDROID, identity screens: The `PeerId`'s label (§5) on C2 and S2,
+    /// where the person writes.
+    IdPeerIdLabel => "Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share.",
+    /// ANDROID, identity screens: The `PeerId`'s label on C4 and R4, where
+    /// the person has already written it.
+    IdPeerIdLabelShown => "Your PeerId. It is the one on your paper. It is not a password, and it is safe to share.",
+    /// ANDROID, identity screens: C2's primary.
+    IdWrittenDown => "I wrote down the words and PeerId",
+    /// ANDROID, identity screens: C3's title.
+    IdCheckTitle => "Check your words",
+    /// ANDROID, identity screens: C3's body, one line.
+    IdCheckBody => "Enter two words from your paper.",
+    /// ANDROID, identity screens: The picker's position (§4), and C3's
+    /// heading of each entry.
+    IdWordPosition => "Word {n} of 24",
+    /// ANDROID, identity screens: The suggestions row while more than
+    /// four words match (§4).
+    IdWordMatches => "{n} words fit these letters",
+    /// ANDROID, identity screens: C3's inline error.
+    IdCheckWrong => "This does not match word {n}. Check word {n} on your paper.",
+    /// ANDROID, identity screens: C3's action after an error.
+    IdShowAgain => "Show my words again",
+    /// ANDROID, identity screens: C4's title.
+    IdCreatedTitle => "Identity created",
+    /// ANDROID, identity screens: R4's title.
+    IdRestoredTitle => "Identity restored",
+    /// ANDROID, identity screens: C4's and R4's body.
+    IdCreatedBody => "When you continue, the app connects to the network with this identity.",
+    /// ANDROID, identity screens: C4's and R4's primary.
+    IdContinue => "Continue",
+    /// ANDROID, identity screens: R1's title.
+    IdR1Title => "Restore your identity",
+    /// ANDROID, identity screens: R1's body, three lines.
+    IdR1Body => "You need your 24 words, and your PeerId from your paper or from a contact's app. The app stays offline until the restore is done.",
+    /// ANDROID, identity screens: R1's primary.
+    IdEnterWords => "Enter my words",
+    /// ANDROID, identity screens: R2's primary.
+    IdCheckWords => "Check my words",
+    /// ANDROID, identity screens: R1's line under the body, two lines.
+    IdR1Settings => "The words bring back your identity only. Your contacts and settings are not part of them.",
+    /// ANDROID, identity screens: R3, two lines under the question.
+    IdR3NoPeerId => "If you have no PeerId on paper, ask a contact to read yours from their app. Restore only if it matches.",
+    /// ANDROID, identity screens: R3's question, two lines.
+    IdR3Question => "Is this the PeerId that you wrote down? If it is not, a word may be wrong.",
+    /// ANDROID, identity screens: R3's primary.
+    IdR3Yes => "Yes, restore it",
+    /// ANDROID, identity screens: R3's secondary.
+    IdR3No => "No, check my words",
+    /// ANDROID, identity screens: K1's title.
+    IdQTitle => "This phone needs your recovery phrase",
+    /// ANDROID, identity screens: K1 for `KeyInvalidated` and `KeyMissing`.
+    IdQReasonKey => "This phone's screen lock or security changed, so the app cannot open your identity. Restore it with your recovery phrase.",
+    /// ANDROID, identity screens: K1 for Record, Authentication and
+    /// `WrongIdentity`.
+    IdQReasonRecord => "The app cannot read your identity on this phone. Restore it with your recovery phrase.",
+    /// ANDROID, identity screens: K1's primary.
+    IdEnterPhrase => "Enter my recovery phrase",
+    /// ANDROID, identity screens: K1's plain text below its primary
+    /// (§3.4), three lines.
+    IdQLost => "If your words are lost, clear this app's data in the phone's settings. That starts a new identity, which each contact must trust again.",
+    /// ANDROID, identity screens: The label of the expected `PeerId`, on K1
+    /// and in `IdOtherIdentity`'s banner.
+    IdExpectedPeerId => "PeerId this phone expects",
+    /// ANDROID, identity screens: The label of the derived `PeerId` in
+    /// `IdOtherIdentity`'s banner.
+    IdDerivedPeerId => "PeerId from your words",
+    /// ANDROID, identity screens: The Settings item (§3.5).
+    IdShowPhraseItem => "Show recovery phrase",
+    /// ANDROID, identity screens: S1's title.
+    IdS1Title => "Show your recovery phrase",
+    /// ANDROID, identity screens: S1's body, two lines.
+    IdS1Body => "You will be asked to unlock your phone first. The app goes offline while your words are shown.",
+    /// ANDROID, identity screens: The progress state (§3.5, §6).
+    IdGoingOffline => "Going offline…",
+    /// ANDROID, identity screens: S2's primary.
+    IdDone => "Done",
+    /// ANDROID, identity screens: §6's checksum banner.
+    IdChecksumFailed => "These words do not form a recovery phrase. A word may be wrong or in the wrong place. Check them against your paper.",
+    /// ANDROID, identity screens: §6's other-identity banner, above the
+    /// two labelled `PeerIds`.
+    IdOtherIdentity => "These words open a different identity, so nothing on this phone was changed. Compare the two PeerIds below with your paper.",
+    /// ANDROID, identity screens: §6's busy notice, with `TryAgain`.
+    IdBusy => "The app could not go offline. Wait a moment, then try again.",
+    /// ANDROID, identity screens: §6's storage notice, with `TryAgain`.
+    IdStorageFailed => "The app could not save your identity on this phone. Nothing was changed.",
+    /// ANDROID, identity screens: §7's dialog title.
+    IdDiscardTitle => "Delete the words you entered?",
+    /// ANDROID, identity screens: §7's dialog: the action that drops the
+    /// words.
+    IdDiscard => "Delete words",
+    /// ANDROID, identity screens: §7's dialog: the default action.
+    IdContinueEntering => "Continue entering",
+    /// ANDROID, identity screens: The keypad's delete key (its accessible
+    /// label).
+    IdKeyDelete => "Delete last letter",
+    /// ANDROID, identity screens: The keypad's clear key (its accessible
+    /// label).
+    IdKeyClear => "Clear this word",
+    /// ANDROID, identity screens: The grid's button at large font (§4).
+    IdReviewWords => "Show all my words",
 }
 
 /// Where the transport runtime runs, which decides how a text that names
@@ -1014,6 +1143,7 @@ mod tests {
             ("conversation", "…abcd1234 / human"),
             ("first", "New message from …abcd1234."),
             ("rest", "Your message: Sent."),
+            ("n", "7"),
         ];
         for text in UiText::ALL {
             let filled = fill(placeholder_en::text(*text), &values);

@@ -81,7 +81,7 @@ fn messages_are_ordered_by_local_time_never_by_the_senders_clock() {
 }
 
 #[test]
-fn a_direct_title_is_the_short_peer_id_and_route_label_never_the_envelopes_from_endpoint() {
+fn a_direct_title_carries_the_route_only_beside_another_route_never_the_envelopes_from_endpoint() {
     let p = peer();
     let mut model = UiModel::new();
     let mut claim = envelope(1, "I am Alice, your bank");
@@ -94,9 +94,33 @@ fn a_direct_title_is_the_short_peer_id_and_route_label_never_the_envelopes_from_
         "{}",
         summary.title
     );
-    assert!(summary.title.contains("human"), "the route label");
+    // One conversation with the peer: its route is on its details, not
+    // in its title (human-client-ui.md §4; #304 F6).
+    assert!(
+        !summary.title.contains("human"),
+        "no route label alone: {}",
+        summary.title
+    );
     assert!(!summary.title.to_ascii_lowercase().contains("alice"));
     assert_eq!(summary.unread, 1);
+
+    // A second conversation with the same peer on another route: every
+    // title of that peer carries its route, which tells them apart.
+    let mut other = listed(2, &p, envelope(2, "from the other route"), 2);
+    other.origin = Origin::Direct {
+        peer: p.clone(),
+        endpoint: endpoint("claude"),
+    };
+    model.unread_listed(vec![other]);
+    let titles: Vec<String> = model.conversations().into_iter().map(|c| c.title).collect();
+    assert_eq!(titles.len(), 2, "two conversations");
+    assert!(titles.iter().any(|t| t.contains("human")), "{titles:?}");
+    assert!(titles.iter().any(|t| t.contains("claude")), "{titles:?}");
+    assert!(
+        titles
+            .iter()
+            .all(|t| !t.to_ascii_lowercase().contains("alice"))
+    );
 }
 
 #[test]

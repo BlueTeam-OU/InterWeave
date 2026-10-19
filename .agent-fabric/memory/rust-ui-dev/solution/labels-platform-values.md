@@ -5,7 +5,7 @@ topic: "labels-platform-values"
 description: "decided key shape for the eight labels.rs values naming the transport daemon (Android has none) — implement on the j51 app-shell branch"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

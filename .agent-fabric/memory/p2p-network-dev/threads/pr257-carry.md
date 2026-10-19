@@ -5,7 +5,7 @@ topic: "pr257-carry"
 description: "#257 (NetworkDenied + DCUtR crate rebuild/departed IPs) armed 2026-10-11 on the owner's word at 6 work; what carries to the next PR"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -128,6 +128,7 @@ internal object Native {
         reducedMotion: Boolean,
         recommendedMs: Long,
         hour24: Boolean,
+        longPressMs: Long,
     )
 
     /**
@@ -138,6 +139,44 @@ internal object Native {
 
     /** A person-facing text by its key ([Text]), with [count] filled in. */
     @JvmStatic external fun text(key: Int, count: Int): String
+
+    /**
+     * Whether the profile's identity opens ([IDENTITY_READY]), or where
+     * the identity screens start: no record, or one the phone lost. Makes
+     * the Keystore cipher the screens use. Call before binding the
+     * service.
+     */
+    @JvmStatic external fun identityState(appDataDir: String): Int
+
+    const val IDENTITY_READY = 0
+
+    /** The identity screens' next ask of the Activity ([Ask]), or 0. BLOCKS. */
+    @JvmStatic external fun waitIdentityAsk(timeoutMs: Long): Int
+
+    /**
+     * The platform's Back, for the window: a screen with a way back takes
+     * it, else [waitLeave] answers true and the Activity finishes.
+     */
+    @JvmStatic external fun back()
+
+    /** True when Back found no way back: finish. BLOCKS. */
+    @JvmStatic external fun waitLeave(timeoutMs: Long): Boolean
+
+    /** Whether the service stopped for Show my phrase ([Ask.OFFLINE]). */
+    @JvmStatic external fun offline(stopped: Boolean)
+
+    /** The credential prompt's answer, for the identity screens. */
+    @JvmStatic external fun prompted(granted: Boolean)
+}
+
+/** What the identity screens ask of the Activity, as `onboard.rs` numbers it. */
+internal object Ask {
+    const val SECURE_OFF = 2
+    const val PROMPT = 3
+    const val BIND = 4
+    const val FINISH = 5
+    const val OFFLINE = 6
+    const val ONLINE = 7
 }
 
 /** The keys of the texts the platform shows, as `jni.rs` maps them. */
@@ -149,4 +188,5 @@ internal object Text {
     const val MESSAGES_WAITING = 4
     const val NETWORK_OFF_TITLE = 5
     const val NETWORK_OFF_BODY = 6
+    const val PHRASE_PROMPT_TITLE = 7
 }

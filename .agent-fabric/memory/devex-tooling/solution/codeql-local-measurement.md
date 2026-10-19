@@ -5,7 +5,7 @@ topic: "codeql-local-measurement"
 description: "Reproducing an InterWeave CodeQL (Rust) alert locally, or testing a model pack — host has no rust-src, and the full tree times out"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

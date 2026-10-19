@@ -31,7 +31,7 @@
 
 ## Human desktop/Android risks
 
-- Android foreground-service policy/Play review changes may alter the valid always-reachable packaging; SPIKE-008 is a release gate.
+- Android foreground-service policy changes may alter the valid always-reachable packaging; SPIKE-008's target-SDK half is a release gate (step 3's device run). There is no store review: the app is distributed from the project's own release page (ADR-0057), so the risks on that side are the signing key's custody, people installing stale builds with no update channel, and the Skia prebuilt archive the build downloads until Stage 19 pins or removes it.
 - Mobile OS process suspension means pure P2P cannot guarantee offline/background reception; UI/marketing must match actual state.
 - Slint platform/accessibility gaps could require a presentation-toolkit ADR change without changing human-core/transport.
 - Android Keystore wrapping protects storage, not a compromised running process after seed unwrap.

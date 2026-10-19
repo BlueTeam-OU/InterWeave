@@ -5,7 +5,7 @@ topic: "agent-prompt-does-no-shell-expansion"
 description: "An Agent dispatch prompt is literal text; \"$(cat brief)\" reached the reviewer as those characters — paste the rendered brief itself"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

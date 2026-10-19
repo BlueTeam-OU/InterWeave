@@ -5,7 +5,7 @@ topic: "j53-android-runtime-side-split"
 description: "§20 steps 2-4 (j53) split confirmed 2026-10-10 (architect seq 95051): runtime side mine, the Android app shell rust-ui-dev's; start after #250 merges"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

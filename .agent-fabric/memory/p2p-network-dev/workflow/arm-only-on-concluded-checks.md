@@ -5,7 +5,7 @@ topic: "arm-only-on-concluded-checks"
 description: "Before arming, every check on the head must have CONCLUDED green; pr-review-status's 'N pass, 1 other' hides a running rust job"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

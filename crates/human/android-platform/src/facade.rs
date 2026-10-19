@@ -28,13 +28,15 @@ const POLL: Duration = Duration::from_millis(100);
 
 /// The facade's state now, as the updates that would have set it: what a
 /// view that attaches late needs beside the store's rows.
-fn snapshot<B: DataSessionBinding, A: AdminBinding>(side: &FacadeSide<B, A>) -> [Update; 3] {
+fn snapshot<B: DataSessionBinding, A: AdminBinding>(side: &FacadeSide<B, A>) -> Vec<Update> {
     let client = side.client();
-    [
+    let mut now = vec![
         Update::Client(ClientEvent::Session(client.session_state().clone())),
         Update::Client(ClientEvent::Connectivity(client.connectivity())),
         Update::Diagnostics(client.diagnostics()),
-    ]
+    ];
+    now.extend(side.outbound_now());
+    now
 }
 
 /// Why the facade did not start.
@@ -109,8 +111,9 @@ impl FacadeLoop {
                             // A view attaching to a facade that has run
                             // for a while missed the events that set its
                             // state: they went out with no view to take
-                            // them. It is told the session, connectivity
-                            // and counters as they are now. NOT a peer's
+                            // them. It is told the session, connectivity,
+                            // counters and each pending row's status as
+                            // they are now. NOT a peer's
                             // path: the facade keeps no current path to
                             // replay, so a route indicator shows nothing
                             // until the path next changes (carried to the

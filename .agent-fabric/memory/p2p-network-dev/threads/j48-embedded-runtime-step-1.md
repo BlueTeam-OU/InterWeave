@@ -5,7 +5,7 @@ topic: "j48-embedded-runtime-step-1"
 description: "§20 step 1 (j48) LANDED in #241 (0cf71c2f, 2026-10-09): embedded host, TrustBoundary + runtime root, 4th conformance runner; two P3s carried (walk_judged comments to j50, log_filter DEBUG pin to j49)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

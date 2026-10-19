@@ -72,12 +72,12 @@ headings. A complete sentence ends with a period.
 | Screenshots are blocked on this screen | `FLAG_SECURE` on the recovery Activity (android-key-custody.md). | secure mode, protected mode |
 | one device at a time | A restored PeerId does not run on two devices at once; restoring on a new device is moving, not copying (android-key-custody.md, "Recovery"). | sync, copy to another device, multi-device |
 
-## 5. Store-listing words (Android step 10)
+## 5. Release-page words (Android step 10)
 
 | Term (en) | Names | Stays out until the owner verifies the fact |
 |---|---|---|
 | peer-to-peer | Messages travel between devices over libp2p (ADR-0041; human-client-android.md, "Deployment decision"). | serverless (relays exist), decentralized (as a slogan) |
 | no account | The profile is a device identity, not an account with a provider (human-client-ui.md §2). | anonymous, untraceable |
 | no central message store | No transport mailbox; messages arrive only while the app is reachable (human-client-android.md, "Process death and offline semantics"). | messages are never stored (the app stores unread and kept messages on the device) |
-| encrypted in transit | Transport connections are encrypted. The listing says only what the owner verifies against the code. | end-to-end encrypted, military-grade, unbreakable, private |
+| encrypted in transit | Transport connections are encrypted. The release page says only what the owner verifies against the code. | end-to-end encrypted, military-grade, unbreakable, private |
 | relay | A device that forwards a connection when a direct path is not possible (human-client-ui.md §7; human-client-android.md, "Android discovery/resource profile"). | server (as if central), cloud |

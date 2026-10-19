@@ -228,8 +228,10 @@ From the top:
   one-minute grouping use it too.
 - The time is the last message's, computed in the phone's time zone:
   the time of day for today, "Yesterday", the day of the week within
-  the last seven days, else the month and day (and the year when it is
-  not this year). The time of day follows the phone's 12- or 24-hour
+  the last seven days (today and the six calendar days before it),
+  else the month and day (and the year when it is not this year). A
+  time later than now (a clock set back) counts as today, never as a
+  future day. The time of day follows the phone's 12- or 24-hour
   setting (`DateFormat.is24HourFormat`), read again when it changes
   while the app is open: a person sets it once for the whole phone.
   The words (weekdays, months, the date and time templates) come from
@@ -281,8 +283,12 @@ From the top:
     The words stay those of `human-client-ui.md` §5. A check never
     means read (§5 there).
   - Consecutive messages from the same side within a minute sit 2 dp
-    apart. A change of side, 8 dp. A day change shows a centred "Today",
-    "Yesterday" or the date, in body small.
+    apart. A change of side, 8 dp. A day change shows a centred
+    separator in body small, naming the day: "Today", "Yesterday", the
+    day of the week within the last seven days, else the month and day
+    (and the year when it is not this year), with days counted as in
+    §5.2. For a screen reader, the separator is an item of its own. It
+    is read before the messages of its day.
   - In a **direct** conversation the author line ("...x6gY6Eri", "You")
     is removed: there are two parties and the bubble's side shows which.
     In a **channel**, received bubbles come from several peers, so each
@@ -359,11 +365,12 @@ From the top:
   shape: round for the back arrow and Send, rounded for bubbles, menu items
   and list items.
 - **TalkBack.** A bubble is read as one item: author ("You" for one's
-  own), the text, the status, the time. Its label is `UiText::Item`,
-  whose value today is "{author}, {status}: {body}" with no time; it
-  takes the new value in §9 on every platform, so the desktop's screen
-  readers read the same order. Its default action opens its menu
-  (swipe spec §7).
+  own), the text, the status, the time. Its label is `UiText::Item`
+  (§9), on every platform, so the desktop's screen readers read the
+  same order. The chips follow it in order. A day separator is an item
+  of its own, read before the messages of its day (§6), so the day is
+  heard there and not on every bubble. A bubble's default action opens
+  its menu (swipe spec §7).
   Swipe spec §7's labels are unchanged. A conversation row in the list
   is read as one item too: its name (the row's label), then its
   description: the kind (direct or channel, in words), the unread count
@@ -435,17 +442,17 @@ that exist.
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the overflow button's label, Android's own words for it |
 | `AppOptions` (new) | App options | the Chats app bar's overflow button's label (Android review F12). It must say the menu is the app's, not a conversation's, since both buttons show side by side on a wide screen. A proposal; the words are language-culture's |
-| `Today`, `Yesterday` | Today, Yesterday | day separators and list times |
-| weekdays (seven keys, e.g. `WeekdayMonday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | list times within the last seven days |
-| months (twelve keys, e.g. `MonthJanuary`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |
-| `DateThisYear` | {month} {day} | list times before the last seven days, this year: "Sep 30" |
+| `Today`, `Yesterday` | Today, Yesterday | day separators; `Yesterday` also in list times (for today the list shows the time of day) |
+| weekdays (seven keys, `Monday` to `Sunday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | day separators and list times within the last seven days |
+| months (twelve keys, `January` to `December`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |
+| `DateThisYear` | {month} {day} | day separators and list times before the last seven days, this year: "Sep 30" |
 | `DateOtherYear` | {month} {day}, {year} | the same, another year: "Sep 30, 2025" |
 | `Time24` | {hour}:{minute} | the time of day, phone set to 24-hour: "01:18", "13:05" |
 | `TimeAm` | {hour}:{minute} AM | the time of day, phone set to 12-hour, before noon: "1:18 AM", "12:05 AM" just after midnight |
 | `TimePm` | {hour}:{minute} PM | the same, from noon: "1:05 PM", "12:30 PM" |
 | `ConversationDescription` (exists, new value) | {kind}, {unread}, {preview}, {time} | a list row's description as TalkBack reads it (§7), with unread messages. `{kind}` is `DirectConversation` or `ChannelConversation` as today, `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
 | `ConversationDescriptionRead` | {kind}, {preview}, {time} | the same, with nothing unread |
-| `Item` (exists, new value) | {author}: {body}. {status}, {time} | a message bubble's label, as TalkBack reads it (§7), on every platform: "You: See you at six. Kept, 01:18" |
+| `Item` (exists, new value) | {author}: {body}. {status}, {time} | a message bubble's label, as TalkBack reads it (§7), on every platform: "You: See you at six. Kept, 01:18". `{time}` is the time of day that the bubble shows, whatever day the message is from. The day is read once, from the separator before that day's messages, not on every bubble |
 
 The weekday, month, date and time values are final (language-culture,
 2026-10-17). What the code fills in, and what a translation may change:
@@ -543,7 +550,9 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 8. Received messages are on the start side and sent on the end side,
    with §6's fills, corners and width (at most 80 %). In an RTL locale
    the sides swap. Same-side messages within a minute sit 2 dp apart,
-   and a day change shows its separator.
+   and a day change shows its separator as §6 says: a message from two
+   to six days before today under its weekday, an older one under its
+   date.
 9. In a channel, each received bubble shows its author, and the
    author's description is the full PeerId. In a direct conversation
    no bubble shows an author line.
@@ -569,7 +578,8 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 17. Every swipe spec §11 item still passes. Only the swipe's look has
     changed; the neutral fill holds §3's contrasts.
 18. Under "Remove animations" no ripple plays.
-19. TalkBack reads a bubble as author, text, status, time, and a
+19. TalkBack reads a bubble as author, text, status, time; a day
+    separator as its own item, before the messages of its day; and a
     conversation row as name, kind, unread count, last message, time,
     the name once, and never the avatar: a person's
     check, as swipe spec §11 item 12, blocked until TalkBack reaches the

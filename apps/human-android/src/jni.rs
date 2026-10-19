@@ -363,6 +363,7 @@ extern "system" fn Java_org_interweave_human_Native_touch<'caller>(
     reduced_motion: jboolean,
     recommended_ms: jlong,
     hour24: jboolean,
+    long_press_ms: jlong,
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         crate::activity::touch_changed(TouchSettings {
@@ -373,6 +374,7 @@ extern "system" fn Java_org_interweave_human_Native_touch<'caller>(
             reduced_motion,
             snackbar_ms: snackbar_ms(u64::try_from(recommended_ms).unwrap_or(0)),
             hour24,
+            long_press_ms: u64::try_from(long_press_ms).unwrap_or(500),
         });
         Ok(())
     })
@@ -455,6 +457,8 @@ fn text(key: jint, count: jint) -> String {
         3 => UiText::MessagesChannel,
         5 => UiText::NetworkOffTitle,
         6 => UiText::NetworkOffBody,
+        // The credential prompt's title, before Show my phrase (S1).
+        7 => UiText::IdS1Title,
         _ if count == 1 => UiText::NewMessage,
         _ => UiText::NewMessages,
     };
@@ -613,4 +617,136 @@ extern "system" fn Java_org_interweave_human_Native_networkUnwatched<'caller>(
         Ok(())
     })
     .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.identityState(appDataDir)`: whether the identity opens, or
+/// where the identity screens start (onboard.rs's `state`). The Keystore
+/// cipher is made here, on a thread the JVM called from, and kept for the
+/// window's flow.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_identityState<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    app_data_dir: JString<'caller>,
+) -> jint {
+    let state = env
+        .with_env(|env| -> Result<jint, jni::errors::Error> {
+            let app_data_dir = app_data_dir.try_to_string(env)?;
+            if provision(&app_data_dir).is_err() {
+                return Ok(crate::onboard::state::READY);
+            }
+            let cipher = match KeystoreCipher::new(env) {
+                Ok(cipher) => cipher,
+                Err(e) => {
+                    log(&format!("the Keystore cipher could not be reached: {e}"));
+                    return Ok(crate::onboard::state::READY);
+                }
+            };
+            Ok(crate::onboard::identity_state(
+                std::path::PathBuf::from(app_data_dir),
+                cipher,
+            ))
+        })
+        .resolve::<ThrowRuntimeExAndDefault>();
+    // Every return answers the window's wait, the early ones and a thrown
+    // one included: onStart calls this before super.onStart(), which waits
+    // on the window's thread (#309 review N5).
+    crate::onboard::answered();
+    state
+}
+
+/// `Native.waitIdentityAsk(timeoutMs)`: the identity screens' next ask of
+/// the Activity (onboard.rs's `ask`), or 0.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_waitIdentityAsk<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    timeout_ms: jlong,
+) -> jint {
+    env.with_env(|_| -> Result<jint, jni::errors::Error> {
+        let timeout = Duration::from_millis(u64::try_from(timeout_ms).unwrap_or(0));
+        Ok(crate::onboard::ASKS.wait(timeout))
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// `Native.prompted(granted)`: the credential prompt's answer.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_prompted<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    granted: jboolean,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::onboard::prompted(granted);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.offline(stopped)`: whether the service stopped for Show my
+/// phrase.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_offline<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    stopped: jboolean,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::onboard::offline(stopped);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.back()`: the platform's Back, for the window (activity.rs).
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_back<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::activity::back();
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
+/// `Native.waitLeave(timeoutMs)`: true when Back found no way back and the
+/// Activity is to finish.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_waitLeave<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    timeout_ms: jlong,
+) -> jboolean {
+    env.with_env(|_| -> Result<jboolean, jni::errors::Error> {
+        let timeout = Duration::from_millis(u64::try_from(timeout_ms).unwrap_or(0));
+        Ok(crate::activity::LEAVE.wait(timeout))
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
 }

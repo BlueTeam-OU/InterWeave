@@ -103,7 +103,7 @@ async fn a_second_signal_while_closing_ends_the_client_at_once() {
     let mut app = human_app::start(&home);
     human_app::until_lease(&binding, true, &app).await;
 
-    human_app::signal(daemon.child.id(), "STOP");
+    human_app::stop(daemon.child.id());
     app.send("TERM");
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(

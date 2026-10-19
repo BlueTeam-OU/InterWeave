@@ -5,13 +5,14 @@ topic: "independent-codecs-lessons"
 description: "writing an \"independent\" codec from contract text — what it finds, how to keep it independent, how to compare it with production"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
     project: interweave
     working_copy: InterWeave
 derived_from:
+  - 11b776fd02ba9838
   - 16e9f127e0b27fe1
 ---
 
@@ -24,6 +25,15 @@ From InterWeave j3 (2026-10-08), tests/independent-codecs + tests/interoperabili
   production's decoder following the schema and its fingerprint the prose. Both went to architect-cto as
   findings before code chose a reading (CLAUDE.md §2); (1) ended as my draft of DIRECT.md text +
   frozen vectors reviewed by architect-cto, (2) as "printable everywhere".
+  #238 (2026-10-09) found two more of the same kind, so look for them on every wire: (3) a CLOSED set of
+  codes (the endpoint directory's refusal reasons 1..3) with no stated fate for an unassigned code —
+  production refused it as malformed, the text was silent, so a second implementation could map it to
+  `unavailable` (ruled: unassigned = malformed, a local ProtocolViolation; GZCoord 01a11e61/01a11e62);
+  (4) an identifier two peers must match BYTE-EQUAL left "chosen by the implementation" (the GossipSub wire
+  topic's encoding of the key) — disagreement is silent loss of every broadcast, no refusal anywhere
+  (ruled: lowercase hex, frozen per vector as `wire_topic`; 01a11e67/01a11e68). Checklist per wire: every
+  enum has an "anything else" sentence; every string that is matched rather than parsed has its exact
+  spelling in the contract and a fixture.
 - Independence is a dependency-graph property, dev-deps included: the layering checks follow no
   dev-dependency, so a separate check (no PATH package at all in the member's graph) was needed;
   positive control = add tests/support as a dev-dep and watch it fail.
@@ -36,4 +46,6 @@ From InterWeave j3 (2026-10-08), tests/independent-codecs + tests/interoperabili
 - A mutation that survives can mean the test input has no discriminating content (lower- vs upper-case
   hex escape survived because \u0001 has no hex letter).
 
-*Observed 2026-10-08 (p2p-network-dev)*
+*Anchors: `tools/checks/check_independent_codecs.sh`, `fixtures/gossipsub/gossipsub-topic-key-v1.json::wire_topic`, `architecture/transport/libp2p/ENDPOINTS.md::unassigned`*
+
+*Observed 2026-10-15 (p2p-network-dev)*

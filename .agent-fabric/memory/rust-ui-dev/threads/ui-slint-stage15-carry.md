@@ -5,7 +5,7 @@ topic: "ui-slint-stage15-carry"
 description: "What I inherit in crates/human/ui-slint at Stage 15 from PR #170 — the root's drain contract and carried P3s; read before writing apps/human-desktop's root or first touching ui-slint"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - b46f3c568de063b3
+  - f52d2f266b133bcd
 ---
 
 ## What I inherit in crates/human/ui-slint at Stage 15 from PR #170 — the root's drain contract and carried P3s; read before writing apps/human-desktop's root or first touching ui-slint
@@ -27,8 +28,8 @@ Related: [[ui-slint-surface-proposal]], [[stage-15-client-reading-notes]]
 
 **Handover (relay seq 11002, 2026-10-03):** on the owner's direction the human-client line (crates/human/*, apps/human-*, tests/human-*, human_chat.rs) is mine; p2p-network-dev-01 moved to Track C (Claude channel bridge, Stage 16 / SPIKE-001). Stage 14 batches all on main (#166-#170, #170 merged 630d02d6). Stage marker still `stage-14-human-core-ui` at that point — stage close/open is architect-cto's and the owner's.
 - **fontconfig-dlopen (d700cedb):** ui-slint names `i-slint-common` only to enable `fontconfig-dlopen`, so fontconfig is loaded at RUN time. apps/human-desktop owes a startup check that fontconfig loaded, with a clear failure for the person — a missing library must never mean a silent fontless or crashing window.
-- p2p-network-dev keeps: transport, daemon + IPC, daemon.rs, tests/desktop-e2e/tests/common/, facade binding side; ask over GZCoord, supplied on my branch by the supplier rule.
+- p2p-network-dev keeps: transport, daemon + IPC, daemon.rs, the daemon harness in tests/support/src/e2e/ (tests/desktop-e2e/tests/common/ only re-exports it), facade binding side; ask over GZCoord, supplied on my branch by the supplier rule.
 
 *References: stage-15-client-reading-notes, ui-slint-surface-proposal*
 
-*Observed 2026-10-03 (rust-ui-dev)*
+*Observed 2026-10-19 (rust-ui-dev)*

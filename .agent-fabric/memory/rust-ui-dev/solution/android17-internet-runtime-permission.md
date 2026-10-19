@@ -5,13 +5,14 @@ topic: "android17-internet-runtime-permission"
 description: "On the Pixel 9a (Android 17, API 37) INTERNET is a runtime permission; ungranted, EmbeddedHost::start fails with EPERM"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 84b64f70a3789177
   - dd0779051a49829f
 ---
 
@@ -70,9 +71,9 @@ Kotlin half TO DO (the earlier step-1 edit "bind only after grant" was dropped):
 - Green: host tests of ui-model, app-core, ui-slint, android-platform and human-desktop; clippy -D warnings; tools/ci/check_android_target.sh (needs JAVA_HOME=/opt/android-sdk/jdk ANDROID_HOME=/opt/android-sdk).
 - Not checked: ab56993f building on its own (bisect).
 - Next is the Kotlin half (plan above), then the device run.
-- Carry: app.slint warns of a binding loop on `narrow` (root.width < 600px), which "may panic at runtime" in newer Slint, and viewport-height is deprecated (3 places). Fix both in batch 2.
+- Carry (done): the `narrow` binding loop and the 3 viewport-height deprecations were fixed in j95 (7b2c6f95, 53e98925), not batch 2; see [[slint-window-size-binding-loop]].
 - Paused for j62 (FleetDeck rename, PRIORITY) on the owner's word.
 
-*References: android-shell-build, android-spike-device*
+*References: android-shell-build, android-spike-device, slint-window-size-binding-loop*
 
-*Observed 2026-10-10 (rust-ui-dev)*
+*Observed 2026-10-17 (rust-ui-dev)*

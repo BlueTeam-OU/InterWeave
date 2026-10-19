@@ -27,8 +27,8 @@ proposes it.
 - the desktop end-to-end suite by file: `tests/desktop-e2e/tests/
   human_chat.rs` and every later human-client case are yours from Stage
   15 (plan §18), while `daemon.rs` and the harness it shares
-  (`tests/desktop-e2e/tests/common/`)
-  stay p2p-network-dev's; `tests/android-e2e/` takes
+  (`tests/support/src/e2e/`, which `tests/desktop-e2e/tests/common/`
+  re-exports) stay p2p-network-dev's; `tests/android-e2e/` takes
   the same shape at Stage 17, the embedded runtime being
   p2p-network-dev's;
 - the tests that satisfy the shared UI acceptance criteria of

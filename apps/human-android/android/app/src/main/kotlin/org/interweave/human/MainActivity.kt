@@ -3,7 +3,14 @@
 package org.interweave.human
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NativeActivity
+import android.hardware.biometrics.BiometricManager.Authenticators
+import android.hardware.biometrics.BiometricPrompt
+import android.os.CancellationSignal
+import android.view.WindowManager
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -23,6 +30,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewTreeObserver
 import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.accessibility.AccessibilityManager
 
 /**
@@ -42,15 +50,57 @@ import android.view.accessibility.AccessibilityManager
  */
 class MainActivity : NativeActivity() {
     @Volatile private var shown = false
+    // Show my phrase took the service offline and its words are this
+    // instance's to show: nothing binds or starts the service until they
+    // are gone, a return from Home included (design section 7).
+    @Volatile private var phraseShown = false
 
     override fun onStart() {
+        // Before super.onStart(), which waits for the window's thread to
+        // take the Start; that thread waits for this answer before it
+        // chooses between the identity screens and the chats (onboard.rs).
+        // After it, each would wait on the other (#309 review N1).
+        val identity =
+            if (identityReady) Native.IDENTITY_READY else Native.identityState(applicationInfo.dataDir)
+        if (identity != Native.IDENTITY_READY) {
+            // Before the window can draw a word: the flow's whole length,
+            // cleared once a frame without it was drawn (#309 F3).
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
         super.onStart()
         shown = true
         Thread({ relayAsks() }, "interweave-network-ask").start()
         Thread({ relayHaptics() }, "interweave-haptic").start()
+        Thread({ relayLeave() }, "interweave-leave").start()
+        // Back goes to the window, whatever has focus: the views' backend
+        // delivers it as a key, which reaches nothing when no control is
+        // focused, and then finishes the Activity -- Back in a
+        // conversation left the app (ux-designer-01, ffce28df). Ours is
+        // registered after the backend's, at a higher priority, so it is
+        // the one called.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_OVERLAY,
+                back,
+            )
+        }
         window.decorView.viewTreeObserver.addOnGlobalLayoutListener(layout)
+        systemBars(resources.configuration)
         watchSettings(true)
         touch()
+        // The identity screens' asks: a first run's or a recovery's before
+        // the service, Show my phrase's from Settings after it.
+        Thread({ relayIdentity() }, "interweave-identity").start()
+        // The identity screens come before the service: a profile with no
+        // identity, or one the phone lost, binds nothing until the screens
+        // say the identity is ready (onboard.rs).
+        if (identity != Native.IDENTITY_READY) return
+        identityReady = true
+        if (!phraseShown) connect()
+    }
+
+    /** Bind the network service, asking for access first where needed. */
+    private fun connect() {
         if (bound) return
         when {
             networkGranted() -> {
@@ -76,8 +126,21 @@ class MainActivity : NativeActivity() {
         local?.recheck()
     }
 
+    override fun onDestroy() {
+        // The words go with this instance; the service must not stay
+        // offline for a window that no longer shows them.
+        if (phraseShown) {
+            phraseShown = false
+            local?.online()
+        }
+        super.onDestroy()
+    }
+
     override fun onStop() {
         shown = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
+        }
         window.decorView.viewTreeObserver.removeOnGlobalLayoutListener(layout)
         watchSettings(false)
         // A recreation for a configuration change keeps the binding: the
@@ -107,7 +170,24 @@ class MainActivity : NativeActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        systemBars(newConfig)
         touch()
+    }
+
+    /**
+     * The system bars' icons are dark on the light scheme and light on the
+     * dark one. The window is drawn edge to edge under the bars, so they
+     * sit over the app's own surface; the platform's default, light
+     * icons, could not be read over the light one (#304 F8). The views
+     * follow the same night mode (Slint's color scheme), so one setting
+     * decides both.
+     */
+    private fun systemBars(config: Configuration) {
+        val light = (config.uiMode and Configuration.UI_MODE_NIGHT_MASK) != Configuration.UI_MODE_NIGHT_YES
+        val both =
+            WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        window.insetsController?.setSystemBarsAppearance(if (light) both else 0, both)
     }
 
     /**
@@ -173,6 +253,8 @@ class MainActivity : NativeActivity() {
                         ) ?: SNACKBAR_MS
                     ).toLong(),
                 hour24 = DateFormat.is24HourFormat(this),
+                // A message's menu opens after the platform's long-press time.
+                longPressMs = ViewConfiguration.getLongPressTimeout().toLong(),
             )
         if (values == sentTouch) return
         sentTouch = values
@@ -184,6 +266,7 @@ class MainActivity : NativeActivity() {
             values.reducedMotion,
             values.recommendedMs,
             values.hour24,
+            values.longPressMs,
         )
     }
 
@@ -196,6 +279,7 @@ class MainActivity : NativeActivity() {
         val reducedMotion: Boolean,
         val recommendedMs: Long,
         val hour24: Boolean,
+        val longPressMs: Long,
     )
 
     private var sentTouch: Touch? = null
@@ -215,6 +299,105 @@ class MainActivity : NativeActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Back below API 33, where no callback is registered. Lint's
+     * GestureBackNavigation asks for AndroidX's dispatcher, which a
+     * NativeActivity has not; on API 33+ the callback below takes Back,
+     * gestures included, and below 33 there is no predictive gesture for
+     * this to miss.
+     */
+    @Deprecated("The platform's own deprecation; API 33+ uses the callback")
+    @SuppressLint("GestureBackNavigation")
+    override fun onBackPressed() {
+        goBack()
+    }
+
+    /**
+     * Back on API 33+, to the window. Lazy: the callback's class exists
+     * from API 33 only, and is made only inside the version checks.
+     */
+    private val back by lazy { OnBackInvokedCallback { goBack() } }
+
+    /**
+     * Back closes an open keyboard first, as the platform does, and only
+     * then goes to the window: with the keyboard up the conversation may
+     * have set its app bar aside, and Back would otherwise leave it
+     * (#304 F9). Focus stays where it is.
+     */
+    private fun goBack() {
+        if (window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true) {
+            window.insetsController?.hide(WindowInsets.Type.ime())
+            return
+        }
+        Native.back()
+    }
+
+    /** Back found no way back: leave, as the platform would. */
+    private fun relayLeave() {
+        while (shown) {
+            if (Native.waitLeave(ASK_WAIT_MS) && shown) runOnUiThread { finish() }
+        }
+    }
+
+    /** What the identity screens ask, carried out on the main thread. */
+    private fun relayIdentity() {
+        while (shown) {
+            when (Native.waitIdentityAsk(ASK_WAIT_MS)) {
+                // FLAG_SECURE goes on before any word can be drawn (onStart,
+                // and OFFLINE below), and off only once the window drew a
+                // frame without the flow: no screenshot, no recording, no
+                // recents thumbnail (android-key-custody.md, #309 F3).
+                Ask.SECURE_OFF -> runOnUiThread { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+                Ask.PROMPT -> runOnUiThread { prompt() }
+                Ask.BIND -> {
+                    identityReady = true
+                    runOnUiThread { connect() }
+                }
+                Ask.FINISH -> runOnUiThread { finish() }
+                // Show my phrase: with no service bound, none runs.
+                Ask.OFFLINE -> {
+                    phraseShown = true
+                    // The flag first, on the main thread: S2's words are
+                    // drawn only after Native.offline, which runs after it.
+                    runOnUiThread {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        local?.offline { Native.offline(it) } ?: Native.offline(true)
+                    }
+                }
+                Ask.ONLINE -> {
+                    phraseShown = false
+                    // Unbound since (Home on S2): bind as a launch does.
+                    runOnUiThread { local?.online() ?: connect() }
+                }
+            }
+        }
+    }
+
+    /**
+     * The device credential or a strong biometric, whatever the profile's
+     * unlock policy, before the phrase is shown on demand (ADR-0042, the
+     * custody doc). A cancel or an error shows nothing.
+     */
+    private fun prompt() {
+        BiometricPrompt.Builder(this)
+            .setTitle(Native.text(Text.PHRASE_PROMPT_TITLE, 0))
+            .setAllowedAuthenticators(Authenticators.BIOMETRIC_STRONG or Authenticators.DEVICE_CREDENTIAL)
+            .build()
+            .authenticate(
+                CancellationSignal(),
+                mainExecutor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
+                        Native.prompted(true)
+                    }
+
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                        Native.prompted(false)
+                    }
+                },
+            )
     }
 
     /** The window's "Allow network access", carried out on the main thread. */
@@ -288,6 +471,10 @@ class MainActivity : NativeActivity() {
         // The binding is the application's, not an Activity instance's,
         // so it can outlive one instance and pass to the next.
         private var bound = false
+
+        // The identity opened, or the identity screens finished: the
+        // service may be bound. The process's, as the binding is.
+        @Volatile private var identityReady = false
         @Volatile private var local: NetworkService.Local? = null
         private val connection =
             object : ServiceConnection {

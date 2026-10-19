@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Nothing of the app leaves the phone through the platform: no cloud
+     backup and no device-to-device transfer (RETENTION.md §6 item 13,
+     android-key-custody.md). Recovery is the phrase, never a platform
+     copy of the store or the wrapped key.
+
+     Why this file when the manifest already says allowBackup="false":
+     for apps targeting Android 12+ that flag does not stop a
+     device-to-device transfer on some manufacturers' devices, and only
+     these rules govern one (Android 12 behaviour changes, "D2D transfer
+     functionality changes", read 2026-10-19). Every domain, credential-
+     and device-protected, is listed, so a store or record moved to
+     another directory stays excluded. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>

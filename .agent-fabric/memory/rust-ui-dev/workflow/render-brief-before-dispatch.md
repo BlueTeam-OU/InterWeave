@@ -5,7 +5,7 @@ topic: "render-brief-before-dispatch"
 description: "fabric-review brief must render successfully BEFORE a review is dispatched; never dispatch in the same parallel batch as the render"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
