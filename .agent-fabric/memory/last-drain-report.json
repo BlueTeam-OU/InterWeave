@@ -745,7 +745,6 @@
     "p2p-network-dev/threads:correction-threads-86-gate-history#Correction to threads/threads-carried-2026-09-17.md: the --automated-only/@codex gate its #86 paragraph records was the procedure of 2026-09-10, superseded by #114; history, not current procedure: merge_target 'Correction to threads.md lines 25 and 27: the --automated-only/@codex gate they record was the procedure of 2026-09-10 and is superseded; history, not current procedure' names no section of p2p-network-dev/threads; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "p2p-network-dev/domain:domain-multistream-select-order-recheck#libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; how a \"minor bump\" of a protocol id interoperates: merge_target 'libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; how a \"minor bump\" of a protocol id interoperates' names no section of p2p-network-dev/domain; written as its own topic",
     "p2p-network-dev/domain:domain-radicle-stale-control-socket-recheck#radicle-node killed hard won't restart (stale control.sock); why --force is not the fix: merge_target \"radicle-node killed hard won't restart (stale control.sock); why --force is not the fix\" names no section of p2p-network-dev/domain; written as its own topic",
-    "p2p-network-dev/workflow:routing-tests-private-address-reworded#\"ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's pr...\" — the slice reworded with no private-network address in it: merge_target \"ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks\" names no section of p2p-network-dev/workflow; written as its own topic",
     "rust-ui-dev/workflow:release-phone-after-testing#every Pixel run goes through the remit's .agent-fabric/bin/phone-run (own lease, own adb server, nothing left); never adb on the shared port 5037; how a lost pairing looks: merge_target 'when device testing ends, run adb disconnect and adb kill-server so the shared Android phone is free' names no section of rust-ui-dev/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "p2p-network-dev/workflow:routing-tests-run-on-the-hosts-private-address#ADR-0052 loopback refusal means routing tests listen on the host's private address — corrected without the private-range literal the hygiene lint refuses: merge_target \"ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks\" names no section of p2p-network-dev/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target"
   ],
@@ -1454,11 +1453,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-10"
     },
-    ".agent-fabric/memory/rust-ui-dev/solution/android-spike-device.md#SPIKE-008/009 test device (Samsung A40, adb over network) and its baseline facts; toolchain provisioning is devex-tooling's": {
-      "agent": "rust-ui-dev-01",
-      "host": "develop-qzapp",
-      "observed": "2026-10-18"
-    },
     ".agent-fabric/memory/rust-ui-dev/solution/android-spike-device.md#The two Android test devices (Samsung A40 of SPIKE-008/009, Pixel 9a for API 34+) and the facts a device run depends on; toolchain provisioning is devex-tooling's": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
@@ -1563,11 +1557,6 @@
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-16"
-    },
-    ".agent-fabric/memory/rust-ui-dev/threads/j94-install-292-apk.md#j94 (2026-10-17): #292's APK at 0057924e is built and waiting in /var/tmp/j94-292; install it with adb install -r when the owner re-pairs the Pixel, then tell ux-designer-01 the commit": {
-      "agent": "rust-ui-dev-01",
-      "host": "develop-qzapp",
-      "observed": "2026-10-17"
     },
     ".agent-fabric/memory/rust-ui-dev/threads/j94-install-292-apk.md#j94 (closed 2026-10-18): installing #292's build for ux-designer-01's re-check was superseded by j98's install of current main; how to rebuild #292 if it is ever wanted": {
       "agent": "rust-ui-dev-01",
