@@ -459,6 +459,7 @@ fn text(key: jint, count: jint) -> String {
         6 => UiText::NetworkOffBody,
         // The credential prompt's title, before Show my phrase (S1).
         7 => UiText::IdS1Title,
+        8 => UiText::UnlockPromptTitle,
         _ if count == 1 => UiText::NewMessage,
         _ => UiText::NewMessages,
     };

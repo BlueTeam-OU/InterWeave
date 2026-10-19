@@ -164,6 +164,10 @@ impl Opener for AndroidOpener {
     fn ask_network_access(&mut self) {
         NETWORK_ASK.raise();
     }
+
+    fn authenticate(&mut self) {
+        crate::onboard::authenticate();
+    }
 }
 
 struct Root {

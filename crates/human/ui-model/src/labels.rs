@@ -331,6 +331,17 @@ ui_texts! {
     NetworkDenied => "Network access is off for this app. You can read your messages, but you cannot send or receive messages until you allow network access.",
     /// Ask for the network access the platform withholds.
     AllowNetwork => "Allow network access",
+    /// ANDROID: the profile's key needs the person and their last
+    /// authentication is too old, so nothing runs until they
+    /// authenticate; nothing stored is lost. Never says the app will
+    /// connect by itself (#309 acceptance 10).
+    AuthenticationNeeded => "InterWeave is offline because it is locked. To unlock it, tap Unlock and enter your phone's PIN, pattern or password. Your conversations are saved on this phone and appear again after you unlock InterWeave.",
+    /// ANDROID: the notice's action, raising the system's prompt again.
+    Authenticate => "Unlock",
+    /// ANDROID: the title of the system's authentication prompt when it
+    /// unlocks the app for a key operation or a launch (not S1's, which
+    /// is `IdS1Title`).
+    UnlockPromptTitle => "Unlock InterWeave",
     /// The Chats bar's overflow button, its accessible name and tooltip:
     /// the app's options, Trust among them (#304 F12; ux-designer-01
     /// 34023aa1). Named apart from a conversation's More options, which

@@ -41,6 +41,10 @@ pub(crate) mod state {
     pub(crate) const FIRST_RUN: jint = 1;
     /// The record does not open: recovery required.
     pub(crate) const RECOVERY: jint = 2;
+    /// The key needs the person, and their last authentication is too
+    /// old: the Activity raises the prompt before it binds anything
+    /// (android-key-custody.md's failure list, 80594810).
+    pub(crate) const AUTHENTICATION_NEEDED: jint = 3;
 }
 
 /// What the window asks of the Activity's Kotlin side
@@ -64,6 +68,10 @@ pub(crate) mod ask {
     pub(crate) const OFFLINE: jint = 6;
     /// Show my phrase is over: start the service again.
     pub(crate) const ONLINE: jint = 7;
+    /// The same prompt as [`PROMPT`], for a key operation or a launch the
+    /// presence window holds back: its title says it unlocks the app, not
+    /// that it shows the phrase. Answered by `Native.prompted`.
+    pub(crate) const UNLOCK: jint = 8;
 }
 
 /// The asks, in order, for one waiting Kotlin thread.
@@ -145,6 +153,7 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         &cipher,
         interweave_human_android_platform::FirstRun::Refuse,
     );
+    let mut return_code = state::READY;
     let start = match found {
         Ok(_) => None,
         Err(IdentityRefused::Unprovisioned) => Some(Start::FirstRun {
@@ -166,6 +175,13 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
                     _ => None,
                 }),
         }),
+        Err(IdentityRefused::UserNotAuthenticated) => {
+            // Nothing runs until the person authenticates: the window
+            // says so, offline, and the grant binds the service.
+            await_authentication(ask::BIND);
+            return_code = state::AUTHENTICATION_NEEDED;
+            None
+        }
         Err(why) => {
             log(&format!(
                 "the identity's state: {why:?}; the service reports it"
@@ -174,7 +190,7 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         }
     };
     let code = match &start {
-        None => state::READY,
+        None => return_code,
         Some(Start::FirstRun { .. }) => state::FIRST_RUN,
         Some(_) => state::RECOVERY,
     };
@@ -347,9 +363,60 @@ fn input_later(input: IdentityInput) {
     render();
 }
 
+/// What a granted prompt starts once no flow is on screen: the service a
+/// launch outside the presence window held back (BIND), or the one a
+/// cancelled restart after Show my phrase left stopped (ONLINE). `None`
+/// when nothing waits for the person.
+static AFTER_PROMPT: Mutex<Option<jni::sys::jint>> = Mutex::new(None);
+
+/// Nothing runs until the person authenticates: the window shows it,
+/// offline with the notice whose action raises the prompt, and a grant
+/// asks `start` of the Activity.
+fn await_authentication(start: jni::sys::jint) {
+    *AFTER_PROMPT.lock().unwrap_or_else(PoisonError::into_inner) = Some(start);
+    interweave_human_android_platform::ServiceHost::global()
+        .hub()
+        .set_authentication_needed(true);
+}
+
+/// The notice's Unlock: the prompt again, while something waits on it.
+/// Raised by the person only, never on a retry of the app's own.
+pub(crate) fn authenticate() {
+    if AFTER_PROMPT
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_some()
+    {
+        ASKS.push(ask::UNLOCK);
+    }
+}
+
+/// A prompt answered with no flow on screen: granted, the held start goes
+/// ahead and the notice goes; cancelled, the person stays offline with
+/// the notice and its Unlock.
+fn authenticated(granted: bool) {
+    if !granted {
+        return;
+    }
+    let held = AFTER_PROMPT
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
+    if let Some(start) = held {
+        interweave_human_android_platform::ServiceHost::global()
+            .hub()
+            .set_authentication_needed(false);
+        ASKS.push(start);
+    }
+}
+
 /// `Native.prompted`: the credential prompt's answer.
 pub(crate) fn prompted(granted: bool) {
     invoke_on_window(move || {
+        if ONBOARDING.with(|slot| slot.borrow().is_none()) {
+            authenticated(granted);
+            return;
+        }
         let effects = ONBOARDING.with(|slot| {
             slot.borrow_mut()
                 .as_mut()
@@ -362,10 +429,20 @@ pub(crate) fn prompted(granted: bool) {
                         o.flow.cancelled_step();
                         Vec::new()
                     }
-                    // A cancelled seal leaves C4 as it was. A cancelled
-                    // service start still ends the flow, which asks the
-                    // service back (`render`): with the key closed it
-                    // stays offline, and says so.
+                    // A cancelled service start ends the flow with nothing
+                    // started: the person is offline, the window says why,
+                    // and its Unlock raises the prompt again (#309
+                    // acceptance 10; the custody doc's failure list).
+                    Prompted::Dropped(Effect::StartService) => {
+                        o.service_asked = true;
+                        await_authentication(if o.from_settings {
+                            ask::ONLINE
+                        } else {
+                            ask::BIND
+                        });
+                        Vec::new()
+                    }
+                    // A cancelled seal leaves C4 as it was.
                     Prompted::Dropped(_) => Vec::new(),
                     // S1's own prompt.
                     Prompted::NotHeld => o.flow.prompted(granted),
@@ -447,7 +524,7 @@ fn one(effect: Effect) -> Vec<Effect> {
         let effect = match o.gate.admit(effect, now_ms()) {
             Admit::Run(effect) => effect,
             Admit::Prompt => {
-                ASKS.push(ask::PROMPT);
+                ASKS.push(ask::UNLOCK);
                 return Vec::new();
             }
         };

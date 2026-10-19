@@ -62,10 +62,10 @@ class MainActivity : NativeActivity() {
         // After it, each would wait on the other (#309 review N1).
         val identity =
             if (identityReady) Native.IDENTITY_READY else Native.identityState(applicationInfo.dataDir)
-        if (identity != Native.IDENTITY_READY) {
+        if (identity != Native.IDENTITY_READY && identity != Native.IDENTITY_AUTHENTICATION_NEEDED) {
             // Before the window can draw a word: the flow's whole length,
             // cleared once a frame without it was drawn (#309 F3).
-            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            secure(true)
         }
         super.onStart()
         shown = true
@@ -91,6 +91,13 @@ class MainActivity : NativeActivity() {
         // The identity screens' asks: a first run's or a recovery's before
         // the service, Show my phrase's from Settings after it.
         Thread({ relayIdentity() }, "interweave-identity").start()
+        // A key that needs the person: the prompt before anything binds;
+        // a grant binds (Ask.BIND), a cancel leaves the window offline
+        // with its Unlock (onboard.rs, the custody doc's failure list).
+        if (identity == Native.IDENTITY_AUTHENTICATION_NEEDED) {
+            window.decorView.post { prompt(Text.UNLOCK_PROMPT_TITLE) }
+            return
+        }
         // The identity screens come before the service: a profile with no
         // identity, or one the phone lost, binds nothing until the screens
         // say the identity is ready (onboard.rs).
@@ -341,6 +348,20 @@ class MainActivity : NativeActivity() {
         }
     }
 
+    /**
+     * The window's flags for the span a word can show: FLAG_SECURE, and on
+     * API 33+ no Recents screenshot either (android-key-custody.md, the
+     * recovery bullet, 80594810). On the main thread.
+     */
+    private fun secure(on: Boolean) {
+        if (on) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(!on)
+    }
+
     /** What the identity screens ask, carried out on the main thread. */
     private fun relayIdentity() {
         while (shown) {
@@ -349,8 +370,9 @@ class MainActivity : NativeActivity() {
                 // and OFFLINE below), and off only once the window drew a
                 // frame without the flow: no screenshot, no recording, no
                 // recents thumbnail (android-key-custody.md, #309 F3).
-                Ask.SECURE_OFF -> runOnUiThread { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
-                Ask.PROMPT -> runOnUiThread { prompt() }
+                Ask.SECURE_OFF -> runOnUiThread { secure(false) }
+                Ask.PROMPT -> runOnUiThread { prompt(Text.PHRASE_PROMPT_TITLE) }
+                Ask.UNLOCK -> runOnUiThread { prompt(Text.UNLOCK_PROMPT_TITLE) }
                 Ask.BIND -> {
                     identityReady = true
                     runOnUiThread { connect() }
@@ -362,7 +384,7 @@ class MainActivity : NativeActivity() {
                     // The flag first, on the main thread: S2's words are
                     // drawn only after Native.offline, which runs after it.
                     runOnUiThread {
-                        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        secure(true)
                         local?.offline { Native.offline(it) } ?: Native.offline(true)
                     }
                 }
@@ -380,9 +402,9 @@ class MainActivity : NativeActivity() {
      * unlock policy, before the phrase is shown on demand (ADR-0042, the
      * custody doc). A cancel or an error shows nothing.
      */
-    private fun prompt() {
+    private fun prompt(title: Int) {
         BiometricPrompt.Builder(this)
-            .setTitle(Native.text(Text.PHRASE_PROMPT_TITLE, 0))
+            .setTitle(Native.text(title, 0))
             .setAllowedAuthenticators(Authenticators.BIOMETRIC_STRONG or Authenticators.DEVICE_CREDENTIAL)
             .build()
             .authenticate(

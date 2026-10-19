@@ -150,6 +150,12 @@ internal object Native {
 
     const val IDENTITY_READY = 0
 
+    /**
+     * The key needs the person and their last authentication is too old:
+     * raise the prompt before binding; its answer goes to [prompted].
+     */
+    const val IDENTITY_AUTHENTICATION_NEEDED = 3
+
     /** The identity screens' next ask of the Activity ([Ask]), or 0. BLOCKS. */
     @JvmStatic external fun waitIdentityAsk(timeoutMs: Long): Int
 
@@ -177,6 +183,7 @@ internal object Ask {
     const val FINISH = 5
     const val OFFLINE = 6
     const val ONLINE = 7
+    const val UNLOCK = 8
 }
 
 /** The keys of the texts the platform shows, as `jni.rs` maps them. */
@@ -189,4 +196,5 @@ internal object Text {
     const val NETWORK_OFF_TITLE = 5
     const val NETWORK_OFF_BODY = 6
     const val PHRASE_PROMPT_TITLE = 7
+    const val UNLOCK_PROMPT_TITLE = 8
 }

@@ -39,6 +39,11 @@ pub enum ToView {
     /// is sent. Sent at an attach and at every change; it outlives a
     /// change of [`ToView::Running`].
     NetworkAccess(bool),
+    /// Whether nothing can run until the person authenticates: a profile
+    /// whose key needs them, outside the window of their last
+    /// authentication. Sent at an attach and at every change; it outlives
+    /// a change of [`ToView::Running`], as access does.
+    AuthenticationNeeded(bool),
     /// An update for the model side, the first after an attach or a start
     /// being `Update::Listed`.
     Update(Box<Update>),
@@ -80,6 +85,9 @@ struct Slot {
     /// Whether the platform gives this app network access, as the
     /// Service last said; access is assumed until it says otherwise.
     network: bool,
+    /// Whether the person must authenticate before anything runs, as the
+    /// Activity last said.
+    authentication: bool,
 }
 
 impl Default for Slot {
@@ -88,6 +96,7 @@ impl Default for Slot {
             viewer: None,
             running: false,
             network: true,
+            authentication: false,
         }
     }
 }
@@ -142,6 +151,7 @@ impl Hub {
         // the facade's next turn.
         viewer.send(ToView::Running(slot.running));
         viewer.send(ToView::NetworkAccess(slot.network));
+        viewer.send(ToView::AuthenticationNeeded(slot.authentication));
         slot.viewer = Some(viewer);
         ViewLink {
             from,
@@ -214,6 +224,22 @@ impl Hub {
         slot.network = allowed;
         if let Some(viewer) = slot.viewer.as_ref()
             && !viewer.send(ToView::NetworkAccess(allowed))
+        {
+            slot.viewer = None;
+        }
+    }
+
+    /// Whether the person must authenticate before anything runs, as the
+    /// Activity learns it: said to the attached view, and to each later
+    /// one.
+    pub fn set_authentication_needed(&self, needed: bool) {
+        let mut slot = self.slot();
+        if slot.authentication == needed {
+            return;
+        }
+        slot.authentication = needed;
+        if let Some(viewer) = slot.viewer.as_ref()
+            && !viewer.send(ToView::AuthenticationNeeded(needed))
         {
             slot.viewer = None;
         }
@@ -320,7 +346,11 @@ mod tests {
         let mut link = hub.attach(wake);
         assert!(matches!(
             link.take()[..],
-            [ToView::Running(false), ToView::NetworkAccess(true)]
+            [
+                ToView::Running(false),
+                ToView::NetworkAccess(true),
+                ToView::AuthenticationNeeded(false)
+            ]
         ));
         assert!(!hub.wants_listing(), "nothing to list while none runs");
 
@@ -397,7 +427,37 @@ mod tests {
         let mut later = hub.attach(wake);
         assert!(matches!(
             later.take()[..],
-            [ToView::Running(false), ToView::NetworkAccess(false)]
+            [
+                ToView::Running(false),
+                ToView::NetworkAccess(false),
+                ToView::AuthenticationNeeded(false)
+            ]
+        ));
+    }
+
+    /// The person's authentication, needed or not, is said at the change
+    /// and to every later view, as access is.
+    #[test]
+    fn a_view_hears_that_authentication_is_needed_once_and_a_later_view_hears_it_too() {
+        let hub = Hub::new();
+        let (_, wake) = counting();
+        let mut link = hub.attach(wake);
+        let _ = link.take();
+        hub.set_authentication_needed(true);
+        hub.set_authentication_needed(true);
+        assert!(
+            matches!(link.take()[..], [ToView::AuthenticationNeeded(true)]),
+            "said once, at the change"
+        );
+        let (_, wake) = counting();
+        let mut later = hub.attach(wake);
+        assert!(matches!(
+            later.take()[..],
+            [
+                ToView::Running(false),
+                ToView::NetworkAccess(true),
+                ToView::AuthenticationNeeded(true)
+            ]
         ));
     }
 
@@ -411,7 +471,11 @@ mod tests {
         assert!(first.lost());
         assert!(matches!(
             second.take()[..],
-            [ToView::Running(false), ToView::NetworkAccess(true)]
+            [
+                ToView::Running(false),
+                ToView::NetworkAccess(true),
+                ToView::AuthenticationNeeded(false)
+            ]
         ));
         assert!(!second.lost());
     }

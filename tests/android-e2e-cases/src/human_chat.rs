@@ -325,6 +325,9 @@ impl Opener for NoLinks {
     // The case runs with the network granted: a withheld one fails it at
     // its first send, so there is no access to ask for.
     fn ask_network_access(&mut self) {}
+    // The case's profile is background-compatible: nothing needs the
+    // person to authenticate.
+    fn authenticate(&mut self) {}
 }
 
 /// What the case has seen of the facade, beyond the model.

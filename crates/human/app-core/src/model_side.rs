@@ -35,6 +35,11 @@ pub trait Opener {
     /// network-denied state"). Raised only after the root said access is
     /// withheld ([`ModelSide::network_access`]).
     fn ask_network_access(&mut self);
+
+    /// Raise the platform's authentication prompt for a profile whose key
+    /// needs the person. Raised only while the root says it is needed
+    /// ([`ModelSide::authentication_needed`]).
+    fn authenticate(&mut self);
 }
 
 /// An action still being carried out, so a second press of the same one
@@ -116,6 +121,12 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// sees it ([`UiModel::network_access`]).
     pub fn network_access(&mut self, allowed: bool) {
         self.model.network_access(allowed);
+    }
+
+    /// Whether nothing can run until the person authenticates, as the
+    /// root learns it from the platform.
+    pub fn authentication_needed(&mut self, needed: bool) {
+        self.model.authentication_needed(needed);
     }
 
     /// What did not happen since the last call, oldest first.
@@ -355,6 +366,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 self.opener.ask_network_access();
                 return None;
             }
+            Intent::Authenticate => {
+                self.opener.authenticate();
+                return None;
+            }
             Intent::Send { key, draft } => Command::Send { key, draft },
             Intent::MarkRead(row) => Command::MarkRead(row),
             Intent::Keep { item, from } => {
@@ -438,6 +453,7 @@ mod tests {
     impl Opener for Nothing {
         fn open(&mut self, _destination: &str) {}
         fn ask_network_access(&mut self) {}
+        fn authenticate(&mut self) {}
     }
 
     #[test]

@@ -280,6 +280,12 @@ pub enum SessionNotice {
     /// network-denied state"); [`Intent::AllowNetwork`] asks the person
     /// for it.
     NetworkDenied,
+    /// The profile's key needs the person and the window of their last
+    /// authentication has passed: nothing runs until they authenticate,
+    /// which [`Intent::Authenticate`] asks of them. Nothing runs on its
+    /// own meanwhile, so nothing here says the app will connect
+    /// (android-key-custody.md's failure list; #309 acceptance 10).
+    AuthenticationNeeded,
 }
 
 impl SessionNotice {
@@ -291,6 +297,7 @@ impl SessionNotice {
             Self::StorageDegraded => Some(Intent::RecheckStorage),
             Self::Refused(_) => Some(Intent::Reopen),
             Self::NetworkDenied => Some(Intent::AllowNetwork),
+            Self::AuthenticationNeeded => Some(Intent::Authenticate),
         }
     }
 }
@@ -345,6 +352,10 @@ pub enum Intent {
     /// prompt while it still offers one, else the app's settings. Carried
     /// out by the platform, never by the facade.
     AllowNetwork,
+    /// Raise the platform's authentication prompt again, for a profile
+    /// whose key needs the person. Carried out by the platform, never by
+    /// the facade.
+    Authenticate,
     /// Read the trust allowlist: the trust settings opened, or a change's
     /// list was not read back ([`crate::TrustSettings::take_reread`]).
     ReadTrust,
@@ -507,6 +518,7 @@ pub struct UiModel {
     daemon_absent: bool,
     /// The platform withholds network access, as the root last saw it.
     network_denied: bool,
+    authentication_needed: bool,
     connectivity: Connectivity,
     /// The path to each peer a direct conversation is with, once the
     /// runtime has said: the route indicator's (`human-client-ui.md` §7).
@@ -544,6 +556,7 @@ impl UiModel {
             edits: BTreeMap::new(),
             daemon_absent: false,
             network_denied: false,
+            authentication_needed: false,
             connectivity: Connectivity::Unknown,
             paths: HashMap::new(),
             session: SessionState::Reconnecting {
@@ -736,6 +749,14 @@ impl UiModel {
     /// no draft is offered for sending; reading and keeping go on.
     pub fn network_access(&mut self, allowed: bool) {
         self.network_denied = !allowed;
+    }
+
+    /// Whether the profile waits for the person's authentication before
+    /// anything can run: while it does, the session's notice is
+    /// [`SessionNotice::AuthenticationNeeded`] and connectivity reads
+    /// offline, whatever else is known.
+    pub fn authentication_needed(&mut self, needed: bool) {
+        self.authentication_needed = needed;
     }
 
     /// Whether a person may send now: false while the platform withholds
@@ -996,6 +1017,11 @@ impl UiModel {
     /// Connectivity: always present, `Unknown` never shown as `Offline`.
     #[must_use]
     pub const fn connectivity(&self) -> Connectivity {
+        // Offline, not unknown: the cause is known, and the person can
+        // act on it (#309 acceptance 10, condition 3).
+        if self.authentication_needed {
+            return Connectivity::Offline;
+        }
         self.connectivity
     }
 
@@ -1012,6 +1038,10 @@ impl UiModel {
     /// The session state a person can act on, if any.
     #[must_use]
     pub const fn session_notice(&self) -> Option<SessionNotice> {
+        // First: nothing runs at all until the person authenticates.
+        if self.authentication_needed {
+            return Some(SessionNotice::AuthenticationNeeded);
+        }
         // Before what the facade says: with no network access it can only
         // ever be re-opening, and the person can act on the cause.
         if self.network_denied {

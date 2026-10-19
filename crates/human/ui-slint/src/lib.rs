@@ -2819,6 +2819,7 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         Intent::Reopen => UiText::TryAgain,
         Intent::RecheckStorage => UiText::RecheckStorage,
         Intent::AllowNetwork => UiText::AllowNetwork,
+        Intent::Authenticate => UiText::Authenticate,
         // A restore is an Undo's, never a button of its own.
         Intent::MarkRead(_)
         | Intent::Send { .. }
@@ -2857,6 +2858,9 @@ fn notice_text(host: RuntimeHost, notice: SessionNotice) -> String {
         SessionNotice::Reconnecting => placeholder_en::text(UiText::Reconnecting).to_owned(),
         SessionNotice::StorageDegraded => placeholder_en::text(UiText::StorageDegraded).to_owned(),
         SessionNotice::NetworkDenied => placeholder_en::text(UiText::NetworkDenied).to_owned(),
+        SessionNotice::AuthenticationNeeded => {
+            placeholder_en::text(UiText::AuthenticationNeeded).to_owned()
+        }
         SessionNotice::Refused(class) => fill(
             placeholder_en::text(UiText::Refused),
             &[("reason", placeholder_en::error(host, class))],
