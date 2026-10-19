@@ -1187,6 +1187,60 @@ fn restore_asks_whose_record_it_is_whatever_its_mode_or_header() {
     assert_eq!(cipher.seals(), 2, "nothing sealed but those two");
 }
 
+/// A record present but naming nobody -- its `PeerId` field empty, too
+/// long, not UTF-8 or not a `PeerId` -- is an established profile's, not
+/// "no record" (android-key-custody.md, Recovery): restore refuses it,
+/// writing and sealing nothing, even for the phrase of the identity the
+/// field once named. The controls: the same restore over its own record,
+/// and with no record at all, proceed.
+#[test]
+fn restore_refuses_a_record_naming_nobody_and_writes_nothing() {
+    let (mnemonic, frozen) = vectors().remove(0);
+    let own = TransportIdentity::parse(frozen.clone()).expect("peer");
+    let phrase = RecoveryPhrase::parse(&mnemonic).expect("phrase");
+    let policy = KeyUnlockPolicy::BackgroundCompatible;
+
+    let app = new_app();
+    let cipher = SoftCipher::default();
+    custody::provision(&app.paths, &cipher, &identity(&mnemonic), policy).expect("stored");
+    let good = record(&app);
+    let envelope = &good[..ENVELOPE_LEN];
+    let with = |field: &[u8]| [envelope, field].concat();
+    let nameless: [(&str, Vec<u8>); 6] = [
+        ("an empty file", Vec::new()),
+        ("an envelope with no field", envelope.to_vec()),
+        ("a field too long", with(frozen.repeat(3).as_bytes())),
+        ("a field not UTF-8", with(&[0xff; 52])),
+        ("a field not a PeerId", with(b"not-a-peer-id")),
+        ("a field one byte short", with(&frozen.as_bytes()[1..])),
+    ];
+    for (what, bytes) in nameless {
+        put(&app, &bytes);
+        assert!(
+            matches!(
+                custody::restore(&app.paths, &cipher, &phrase, &own, policy),
+                Err(CustodyRefused::RecordNamesNobody)
+            ),
+            "{what}"
+        );
+        assert_eq!(record(&app), bytes, "{what}: nothing written");
+    }
+    assert_eq!(cipher.seals(), 1, "nothing sealed but the provision");
+
+    // The controls: its own record is restored over, kept as it opens...
+    put(&app, &good);
+    custody::restore(&app.paths, &cipher, &phrase, &own, policy).expect("its own record");
+    assert_eq!(record(&app), good);
+    // ...and with no record, the phrase restores the identity it derives.
+    std::fs::remove_file(custody::custody_file(&app.paths)).expect("removed");
+    custody::restore(&app.paths, &cipher, &phrase, &own, policy).expect("no record");
+    assert_eq!(cipher.seals(), 2);
+    assert_eq!(
+        peer_of(&custody::unlock(&app.paths, &cipher).expect("opens")),
+        frozen
+    );
+}
+
 /// One alias per profile and policy: two profiles' aliases never meet,
 /// and `of_profile` names exactly the profile's own two.
 #[test]

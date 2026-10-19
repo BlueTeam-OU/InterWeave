@@ -314,6 +314,11 @@ pub enum CustodyRefused {
     OtherIdentity,
     /// [`restore`] was asked for one `PeerId` and the record names another.
     RecordNamesOther,
+    /// [`restore`] found a record whose `PeerId` field names nobody
+    /// (empty, too long, not UTF-8, not a `PeerId`). It is an established
+    /// profile's -- its contacts, trust and messages are still there --
+    /// and whose identity it held is unknown, so it is not "no record".
+    RecordNamesNobody,
     /// The identity or the phrase could not give its seed or `PeerId`.
     Identity(String),
     /// The cipher refused to seal; or, for [`restore`], could not say
@@ -358,6 +363,7 @@ impl std::fmt::Display for CustodyRefused {
             Self::ProfileLocked => f.write_str("the profile is held by another host or flow"),
             Self::OtherIdentity => f.write_str("the phrase restores another identity"),
             Self::RecordNamesOther => f.write_str("the stored record names another identity"),
+            Self::RecordNamesNobody => f.write_str("the stored record names no identity"),
             Self::Identity(detail) => write!(f, "the identity is unusable: {detail}"),
             Self::Cipher(failure) => write!(f, "the cipher refused to seal: {failure:?}"),
             Self::CipherShape => f.write_str("the cipher returned bytes of another length"),
@@ -727,11 +733,14 @@ fn custody_present(paths: &ProfilePaths) -> Result<bool, CustodyRefused> {
 /// Re-store the identity `phrase` restores, sealed for `policy` under a
 /// fresh wrapping key -- unless a record under `policy` already opens to
 /// `expected`, which is kept (below) -- ONLY if it restores `expected` (ADR-0033's
-/// mandatory expected `PeerId`), and only over a record whose `PeerId`
-/// field names `expected` or holds no `PeerId` at all -- whatever its
-/// mode, header or ciphertext, since those say nothing about whose it
-/// is. A record that cannot be read (a link, another kind of entry, a
-/// directory refused) is not replaced: it may name another. Where `expected`
+/// mandatory expected `PeerId`), and only where there is no record or its
+/// `PeerId` field names `expected` -- whatever its mode, header or
+/// ciphertext, since those say nothing about whose it is. A record whose
+/// field names nobody is not replaced: it is an established profile's,
+/// and sealing over it would bind that profile to whatever the phrase
+/// restores (android-key-custody.md, Recovery). Nor is a record that
+/// cannot be read (a link, another kind of entry, a directory refused):
+/// it may name another. Where `expected`
 /// comes from is the recovery flow's (step 7). Under the profile's
 /// lock, as [`provision`]: refused while a host runs.
 ///
@@ -744,7 +753,8 @@ fn custody_present(paths: &ProfilePaths) -> Result<bool, CustodyRefused> {
 /// # Errors
 /// [`CustodyRefused::OtherIdentity`] for a phrase restoring another
 /// `PeerId`; [`CustodyRefused::RecordNamesOther`] when the record names
-/// another; [`CustodyRefused::Unreadable`] when it cannot be read;
+/// another; [`CustodyRefused::RecordNamesNobody`] when it names nobody;
+/// [`CustodyRefused::Unreadable`] when it cannot be read;
 /// [`CustodyRefused::Cipher`] when the record's own key cannot be asked
 /// whether it still opens; nothing is written in any of these.
 /// [`CustodyRefused::OldKeyRemains`] arrives after the record is written,
@@ -761,17 +771,18 @@ pub fn restore(
     }
     let _held = hold(paths)?;
     // Whose record this is comes from its PeerId field alone (`named_peer`),
-    // read whatever the file's mode or the envelope's state; only a record
-    // with no PeerId there names nobody. One that cannot be read at all may
-    // name another, so nothing is written over it.
+    // read whatever the file's mode or the envelope's state. Only an absent
+    // record is "no record": one naming nobody, or one that cannot be read
+    // at all, may be another's, so nothing is written over either.
     let existing = match read_record(paths) {
         Ok(Read::Absent) => None,
-        Ok(Read::Bytes { bytes, private }) => {
-            if named_peer(&bytes).is_some_and(|named| named.as_str() != expected.as_str()) {
+        Ok(Read::Bytes { bytes, private }) => match named_peer(&bytes) {
+            None => return Err(CustodyRefused::RecordNamesNobody),
+            Some(named) if named.as_str() != expected.as_str() => {
                 return Err(CustodyRefused::RecordNamesOther);
             }
-            Some((bytes, private))
-        }
+            Some(_) => Some((bytes, private)),
+        },
         Err(e) => return Err(CustodyRefused::Unreadable(e.to_string())),
     };
     let identity = ProfileIdentity::from_phrase(phrase)
