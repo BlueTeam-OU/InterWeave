@@ -52,7 +52,8 @@ pub fn apply(flow: &mut IdentityFlow, input: IdentityInput) -> Vec<Effect> {
     match input {
         IdentityInput::Primary => flow.primary(),
         IdentityInput::Secondary => match screen {
-            ScreenId::W => flow.restore(),
+            // On Welcome a refusal's Try again takes the secondary's place.
+            ScreenId::W if !failed => flow.restore(),
             ScreenId::R3 if !failed => {
                 flow.recheck();
                 Vec::new()
@@ -313,7 +314,9 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
     }
 
     match screen {
-        ScreenId::W => page.secondary = text(UiText::IdRestore).into(),
+        ScreenId::W if page.secondary.is_empty() => {
+            page.secondary = text(UiText::IdRestore).into();
+        }
         ScreenId::R3 if page.secondary.is_empty() => {
             page.secondary = text(UiText::IdR3No).into();
             page.footnote = text(UiText::IdR3NoPeerId).into();
@@ -485,6 +488,19 @@ mod tests {
             matches!(effects.as_slice(), [Effect::Check(_)]),
             "Try again retries: {effects:?}"
         );
+    }
+
+    /// Welcome with the lock refused: the notice and Try again, which
+    /// asks for the lock again rather than opening Restore (#309 F4).
+    #[test]
+    fn welcome_unheld_shows_busy_and_try_again_asks_for_the_lock() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.held(Err(StepFailed::Busy));
+        let page = page(&flow);
+        assert_eq!(page.notice, en(UiText::IdBusy));
+        assert_eq!(page.secondary, en(UiText::TryAgain));
+        assert_eq!(apply(&mut flow, IdentityInput::Secondary), [Effect::Hold]);
+        assert_eq!(flow.screen(), ScreenId::W);
     }
 
     #[test]

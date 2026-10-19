@@ -72,8 +72,11 @@ pub enum Effect {
     /// Leave the app (Back on a first screen).
     Finish,
     /// Make a new identity in memory, unsealed, and answer
-    /// [`IdentityFlow::created`].
+    /// [`IdentityFlow::created`], or [`IdentityFlow::not_created`].
     Generate,
+    /// Take the profile's lock for the flow again, after it was refused,
+    /// and answer [`IdentityFlow::held`].
+    Hold,
     /// Drop the unsealed identity.
     Discard,
     /// Set or clear the void-paper marker.
@@ -250,6 +253,14 @@ pub struct IdentityFlow {
     check_positions: [usize; 2],
     /// C2 was shown for the unsealed identity: the marker is set.
     shown: bool,
+    /// The root could not take the profile's lock: no word is shown or
+    /// taken until it can, since the lock is taken before the first word
+    /// (android-key-custody.md, Recovery). The first screens' primary
+    /// asks for it again.
+    unheld: bool,
+    /// Why Welcome, R1 or K1 shows a notice: the lock refused, or a new
+    /// identity that could not be made.
+    start_notice: Option<Notice>,
 }
 
 impl IdentityFlow {
@@ -272,6 +283,8 @@ impl IdentityFlow {
             peer: None,
             check_positions: [0, 1],
             shown: false,
+            unheld: false,
+            start_notice: None,
         }
     }
 
@@ -350,6 +363,7 @@ impl IdentityFlow {
             | Screen::R2 { notice, .. }
             | Screen::R3 { notice, .. }
             | Screen::S1 { notice, .. } => notice.as_ref(),
+            Screen::Welcome { .. } | Screen::R1 | Screen::K1 { .. } => self.start_notice.as_ref(),
             _ => None,
         }
     }
@@ -412,6 +426,16 @@ impl IdentityFlow {
 
     /// The screen's primary action.
     pub fn primary(&mut self) -> Vec<Effect> {
+        // The way to the first word waits for the lock (Try again).
+        if self.unheld
+            && matches!(
+                self.screen,
+                Screen::Welcome { .. } | Screen::R1 | Screen::K1 { .. }
+            )
+        {
+            return vec![Effect::Hold];
+        }
+        self.start_notice = None;
         match &mut self.screen {
             Screen::Welcome { .. } => {
                 self.screen = Screen::C1;
@@ -662,6 +686,31 @@ impl IdentityFlow {
         self.peer = Some(peer);
         self.check_positions = check;
         self.shown = false;
+    }
+
+    /// The profile's lock for the flow: taken, or refused. Refused, the
+    /// first screens say why and nothing goes on to a word until a later
+    /// [`Effect::Hold`] takes it.
+    pub fn held(&mut self, outcome: Result<(), StepFailed>) {
+        match outcome {
+            Ok(()) => {
+                self.unheld = false;
+                self.start_notice = None;
+            }
+            Err(failed) => {
+                self.unheld = true;
+                self.start_notice = Some(failed.into());
+            }
+        }
+    }
+
+    /// [`Effect::Generate`] made nothing: back to Welcome, saying so,
+    /// where Create tries again.
+    pub fn not_created(&mut self, failed: StepFailed) {
+        if matches!(self.screen, Screen::C1) {
+            self.screen = Screen::Welcome { void_paper: false };
+            self.start_notice = Some(failed.into());
+        }
     }
 
     /// The seal of C4: done, or why not (nothing was changed).
@@ -1012,6 +1061,55 @@ mod tests {
             enter(flow, word);
         }
         assert!(flow.entry().is_some_and(PhraseEntry::complete));
+    }
+
+    /// No word is shown or taken before the root holds the profile's
+    /// lock: refused, the first screens say why and wait, and Try again
+    /// asks for it again (android-key-custody.md, Recovery; #309 F4).
+    #[test]
+    fn no_word_is_shown_or_taken_until_the_lock_is_held() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.held(Err(StepFailed::Busy));
+        assert_eq!(flow.notice(), Some(&Notice::Busy));
+        assert_eq!(flow.primary(), [Effect::Hold], "Create waits for the lock");
+        assert_eq!(flow.screen(), ScreenId::W);
+        flow.restore();
+        assert_eq!(flow.screen(), ScreenId::R1, "R1 shows no word");
+        assert_eq!(flow.primary(), [Effect::Hold], "R2 waits for the lock");
+        assert_eq!(flow.screen(), ScreenId::R1);
+        flow.held(Ok(()));
+        assert_eq!(flow.notice(), None);
+        assert!(flow.primary().is_empty());
+        assert_eq!(flow.screen(), ScreenId::R2);
+
+        let mut flow = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+            },
+        );
+        flow.held(Err(StepFailed::Storage));
+        assert_eq!(flow.primary(), [Effect::Hold]);
+        assert_eq!(flow.screen(), ScreenId::K1);
+        assert_eq!(flow.notice(), Some(&Notice::StorageFailed));
+    }
+
+    /// A new identity that could not be made goes back to Welcome and
+    /// says so, never on to an empty grid (#309 F7).
+    #[test]
+    fn an_identity_not_made_is_said_on_welcome_and_create_tries_again() {
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        assert_eq!(flow.primary(), [Effect::VoidPaper(false), Effect::Generate]);
+        flow.not_created(StepFailed::Storage);
+        assert_eq!(flow.screen(), ScreenId::W);
+        assert_eq!(flow.notice(), Some(&Notice::StorageFailed));
+        assert_eq!(
+            flow.primary(),
+            [Effect::VoidPaper(false), Effect::Generate],
+            "Create tries again"
+        );
+        assert_eq!(flow.notice(), None);
     }
 
     #[test]

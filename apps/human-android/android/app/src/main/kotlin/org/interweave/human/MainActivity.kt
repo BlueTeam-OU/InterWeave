@@ -84,7 +84,13 @@ class MainActivity : NativeActivity() {
             // The identity screens come before the service: a profile with
             // no identity, or one the phone lost, binds nothing until the
             // screens say the identity is ready (onboard.rs).
-            if (Native.identityState(applicationInfo.dataDir) != Native.IDENTITY_READY) return
+            if (Native.identityState(applicationInfo.dataDir) != Native.IDENTITY_READY) {
+                // Before the window can draw a word: the flow's whole
+                // length, cleared once a frame without it was drawn
+                // (onboard.rs, #309 F3).
+                window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                return
+            }
             identityReady = true
         }
         if (!phraseShown) connect()
@@ -336,9 +342,10 @@ class MainActivity : NativeActivity() {
     private fun relayIdentity() {
         while (shown) {
             when (Native.waitIdentityAsk(ASK_WAIT_MS)) {
-                // FLAG_SECURE for as long as a word is on screen: no
-                // screenshot, no recents thumbnail (android-key-custody.md).
-                Ask.SECURE_ON -> runOnUiThread { window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+                // FLAG_SECURE goes on before any word can be drawn (onStart,
+                // and OFFLINE below), and off only once the window drew a
+                // frame without the flow: no screenshot, no recording, no
+                // recents thumbnail (android-key-custody.md, #309 F3).
                 Ask.SECURE_OFF -> runOnUiThread { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
                 Ask.PROMPT -> runOnUiThread { prompt() }
                 Ask.BIND -> {
@@ -349,7 +356,12 @@ class MainActivity : NativeActivity() {
                 // Show my phrase: with no service bound, none runs.
                 Ask.OFFLINE -> {
                     phraseShown = true
-                    local?.offline { Native.offline(it) } ?: Native.offline(true)
+                    // The flag first, on the main thread: S2's words are
+                    // drawn only after Native.offline, which runs after it.
+                    runOnUiThread {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        local?.offline { Native.offline(it) } ?: Native.offline(true)
+                    }
                 }
                 Ask.ONLINE -> {
                     phraseShown = false

@@ -82,6 +82,13 @@ impl PresenceGate {
         }
     }
 
+    /// Whether an effect waits on the prompt: the flow may not end while
+    /// one does, or the prompt's answer would find nothing to resume.
+    #[must_use]
+    pub const fn holding(&self) -> bool {
+        self.held.is_some()
+    }
+
     fn fresh(&self, now: u64) -> bool {
         self.last_authenticated
             .is_some_and(|at| now.saturating_sub(at) <= WINDOW_MS)

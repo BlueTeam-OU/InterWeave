@@ -171,7 +171,6 @@ internal object Native {
 
 /** What the identity screens ask of the Activity, as `onboard.rs` numbers it. */
 internal object Ask {
-    const val SECURE_ON = 1
     const val SECURE_OFF = 2
     const val PROMPT = 3
     const val BIND = 4

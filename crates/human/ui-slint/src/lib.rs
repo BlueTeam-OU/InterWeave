@@ -666,7 +666,15 @@ pub struct View {
     /// The one wake at the next local midnight, and when it is due.
     day_timer: slint::Timer,
     day_due: Option<u64>,
+    /// What runs once the next frame has been drawn
+    /// ([`View::after_next_frame`]); `None` until the window's one
+    /// rendering notifier is set.
+    frame_tasks: Option<FrameTasks>,
 }
+
+/// The tasks [`View::after_next_frame`] queued, which the window's
+/// rendering notifier runs.
+type FrameTasks = Rc<RefCell<Vec<Box<dyn FnOnce()>>>>;
 
 impl View {
     /// A view over a new window, for a client whose runtime runs on
@@ -855,6 +863,7 @@ impl View {
             shown_items: HashMap::new(),
             day_timer: slint::Timer::default(),
             day_due: None,
+            frame_tasks: None,
             seen: Seen::default(),
             next_slot_b: false,
             selection_unrendered: false,
@@ -970,6 +979,37 @@ impl View {
                 wake();
             }
         }
+    }
+
+    /// Run `task` once a frame drawn after this call has reached the
+    /// screen: what is cleared then, as a secure flag, was off screen by
+    /// then. A redraw is asked for. False, and `task` dropped unrun, when
+    /// the renderer cannot say when it drew (the testing backend).
+    pub fn after_next_frame(&mut self, task: impl FnOnce() + 'static) -> bool {
+        if self.frame_tasks.is_none() {
+            let tasks: FrameTasks = Rc::new(RefCell::new(Vec::new()));
+            let queued = Rc::clone(&tasks);
+            let set = slint::ComponentHandle::window(&self.window).set_rendering_notifier(
+                move |state, _| {
+                    if matches!(state, slint::RenderingState::AfterRendering) {
+                        let due: Vec<_> = queued.borrow_mut().drain(..).collect();
+                        for task in due {
+                            task();
+                        }
+                    }
+                },
+            );
+            if set.is_err() {
+                return false;
+            }
+            self.frame_tasks = Some(tasks);
+        }
+        let Some(tasks) = &self.frame_tasks else {
+            return false;
+        };
+        tasks.borrow_mut().push(Box::new(task));
+        slint::ComponentHandle::window(&self.window).request_redraw();
+        true
     }
 
     /// Show the identity screens' `page` over everything, or hide them
