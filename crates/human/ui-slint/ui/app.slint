@@ -1551,6 +1551,10 @@ export component AppWindow inherits Window {
     // The trust settings (human-client-ui.md section 8), shown in place of
     // the conversation: every string from Rust, every press back to it.
     in property <bool> trust-page;
+    // Android: Settings offers the recovery phrase under the PeerId
+    // (design/2026-10-19-android-identity.md section 3.5).
+    in property <bool> show-phrase-offered;
+    in property <string> show-phrase-label;
     in property <string> trust-settings-label;
     in property <string> back-label;
     in property <string> trust-heading;
@@ -1583,6 +1587,7 @@ export component AppWindow inherits Window {
     callback notice-pressed();
     callback draft-edited(string);
     callback open-trust();
+    callback show-phrase();
     callback close-trust();
     callback trust-entry-edited(string);
     callback trust-add();
@@ -2032,6 +2037,15 @@ export component AppWindow inherits Window {
                     width: own-id.width + 10px;
                     height: own-id.height + 10px;
                     shown: own-id-input.has-focus;
+                }
+            }
+            if root.show-phrase-offered: HorizontalLayout {
+                alignment: start;
+                ActionButton {
+                    text: root.show-phrase-label;
+                    focus-key: "show-phrase";
+                    pressed => { root.show-phrase(); }
+                    focused(k) => { root.focus-id = k; }
                 }
             }
             // The add row under the explanation, above the list it adds to,

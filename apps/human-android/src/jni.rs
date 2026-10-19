@@ -688,6 +688,25 @@ extern "system" fn Java_org_interweave_human_Native_prompted<'caller>(
     .resolve::<ThrowRuntimeExAndDefault>();
 }
 
+/// `Native.offline(stopped)`: whether the service stopped for Show my
+/// phrase.
+#[allow(
+    unsafe_code,
+    reason = "the JVM finds a native method by its unmangled name"
+)]
+#[unsafe(no_mangle)]
+extern "system" fn Java_org_interweave_human_Native_offline<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    stopped: jboolean,
+) {
+    env.with_env(|_| -> Result<(), jni::errors::Error> {
+        crate::onboard::offline(stopped);
+        Ok(())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>();
+}
+
 /// `Native.back()`: the platform's Back, for the window (activity.rs).
 #[allow(
     unsafe_code,

@@ -296,6 +296,17 @@ fn android_main(app: AndroidApp) {
     let attach = {
         let view = Rc::clone(&view);
         move || {
+            // Weak: the window holds the callback, and a strong view in it
+            // would keep the window alive past the Activity.
+            let weak = Rc::downgrade(&view);
+            view.borrow().offer_show_phrase(move || {
+                let weak = weak.clone();
+                defer(move || {
+                    if let Some(view) = weak.upgrade() {
+                        crate::onboard::show_phrase(&view);
+                    }
+                });
+            });
             let view = Rc::clone(&view);
             ROOT.with(|root| *root.borrow_mut() = Some(Root::attach(view)));
             defer(turn);

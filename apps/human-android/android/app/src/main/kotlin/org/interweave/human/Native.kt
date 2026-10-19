@@ -161,6 +161,9 @@ internal object Native {
     /** True when Back found no way back: finish. BLOCKS. */
     @JvmStatic external fun waitLeave(timeoutMs: Long): Boolean
 
+    /** Whether the service stopped for Show my phrase ([Ask.OFFLINE]). */
+    @JvmStatic external fun offline(stopped: Boolean)
+
     /** The credential prompt's answer, for the identity screens. */
     @JvmStatic external fun prompted(granted: Boolean)
 }
@@ -172,6 +175,8 @@ internal object Ask {
     const val PROMPT = 3
     const val BIND = 4
     const val FINISH = 5
+    const val OFFLINE = 6
+    const val ONLINE = 7
 }
 
 /** The keys of the texts the platform shows, as `jni.rs` maps them. */

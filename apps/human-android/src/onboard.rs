@@ -56,6 +56,11 @@ pub(crate) mod ask {
     pub(crate) const BIND: jint = 4;
     /// Back on a first screen: finish the Activity.
     pub(crate) const FINISH: jint = 5;
+    /// Show my phrase: stop the service and keep it stopped; answered by
+    /// `Native.offline`.
+    pub(crate) const OFFLINE: jint = 6;
+    /// Show my phrase is over: start the service again.
+    pub(crate) const ONLINE: jint = 7;
 }
 
 /// The asks, in order, for one waiting Kotlin thread.
@@ -158,6 +163,9 @@ struct Onboarding {
     app_data_dir: PathBuf,
     cipher: Arc<KeystoreCipher>,
     secure: bool,
+    /// Show my phrase, from Settings: the service is bound already, and
+    /// is taken offline and back rather than bound (design section 3.5).
+    from_settings: bool,
     /// Called once the flow hands over to the chats.
     done: Rc<dyn Fn()>,
 }
@@ -185,9 +193,45 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
         secure: false,
+        from_settings: false,
         done: Rc::new(done),
     };
     drop(platform);
+    begin(view, onboarding);
+    true
+}
+
+/// Settings' Show recovery phrase: S1 over `view`, the chats staying
+/// attached underneath; Done or Back returns to Settings.
+pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
+    if ONBOARDING.with(|slot| slot.borrow().is_some()) {
+        return;
+    }
+    let platform = PLATFORM.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some(Platform {
+        app_data_dir,
+        cipher,
+        ..
+    }) = platform.as_ref()
+    else {
+        log("Show my phrase: no identity state was read");
+        return;
+    };
+    let onboarding = Onboarding {
+        view: Rc::clone(view),
+        flow: IdentityFlow::new(english(), Start::ShowPhrase),
+        creation: None,
+        app_data_dir: app_data_dir.clone(),
+        cipher: Arc::clone(cipher),
+        secure: false,
+        from_settings: true,
+        done: Rc::new(|| {}),
+    };
+    drop(platform);
+    begin(view, onboarding);
+}
+
+fn begin(view: &Rc<RefCell<View>>, onboarding: Onboarding) {
     view.borrow().on_identity(|input| {
         // Applied after the callback returns: the flow may call back into
         // the view, which is borrowed while its callback runs.
@@ -195,7 +239,6 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
     });
     ONBOARDING.with(|slot| *slot.borrow_mut() = Some(onboarding));
     render();
-    true
 }
 
 fn input_later(input: IdentityInput) {
@@ -216,6 +259,30 @@ pub(crate) fn prompted(granted: bool) {
             slot.borrow_mut()
                 .as_mut()
                 .map(|o| o.flow.prompted(granted))
+                .unwrap_or_default()
+        });
+        run(effects);
+        render();
+    });
+}
+
+/// `Native.offline`: whether the service stopped for Show my phrase. The
+/// words are read only once it has: nothing else holds the profile then.
+pub(crate) fn offline(stopped: bool) {
+    invoke_on_window(move || {
+        let effects = ONBOARDING.with(|slot| {
+            slot.borrow_mut()
+                .as_mut()
+                .map(|o| {
+                    let outcome = if stopped {
+                        onboarding::shown_phrase(&o.app_data_dir, PROFILE, o.cipher.as_ref())
+                            .map_err(|why| failed(&why))
+                    } else {
+                        log("Show my phrase: the service did not stop");
+                        Err(StepFailed::Storage)
+                    };
+                    o.flow.offline(outcome)
+                })
                 .unwrap_or_default()
         });
         run(effects);
@@ -316,12 +383,16 @@ fn one(effect: Effect) -> Vec<Effect> {
                 ASKS.push(ask::PROMPT);
                 Vec::new()
             }
-            // Show my phrase is reached from Settings, which gains its
-            // entry with the service's stop and restart; until then no
-            // screen asks this.
-            Effect::GoOffline => o.flow.offline(Err(StepFailed::Storage)),
+            Effect::GoOffline => {
+                ASKS.push(ask::OFFLINE);
+                Vec::new()
+            }
             Effect::StartService => {
-                ASKS.push(ask::BIND);
+                ASKS.push(if o.from_settings {
+                    ask::ONLINE
+                } else {
+                    ask::BIND
+                });
                 Vec::new()
             }
             Effect::OpenChats | Effect::OpenSettings => Vec::new(),

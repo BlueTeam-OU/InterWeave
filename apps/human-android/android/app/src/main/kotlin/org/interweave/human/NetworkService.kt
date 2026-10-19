@@ -52,6 +52,10 @@ class NetworkService : Service() {
     // A start command reached this Service: only Stay reachable sends one,
     // so a posture answer then is step 5's broken promise.
     @Volatile private var startCommanded = false
+    // Show my phrase holds the runtime stopped while the words are shown
+    // (design/2026-10-19-android-identity.md section 2): nothing here
+    // starts it again until the window says the words are gone.
+    @Volatile private var held = false
     private val networkOffPosted = AtomicBoolean(false)
     // The network callback's own thread: its reports, and the
     // unregistration's, reach the runtime in the order they were made.
@@ -73,12 +77,37 @@ class NetworkService : Service() {
             // start's end-waiter stop the second runtime. `mode` leaves
             // NETWORK_DENIED here, before the restart is queued, and the
             // start writes its own answer.
-            if (mode == Native.NETWORK_DENIED && networkGranted()) {
+            if (!held && mode == Native.NETWORK_DENIED && networkGranted()) {
                 mode = UNANSWERED
                 Log.i(TAG, "network access granted: restarting with the runtime")
                 lifecycle.execute { Native.stop() }
                 startClient()
             }
+        }
+
+        /**
+         * Show my phrase: stop the runtime and keep it stopped until
+         * [online]; [done] hears, off the main thread, whether it stopped.
+         * The Stay-reachable notification goes with it: nothing is
+         * reachable while the words show.
+         */
+        @Synchronized
+        fun offline(done: (Boolean) -> Unit) {
+            held = true
+            lifecycle.execute {
+                val stopped = Native.stop()
+                main.post { leaveForeground() }
+                done(stopped)
+            }
+        }
+
+        /** The words are gone: start again, as a launch does. */
+        @Synchronized
+        fun online() {
+            if (!held) return
+            held = false
+            mode = UNANSWERED
+            startClient()
         }
     }
 
@@ -285,7 +314,9 @@ class NetworkService : Service() {
     /** The runtime was asked to stop (its admin port, or a stop): end. */
     private fun awaitEnd() {
         val ended = Native.waitEnded()
-        if (!alive) return
+        // A stop for Show my phrase is offline()'s, and its restart
+        // online()'s: this waiter neither stops nor restarts it.
+        if (!alive || held) return
         when (ended) {
             Native.ENDED_ASKED, Native.ENDED_RUNTIME -> {
                 // Asked to stop, or the runtime ended on its own (not a

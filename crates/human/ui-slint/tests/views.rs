@@ -2957,3 +2957,25 @@ fn the_add_row_waits_for_the_list() {
     view.render(&model);
     let _ = the(&view, text(UiText::TrustPeer));
 }
+
+/// Show recovery phrase sits on Settings only where the platform offers it
+/// (Android, design/2026-10-19-android-identity.md section 3.5), and one
+/// activation reaches the platform.
+#[test]
+fn settings_offer_the_recovery_phrase_only_where_the_platform_does() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    the(&view, text(UiText::TrustSettings)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::IdShowPhraseItem)).is_empty(),
+        "not offered: the desktop"
+    );
+    let asked = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = std::rc::Rc::clone(&asked);
+    view.offer_show_phrase(move || counted.set(counted.get() + 1));
+    view.render(&model);
+    the(&view, text(UiText::IdShowPhraseItem)).invoke_accessible_default_action();
+    assert_eq!(asked.get(), 1);
+}

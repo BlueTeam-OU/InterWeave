@@ -48,6 +48,10 @@ import android.view.accessibility.AccessibilityManager
  */
 class MainActivity : NativeActivity() {
     @Volatile private var shown = false
+    // Show my phrase took the service offline and its words are this
+    // instance's to show: nothing binds or starts the service until they
+    // are gone, a return from Home included (design section 7).
+    @Volatile private var phraseShown = false
 
     override fun onStart() {
         super.onStart()
@@ -70,17 +74,17 @@ class MainActivity : NativeActivity() {
         window.decorView.viewTreeObserver.addOnGlobalLayoutListener(layout)
         watchSettings(true)
         touch()
+        // The identity screens' asks: a first run's or a recovery's before
+        // the service, Show my phrase's from Settings after it.
+        Thread({ relayIdentity() }, "interweave-identity").start()
         if (!identityReady) {
             // The identity screens come before the service: a profile with
             // no identity, or one the phone lost, binds nothing until the
             // screens say the identity is ready (onboard.rs).
-            if (Native.identityState(applicationInfo.dataDir) != Native.IDENTITY_READY) {
-                Thread({ relayIdentity() }, "interweave-identity").start()
-                return
-            }
+            if (Native.identityState(applicationInfo.dataDir) != Native.IDENTITY_READY) return
             identityReady = true
         }
-        connect()
+        if (!phraseShown) connect()
     }
 
     /** Bind the network service, asking for access first where needed. */
@@ -108,6 +112,16 @@ class MainActivity : NativeActivity() {
         // Back from the prompt or the settings page: a grant restarts the
         // Service with its runtime.
         local?.recheck()
+    }
+
+    override fun onDestroy() {
+        // The words go with this instance; the service must not stay
+        // offline for a window that no longer shows them.
+        if (phraseShown) {
+            phraseShown = false
+            local?.online()
+        }
+        super.onDestroy()
     }
 
     override fun onStop() {
@@ -275,7 +289,7 @@ class MainActivity : NativeActivity() {
 
     /** What the identity screens ask, carried out on the main thread. */
     private fun relayIdentity() {
-        while (shown && !identityReady) {
+        while (shown) {
             when (Native.waitIdentityAsk(ASK_WAIT_MS)) {
                 // FLAG_SECURE for as long as a word is on screen: no
                 // screenshot, no recents thumbnail (android-key-custody.md).
@@ -287,6 +301,16 @@ class MainActivity : NativeActivity() {
                     runOnUiThread { connect() }
                 }
                 Ask.FINISH -> runOnUiThread { finish() }
+                // Show my phrase: with no service bound, none runs.
+                Ask.OFFLINE -> {
+                    phraseShown = true
+                    local?.offline { Native.offline(it) } ?: Native.offline(true)
+                }
+                Ask.ONLINE -> {
+                    phraseShown = false
+                    // Unbound since (Home on S2): bind as a launch does.
+                    runOnUiThread { local?.online() ?: connect() }
+                }
             }
         }
     }

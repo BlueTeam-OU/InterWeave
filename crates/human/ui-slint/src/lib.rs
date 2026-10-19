@@ -674,6 +674,7 @@ impl View {
         window.set_trust_settings_label(text(UiText::TrustSettings));
         window.set_back_label(text(UiText::BackToConversations));
         window.set_trust_heading(text(UiText::TrustHeading));
+        window.set_show_phrase_label(text(UiText::IdShowPhraseItem));
         window.set_trust_explanation(text(UiText::TrustExplanation));
         window.set_own_peer_id_label(text(UiText::OwnPeerId));
         window.set_trusted_heading(text(UiText::TrustedPeers));
@@ -947,6 +948,14 @@ impl View {
             // Its words leave the view with it (section 7).
             self.window.set_identity(IdentityPage::default());
         }
+    }
+
+    /// Offer Show recovery phrase on Settings, under the `PeerId`, calling
+    /// `show` when it is pressed: Android's, where the phrase is the only
+    /// way to keep the identity (design section 3.5).
+    pub fn offer_show_phrase(&self, show: impl Fn() + 'static) {
+        self.window.set_show_phrase_offered(true);
+        self.window.on_show_phrase(show);
     }
 
     /// The platform's Back: the screen showing takes it -- the identity
