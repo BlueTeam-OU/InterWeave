@@ -527,8 +527,14 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
     // A direct conversation has two parties, and the bubble's side says
     // which: no author line (android-look section 6). The channel's,
     // which carries the exact PeerId, is tests/look.rs's.
+    // An author line is a text of the short PeerId described by the full
+    // one; the list's row and the app bar's heading title the conversation
+    // with the short PeerId too (human-client-ui.md §4).
     assert!(
-        labelled(&view, &short).is_empty(),
+        labelled(&view, &short)
+            .iter()
+            .all(|e| e.type_name().as_deref() != Some("Text")
+                || e.accessible_description().as_deref() != Some(id)),
         "no author line in a direct conversation"
     );
     // Nor a route line: the title carries the route (section 6), and the
@@ -566,8 +572,11 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
     let header = all(&view)
         .into_iter()
         .find(|e| {
+            // The peer's only conversation: titled by the short PeerId,
+            // described by the full one (human-client-ui.md §4).
             e.accessible_description().as_deref() == Some(id)
-                && e.accessible_label().is_some_and(|l| l.contains("human"))
+                && e.accessible_label().as_deref() == Some(short.as_str())
+                && e.type_name().as_deref() == Some("FocusHeading")
         })
         .expect("the conversation header");
     assert_eq!(
@@ -725,17 +734,9 @@ fn network_denied_shows_its_action_and_no_composer() {
 #[test]
 fn a_narrow_window_shows_one_pane_at_a_time_with_a_way_back() {
     let alice = peer();
-    // The conversation's row, by the title the list gives it.
-    let title = interweave_human_ui_model::fill(
-        text(UiText::DirectTitle),
-        &[
-            (
-                "peer",
-                &interweave_human_ui_model::short_peer(alice.as_str()),
-            ),
-            ("route", human().as_str()),
-        ],
-    );
+    // The conversation's row, by the title the list gives it: the short
+    // PeerId alone, the peer's only conversation (human-client-ui.md §4).
+    let title = interweave_human_ui_model::short_peer(alice.as_str());
     // Whether the conversation's row is in the tree: a folded pane is
     // not, for a screen reader as for the eye.
     let row_shown = |view: &View| {

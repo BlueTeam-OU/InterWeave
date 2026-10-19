@@ -671,12 +671,25 @@ fn a_channels_bubbles_name_their_author_and_a_direct_ones_do_not() {
     let _ = view.take_events(&model);
     view.render(&model);
     let short = interweave_human_ui_model::short_peer(ALICE);
-    let author = labelled(&view, &short);
+    // The author line: a text of the short PeerId described by the full
+    // one. The list's row and the app bar's heading title a direct
+    // conversation with the same short PeerId (human-client-ui.md §4).
+    let not_a_row = |e: &ElementHandle| {
+        e.type_name().as_deref() == Some("Text")
+            && e.accessible_description().as_deref() == Some(ALICE)
+    };
+    let author: Vec<_> = labelled(&view, &short)
+        .into_iter()
+        .filter(not_a_row)
+        .collect();
     assert_eq!(author.len(), 1, "the author line");
     assert_eq!(author[0].accessible_description().as_deref(), Some(ALICE));
 
     let view = opened(&model, false);
-    assert!(labelled(&view, &short).is_empty(), "no author line");
+    assert!(
+        !labelled(&view, &short).into_iter().any(|e| not_a_row(&e)),
+        "no author line"
+    );
 }
 
 /// Section 11 item 10: each status shows its words and its icon, and an

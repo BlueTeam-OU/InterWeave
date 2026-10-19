@@ -6,7 +6,7 @@
 //! I/O, and never re-opens anything -- it shows `Reconnecting` while the
 //! facade does.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use interweave_human_chat_protocol::{HumanChatV2, Rendered, is_allowed_link_scheme, render};
 use interweave_human_client_api::{
@@ -827,6 +827,7 @@ impl UiModel {
     /// Every conversation, most recent activity first.
     #[must_use]
     pub fn conversations(&self) -> Vec<ConversationSummary> {
+        let shared = self.peers_with_routes();
         let mut by: BTreeMap<&ConversationKey, ConversationSummary> = BTreeMap::new();
         for (key, item) in self.items.iter().filter(|(_, i)| !i.hidden) {
             let last = || LastMessage {
@@ -840,7 +841,7 @@ impl UiModel {
                 .entry(&item.conversation)
                 .or_insert_with(|| ConversationSummary {
                     key: item.conversation.clone(),
-                    title: title(&item.conversation),
+                    title: title(&item.conversation, &shared),
                     unread: 0,
                     last_activity: 0,
                     avatar: Avatar::of(&item.conversation),
@@ -870,7 +871,25 @@ impl UiModel {
     /// is open.
     #[must_use]
     pub fn title(&self, key: &ConversationKey) -> String {
-        title(key)
+        title(key, &self.peers_with_routes())
+    }
+
+    /// The peers this session holds direct conversations with on more than
+    /// one route: their titles carry the route (human-client-ui.md §4).
+    /// Every conversation the session holds counts, a hidden one too: it
+    /// is still there to be told apart when it comes back.
+    fn peers_with_routes(&self) -> BTreeSet<&TransportIdentity> {
+        let mut routes: BTreeMap<&TransportIdentity, BTreeSet<&ConversationKey>> = BTreeMap::new();
+        for item in self.items.values() {
+            if let ConversationKey::Direct { peer, .. } = &item.conversation {
+                routes.entry(peer).or_default().insert(&item.conversation);
+            }
+        }
+        routes
+            .into_iter()
+            .filter(|(_, keys)| keys.len() > 1)
+            .map(|(peer, _)| peer)
+            .collect()
     }
 
     /// A conversation's messages, in LOCAL time order (A3). Replies are
@@ -1358,14 +1377,20 @@ fn conversation_of(destination: &Destination) -> ConversationKey {
 }
 
 /// A conversation's title: a channel's name, or a direct route's
-/// authenticated short `PeerId` with the route label the peer asserts,
-/// shown as a label beside it (agreed item 3c). The envelope's own
-/// `from_endpoint` and the message text never enter it.
-fn title(key: &ConversationKey) -> String {
+/// authenticated short `PeerId` -- with the route label the peer asserts
+/// beside it only while this session holds another conversation with the
+/// same peer on another route, which the label then tells apart
+/// (human-client-ui.md §4 at a5ecfc04; #304 F6). One conversation with a
+/// peer has no route in its title; its details show it. The envelope's
+/// own `from_endpoint` and the message text never enter it.
+fn title(key: &ConversationKey, shared: &BTreeSet<&TransportIdentity>) -> String {
     match key {
         ConversationKey::Channel(channel) => format!("#{}", channel.as_str()),
         ConversationKey::Direct { peer, endpoint } => {
             let short = short_peer(peer.as_str());
+            if !shared.contains(peer) {
+                return short;
+            }
             endpoint.as_ref().map_or_else(
                 || short.clone(),
                 |e| {

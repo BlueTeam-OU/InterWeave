@@ -118,10 +118,13 @@ async fn a_trust_removal_shows_the_exact_peer_id_and_reaches_the_daemon_only_ove
     );
     let confirm = window
         .until(
-            "the confirmation's Confirm, describing it",
+            // The dialog's act names it, Remove trust (#304 F4), and is
+            // described by the question; the row's own Remove trust is
+            // described by its PeerId alone.
+            "the confirmation's Remove trust, describing it",
             |e: &Element| {
                 e.role == "button"
-                    && e.name == text(UiText::ConfirmChange)
+                    && e.name == text(UiText::RemoveTrust)
                     && e.description == question
             },
             log,
