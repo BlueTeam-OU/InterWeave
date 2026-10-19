@@ -63,9 +63,17 @@
 #     inside `allprojects { dependencyLocking { } }`, or not locking the
 #     buildscript classpath (`activateDependencyLocking()`), or no
 #     buildscript-gradle.lockfile; comments do not count;
-#   - any Gradle script under the root, a subproject's included, naming
-#     LockMode.LENIENT, ignoredDependencies, unlockAllConfigurations or
-#     deactivateDependencyLocking.
+#   - any Gradle script, version catalog or buildSrc/build-logic Kotlin
+#     under the root naming LockMode.LENIENT, ignoredDependencies,
+#     unlockAllConfigurations, deactivateDependencyLocking, lockFile,
+#     startParameter, writeDependencyLocks or LockedDependenciesToUpdate
+#     -- read raw, so a comment naming one fails too.
+#
+# AND THE DECLARATIONS: the same files may not name a banned group
+# (a plugins { } id, a dependency coordinate, a catalog entry), except
+# on a dependency line of a test or lint configuration. A subproject's
+# own plugin classpath is in no lockfile, so this is what refuses the
+# Google services plugin applied there.
 #
 # WHAT IT CANNOT SEE: under Gradle's DEFAULT lock mode a locked
 # configuration with NO lock state (a new build type's classpath before
@@ -117,8 +125,11 @@ gradle_files() {
 [ -f "$GRADLE/app/gradle.lockfile" ] || fail "apps/human-android/android/app/gradle.lockfile: missing -- the app's classpath is unlocked or the lockfile was not committed"
 
 # A Gradle script with its comments removed and its lines joined, so a
-# call inside /* ... */ or after // does not count, and a block can be
-# matched across lines. `//` after a `:` is kept: it is a URL's scheme.
+# call inside /* ... */ or after // does not count toward the two REQUIRED
+# calls below, and a block can be matched across lines. It does not parse
+# strings, so "**/*.kt" or a URL removes text that is code; for a call
+# that must be PRESENT that fails closed, which is why nothing is ever
+# refused on its output (the loosening scan reads raw text).
 code_of() {
     awk '
         {
@@ -129,13 +140,7 @@ code_of() {
                     if (e == 0) { line = ""; break }
                     line = substr(line, e + 2); inblock = 0; continue
                 }
-                b = index(line, "/*"); c = 0; rest = line
-                while ((k = index(rest, "//")) > 0) {
-                    pos = c + k
-                    if (pos == 1 || substr(line, pos - 1, 1) != ":") { c = pos; break }
-                    c = pos + 1; rest = substr(line, c + 1)
-                }
-                if (k == 0) c = 0
+                b = index(line, "/*"); c = index(line, "//")
                 if (b > 0 && (c == 0 || b < c)) {
                     out = out substr(line, 1, b - 1); line = substr(line, b + 2); inblock = 1; continue
                 }
@@ -163,24 +168,57 @@ fi
 [ -f "$GRADLE/buildscript-gradle.lockfile" ] \
     || fail "apps/human-android/android/buildscript-gradle.lockfile: missing -- the plugin classpath is unread"
 
-# What loosens a lock, in ANY Gradle script under the root: a subproject's
-# own dependencyLocking block is evaluated after the root's allprojects
-# and overrides it for that project (review of #307, finding 2).
+# The build's own text: every Gradle script, the version catalog, and the
+# Kotlin of a buildSrc or build-logic plugin, under the root.
+build_sources() {
+    gradle_files -name '*.gradle' -o -name '*.gradle.kts' -o -name '*.toml' \
+        -o \( -name '*.kt' \( -path '*/buildSrc/*' -o -path '*/build-logic/*' \) \)
+}
+
+# What loosens a lock, read from the RAW text: a subproject's own
+# dependencyLocking block is evaluated after the root's allprojects and
+# overrides it for that project (review of #307, finding 2). Raw and not
+# comment-stripped, because a stripper that does not parse strings reads
+# the glob "**/*.kt" as a comment opening and drops the rest of the file
+# (review of #307 round 2, finding 1). A comment naming one fails too:
+# write the prose another way.
 #   LockMode.LENIENT              resolves past the lock without failing
 #   ignoredDependencies           neither written to the lock nor checked
-#   unlockAllConfigurations()     undoes lockAllConfigurations()
-#   deactivateDependencyLocking() one configuration out of the lock
-while IFS= read -r script; do
-    [ -n "$script" ] || continue
-    code="$(code_of "$script")"
-    for loosen in 'LockMode\.LENIENT' 'ignoredDependencies' 'unlockAllConfigurations' 'deactivateDependencyLocking'; do
-        if grep -Eq "$loosen" <<<"$code"; then
-            fail "${script#"$ROOT"/}: ${loosen//\\/} -- the lockfile would no longer describe what resolves"
-        fi
-    done
+#   unlockAllConfigurations       undoes lockAllConfigurations()
+#   deactivateDependencyLocking   one configuration out of the lock
+#   lockFile                      the lock state read from another file
+#   startParameter                write-locks or update-locks on every build
+#   writeDependencyLocks / LockedDependenciesToUpdate  the same, by name
+LOOSEN='LockMode\.LENIENT|ignoredDependencies|unlockAllConfigurations|deactivateDependencyLocking|lockFile|startParameter|[Ww]riteDependencyLocks|[Ll]ockedDependenciesToUpdate'
+
+# A banned group named in the build's own text, whatever resolves: a
+# subproject's plugins { id(...) version ... } resolves into that
+# project's buildscript classpath, which no lockfile here records
+# (review of #307 round 2, risk 1), so the declaration is refused where
+# it is written. A dependency line on a test or lint configuration may
+# name one, as decision 2 allows; the catalog cannot say where an entry
+# is used, so it may not.
+BANNED='(com\.google\.android\.gms|com\.google\.firebase|com\.google\.android\.play|com\.android\.billingclient|com\.google\.gms)([.:"'"'"'/[:space:]]|$)'
+TOOLING_LINE='^[0-9]+:[[:space:]]*"?(test|androidTest|lintChecks|lintPublish|[a-z]+UnitTest|[a-z]+AndroidTest)[A-Za-z]*"?[[:space:](]'
+
+sources=0
+while IFS= read -r src; do
+    [ -n "$src" ] || continue
+    sources=$((sources + 1))
+    rel="${src#"$ROOT"/}"
+    hits="$(grep -noE "$LOOSEN" "$src" || true)"
+    while IFS= read -r h; do
+        [ -n "$h" ] && fail "$rel: ${h#*:} (line ${h%%:*}) -- the lockfile would no longer describe what resolves"
+    done <<<"$hits"
+    hits="$(grep -nE "$BANNED" "$src" || true)"
+    case "$src" in *.toml) ;; *) hits="$(grep -vE "$TOOLING_LINE" <<<"$hits" || true)" ;; esac
+    while IFS= read -r h; do
+        [ -n "$h" ] && fail "$rel: declares a banned group (line ${h%%:*}) -- ${h#*:}"
+    done <<<"$hits"
 done <<EOF
-$(gradle_files -name '*.gradle' -o -name '*.gradle.kts')
+$(build_sources)
 EOF
+[ "$sources" -gt 0 ] || fail "apps/human-android/android: no Gradle script read"
 
 # Every subproject (a directory below the Gradle root holding a
 # build.gradle.kts or a Groovy build.gradle) owes a lockfile beside it.

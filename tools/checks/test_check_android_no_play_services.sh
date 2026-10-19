@@ -140,6 +140,11 @@ for d in build .gradle; do
     expect_fail "$R" "a clone below $d/" "com.google.firebase:firebase-messaging:24.1.0 on releaseRuntimeClasspath"
 done
 
+echo "an app lockfile the search does not reach is not read, and fails (round 2, finding 3)"
+# find -P does not descend a symlinked directory, while [ -f ] follows it.
+R="$(tree)"; G="$R/apps/human-android/android"; mv "$G/app" "$R/app-real"; ln -s "$R/app-real" "$G/app"
+expect_fail "$R" "a symlinked app directory" "app/gradle.lockfile: not read"
+
 echo "Gradle's output directories below the root are not read"
 R="$(tree)"; mkdir -p "$R/apps/human-android/android/app/build/tmp"
 printf 'com.google.android.gms:x:1.0=releaseRuntimeClasspath\n' > "$R/apps/human-android/android/app/build/tmp/gradle.lockfile"
@@ -169,10 +174,40 @@ for loosen in \
     R="$(tree)"; printf '\n%s\n' "${loosen%:*}" >> "$R/$APP_BUILD"
     expect_fail "$R" "${loosen##*:} in app/build.gradle.kts" "app/build.gradle.kts: ${loosen##*:}"
     R="$(tree)"; printf '\n// %s\n/*\n%s\n*/\n' "${loosen%:*}" "${loosen%:*}" >> "$R/$APP_BUILD"
-    expect_pass "$R" "  the same commented out"
+    # Read raw: a stripper that does not parse strings once let a glob
+    # hide the rest of the file, so a comment naming one fails as well.
+    expect_fail "$R" "  the same commented out" "app/build.gradle.kts:"
 done
 R="$(tree)"; printf '\ndependencyLocking { lockMode.set(LockMode.LENIENT) }\n' >> "$R/apps/human-android/android/settings.gradle.kts"
 expect_fail "$R" "LENIENT in settings.gradle.kts" "settings.gradle.kts: LockMode.LENIENT"
+
+echo "a string that looks like a comment hides nothing (review of #307 round 2, finding 1)"
+R="$(tree)"; printf '\nval kt = fileTree("src") { include("**/*.kt") }\nval p = "a//b"\ndependencyLocking { lockMode.set(LockMode.LENIENT) }\n' >> "$R/$APP_BUILD"
+expect_fail "$R" "LENIENT after a glob and a // in a string" "LockMode.LENIENT"
+
+echo "moving the lock state elsewhere loosens it too (round 2, finding 2)"
+R="$(tree)"; printf '\ndependencyLocking { lockFile.set(file("alt.lock")) }\n' >> "$R/$APP_BUILD"
+expect_fail "$R" "lockFile in app/build.gradle.kts" "app/build.gradle.kts:"
+R="$(tree)"; printf '\ngradle.startParameter.isWriteDependencyLocks = true\n' >> "$R/apps/human-android/android/settings.gradle.kts"
+expect_fail "$R" "startParameter write-locks in settings.gradle.kts" "settings.gradle.kts:"
+R="$(tree)"; printf '\nval sp = gradle.startParameter\n' >> "$R/apps/human-android/android/settings.gradle.kts"
+expect_fail "$R" "any startParameter use, whatever it then sets" "settings.gradle.kts: startParameter"
+R="$(tree)"; mkdir -p "$R/apps/human-android/android/buildSrc/src/main/kotlin"
+printf 'fun Project.x() { dependencyLocking { unlockAllConfigurations() } }\n' > "$R/apps/human-android/android/buildSrc/src/main/kotlin/Locks.kt"
+expect_fail "$R" "unlockAllConfigurations in buildSrc Kotlin" "buildSrc/src/main/kotlin/Locks.kt: unlockAllConfigurations"
+
+echo "a banned group declared in the build's own text fails (round 2, risk 1)"
+R="$(tree)"; printf '\nplugins { id("com.google.gms.google-services") version "4.4.2" }\n' >> "$R/$APP_BUILD"
+expect_fail "$R" "the Google services plugin applied in app" "declares a banned group"
+R="$(tree)"; printf '\ndependencies { implementation("com.google.firebase:firebase-messaging:24.1.0") }\n' >> "$R/$APP_BUILD"
+expect_fail "$R" "a Firebase implementation dependency" "declares a banned group"
+R="$(tree)"; mkdir -p "$R/apps/human-android/android/gradle"
+# The key reads like a test configuration on purpose: the catalog cannot
+# say where an entry is used, so no line of it is exempt.
+printf '[libraries]\ntestFcm = { module = "com.google.firebase:firebase-messaging", version = "24.1.0" }\n' > "$R/apps/human-android/android/gradle/libs.versions.toml"
+expect_fail "$R" "a Firebase catalog entry" "gradle/libs.versions.toml: declares a banned group (line 2)"
+R="$(tree)"; printf '\ndependencies {\n    testImplementation("com.google.firebase:x:1.0")\n    androidTestImplementation("com.google.android.gms:y:1.0")\n    lintChecks("com.google.android.play:z:1.0")\n    implementation("com.google.gmsx:w:1.0")\n}\n' >> "$R/$APP_BUILD"
+expect_pass "$R" "test and lint dependency lines, and a lookalike group"
 
 echo "lockAllConfigurations() counts only where it locks every project (finding 4)"
 ROOT_BUILD=apps/human-android/android/build.gradle.kts
@@ -181,7 +216,14 @@ expect_fail "$R" "the allprojects block inside /* */" "no lockAllConfigurations(
 R="$(tree)"; sed -i 's/^allprojects {/dependencyLocking { lockAllConfigurations() }\nsubprojects {/; s/^\([[:space:]]*\)lockAllConfigurations()$/\1lockMode.set(LockMode.DEFAULT)/' "$R/$ROOT_BUILD"
 expect_fail "$R" "lockAllConfigurations() for the root project alone" "no lockAllConfigurations() in allprojects"
 
+R="$(tree)"; sed -i 's/^\([[:space:]]*\)lockAllConfigurations()$/\1lockMode.set(LockMode.DEFAULT)/' "$R/$ROOT_BUILD"; printf '\ndependencyLocking { lockAllConfigurations() }\n' >> "$R/$ROOT_BUILD"
+expect_fail "$R" "the call after the allprojects block has closed (round 2, finding 3)" "no lockAllConfigurations() in allprojects"
+
 echo "the plugin classpath's lock is checked too"
+R="$(tree)"; sed -i 's/^buildscript {/run {/' "$R/$ROOT_BUILD"
+expect_fail "$R" "activateDependencyLocking() outside buildscript (round 2, finding 3)" "the buildscript classpath is not locked"
+R="$(tree)"; add "$R/apps/human-android/android/buildscript-gradle.lockfile" "com.google.gms.google-services:com.google.gms.google-services.gradle.plugin:4.4.2=classpath"
+expect_fail "$R" "the plugin marker, a com.google.gms subgroup (round 2, finding 3)" "com.google.gms.google-services:com.google.gms.google-services.gradle.plugin:4.4.2 on classpath"
 R="$(tree)"; sed -i 's/resolutionStrategy.activateDependencyLocking()/\/\/ resolutionStrategy.activateDependencyLocking()/' "$R/$ROOT_BUILD"
 expect_fail "$R" "buildscript locking switched off" "the buildscript classpath is not locked"
 R="$(tree)"; rm "$R/apps/human-android/android/buildscript-gradle.lockfile"
