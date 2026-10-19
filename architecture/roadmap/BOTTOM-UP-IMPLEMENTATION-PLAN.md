@@ -5726,13 +5726,23 @@ ten cases: `a_direct_message_lands_over_a_static_loopback_entry`,
 user units and their README); step 5 (the mDNS clause of `CLAUDE.md`
 §1). The exit gate: (a) steps 1–4 are on `main` with CI green at the
 merge (4a607b2e) and at the next (c9766159), and each fact of decision
-2 is held by a named case — admission not delivery and the receipt by
-the receipt case, dedup inside the window and the second delivery
-across a restart by the withheld-lease case, the ingress bucket and the
+2 is held by a named case, in this suite where the suite reaches it and
+elsewhere in the tree where an earlier stage already held it, the
+document's §2 naming each — admission not delivery by the withheld-lease
+case (a retry inside the window is accepted again and not delivered
+again) with the receipt case showing what delivery takes; `no_route`
+coarse by `tests/security`'s
+`the_four_no_route_causes_are_byte_identical_on_the_wire`; no durable
+broadcast by decision (ADR-0020) with the broadcast-burst case showing
+that a dropped publish never arrives later; the 256-event queue's
+refusal by the runtime's `a_full_queue_refuses_rather_than_accepting_falsely`;
+the 48 KiB ceiling by `ipc-protocol`'s
+`a_payload_past_the_ceiling_is_payload_too_large`; dedup inside the
+window and the second delivery across a restart by the withheld-lease
+case, the ingress bucket and the
 silent drop by the broadcast-burst case, the whole landing of the same
 burst as direct sends by the direct-burst case, `ShuttingDown` then
-`BackendUnavailable` both re-opened by the daemon-gone case, the port
-rule by the two port cases, and the figures: 34–41 of 200 broadcasts
+`BackendUnavailable` both re-opened by the daemon-gone case, the port rule of decision 5 by the two port cases, and the figures: 34–41 of 200 broadcasts
 delivered over thirteen runs, each inside the bound the bucket's
 constants give over the run's elapsed time (a later run 50 within
 31–56 over 11.9 s); 200 of 200 direct sends landed, each once, through
