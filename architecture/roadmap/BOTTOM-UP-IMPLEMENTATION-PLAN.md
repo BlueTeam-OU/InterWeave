@@ -5558,28 +5558,30 @@ However, **construction follows Stages 0-19 in this document**. In particular, c
 
 This ordering is normative because it ensures autonomous libp2p behaviours are introduced only after their security and resource-control boundary already exists.
 
-## 28. Stage 20 — InterWeave carries the fleet's GZCoord
+## 28. Stage 20 — automated clients and the one-host deployment
 
-Opened by this record on the owner's direction of 2026-10-19 ("go on
-with InterWeave so we start to use it instead of the current
-transport"), to run **beside** Stage 17 and Stage 18 as §19's Stage 16
-ran beside Stage 15: the status value stays the lowest open stage, and
-this section is the authorisation for its packages (§3 of `CLAUDE.md`).
-The decision is ADR-0055; this section is the construction order, the
-gate and the record. Its sections are numbered after §27 so that no
-citation of §23–§27 moves.
+Opened by this record on the owner's direction of 2026-10-19 (the
+agents that build InterWeave use it as their transport) and bounded by
+the owner's line of the same day: InterWeave stays a general-purpose
+transport, for human-to-human communication as for anything else, and
+the agents' coordination protocol does not enter this repository —
+"different things, different layer". The stage runs **beside** Stage
+17 and Stage 18 as §19's Stage 16 ran beside Stage 15: the status value
+stays the lowest open stage, and this section is the authorisation for
+its packages (§3 of `CLAUDE.md`). The decision is ADR-0055; this
+section is the construction order, the gate and the record. It is
+numbered after §27 so that no citation of §23–§27 moves.
 
 ### Objective
 
-The agents that build InterWeave talk over it: one daemon and one
-carrier process per login on the one host, every login's wire identity
-its own key, direct and broadcast GZCOORD/1 traffic through the
-carrier's lease on the `gzcoord` endpoint and the `gzapp:gzcoord`
-channel, durability in the carrier and the login's journal, the relay
-kept as the fallback until the fabric retires it. InterWeave's part
-ends at the data socket's contract; the carrier process, the roster and
-the fabric's tooling are agent-fabric's, by its own records
-(agent-fabric ADR-033's successor, ADR-029 phase 2).
+What the transport promises an automated client — an agent, a bot, a
+gateway, a test harness — stated as measured and proved by a
+conformance suite, with the two offline identity verbs and the Linux
+user units a deployment of many profiles under many accounts on one
+host needs. InterWeave's part ends at the data socket's contract and
+those facts; the protocol a deployment carries, its addressing, its
+roster, its journal and its carrier process are the deployment's, and
+for the fleet they are agent-fabric's by its own records.
 
 ### Prerequisites
 
@@ -5591,75 +5593,71 @@ touches the human client.
 ### Activate
 
 ```text
-packaging/linux            (the daemon's and the carrier's user units; the service-lifecycle rows of §22 pulled forward for Linux only)
-apps/transportctl          (two offline verbs: identity init, identity show)
-tests/fleet-carrier        (the conformance suite of ADR-0055 decision 9)
-architecture/clients/agent (what the transport promises an automated client)
+packaging/linux                 (the daemon's and a client's user-unit templates; §22's service-lifecycle rows pulled forward for Linux only)
+apps/transportctl               (two offline verbs: identity init, identity show)
+tests/automated-client          (the conformance suite of ADR-0055 decisions 2 and 5)
+architecture/clients/automated  (what the transport promises an automated client, and what such a client owes itself)
 ```
 
 No new crate. `packaging/macos`, `packaging/windows` and
-`packaging/android` stay §22's.
+`packaging/android` stay §22's. No name of any coordination protocol
+appears in any of the four.
 
 ### Implement in order
 
 1. `transportctl identity init --profile <name>` and `identity show`
-   (ADR-0055 decision 7): offline, under the profile lock, printing the
+   (ADR-0055 decision 4): offline, under the profile lock, printing the
    PeerId and nothing secret; refused while a daemon holds the lock;
-   `init` refuses an existing key. Tests beside the other identity
-   verbs.
-2. `packaging/linux`: `interweave-daemon@.service` and
-   `interweave-carrier@.service` as systemd user units templated on the
-   profile name, `Restart=on-failure`, the daemon stopped by SIGTERM with
-   the grace the daemon already honours, the carrier `After=` and
-   `BindsTo=` its daemon; a README that says how a login installs them
-   and what the fabric's bootstrap does instead. The units run the
-   binaries from the login's own `~/.local/bin` or a path the README
-   names; no system-wide install.
-3. `architecture/clients/agent/AGENT-CARRIER.md`: the promises and the
-   limits an automated client reads — the lease, the 48 KiB ceiling,
-   `AcceptedV2` and `no_route`, the per-client queue of 256 and what a
-   wedged client loses, the loopback deployment's static bootstrap, and
-   the carrier's own obligations (journal before offer, same
-   `message_id` on retry, `FROM` against the roster). It cites the
-   contracts and restates no constant.
-4. `tests/fleet-carrier`: two daemons on loopback with static bootstrap
-   and mutual trust rendered the way the roster will render them; a
-   test carrier (test-support, never a production dependency) that
-   claims `gzcoord` and joins the channel; cases: a direct message B
-   receives from A, B's carrier receipt reaching A's carrier after B's
-   append (ADR-0055 decision 4), a fan-out under one `message_id` to
-   two receivers each landing once, and a broadcast A publishes that
-   B receives over the channel (kept for a second host); a send
-   while B's lease is withheld answered `RemoteEndpointUnavailable`,
-   retried under the same `message_id` and landing once with no
-   duplicate when the lease returns inside the dedup window, and the
-   same retry after B's daemon restarts landing as a second delivery
-   that the test carrier's journal collapses by `MESSAGE-ID` (ADR-0055
-   decision 4; the limit measured, not assumed); A's daemon restarted under a live
-   carrier, the carrier re-leasing and re-joining and the next message
-   landing; a burst of 200 broadcasts with the receiver draining,
-   counting what the bounded queue dropped; a loopback static-bootstrap
-   dial, which no test on `main` exercises; and a daemon started on a
-   port another holds, its refusal read (decision 6).
+   `init` refuses an existing key; tests beside the other identity
+   verbs. (Built on p2p-network-dev's branch at 8dddbbcf, 24 tests,
+   before this record landed.)
+2. `tests/automated-client` (root suite, test-support only): two
+   daemons on loopback with static bootstrap and mutual trust as a
+   deployment renders them, and a generic test client that claims a
+   configured endpoint and joins a channel; cases: a direct message B
+   receives from A; an application receipt B's client sends after it
+   has kept the message, reaching A's client (decision 3, the client's
+   own); a send while B's lease is withheld answered
+   `RemoteEndpointUnavailable`, retried under the same `message_id` and
+   landing once inside the dedup window, and the same retry after B's
+   daemon restarts landing as a second delivery the test client
+   collapses by its own key (decision 2, the limit measured); a
+   fan-out under one `message_id` to two receivers each landing once;
+   A's daemon restarted under a live client (re-lease, re-join, the
+   next message lands; `ShuttingDown` then `BackendUnavailable` both
+   re-opened); a burst of 200 broadcasts with the delivered count read
+   against the ingress bucket, and the same burst as direct sends
+   landing whole through `Overloaded` retries; a loopback
+   static-bootstrap dial, which no test on `main` exercised; a second
+   daemon of another account on a taken port failing its start, and of
+   the same account sharing it (decision 5).
+3. `architecture/clients/automated/AUTOMATED-CLIENT.md`: ADR-0055
+   decisions 2 and 3 as a reader's document, each fact naming the test
+   of step 2 or the contract that holds it, restating no constant; the
+   loopback deployment's `config.yaml` shape; the pacing figures for
+   fan-out. Written by architect-cto from the facts p2p-network-dev
+   states with step 2.
+4. `packaging/linux`: `interweave-daemon@.service` and
+   `interweave-client@.service` as systemd user units templated on the
+   profile name, `Restart=on-failure`, the daemon stopped by SIGTERM
+   with the grace it already honours, the client `After=` and
+   `BindsTo=` its daemon, binaries from the account's own path, no
+   system-wide install; a README that says how an account installs them
+   and that a deployment's tooling may do it instead.
 5. The stale clause in `CLAUDE.md` §1 about mDNS (the multicast backend
    was built after Stage 9; this record corrects it) — done in the
    series that lands this section.
 
 ### Exit gate
 
-(a) Steps 1–4 landed with their tests green on `main`; (b) the fabric's
-cut-over of at least two logins on `develop-qzapp`, each session's inbox
-watch reading its journal, B receiving A's direct and A's broadcast
-through the carriers (agent-fabric ADR-033 rule 4), recorded in
-agent-fabric with the two logins, the date and the message ids; (c) a
-soak the fabric defines, the relay running as the fallback throughout,
-with the candidate record's unverified items — behaviour under load,
-ordering across senders, loss during a session's absence and a daemon
-restart — each measured and written down, met or carried by name; (d)
-the control plane's move (phase 2) and the relay's retirement are NOT
-conditions of this gate: they are the fabric's, after it.
+(a) Steps 1–4 landed with their tests green on `main`, every fact of
+decision 2 held by a named case; (b) the automated-client document
+cites each; (c) the first external deployment, if one has run by the
+close, is cited by its own record with the figures it measured — it is
+evidence, never a condition, since the transport is general purpose and
+no deployment's protocol is this stage's.
 
 ### Record
 
 The owner's word closes it, as every stage. The `Met.` block names the
-two logins, the soak's figures and what was carried.
+cases, the measured figures of decision 2 and what was carried.

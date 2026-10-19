@@ -21,7 +21,7 @@ Authority order is unchanged (`CLAUDE.md` §2): accepted ADRs → normative cont
 |---|---|
 | layering, what belongs in transport vs application, opaque payload, coordination semantics | **0001** (+ 0021, 0045 for where code lives) |
 | Claude Code Channel, MCP bridge, stdio server, push notifications, tool surface | **0002** + **0023** |
-| fleet carrier, agents as a first-party client, gzcoord endpoint, PeerId roster, replacing the relay, loopback deployment | **0055** (+ 0044 durability stays in the client, 0052 operator addresses, 0002 pull delivery) |
+| automated client, agent or bot as a first-party consumer, what the transport promises a machine client, loopback deployment of many accounts, identity init, service units | **0055** (+ 0044 durability stays in the client, 0019 the dedup window, 0052 operator addresses, 0002 pull delivery) |
 | libp2p backend choice, TCP/Noise/Yamux/Identify wiring | **0003** (+ 0013 security, 0035 reachability wiring) |
 | broadcast, GossipSub, topics, mesh message ID, duplicate key | **0004** + **0025** (+ **0029** validation mapping) |
 | GossipSub validation result, Reject vs Ignore vs Accept, unauthorized publisher | **0029** (+ 0012 trust) |
@@ -100,11 +100,11 @@ Architecture B: the Claude bridge connects over local IPC to a separate Rust dae
 - Rules: the daemon owns identity and network lifecycle and survives Claude Code restarts. Carries an Android amendment — ADR-0041 embeds the same runtime in a foreground service instead.
 - Keywords: daemon, embedded, process model, lifecycle, architecture b
 
-### 0055 — InterWeave carries the fleet's GZCoord through an agent carrier client (Proposed)
-The agents that build InterWeave use it as their own GZCOORD/1 transport instead of the central relay: one carrier process per login, a first-party local client like the human client and the Channel bridge.
-- Rules: the carrier holds the `gzcoord` endpoint lease as client kind `gzcoord-carrier` and joins `gzapp:gzcoord`; `TO` is `direct.send` to the login's PeerId, `TO-ROLE` and `BROADCAST` are a publish on that channel; who a login is on the wire is a committed roster in agent-fabric (PeerId, listen address), rendered into every profile's allowlist and static bootstrap, and the carrier refuses a `FROM` the authenticated `source_peer` does not match; durability is the carrier's (pending until `AcceptedV2`, the human client's retry schedule, never given up; inbound journaled before it is read) and the transport stays realtime; delivery into a session stays pull; first deployment one host over loopback, no connectivity behaviour; `transportctl identity init|show`; the relay stays the fallback and the control plane's carrier until the fabric retires it.
-- Security: one key per login in its own account replaces one shared token; the roster grants nothing, the allowlist does; the carrier never opens the admin socket; no claim about a second host or Byzantine logins.
-- Keywords: fleet carrier, gzcoord endpoint, agent carrier, roster, agent-fabric, relay replacement, loopback deployment, journal, pending outbound for agents
+### 0055 — Automated clients are first-party consumers above a general-purpose transport (Proposed)
+An agent, a bot or a gateway is a consumer with the human client's standing; the transport stays general purpose (human-to-human included) and the fleet's coordination protocol never enters this repository.
+- Rules: one long-lived process per profile under its account, one endpoint lease, one client kind, keepalive, bounded reconnect, draining as part of the lease, never the admin socket; what is promised: `AcceptedV2` is admission, no durable broadcast, dedup 10,000/5 min in memory so a retry past the window lands twice, queue 256 (`overloaded` before admission for direct, drop-oldest for broadcast), the broadcast ingress bucket (32 burst, 120/min per peer) drops silently, 48 KiB does not rise, `ShuttingDown` and `BackendUnavailable` both mean re-open; what the client owes itself: durable pending with one `message_id`, retry never given up without its operator, its own receipt, its own collapse of a repeat, fan-out as direct sends, compress then chunk, its own authentication of who a PeerId is; `transportctl identity init|show`; config rendered by the deployment; one host, many accounts over loopback with a port per profile (shared silently within one account by `SO_REUSEPORT`); Linux user units; the fleet is the first deployment and its protocol stays in the fabric.
+- Security: the transport authenticates the PeerId and nothing above it; the silent drop is an availability fact, not a boundary; no claim about a second host or Byzantine profiles.
+- Keywords: automated client, machine client, agent client, first-party consumer, fleet deployment, loopback deployment, identity init, service unit, ingress bucket, dedup window
 
 ### 0021 — Rust workspace dependency boundaries (Accepted)
 Neutral contracts stay separate from concrete runtime, libp2p, platform, and application crates.

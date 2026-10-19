@@ -12,7 +12,7 @@ InterWeave is currently an **accepted architecture plus implementation/test skel
 - `assets/` holds the project's images: the InterWeave icon, the script that generates every size of it, and `assets/README.md`, the register of every image in the repository and where each is used. A new image is added to that register in the same change; a generated file is never edited by hand. It is not a code landing zone.
 - `tools/` is repository tooling — PR/review scripts (`gh/`), tree checks (`checks/`) and the session wrappers CI jobs run under (`ci/`) — not an implementation landing zone. It is live now and not gated by stage discipline. Each script has a self-test beside it (`test_*.sh`) that must stay green, run through `tools/checks/run_suite.sh` (bare, a call to an undefined helper passes silently).
 - `.claude/` is committed shared agent configuration: `settings.json` (§9), plus `skills/` — task-scoped procedures loaded on demand, see §10. Only `settings.local.json` and `CLAUDE.local.md` are per-developer and gitignored.
-- Stages 0-16 are **complete** and **Stage 17 is open**; **Stage 20 (plan §28, ADR-0055: InterWeave carries the fleet's GZCoord) runs beside it by record from the landing of that record**, the status value staying the lowest open stage
+- Stages 0-16 are **complete** and **Stage 17 is open**; **Stage 20 (plan §28, ADR-0055: automated clients as first-party consumers, the fleet's agents the first deployment) runs beside it by record from the landing of that record**, the status value staying the lowest open stage
   (`stage-17-android-human-client`: the Android human client, plan
   §20, whose prerequisites SPIKE-008 and SPIKE-009 are its first work;
   no §20 package before they close and its record lands). **Stage 16
