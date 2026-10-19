@@ -80,7 +80,8 @@ AFTER WRITING — propagation in the same commit series (ADR-0048):
   5. put the rationale in the COMMIT BODY — there is no changelog
   6. for an amendment, also do the three-part record below
 
-  bash tools/checks/validate_adr_index.sh   # enforces 1, 2, 6, and this template
+  bash tools/checks/validate_adr_index.sh   # enforces 1, 2, 6, this template, and that
+                                            # an amended ADR's digest entry changed with it
 
 AMENDING an existing ADR is a different act with a three-part record:
 
@@ -93,6 +94,9 @@ AMENDING an existing ADR is a different act with a three-part record:
   3. add the row to that ADR's `## Amendments` end-matter table — the last
      section in the file — carrying the SAME date and title verbatim:
        | Date | Amendment | Effect |
+  and, in the same series, update the ADR's `### NNNN` entry in
+  ADR-DIGEST.md (propagation item 2): the validator fails an amended ADR
+  whose digest entry is byte-identical to the base's (ADR-0048 A 2026-10-19)
 
   The (date, title) pair is the identity, so same-day amendments with
   distinct titles need no disambiguator; a (ii)/(iii) suffix exists only to
