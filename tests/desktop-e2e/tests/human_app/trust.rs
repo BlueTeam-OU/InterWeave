@@ -46,10 +46,15 @@ async fn a_trust_removal_shows_the_exact_peer_id_and_reaches_the_daemon_only_ove
         move |e: &Element| e.role == "button" && e.name == name && e.actions == ["click"]
     };
 
+    // Trust, by the app's options (#304 F12).
+    let options = window
+        .until("the app's options", button(text(UiText::AppOptions)), log)
+        .await;
+    window.activate(&options, "click").await;
     let open = window
         .until(
-            "the trust settings' control",
-            button(text(UiText::TrustSettings)),
+            "the app's Trust entry",
+            button(text(UiText::TrustHeading)),
             log,
         )
         .await;
@@ -202,10 +207,19 @@ async fn a_trust_removal_shows_the_exact_peer_id_and_reaches_the_daemon_only_ove
     let window = bus.window_of(client.child.id(), || client.log()).await;
     display::focus(client.child.id(), || client.log()).await;
     let log = || client.log();
+    // Trust, by the app's options (#304 F12).
+    let options = window
+        .until(
+            "the app's options, after the restart",
+            button(text(UiText::AppOptions)),
+            log,
+        )
+        .await;
+    window.activate(&options, "click").await;
     let open = window
         .until(
-            "the trust settings' control, after the restart",
-            button(text(UiText::TrustSettings)),
+            "the app's Trust entry, after the restart",
+            button(text(UiText::TrustHeading)),
             log,
         )
         .await;

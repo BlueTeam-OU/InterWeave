@@ -387,17 +387,17 @@ fn intents(view: &mut View, model: &UiModel) -> Vec<Intent> {
         .collect()
 }
 
-/// Section 11 item 2: the list's app bar holds its title and Trust
-/// settings as an icon button, and there is no other Trust settings
-/// control.
+/// Section 11 item 2, as #304 F12 changed it: the list's app bar holds
+/// its title and the app's options as an icon button, Trust among them,
+/// and nothing else in it.
 #[test]
-fn the_list_bar_holds_the_title_and_trust_settings_as_its_one_button() {
+fn the_list_bar_holds_the_title_and_the_apps_options_as_its_one_button() {
     let mut view = view();
     view.render(&UiModel::new());
     let title = labelled(&view, placeholder_en::text(UiText::Conversations));
     assert_eq!(title.len(), 1, "the title, once");
-    let trust = labelled(&view, placeholder_en::text(UiText::TrustSettings));
-    assert_eq!(trust.len(), 1, "one Trust settings control");
+    let trust = labelled(&view, placeholder_en::text(UiText::AppOptions));
+    assert_eq!(trust.len(), 1, "one App options control (#304 F12)");
     assert_eq!(
         trust[0].accessible_role(),
         Some(i_slint_backend_testing::AccessibleRole::Button)

@@ -152,6 +152,12 @@ fn labelled(view: &View, label: &str) -> Vec<ElementHandle> {
     ElementHandle::find_by_accessible_label(view.window(), label).collect()
 }
 
+/// Trust, by the app's options and their Trust entry (#304 F12).
+fn open_trust(view: &View) {
+    labelled(view, text(UiText::AppOptions))[0].invoke_accessible_default_action();
+    labelled(view, text(UiText::TrustHeading))[0].invoke_accessible_default_action();
+}
+
 /// Choose `label` from the menu of the first message row that offers it
 /// (Show source and its way back: the first row), opening the menu as a
 /// screen reader does, by the row's default action (swipe spec section
@@ -1031,7 +1037,7 @@ fn remote_text_is_drawn_and_raises_nothing_but_the_read() {
                 text(UiText::Keep),
                 text(UiText::Send),
                 text(UiText::ShowSource),
-                text(UiText::TrustSettings),
+                text(UiText::AppOptions),
                 text(UiText::MoreOptions),
                 open_link("https://example.org").as_str(),
             ]
@@ -1886,6 +1892,62 @@ fn the_platform_check_passes_where_fontconfig_loads() {
     assert_eq!(interweave_human_ui_slint::platform_check(), Ok(()));
 }
 
+/// #304 F12: Trust is reached by name, from the app's options in the
+/// Chats bar: the menu holds Trust, Trust opens the settings, and leaving
+/// them, or Escape on the menu, gives focus back to the button.
+#[test]
+fn the_apps_options_name_trust_and_hand_focus_back() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::TrustHeading)).is_empty(),
+        "no Trust entry before the menu opens"
+    );
+    press(&view, text(UiText::AppOptions));
+    assert_eq!(
+        labelled(&view, text(UiText::TrustHeading)).len(),
+        1,
+        "the menu's one entry"
+    );
+    // The first entry takes focus once it is in the window.
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(2));
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_focus_id(), "app-trust");
+    let key: slint::SharedString = Key::Escape.into();
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text: key });
+    assert!(
+        labelled(&view, text(UiText::TrustHeading)).is_empty(),
+        "closed"
+    );
+    assert_eq!(view.window().get_focus_id(), "app-options");
+
+    open_trust(&view);
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    assert!(view.window().get_trust_page(), "Trust is open");
+    // Focus inside the page first, on its back control: leaving the page
+    // must bring it back to the button, not leave it on a control gone.
+    let mut on_back = false;
+    for _ in 0..30 {
+        if tab(&view) == "close-trust" {
+            on_back = true;
+            break;
+        }
+    }
+    assert!(on_back, "Tab reaches the page's back control");
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    assert!(!view.window().get_trust_page());
+    assert_eq!(view.window().get_focus_id(), "app-options");
+}
+
 /// The open conversation's identifier is in the tree in exact canonical
 /// form, as a read-only field a person selects and copies
 /// (human-client-ui.md section 11), in Details from the overflow menu
@@ -2466,7 +2528,7 @@ fn trust_settings(
     me: &TransportIdentity,
     allowed: &[TransportIdentity],
 ) {
-    the(view, text(UiText::TrustSettings)).invoke_accessible_default_action();
+    open_trust(view);
     assert_eq!(intents(view, model), vec![Intent::ReadTrust]);
     model.trust_settings_mut().read(Ok(TrustList {
         local_peer: Some(me.clone()),
@@ -2485,7 +2547,7 @@ fn each_trusted_peer_says_whether_it_is_configured_or_added_here() {
     let mut model = UiModel::new();
     let me = peer();
     let (carol, dave) = (peer(), peer());
-    the(&view, text(UiText::TrustSettings)).invoke_accessible_default_action();
+    open_trust(&view);
     assert_eq!(intents(&mut view, &mut model), vec![Intent::ReadTrust]);
     model.trust_settings_mut().read(Ok(TrustList {
         local_peer: Some(me),
@@ -2731,7 +2793,7 @@ fn back_then_the_trust_settings_in_one_take_reads_nothing() {
     view.render(&model);
     model.read(RowId::from_stored(1));
     press(&view, text(UiText::BackToConversations));
-    press(&view, text(UiText::TrustSettings));
+    open_trust(&view);
     let _ = intents(&mut view, &mut model);
     view.render(&model);
     press(&view, text(UiText::BackToConversations));
@@ -2789,11 +2851,11 @@ fn arrival_read_after_closing_trust(width: f32) -> bool {
     let _ = open(&mut view, &mut model, &direct(&bob));
     model.read(RowId::from_stored(1));
     // A narrow window reaches the settings from the list only.
-    if labelled(&view, text(UiText::TrustSettings)).is_empty() {
+    if labelled(&view, text(UiText::AppOptions)).is_empty() {
         press(&view, text(UiText::BackToConversations));
         let _ = intents(&mut view, &mut model);
     }
-    press(&view, text(UiText::TrustSettings));
+    open_trust(&view);
     let _ = intents(&mut view, &mut model);
     view.render(&model);
     press(&view, text(UiText::BackToConversations));
@@ -2820,7 +2882,7 @@ fn a_resize_to_the_list_reads_nothing_before_its_handler_runs() {
     view.set_window_focused(true);
     let _ = open(&mut view, &mut model, &direct(&bob));
     model.read(RowId::from_stored(1));
-    press(&view, text(UiText::TrustSettings));
+    open_trust(&view);
     let _ = intents(&mut view, &mut model);
     view.render(&model);
     press(&view, text(UiText::BackToConversations));
@@ -3060,7 +3122,7 @@ fn an_arrival_and_a_trust_outcome_in_one_render_are_both_announced() {
 fn the_add_row_waits_for_the_list() {
     let mut view = view();
     let mut model = UiModel::new();
-    the(&view, text(UiText::TrustSettings)).invoke_accessible_default_action();
+    open_trust(&view);
     assert_eq!(intents(&mut view, &mut model), vec![Intent::ReadTrust]);
     view.render(&model);
     assert!(
@@ -3082,7 +3144,7 @@ fn the_add_row_waits_for_the_list() {
 fn settings_offer_the_recovery_phrase_only_where_the_platform_does() {
     let mut view = view();
     let mut model = UiModel::new();
-    the(&view, text(UiText::TrustSettings)).invoke_accessible_default_action();
+    open_trust(&view);
     let _ = intents(&mut view, &mut model);
     view.render(&model);
     assert!(

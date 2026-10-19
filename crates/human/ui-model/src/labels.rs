@@ -331,9 +331,11 @@ ui_texts! {
     NetworkDenied => "Network access is off for this app. You can read your messages, but you cannot send or receive messages until you allow network access.",
     /// Ask for the network access the platform withholds.
     AllowNetwork => "Allow network access",
-    /// The control that opens the trust settings: the shield icon button
-    /// in the conversation list's app bar, whose label this is.
-    TrustSettings => "Trust settings",
+    /// The Chats bar's overflow button, its accessible name and tooltip:
+    /// the app's options, Trust among them (#304 F12; ux-designer-01
+    /// 34023aa1). Named apart from a conversation's More options, which
+    /// shows beside it on a wide window.
+    AppOptions => "App options",
     /// The control that leaves the trust settings for the conversations.
     BackToConversations => "Back to conversations",
     /// The trust settings' heading.

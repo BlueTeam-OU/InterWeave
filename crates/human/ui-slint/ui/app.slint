@@ -1558,7 +1558,23 @@ export component AppWindow inherits Window {
     // (design/2026-10-19-android-identity.md section 3.5).
     in property <bool> show-phrase-offered;
     in property <string> show-phrase-label;
-    in property <string> trust-settings-label;
+    // The Chats bar's overflow (#304 F12): the app's options, named apart
+    // from a conversation's "More options" since both show side by side
+    // on a wide window. Trust is its one entry today.
+    in property <string> app-options-label;
+    // The list pane's width, which the app's options menu is placed by.
+    property <length> list-width: root.list-aside ? 0px
+        : !root.narrow ? 280px
+        : root.list-shown ? root.width - root.safe-area-insets.left - root.safe-area-insets.right
+        : 0px;
+    in-out property <bool> chats-menu-open;
+    // Bumped when the menu closes or Trust is left: focus goes back to
+    // the button.
+    property <int> chats-menu-closed-seq;
+    function close-chats-menu() {
+        root.chats-menu-open = false;
+        root.chats-menu-closed-seq += 1;
+    }
     in property <string> back-label;
     in property <string> trust-heading;
     in property <string> trust-explanation;
@@ -1729,6 +1745,10 @@ export component AppWindow inherits Window {
             root.close-row-menu();
             return true;
         }
+        if (root.chats-menu-open) {
+            root.close-chats-menu();
+            return true;
+        }
         if (root.menu-open || root.details-open) {
             root.close-menu();
             return true;
@@ -1751,6 +1771,7 @@ export component AppWindow inherits Window {
     function close-settings() {
         root.list-shown = true;
         root.close-trust();
+        root.chats-menu-closed-seq += 1;
     }
 
     // The announcement, for a screen reader only: a sighted
@@ -1791,16 +1812,14 @@ export component AppWindow inherits Window {
         padding-bottom: max(root.safe-area-insets.bottom, root.keyboard-overlap);
         Rectangle {
             visible: (!root.narrow || root.list-shown) && !root.list-aside;
-            width: root.list-aside ? 0px
-                : !root.narrow ? 280px
-                : root.list-shown ? root.width - root.safe-area-insets.left - root.safe-area-insets.right
-                : 0px;
+            width: root.list-width;
             background: root.narrow ? Palette.surface : Palette.surface-container;
         VerticalLayout {
-            // The top app bar (section 5): the title at the start, Trust
-            // settings an icon button at the end. Trust is a settings
-            // action, apart from every conversation (human-client-ui.md
-            // section 8): nothing a message shows can reach it.
+            // The top app bar (section 5): the title at the start, the
+            // app's options at the end (#304 F12), Trust among them by
+            // name. Trust is a settings action, apart from every
+            // conversation (human-client-ui.md section 8): nothing a
+            // message shows can reach it.
             HorizontalLayout {
                 min-height: 64px;
                 padding-left: root.rtl ? 4px : 16px;
@@ -1809,10 +1828,12 @@ export component AppWindow inherits Window {
                 if root.rtl: VerticalLayout {
                     alignment: center;
                     IconButton {
-                        glyph: Glyph.shield;
-                        label: root.trust-settings-label;
-                        focus-key: "open-trust";
-                        pressed => { root.open-settings(); }
+                        glyph: Glyph.more;
+                        label: root.app-options-label;
+                        focus-key: "app-options";
+                        focus-seq: root.chats-menu-closed-seq;
+                        focus-wanted: true;
+                        pressed => { root.chats-menu-open = true; }
                         focused(k) => { root.focus-id = k; }
                     }
                 }
@@ -1833,10 +1854,12 @@ export component AppWindow inherits Window {
                 if !root.rtl: VerticalLayout {
                     alignment: center;
                     IconButton {
-                        glyph: Glyph.shield;
-                        label: root.trust-settings-label;
-                        focus-key: "open-trust";
-                        pressed => { root.open-settings(); }
+                        glyph: Glyph.more;
+                        label: root.app-options-label;
+                        focus-key: "app-options";
+                        focus-seq: root.chats-menu-closed-seq;
+                        focus-wanted: true;
+                        pressed => { root.chats-menu-open = true; }
                         focused(k) => { root.focus-id = k; }
                     }
                 }
@@ -3150,17 +3173,51 @@ export component AppWindow inherits Window {
     }
     // Over everything: a press outside the menu or Details closes it, as
     // Escape does.
-    if root.menu-open || root.details-open: TouchArea {
+    if root.menu-open || root.details-open || root.chats-menu-open: TouchArea {
         x: 0;
         y: 0;
         width: root.width;
         height: root.height;
         clicked => {
             FocusMode.keyboard = false;
-            root.close-menu();
+            if (root.chats-menu-open) {
+                root.close-chats-menu();
+            } else {
+                root.close-menu();
+            }
         }
         Rectangle {
             background: root.details-open ? #00000052 : transparent;
+        }
+    }
+    // The app's options (#304 F12), under their button at the Chats bar's
+    // end: the list pane's, which starts after the left inset.
+    if root.chats-menu-open: Rectangle {
+        x: root.rtl ? root.safe-area-insets.left + 8px
+            : root.safe-area-insets.left + root.list-width - self.width - 8px;
+        y: root.safe-area-insets.top + 56px;
+        width: max(200px, chats-menu-items.preferred-width);
+        height: chats-menu-items.preferred-height;
+        background: Palette.surface-container-high;
+        border-radius: 4px;
+        drop-shadow-blur: 8px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: #00000052;
+        chats-menu-items := VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            MenuItem {
+                text: root.trust-heading;
+                focus-key: "app-trust";
+                first: true;
+                rtl: root.rtl;
+                pressed => {
+                    root.chats-menu-open = false;
+                    root.open-settings();
+                }
+                closed => { root.close-chats-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
         }
     }
     // The overflow menu (section 6), under its button at the line's end.

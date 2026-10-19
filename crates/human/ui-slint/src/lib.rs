@@ -699,7 +699,7 @@ impl View {
         window.set_show_source_label(text(UiText::ShowSource));
         window.set_show_formatted_label(text(UiText::ShowFormatted));
         window.set_code_font(code_font());
-        window.set_trust_settings_label(text(UiText::TrustSettings));
+        window.set_app_options_label(text(UiText::AppOptions));
         window.set_back_label(text(UiText::BackToConversations));
         window.set_trust_heading(text(UiText::TrustHeading));
         window.set_show_phrase_label(text(UiText::IdShowPhraseItem));
