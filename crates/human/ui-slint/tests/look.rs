@@ -730,6 +730,20 @@ fn each_status_has_its_words_and_its_icon() {
     }
 }
 
+/// The view's monotonic clock, stepped by [`step`] instead of slept
+/// through: a leave is 170 ms of it.
+fn stepped(view: &mut View) -> std::rc::Rc<std::cell::Cell<std::time::Duration>> {
+    let start = std::time::Instant::now();
+    let offset = std::rc::Rc::new(std::cell::Cell::new(std::time::Duration::ZERO));
+    let read = std::rc::Rc::clone(&offset);
+    view.set_monotonic(move || start + read.get());
+    offset
+}
+
+fn step(clock: &std::cell::Cell<std::time::Duration>, ms: u64) {
+    clock.set(clock.get() + std::time::Duration::from_millis(ms));
+}
+
 /// Section 8, a very long message: the bubble wraps and holds every line
 /// of it, its status under the text, and nothing shows under it at rest:
 /// its actions are in its menu (section 6, revised for #304 F2).
@@ -1316,6 +1330,7 @@ fn two_leaving_messages_hand_their_days_separator_on_as_one() {
         model.read(RowId::from_stored(row));
     }
     let mut view = opened(&model, false);
+    let monotonic = stepped(&mut view);
     let y = |view: &View| labelled(view, "last")[0].absolute_position().y;
     let drawn = |view: &View| {
         view.window()
@@ -1330,10 +1345,11 @@ fn two_leaving_messages_hand_their_days_separator_on_as_one() {
     view.render(&model);
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
     // The second goes 60 ms later, while the first is still leaving (a
-    // leave is 170 ms of real time, which the mock clock does not move):
+    // leave is 170 ms of the view's monotonic clock, stepped here: real
+    // sleeps under load outlasted the leave, and the two never overlapped):
     // the two leaves end 60 ms apart, and the renders below, every 5 ms,
     // fall between the two ends.
-    std::thread::sleep(std::time::Duration::from_millis(60));
+    step(&monotonic, 60);
     model.hide(keys[1]);
     view.render(&model);
     // Rendering through both leaves in real time, the day keeps exactly one
@@ -1350,7 +1366,7 @@ fn two_leaving_messages_hand_their_days_separator_on_as_one() {
             "one separator at every render of the leave"
         );
         assert_eq!(labelled(&view, thursday).len(), 1, "and it is read");
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        step(&monotonic, 5);
     }
     let mut seen = vec![before];
     for frame in 0..30 {
@@ -1401,10 +1417,11 @@ fn a_leaving_run_across_a_day_hands_over_its_last_days_separator() {
         model.read(RowId::from_stored(row));
     }
     let mut view = opened(&model, false);
+    let monotonic = stepped(&mut view);
     let keys: Vec<_> = model.messages(&direct()).iter().map(|m| m.key).collect();
     model.hide(keys[0]);
     view.render(&model);
-    std::thread::sleep(std::time::Duration::from_millis(60));
+    step(&monotonic, 60);
     model.hide(keys[1]);
     view.render(&model);
     let started = std::time::Instant::now();
@@ -1417,7 +1434,7 @@ fn a_leaving_run_across_a_day_hands_over_its_last_days_separator() {
             1,
             "Thursday's separator is read"
         );
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        step(&monotonic, 5);
     }
     assert_eq!(
         labelled(&view, thursday).len(),

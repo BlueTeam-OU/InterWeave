@@ -655,6 +655,9 @@ pub struct View {
     undo_closed_seen: Option<u64>,
     /// Where a message's shown time comes from.
     clock: clock::Clock,
+    /// The monotonic time a leaving row closes by: `Instant::now`, or a
+    /// test's, which steps it rather than sleeping through it under load.
+    monotonic: Rc<dyn Fn() -> Instant>,
     /// Each conversation's preview, kept with the last message it is of:
     /// a body never changes.
     previews: HashMap<ConversationKey, (ItemKey, String)>,
@@ -847,6 +850,7 @@ impl View {
             action_models: HashMap::new(),
             bodies: HashMap::new(),
             clock: clock::Clock::default(),
+            monotonic: Rc::new(Instant::now),
             previews: HashMap::new(),
             shown_items: HashMap::new(),
             day_timer: slint::Timer::default(),
@@ -935,6 +939,12 @@ impl View {
         let hour24 = self.clock.hour24;
         self.clock = clock::Clock::new(now, offset);
         self.clock.hour24 = hour24;
+    }
+
+    /// Read the monotonic time a leaving row's space closes by from
+    /// `now` rather than the system's: for a test, which then steps it.
+    pub fn set_monotonic(&mut self, now: impl Fn() -> Instant + 'static) {
+        self.monotonic = Rc::new(now);
     }
 
     /// The platform's touch values a swipe reads (§4, §6, §7): its touch
@@ -1449,7 +1459,7 @@ impl View {
             }
         }
         let (mut keys, mut rows) = (keys, rows);
-        let now = Instant::now();
+        let now = (self.monotonic)();
         let reduced = self.shared.borrow().touch.reduced_motion;
         if !reduced {
             for (index, key) in self.conversation_keys.iter().enumerate() {
@@ -1652,7 +1662,7 @@ impl View {
         // A row gone from the conversation still shown leaves: its space
         // closes rather than the rows below jumping up (swipe spec §5).
         // One gone because another conversation is shown just goes.
-        let now = Instant::now();
+        let now = (self.monotonic)();
         let reduced = self.shared.borrow().touch.reduced_motion;
         if self.rendered_shown == self.shown && !reduced {
             for (index, key) in self.message_keys.iter().enumerate() {
