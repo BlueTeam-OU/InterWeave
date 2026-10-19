@@ -1420,3 +1420,28 @@ fn a_leaving_run_across_a_day_hands_over_its_last_days_separator() {
         "and ends on the row below"
     );
 }
+
+/// Section 6 and #304 F3: the composer is one line high whatever the free
+/// space under the messages. In a tall window holding one message it had
+/// swollen to fill the space the list left.
+#[test]
+fn the_composer_keeps_its_height_whatever_the_free_space() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    let view = opened(&model, false);
+    let field = labelled(&view, text(UiText::Composer));
+    assert_eq!(field.len(), 1, "the field");
+    let height = field[0].size().height;
+    assert!(
+        height <= 56.0,
+        "one line inside the 48 dp box, not the free space: {height}"
+    );
+    // Centred on Send's line, which is the row's 48.
+    let send = labelled(&view, text(UiText::Send));
+    let middle = |e: &ElementHandle| e.absolute_position().y + e.size().height / 2.0;
+    assert!(
+        (middle(&field[0]) - middle(&send[0])).abs() <= 1.0,
+        "the field sits on Send's line"
+    );
+}

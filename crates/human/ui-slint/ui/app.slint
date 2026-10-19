@@ -2878,7 +2878,12 @@ export component AppWindow inherits Window {
             // Send is placed rather than laid out, at the line's end -- the
             // right, or the left right to left -- as the snackbar's Undo is
             // (tests/look.rs, `the_composer_mirrors_right_to_left`).
+            // Its own height, the field's lines and their padding: in the
+            // pane's layout a box without one took the free space under
+            // the messages (#304 F3).
             if root.composer-enabled: Rectangle {
+                vertical-stretch: 0;
+                height: max(48px, input.preferred-height + 24px);
                 HorizontalLayout {
                     spacing: 8px;
                     if root.rtl: Rectangle { width: 48px; }
@@ -2910,6 +2915,8 @@ export component AppWindow inherits Window {
                         input := TextInput {
                             x: 20px;
                             width: parent.width - 40px;
+                            height: self.preferred-height;
+                            y: (parent.height - self.height) / 2;
                             vertical-alignment: center;
                             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                             font-size: Type.body-large;
