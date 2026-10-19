@@ -5,9 +5,9 @@ Plan §20 step 10. This check closes ADR-0041's Play-policy condition,
 which SPIKE-008 left open: whether the `remoteMessaging` foreground
 service this client declares is one Play accepts. It quotes the policy
 as read, with the date, and says where the client meets it and where it
-does not. **What it concludes is architect-cto's, not this file's**: the
-open question is in OBSERVATION 01a1527e (2026-10-19), and its answer is
-recorded under "Decision" when it comes.
+does not. What it concludes is architect-cto's, not this file's: the
+question went as OBSERVATION 01a1527e (2026-10-19), and the ruling is
+recorded under "Decision".
 
 Re-read the sources whenever this check is cited for a release: Play
 policy changes, and a quote here is only as current as its date.
@@ -103,5 +103,31 @@ measured from here.
 
 ## Decision
 
-Open: architect-cto's, asked in OBSERVATION 01a1527e (2026-10-19).
+ADR-0041 A 2026-10-19 (architect-cto, REPLY 01a15282, commit 432a354f
+on InterWeave #301), recorded here as ruled:
+
+- `remoteMessaging` stands on the platform's definition: a text message
+  is transferred from one device (the peer's) to another (this phone),
+  and this service is what receives it. The gap is in Play's example,
+  not in the type.
+- The Play declaration states the use case by hand: the service keeps
+  the person reachable for text messages from their peers' devices
+  while the app is in the background, with no server to hold them;
+  deferral means the person is unreachable.
+- Play's acceptance of that declaration happens at the store submission
+  (plan §22). This check closes the target-SDK half of SPIKE-008's P1;
+  **the Play half stays open by name** until then. No build claims
+  Play-store background reachability before acceptance.
+- If Play refuses: `specialUse` with its
+  `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` explanation. ADR-0041's revisit
+  fires only if Play refuses both.
+
+Not covered by the ruling, and put to architect-cto: the criterion
+"runs only for as long as necessary to complete the task", which Stay
+reachable meets only if "the task" is staying reachable for as long as
+the person chooses.
+
+The declaration's and the demo video's wording are written with the
+store listing in plan §22, with language-culture.
+
 Builds distributed outside Play are not affected by this check.
