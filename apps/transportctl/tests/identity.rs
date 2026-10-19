@@ -223,6 +223,14 @@ fn private_dir(path: &Path) {
 
 impl Home {
     fn new() -> Self {
+        let home = Self::bare();
+        home.write_config("");
+        home
+    }
+
+    /// A profile with no configuration yet: the fleet mints the key before
+    /// it renders one (ADR-0055 decision 7).
+    fn bare() -> Self {
         let root = private_tempdir().expect("tempdir");
         let at = |name: &str| root.path().join(name);
         let roots = XdgRoots {
@@ -233,20 +241,27 @@ impl Home {
             runtime_dir: Some(at("run")),
         };
         let paths = ProfilePaths::resolve("p", &roots).expect("paths");
-        let config = paths.config_file();
+        Self { root, paths }
+    }
+
+    /// The profile's document, `extra` appended to its top level.
+    fn write_config(&self, extra: &str) {
+        let config = self.paths.config_file();
         private_dir(config.parent().expect("a config directory"));
         std::fs::write(
             &config,
-            "schema_version: 2
-profile: { name: p }
-trust: { policy: static-allowlist, allowed_peers: [] }
+            format!(
+                "schema_version: 2
+profile: {{ name: p }}
+trust: {{ policy: static-allowlist, allowed_peers: [] }}
 endpoints:
   entries:
-    - { id: human, enabled: true, advertise: false }
-channels: { desired: [] }
-discovery: { providers: [] }
-transport: { listen: { addresses: [\"/ip4/127.0.0.1/tcp/0\"] } }
-",
+    - {{ id: human, enabled: true, advertise: false }}
+channels: {{ desired: [] }}
+discovery: {{ providers: [] }}
+transport: {{ listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/0\"] }} }}
+{extra}"
+            ),
         )
         .expect("the profile written");
         // 0644 whatever the umask: under 002 in a shared group a 0664
@@ -256,7 +271,6 @@ transport: { listen: { addresses: [\"/ip4/127.0.0.1/tcp/0\"] } }
             <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o644),
         )
         .expect("chmod");
-        Self { root, paths }
     }
 
     /// A key where the profile's default names it; its `PeerId`.
@@ -826,4 +840,129 @@ fn private_tempdir() -> std::io::Result<tempfile::TempDir> {
     tempfile::Builder::new()
         .permissions(std::fs::Permissions::from_mode(0o700))
         .tempdir()
+}
+
+/// `PeerId` of the key at the profile's default file.
+fn stored_peer(home: &Home) -> String {
+    ProfileIdentity::load(&home.paths.identity_file())
+        .and_then(|identity| identity.transport_identity())
+        .expect("a stored key")
+        .as_str()
+        .to_owned()
+}
+
+/// ADR-0055 decision 7: `init` mints the key and prints its `PeerId` and
+/// nothing else -- one line, the key's only public part -- and `show`
+/// prints the same for the key now stored.
+#[test]
+fn init_mints_a_key_and_show_prints_its_peer_id() {
+    let home = Home::new();
+    let out = home.run(&["--profile", "p", "identity", "init"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    let printed = text(&out.stdout);
+    let peer = printed.strip_suffix('\n').expect("one line");
+    assert!(!peer.contains('\n'), "one line: {printed:?}");
+    interweave_transport_api::TransportIdentity::parse(peer).expect("a PeerId");
+    assert_eq!(peer, stored_peer(&home), "the key it wrote");
+    assert!(text(&out.stderr).is_empty(), "{}", text(&out.stderr));
+    let mode = std::fs::metadata(home.paths.identity_file())
+        .expect("the key")
+        .mode();
+    assert_eq!(mode & 0o077, 0, "owner-only: {mode:o}");
+
+    let out = home.run(&["--profile", "p", "identity", "show"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stdout), printed, "the same PeerId");
+}
+
+/// `init` never replaces a key: the one stored stays, byte for byte, and
+/// the refusal points at `show` (the control: `show` prints it).
+#[test]
+fn init_refuses_an_existing_key() {
+    let home = Home::new();
+    let peer = home.write_key();
+    let before = std::fs::read(home.paths.identity_file()).expect("the key");
+    let out = home.run(&["--profile", "p", "identity", "init"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        text(&out.stderr).contains("already has a key"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert!(text(&out.stdout).is_empty());
+    assert_eq!(
+        std::fs::read(home.paths.identity_file()).expect("the key"),
+        before
+    );
+    let out = home.run(&["--profile", "p", "identity", "show"]);
+    assert_eq!(text(&out.stdout), format!("{peer}\n"));
+}
+
+/// The fleet mints the key BEFORE its configuration exists (the roster
+/// needs the `PeerId` to render it): `init` writes the profile's default
+/// key file, which a configuration naming no `key_file` then reads. A
+/// configuration that is there but does not load is refused and nothing
+/// is minted -- it may name another key file.
+#[test]
+fn init_without_a_configuration_writes_the_default_key_file() {
+    let home = Home::bare();
+    let out = home.run(&["--profile", "p", "identity", "init"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    let printed = text(&out.stdout);
+    assert_eq!(printed, format!("{}\n", stored_peer(&home)));
+    let out = home.run(&["--profile", "p", "identity", "show"]);
+    assert_eq!(text(&out.stdout), printed, "show, still no configuration");
+
+    home.write_config("");
+    let out = home.run(&["--profile", "p", "identity", "show"]);
+    assert_eq!(
+        text(&out.stdout),
+        printed,
+        "the rendered configuration reads the same key"
+    );
+
+    let broken = Home::bare();
+    broken.write_config("not_a_section: {}\n");
+    let out = broken.run(&["--profile", "p", "identity", "init"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        text(&out.stderr).contains("the profile"),
+        "{}",
+        text(&out.stderr)
+    );
+    assert!(!broken.paths.identity_file().exists(), "nothing minted");
+}
+
+/// Held, the lock is a running daemon or another identity command: `init`
+/// mints nothing and `show` reads nothing under it, and both work once it
+/// is released (the control).
+#[test]
+fn init_and_show_under_a_held_lock_are_refused() {
+    let home = Home::new();
+    let lock = ProfileLock::acquire(&home.paths, Duration::ZERO).expect("the lock");
+    for verb in ["init", "show"] {
+        let out = home.run(&["--profile", "p", "identity", verb]);
+        assert_eq!(out.status.code(), Some(1), "{verb}");
+        assert!(
+            text(&out.stderr).contains("lock is held"),
+            "{verb}: {}",
+            text(&out.stderr)
+        );
+    }
+    assert!(!home.paths.identity_file().exists(), "nothing minted");
+    drop(lock);
+    let out = home.run(&["--profile", "p", "identity", "init"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    let out = home.run(&["--profile", "p", "identity", "show"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+}
+
+/// `show` with no key is refused, and mints none: `init` is how one is made.
+#[test]
+fn show_without_a_key_is_refused_and_mints_none() {
+    let home = Home::new();
+    let out = home.run(&["--profile", "p", "identity", "show"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(text(&out.stdout).is_empty());
+    assert!(!home.paths.identity_file().exists());
 }
