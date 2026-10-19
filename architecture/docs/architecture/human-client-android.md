@@ -35,7 +35,7 @@ Runtime is active while the app/service is intentionally running in foreground u
 
 ### Stay reachable
 
-User explicitly enables persistent P2P reachability. While active, Android hosts the Rust runtime in a foreground service with a persistent notification. For the first-party messaging use case, the selected current Android service category is `remoteMessaging`; target-SDK/Play-policy compatibility is a release gate because Android service policy can change.
+User explicitly enables persistent P2P reachability. While active, Android hosts the Rust runtime in a foreground service with a persistent notification. For the first-party messaging use case, the selected current Android service category is `remoteMessaging`; target-SDK/Play-policy compatibility is a release gate because Android service policy can change. Play's listed use case for that type is narrower than the platform's definition (ADR-0041 A 2026-10-19): the Play declaration states InterWeave's use case by hand, the condition is met only by Play's acceptance at the Stage 19 submission, no build claims Play-store background reachability before it, and `specialUse` is the fallback if Play refuses.
 
 Do **not** classify the persistent socket runtime as `dataSync`: current Android places time limits on that service class. Do not silently fall back to `specialUse` without a reviewed platform-policy change.
 
