@@ -393,8 +393,8 @@ async fn tm_46_a_device_restored_from_backup_sends_nothing_the_original_had_pend
             1,
             "the failed attempt leaves the send pending"
         );
-        // Attempted here, with the session up: the control run below is a
-        // retry of this send, not its first attempt.
+        // Attempted here, so the control run below is a retry of this
+        // send, not its first attempt.
         assert_eq!(pending[0].attempts, 1, "attempted once");
         sender.close().await;
     }
