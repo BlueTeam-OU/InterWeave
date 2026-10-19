@@ -288,8 +288,8 @@ mv "$SANDBOX/sysroot/lib/librustc_driver-aaaa1111.so" "$SANDBOX/sysroot/lib/x"
 expect 2 "a sysroot with no librustc_driver is a failure to check" "names no directory holding a librustc_driver"
 mv "$SANDBOX/sysroot/lib/x" "$SANDBOX/sysroot/lib/librustc_driver-aaaa1111.so"
 # The clippy-driver asked is the one beside the cargo-clippy cargo finds:
-# $CARGO_HOME/bin first, then PATH; a clippy-driver alone, earlier on
-# PATH, is not it.
+# PATH in order, with $CARGO_HOME/bin first only when PATH lacks it; a
+# clippy-driver alone, earlier on PATH, is not it.
 mkdir -p "$SANDBOX/decoy" "$SANDBOX/lone" "$SANDBOX/ch/bin" "$SANDBOX/fmt"
 printf '#!/usr/bin/env bash\necho "rustc 1.99.0 (aaaaaaaaa 2026-10-01)"\n' > "$SANDBOX/decoy/clippy-driver"
 cp "$SANDBOX/decoy/clippy-driver" "$SANDBOX/ch/bin/clippy-driver"
@@ -307,6 +307,10 @@ cp "$SANDBOX/bin/clippy-driver" "$SANDBOX/ch/bin/clippy-driver.pinned"
 mv "$SANDBOX/ch/bin/clippy-driver" "$SANDBOX/ch/bin/clippy-driver.off"; mv "$SANDBOX/ch/bin/clippy-driver.pinned" "$SANDBOX/ch/bin/clippy-driver"
 expect_with 1 "with \$CARGO_HOME/bin on PATH, an earlier cargo-clippy is the one asked about" "$SANDBOX/early/clippy-driver: rustc 1.99.0" CARGO_HOME="$SANDBOX/ch" PATH="$SANDBOX/early:$SANDBOX/ch/bin:$SANDBOX/bin:$PATH"
 expect_with 0 "  while off PATH, \$CARGO_HOME/bin comes first" "" CARGO_HOME="$SANDBOX/ch" PATH="$SANDBOX/early:$SANDBOX/bin:$PATH"
+for spelling in "$SANDBOX/ch/bin/" "$SANDBOX/ch//bin" "$SANDBOX/ch/./bin" "$SANDBOX/./ch/bin/."; do
+    expect_with 1 "  and \$CARGO_HOME/bin spelled $(sed "s#$SANDBOX#…#" <<<"$spelling") on PATH is on it, as cargo compares" "$SANDBOX/early/clippy-driver: rustc 1.99.0" CARGO_HOME="$SANDBOX/ch" PATH="$SANDBOX/early:$spelling:$SANDBOX/bin:$PATH"
+done
+expect_with 1 "  and so is it when CARGO_HOME carries the trailing slash" "$SANDBOX/early/clippy-driver: rustc 1.99.0" CARGO_HOME="$SANDBOX/ch/" PATH="$SANDBOX/early:$SANDBOX/ch/bin:$SANDBOX/bin:$PATH"
 mv "$SANDBOX/ch/bin/clippy-driver.off" "$SANDBOX/ch/bin/clippy-driver"
 # A symlinked cargo-clippy runs the driver beside its target.
 mkdir -p "$SANDBOX/farm"

@@ -73,15 +73,17 @@
 #   0  the compiler, clippy and rustfmt are the pinned toolchain's, and
 #      rust-version states the pin
 #   1  one is not; what each is built on is printed
-#   2  a failure to check: no rust-toolchain.toml, no `channel`, no
+#   2  a failure to check: a repository root that cannot be entered, no
+#      rust-toolchain.toml, no `channel`, no
 #      Cargo.toml or no rust-version in its [workspace.package], a
 #      channel that names no version (`stable`, a nightly), a cargo
 #      config in scope setting a rustc key or unreadable, a tracked cargo
 #      config below the root, a tree git cannot list, a rustc that cannot
 #      be run or prints no version, a `cargo clippy` or `cargo fmt` that
 #      cannot be run or prints no version, or for a build naming no
-#      commit, a cargo-clippy that cannot be found where cargo looks, a
-#      cargo-clippy with no clippy-driver beside it, a
+#      commit, a cargo-clippy that cannot be found where cargo looks or
+#      whose path cannot be resolved (readlink -f), a cargo-clippy with no
+#      clippy-driver beside it, a
 #      clippy-driver that cannot be run or prints no version, or a rustfmt
 #      that cannot be found or links no librustc_driver
 # <<< help
@@ -230,9 +232,18 @@ elif (( rc == 2 )); then
     # does not hold it already (measured: with it after /usr/bin on PATH,
     # cargo ran /usr/bin's). cargo-clippy runs the clippy-driver beside its
     # own path, symlinks resolved.
+    # "On PATH" is cargo's path equality, not string equality: a repeated
+    # or trailing `/` and a `.` component do not make another path (each
+    # measured: cargo did not prepend for `~/.cargo/bin/`). No symlink is
+    # resolved, as cargo resolves none.
+    norm() { sed 's#/\(\./\)*#/#g; s#/\.$##; s#//*#/#g; s#\(.\)/$#\1#' <<<"$1"; }
     ch_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
-    search="$PATH"
-    case ":$PATH:" in *":$ch_bin:"*) ;; *) search="$ch_bin:$PATH" ;; esac
+    ch_norm="$(norm "$ch_bin")"
+    search="$ch_bin:$PATH"
+    IFS=: read -ra path_dirs <<<"$PATH"
+    for d in "${path_dirs[@]}"; do
+        [[ "$(norm "$d")" == "$ch_norm" ]] && { search="$PATH"; break; }
+    done
     cc_bin="$(PATH="$search" command -v cargo-clippy)" || {
         echo "$me: no cargo-clippy where cargo looks ($search), though cargo ran $cline" >&2; exit 2; }
     cc_bin="$(readlink -f -- "$cc_bin")" || { echo "$me: cannot resolve $cc_bin" >&2; exit 2; }
