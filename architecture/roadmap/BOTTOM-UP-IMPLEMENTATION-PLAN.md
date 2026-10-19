@@ -5585,10 +5585,10 @@ agents that build InterWeave use it as their transport) and bounded by
 the owner's line of the same day: InterWeave stays a general-purpose
 transport, for human-to-human communication as for anything else, and
 the agents' coordination protocol does not enter this repository —
-"different things, different layer". The stage runs **beside** Stage
-17 and Stage 18 as §19's Stage 16 ran beside Stage 15: the status value
-stays the lowest open stage, and this section is the authorisation for
-its packages (§3 of `CLAUDE.md`). The decision is ADR-0055; this
+"different things, different layer". The stage ran **beside** Stage
+17 and Stage 18 as §19's Stage 16 ran beside Stage 15, and closed the
+same day (Met, below): the status value stays the lowest open stage,
+and this section was the authorisation for its packages (§3 of `CLAUDE.md`). The decision is ADR-0055; this
 section is the construction order, the gate and the record. It is
 numbered after §27 so that no citation of §23–§27 moves.
 
@@ -5707,10 +5707,13 @@ day it opened beside Stage 17 by record (#305, bcfd515d, merged
 above in order, all of them in that one pull request —
 p2p-network-dev's lane, with ADR-0055, this section, the review-fix
 text and `AUTOMATED-CLIENT.md` supplied by architect-cto on the way:
-step 1 (`apps/transportctl/tests/identity.rs`, 24 cases: `identity
-init` and `identity show` offline under the profile lock, refused while
-a daemon holds it, `init` refusing an existing key, nothing secret
-printed); step 2 (`tests/automated-client/tests/automated_client.rs`,
+step 1 (`apps/transportctl/tests/identity.rs`, five cases of its 24:
+`init_mints_a_key_and_show_prints_its_peer_id`,
+`init_refuses_an_existing_key`,
+`init_without_a_configuration_writes_the_default_key_file`,
+`init_and_show_under_a_held_lock_are_refused` and
+`show_without_a_key_is_refused_and_mints_none`; the other nineteen are
+the earlier verbs'); step 2 (`tests/automated-client/tests/automated_client.rs`,
 ten cases: `a_direct_message_lands_over_a_static_loopback_entry`,
 `a_broadcast_on_the_channel_reaches_the_other_client`,
 `an_application_receipt_reaches_the_sender_after_the_receiver_kept_it`,

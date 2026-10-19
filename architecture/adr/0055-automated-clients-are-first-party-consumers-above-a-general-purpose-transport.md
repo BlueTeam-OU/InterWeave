@@ -36,7 +36,7 @@ Two user units per profile on a host of many accounts; a port allocation held in
 
 ## Implementation implications
 
-In this repository, a stage that runs beside Stage 17 by record (plan §28): the two `transportctl` verbs (landed on p2p-network-dev's branch at 8dddbbcf, 24 tests), the Linux unit templates, `architecture/clients/automated/AUTOMATED-CLIENT.md` carrying decision 2 and 3 with the test or contract that holds each fact, and `tests/automated-client` proving them against two daemons on loopback with a generic test client. In the fabric, by its own records, everything the protocol needs above the socket.
+In this repository, a stage that ran beside Stage 17 by record and closed on it the same day (plan §28): the two `transportctl` verbs (landed on p2p-network-dev's branch at 8dddbbcf, five tests beside the file's nineteen for the earlier verbs), the Linux unit templates, `architecture/clients/automated/AUTOMATED-CLIENT.md` carrying decision 2 and 3 with the test or contract that holds each fact, and `tests/automated-client` proving them against two daemons on loopback with a generic test client. In the fabric, by its own records, everything the protocol needs above the socket.
 
 ## Revisit conditions
 
