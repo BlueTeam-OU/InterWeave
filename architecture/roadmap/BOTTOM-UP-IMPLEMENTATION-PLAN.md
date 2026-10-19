@@ -5626,7 +5626,10 @@ No new crate. `packaging/macos`, `packaging/windows` and
    and mutual trust rendered the way the roster will render them; a
    test carrier (test-support, never a production dependency) that
    claims `gzcoord` and joins the channel; cases: a direct message B
-   receives from A and a broadcast A publishes that B receives; a send
+   receives from A, B's carrier receipt reaching A's carrier after B's
+   append (ADR-0055 decision 4), a fan-out under one `message_id` to
+   two receivers each landing once, and a broadcast A publishes that
+   B receives over the channel (kept for a second host); a send
    while B's lease is withheld answered `RemoteEndpointUnavailable`,
    retried under the same `message_id` and landing once with no
    duplicate when the lease returns inside the dedup window, and the
@@ -5636,7 +5639,8 @@ No new crate. `packaging/macos`, `packaging/windows` and
    carrier, the carrier re-leasing and re-joining and the next message
    landing; a burst of 200 broadcasts with the receiver draining,
    counting what the bounded queue dropped; a loopback static-bootstrap
-   dial, which no test on `main` exercises.
+   dial, which no test on `main` exercises; and a daemon started on a
+   port another holds, its refusal read (decision 6).
 5. The stale clause in `CLAUDE.md` §1 about mDNS (the multicast backend
    was built after Stage 9; this record corrects it) — done in the
    series that lands this section.
