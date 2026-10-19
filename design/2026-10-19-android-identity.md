@@ -324,7 +324,7 @@ comparison a matter of groups, not of single characters.
 |---|---|---|---|
 | Checksum fails (a wrong word or a wrong order) | R2 | A banner above the grid (`IdChecksumFailed`): the words are not a valid phrase; check each word and its order against the paper. Every word stays. | Edit any position, then check again |
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
-| Authentication needed | S1; a restore that must open a healthy user-presence record first | The system prompt. Cancelled or denied: back to the step before, nothing shown, no error | Try again by the primary action |
+| Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen before the operation, never by the service. Cancelled or denied: nothing shown and no error. C4 and the restores stay on their screen with the words kept, and nothing is committed. S2's Done drops the words and returns to Settings offline; connectivity and the profile's user-presence diagnostic say why (`android-key-custody.md`, Unlock policies) | The primary action again, or Back |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
 | Storage fails (`Unavailable`, a write error) | Where the write runs: C4's continue (the seal); R3's yes (a fresh-install restore); R2's check after K1 (a restore against the record). R4 shows only after a restore succeeded | A notice (`IdStorageFailed`): nothing was changed, with Try again. Entered words stay while the screen is open. | Try again, or Back (words dropped) |
 | Restored, but the old key remains (`OldKeyRemains`) | R3's yes, R2's check after K1 | Success, as below: the record is written and opens. The app retries the retire at its next start (`reseal`). No person-facing text; one diagnostic line, never a word | Continue |
@@ -509,7 +509,12 @@ landscape:
     - a cancelled prompt shows nothing and no error;
     - a succeeded prompt shows `IdGoingOffline`, then the words;
     - connectivity reads offline while they are shown;
-    - Done restarts the service and returns to Settings.
+    - Done restarts the service and returns to Settings;
+    - on a `user-presence` profile, with more than 60 s on S2, Done
+      raises the prompt before the restart. A cancelled prompt returns
+      to Settings offline, with the words gone. The same profile's C4
+      and restore raise the prompt outside the window, and a cancel
+      there commits nothing.
 11. Leaving R2 with words entered (Home) and returning shows every
     word still entered. After the process is killed (`adb shell am
     kill` while in the background), the next launch starts at the
