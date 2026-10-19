@@ -24,12 +24,13 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use interweave_human_client_api::TrustOrigin;
+use interweave_human_client_api::{OutboundStatus, TrustOrigin};
 use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
     HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
     RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, TrustSettings,
-    UiModel, UiText, fill, placeholder_en, short_peer, visible_destination,
+    UiModel, UiText, announced_change, fill, next_age_change, placeholder_en, short_peer,
+    visible_destination, waiting_text,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -666,6 +667,10 @@ pub struct View {
     /// The one wake at the next local midnight, and when it is due.
     day_timer: slint::Timer,
     day_due: Option<u64>,
+    /// The one wake when a shown waiting message's age next reads
+    /// otherwise, and when it is due.
+    age_timer: slint::Timer,
+    age_due: Option<u64>,
 }
 
 impl View {
@@ -855,6 +860,8 @@ impl View {
             shown_items: HashMap::new(),
             day_timer: slint::Timer::default(),
             day_due: None,
+            age_timer: slint::Timer::default(),
+            age_due: None,
             seen: Seen::default(),
             next_slot_b: false,
             selection_unrendered: false,
@@ -1608,6 +1615,10 @@ impl View {
         // section 7).
         let menu = self.window.get_row_menu();
         let mut menu_stale = menu >= 0;
+        // A waiting message's status reads its age: the soonest change of
+        // any shown wakes one render then (#304 F10).
+        let now_ms = self.clock.now_ms();
+        let mut age_due: Option<u64> = None;
         let mut rows: Vec<MessageRow> = items
             .iter()
             .map(|item| {
@@ -1638,7 +1649,11 @@ impl View {
                     format!("m:{handle}"),
                     swipe::Swipeable::Item(item.key, offer),
                 );
-                let row = message_row(handle, item, model_rc, drawn, offer, placed);
+                let status = status_text(item, now_ms, self.host);
+                if let Some(next) = waiting_age_change(item, now_ms) {
+                    age_due = Some(age_due.map_or(next, |due: u64| due.min(next)));
+                }
+                let row = message_row(handle, item, model_rc, drawn, offer, placed, &status);
                 rendered.insert(
                     handle,
                     Pressable {
@@ -1650,6 +1665,7 @@ impl View {
                 row
             })
             .collect();
+        self.wake_for_age(age_due, now_ms);
         if menu_stale {
             if rendered.contains_key(&menu) {
                 // Its actions changed: focus back on its bubble.
@@ -1801,10 +1817,34 @@ impl View {
     /// live region, or a list of fifty would speak fifty times. Two slots
     /// take turns, so an announcement equal to the last one is still a
     /// change a screen reader hears.
+    /// One wake at `due`, the soonest age change of a shown waiting
+    /// message, as the day's wake is kept: a render while it runs keeps it.
+    fn wake_for_age(&mut self, due: Option<u64>, now_ms: u64) {
+        let Some(due) = due else {
+            self.age_due = None;
+            self.age_timer.stop();
+            return;
+        };
+        if self.age_due != Some(due) || !self.age_timer.running() {
+            self.age_due = Some(due);
+            let shared = Rc::clone(&self.shared);
+            self.age_timer.start(
+                slint::TimerMode::SingleShot,
+                Duration::from_millis(due.saturating_sub(now_ms)),
+                move || {
+                    let wake = shared.borrow().wake.clone();
+                    if let Some(wake) = wake {
+                        wake();
+                    }
+                },
+            );
+        }
+    }
+
     /// What changed in the conversations since the last render, to
     /// announce: what is on screen is "here", anything else "elsewhere".
     fn conversation_announcement(&mut self, model: &UiModel) -> Option<String> {
-        let now = Seen::of(model, self.on_screen());
+        let now = Seen::of(model, self.on_screen(), self.clock.now_ms(), self.host);
         let said = announcement(&self.seen, &now);
         self.seen = now;
         said
@@ -2443,12 +2483,12 @@ fn message_row(
     drawn: &DrawnBody,
     offer: interweave_human_ui_model::SwipeOffer,
     placed: Placement,
+    status: &str,
 ) -> MessageRow {
     let (author, author_id) = match (&item.direction, &item.author) {
         (Direction::Inbound, Some(peer)) => (short_peer(peer.as_str()), peer.as_str().to_owned()),
         _ => (placeholder_en::text(UiText::You).to_owned(), String::new()),
     };
-    let status = status_text(item);
     let mark = status_mark(item);
     let reply = match &item.reply {
         Some(Reply::Present(_)) => placeholder_en::text(UiText::ReplyPresent),
@@ -2505,7 +2545,7 @@ struct SeenItem {
     direction: Direction,
     status: ItemStatus,
     /// The status as the item shows it.
-    status_text: &'static str,
+    status_text: String,
     /// An inbound item's short author.
     author: Option<String>,
 }
@@ -2524,7 +2564,12 @@ struct Seen {
 }
 
 impl Seen {
-    fn of(model: &UiModel, shown: Option<&ConversationKey>) -> Self {
+    fn of(
+        model: &UiModel,
+        shown: Option<&ConversationKey>,
+        now_ms: u64,
+        host: RuntimeHost,
+    ) -> Self {
         let items = shown.map_or_else(HashMap::new, |key| {
             model
                 .messages(key)
@@ -2532,7 +2577,7 @@ impl Seen {
                 .map(|item| {
                     let seen = SeenItem {
                         direction: item.direction,
-                        status_text: status_text(&item),
+                        status_text: status_text(&item, now_ms, host),
                         author: item.author.as_ref().map(|p| short_peer(p.as_str())),
                         status: item.status,
                     };
@@ -2598,7 +2643,7 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
                     && before
                         .items
                         .get(key)
-                        .is_some_and(|was| was.status != item.status)
+                        .is_some_and(|was| announced_change(&was.status, &item.status))
             })
             .map(|(_, item)| item)
             .collect();
@@ -2606,7 +2651,7 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
             [] => {}
             [item] => parts.push(fill(
                 placeholder_en::text(UiText::AnnounceOwnStatus),
-                &[("status", item.status_text)],
+                &[("status", &item.status_text)],
             )),
             many => parts.push(fill(
                 placeholder_en::text(UiText::AnnounceOwnStatuses),
@@ -2643,14 +2688,27 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
     })
 }
 
-/// The status a person reads: the label's text, and for an unread copy of
-/// a kept message, both facts (U2b).
-fn status_text(item: &MessageItem) -> &'static str {
-    match item.status {
+/// The status a person reads: the label's text; for an unread copy of a
+/// kept message, both facts (U2b); for a waiting message, one status with
+/// its age from when it was written and its last problem (#304 F10).
+fn status_text(item: &MessageItem, now_ms: u64, host: RuntimeHost) -> String {
+    match &item.status {
         ItemStatus::Inbound(Retention::Unread) if item.kept => {
-            placeholder_en::text(UiText::UnreadAlsoKept)
+            placeholder_en::text(UiText::UnreadAlsoKept).to_owned()
         }
-        _ => placeholder_en::label(item.label),
+        ItemStatus::Outbound(status) => waiting_text(status, item.local_at, now_ms, host)
+            .unwrap_or_else(|| placeholder_en::label(item.label).to_owned()),
+        ItemStatus::Inbound(_) => placeholder_en::label(item.label).to_owned(),
+    }
+}
+
+/// When a waiting message's status next reads another age.
+fn waiting_age_change(item: &MessageItem, now_ms: u64) -> Option<u64> {
+    match &item.status {
+        ItemStatus::Outbound(
+            OutboundStatus::Sending { .. } | OutboundStatus::Unconfirmed { .. },
+        ) => Some(next_age_change(item.local_at, now_ms)),
+        _ => None,
     }
 }
 

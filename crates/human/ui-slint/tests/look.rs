@@ -729,7 +729,11 @@ fn each_status_has_its_words_and_its_icon() {
         !words.contains("read") && !words.contains("seen"),
         "{words}"
     );
-    let sending = by_status(LabelKey::Sending);
+    // A waiting message reads one status with its age (#304 F10).
+    let sending = rows
+        .iter()
+        .find(|r| r.status == "Still sending, started just now")
+        .expect("a row still sending");
     assert_eq!(
         sending.status_glyph,
         interweave_human_ui_slint::Glyph::Clock
@@ -808,6 +812,34 @@ fn renders_wake_the_root_once_at_midnight() {
         9 * 3600 + 30 * 60 + 1,
     ));
     assert_eq!(woken.get(), 1, "one wake at midnight");
+}
+
+/// #304 F10: a waiting message's one status says how long it has
+/// waited since it was written, and the window wakes once, when that next
+/// reads otherwise, to draw it.
+#[test]
+fn a_waiting_messages_age_wakes_the_root_when_it_next_reads_otherwise() {
+    let mut model = UiModel::new();
+    // Written 1 min 30 s before the view's clock: "1 minute ago" for 30 s.
+    send(&mut model, 3, "waiting", NOW - 90_000);
+    let mut view = view();
+    let woken = std::rc::Rc::new(std::cell::Cell::new(0));
+    let count = std::rc::Rc::clone(&woken);
+    view.set_wake(move || count.set(count.get() + 1));
+    view.select(direct());
+    let _ = view.take_events(&model);
+    view.render(&model);
+    let statuses: Vec<String> = view
+        .window()
+        .get_messages()
+        .iter()
+        .map(|r| r.status.to_string())
+        .collect();
+    assert_eq!(statuses, ["Still sending, started 1 minute ago"]);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(29));
+    assert_eq!(woken.get(), 0, "nothing before the next minute");
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(2));
+    assert_eq!(woken.get(), 1, "one wake when it reads 2 minutes");
 }
 
 /// Review F2 on #295, section 7: right to left the conversation's app bar

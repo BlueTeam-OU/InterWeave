@@ -19,7 +19,7 @@ use i_slint_backend_testing::ElementHandle;
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{
     ClientEvent, Connectivity, Destination, Origin, OutboundStatus, OutboundUpdate, Received,
-    SessionProblem, SessionState, TrustList, TrustRow,
+    SendProblem, SessionProblem, SessionState, TrustList, TrustRow,
 };
 use interweave_human_core::{AppMessageId, RowId};
 use interweave_human_ui_model::{
@@ -2142,6 +2142,39 @@ fn arrivals_and_own_status_changes_are_one_announcement() {
                 ),
             ]
         )
+    );
+}
+
+/// #304 F10: a waiting message is announced when its wait or its last
+/// problem changes, never at a retry, so a screen reader is not told
+/// "Sending" at each attempt.
+#[test]
+fn a_waiting_message_is_announced_at_a_new_problem_never_at_a_retry() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    let id = sent(&mut model, 7, &bob, "to bob");
+    view.render(&model);
+    open(&mut view, &mut model, &direct(&bob));
+    let sending = |attempts, last_problem| OutboundStatus::Sending {
+        attempts,
+        next_retry_at: Some(u64::from(attempts) * 1_000),
+        last_problem,
+    };
+    update(&mut model, 7, &id, sending(1, None));
+    view.render(&model);
+    assert_eq!(announced(&view), None, "a first attempt says nothing new");
+    update(&mut model, 7, &id, sending(2, Some(SendProblem::Busy)));
+    view.render(&model);
+    let said = announced(&view).expect("a new problem is announced");
+    assert!(said.contains("busy"), "{said}");
+    let before = slots(&view);
+    update(&mut model, 7, &id, sending(3, Some(SendProblem::Busy)));
+    view.render(&model);
+    assert_eq!(
+        slots(&view),
+        before,
+        "a retry with the same problem says nothing, not even again"
     );
 }
 

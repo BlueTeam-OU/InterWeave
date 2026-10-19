@@ -545,6 +545,41 @@ ui_texts! {
     IdKeyClear => "Clear this word",
     /// ANDROID, identity screens: The grid's button at large font (§4).
     IdReviewWords => "Show all my words",
+    /// How long a waiting message has waited, from when it was written,
+    /// rounded down (#304 F10): under a minute.
+    AgeJustNow => "just now",
+    /// One minute.
+    AgeOneMinute => "1 minute ago",
+    /// 2 to 59 minutes; `{count}` is the number.
+    AgeMinutes => "{count} minutes ago",
+    /// One hour.
+    AgeOneHour => "1 hour ago",
+    /// 2 to 23 hours; `{count}` is the number.
+    AgeHours => "{count} hours ago",
+    /// One day.
+    AgeOneDay => "1 day ago",
+    /// 2 days or more; `{count}` is the number.
+    AgeDays => "{count} days ago",
+    /// A waiting message nothing has reached the peer of yet, with no
+    /// problem known (F10 A0). `{age}` is one of the Age texts. No
+    /// waiting status ends with a period: `AnnounceOwnStatus` adds its own.
+    WaitingSending => "Still sending, started {age}",
+    /// A0 after an attempt that reached no path to the peer, or knew no
+    /// address for it (A1). The phone's own network may be fine.
+    WaitingSendingNoPath => "Still sending, started {age}. Last attempt: the peer could not be reached",
+    /// A0 after the peer answered with the coarse no-route class (A2).
+    WaitingSendingRoute => "Still sending, started {age}. Last attempt: the peer was reached but could not accept the message",
+    /// A0 after a busy answer (A3).
+    WaitingSendingBusy => "Still sending, started {age}. Last attempt: the network or the peer was busy",
+    /// An earlier attempt may have reached the peer, no problem known
+    /// (B0).
+    WaitingMaybe => "May have reached the peer. Still sending, started {age}",
+    /// B0 with A1's problem (B1).
+    WaitingMaybeNoPath => "May have reached the peer. Still sending, started {age}. Last attempt: the peer could not be reached",
+    /// B0 with A2's problem (B2).
+    WaitingMaybeRoute => "May have reached the peer. Still sending, started {age}. Last attempt: the peer was reached but could not accept the message",
+    /// B0 with A3's problem (B3).
+    WaitingMaybeBusy => "May have reached the peer. Still sending, started {age}. Last attempt: the network or the peer was busy",
 }
 
 /// Where the transport runtime runs, which decides how a text that names
@@ -635,6 +670,16 @@ host_texts! {
     TrustUnconfirmed => {
         daemon: "The transport daemon did not confirm the change for {peer}. The change may have been made. The list of trusted peers is being read again.",
         embedded: "The network service did not confirm the change for {peer}. The change may have been made. The list of trusted peers is being read again.",
+    },
+    /// A0 after the local runtime was unavailable (F10 A4).
+    WaitingSendingUnavailable => {
+        daemon: "Still sending, started {age}. Last attempt: the transport daemon was not available",
+        embedded: "Still sending, started {age}. Last attempt: the network service was not available",
+    },
+    /// B0 with A4's problem (B4).
+    WaitingMaybeUnavailable => {
+        daemon: "May have reached the peer. Still sending, started {age}. Last attempt: the transport daemon was not available",
+        embedded: "May have reached the peer. Still sending, started {age}. Last attempt: the network service was not available",
     },
 }
 
@@ -1144,6 +1189,7 @@ mod tests {
             ("first", "New message from …abcd1234."),
             ("rest", "Your message: Sent."),
             ("n", "7"),
+            ("age", "3 hours ago"),
         ];
         for text in UiText::ALL {
             let filled = fill(placeholder_en::text(*text), &values);
