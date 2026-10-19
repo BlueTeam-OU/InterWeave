@@ -1,38 +1,171 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# Store-listing check: the Android client against Google Play's policy
+# Release check: the Android client's dependencies
 
-Plan §20 step 10. This check closes ADR-0041's Play-policy condition,
-which SPIKE-008 left open: whether the `remoteMessaging` foreground
-service this client declares is one Play accepts. It quotes the policy
-as read, with the date, and says where the client meets it and where it
-does not. What it concludes is architect-cto's, not this file's: the
-question went as OBSERVATION 01a1527e (2026-10-19), and the ruling is
-recorded under "Decision".
+Plan §20 step 10, as ADR-0057 decision 5 sets it (2026-10-19). The
+Android client is listed on no store: it is distributed from the
+project's own release page (ADR-0057 decision 1), and what that page
+carries is `RELEASE.md` beside this file. This check lists every
+dependency the application ships with its licence, asserts that no
+Google Play services, Firebase or Play artifact is on the application's
+classpath (ADR-0057 decision 2), and records SPIKE-008's target-SDK
+half. Its file name is the store check's, which other records cite.
 
-Re-read the sources whenever this check is cited for a release: Play
-policy changes, and a quote here is only as current as its date.
+What it does not settle is named where it stands. Re-read every number
+here against the tree when it is cited for a release: the graph moves
+with each lockfile change.
 
-## What the client declares
+## The application
 
-From `android/app/src/main/AndroidManifest.xml` and
-`android/app/build.gradle.kts`:
+From `android/app/build.gradle.kts` and `android/app/src/main/AndroidManifest.xml`:
 
 | | |
 |---|---|
 | applicationId | `org.interweave.human` |
 | minSdk / targetSdk / compileSdk | 30 / 36 / 36 |
-| versionCode / versionName | 1 / `0.0.0` (release versioning is plan §22's) |
+| versionCode / versionName | 1 / `0.0.0`: release versioning is the tagged release run's (plan §22, Stage 19) |
+| permissions | `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_REMOTE_MESSAGING`, `POST_NOTIFICATIONS`, `USE_BIOMETRIC` |
 | foreground service | `.NetworkService`, `foregroundServiceType="remoteMessaging"`, not exported |
-| permissions | `INTERNET`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_REMOTE_MESSAGING`, `POST_NOTIFICATIONS` |
-| backup | `allowBackup="false"` and `dataExtractionRules` excluding every domain from cloud backup and device-to-device transfer |
 
-What the service is for: under **Stay reachable** the person keeps the
-network service running while the app is in the background, so other
-people's peers can reach them over P2P. It runs with a visible ongoing
-notification, the person turns it on and off, and without it the client
-is reachable only while open (`human-client-android.md`).
+## What the application ships, with its licences
 
-## The policy, as read on 2026-10-19
+Measured 2026-10-19 on `feat/j111-android-recovery` (Slint 1.18.1,
+skia-bindings 0.153.3, as on `main`).
+
+### The native library's Rust graph
+
+`cargo deny --manifest-path apps/human-android/Cargo.toml --target
+aarch64-linux-android list --layout license`: 440 crates, build-time
+crates (`slint-build`, `i-slint-compiler`, `bindgen` and their
+dependencies) included, so the list over-counts what the APK holds.
+Every crate offers at least one of the licences below; an expression
+with several is the crate's own choice of terms.
+
+| crates | licence expression offered |
+|---:|---|
+| 234 | Apache-2.0 / MIT |
+| 89 | MIT |
+| 37 | Apache-2.0 |
+| 25 | Unicode-3.0 |
+| 10 | GPL-3.0-only / LicenseRef-Slint-Royalty-free-2.0 / LicenseRef-Slint-Software-3.0 (Slint) |
+| 9 | BSD-3-Clause |
+| 9 | Apache-2.0 / MIT / Zlib |
+| 6 | MIT / Unlicense |
+| 3 | CC0-1.0 |
+| 3 | BSD-3-Clause / MIT |
+| 2 each | Zlib; ISC; Apache-2.0 / Apache-2.0 WITH LLVM-exception / MIT; Apache-2.0 / BSD-3-Clause; Apache-2.0 / BSD-3-Clause / MIT |
+| 1 each | 0BSD / Apache-2.0 / MIT; BSD-2-Clause; Apache-2.0 / ISC; Apache-2.0 / BSL-1.0; Apache-2.0 / MIT / Unicode-3.0 |
+
+Slint's ten crates on Android are `slint`, `slint-build`,
+`slint-macros`, `i-slint-core`, `i-slint-core-macros`,
+`i-slint-common`, `i-slint-compiler`, `i-slint-backend-selector`,
+`i-slint-backend-android-activity` and `i-slint-renderer-skia`. They are
+used under the Royalty-free licence (the owner, 2026-10-01; kept for
+Android by ADR-0057 decision 3), whose attribution `RELEASE.md`
+carries. **Open, not this file's:** `deny.toml` judges
+`x86_64-unknown-linux-gnu` alone, and its Royalty-free exceptions name
+the desktop's crates; `i-slint-backend-android-activity` and
+`i-slint-renderer-skia` are admitted by ADR-0057 decision 3 and are not
+yet written there, nor is `aarch64-linux-android` among its targets
+(p2p-network-dev's j91, `fix/deny-android-target`). `cargo deny
+--target aarch64-linux-android check licenses` is to pass before the
+first release.
+
+### The native Skia library
+
+On Android Slint draws with Skia, which `skia-bindings` 0.153.3
+downloads as a prebuilt archive pinned by the crate's version
+(`github.com/rust-skia/skia-binaries`, release 0.153.3, the
+`aarch64-linux-android-ganesh-gl-jpegd-jpege-pdf-vulkan` build;
+ADR-0057 decision 4 allows it, and Stage 19 decides whether the release
+run builds it from source instead). What it bundles, read from its
+`libskia.a` (1095 objects, grouped by the build target each came from):
+
+| component | built in as | licence | notice owed |
+|---|---|---|---|
+| Skia, with skcms | `core`, `gpu`, `pdf`, `pathops`, `libskcms` and the rest | BSD-3-Clause (`LICENSE_SKIA` in the archive) | yes |
+| libjpeg-turbo | `libjpeg`, `libjpeg12`, `libjpeg16` | IJG and a BSD-style licence (its LICENSE.md) | yes |
+| FreeType 2 | `libfreetype2` | FreeType License, of its two (LICENSE.TXT); the other is GPL-2.0 | yes, the credit line the FTL requires |
+| libpng | `libpng` | PNG Reference Library License v2 | yes |
+| zlib (Chromium's, with its SIMD parts) | `libzlib`, `zlib_*` | zlib (1.2.12's LICENSE) | yes |
+| Expat | `libexpat` | MIT | yes |
+| Wuffs | `libwuffs` | Apache-2.0 | yes |
+| Vulkan Memory Allocator | `vulkanmemoryallocator` | MIT | yes |
+| cpu_features | `libcpu-features`, compiled from the NDK's `sources/android/cpufeatures` | BSD-2-Clause (its file header, NDK 28.2.13676358) | yes |
+
+The objects were read from the archive, and each licence from the
+component's own file at the commit Skia's `DEPS` pins for
+`rust-skia/skia` tag `m153-0.101.2` (the archive's build), read
+2026-10-19 (cpu_features from the NDK the build uses). What was not
+done is diffing the archive's objects against a build from that source.
+The notice texts go with the APK and on the release page
+(`RELEASE.md`).
+
+### The Java side
+
+The release runtime classpath (`android/app/gradle.lockfile`, the
+`releaseRuntimeClasspath` entries) holds two artifacts, both from Maven
+Central:
+
+| artifact | licence |
+|---|---|
+| `org.jetbrains.kotlin:kotlin-stdlib:2.2.10` | Apache-2.0 |
+| `org.jetbrains:annotations:13.0` | Apache-2.0 |
+
+## No Google Play services on the application's classpath
+
+ADR-0057 decision 2. Checked 2026-10-19 over all three lockfiles
+(`android/app/gradle.lockfile`, `android/buildscript-gradle.lockfile`,
+`android/settings-gradle.lockfile`): no `com.google.android.gms`,
+`com.google.firebase`, `com.google.android.play` or
+`com.android.billingclient` artifact on any configuration. The
+`com.google` artifacts present (`guava`, `gson`, `protobuf-java`,
+`jsr305`, `error_prone_annotations`, `j2objc-annotations`, `jimfs`,
+`failureaccess`, `listenablefuture`) are on `androidLintTool` and the
+test platform only, never a runtime classpath. Holding it on every
+change is the lockfile guard's, which is devex-tooling's to shape
+(ADR-0057 decision 2); this check is its reading of today.
+
+## SPIKE-008's target-SDK half
+
+ADR-0041's condition is that half alone (ADR-0057 decision 6): the
+`remoteMessaging` foreground service working under the target SDK the
+app declares, on a device of an API level that enforces it. It closes
+with plan §20 step 3's device run, which is not on record yet: the six
+device cases run on the Pixel 9a (API 37) by p2p-network-dev-02 on
+their `test/j36-android-e2e-values-as-text` (my build of it, j116,
+waits on the design review's round 2). This section records the run's
+API level and commit when it lands; until then the half is **open**.
+
+## Why F-Droid was dropped (record)
+
+ADR-0056 (2026-10-19, superseded by ADR-0057 the same day) made F-Droid
+the only store. Writing this check against F-Droid's Inclusion Policy
+(read 2026-10-19) found two blockers, reported as OBSERVATION 01a153b1:
+
+- The policy requires every application to be FLOSS by DFSG, FSF, GNU
+  or OSI. Slint's ten crates are admitted under the Royalty-free
+  licence, which none of them counts; Slint's one FLOSS route is
+  GPL-3.0-only, which would make the distributed APK a GPLv3 work.
+- The policy allows prebuilt binaries only from named sources, and the
+  Skia library arrives as a download from a GitHub release of
+  rust-skia. Building it from source was measured as far as it went:
+  cloning Skia at `m153-0.101.2` took 28 s, its `git-sync-deps` 56 s
+  for a 1.1 GB tree, and `SKIA_SOURCE_DIR` turns the bindings'
+  build offline; the build itself was stopped when the decision came.
+
+The owner chose "Drop F-Droid for now" and to keep Slint's Royalty-free
+terms (ADR-0057). The GPL route and Skia from source are that record's
+revisit.
+
+## The Play half, withdrawn (record)
+
+What this file held before ADR-0056, kept as what was read: the Play
+policy's foreground-service declaration and how the client stood
+against it. ADR-0041's Play-policy half is withdrawn (its amendment of
+2026-10-19), no Play declaration is written, and nothing below binds a
+build.
+
+### The policy, as read on 2026-10-19
 
 **Play Console Help, "Understanding foreground service and full-screen
 intent requirements"** (`support.google.com/googleplay/android-developer/answer/13392821`):
@@ -84,7 +217,7 @@ page last updated 2026-10-16), Remote messaging:
 > Transfer text messages from one device to another. Assists with
 > continuity of a user's messaging tasks when they switch devices.
 
-## Where the client stands
+### Where the client stood
 
 | Criterion | The client | Holds? |
 |---|---|---|
@@ -101,7 +234,7 @@ gap is not a refusal on its face. It is also not evidence of acceptance:
 how Play's review judges a P2P messenger's declaration cannot be
 measured from here.
 
-## Decision
+### The ruling then
 
 ADR-0041 A 2026-10-19 (architect-cto, REPLY 01a15282, commit 432a354f
 on InterWeave #301), recorded here as ruled:
