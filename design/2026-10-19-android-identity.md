@@ -91,7 +91,7 @@ matters, in five short points:
 - write them on paper and keep it safe;
 - anyone who has them can be you;
 - they bring back the identity only, not the contacts, trust or
-  settings, which are backed up separately (`human-client-ui.md` §9);
+  settings (`human-client-ui.md` §9);
 - the identity exists only once creation is complete, after the check
   of two words.
 
@@ -146,8 +146,10 @@ PeerId to compare at R3. The PeerId is the one written beside the
 words, or else the one a contact's app shows for this person. The
 network stays off until the restore is done. One line
 (`IdR1Settings`) says that the words bring back the identity, not the
-contacts, trust or other settings, which are restored separately
-(`human-client-ui.md` §9). Primary: enter my words (→ R2). Back → W.
+contacts, trust or other settings, which are not part of them
+(`human-client-ui.md` §9). It gives no step: whether the Android app
+offers a settings backup to restore from is open, and the Android
+review checks it. The line gains that step once one exists. Primary: enter my words (→ R2). Back → W.
 
 **R2, Enter your 24 words.** The picker over all 24 positions (§4).
 When all 24 are filled, the primary action, check my words, is
