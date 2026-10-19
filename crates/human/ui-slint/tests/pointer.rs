@@ -458,3 +458,39 @@ fn a_taps_slop_is_the_platforms() {
         "within a 40 slop: {raised:?}"
     );
 }
+
+/// #304 F5: the focus ring is for keyboard focus only. A tap that opens
+/// the conversation's menu, whose first item then takes focus, draws no
+/// ring; a Tab draws one; a tap clears it again.
+#[test]
+fn the_focus_ring_shows_for_the_keyboard_never_for_a_tap() {
+    let (view, _) = kept_row();
+    let rings = |view: &View| {
+        i_slint_backend_testing::ElementQuery::from_root(view.window())
+            .find_all()
+            .into_iter()
+            .filter(|e| e.type_name().as_deref() == Some("FocusRing"))
+            .filter(|r| r.computed_opacity() > 0.0)
+            .count()
+    };
+    tap(
+        &view,
+        control_centre(&view, placeholder_en::text(UiText::MoreOptions)),
+    );
+    tick(10);
+    tick(10);
+    assert!(view.window().get_menu_open(), "control: the tap opened it");
+    assert!(
+        !view.window().get_focus_id().is_empty(),
+        "control: focus moved"
+    );
+    assert_eq!(rings(&view), 0, "a tap draws no ring");
+    let key: slint::SharedString = slint::platform::Key::Tab.into();
+    event(&view, WindowEvent::KeyPressed { text: key.clone() });
+    event(&view, WindowEvent::KeyReleased { text: key });
+    tick(10);
+    assert_eq!(rings(&view), 1, "a Tab draws one");
+    tap(&view, message_text_at(&view, 0));
+    tick(10);
+    assert_eq!(rings(&view), 0, "a tap clears it");
+}

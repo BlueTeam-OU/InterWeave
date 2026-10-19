@@ -217,6 +217,15 @@ export struct IdentityPage {
     dialog-keep: string,
 }
 
+// Whether the person is using the keyboard: focus that came by Tab sets
+// it, focus that came by a pointer, or any press, clears it. The focus
+// ring is for keyboard focus only (#304 F5): a touch user sees none, even
+// where a rule moves focus after an action, which it does for keyboard
+// and screen-reader users.
+export global FocusMode {
+    in-out property <bool> keyboard;
+}
+
 export global Touch {
     in property <length> slop: 8px;
     // The platform's long-press time (Android's
@@ -278,7 +287,10 @@ component TapArea inherits TouchArea {
             || abs(self.mouse-y - self.pressed-y) > Touch.slop
     }
     pointer-event(event) => {
-        if (event.kind == PointerEventKind.down) { self.drifted = false; }
+        if (event.kind == PointerEventKind.down) {
+            self.drifted = false;
+            FocusMode.keyboard = false;
+        }
     }
     moved => {
         if (self.past-slop()) { self.drifted = true; }
@@ -328,10 +340,14 @@ component FocusRing inherits Rectangle {
         : Palette.primary;
     border-radius: root.radius + 5px;
     // Opacity rather than `visible`, so a test reads it.
-    opacity: root.shown ? 1 : 0;
+    opacity: root.shown && FocusMode.keyboard ? 1 : 0;
 }
 
 component ActionButton inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
     in property <string> text;
     in property <string> focus-key;
     // The least touch target: 48 on a message row and the snackbar,
@@ -416,6 +432,10 @@ component ActionButton inherits FocusScope {
 // nothing when activated (swipe spec section 7): where focus goes once
 // the rows below it are gone, so focus is never lost.
 component FocusHeading inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
     in property <string> text;
     in property <string> description;
     in property <string> focus-key;
@@ -462,6 +482,10 @@ component FocusHeading inherits FocusScope {
 // long and have no spaces, so it wraps -- inside a word if it must --
 // rather than widening the window, and reads from the left.
 component LinkButton inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
     in property <string> text;
     in property <string> focus-key;
     // Its colour: `primary` in a received bubble, the bubble's own text
@@ -658,6 +682,10 @@ component SwipeIcon inherits GlyphIcon {
 // A control that is an icon: a round 48 px target (Android's and WCAG
 // 2.5.8's), its label the icon's meaning, and a round focus ring.
 component IconButton inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
     in property <Glyph> glyph;
     in property <string> label;
     in property <string> focus-key;
@@ -867,6 +895,10 @@ component Snackbar inherits Rectangle {
 // One entry of a menu: 48 px tall, its label at the start, a focus ring
 // that follows the row. Escape closes the menu.
 component MenuItem inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
     in property <string> text;
     in property <string> detail;
     in property <string> focus-key;
@@ -998,6 +1030,10 @@ component UnreadBadge inherits Rectangle {
 // system keyboard and no copy of a word; the window's secure flag is the
 // platform's (human-android).
 component IdentityScreen inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
     in property <IdentityPage> page;
     in property <bool> rtl;
     // A monospace face resolved by the Rust side: "monospace" by name
@@ -1819,6 +1855,10 @@ export component AppWindow inherits Window {
                 padding: 5px;
                 alignment: start;
             for row[index] in root.conversations: conversation := FocusScope {
+                focus-gained(reason) => {
+                    if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+                    if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+                }
                 property <string> swipe-key: "c:" + row.handle;
                 property <length> offset: root.swipe-key == self.swipe-key ? root.swipe-offset : 0px;
                 property <int> focus-seq: root.focus-seq;
@@ -2564,6 +2604,10 @@ export component AppWindow inherits Window {
                     accessible-role: none;
                 }
                 item := FocusScope {
+                    focus-gained(reason) => {
+                        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+                        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+                    }
                     // The person's choice for this message, kept with its row
                     // while the row exists: the drawn body, or the source.
                     in-out property <bool> show-source: false;
@@ -2677,6 +2721,7 @@ export component AppWindow inherits Window {
                         pointer-event(event) => {
                             if (event.kind == PointerEventKind.down) {
                                 self.drifted = false;
+                                FocusMode.keyboard = false;
                                 if (event.button == PointerEventButton.right) { item.open-menu(); }
                             }
                         }
@@ -3065,7 +3110,10 @@ export component AppWindow inherits Window {
         y: 0;
         width: root.width;
         height: root.height;
-        clicked => { root.close-menu(); }
+        clicked => {
+            FocusMode.keyboard = false;
+            root.close-menu();
+        }
         Rectangle {
             background: root.details-open ? #00000052 : transparent;
         }
@@ -3128,7 +3176,10 @@ export component AppWindow inherits Window {
         y: 0;
         width: root.width;
         height: root.height;
-        clicked => { root.close-row-menu(); }
+        clicked => {
+            FocusMode.keyboard = false;
+            root.close-row-menu();
+        }
     }
     if root.row-menu >= 0: row-menu-box := Rectangle {
         property <length> below: root.row-menu-y + root.row-menu-h + 4px;
@@ -3192,10 +3243,17 @@ export component AppWindow inherits Window {
         y: 0;
         width: root.width;
         height: root.height;
-        clicked => { root.trust-cancel(); }
+        clicked => {
+            FocusMode.keyboard = false;
+            root.trust-cancel();
+        }
         Rectangle { background: #00000052; }
     }
     if root.trust-page && root.has-pending: pending := FocusScope {
+        focus-gained(reason) => {
+            if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+            if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        }
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;
         width: min(root.width - 48px, 560px);
@@ -3207,6 +3265,7 @@ export component AppWindow inherits Window {
             }
             // A modal dialog keeps focus on its two buttons.
             if (event.text == Key.Tab || event.text == Key.Backtab) {
+                FocusMode.keyboard = true;
                 root.focus-target = root.focus-id == "trust-cancel" ? "trust-confirm" : "trust-cancel";
                 root.focus-seq += 1;
                 return accept;
@@ -3293,6 +3352,10 @@ export component AppWindow inherits Window {
         }
     }
     if root.details-open: details := FocusScope {
+        focus-gained(reason) => {
+            if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+            if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        }
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;
         width: min(root.width - 48px, 560px);
@@ -3307,6 +3370,8 @@ export component AppWindow inherits Window {
             // no ring and reports no focus, nor on the controls behind the
             // scrim (tests/look.rs, `tab_stays_in_details_and_escape_closes_it`).
             if (event.text == Key.Tab || event.text == Key.Backtab) {
+                // Kept here, it moves no focus: still the keyboard's.
+                FocusMode.keyboard = true;
                 return accept;
             }
             reject
