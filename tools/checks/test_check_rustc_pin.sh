@@ -67,14 +67,16 @@ chmod +x "$SANDBOX/bin/rustc"
 # cargo: `cargo clippy --version` and `cargo fmt --version` say what cargo
 # runs. $SANDBOX/cargo-<sub>-says if it exists (an empty file prints
 # nothing), else a build naming rustc-says's own "(hash date)", as
-# rustup's do; fails on $SANDBOX/cargo-fails. It records the directory it
-# ran in, and $SANDBOX/cargo-asked marks which cargo was run.
+# rustup's do, after $SANDBOX/cargo-noise's lines if it exists; fails on
+# $SANDBOX/cargo-fails, or for one subcommand on $SANDBOX/cargo-<sub>-fails.
+# It records the directory it ran in.
 cat > "$SANDBOX/bin/cargo" <<STUB
 #!/usr/bin/env bash
-echo path > "$SANDBOX/cargo-asked"
 pwd > "$SANDBOX/cargo-cwd"
 [[ "\$2" == --version ]] || { echo "cargo stub: \$*" >&2; exit 2; }
-[[ -e "$SANDBOX/cargo-fails" ]] && { echo "error: no such command: \\\`\$1\\\`" >&2; exit 101; }
+[[ -e "$SANDBOX/cargo-fails" || -e "$SANDBOX/cargo-\$1-fails" ]] && { echo "error: no such command: \\\`\$1\\\`" >&2; exit 101; }
+echo "warning: a cargo config warning, on stderr" >&2
+[[ -e "$SANDBOX/cargo-noise" ]] && cat "$SANDBOX/cargo-noise"
 [[ -e "$SANDBOX/cargo-\$1-says" ]] && exec cat "$SANDBOX/cargo-\$1-says"
 build="\$(sed -n 's/^rustc [^ ]* \(([0-9a-f]* [0-9-]*)\).*/\1/p' "$SANDBOX/rustc-says")"
 case "\$1" in clippy) echo "clippy 0.1.98 \$build" ;; fmt) echo "rustfmt 1.9.0-stable \$build" ;; esac
@@ -102,7 +104,11 @@ lib="librustc_driver-aaaa1111.so"
 [[ -n "\$lib" ]] && echo "	\$lib => /somewhere/\$lib (0x0000785d3e800000)"
 echo "	libc.so.6 => /lib64/libc.so.6 (0x00007f)"
 STUB
-chmod +x "$SANDBOX/bin/cargo" "$SANDBOX/bin/clippy-driver" "$SANDBOX/bin/ldd" "$SANDBOX/bin/rustfmt"
+# cargo-clippy: the distribution's, which runs the clippy-driver beside it;
+# never run here, only found. CARGO_HOME is /nonexistent-cargo-home, so the
+# check finds it on PATH.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$SANDBOX/bin/cargo-clippy"
+chmod +x "$SANDBOX/bin/cargo" "$SANDBOX/bin/cargo-clippy" "$SANDBOX/bin/clippy-driver" "$SANDBOX/bin/ldd" "$SANDBOX/bin/rustfmt"
 # A distribution's builds name no commit.
 distro() { printf 'clippy 0.1.%s\n' "${1:-98}" > "$SANDBOX/cargo-clippy-says"; printf 'rustfmt 1.9.0\n' > "$SANDBOX/cargo-fmt-says"; }
 rustup_builds() { rm -f "$SANDBOX/cargo-clippy-says" "$SANDBOX/cargo-fmt-says"; }
@@ -120,6 +126,15 @@ says()  { printf '%s\n' "$1" > "$SANDBOX/rustc-says"; }
 expect() {
     local want="$1" name="$2" needle="${3:-}" out got
     out="$(cd "$SANDBOX" && PATH="$SANDBOX/bin:$PATH" bash "$REPO/tools/checks/check_rustc_pin.sh" 2>&1)"; got=$?
+    if [[ "$got" -ne "$want" ]]; then fail "$name — wanted exit $want, got $got" "$out"; return; fi
+    if [[ -n "$needle" && "$out" != *"$needle"* ]]; then fail "$name — output lacks: $needle" "$out"; return; fi
+    pass "$name (exit $got)"
+}
+# expect_with <exit> <name> <output substring> <VAR=value>…: expect, with
+# the environment changed; a PATH= given replaces the default.
+expect_with() {
+    local want="$1" name="$2" needle="$3" out got; shift 3
+    out="$(cd "$SANDBOX" && env PATH="$SANDBOX/bin:$PATH" "$@" bash "$REPO/tools/checks/check_rustc_pin.sh" 2>&1)"; got=$?
     if [[ "$got" -ne "$want" ]]; then fail "$name — wanted exit $want, got $got" "$out"; return; fi
     if [[ -n "$needle" && "$out" != *"$needle"* ]]; then fail "$name — output lacks: $needle" "$out"; return; fi
     pass "$name (exit $got)"
@@ -223,12 +238,26 @@ rustup_builds
 says 'rustc 1.98.1 (48a229cea 2026-09-01)'
 touch "$SANDBOX/cargo-fails"
 expect 2 "a cargo clippy that cannot run is a failure to check, with its error" "no such command"
+out="$(cd "$SANDBOX" && PATH="$SANDBOX/bin:$PATH" bash "$REPO/tools/checks/check_rustc_pin.sh" 2>&1)"
+[[ "$out" != *"printed no"* ]] && pass "  and it ends there, not in a parse of the empty answer" \
+    || fail "a failed cargo clippy should end the check, not reach a later step" "$out"
 rm -f "$SANDBOX/cargo-fails"
-: > "$SANDBOX/cargo-clippy-says"
-expect 2 "a cargo clippy printing nothing is a failure to check" "failed or printed nothing"
-printf 'clippy-driver 0.1.98\n' > "$SANDBOX/cargo-clippy-says"
-expect 2 "a cargo clippy printing no version is a failure to check" "printed no version"
+# Each subcommand's failure ends the check: an exit inside a command
+# substitution does not, so a failing cargo fmt once fell through to PATH.
+touch "$SANDBOX/cargo-fmt-fails"
+expect 2 "a cargo fmt that cannot run is a failure to check, though clippy is fine" "cargo fmt --version\` failed"
+distro
+expect 2 "  and so for a distribution's, where PATH's rustfmt would have passed" "cargo fmt --version\` failed"
+rm -f "$SANDBOX/cargo-fmt-fails"
 rustup_builds
+: > "$SANDBOX/cargo-clippy-says"
+expect 2 "a cargo clippy printing nothing is a failure to check" "printed no clippy version"
+printf 'clippy-driver 0.1.98\n' > "$SANDBOX/cargo-clippy-says"
+expect 2 "a cargo clippy printing no version is a failure to check" "printed no clippy version"
+rustup_builds
+printf 'info: syncing channel updates for 1.98.1\nwarning: something on stdout\n' > "$SANDBOX/cargo-noise"
+expect 0 "lines before the version, and stderr, are not read as the version"
+rm -f "$SANDBOX/cargo-noise"
 printf '#!/usr/bin/env bash\necho "clippy 0.1.99 (bbbbbbbbbb 2026-09-28)"\n' > "$SANDBOX/cargo-at"; chmod +x "$SANDBOX/cargo-at"
 out="$(cd "$SANDBOX" && PATH="$SANDBOX/bin:$PATH" CARGO="$SANDBOX/cargo-at" bash "$REPO/tools/checks/check_rustc_pin.sh" 2>&1)"; got=$?
 [[ "$got" -eq 1 && "$out" == *"clippy 0.1.99"* ]] && pass "\$CARGO, the cargo running cargo xtask, is the one asked (exit 1)" \
@@ -258,16 +287,23 @@ rm -f "$SANDBOX/fmt-links"
 mv "$SANDBOX/sysroot/lib/librustc_driver-aaaa1111.so" "$SANDBOX/sysroot/lib/x"
 expect 2 "a sysroot with no librustc_driver is a failure to check" "names no directory holding a librustc_driver"
 mv "$SANDBOX/sysroot/lib/x" "$SANDBOX/sysroot/lib/librustc_driver-aaaa1111.so"
-mv "$SANDBOX/bin/clippy-driver" "$SANDBOX/clippy-driver.off"
-out="$(cd "$SANDBOX" && PATH="$SANDBOX/bin:/usr/bin:/bin" bash -c 'command -v clippy-driver' 2>/dev/null)"
-if [[ -z "$out" ]]; then
-    out="$(cd "$SANDBOX" && PATH="$SANDBOX/bin:/usr/bin:/bin" bash "$REPO/tools/checks/check_rustc_pin.sh" 2>&1)"; got=$?
-    [[ "$got" -eq 2 && "$out" == *"no clippy-driver on PATH beside clippy 0.1.98"* ]] && pass "no clippy-driver beside a distribution clippy is a failure to check (exit 2)" \
-        || fail "no clippy-driver on PATH should be exit 2, got $got" "$out"
-else
-    pass "(this host has a clippy-driver in /usr/bin: the none-on-PATH case does not apply)"
-fi
-mv "$SANDBOX/clippy-driver.off" "$SANDBOX/bin/clippy-driver"
+# The clippy-driver asked is the one beside the cargo-clippy cargo finds:
+# $CARGO_HOME/bin first, then PATH; a clippy-driver alone, earlier on
+# PATH, is not it.
+mkdir -p "$SANDBOX/decoy" "$SANDBOX/lone" "$SANDBOX/ch/bin" "$SANDBOX/fmt"
+printf '#!/usr/bin/env bash\necho "rustc 1.99.0 (aaaaaaaaa 2026-10-01)"\n' > "$SANDBOX/decoy/clippy-driver"
+cp "$SANDBOX/decoy/clippy-driver" "$SANDBOX/ch/bin/clippy-driver"
+cp "$SANDBOX/bin/cargo-clippy" "$SANDBOX/ch/bin/cargo-clippy"
+cp "$SANDBOX/bin/cargo-clippy" "$SANDBOX/lone/cargo-clippy"
+chmod +x "$SANDBOX/decoy/clippy-driver" "$SANDBOX/ch/bin/clippy-driver"
+expect_with 0 "a clippy-driver earlier on PATH than cargo-clippy's own does not decide" "" PATH="$SANDBOX/decoy:$SANDBOX/bin:$PATH"
+expect_with 1 "the cargo-clippy in \$CARGO_HOME/bin wins over PATH's, and its driver is asked" "$SANDBOX/ch/bin/clippy-driver: rustc 1.99.0" CARGO_HOME="$SANDBOX/ch"
+expect_with 2 "a cargo-clippy with no clippy-driver beside it is a failure to check" "no clippy-driver beside $SANDBOX/lone/cargo-clippy" PATH="$SANDBOX/lone:$SANDBOX/bin:$PATH"
+# cargo-fmt runs $RUSTFMT when it is set.
+cp "$SANDBOX/bin/rustfmt" "$SANDBOX/fmt/rustfmt-other"
+expect_with 0 "\$RUSTFMT, the rustfmt cargo fmt runs, is the one asked" "" RUSTFMT="$SANDBOX/fmt/rustfmt-other"
+[[ "$(cat "$SANDBOX/ldd-asked" 2>/dev/null)" == "$SANDBOX/fmt/rustfmt-other" ]] && pass "  and it was" \
+    || fail "ldd should be asked about \$RUSTFMT, was: $(cat "$SANDBOX/ldd-asked" 2>/dev/null)"
 rustup_builds
 
 # A key spelled rustc in a cargo config in scope is a failure to check, in
