@@ -194,13 +194,20 @@ answers `RecoveryRequired`. It says, by cause:
 - `Record`, `Authentication`, `WrongIdentity` (string
   `IdQReasonRecord`): the stored identity cannot be read on this phone.
 
-K1 shows the expected PeerId from the record when the record still
-names one. Primary: enter my recovery phrase (→ R2, then straight to
-the check against that PeerId, with no R3). Back leaves the app. K1
-shows again on the next launch until the restore succeeds.
+K1's expected PeerId is the one the record's PeerId field names, read
+even when the record is otherwise refused. With one, K1 shows it.
+Primary: enter my recovery phrase (→ R2, then straight to the check
+against that PeerId, with no R3). Back leaves the app. K1 shows again
+on the next launch until the restore succeeds.
 
-If the record names no readable PeerId, the flow is the fresh-install
-one: R2, then R3.
+If the record names no readable PeerId (its field is missing or
+unreadable, or the entry is not a file), K1 has no primary action. It
+shows only its reason and `IdQLost`. The phrase-only path (R2 and then
+R3) is never offered over a record that exists. The custody design
+allows that path only where no record survives, and
+`IDENTITY-RECOVERY.md` refuses to replace an established profile
+without a matching old PeerId. §11 Q6 asks architect-cto whether this
+case gets a path of its own.
 
 The person never gets a "start over with a new identity" action here,
 because a new identity would replace an established profile
@@ -320,6 +327,9 @@ comparison a matter of groups, not of single characters.
 | Authentication needed | S1; a restore that must open a healthy user-presence record first | The system prompt. Cancelled or denied: back to the step before, nothing shown, no error | Try again by the primary action |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
 | Storage fails (`Unavailable`, a write error) | Where the write runs: C4's continue (the seal); R3's yes (a fresh-install restore); R2's check after K1 (a restore against the record). R4 shows only after a restore succeeded | A notice (`IdStorageFailed`): nothing was changed, with Try again. Entered words stay while the screen is open. | Try again, or Back (words dropped) |
+| Restored, but the old key remains (`OldKeyRemains`) | R3's yes, R2's check after K1 | Success, as below: the record is written and opens. The app retries the retire at its next start (`reseal`). No person-facing text; one diagnostic line, never a word | Continue |
+| Another first run sealed first (`AlreadyProvisioned`) | C4's continue | `IdVoidPaper` on C4: the words shown were never used. Continue then opens the identity the phone holds | Continue |
+| The record names another identity, or is unreadable (`RecordNamesOther`, `Unreadable`) | R2's check after K1 | Not reachable: K1 offers R2 only with the record's own PeerId (§3.4). If a build reaches it, `IdOtherIdentity` with nothing restored | Back |
 | Success | C4 after its seal; R4 after a restore | The PeerId, and continue | Continue |
 
 Errors appear inline on the screen they belong to, never in a snackbar.
@@ -490,7 +500,11 @@ landscape:
    test hook), launch shows K1 with `IdQReasonKey` and the expected
    PeerId. The right phrase restores with no R3. Another identity's
    phrase shows `IdOtherIdentity` with both PeerIds and restores
-   nothing.
+   nothing. With the record's PeerId field made unreadable (a test
+   hook), K1 shows its reason and `IdQLost` with no primary action, and
+   no R2 or R3 is reachable. A restore that answers `OldKeyRemains`
+   (a test hook) reaches R4, and the next start retries the retire.
+   A C4 that answers `AlreadyProvisioned` shows `IdVoidPaper`.
 10. Show my phrase:
     - a cancelled prompt shows nothing and no error;
     - a succeeded prompt shows `IdGoingOffline`, then the words;
