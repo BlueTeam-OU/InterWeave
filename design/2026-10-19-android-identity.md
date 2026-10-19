@@ -48,7 +48,9 @@ From the contracts; listed so a reviewer can check each screen:
   carries a word. §8 and §11 Q2 say what a screen reader may speak.
 - The network service is stopped, and the profile exclusively locked,
   while words are shown or entered (`android-key-custody.md`, Recovery).
-  S1 to S2 holds the lock throughout: S2 reads the seed through
+  The on-demand display holds the lock from the moment S1's progress
+  state has stopped the service until S2's Done, which releases it
+  before the restart: S2 reads the seed through
   `unlock`, which takes no lock. Create and restore take the lock once,
   before the first word is shown or picked (C2, R2), and hand it to the
   seal or restore they end in. `provision` and `restore` will accept a
@@ -603,11 +605,13 @@ scale would also be a finding of the Android review
     attempted then (a hook starts it while each of C2, C3, R2 on the
     fresh-install path, R2 on the K1 path, and R3 is open) is refused
     as `ProfileLocked` and starts nothing, and the seal or restore that
-    follows succeeds on the handed-over lock. The same holds from S1 to
-    S2. After a refused seal or restore (a hook injects `OldKeyRemains`
-    at C4 and at a restore), a service start tried while the notice is
-    open is refused as `ProfileLocked`, and Try again succeeds on the
-    same lock. After a success, the service starts. This item waits on
+    follows succeeds on the handed-over lock. The same holds from the
+    moment S1's progress state has stopped the service until S2's Done,
+    which releases the lock before the restart. After a refused seal or
+    restore (a hook injects a Storage I/O error before the publish, at
+    C4 and at a restore, which shows `IdStorageFailed`), a service start
+    tried while the notice is open is refused as `ProfileLocked`, and
+    Try again succeeds on the same lock. After a success, the service starts. This item waits on
     §11b Q9 and Q10 in the crate.
 
 ## 11. Questions answered
@@ -672,7 +676,8 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
 - **Q10. The lock after a refusal.** Open: a refused `provision` or
   `restore` hands the lock back to the flow, for the read-back and Try
   again. Sent to architect-cto for the crate request (INFO
-  01a152bf-8623), not yet confirmed.
+  01a152bf-8623), not yet confirmed. It is not part of REPLY
+  01a152aa-64d6.
 
 ## 12. Deliberately left out
 
