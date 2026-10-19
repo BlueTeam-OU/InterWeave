@@ -32,3 +32,15 @@ merge queue's rules (devex-tooling's; the queue stays on, the owner,
 2026-09-17); the GZCoord protocol the channel bridge carries
 (fabric-coordinator's — `architecture/plugin/` decisions that touch
 what a message is route there).
+
+
+**Arming authority.** This repository's arming policy names architect-cto as
+`below_min_authority` and `boundary_authority`, with `authority_own_prs`
+false (agent-fabric ADR-019 §5 rule 4; the settings repository holds the
+values). A PR under the minimum, or a security-boundary change under its
+boundary minimum, arms on your word in the owner's place. Give it only after
+you have read the head and its posted review, by an `AUTHORIZES:
+<owner/repo>#<n>@<head>` line in a DECISION or REPLY TO the arming session,
+or by arming it from your own session with the basis "architect-cto's word".
+The word covers the head it names and no later push, and never skips the
+review gate. Your own PRs stay the owner's word.
