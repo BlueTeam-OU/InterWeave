@@ -20,8 +20,11 @@ use std::os::unix::fs::FileExt as _;
 use std::path::Path;
 
 use interweave_human_core::retention::StorageHealth;
-use interweave_human_store::{AppMessageId, HumanStore, InboundOrigin, NewInbound, StoreOptions};
-use interweave_transport_api::TransportIdentity;
+use interweave_human_store::{
+    AppMessageId, HumanStore, InboundOrigin, NewInbound, NewOutbound, OutboundDestination,
+    SCHEMA_VERSION, StoreError, StoreOptions,
+};
+use interweave_transport_api::{DirectDestination, MessageId, TransportIdentity};
 
 const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
@@ -47,8 +50,26 @@ fn inbound(n: u32, payload: &[u8]) -> NewInbound {
     }
 }
 
+fn outbound(n: u32, payload: Vec<u8>) -> NewOutbound {
+    NewOutbound {
+        app_message_id: id(n),
+        // Distinct from the application id: the two identities stay apart.
+        transport_message_id: MessageId::parse_hex(&format!("{:032x}", u128::from(n) + (1 << 100)))
+            .expect("32 hex characters"),
+        destination: OutboundDestination::Direct(DirectDestination::to_default(peer())),
+        media_type: None,
+        payload,
+        created_at: 1_000,
+    }
+}
+
 fn raw(path: &Path) -> rusqlite::Connection {
     rusqlite::Connection::open(path).expect("an independent connection")
+}
+
+fn count(conn: &rusqlite::Connection, table: &str) -> i64 {
+    conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+        .expect("count")
 }
 
 /// The byte offset of `table`'s root page in the file: where its b-tree
@@ -149,4 +170,107 @@ fn a_store_damaged_under_its_unread_rows_needs_recovery_and_never_reads_as_empty
         .read_exact_at(&mut byte, offset)
         .expect("read back");
     assert_eq!(byte, [0xFF], "the damaged page is still the damaged page");
+}
+
+/// A v5 file whose migration to this build's schema fails after its first
+/// step has already rebuilt a table. The migration is one transaction, so
+/// the file is left at v5 with every row it had; a person who clears the
+/// obstacle opens it migrated, with nothing lost.
+#[test]
+fn a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every_row() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    {
+        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+        store
+            .commit_pending_outbound(&outbound(1, b"pending before the upgrade".to_vec()))
+            .expect("pending");
+        store
+            .commit_unread_inbound(&inbound(2, b"unread before the upgrade"))
+            .expect("unread");
+    }
+    // Back to v5: pending_outbound without its transport id (migration 6
+    // rebuilds the table to add it) and no read_pairs (migration 7 creates
+    // it). In read_pairs' place, an index of that name: migration 7's
+    // CREATE TABLE fails on it, AFTER migration 6 has rebuilt
+    // pending_outbound inside the same transaction.
+    raw(&path)
+        .execute_batch(
+            "CREATE TABLE pending_outbound_v5 (
+                 row_id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                 app_message_id        TEXT    NOT NULL UNIQUE,
+                 destination_peer      TEXT    NOT NULL,
+                 destination_endpoint  TEXT,
+                 channel_id            TEXT,
+                 media_type            TEXT,
+                 payload               BLOB    NOT NULL,
+                 created_at            INTEGER NOT NULL,
+                 last_attempt_at       INTEGER,
+                 attempts              INTEGER NOT NULL DEFAULT 0
+             );
+             INSERT INTO pending_outbound_v5
+                 SELECT row_id, app_message_id, destination_peer, destination_endpoint,
+                        channel_id, media_type, payload, created_at, last_attempt_at, attempts
+                   FROM pending_outbound;
+             DROP TABLE pending_outbound;
+             ALTER TABLE pending_outbound_v5 RENAME TO pending_outbound;
+             DROP TABLE read_pairs;
+             CREATE INDEX read_pairs ON settings(key);
+             PRAGMA user_version = 5;",
+        )
+        .expect("a v5 file with an obstacle in migration 7's way");
+    let v5_columns = |conn: &rusqlite::Connection| -> Vec<String> {
+        let mut stmt = conn
+            .prepare("SELECT name FROM pragma_table_info('pending_outbound')")
+            .expect("table info");
+        stmt.query_map([], |r| r.get(0))
+            .expect("columns")
+            .map(|c| c.expect("column"))
+            .collect()
+    };
+    let before = v5_columns(&raw(&path));
+    assert!(!before.iter().any(|c| c == "transport_message_id"));
+
+    let error = HumanStore::open(&path, StoreOptions::default())
+        .expect_err("a migration that cannot apply refuses the open");
+    assert!(
+        matches!(&error, StoreError::Migration(m) if m.contains("read_pairs")),
+        "{error:?}"
+    );
+    assert!(error.needs_recovery(), "{error:?}");
+
+    // NOTHING OF THE FAILED MIGRATION REMAINS: still v5, still v5's shape,
+    // every row where it was.
+    let conn = raw(&path);
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .expect("version");
+    assert_eq!(
+        version, 5,
+        "the version moves only with the whole migration"
+    );
+    assert_eq!(
+        v5_columns(&conn),
+        before,
+        "migration 6's rebuild was rolled back with migration 7's failure"
+    );
+    assert_eq!(count(&conn, "pending_outbound"), 1);
+    assert_eq!(count(&conn, "unread_inbound"), 1);
+
+    // The obstacle cleared, the same file migrates with both rows.
+    conn.execute_batch("DROP INDEX read_pairs;")
+        .expect("clear it");
+    drop(conn);
+    let store = HumanStore::open(&path, StoreOptions::default()).expect("migrates now");
+    let pending = store.pending_outbound().expect("read");
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].payload, b"pending before the upgrade");
+    let unread = store.unread_inbound().expect("read");
+    assert_eq!(unread.len(), 1);
+    assert_eq!(unread[0].payload, b"unread before the upgrade");
+    drop(store);
+    let version: i64 = raw(&path)
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .expect("version");
+    assert_eq!(version, SCHEMA_VERSION);
 }
