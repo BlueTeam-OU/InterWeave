@@ -54,7 +54,10 @@ From the contracts; listed so a reviewer can check each screen:
   seal or restore they end in. `provision` and `restore` will accept a
   held lock (§11b Q9, asked of p2p-network-dev). Today each takes a
   fresh lock and would refuse one the flow holds, so C4 and the
-  restores are not done until the crate accepts it. There is never a release and
+  restores are not done until the crate accepts it. A refused seal or
+  restore hands the lock back to the flow, which keeps it for the
+  read-back and for Try again, and releases it only when the flow ends
+  (part of the same crate change). There is never a release and
   retake, which would let the service start the profile in between. Creation shows its words before
   the service first starts.
 - Nothing restores silently. A phrase that derives a PeerId other than
@@ -357,7 +360,7 @@ comparison a matter of groups, not of single characters.
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
 | Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
 | Read-back fails, or the record does not open to that PeerId | after those two refusals. The record is always there after them (both follow the publish, and nothing removes it), so no row for a missing record is needed. A record opening to another PeerId cannot follow this flow's own write while it holds the profile lock (§2); should one appear anyway, the app cannot tell what happened, so it is this row | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again before writing again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
-| Any other refusal: nothing was written | C4, R3's yes, R2's check after K1 | Every refusal no other row names. That is `Storage` with any inner error but `Unsynced` (an I/O error, a directory or lock file that is not private, an unsupported platform); `Cipher` other than `UserNotAuthenticated` (the Keystore unavailable, a key invalidated, missing or refused); `CipherShape`; `Identity`; and `Unreadable` at R3. All come before the publish, so `IdStorageFailed`: nothing was changed, with Try again. A restore after K1 never reaches R4 this way | Try again, or Back (words dropped) |
+| Any other refusal: nothing was written | C4, R3's yes, R2's check after K1 | Every refusal no other row names. That is `Storage` with any inner error but `Unsynced` (an I/O error, a directory or lock file that is not private, an unsupported platform); `Cipher` other than `UserNotAuthenticated` (the Keystore unavailable, a key invalidated, missing or refused); `CipherShape`; `Identity`; and `Unreadable` (a record that cannot be read, at R3 or after K1). All come before the publish, so `IdStorageFailed`: nothing was changed, with Try again. A restore after K1 never reaches R4 this way | Try again, or Back (words dropped) |
 | Another identity already on record (`AlreadyProvisioned`; at a restore, a record naming another PeerId) | C4's continue; at a restore, R3's yes and R2's check after K1 | The record was there before this flow's write. `recorded_identity` names the PeerId the phone holds. `IdAlreadyCreated`: the words just shown were not used; Continue opens that identity. At a restore, a record naming another PeerId shows `IdRestoreOther` with that PeerId | Continue |
 | The record names another identity (`RecordNamesOther`) | R2's check after K1 | Not reachable while the flow holds the profile lock: K1 offers R2 only with the record's own PeerId (§3.4). If a build reaches it, the another-identity row above applies (`IdRestoreOther`) | Continue |
 | Success | C4 after its seal; R4 after a restore | The PeerId, and continue | Continue |
@@ -595,7 +598,8 @@ scale would also be a finding of the Android review
     test harness.
 17. The profile lock is held from C2 to C4's seal and from R2 to the
     restore, and is never released in between. A service start
-    attempted then (a hook starts it while C3 or R3 is open) is refused
+    attempted then (a hook starts it while each of C2, C3, R2 on the
+    fresh-install path, R2 on the K1 path, and R3 is open) is refused
     as `ProfileLocked` and starts nothing, and the seal or restore that
     follows succeeds on the handed-over lock. This item waits on §11b
     Q9 in the crate.
