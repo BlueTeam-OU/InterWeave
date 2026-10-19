@@ -19,6 +19,7 @@ mod labels;
 mod look;
 mod model;
 mod picker;
+mod presence;
 mod trust;
 
 pub use identity_flow::{
@@ -37,4 +38,5 @@ pub use model::{
     UndoClosed, ViewEvent,
 };
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
+pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};
 pub use trust::{EntryProblem, TrustChange, TrustInput, TrustOutcome, TrustSettings};

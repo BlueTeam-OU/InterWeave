@@ -11,21 +11,23 @@
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
+use interweave_human_android_platform::KeyUnlockPolicy;
 use interweave_human_android_platform::custody::{self, RecoveryCause};
 use interweave_human_android_platform::onboarding::{self, Creation, WriteRefused, english};
 use interweave_human_android_platform::{Expected, IdentityRefused};
 use interweave_human_ui_model::{
-    Effect, IdentityFlow, RecoveryReason, ScreenId, Start, StepFailed,
+    Admit, Effect, IdentityFlow, PresenceGate, Prompted, RecoveryReason, ScreenId, Start,
+    StepFailed,
 };
 use interweave_human_ui_slint::{
     IdentityInput, View, apply_identity, defer, identity_page, invoke_on_window,
 };
-use interweave_profile_config::{ProfilePaths, TrustBoundary};
+use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
 
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
@@ -105,6 +107,9 @@ struct Platform {
     app_data_dir: PathBuf,
     cipher: Arc<KeystoreCipher>,
     start: Option<Start>,
+    /// The profile's key needs the person: key operations wait on the
+    /// presence window (design section 6, acceptance 10).
+    user_presence: bool,
 }
 
 static PLATFORM: Mutex<Option<Platform>> = Mutex::new(None);
@@ -148,12 +153,40 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         Some(Start::FirstRun { .. }) => state::FIRST_RUN,
         Some(_) => state::RECOVERY,
     };
+    let user_presence = needs_presence(&app_data_dir);
     *PLATFORM.lock().unwrap_or_else(PoisonError::into_inner) = Some(Platform {
         app_data_dir,
         cipher: Arc::new(cipher),
         start,
+        user_presence,
     });
     code
+}
+
+/// Whether the profile's configured unlock policy needs the person. A
+/// profile not yet readable counts as not: its first run has no key to
+/// open yet, and a seal under user-presence that the Keystore refuses
+/// still answers `UserNotAuthenticated`.
+fn needs_presence(app_data_dir: &Path) -> bool {
+    TrustBoundary::new(app_data_dir)
+        .and_then(|boundary| ProfilePaths::resolve_embedded(PROFILE, boundary))
+        .ok()
+        .and_then(|paths| ProfileConfig::load(&paths).ok())
+        .is_some_and(|config| {
+            config.runtime.android.key_unlock_policy == KeyUnlockPolicy::UserPresence
+        })
+}
+
+/// Monotonic milliseconds for the presence window.
+fn now_ms() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    u64::try_from(
+        START
+            .get_or_init(std::time::Instant::now)
+            .elapsed()
+            .as_millis(),
+    )
+    .unwrap_or(u64::MAX)
 }
 
 struct Onboarding {
@@ -163,6 +196,8 @@ struct Onboarding {
     app_data_dir: PathBuf,
     cipher: Arc<KeystoreCipher>,
     secure: bool,
+    /// The presence window, and the key operation waiting on its prompt.
+    gate: PresenceGate,
     /// Show my phrase, from Settings: the service is bound already, and
     /// is taken offline and back rather than bound (design section 3.5).
     from_settings: bool,
@@ -182,6 +217,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         app_data_dir,
         cipher,
         start: Some(start),
+        user_presence,
     }) = platform.as_ref()
     else {
         return false;
@@ -193,6 +229,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
         secure: false,
+        gate: PresenceGate::new(*user_presence),
         from_settings: false,
         done: Rc::new(done),
     };
@@ -211,6 +248,7 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
     let Some(Platform {
         app_data_dir,
         cipher,
+        user_presence,
         ..
     }) = platform.as_ref()
     else {
@@ -224,6 +262,7 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
         secure: false,
+        gate: PresenceGate::new(*user_presence),
         from_settings: true,
         done: Rc::new(|| {}),
     };
@@ -258,7 +297,22 @@ pub(crate) fn prompted(granted: bool) {
         let effects = ONBOARDING.with(|slot| {
             slot.borrow_mut()
                 .as_mut()
-                .map(|o| o.flow.prompted(granted))
+                .map(|o| match o.gate.prompted(granted, now_ms()) {
+                    // The prompt a key operation waited on.
+                    Prompted::Resume(effect) => vec![effect],
+                    Prompted::Dropped(
+                        Effect::RestoreRecorded(_) | Effect::RestoreConfirmed(..),
+                    ) => {
+                        o.flow.cancelled_step();
+                        Vec::new()
+                    }
+                    // A cancelled seal leaves C4 as it was, and a
+                    // cancelled service start leaves the profile offline,
+                    // which connectivity and the diagnostic then say.
+                    Prompted::Dropped(_) => Vec::new(),
+                    // S1's own prompt.
+                    Prompted::NotHeld => o.flow.prompted(granted),
+                })
                 .unwrap_or_default()
         });
         run(effects);
@@ -316,6 +370,15 @@ fn one(effect: Effect) -> Vec<Effect> {
         let mut slot = slot.borrow_mut();
         let Some(o) = slot.as_mut() else {
             return Vec::new();
+        };
+        // A key operation outside the presence window waits for the
+        // prompt, raised here, by the screen, never by the service.
+        let effect = match o.gate.admit(effect, now_ms()) {
+            Admit::Run(effect) => effect,
+            Admit::Prompt => {
+                ASKS.push(ask::PROMPT);
+                return Vec::new();
+            }
         };
         match effect {
             Effect::Finish => {

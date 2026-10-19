@@ -768,6 +768,16 @@ impl IdentityFlow {
         }
     }
 
+    /// A key operation this flow asked for did not run: its prompt was
+    /// cancelled or denied (the presence window, `PresenceGate`). Nothing
+    /// was committed and the screen stays, with its words, and no notice:
+    /// the person chose not to. R2's check gives the primary action back.
+    pub fn cancelled_step(&mut self) {
+        if let Screen::R2 { checking, .. } = &mut self.screen {
+            *checking = false;
+        }
+    }
+
     /// S1's prompt: granted, or cancelled/denied (back on S1, nothing
     /// shown, no error).
     pub fn prompted(&mut self, granted: bool) -> Vec<Effect> {
@@ -1081,6 +1091,37 @@ mod tests {
         flow.restored(Ok(()));
         assert_eq!(flow.screen(), ScreenId::R4);
         assert_eq!(flow.peer(), Some(&mine()));
+    }
+
+    /// Acceptance 10: a restore whose presence prompt was cancelled
+    /// commits nothing, shows no notice, keeps the words and gives the
+    /// primary action back, so the person can try again.
+    #[test]
+    fn a_cancelled_restore_keeps_the_words_and_gives_the_action_back() {
+        let mut flow = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Key,
+                expected: Some(mine()),
+            },
+        );
+        flow.primary();
+        fill(&mut flow);
+        flow.primary();
+        assert_eq!(
+            flow.checked(Some(mine())),
+            [Effect::RestoreRecorded(words().join(" "))],
+            "control: the restore asked"
+        );
+        assert_eq!(flow.primary(), [], "control: busy while it runs");
+        flow.cancelled_step();
+        assert_eq!(flow.screen(), ScreenId::R2);
+        assert_eq!(flow.notice(), None, "the person chose not to");
+        assert_eq!(
+            flow.primary(),
+            [Effect::Check(words().join(" "))],
+            "the words are kept and the action is back"
+        );
     }
 
     #[test]
