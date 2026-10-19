@@ -92,8 +92,8 @@ page last updated 2026-10-16), Remote messaging:
 | Initiated by the user or perceptible | Stay reachable is the person's switch; an ongoing notification shows while it runs | yes |
 | Can be stopped by the user | The same switch, in the app; the notification itself has no stop action (`NetworkService.kt`) | yes |
 | Cannot be deferred or interrupted without harm | A deferred service misses messages sent meanwhile | yes |
-| Runs only as long as necessary | It runs for as long as the person wants to stay reachable, which has no task end | **contested** |
-| Type fits `remoteMessaging` | Play describes the type as relaying the person's OWN messages to another of their devices; this service receives OTHER people's messages | **gap** |
+| Runs only as long as necessary | It runs for as long as the person wants to stay reachable, which has no task end | **contested**: declared as an open-ended, person-ended task (ADR-0041 A 2026-10-19) |
+| Type fits `remoteMessaging` | Play describes the type as relaying the person's OWN messages to another of their devices; this service receives OTHER people's messages | **gap**: the type stands on the platform's definition (ADR-0041 A 2026-10-19) |
 
 Two rows do not clearly hold, and they are the condition ADR-0041 left
 open. A hand-entered use case is allowed by the declaration form, so the
@@ -122,10 +122,14 @@ on InterWeave #301), recorded here as ruled:
   `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` explanation. ADR-0041's revisit
   fires only if Play refuses both.
 
-Not covered by the ruling, and put to architect-cto: the criterion
-"runs only for as long as necessary to complete the task", which Stay
-reachable meets only if "the task" is staying reachable for as long as
-the person chooses.
+- The duration criterion ("runs only for as long as necessary to
+  complete the task", folded into the same amendment, e47f5fcb): the
+  declaration states the task as it is, reachable for as long as the
+  person keeps Stay reachable on, ended by them, by the app's stop or by
+  the OS, because an open-ended, person-ended task is what serverless
+  reachability is. The criterion binds `specialUse` equally, so the
+  fallback answers only the type question; this criterion is the
+  likeliest ground for a refusal.
 
 The declaration's and the demo video's wording are written with the
 store listing in plan §22, with language-culture.
