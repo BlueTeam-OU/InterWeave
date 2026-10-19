@@ -86,12 +86,15 @@ clears it.
 ### 3.2 Create
 
 **C1, Before you see your words.** What the phrase is and why it
-matters, in five short points:
+matters, in six short points:
 - these 24 words are your identity;
+- they are an InterWeave identity recovery phrase, not a
+  cryptocurrency wallet seed (`IDENTITY-RECOVERY.md`, Recovery format);
 - write them on paper and keep it safe;
 - anyone who has them can be you;
-- they bring back the identity only, not the contacts, trust or
-  settings (`human-client-ui.md` §9);
+- they bring back the identity only: a complete recovery also needs
+  the contacts, trust and settings backed up separately
+  (`human-client-ui.md` §9 makes this statement unconditional);
 - the identity exists only once creation is complete, after the check
   of two words.
 
@@ -104,6 +107,9 @@ Back → W.
   column and then the second. At a font scale over 130 %, or on a
   screen narrower than 360 dp, they show as one column.
 - Each word is in body large, with its number in `on-surface-variant`.
+- Above the words, one line (`IdNotWalletSeed`) says that this is an
+  InterWeave identity recovery phrase, not a cryptocurrency wallet
+  seed. S2 shows it too.
 - Below the words comes the PeerId in full (§5). Its label says to
   write it down with the words.
 - The list scrolls if it must. The primary action stays fixed at the
@@ -145,11 +151,11 @@ reach the screen only through §3.5.
 PeerId to compare at R3. The PeerId is the one written beside the
 words, or else the one a contact's app shows for this person. The
 network stays off until the restore is done. One line
-(`IdR1Settings`) says that the words bring back the identity, not the
-contacts, trust or other settings, which are not part of them
-(`human-client-ui.md` §9). It gives no step: whether the Android app
-offers a settings backup to restore from is open, and the Android
-review checks it. The line gains that step once one exists. Primary: enter my words (→ R2). Back → W.
+(`IdR1Settings`) states what `human-client-ui.md` §9 requires: a
+complete recovery needs the recovery phrase and a separate backup of
+the contacts, trust and settings. Whether the Android app offers that
+backup is architect-cto's question (§11 Q5); the statement is made
+either way. Primary: enter my words (→ R2). Back → W.
 
 **R2, Enter your 24 words.** The picker over all 24 positions (§4).
 When all 24 are filled, the primary action, check my words, is
@@ -387,9 +393,11 @@ names are suggestions; rust-ui-dev names them.
 | `IdC1Point1` | These 24 words are the key to your identity. With them, you can restore it on another phone. | C1, first point |
 | `IdC1Point2` | Write them on paper, in order, with your PeerId. Store the paper in a safe place. | C1, second point. The PeerId is named here, because R1 asks for it later |
 | `IdC1Point3` | Anyone who has these words can act as you in InterWeave. Do not show them to anyone. | C1, third point: "can be you", without alarm |
-| `IdC1Point4` | The words bring back your identity only, not your contacts or your settings. | C1, fourth point (`human-client-ui.md` §9). Trust is one of the settings (the trust settings), so it is not named apart |
+| `IdC1Point0` (pending, language-culture) | C1's new first point: an InterWeave identity recovery phrase, not a cryptocurrency wallet seed (`IDENTITY-RECOVERY.md`). Keys renumber as language-culture sees fit | C1, two lines |
+| `IdC1Point4` (pending reword, language-culture: §9's full statement, #303 r1 F3) | The words bring back your identity only, not your contacts or your settings. | C1, fourth point (`human-client-ui.md` §9). Trust is one of the settings (the trust settings), so it is not named apart |
 | `IdC1Point5` | Your identity exists only after you finish, by checking two of the words. | C1, fifth point (§11 Q3) |
 | `IdShowWords` | Show my words | C1's primary |
+| `IdNotWalletSeed` (pending, language-culture) | C2 and S2, above the words: an InterWeave identity recovery phrase, not a cryptocurrency wallet seed | One line, two at 200 % |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
 | `IdPeerIdLabel` | Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share. | The PeerId's label (§5) on C2 and S2, where the person writes |
 | `IdPeerIdLabelShown` (new) | Your PeerId. It is the one on your paper. It is not a password, and it is safe to share. | The PeerId's label on C4 and R4, where the person has already written it. One label cannot be true on both kinds of screen |
@@ -409,7 +417,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdR1Body` | You need your 24 words, and your PeerId from your paper or from a contact's app. The app stays offline until the restore is done. | R1's body, three lines |
 | `IdEnterWords` | Enter my words | R1's primary |
 | `IdCheckWords` | Check my words | R2's primary |
-| `IdR1Settings` | The words bring back your identity only. Your contacts and settings are not part of them. | R1's line under the body, two lines. It states the fact and gives no advice: "restored separately" would advise a step the app may not offer yet, which ux-designer's Android review checks. When the app offers it, the line gains that step |
+| `IdR1Settings` (pending reword, language-culture: §9's full statement, #303 r1 F3) | The words bring back your identity only. Your contacts and settings are not part of them. | R1's line under the body, two lines. It states the fact and gives no advice: "restored separately" would advise a step the app may not offer yet, which ux-designer's Android review checks. When the app offers it, the line gains that step |
 | `IdR3NoPeerId` | If you have no PeerId on paper, ask a contact to read yours from their app. Restore only if it matches. | R3, two lines under the question |
 | `IdR3Question` | Is this the PeerId that you wrote down? If it is not, a word may be wrong. | R3's question, two lines. It asks; it never says the PeerId is right, and it says what a "no" usually means |
 | `IdR3Yes` | Yes, restore it | R3's primary |
