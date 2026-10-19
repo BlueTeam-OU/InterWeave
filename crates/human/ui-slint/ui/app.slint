@@ -2172,6 +2172,11 @@ export component AppWindow inherits Window {
                     text: root.pending-text;
                     color: Palette.notice-text;
                     wrap: word-wrap;
+                    // The exact PeerId is one word wider than a phone: as
+                    // the text's minimum it laid the whole screen out past
+                    // the window's edge, the PeerId cut there (#304 F4).
+                    // Without it the PeerId breaks at the edge, whole.
+                    min-width: 0px;
                     accessible-role: text;
                     accessible-label: self.text;
                 }

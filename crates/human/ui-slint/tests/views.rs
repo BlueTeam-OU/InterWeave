@@ -2979,3 +2979,41 @@ fn settings_offer_the_recovery_phrase_only_where_the_platform_does() {
     the(&view, text(UiText::IdShowPhraseItem)).invoke_accessible_default_action();
     assert_eq!(asked.get(), 1);
 }
+
+/// #304 F4: on a phone-wide window the removal's confirmation, with the
+/// exact PeerId it asks about, fits the window: nothing of the screen is
+/// laid out past its right edge while it is up.
+#[test]
+fn the_removal_confirmation_fits_a_phone_wide_window() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let (me, bob) = (peer(), peer());
+    trust_settings(&mut view, &mut model, &me, std::slice::from_ref(&bob));
+    let widest = |view: &View| {
+        all(view)
+            .iter()
+            .map(|e| e.absolute_position().x + e.size().width)
+            .fold(0.0_f32, f32::max)
+    };
+    assert!(widest(&view) <= 390.5, "control: the list alone fits");
+    removal_of(&view, &bob).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    slint::platform::update_timers_and_animations();
+    assert!(model.trust_settings().pending().is_some(), "control: asked");
+    let past: Vec<(String, f32)> = all(&view)
+        .into_iter()
+        .map(|e| {
+            let right = e.absolute_position().x + e.size().width;
+            (
+                e.accessible_label()
+                    .map(|l| l.to_string())
+                    .unwrap_or_default(),
+                right,
+            )
+        })
+        .filter(|(_, right)| *right > 390.5)
+        .collect();
+    assert!(past.is_empty(), "laid out past the window: {past:?}");
+}
