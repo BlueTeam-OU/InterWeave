@@ -2320,6 +2320,10 @@ export component AppWindow inherits Window {
                     Text {
                         text: row.origin;
                         color: Palette.on-surface-variant;
+                        // Wrapped: unwrapped, its whole width was the
+                        // column's minimum, which pushed Remove trust past
+                        // the window's edge in a wider font (CI's DejaVu).
+                        wrap: word-wrap;
                     }
                 }
                 // A text button in the error colour, at a 48 target, on
