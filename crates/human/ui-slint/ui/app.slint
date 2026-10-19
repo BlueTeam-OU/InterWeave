@@ -2012,21 +2012,46 @@ export component AppWindow inherits Window {
             visible: root.pane-shown;
             padding: 12px;
             spacing: 8px;
+            // The top app bar, as a conversation's (#304 F4 at 3b19110a):
+            // the back arrow at the line's start and the screen's title.
+            // A layout has no direction of its own, so right to left the
+            // arrow comes last.
             HorizontalLayout {
-                alignment: start;
-                ActionButton {
-                    text: root.back-label;
-                    focus-key: "close-trust";
-                    pressed => { root.close-settings(); }
-                    focused(k) => { root.focus-id = k; }
+                min-height: 64px;
+                spacing: 8px;
+                if !root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.back;
+                        rtl: root.rtl;
+                        ink: Palette.on-surface;
+                        label: root.back-label;
+                        focus-key: "close-trust";
+                        pressed => { root.close-settings(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
-            }
-            Text {
-                text: root.trust-heading;
-                font-weight: 700;
-                font-size: 16px;
-                accessible-role: text;
-                accessible-label: self.text;
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.trust-heading;
+                    font-size: Type.title-large;
+                    vertical-alignment: center;
+                    horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.back;
+                        rtl: root.rtl;
+                        ink: Palette.on-surface;
+                        label: root.back-label;
+                        focus-key: "close-trust";
+                        pressed => { root.close-settings(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
             }
             Text {
                 text: root.trust-explanation;
@@ -2039,7 +2064,7 @@ export component AppWindow inherits Window {
             // field below carries the same words for a screen reader.
             Text {
                 text: root.own-peer-id-label;
-                font-size: 12px;
+                font-size: Type.body-small;
                 font-weight: 700;
                 accessible-role: none;
             }
@@ -2052,8 +2077,14 @@ export component AppWindow inherits Window {
                 own-id-input := TextInput {
                     text: root.own-peer-id;
                     read-only: true;
-                    single-line: true;
-                    font-size: 12px;
+                    // Whole over as many lines as it needs, never cut: the
+                    // characters a person compares, in the code font so
+                    // they line up (#304 F4). Nothing is inserted, so the
+                    // copied text stays the canonical form.
+                    single-line: false;
+                    wrap: char-wrap;
+                    font-family: root.code-font;
+                    font-size: Type.body-medium;
                     color: Palette.on-surface-variant;
                     accessible-label: root.own-peer-id-label;
                     accessible-value: self.text;
@@ -2082,7 +2113,7 @@ export component AppWindow inherits Window {
             // with a visible caption (the field's own accessible label).
             if root.trust-list-read: Text {
                 text: root.entry-label;
-                font-size: 12px;
+                font-size: Type.body-small;
                 font-weight: 700;
                 accessible-role: none;
             }
@@ -2159,7 +2190,10 @@ export component AppWindow inherits Window {
                         peer-input := TextInput {
                             text: row.peer;
                             read-only: true;
-                            single-line: true;
+                            // As this profile's own: whole, in the code font.
+                            single-line: false;
+                            wrap: char-wrap;
+                            font-family: root.code-font;
                             accessible-label: row.peer;
                             accessible-value: self.text;
                             changed has-focus => {
@@ -2179,9 +2213,14 @@ export component AppWindow inherits Window {
                         color: Palette.on-surface-variant;
                     }
                 }
+                // A text button in the error colour, at a 48 target, on
+                // every row: the one place trust is taken back.
                 ActionButton {
                     text: root.remove-label;
                     detail: row.peer;
+                    text-button: true;
+                    ink: Palette.error;
+                    target: 48px;
                     focus-key: "remove:" + row.handle;
                     pressed => { root.trust-remove(row.handle); }
                     focused(k) => { root.focus-id = k; }

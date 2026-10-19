@@ -3017,3 +3017,39 @@ fn the_removal_confirmation_fits_a_phone_wide_window() {
         .collect();
     assert!(past.is_empty(), "laid out past the window: {past:?}");
 }
+
+/// #304 F4: on a phone-wide window every PeerId on Trust lies inside the
+/// window, never past its edge, and the screen has its app bar with the
+/// back arrow. That the PeerIds wrap is seen in the rendered window: the
+/// testing backend's font measures them one line wide.
+#[test]
+fn every_peer_id_on_trust_reads_whole_on_a_phone() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let (me, bob) = (peer(), peer());
+    trust_settings(&mut view, &mut model, &me, std::slice::from_ref(&bob));
+    for id in [me.as_str(), bob.as_str()] {
+        let field = all(&view)
+            .into_iter()
+            .find(|e| e.accessible_value().as_deref() == Some(id))
+            .expect("the PeerId's field");
+        let (at, size) = (field.absolute_position(), field.size());
+        assert!(
+            at.x >= 0.0 && at.x + size.width <= 390.5,
+            "{id} inside the window"
+        );
+    }
+    assert!(
+        all(&view)
+            .iter()
+            .all(|e| e.absolute_position().x + e.size().width <= 390.5),
+        "nothing past the edge"
+    );
+    the(&view, text(UiText::BackToConversations)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        !view.window().get_trust_page(),
+        "the back arrow leaves Trust"
+    );
+}
