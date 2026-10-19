@@ -17,6 +17,7 @@
 mod labels;
 mod look;
 mod model;
+mod picker;
 mod trust;
 
 pub use labels::{
@@ -31,4 +32,5 @@ pub use model::{
     RowAction, SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table, Trust, UiModel,
     UndoClosed, ViewEvent,
 };
+pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use trust::{EntryProblem, TrustChange, TrustInput, TrustOutcome, TrustSettings};
