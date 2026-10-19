@@ -434,7 +434,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdC1Point6` | Your identity exists only after you finish, by checking two of the words. | C1, sixth point (§11 Q3) |
 | `IdShowWords` | Show my words | C1's primary |
 | `IdNotWalletSeed` (new) | InterWeave identity recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen: 68 characters. The contract's label also says "transport"; it is left out as a word the person does not know |
-| `IdFormatLine` (new, pending language-culture) | A short label before the format identifier on C2 and S2 (§3.2); the identifier itself is not translated | One line |
+| `IdFormatLine` (new) | Phrase format: | C2 and S2, before the untranslated format identifier (§3.2), one line. "Phrase format" says whose format it is; a bare "Format" could be read as the screen's layout. The label stands alone before a value, so a translation needs no template |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
 | `IdPeerIdLabel` | Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share. | The PeerId's label (§5) on C2 and S2, where the person writes |
 | `IdPeerIdLabelShown` (new) | Your PeerId. It is the one on your paper. It is not a password, and it is safe to share. | The PeerId's label on C4 and R4, where the person has already written it. One label cannot be true on both kinds of screen |
