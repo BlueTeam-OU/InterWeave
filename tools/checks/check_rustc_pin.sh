@@ -50,8 +50,8 @@
 # asked is what cargo runs: `cargo clippy --version` and `cargo fmt
 # --version`, from the root, with `$CARGO` (set under `cargo xtask`) else
 # `cargo`. Predicting the binary instead fails both ways: cargo finds a
-# subcommand in `$CARGO_HOME/bin` before PATH, and rustup's proxy puts
-# that directory first, so neither PATH's tool nor `rustup which` is
+# subcommand on PATH, with `$CARGO_HOME/bin` put first only when PATH
+# does not hold it already, so neither PATH's tool nor `rustup which` is
 # reliably the one run (a CARGO_HOME without rustup's proxies made
 # `cargo clippy` the distribution's while rustup's tool was the pin's —
 # test_check_rustc_pin.sh, both tools).
@@ -61,8 +61,9 @@
 #   - A build that names none is a distribution's, and its version does
 #     not say which compiler it was built on. For clippy, its minor
 #     (0.1.<minor>) must be the pin's, and the clippy-driver beside the
-#     cargo-clippy cargo finds ($CARGO_HOME/bin, then PATH) — the one
-#     cargo-clippy runs — must be built on the pin (`clippy-driver
+#     cargo-clippy cargo finds, by cargo's rule above, with its symlinks
+#     resolved as cargo-clippy resolves its own path — the one it runs —
+#     must be built on the pin (`clippy-driver
 #     --rustc --version`). For rustfmt, whose version (1.9.0) names no
 #     compiler, the one cargo-fmt runs ($RUSTFMT, else PATH's) must link a
 #     librustc_driver (ldd) in that rustc's sysroot; the library's hash
@@ -79,7 +80,8 @@
 #      config below the root, a tree git cannot list, a rustc that cannot
 #      be run or prints no version, a `cargo clippy` or `cargo fmt` that
 #      cannot be run or prints no version, or for a build naming no
-#      commit, a cargo-clippy with no clippy-driver beside it, a
+#      commit, a cargo-clippy that cannot be found where cargo looks, a
+#      cargo-clippy with no clippy-driver beside it, a
 #      clippy-driver that cannot be run or prints no version, or a rustfmt
 #      that cannot be found or links no librustc_driver
 # <<< help
@@ -193,7 +195,7 @@ cargo_says() {
     local o line
     if ! o="$("$cargo_bin" "$1" --version 2>/dev/null)"; then
         echo "$me: \`$cargo_bin $1 --version\` failed:" >&2
-        "$cargo_bin" "$1" --version 2>&1 >/dev/null | tail -3 >&2
+        "$cargo_bin" "$1" --version 2>&1 >/dev/null | head -5 >&2
         return 2
     fi
     line="$(grep -m1 "^$2 " <<<"$o")"
@@ -224,11 +226,16 @@ elif (( rc == 2 )); then
         echo "FAIL: cargo clippy is $cline; $pin_file pins $channel"
         exit 1
     fi
-    # cargo-clippy runs the clippy-driver beside itself, and cargo finds
-    # cargo-clippy in $CARGO_HOME/bin before PATH.
-    cc_bin="${CARGO_HOME:-$HOME/.cargo}/bin/cargo-clippy"
-    [[ -x "$cc_bin" ]] || cc_bin="$(command -v cargo-clippy)" || {
-        echo "$me: no cargo-clippy in \$CARGO_HOME/bin or on PATH, though cargo ran $cline" >&2; exit 2; }
+    # cargo's rule: PATH, with $CARGO_HOME/bin put first only when PATH
+    # does not hold it already (measured: with it after /usr/bin on PATH,
+    # cargo ran /usr/bin's). cargo-clippy runs the clippy-driver beside its
+    # own path, symlinks resolved.
+    ch_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+    search="$PATH"
+    case ":$PATH:" in *":$ch_bin:"*) ;; *) search="$ch_bin:$PATH" ;; esac
+    cc_bin="$(PATH="$search" command -v cargo-clippy)" || {
+        echo "$me: no cargo-clippy where cargo looks ($search), though cargo ran $cline" >&2; exit 2; }
+    cc_bin="$(readlink -f -- "$cc_bin")" || { echo "$me: cannot resolve $cc_bin" >&2; exit 2; }
     clippy_bin="$(dirname "$cc_bin")/clippy-driver"
     [[ -x "$clippy_bin" ]] || {
         echo "$me: no clippy-driver beside $cc_bin, which names no build ($cline)" >&2; exit 2; }

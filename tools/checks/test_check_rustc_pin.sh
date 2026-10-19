@@ -299,6 +299,20 @@ chmod +x "$SANDBOX/decoy/clippy-driver" "$SANDBOX/ch/bin/clippy-driver"
 expect_with 0 "a clippy-driver earlier on PATH than cargo-clippy's own does not decide" "" PATH="$SANDBOX/decoy:$SANDBOX/bin:$PATH"
 expect_with 1 "the cargo-clippy in \$CARGO_HOME/bin wins over PATH's, and its driver is asked" "$SANDBOX/ch/bin/clippy-driver: rustc 1.99.0" CARGO_HOME="$SANDBOX/ch"
 expect_with 2 "a cargo-clippy with no clippy-driver beside it is a failure to check" "no clippy-driver beside $SANDBOX/lone/cargo-clippy" PATH="$SANDBOX/lone:$SANDBOX/bin:$PATH"
+# $CARGO_HOME/bin already on PATH: cargo walks PATH in order, so a
+# cargo-clippy earlier on it is the one run, not $CARGO_HOME/bin's.
+mkdir -p "$SANDBOX/early"
+cp "$SANDBOX/ch/bin/cargo-clippy" "$SANDBOX/ch/bin/clippy-driver" "$SANDBOX/early/"
+cp "$SANDBOX/bin/clippy-driver" "$SANDBOX/ch/bin/clippy-driver.pinned"
+mv "$SANDBOX/ch/bin/clippy-driver" "$SANDBOX/ch/bin/clippy-driver.off"; mv "$SANDBOX/ch/bin/clippy-driver.pinned" "$SANDBOX/ch/bin/clippy-driver"
+expect_with 1 "with \$CARGO_HOME/bin on PATH, an earlier cargo-clippy is the one asked about" "$SANDBOX/early/clippy-driver: rustc 1.99.0" CARGO_HOME="$SANDBOX/ch" PATH="$SANDBOX/early:$SANDBOX/ch/bin:$SANDBOX/bin:$PATH"
+expect_with 0 "  while off PATH, \$CARGO_HOME/bin comes first" "" CARGO_HOME="$SANDBOX/ch" PATH="$SANDBOX/early:$SANDBOX/bin:$PATH"
+mv "$SANDBOX/ch/bin/clippy-driver.off" "$SANDBOX/ch/bin/clippy-driver"
+# A symlinked cargo-clippy runs the driver beside its target.
+mkdir -p "$SANDBOX/farm"
+ln -s "$SANDBOX/early/cargo-clippy" "$SANDBOX/farm/cargo-clippy"
+cp "$SANDBOX/bin/clippy-driver" "$SANDBOX/farm/clippy-driver"
+expect_with 1 "a symlinked cargo-clippy is followed to the driver beside its target" "$SANDBOX/early/clippy-driver: rustc 1.99.0" PATH="$SANDBOX/farm:$SANDBOX/bin:$PATH"
 # cargo-fmt runs $RUSTFMT when it is set.
 cp "$SANDBOX/bin/rustfmt" "$SANDBOX/fmt/rustfmt-other"
 expect_with 0 "\$RUSTFMT, the rustfmt cargo fmt runs, is the one asked" "" RUSTFMT="$SANDBOX/fmt/rustfmt-other"
@@ -366,7 +380,7 @@ mkdir -p "$REPO/.cargo"
 printf '[net]\nretry = 2\n' > "$REPO/.cargo/config.toml"
 chmod 000 "$REPO/.cargo/config.toml"
 if [[ "$(id -u)" -eq 0 ]]; then
-    pass "(running as root, which reads a mode-000 file: the unreadable-config case does not apply)"
+    echo "  - SKIP the unreadable-config case: root reads a mode-000 file, so it cannot run here"
 else
     expect 2 "a config in scope that cannot be read is a failure to check" "cannot read $REPO/.cargo/config.toml"
 fi
