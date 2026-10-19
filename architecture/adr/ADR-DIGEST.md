@@ -11,7 +11,7 @@
 
 Authority order is unchanged (`CLAUDE.md` §2): accepted ADRs → normative contracts and protocol specs → the bottom-up plan and test gates → explanatory documents → this digest and the index (navigation aids).
 
-**Maintenance is binding.** Every new ADR gets an entry here in the same commit; every amendment updates its ADR's entry. `tools/checks/validate_adr_index.sh` fails when an ADR file has no digest entry, no index row, when either references an ADR that does not exist, when an ADR breaks the template, or when its amendment record is inconsistent.
+**Maintenance is binding.** Every new ADR gets an entry here in the same commit; every amendment updates its ADR's entry. `tools/checks/validate_adr_index.sh` fails when an ADR file has no digest entry, no index row, when either references an ADR that does not exist, when an ADR breaks the template, when its amendment record is inconsistent, or when an ADR gained an amendment since the base revision and its digest entry did not change with it (ADR-0048 A 2026-10-19).
 
 ---
 
@@ -123,7 +123,8 @@ Display name **InterWeave**; machine identifiers lowercase `interweave`.
 ### 0048 — ADR authoring, amendment, and propagation (Accepted)
 How this corpus is written, changed, and navigated.
 - Rules: an ADR body reads **current** — amendments are folded into the section they qualify, never appended as end-matter prose; numbered decision items are permanent citable identifiers and a withdrawn one becomes a tombstone; a change of substance is a **superseding ADR**, not an edit (the test: would a reader who followed the old text now be wrong?). Every amendment is recorded three ways in one commit series — the in-place edit, a dated note in `history/NNNN-amendments.md` (`### Amendment YYYY-MM-DD — title`), and a row in the ADR's `## Amendments` end-matter table; the (date, title) pair is the identity, and `(ii)` suffixes exist only to break byte-identical headings. No changelog, no version counter. Propagation — README row, digest entry, dependent specs, fixtures only on intentional vector change — is part of the change, enforced by `tools/checks/validate_adr_index.sh`. The digest is the default entry point and is non-normative.
-- Keywords: adr template, amendment, supersede vs amend, history file, propagation, digest is non-normative, no changelog
+- The validator holds that an amended ADR's digest entry changed with it (Amendment 2026-10-19): an ADR whose Amendments table gained a (date, title) key since the base revision fails when its `### NNNN` entry is byte-identical to the base's; it proves the entry moved, not that it is right; no citation convention, the digest stays a current-state summary.
+- Keywords: adr template, amendment, supersede vs amend, history file, propagation, digest is non-normative, no changelog, amended digest entry
 
 ### 0049 — Machine-readable wire contracts with lifecycle status (Accepted)
 Wire **shape** gets JSON Schema beside the prose; the prose stays normative for **behaviour**.
