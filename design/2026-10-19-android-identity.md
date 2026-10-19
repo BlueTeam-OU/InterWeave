@@ -336,9 +336,9 @@ comparison a matter of groups, not of single characters.
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
 | Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen before the operation, never by the service. Cancelled or denied: nothing shown and no error. C4 and the restores stay on their screen with the words kept, and nothing is committed. S2's Done drops the words and returns to Settings offline; connectivity and the profile's user-presence diagnostic say why (`android-key-custody.md`, Unlock policies) | The primary action again, or Back |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
-| Storage fails (`Unavailable`, a write error) | Where the write runs: C4's continue (the seal); R3's yes (a fresh-install restore); R2's check after K1 (a restore against the record). R4 shows only after a restore succeeded | A notice (`IdStorageFailed`): nothing was changed, with Try again. Entered words stay while the screen is open. | Try again, or Back (words dropped) |
-| Restored, but the old key remains (`OldKeyRemains`) | R3's yes, R2's check after K1 | Success, as below: the record is written and opens. The app retries the retire at its next start (`reseal`). No person-facing text; one diagnostic line, never a word | Continue |
-| Another first run sealed first (`AlreadyProvisioned`) | C4's continue | `IdAlreadyCreated` on C4: the words just shown were not used. Continue then opens the identity the phone holds | Continue |
+| A refused write: read back first | C4's continue (the seal), R3's yes, R2's check after K1 | Any refusal of a write (`Storage`, `OldKeyRemains`, `AlreadyProvisioned`) may come after the record was written: a directory sync or a key retire can fail after the publish (`persist.rs`, custody's `provision`). So the screen reads the record back (`recorded_identity`) before it shows anything. If the record now holds the PeerId the person just saw or confirmed, it is success, whatever the refusal said: C4 and the restores go on as below, and the app retries the retire at its next start (`reseal`), with one diagnostic line and never a word. Only when it does not is the refusal shown, as the next two rows say | — |
+| Storage fails (`Unavailable`, a write error), and the read-back holds no record | Where the write runs (above). R4 shows only after a restore succeeded | A notice (`IdStorageFailed`): nothing was changed, which the read-back has shown, with Try again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
+| Another first run sealed first (`AlreadyProvisioned`), and the read-back holds another PeerId | C4's continue | `IdAlreadyCreated` on C4: the words just shown were not used. Continue then opens the identity the phone holds | Continue |
 | The record names another identity, or is unreadable (`RecordNamesOther`, `Unreadable`) | R2's check after K1 | Not reachable: K1 offers R2 only with the record's own PeerId (§3.4). If a build reaches it, `IdOtherIdentity` with nothing restored | Back |
 | Success | C4 after its seal; R4 after a restore | The PeerId, and continue | Continue |
 
@@ -521,7 +521,11 @@ landscape:
    hook), K1 shows `IdQTitleNoPath`, `IdQReasonNoPath` and `IdQNoPath` with no primary action, and
    no R2 or R3 is reachable. A restore that answers `OldKeyRemains`
    (a test hook) reaches R4, and the next start retries the retire.
-   A C4 that answers `AlreadyProvisioned` shows `IdAlreadyCreated`.
+   A C4 that answers `AlreadyProvisioned` with another identity on
+   record shows `IdAlreadyCreated`. A C4 whose directory sync fails
+   after the record is written (a test hook) reads the record back and
+   reaches the Chats screen as a success, never `IdStorageFailed` or
+   `IdAlreadyCreated`; so does a C4 that answers `OldKeyRemains`.
 10. Show my phrase:
     - a cancelled prompt shows nothing and no error;
     - a succeeded prompt shows `IdGoingOffline`, then the words;
