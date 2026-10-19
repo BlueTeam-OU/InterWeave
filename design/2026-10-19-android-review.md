@@ -366,6 +366,32 @@ but does not re-rank these.
   - Seen: "Online, some peers might not reach you" under the peer's
     name.
   - Against: S4, because it reads as the peer's state.
+  - What has to change, as seen (the five states and their meaning are
+    `human-client-ui.md` §7's; the client has no peer presence, so
+    nothing takes the peer's place):
+    - the conversation's app bar shows the peer's name alone, centred
+      in the bar's height, with no subtitle;
+    - the state is the device's, so it moves to Chats: a one-line
+      subtitle under "Conversations", in body medium and
+      `on-surface-variant`, with a leading 18 dp icon (a filled cloud
+      when online in any form, a crossed-out cloud when offline, none
+      when unknown), so it is not told by colour alone. At 200 % it
+      takes one line, cut with an ellipsis; TalkBack reads it after
+      the title. It updates in place, with no snackbar and no motion;
+    - in a conversation, only "offline" shows anything: a notice
+      banner under the app bar (look spec §6, `notice-background`)
+      that says the device is offline and that messages written now
+      wait and go when it is back. It closes by itself when the state
+      leaves offline; it has no dismiss control, so it cannot hide a
+      state that still holds. "Unknown" shows nothing there, never as
+      offline (§7);
+    - in the side-by-side layout the Chats subtitle is the only place,
+      with the banner over the conversation pane when offline;
+    - deliberately left out: the route indicator (`direct` or
+      `relayed`, §7's option), which waits on a decision of what a
+      person does with it.
+    The words are language-culture's; the state names above are §7's,
+    not labels.
 - **F10. A pending message's status alternates for hours and its time
   never moves.**
   - Seen: two messages sent at 01:14 read "Sending" and "Not
@@ -406,6 +432,22 @@ but does not re-rank these.
     (recognition rather than recall: copying is an action, not a text
     selection), and `design/2026-10-16-android-look.md` §6 ("copyable
     in its exact canonical form").
+  - What has to change, as seen:
+    - ⋮ → Details opens a Material basic dialog: the conversation's
+      title as its headline; under it the label "PeerId" and the whole
+      PeerId in the code font, wrapped, never cut (as F4); when the
+      conversation has an endpoint, a second line with it, marked as
+      named by the peer and not verified (`human-client-ui.md` §3,
+      "remote-advertised routing labels");
+    - two text buttons at the end: "Copy" and "Close". Copy puts the
+      exact PeerId on the clipboard, closes the dialog and returns
+      focus to ⋮. On Android 13 and later the platform shows its own
+      clipboard confirmation, so the app shows none (Android's copy
+      and paste guidance: no duplicate confirmation); below 13 a
+      "Copied" snackbar, without Undo. Close, Back and a tap outside
+      close it with nothing copied, focus to ⋮;
+    - the text is not a selectable field, so no handle or ring shows;
+      TalkBack reads the headline, then the PeerId, then each button.
 
 ### Rank 3
 
@@ -417,6 +459,18 @@ but does not re-rank these.
     press and a content description are the platform's minimum; the
     owner's reference apps put such settings in a menu entry with a
     name.
+  - What has to change, as seen:
+    - the shield goes; Chats' app bar ends with a ⋮ overflow, as a
+      conversation's does, labelled "More options";
+    - its menu has a named "Trust" entry that opens the Trust screen,
+      and nothing else for now: the screens it could hold beside
+      Trust (settings, the recovery flow's entry) are steps 7-8's and
+      architect-cto's to place, and are added there when they exist;
+    - Back from Trust returns to Chats with focus on ⋮;
+    - evidence: Material 3's top app bar keeps action icons for
+      frequent actions and puts the rest, named, in the overflow; the
+      shield is not a symbol a person recognises as "trust" (S4,
+      recognition rather than recall).
 - **F13. Changing the font scale while a conversation is open drops
   the person on Chats.** (rust-ui-dev-01: the manifest's
   `configChanges` omits `fontScale`, so the Activity is recreated.)
