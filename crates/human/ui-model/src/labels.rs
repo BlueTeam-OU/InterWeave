@@ -116,6 +116,18 @@ ui_texts! {
     Conversations => "Conversations",
     /// The heading of a conversation's messages.
     Messages => "Messages",
+    /// Chats' subtitle (#304 F7), one line under "Conversations", short
+    /// enough for 320 dp at 200 %; its accessible description is the
+    /// state's full text. Online, reachable directly.
+    StateShortDirect => "Online, direct",
+    /// Online, reachable inbound through a relay.
+    StateShortRelayed => "Online, relayed",
+    /// Online, some peers might not reach this profile.
+    StateShortPartial => "Online, limited",
+    /// Offline, whichever host: the banner and the description say why.
+    StateShortOffline => "Offline",
+    /// Not known yet: never read as offline.
+    StateShortUnknown => "Status not known",
     /// Details (#304 F11): the label above a direct conversation's whole
     /// `PeerId`.
     DetailsPeerId => "PeerId",
@@ -700,6 +712,12 @@ host_texts! {
     TrustUnconfirmed => {
         daemon: "The transport daemon did not confirm the change for {peer}. The change may have been made. The list of trusted peers is being read again.",
         embedded: "The network service did not confirm the change for {peer}. The change may have been made. The list of trusted peers is being read again.",
+    },
+    /// A conversation's banner while the device is offline (#304 F7): no
+    /// dismiss, gone when the state leaves offline.
+    OfflineBanner => {
+        daemon: "InterWeave is offline: the transport daemon is not running. What you write now is sent when the transport daemon starts.",
+        embedded: "InterWeave is offline: the network service is not running. What you write now is sent when the network service starts.",
     },
     /// A0 after the local runtime was unavailable (F10 A4).
     WaitingSendingUnavailable => {

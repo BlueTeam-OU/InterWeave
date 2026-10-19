@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use interweave_human_client_api::{OutboundStatus, TrustOrigin};
+use interweave_human_client_api::{Connectivity, OutboundStatus, TrustOrigin};
 use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
     HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
@@ -708,6 +708,18 @@ pub struct View {
     /// ([`View::after_next_frame`]); `None` until the window's one
     /// rendering notifier is set.
     frame_tasks: Option<FrameTasks>,
+}
+
+/// Chats' one-line state (#304 F7): its short text, and the icon beside
+/// it so it is never told by colour alone; unknown has none.
+const fn state_line(connectivity: Connectivity) -> (UiText, Glyph) {
+    match connectivity {
+        Connectivity::OnlineDirect => (UiText::StateShortDirect, Glyph::Cloud),
+        Connectivity::OnlineRelay => (UiText::StateShortRelayed, Glyph::Cloud),
+        Connectivity::OnlinePartial => (UiText::StateShortPartial, Glyph::Cloud),
+        Connectivity::Offline => (UiText::StateShortOffline, Glyph::CloudOff),
+        Connectivity::Unknown => (UiText::StateShortUnknown, Glyph::None),
+    }
 }
 
 /// Who tells the person that Details' Copy worked (#304 F11).
@@ -2297,14 +2309,23 @@ impl View {
             window.set_menu_open(false);
             window.set_details_open(false);
         }
-        window
-            .set_connectivity(placeholder_en::connectivity(self.host, model.connectivity()).into());
+        let connectivity = model.connectivity();
+        window.set_connectivity(placeholder_en::connectivity(self.host, connectivity).into());
+        let (short, glyph) = state_line(connectivity);
+        window.set_state_short(placeholder_en::text(short).into());
+        window.set_state_glyph(glyph);
         let notice = model.session_notice();
         self.shared.borrow_mut().notice = notice;
-        window.set_has_notice(notice.is_some());
+        // A conversation shows the device's state only while it is offline,
+        // as its notice -- under one a person can act on, which says more
+        // (#304 F7). Unknown shows nothing, never as offline.
+        let offline = (notice.is_none() && connectivity == Connectivity::Offline)
+            .then(|| placeholder_en::host_text(self.host, HostText::OfflineBanner).to_owned());
+        window.set_has_notice(notice.is_some() || offline.is_some());
         window.set_notice(
             notice
                 .map(|notice| notice_text(self.host, notice))
+                .or(offline)
                 .unwrap_or_default()
                 .into(),
         );
@@ -2319,7 +2340,6 @@ impl View {
                 window.set_header_title(placeholder_en::text(UiText::NoConversation).into());
                 window.set_header_id(SharedString::new());
                 window.set_header_avatar_letters(SharedString::new());
-                window.set_header_path(SharedString::new());
                 window.set_composer_enabled(false);
                 window.set_refused(SharedString::new());
             }
@@ -2348,8 +2368,6 @@ impl View {
                 let avatar = Avatar::of(key);
                 window.set_header_avatar_letters(avatar.letters.as_str().into());
                 window.set_header_avatar_hue(hue_index(avatar.hue));
-                let path = model.path(key).map(placeholder_en::path);
-                window.set_header_path(path.unwrap_or_default().into());
                 // No composer while nothing can be sent: without network
                 // access, reading and keeping go on and sending does not.
                 window.set_composer_enabled(model.sending_offered());

@@ -130,17 +130,23 @@ async fn the_tree_read_over_atspi_labels_message_route_and_connectivity_controls
     window
         .until(
             "the connectivity indicator",
+            // On Chats (#304 F7): the short text as shown is its name, the
+            // state's full text its description.
             |e: &Element| {
                 e.role == "label"
                     && [
-                        Connectivity::OnlineDirect,
-                        Connectivity::OnlineRelay,
-                        Connectivity::OnlinePartial,
-                        Connectivity::Offline,
-                        Connectivity::Unknown,
+                        (Connectivity::OnlineDirect, UiText::StateShortDirect),
+                        (Connectivity::OnlineRelay, UiText::StateShortRelayed),
+                        (Connectivity::OnlinePartial, UiText::StateShortPartial),
+                        (Connectivity::Offline, UiText::StateShortOffline),
+                        (Connectivity::Unknown, UiText::StateShortUnknown),
                     ]
                     .iter()
-                    .any(|c| e.name == placeholder_en::connectivity(RuntimeHost::Daemon, *c))
+                    .any(|(c, short)| {
+                        e.name == text(*short)
+                            && e.description
+                                == placeholder_en::connectivity(RuntimeHost::Daemon, *c)
+                    })
             },
             log,
         )

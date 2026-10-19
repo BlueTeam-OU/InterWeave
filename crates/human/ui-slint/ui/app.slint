@@ -31,6 +31,9 @@ export enum Glyph {
     keep, unkeep, hide, retry, cancel, source,
     // The app bars (sections 5 and 6) and the composer.
     shield, back, more, send,
+    // The device's network state on Chats (#304 F7): online in any form,
+    // and offline; unknown has none.
+    cloud, cloud-off,
     // The statuses (section 6's table).
     clock, check, check-outline, error, crossed, bookmark,
 }
@@ -642,12 +645,14 @@ component GlyphIcon {
         : glyph == Glyph.check-outline ? "M 12 3 A 9 9 0 1 1 12 21 A 9 9 0 1 1 12 3 Z M 8 12 L 11 15 L 16 9"
         : glyph == Glyph.error ? "M 12 3 A 9 9 0 1 1 12 21 A 9 9 0 1 1 12 3 Z M 12 7 L 12 13 M 12 16 L 12 17"
         : glyph == Glyph.crossed ? "M 12 3 A 9 9 0 1 1 12 21 A 9 9 0 1 1 12 3 Z M 5.6 5.6 L 18.4 18.4"
+        : glyph == Glyph.cloud-off ? "M 7 19 A 4.5 4.5 0 0 1 6.2 10.05 A 6 6 0 0 1 17.6 9.1 A 5 5 0 0 1 17 19 Z M 3 3 L 21 21"
         : "";
     property <string> filled:
         glyph == Glyph.more ? "M 12 4 A 2 2 0 1 1 12 8 A 2 2 0 1 1 12 4 Z M 12 10 A 2 2 0 1 1 12 14 A 2 2 0 1 1 12 10 Z M 12 16 A 2 2 0 1 1 12 20 A 2 2 0 1 1 12 16 Z"
         : glyph == Glyph.send && !rtl ? "M 3 20 L 21 12 L 3 4 L 3 10 L 15 12 L 3 14 Z"
         : glyph == Glyph.send ? "M 21 20 L 3 12 L 21 4 L 21 10 L 9 12 L 21 14 Z"
         : glyph == Glyph.bookmark ? "M 6 3 L 18 3 L 18 21 L 12 17 L 6 21 Z"
+        : glyph == Glyph.cloud ? "M 7 19 A 4.5 4.5 0 0 1 6.2 10.05 A 6 6 0 0 1 17.6 9.1 A 5 5 0 0 1 17 19 Z"
         : "";
     if root.stroked != "": Path {
         width: root.width;
@@ -1482,7 +1487,6 @@ export component AppWindow inherits Window {
     callback identifier-copied();
     // The open direct conversation's route indicator, once the runtime has
     // said; empty for a channel or before it has (human-client-ui.md 7).
-    in property <string> header-path;
     // The open conversation's avatar (section 5.1).
     in property <string> header-avatar-letters;
     in property <int> header-avatar-hue;
@@ -1501,7 +1505,12 @@ export component AppWindow inherits Window {
         root.menu-closed-seq += 1;
     }
 
+    // The device's network state: its full text, and Chats' subtitle in
+    // short with its icon (#304 F7). A conversation shows it only while
+    // offline, as its notice.
     in property <string> connectivity;
+    in property <string> state-short;
+    in property <Glyph> state-glyph;
     in property <bool> has-notice;
     in property <string> notice;
     in property <bool> has-notice-action;
@@ -1856,6 +1865,43 @@ export component AppWindow inherits Window {
                         focus-seq: root.focus-seq;
                         focus-wanted: root.focus-target == "heading";
                         focused(k) => { root.focus-id = k; }
+                    }
+                    // The device's network state (#304 F7): the app's, not
+                    // a peer's, so here and not in a conversation's bar.
+                    // One line of a short text, an icon beside it so it is
+                    // never told by colour alone; read after the title,
+                    // its full text as the description. In place, no motion.
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: root.rtl ? LayoutAlignment.end : LayoutAlignment.start;
+                        if !root.rtl && root.state-glyph != Glyph.none: VerticalLayout {
+                            alignment: center;
+                            GlyphIcon {
+                                width: 18px;
+                                height: 18px;
+                                glyph: root.state-glyph;
+                                ink: Palette.on-surface-variant;
+                            }
+                        }
+                        Text {
+                            text: root.state-short;
+                            font-size: Type.body-medium;
+                            color: Palette.on-surface-variant;
+                            vertical-alignment: center;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                            accessible-description: root.connectivity;
+                            accessible-live-region: polite;
+                        }
+                        if root.rtl && root.state-glyph != Glyph.none: VerticalLayout {
+                            alignment: center;
+                            GlyphIcon {
+                                width: 18px;
+                                height: 18px;
+                                glyph: root.state-glyph;
+                                ink: Palette.on-surface-variant;
+                            }
+                        }
                     }
                 }
                 if !root.rtl: VerticalLayout {
@@ -2447,27 +2493,6 @@ export component AppWindow inherits Window {
                         focus-seq: root.focus-seq;
                         focus-wanted: root.focus-target == "h";
                         focused(k) => { root.focus-id = k; }
-                    }
-                    Text {
-                        text: root.connectivity;
-                        color: Palette.on-surface-variant;
-                        font-size: Type.body-small;
-                        overflow: elide;
-                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                        accessible-role: text;
-                        accessible-label: self.text;
-                        accessible-live-region: polite;
-                    }
-                    // Updated in place: a path change is not an event a
-                    // person is interrupted for, so it is no live region.
-                    if root.header-path != "": Text {
-                        text: root.header-path;
-                        font-size: Type.body-small;
-                        color: Palette.on-surface-variant;
-                        overflow: elide;
-                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                        accessible-role: text;
-                        accessible-label: self.text;
                     }
                 }
                 if root.header-id != "" && !root.rtl: VerticalLayout {

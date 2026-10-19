@@ -567,9 +567,15 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
          announcement says what changed (F4)"
     );
 
-    let online = the(
-        &view,
-        placeholder_en::connectivity(RuntimeHost::Daemon, Connectivity::OnlineDirect),
+    // The device's state, on Chats (#304 F7): the short text as shown is
+    // its name, the full one its description.
+    let online = the(&view, text(UiText::StateShortDirect));
+    assert_eq!(
+        online.accessible_description().as_deref(),
+        Some(placeholder_en::connectivity(
+            RuntimeHost::Daemon,
+            Connectivity::OnlineDirect
+        ))
     );
     assert_eq!(
         online.accessible_live_region(),
@@ -636,9 +642,13 @@ fn unknown_connectivity_is_not_shown_as_offline() {
     let model = UiModel::new();
     assert_eq!(model.connectivity(), Connectivity::Unknown);
     view.render(&model);
-    let shown = the(
-        &view,
-        placeholder_en::connectivity(RuntimeHost::Daemon, Connectivity::Unknown),
+    let shown = the(&view, text(UiText::StateShortUnknown));
+    assert_eq!(
+        shown.accessible_description().as_deref(),
+        Some(placeholder_en::connectivity(
+            RuntimeHost::Daemon,
+            Connectivity::Unknown
+        ))
     );
     assert!(
         !shown
@@ -647,12 +657,14 @@ fn unknown_connectivity_is_not_shown_as_offline() {
             .to_ascii_lowercase()
             .contains("offline")
     );
+    assert!(labelled(&view, text(UiText::StateShortOffline)).is_empty());
     assert!(
         labelled(
             &view,
-            placeholder_en::connectivity(RuntimeHost::Daemon, Connectivity::Offline)
+            placeholder_en::host_text(RuntimeHost::Daemon, HostText::OfflineBanner)
         )
-        .is_empty()
+        .is_empty(),
+        "no offline banner"
     );
 }
 
@@ -2467,61 +2479,70 @@ fn a_render_keeps_focus_on_a_links_control() {
     assert_eq!(tab(&view), next, "focus stayed on {on} across the render");
 }
 
-/// Section 7's route indicator: an open direct conversation says how it
-/// is connected once the runtime has said, and a path change updates it
-/// in place -- no new item, no announcement, no live region -- while a
-/// disconnection takes it away.
+/// #304 F7: a conversation's bar shows the peer's name alone, with no
+/// network state and no route line, since the state is the device's and
+/// is on Chats. A conversation shows the state only while it is offline,
+/// as its banner: gone when it leaves offline, never for unknown, and
+/// under a session notice a person can act on, which says more.
 #[test]
-fn the_route_indicator_follows_the_path_in_place() {
+fn a_conversation_shows_the_device_state_only_while_offline() {
     use interweave_transport_api::PeerPath;
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
     model.received(received(1, &alice, "hello"));
+    model.client_event(ClientEvent::Session(SessionState::Ready {
+        endpoint: Some(human()),
+    }));
     view.render(&model);
     open(&mut view, &mut model, &direct(&alice));
-    let relayed = placeholder_en::path(PeerPath::Relayed);
-    let direct_path = placeholder_en::path(PeerPath::Direct);
-    assert!(
-        labelled(&view, relayed).is_empty() && labelled(&view, direct_path).is_empty(),
-        "nothing until the runtime says"
-    );
-
     model.client_event(ClientEvent::PeerPath {
         peer: alice.clone(),
         path: PeerPath::Relayed,
     });
     view.render(&model);
-    let shown = the(&view, relayed);
-    assert_eq!(shown.accessible_live_region(), None, "not an interruption");
-
-    let items = all(&view)
-        .into_iter()
-        .filter(|e| e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::ListItem))
-        .count();
-    let said = announced(&view);
-    model.client_event(ClientEvent::PeerPath {
-        peer: alice.clone(),
-        path: PeerPath::Direct,
-    });
-    view.render(&model);
-    assert_eq!(labelled(&view, direct_path).len(), 1, "updated in place");
-    assert!(labelled(&view, relayed).is_empty());
-    assert_eq!(
-        all(&view)
-            .into_iter()
-            .filter(
-                |e| e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::ListItem)
-            )
-            .count(),
-        items,
-        "no new item"
+    assert!(
+        labelled(&view, placeholder_en::path(PeerPath::Relayed)).is_empty(),
+        "no route line (#304 F7 leaves it out)"
     );
-    assert_eq!(announced(&view), said, "nothing announced");
+    let banner = placeholder_en::host_text(RuntimeHost::Daemon, HostText::OfflineBanner);
+    assert!(
+        labelled(&view, banner).is_empty(),
+        "the control: unknown, no banner"
+    );
 
-    model.client_event(ClientEvent::PeerDisconnected { peer: alice });
+    model.client_event(ClientEvent::Connectivity(Connectivity::Offline));
     view.render(&model);
-    assert!(labelled(&view, direct_path).is_empty(), "no longer known");
+    assert_eq!(labelled(&view, banner).len(), 1, "offline: the banner");
+    assert!(
+        labelled(
+            &view,
+            placeholder_en::connectivity(RuntimeHost::Daemon, Connectivity::Offline)
+        )
+        .iter()
+        .all(|e| e.accessible_role() != Some(i_slint_backend_testing::AccessibleRole::Text)),
+        "and no state line in the bar: the full text is only Chats' description"
+    );
+
+    model.client_event(ClientEvent::Session(SessionState::Reconnecting {
+        attempt: 1,
+        next_at: 1_000,
+    }));
+    view.render(&model);
+    assert!(
+        labelled(&view, banner).is_empty(),
+        "under a session notice, which says more"
+    );
+
+    model.client_event(ClientEvent::Session(SessionState::Ready {
+        endpoint: Some(human()),
+    }));
+    model.client_event(ClientEvent::Connectivity(Connectivity::OnlineDirect));
+    view.render(&model);
+    assert!(
+        labelled(&view, banner).is_empty(),
+        "gone when it leaves offline"
+    );
 }
 
 /// The source is shown in place of the drawn body, and a link's control is
