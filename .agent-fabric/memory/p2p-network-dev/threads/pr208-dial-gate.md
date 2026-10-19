@@ -5,7 +5,7 @@ topic: "pr208-dial-gate"
 description: "#208 (j20, dial gate per #206) MERGED e523348e 2026-10-06, 14 work + 9 fix; next PR = admin.peers.list at IPC 2.2 + carried items; architect-cto rulings seq 13717"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

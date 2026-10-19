@@ -5,7 +5,7 @@ topic: "pr224-carried-hardening"
 description: "PR #224 (2026-10-08): ancestor rule (ADR-0028 A 2026-10-08) + #190/#192/#199 carries + lockfile refresh; state and what is still open"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

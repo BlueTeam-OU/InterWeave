@@ -5,7 +5,7 @@ topic: "gate-a-message-send-on-its-fill"
 description: "Filling a gzcoord-compose skeleton by script: assert every replace matched (INFO's sections are CONTEXT/NOTES, not INFO:), anchor on the newline, chain send with && — empty messages went out as seq 19288, 33481, 33635"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

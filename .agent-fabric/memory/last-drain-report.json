@@ -1,19 +1,71 @@
 {
-  "applied_corrections": [],
+  "applied_corrections": [
+    {
+      "agent": "p2p-network-dev-01",
+      "applied_key": "e84e51c7a2e6c73c",
+      "heading": "ADR-0052 loopback refusal means routing tests listen on the host's private address — corrected without the private-range literal the hygiene lint refuses",
+      "host": "develop-qzapp",
+      "memory": "correction-routing-tests-private-address-literal",
+      "replaced": "ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks",
+      "replaced_key": "02cddca6af8d2e97",
+      "slice": ".agent-fabric/memory/p2p-network-dev/workflow/routing-tests-run-on-the-hosts-private-address.md",
+      "stamp": "2026-10-18"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "applied_key": "0a958baf5d182ebc",
+      "heading": "every Pixel run goes through the remit's .agent-fabric/bin/phone-run (own lease, own adb server, nothing left); never adb on the shared port 5037; how a lost pairing looks",
+      "host": "develop-qzapp",
+      "memory": "release-phone-after-testing",
+      "replaced": "when device testing ends, run adb disconnect and adb kill-server so the shared Android phone is free",
+      "replaced_key": "4b4a7ee7f76de9af",
+      "slice": ".agent-fabric/memory/rust-ui-dev/workflow/release-phone-after-testing.md",
+      "stamp": "2026-10-18"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "applied_key": "80481301b95e43cb",
+      "heading": "The two Android test devices (Samsung A40 of SPIKE-008/009, Pixel 9a for API 34+) and the facts a device run depends on; toolchain provisioning is devex-tooling's",
+      "host": "develop-qzapp",
+      "memory": "android-spike-device",
+      "replaced": "SPIKE-008/009 test device: no StrongBox, Smart Switch path, no emulator (no /dev/kvm), release after use; the owner unlocks it",
+      "replaced_key": "47e11b00549e784e",
+      "slice": ".agent-fabric/memory/rust-ui-dev/solution/android-spike-device.md",
+      "stamp": "2026-10-18"
+    }
+  ],
   "clipped_descriptions": [
     "memory/domains/p2p-network-dev/domain/error-text-matching-pins-the-public-type.md: description clipped from 385 to 235 characters",
     ".agent-fabric/memory/p2p-network-dev/solution/correction-autonat-pacing-is-not-the-crates-tick.md: description clipped from 354 to 233 characters",
     ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-10-network-change.md: description clipped from 348 to 237 characters",
+    ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-8-dcutr.md: description clipped from 245 to 235 characters",
     ".agent-fabric/memory/p2p-network-dev/solution/stage6-ingress-burst-test-is-load-timed.md: description clipped from 398 to 228 characters",
+    ".agent-fabric/memory/p2p-network-dev/workflow/host-address-classes-bound-what-a-wire-test-can-prove.md: description clipped from 265 to 236 characters",
     ".agent-fabric/memory/p2p-network-dev/workflow/host-cargo-is-system-1-98-no-rustup.md: description clipped from 332 to 235 characters",
+    ".agent-fabric/memory/p2p-network-dev/workflow/pin-an-auto-updating-tool-for-an-evidence-campaign.md: description clipped from 246 to 238 characters",
+    ".agent-fabric/memory/p2p-network-dev/workflow/routing-tests-run-on-the-hosts-private-address.md: description clipped from 247 to 233 characters",
     ".agent-fabric/memory/p2p-network-dev/workflow/supply-commits-to-the-callers-change.md: description clipped from 368 to 236 characters"
   ],
   "collision_decisions": [
     {
-      "agent": "p2p-network-dev-01",
+      "agent": "language-culture-en",
       "decision": "supersede",
-      "key": "p2p-network-dev/threads:j49-network-change-binding-ruled#§20 step 5 runtime side (j49) ruled by architect-cto seq 33736: NetworkView snapshot of IPs into the ONE detector, one redial per allowlisted peer on an addition, wildcard-only listeners for embedded-android",
-      "observed_at": "2026-10-10",
+      "key": "language-culture/workflow:gzapp-english-holder#I hold English (en-US) in gzapp too, since 2026-10-10; how a gzapp en-US supply is delivered and validated from this account",
+      "observed_at": "2026-10-13",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "language-culture-en",
+      "decision": "supersede",
+      "key": "language-culture/solution:solution-carried-2026-10-10#The English conventions and glossary the InterWeave human client's copy holds (labels.rs), set at the first read 2026-10-09",
+      "observed_at": "2026-10-17",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "language-culture-en",
+      "decision": "supersede",
+      "key": "language-culture/workflow:workflow-carried-2026-10-10#How the English cold read behaves when given only the text and the rules — what it catches and what to check before taking a finding",
+      "observed_at": "2026-10-16",
       "rule": "same-agent"
     },
     {
@@ -24,11 +76,150 @@
       "rule": "same-agent"
     },
     {
+      "agent": "p2p-network-dev-01",
+      "decision": "supersede",
+      "key": "p2p-network-dev/workflow:routing-tests-run-on-the-hosts-private-address#ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks",
+      "observed_at": "2026-09-25",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "p2p-network-dev-01",
+      "decision": "supersede",
+      "key": "p2p-network-dev/solution:stage-11-step-8-dcutr#Step 8 (DCUtR) -- PR #102 MERGED 2026-09-19 (head e6fc4ef) after four blind rounds (25 commits); the crate facts, ADR-0052's DCUtR instance (the boundary as a filter by deny-and-reissue), the P3s carried to step 9's first commit, what stays open",
+      "observed_at": "2026-10-12",
+      "rule": "same-agent"
+    },
+    {
       "agent": "rust-ui-dev-01",
       "decision": "supersede",
-      "key": "rust-ui-dev/solution:embedded-host-seam#the agreed seam between p2p-network-dev's embedded runtime (§20 step 1) and my Android Service, the human store and the audit sink",
+      "key": "rust-ui-dev/solution:android-network-change-contract#§20 step 5 (j44): what the Android Service's network callback owes EmbeddedHost::network_changed, and the wildcard-listener rule",
       "observed_at": "2026-10-09",
       "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/solution:android17-internet-runtime-permission#On the Pixel 9a (Android 17, API 37) INTERNET is a runtime permission; ungranted, EmbeddedHost::start fails with EPERM",
+      "observed_at": "2026-10-17",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/domain:atspi-e2e-lessons#Driving a Slint/AccessKit window over AT-SPI in tests -- what the adapter answers, focus under Xvfb, hearing announcements, SELinux on this host",
+      "observed_at": "2026-10-15",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/solution:j53-keystore-adapter#j53 (§20 step 6) Keystore SeedCipher built on batch-2 branch; design, what is unverified, open ruling on the user-presence window",
+      "observed_at": "2026-10-11",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/domain:slint-rendered-window-lessons#Slint 1.18 layout/font traps the testing backend does not show -- monospace by name, wrap min-width, a component's height from its only child layout; look at the winit window under Xvfb",
+      "observed_at": "2026-10-17",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "p2p-network-dev-02",
+      "decision": "supersede",
+      "key": "p2p-network-dev/workflow:clean-target-after-runs#InterWeave's target/ grows to ~90 GB across clippy/test/feature runs on this shared host — measure and remove it after a test batch",
+      "observed_at": "2026-10-08",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "p2p-network-dev-02",
+      "decision": "supersede",
+      "key": "p2p-network-dev/workflow:gzcoord-fill-the-types-sections#gzcoord-compose skeleton sections differ by type (INFO is CONTEXT/NOTES, not INFO:); a fill keyed on the wrong heading sends an empty body silently",
+      "observed_at": "2026-10-15",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "p2p-network-dev-02",
+      "decision": "supersede",
+      "key": "p2p-network-dev/workflow:independent-codecs-lessons#writing an \"independent\" codec from contract text — what it finds, how to keep it independent, how to compare it with production",
+      "observed_at": "2026-10-15",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "language-culture-en",
+      "decision": "supersede",
+      "key": "language-culture/workflow:holder-addenda-installed#My English-holder charter and brief addenda (agent-fabric ADR-060) live in my store, not the shared charter; edit them through fabric-coordinator",
+      "observed_at": "2026-10-19",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/workflow:desktop-e2e-stale-binary#desktop-e2e runs whatever human-desktop binary sits in target/ -- rebuild it before a package-only test run or a mutation check",
+      "observed_at": "2026-10-04",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/workflow:device-review-run-method#how to run a recorded acceptance pass of the InterWeave Android client on the Pixel by adb: real rows from host peers, evidence, redaction, traps (j88, 2026-10-16)",
+      "observed_at": "2026-10-16",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:j88-device-review-run#j88 delivered 2026-10-16: Pixel 9a recorded run of swipe spec §11 on main 761d72b3; results, findings now j90, where the evidence is",
+      "observed_at": "2026-10-16",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:j97-accesskit-prototype#j97 (2026-10-17): app-side AccessKit adapter prototype for Android built, two APKs (unpatched / hover-patched) waiting for the Pixel; what is measured and what is not",
+      "observed_at": "2026-10-17",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:j98-android-look#j98 (2026-10-17): build design/2026-10-16-android-look.md (ux-designer-01 REQUEST 01a14813); what I promised and where it must land",
+      "observed_at": "2026-10-17",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:owner-finds-ui-ugly#Owner judged the Android client \"aesthetically very bad\" (2026-10-18) while the pre-j98 build was on the Pixel",
+      "observed_at": "2026-10-18",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:stage-15-b9-trust#Stage 15 B9 trust settings + gate (b) + B8 carry -- branch feat/stage-15-trust, what landed where, evidence levels, open asks",
+      "observed_at": "2026-10-19",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:ui-slint-stage15-carry#What I inherit in crates/human/ui-slint at Stage 15 from PR #170 — the root's drain contract and carried P3s; read before writing apps/human-desktop's root or first touching ui-slint",
+      "observed_at": "2026-10-19",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "ux-designer-01",
+      "decision": "supersede",
+      "key": "ux-designer/threads:android-look-proposal#Owner asked (2026-10-16) for the Android client to look like an Android app with colour, not a prebeta; Material 3 proposal awaiting owner decisions",
+      "observed_at": "2026-10-18",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "p2p-network-dev-01",
+      "decision": "drop",
+      "key": "p2p-network-dev/workflow:routing-tests-run-on-the-hosts-private-address#ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks@d9a46bca68fa",
+      "observed_at": "2026-09-25"
     },
     {
       "agent": "p2p-network-dev-02",
@@ -38,24 +229,30 @@
     }
   ],
   "files": [
+    ".agent-fabric/memory/architect-cto/rationale.md",
     ".agent-fabric/memory/architect-cto/INDEX.md",
-    "memory/domains/devex-tooling/domain/bash-signal-cleanup-traps.md",
-    "memory/domains/devex-tooling/domain/grep-q-pipefail-silent-pass.md",
-    ".agent-fabric/memory/devex-tooling/solution/codeql-local-measurement.md",
-    ".agent-fabric/memory/devex-tooling/solution/solution-carried-2026-10-05.md",
-    ".agent-fabric/memory/devex-tooling/workflow/ci-command-line-is-read-by-guards.md",
-    ".agent-fabric/memory/devex-tooling/workflow/review-class-cannot-write-scratch.md",
     ".agent-fabric/memory/devex-tooling/INDEX.md",
     ".agent-fabric/memory/fabric-coordinator/INDEX.md",
     ".agent-fabric/memory/language-culture/INDEX.md",
     ".agent-fabric/memory/p2p-network-dev/INDEX.md",
     ".agent-fabric/memory/rust-ui-dev/INDEX.md",
-    ".agent-fabric/memory/language-culture/solution/solution-carried-2026-10-10.md",
+    ".agent-fabric/memory/ux-designer/INDEX.md",
+    "memory/domains/devex-tooling/domain/bash-signal-cleanup-traps.md",
+    "memory/domains/devex-tooling/domain/grep-q-pipefail-silent-pass.md",
+    ".agent-fabric/memory/devex-tooling/solution/codeql-local-measurement.md",
+    ".agent-fabric/memory/devex-tooling/solution/rust-job-cache-and-nextest-measured.md",
+    ".agent-fabric/memory/devex-tooling/solution/solution-carried-2026-10-05.md",
+    ".agent-fabric/memory/devex-tooling/solution/wait-merged-pending-checks.md",
+    ".agent-fabric/memory/devex-tooling/workflow/ci-command-line-is-read-by-guards.md",
+    ".agent-fabric/memory/devex-tooling/workflow/review-class-cannot-write-scratch.md",
     ".agent-fabric/memory/language-culture/solution/interweave-glossary-placement.md",
-    ".agent-fabric/memory/language-culture/workflow/workflow-carried-2026-10-10.md",
+    ".agent-fabric/memory/language-culture/solution/solution-carried-2026-10-10.md",
     ".agent-fabric/memory/language-culture/workflow/cold-read-on-sonnet.md",
     ".agent-fabric/memory/language-culture/workflow/gzapp-english-holder.md",
+    ".agent-fabric/memory/language-culture/workflow/holder-addenda-installed.md",
+    ".agent-fabric/memory/language-culture/workflow/keep-else-whole.md",
     ".agent-fabric/memory/language-culture/workflow/no-reports-on-others-prs.md",
+    ".agent-fabric/memory/language-culture/workflow/workflow-carried-2026-10-10.md",
     "memory/domains/p2p-network-dev/domain/a-select-guard-is-read-only-when-the-loop-wakes.md",
     "memory/domains/p2p-network-dev/domain/a-version-gate-has-two-sides.md",
     "memory/domains/p2p-network-dev/domain/android-17-internet-is-a-runtime-permission.md",
@@ -68,6 +265,7 @@
     "memory/domains/p2p-network-dev/domain/libp2p-relay-022-release-frees-the-connection.md",
     "memory/domains/p2p-network-dev/domain/libp2p-relay-client-listener-semantics.md",
     "memory/domains/p2p-network-dev/domain/libp2p-tcp-dials-the-last-host-of-a-stacked-multiaddr.md",
+    "memory/domains/p2p-network-dev/domain/mutate-a-registry-crate-by-config-patch.md",
     "memory/domains/p2p-network-dev/domain/never-share-a-target-dir-across-worktrees.md",
     "memory/domains/p2p-network-dev/domain/per-arch-constants-come-from-libc.md",
     "memory/domains/p2p-network-dev/domain/race-tests-need-the-current-thread-runtime.md",
@@ -83,13 +281,16 @@
     ".agent-fabric/memory/p2p-network-dev/solution/frozen-spike-pin-is-the-recording-commits-tree.md",
     ".agent-fabric/memory/p2p-network-dev/solution/kademlia-routing-table-is-a-second-door.md",
     ".agent-fabric/memory/p2p-network-dev/solution/reproduction-logs-commit-beside-the-pin.md",
+    ".agent-fabric/memory/p2p-network-dev/solution/rustsec-2026-0372-zvariant-derive-ignored.md",
     ".agent-fabric/memory/p2p-network-dev/solution/slint-js-sys-conflict-vendoring.md",
     ".agent-fabric/memory/p2p-network-dev/solution/spike-004-phase-b-node-rows.md",
     ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-10-network-change.md",
+    ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-8-dcutr.md",
     ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-9-path-preference.md",
     ".agent-fabric/memory/p2p-network-dev/solution/stage6-ingress-burst-test-is-load-timed.md",
     ".agent-fabric/memory/p2p-network-dev/threads/admin-peers-list-branch.md",
     ".agent-fabric/memory/p2p-network-dev/threads/ancestor-walk-trust-boundary-for-android.md",
+    ".agent-fabric/memory/p2p-network-dev/threads/android-denies-hard-link-identity-marker.md",
     ".agent-fabric/memory/p2p-network-dev/threads/correction-threads-86-gate-history.md",
     ".agent-fabric/memory/p2p-network-dev/threads/external-review-2026-10-04-stage-review.md",
     ".agent-fabric/memory/p2p-network-dev/threads/j48-embedded-runtime-step-1.md",
@@ -97,6 +298,7 @@
     ".agent-fabric/memory/p2p-network-dev/threads/j53-android-runtime-side-split.md",
     ".agent-fabric/memory/p2p-network-dev/threads/j55-availability-overlay.md",
     ".agent-fabric/memory/p2p-network-dev/threads/j62-endpoint-overlay.md",
+    ".agent-fabric/memory/p2p-network-dev/threads/j77-facade-next-tick-attempt.md",
     ".agent-fabric/memory/p2p-network-dev/threads/pr111-adr0052-closure-landed.md",
     ".agent-fabric/memory/p2p-network-dev/threads/pr112-mdns-carry-to-rule-10.md",
     ".agent-fabric/memory/p2p-network-dev/threads/pr137-landed-carry-to-batch-3.md",
@@ -110,6 +312,7 @@
     ".agent-fabric/memory/p2p-network-dev/threads/pr224-carried-hardening.md",
     ".agent-fabric/memory/p2p-network-dev/threads/pr228-judge-before-create.md",
     ".agent-fabric/memory/p2p-network-dev/threads/pr257-carry.md",
+    ".agent-fabric/memory/p2p-network-dev/threads/pr287-transport-test-oracles-landed.md",
     ".agent-fabric/memory/p2p-network-dev/threads/stage-11-step-7-plan.md",
     ".agent-fabric/memory/p2p-network-dev/threads/stage-14-batch-6-ui-model-contract.md",
     ".agent-fabric/memory/p2p-network-dev/threads/stage-14-batch-7-local.md",
@@ -123,6 +326,7 @@
     ".agent-fabric/memory/p2p-network-dev/workflow/an-allowance-must-not-be-earned-by-what-occupies-it.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/arm-only-on-concluded-checks.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/arm-through-arm-sh.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/arming-needs-a-codex-review-too.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/arming-rule-by-pr-commit-count.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/background-verify-reads-the-live-tree.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/batch-5-agree-client-contract-first.md",
@@ -132,13 +336,17 @@
     ".agent-fabric/memory/p2p-network-dev/workflow/commit-kind-trailer.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/correction-ask-reviewers-to-generalise.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/correction-verification-pipelines-review-example.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/fabric-agent-repo-is-the-secrets-store.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/free-port-cross-process-is-dev-02s.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/gate-a-message-send-on-its-fill.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/gate-the-commit-on-clippys-exit.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/github-ci-is-not-local-ci.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/host-address-classes-bound-what-a-wire-test-can-prove.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/host-cargo-is-system-1-98-no-rustup.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/insert-tests-after-the-previous-item.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/logging-is-a-privacy-decision.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/nested-claude-uses-the-long-term-token.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/pin-an-auto-updating-tool-for-an-evidence-campaign.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/pkill-f-matches-its-own-shell.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/post-review-after-github-sees-the-push.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/prefer-python-over-shell.md",
@@ -149,30 +357,49 @@
     ".agent-fabric/memory/p2p-network-dev/workflow/review-loop-same-invariant-escalate.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/review-targets-under-home.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/reviewer-declined-dispatch-opus.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/routing-tests-run-on-the-hosts-private-address.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/sg-reproduces-a-shared-primary-group.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/shell-grep-is-a-ugrep-wrapper.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/stage-11-pr84-landed.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/status-tests-must-watch-fields-move.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/supply-commits-to-the-callers-change.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/two-holders-of-p2p-network-dev.md",
+    "memory/domains/rust-ui-dev/domain/android-no-hard-links.md",
     "memory/domains/rust-ui-dev/domain/atspi-e2e-lessons.md",
+    "memory/domains/rust-ui-dev/domain/slint-changed-handlers-deferred.md",
     "memory/domains/rust-ui-dev/domain/slint-rendered-window-lessons.md",
-    ".agent-fabric/memory/rust-ui-dev/intersection.md",
+    "memory/domains/rust-ui-dev/domain/slint-swipe-in-flickable.md",
+    "memory/domains/rust-ui-dev/domain/slint-window-size-binding-loop.md",
+    "memory/domains/rust-ui-dev/domain/talkback-on-opens-permission-dialog.md",
     ".agent-fabric/memory/rust-ui-dev/rationale.md",
+    ".agent-fabric/memory/rust-ui-dev/solution/android-accesskit-bridge.md",
+    ".agent-fabric/memory/rust-ui-dev/solution/android-e2e-device-run.md",
     ".agent-fabric/memory/rust-ui-dev/solution/android-network-change-contract.md",
     ".agent-fabric/memory/rust-ui-dev/solution/android-shell-build.md",
+    ".agent-fabric/memory/rust-ui-dev/solution/android-spike-device.md",
     ".agent-fabric/memory/rust-ui-dev/solution/android17-internet-runtime-permission.md",
     ".agent-fabric/memory/rust-ui-dev/solution/desktop-e2e-load-flakes.md",
     ".agent-fabric/memory/rust-ui-dev/solution/embedded-host-seam.md",
     ".agent-fabric/memory/rust-ui-dev/solution/endpoint-walk-effective-state.md",
     ".agent-fabric/memory/rust-ui-dev/solution/j53-keystore-adapter.md",
-    ".agent-fabric/memory/rust-ui-dev/solution/j71-fleetdeck-linux-only.md",
+    ".agent-fabric/memory/rust-ui-dev/solution/j85-snackbar-closing-rule.md",
+    ".agent-fabric/memory/rust-ui-dev/solution/j91-focus-ring-snackbar-time.md",
+    ".agent-fabric/memory/rust-ui-dev/solution/j93-swipe-focus-rules.md",
     ".agent-fabric/memory/rust-ui-dev/solution/labels-platform-values.md",
+    ".agent-fabric/memory/rust-ui-dev/solution/model-only-take-rerender.md",
     ".agent-fabric/memory/rust-ui-dev/solution/stage-15-b2-pr178.md",
     ".agent-fabric/memory/rust-ui-dev/solution/stage-15-client-reading-notes.md",
     ".agent-fabric/memory/rust-ui-dev/solution/stage17-spikes-merged.md",
     ".agent-fabric/memory/rust-ui-dev/solution/ui-slint-body-cache-tests.md",
     ".agent-fabric/memory/rust-ui-dev/solution/ui-slint-embedded-image-decoder.md",
+    ".agent-fabric/memory/rust-ui-dev/threads/interweave-seedcipher-seam-256.md",
+    ".agent-fabric/memory/rust-ui-dev/threads/j87-swipe-spec-fixes.md",
+    ".agent-fabric/memory/rust-ui-dev/threads/j88-device-review-run.md",
+    ".agent-fabric/memory/rust-ui-dev/threads/j90-swipe-device-fixes.md",
+    ".agent-fabric/memory/rust-ui-dev/threads/j94-install-292-apk.md",
+    ".agent-fabric/memory/rust-ui-dev/threads/j97-accesskit-prototype.md",
+    ".agent-fabric/memory/rust-ui-dev/threads/j98-android-look.md",
+    ".agent-fabric/memory/rust-ui-dev/threads/owner-finds-ui-ugly.md",
     ".agent-fabric/memory/rust-ui-dev/threads/stage-15-b1-pr176.md",
     ".agent-fabric/memory/rust-ui-dev/threads/stage-15-b4-pr181.md",
     ".agent-fabric/memory/rust-ui-dev/threads/stage-15-b6-body.md",
@@ -185,29 +412,74 @@
     ".agent-fabric/memory/rust-ui-dev/threads/ui-slint-surface-proposal.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/arming-tool.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/desktop-e2e-stale-binary.md",
-    ".agent-fabric/memory/rust-ui-dev/workflow/herdr-conventional-commits.md",
+    ".agent-fabric/memory/rust-ui-dev/workflow/device-review-run-method.md",
+    ".agent-fabric/memory/rust-ui-dev/workflow/gzcoord-inbox-replay.md",
+    ".agent-fabric/memory/rust-ui-dev/workflow/keep-later-artifacts-in-home.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/labels-english-supplier.md",
+    ".agent-fabric/memory/rust-ui-dev/workflow/mutate-from-a-scratch-copy.md",
+    ".agent-fabric/memory/rust-ui-dev/workflow/pipe-masks-exit-status.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/prose-sweep-siblings.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/release-phone-after-testing.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/render-brief-before-dispatch.md",
+    ".agent-fabric/memory/rust-ui-dev/workflow/review-loop-p3-tail.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/shared-target-worktree.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/spike-harness-from-the-requirement.md",
-    "memory/domains/p2p-network-dev/domain/multistream-select-order.md",
-    "memory/domains/p2p-network-dev/domain/radicle-stale-control-socket.md",
+    "memory/domains/ux-designer/domain/contrast-on-every-surface.md",
+    "memory/domains/ux-designer/domain/focus-table-in-spec.md",
+    "memory/domains/ux-designer/domain/undo-by-reverse-not-deferral.md",
+    "memory/domains/ux-designer/domain/wording-pass-keeps-conditions.md",
+    ".agent-fabric/memory/ux-designer/solution.md",
+    ".agent-fabric/memory/ux-designer/threads/android-look-proposal.md",
+    ".agent-fabric/memory/ux-designer/threads/swipe-actions-j1.md",
+    ".agent-fabric/memory/ux-designer/workflow.md",
+    "memory/domains/p2p-network-dev/domain/domain-a-test-waits-for-the-state-it-presumes.md",
+    "memory/domains/p2p-network-dev/domain/domain-android-selinux-denies-link.md",
+    "memory/domains/p2p-network-dev/domain/domain-bionic-gr-mem-lists-own-name.md",
+    "memory/domains/p2p-network-dev/domain/domain-device-tests-run-in-the-app-process.md",
+    "memory/domains/p2p-network-dev/domain/domain-event-stream-owes-current-state.md",
+    "memory/domains/p2p-network-dev/domain/domain-event-widening-gates-the-stream.md",
+    "memory/domains/p2p-network-dev/domain/domain-failure-class-by-what-not-who.md",
+    "memory/domains/p2p-network-dev/domain/domain-failure-set-needs-a-non-verdict.md",
+    "memory/domains/p2p-network-dev/domain/domain-first-run-exclusive-under-a-lock.md",
+    "memory/domains/p2p-network-dev/domain/domain-free-port-same-port-reuseport.md",
+    "memory/domains/p2p-network-dev/domain/domain-hickory-android-ndk-context-panic.md",
+    "memory/domains/p2p-network-dev/domain/domain-key-custody-isolation-and-order.md",
+    "memory/domains/p2p-network-dev/domain/domain-libp2p-relay-circuit-canceled-is-the-hops.md",
+    "memory/domains/p2p-network-dev/domain/domain-libp2p-reuse-dial-eaddrinuse.md",
+    "memory/domains/p2p-network-dev/domain/domain-mobile-resolver-from-the-network-view.md",
+    "memory/domains/p2p-network-dev/domain/domain-multistream-select-order-recheck.md",
+    "memory/domains/p2p-network-dev/domain/domain-radicle-stale-control-socket-recheck.md",
+    "memory/domains/p2p-network-dev/domain/domain-retry-trigger-is-an-edge.md",
+    "memory/domains/p2p-network-dev/domain/domain-silence-bound-arms-on-first-ping.md",
+    "memory/domains/p2p-network-dev/domain/domain-stand-in-holds-the-seams-shape.md",
+    "memory/domains/p2p-network-dev/domain/domain-strace-inject-a-platform-denial.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/agent-prompt-is-literal.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/clean-target-after-runs.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/commit-before-mutation.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/escape-literals-decoded-on-write.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/full-workspace-tests-before-arm.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/gzcoord-fill-the-types-sections.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/host-atspi-registry-empty.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/independent-codecs-lessons.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/no-autosquash-after-push.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/no-sha-before-commit.md"
+    ".agent-fabric/memory/p2p-network-dev/workflow/no-sha-before-commit.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/own-store-never-by-hand.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/pkill-f-kills-own-shell.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/run-whole-crate-not-a-filter.md",
+    ".agent-fabric/memory/p2p-network-dev/workflow/workflow-to-role-finding-goes-to-the-holder-in-the-crate.md",
+    ".agent-fabric/memory/architect-cto/threads.md",
+    ".agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md",
+    ".agent-fabric/memory/architect-cto/workflow/rustsec-zbus-family-ignores-and-arming-below-minimum.md",
+    ".agent-fabric/memory/ux-designer/threads/android-identity-j27.md",
+    ".agent-fabric/memory/ux-designer/threads/stage17-android-review-j26.md"
   ],
-  "files_written": 163,
+  "files_written": 243,
   "harvest": {
     "host": "develop-qzapp",
-    "in_scope": 19,
-    "next_watermark": 1791739440371,
+    "in_scope": 46,
+    "next_watermark": 1792384607566,
     "provisional_agent": 0,
+    "reflection": 0,
     "since_watermark": 0,
     "skipped_no_roles_class": [
       "interop-stage17-scope-question.md",
@@ -215,6 +487,7 @@
       "j13-android-e2e-device.md",
       "j14-osv-acceptance-policy.md",
       "j17-gates-a-b-device-lines.md",
+      "j36-values-as-text-state.md",
       "merged-pr-counts.md",
       "pr230-ipc-client-carries.md",
       "pr252-android-e2e-state.md",
@@ -222,11 +495,21 @@
     ]
   },
   "harvest_sources": {
+    "architect-cto-01@develop-qzapp": {
+      "host": "develop-qzapp",
+      "in_scope": 4,
+      "next_watermark": 1792385807432,
+      "provisional_agent": 0,
+      "reflection": 0,
+      "since_watermark": 0,
+      "skipped_no_roles_class": []
+    },
     "devex-tooling@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 7,
-      "next_watermark": 1791496718988,
+      "in_scope": 9,
+      "next_watermark": 1792303091026,
       "provisional_agent": 0,
+      "reflection": 0,
       "since_watermark": 0,
       "skipped_no_roles_class": [
         "no-nested-eof-heredocs.md"
@@ -234,17 +517,21 @@
     },
     "language-culture-en@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 6,
-      "next_watermark": 1791677898039,
+      "in_scope": 9,
+      "next_watermark": 1792386037270,
       "provisional_agent": 0,
+      "reflection": 0,
       "since_watermark": 0,
-      "skipped_no_roles_class": []
+      "skipped_no_roles_class": [
+        "check-commit-before-reply.md"
+      ]
     },
     "p2p-network-dev-01@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 116,
-      "next_watermark": 1791759531063,
+      "in_scope": 127,
+      "next_watermark": 1792326186654,
       "provisional_agent": 0,
+      "reflection": 2,
       "since_watermark": 0,
       "skipped_no_roles_class": [
         "external-review-2026-10-01-composition-findings.md",
@@ -266,9 +553,10 @@
     },
     "p2p-network-dev-02@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 19,
-      "next_watermark": 1791739440371,
+      "in_scope": 46,
+      "next_watermark": 1792384607566,
       "provisional_agent": 0,
+      "reflection": 0,
       "since_watermark": 0,
       "skipped_no_roles_class": [
         "interop-stage17-scope-question.md",
@@ -276,6 +564,7 @@
         "j13-android-e2e-device.md",
         "j14-osv-acceptance-policy.md",
         "j17-gates-a-b-device-lines.md",
+        "j36-values-as-text-state.md",
         "merged-pr-counts.md",
         "pr230-ipc-client-carries.md",
         "pr252-android-e2e-state.md",
@@ -284,14 +573,15 @@
     },
     "rust-ui-dev-01@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 43,
-      "next_watermark": 1791757775472,
+      "in_scope": 65,
+      "next_watermark": 1792386073233,
       "provisional_agent": 0,
+      "reflection": 3,
       "since_watermark": 0,
       "skipped_no_roles_class": [
-        "herdr-start-notes.md",
         "j43-route-indicator-base.md",
         "j66-android-e2e-seam.md",
+        "memory-files-by-project.md",
         "release-disk-after-tests.md",
         "report-own-work-only.md"
       ]
@@ -301,6 +591,7 @@
       "in_scope": 31,
       "next_watermark": 1791626526518,
       "provisional_agent": 0,
+      "reflection": 0,
       "since_watermark": 0,
       "skipped_no_roles_class": [
         "anchor-inserts-after-not-before.md",
@@ -335,19 +626,42 @@
         "verify-subagent-coverage-not-just-findings.md",
         "yamux-silent-downgrade.md"
       ]
+    },
+    "ux-designer-01@develop-qzapp": {
+      "host": "develop-qzapp",
+      "in_scope": 11,
+      "next_watermark": 1792386061416,
+      "provisional_agent": 0,
+      "reflection": 1,
+      "since_watermark": 0,
+      "skipped_no_roles_class": [
+        "verify-for-branch-head-landed.md"
+      ]
     }
   },
-  "held_back": [
-    "p2p-network-dev/solution:stage-11-step-8-dcutr",
-    "p2p-network-dev/workflow:routing-tests-run-on-the-hosts-private-address",
-    "rust-ui-dev/solution:android-spike-device"
-  ],
+  "held_back": [],
   "hygiene_problems": [],
   "memory_helpful": {},
   "memory_marks": {},
   "memory_retrieval": {
-    "rust-ui-dev-01": {
-      "finds": 1,
+    "architect-cto-01": {
+      "finds": 7,
+      "finds_followed_by_read": 0,
+      "hosts": [
+        "develop-qzapp"
+      ],
+      "indexes": 2,
+      "marks": 0,
+      "read_through": 0.0,
+      "reads": 0,
+      "refused": 0,
+      "since_ms": 0,
+      "until_ms": 1792385444207,
+      "zero_hit_finds": 0,
+      "zero_hit_share": 0.0
+    },
+    "p2p-network-dev-02": {
+      "finds": 3,
       "finds_followed_by_read": 0,
       "hosts": [
         "develop-qzapp"
@@ -358,15 +672,32 @@
       "reads": 0,
       "refused": 0,
       "since_ms": 0,
-      "until_ms": 1791754028864,
+      "until_ms": 1792034342790,
+      "zero_hit_finds": 0,
+      "zero_hit_share": 0.0
+    },
+    "rust-ui-dev-01": {
+      "finds": 9,
+      "finds_followed_by_read": 0,
+      "hosts": [
+        "develop-qzapp"
+      ],
+      "indexes": 0,
+      "marks": 0,
+      "read_through": 0.0,
+      "reads": 0,
+      "refused": 0,
+      "since_ms": 0,
+      "until_ms": 1792326731806,
       "zero_hit_finds": 0,
       "zero_hit_share": 0.0
     }
   },
   "memory_use": {
-    "rust-ui-dev-01@develop-qzapp": {
+    "architect-cto-01@develop-qzapp": {
       "calls": {
-        "memory_find": 1
+        "memory_find": 7,
+        "memory_index": 2
       },
       "errors": 0,
       "finds_followed_by_read": 0,
@@ -376,32 +707,88 @@
       "since_ms": 0,
       "unattributed_lines": 0,
       "unreadable_lines": 0,
-      "until_ms": 1791754028864,
+      "until_ms": 1792385444207,
+      "zero_hit_finds": 0
+    },
+    "p2p-network-dev-02@develop-qzapp": {
+      "calls": {
+        "memory_find": 3
+      },
+      "errors": 0,
+      "finds_followed_by_read": 0,
+      "ids_read": {},
+      "marks": 0,
+      "notes_withheld": 0,
+      "since_ms": 0,
+      "unattributed_lines": 0,
+      "unreadable_lines": 0,
+      "until_ms": 1792034342790,
+      "zero_hit_finds": 0
+    },
+    "rust-ui-dev-01@develop-qzapp": {
+      "calls": {
+        "memory_find": 9
+      },
+      "errors": 0,
+      "finds_followed_by_read": 0,
+      "ids_read": {},
+      "marks": 0,
+      "notes_withheld": 0,
+      "since_ms": 0,
+      "unattributed_lines": 0,
+      "unreadable_lines": 0,
+      "until_ms": 1792326731806,
       "zero_hit_finds": 0
     }
   },
   "merge_target_unresolved": [
     "p2p-network-dev/threads:correction-threads-86-gate-history#Correction to threads/threads-carried-2026-09-17.md: the --automated-only/@codex gate its #86 paragraph records was the procedure of 2026-09-10, superseded by #114; history, not current procedure: merge_target 'Correction to threads.md lines 25 and 27: the --automated-only/@codex gate they record was the procedure of 2026-09-10 and is superseded; history, not current procedure' names no section of p2p-network-dev/threads; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
-    "p2p-network-dev/domain:multistream-select-order#libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; re-checked 2026-10-11, unchanged: merge_target 'libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; how a \"minor bump\" of a protocol id interoperates' names no section of p2p-network-dev/domain; the claim stands in its own topic — if it replaced that section before, drop the merge_target"
+    "p2p-network-dev/domain:domain-multistream-select-order-recheck#libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; how a \"minor bump\" of a protocol id interoperates: merge_target 'libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; how a \"minor bump\" of a protocol id interoperates' names no section of p2p-network-dev/domain; written as its own topic",
+    "p2p-network-dev/domain:domain-radicle-stale-control-socket-recheck#radicle-node killed hard won't restart (stale control.sock); why --force is not the fix: merge_target \"radicle-node killed hard won't restart (stale control.sock); why --force is not the fix\" names no section of p2p-network-dev/domain; written as its own topic",
+    "rust-ui-dev/workflow:release-phone-after-testing#every Pixel run goes through the remit's .agent-fabric/bin/phone-run (own lease, own adb server, nothing left); never adb on the shared port 5037; how a lost pairing looks: merge_target 'when device testing ends, run adb disconnect and adb kill-server so the shared Android phone is free' names no section of rust-ui-dev/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "p2p-network-dev/workflow:routing-tests-run-on-the-hosts-private-address#ADR-0052 loopback refusal means routing tests listen on the host's private address — corrected without the private-range literal the hygiene lint refuses: merge_target \"ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks\" names no section of p2p-network-dev/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target"
   ],
-  "migrated": [
-    "language-culture/solution: solution.md -> solution/solution-carried-2026-10-10.md",
-    "language-culture/workflow: workflow.md -> workflow/workflow-carried-2026-10-10.md"
-  ],
+  "migrated": [],
   "oversized_claims": [
     "p2p-network-dev/solution:spike-004-phase-b-node-rows: one claim is ~2218 tokens, over the 1800 budget; split the memory it came from",
     "p2p-network-dev/threads:j49-network-change-binding-ruled: one claim is ~2002 tokens, over the 1800 budget; split the memory it came from",
     "p2p-network-dev/threads:pr228-judge-before-create: one claim is ~2335 tokens, over the 1800 budget; split the memory it came from",
-    "p2p-network-dev/threads:stage-15-r1-r2-shapes: one claim is ~1878 tokens, over the 1800 budget; split the memory it came from"
+    "p2p-network-dev/threads:stage-15-r1-r2-shapes: one claim is ~1878 tokens, over the 1800 budget; split the memory it came from",
+    "rust-ui-dev/solution:android-spike-device: one claim is ~1934 tokens, over the 1800 budget; split the memory it came from",
+    "rust-ui-dev/threads:j98-android-look: one claim is ~1960 tokens, over the 1800 budget; split the memory it came from",
+    "ux-designer/threads:swipe-actions-j1: one claim is ~2157 tokens, over the 1800 budget; split the memory it came from",
+    "rust-ui-dev/threads:j98-android-look: one claim is ~1952 tokens, over the 1800 budget; split the memory it came from"
   ],
   "project": "interweave",
   "redactions": [
-    "p2p-network-dev/workflow:review-targets-under-home body: home path of a login -> '[redacted]'"
+    "p2p-network-dev/workflow:review-targets-under-home body: a /home/<login>/ path -- write the path from the repository root or ~/ -> '~/'",
+    "rust-ui-dev/threads:j97-accesskit-prototype body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
+    "rust-ui-dev/threads:j97-accesskit-prototype body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
+    "ux-designer/workflow:device-review-pixel-lease body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
+    "ux-designer/threads:swipe-actions-j1 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
+    "rust-ui-dev/threads:j97-accesskit-prototype body: one account's scratch path -- name the artifact by commit, sha and how to rebuild it -> 'a scratch path'",
+    "ux-designer/threads:stage17-android-review-j26 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'"
   ],
   "rejected_hygiene": [],
   "retired_in_siblings": [],
+  "retitles": [],
   "review_horizons": {
-    "aged": [],
+    "aged": [
+      {
+        "class": "solution",
+        "days": 31,
+        "horizon_days": 30,
+        "key": ".agent-fabric/memory/p2p-network-dev/solution/correction-autonat-pacing-is-not-the-crates-tick.md#CORRECTION to the solution slice stage-11-review-rounds.md (\"Pacing is the crate's with_probe_interval/with_max_candidates\") — since the owner's 2026-09-17 ruling (F4 on PR #84, landed by PR #88) only with_max_candidates is set from configuration; the tick stays at the crate's 5 s default and refresh_interval is the ReachabilityManager's retest cadence",
+        "observed": "2026-09-17"
+      },
+      {
+        "class": "solution",
+        "days": 31,
+        "horizon_days": 30,
+        "key": ".agent-fabric/memory/p2p-network-dev/solution/stage6-ingress-burst-test-is-load-timed.md#two wall-clock-timed suites flake under a full workspace run on this host — tests/direct-v2 a_peer_cannot_mint_allowance_by_inventing_source_endpoints (burst + 1 vs a refilling bucket, got 34 against 33) and tests/pubsub stage7 an_actual_loss_outranks_the_zero_mesh_report (timed out waiting for the local overflow report, 2026-09-18) — rerun alone before suspecting the change; a follow-up PR each",
+        "observed": "2026-09-17"
+      }
+    ],
     "reads_state": "ok",
     "unread": [],
     "unread_from": "2026-12-07"
@@ -412,18 +799,49 @@
     "fabric-coordinator",
     "language-culture",
     "p2p-network-dev",
-    "rust-ui-dev"
+    "rust-ui-dev",
+    "ux-designer"
   ],
   "section_writers": {
+    ".agent-fabric/memory/architect-cto/rationale.md#Android accessibility (j141): the owner's 2026-10-18 decision — TalkBack carried to the release gate, the AccessKit bridge built after everything else — and the facts the next step rests on": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
+    },
+    ".agent-fabric/memory/architect-cto/threads.md#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md#architect-cto is commits.boundary_authority for BlueTeam-OU/agent-fabric-gateway (and agent-fabric): how an arm-below-minimum REQUEST is judged and answered, and that the AUTHORIZES DECISION send passes auto mode since 2026-10-19": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/rustsec-zbus-family-ignores-and-arming-below-minimum.md#The 2026-10-18 CI outage on InterWeave (zbus-family RustSec unmaintained advisories) and what landing #297 taught about folding a supply, the deny.toml boundary, and the architect-cto AUTHORIZES send": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
+    },
     ".agent-fabric/memory/devex-tooling/solution/codeql-local-measurement.md#Reproducing an InterWeave CodeQL (Rust) alert locally, or testing a model pack — host has no rust-src, and the full tree times out": {
       "agent": "devex-tooling",
       "host": "develop-qzapp",
       "observed": "2026-10-08"
     },
+    ".agent-fabric/memory/devex-tooling/solution/rust-job-cache-and-nextest-measured.md#InterWeave rust CI job — cargo target cache sizes, nextest gains, and how a warm cache was measured before merge (PR #288, 2026-10-16)": {
+      "agent": "devex-tooling",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
     ".agent-fabric/memory/devex-tooling/solution/solution-carried-2026-10-05.md#How to measure a CI display/AT-SPI wrapper for real on develop-qzapp, which has no Xvfb or dbus-run-session": {
       "agent": "devex-tooling",
       "host": "develop-qzapp",
       "observed": "2026-10-04"
+    },
+    ".agent-fabric/memory/devex-tooling/solution/wait-merged-pending-checks.md#fabric-pr wait-merged and pending checks — gh pr checks exits 8 with JSON on stdout; the tool reads it, test pins it (checked 2026-10-18)": {
+      "agent": "devex-tooling",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
     },
     ".agent-fabric/memory/devex-tooling/workflow/ci-command-line-is-read-by-guards.md#Before changing a ci.yml run: line in InterWeave, run the full cargo xtask checks — other guards grep the workflow's command lines": {
       "agent": "devex-tooling",
@@ -443,7 +861,7 @@
     ".agent-fabric/memory/language-culture/solution/solution-carried-2026-10-10.md#The English conventions and glossary the InterWeave human client's copy holds (labels.rs), set at the first read 2026-10-09": {
       "agent": "language-culture-en",
       "host": "develop-qzapp",
-      "observed": "2026-10-09"
+      "observed": "2026-10-17"
     },
     ".agent-fabric/memory/language-culture/workflow/cold-read-on-sonnet.md#Cold reads are Explore dispatches on model sonnet, not opus (since 2026-10-10)": {
       "agent": "language-culture-en",
@@ -453,7 +871,17 @@
     ".agent-fabric/memory/language-culture/workflow/gzapp-english-holder.md#I hold English (en-US) in gzapp too, since 2026-10-10; how a gzapp en-US supply is delivered and validated from this account": {
       "agent": "language-culture-en",
       "host": "develop-qzapp",
-      "observed": "2026-10-11"
+      "observed": "2026-10-13"
+    },
+    ".agent-fabric/memory/language-culture/workflow/holder-addenda-installed.md#My English-holder charter and brief addenda (agent-fabric ADR-060) live in my store, not the shared charter; edit them through fabric-coordinator": {
+      "agent": "language-culture-en",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
+    },
+    ".agent-fabric/memory/language-culture/workflow/keep-else-whole.md#In a spec's English pass, never reword an \"else\" branch into a narrower named condition; that changes behaviour": {
+      "agent": "language-culture-en",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
     },
     ".agent-fabric/memory/language-culture/workflow/no-reports-on-others-prs.md#Do not report the status, counts or readiness of pull requests I do not own": {
       "agent": "language-culture-en",
@@ -463,7 +891,7 @@
     ".agent-fabric/memory/language-culture/workflow/workflow-carried-2026-10-10.md#How the English cold read behaves when given only the text and the rules — what it catches and what to check before taking a finding": {
       "agent": "language-culture-en",
       "host": "develop-qzapp",
-      "observed": "2026-10-09"
+      "observed": "2026-10-16"
     },
     ".agent-fabric/memory/p2p-network-dev/solution/adr0028-private-group-predicate.md#ADR-0028 A 2026-10-08 (third), architect-cto seq 24751: a group-writable ancestor passes only when its group is the owner's private group (NSS name equality + empty gr_mem), failing closed": {
       "agent": "p2p-network-dev-01",
@@ -505,6 +933,11 @@
       "host": "develop-qzapp",
       "observed": "2026-09-25"
     },
+    ".agent-fabric/memory/p2p-network-dev/solution/rustsec-2026-0372-zvariant-derive-ignored.md#why deny.toml ignores RUSTSEC-2026-0372 (zvariant_derive unmaintained) and when to drop it; how a new unmaintained advisory turns every PR red": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
+    },
     ".agent-fabric/memory/p2p-network-dev/solution/slint-js-sys-conflict-vendoring.md#Why slint backend-winit does not resolve beside libp2p-swarm 0.48.0, and the measured vendoring options (2026-10-03)": {
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
@@ -519,6 +952,11 @@
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-09-19"
+    },
+    ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-8-dcutr.md#Step 8 (DCUtR) -- PR #102 MERGED 2026-09-19 (head e6fc4ef) after four blind rounds (25 commits); the crate facts, ADR-0052's DCUtR instance (the boundary as a filter by deny-and-reissue), the P3s carried to step 9's first commit, what stays open": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-12"
     },
     ".agent-fabric/memory/p2p-network-dev/solution/stage-11-step-9-path-preference.md#Step 9 (path preference and stability) -- PR #103 queued 2026-09-19 at 593afe1 after 2 rounds (17 work commits); the retirement widened to any stable direct path; P3s carried to step 10's first commit": {
       "agent": "p2p-network-dev-01",
@@ -539,6 +977,11 @@
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-08"
+    },
+    ".agent-fabric/memory/p2p-network-dev/threads/android-denies-hard-link-identity-marker.md#Android SELinux denies link(2) on app_data_file; profile-identity's rotation/restore marker (acquire_marker, hard_link) will EACCES on a phone when wired": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-14"
     },
     ".agent-fabric/memory/p2p-network-dev/threads/correction-threads-86-gate-history.md#Correction to threads/threads-carried-2026-09-17.md: the --automated-only/@codex gate its #86 paragraph records was the procedure of 2026-09-10, superseded by #114; history, not current procedure": {
       "agent": "p2p-network-dev-01",
@@ -574,6 +1017,11 @@
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-11"
+    },
+    ".agent-fabric/memory/p2p-network-dev/threads/j77-facade-next-tick-attempt.md#transport-client's first send/retry/restore attempt moves to the next tick(); agreed with rust-ui-dev, nothing transport-side relies on inline": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
     },
     ".agent-fabric/memory/p2p-network-dev/threads/pr111-adr0052-closure-landed.md#PR #111 (mDNS mechanism, DNS transport, ADR-0052 full enforcement) merged fa3eab8 on 2026-09-25; what it left open and whose each item is": {
       "agent": "p2p-network-dev-01",
@@ -640,6 +1088,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-11"
     },
+    ".agent-fabric/memory/p2p-network-dev/threads/pr287-transport-test-oracles-landed.md#Arming below 8 work on the owner's word: arm the reviewed head, do not push a fresh main merge first; codex review not required by fabric-pr arm now": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
     ".agent-fabric/memory/p2p-network-dev/threads/stage-11-step-7-plan.md#Step 7 (relayed peer paths) -- PR #101 MERGED 2026-09-18 as e127fd6 (head 7136a05) after three blind rounds (9 work + 4 review-fix commits); what it decided, what it settled, the P3s carried to step 8's first commit, what stays open": {
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
@@ -690,6 +1143,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-08"
     },
+    ".agent-fabric/memory/p2p-network-dev/workflow/agent-prompt-is-literal.md#An Agent dispatch prompt is literal text; $(cat file) is not expanded, so paste the rendered review brief itself": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-14"
+    },
     ".agent-fabric/memory/p2p-network-dev/workflow/an-allowance-must-not-be-earned-by-what-occupies-it.md#When a bounded outbox gates polling, a class of buffered event must not add to the allowance it sits in -- the term cancels and the bound disappears; exclude it from the count and give it its own cap": {
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
@@ -704,6 +1162,11 @@
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-04"
+    },
+    ".agent-fabric/memory/p2p-network-dev/workflow/arming-needs-a-codex-review-too.md#InterWeave's arm policy (2026-10-13) needs a Codex-engine review of the head beside the review class's; how to run it": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-13"
     },
     ".agent-fabric/memory/p2p-network-dev/workflow/arming-rule-by-pr-commit-count.md#when to arm a PR's merge without asking the owner — 8 to 16 commits of work (review-round fixes do not count) arm on your own once the review gate is met; fewer, ask; keep the work at or under 16 commits": {
       "agent": "p2p-network-dev-01",
@@ -740,6 +1203,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-08"
     },
+    ".agent-fabric/memory/p2p-network-dev/workflow/commit-before-mutation.md#Undoing a mutation with git checkout reverts every uncommitted edit to that file; commit the fix first, then mutate": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-14"
+    },
     ".agent-fabric/memory/p2p-network-dev/workflow/commit-kind-trailer.md#Since 2026-10-08 every commit needs a trailer in its last paragraph — \"Kind: work\", or \"Answers: <finding labels/thread>\" for a fix answering its own PR's review (hook stamps Kind: review-fix)": {
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
@@ -759,6 +1227,16 @@
       "agent": "p2p-network-dev-02",
       "host": "develop-qzapp",
       "observed": "2026-10-08"
+    },
+    ".agent-fabric/memory/p2p-network-dev/workflow/fabric-agent-repo-is-the-secrets-store.md#Never clone or push my fabric-agent-<id> repo by hand; it is the secrets store, written only by fabric-secrets (settings-put for persona files)": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-13"
+    },
+    ".agent-fabric/memory/p2p-network-dev/workflow/free-port-cross-process-is-dev-02s.md#The cross-process free_port fix (tests/support/src/net.rs) belongs to p2p-network-dev-02, not me; don't re-take it": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
     },
     ".agent-fabric/memory/p2p-network-dev/workflow/full-workspace-tests-before-arm.md#Before opening/arming a PR that changes a shared contract, run the whole workspace's tests, not a hand-picked downstream list": {
       "agent": "p2p-network-dev-02",
@@ -783,7 +1261,17 @@
     ".agent-fabric/memory/p2p-network-dev/workflow/gzcoord-fill-the-types-sections.md#gzcoord-compose skeleton sections differ by type (INFO is CONTEXT/NOTES, not INFO:); a fill keyed on the wrong heading sends an empty body silently": {
       "agent": "p2p-network-dev-02",
       "host": "develop-qzapp",
-      "observed": "2026-10-10"
+      "observed": "2026-10-15"
+    },
+    ".agent-fabric/memory/p2p-network-dev/workflow/host-address-classes-bound-what-a-wire-test-can-prove.md#Before calling a wire test \"owed, needs a bigger harness\", check the host's address classes — develop-qzapp has only lo (no MULTICAST) and one RFC 1918 /32, so AutoNAT verdicts and mDNS exchanges cannot happen on it at any harness size; never borrow the shared eth0": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
+    },
+    ".agent-fabric/memory/p2p-network-dev/workflow/host-atspi-registry-empty.md#on develop-qzapp, 5 desktop-e2e human_app cases fail because the AT-SPI registry lists nothing; they fail on main too, so a red there is the host, not the change": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
     },
     ".agent-fabric/memory/p2p-network-dev/workflow/host-cargo-is-system-1-98-no-rustup.md#develop-qzapp has only the distro cargo (Fedora 1.98.1), no rustup. Since #142 (400fb1e3) the pin IS 1.98.1, so local clippy = CI clippy; before that the 1.97.1 pin was not honoured locally. Lessons that outlive the skew: never pipe a verify step, -D warnings is the whole check, an expect/allow lint must exist in the pinned clippy": {
       "agent": "p2p-network-dev-01",
@@ -793,7 +1281,7 @@
     ".agent-fabric/memory/p2p-network-dev/workflow/independent-codecs-lessons.md#writing an \"independent\" codec from contract text — what it finds, how to keep it independent, how to compare it with production": {
       "agent": "p2p-network-dev-02",
       "host": "develop-qzapp",
-      "observed": "2026-10-08"
+      "observed": "2026-10-15"
     },
     ".agent-fabric/memory/p2p-network-dev/workflow/insert-tests-after-the-previous-item.md#A scripted test insert anchored on \"#[test]\\n    fn next\" lands between next's doc comment and its #[test], stealing the doc; anchor on the previous item's closing brace": {
       "agent": "p2p-network-dev-01",
@@ -819,6 +1307,21 @@
       "agent": "p2p-network-dev-02",
       "host": "develop-qzapp",
       "observed": "2026-10-10"
+    },
+    ".agent-fabric/memory/p2p-network-dev/workflow/own-store-never-by-hand.md#The login's fabric-agent-<id> repository is its secrets store; write it only through fabric-secrets (settings-put), never clone or push by hand": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-13"
+    },
+    ".agent-fabric/memory/p2p-network-dev/workflow/pin-an-auto-updating-tool-for-an-evidence-campaign.md#Claude Code updated itself mid-campaign (2.1.285 → 2.1.288) and runs were stamped with the wrong build; run the binary by explicit path with DISABLE_AUTOUPDATER=1 and stamp each run from the version the session itself reports, failing on mismatch": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    ".agent-fabric/memory/p2p-network-dev/workflow/pkill-f-kills-own-shell.md#pkill -f \"<pattern>\" from a Bash tool call matches the tool's own shell command line and kills it (exit 144)": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-14"
     },
     ".agent-fabric/memory/p2p-network-dev/workflow/pkill-f-matches-its-own-shell.md#pkill -f <pattern> inside a Bash tool call kills the tool's own shell (exit 144), since the shell's command line contains the pattern": {
       "agent": "p2p-network-dev-01",
@@ -870,6 +1373,21 @@
       "host": "develop-qzapp",
       "observed": "2026-09-26"
     },
+    ".agent-fabric/memory/p2p-network-dev/workflow/routing-tests-run-on-the-hosts-private-address.md#ADR-0052 loopback refusal means routing tests listen on the host's private address — corrected without the private-range literal the hygiene lint refuses": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
+    },
+    ".agent-fabric/memory/p2p-network-dev/workflow/routing-tests-run-on-the-hosts-private-address.md#ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-09-25"
+    },
+    ".agent-fabric/memory/p2p-network-dev/workflow/run-whole-crate-not-a-filter.md#before pushing a change to a crate, run its whole lib suite and clippy -D warnings, never a test-name filter — source-pin and guard tests live elsewhere in the crate": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-14"
+    },
     ".agent-fabric/memory/p2p-network-dev/workflow/sg-reproduces-a-shared-primary-group.md#To test file-mode rules under umask 002 with a non-private primary group on this host, run `sg otscache -c 'umask 002; cargo test ...'` — no root needed": {
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
@@ -900,6 +1418,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-08"
     },
+    ".agent-fabric/memory/p2p-network-dev/workflow/workflow-to-role-finding-goes-to-the-holder-in-the-crate.md#a TO-ROLE finding when the role has two holders — the one whose unmerged branch is in that crate takes it; check before replying \"mine\"": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
+    },
     ".agent-fabric/memory/rust-ui-dev/intersection.md#j55 (herdr Fleet Deck needs-you views) — the attention section shape agreed with python-dev-01, 2026-10-10": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
@@ -909,6 +1432,16 @@
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-10"
+    },
+    ".agent-fabric/memory/rust-ui-dev/solution/android-accesskit-bridge.md#Slint 1.18.1 Android has no AccessKit; what an app-side bridge can and cannot do, and the matching accesskit_android version": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    ".agent-fabric/memory/rust-ui-dev/solution/android-e2e-device-run.md#running InterWeave's android-e2e --ignored cases on the Pixel over wireless adb -- the traps that cost a run on 2026-10-16": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
     },
     ".agent-fabric/memory/rust-ui-dev/solution/android-network-change-contract.md#§20 step 5 (j44): what the Android Service's network callback owes EmbeddedHost::network_changed, and the wildcard-listener rule": {
       "agent": "rust-ui-dev-01",
@@ -920,10 +1453,15 @@
       "host": "develop-qzapp",
       "observed": "2026-10-10"
     },
+    ".agent-fabric/memory/rust-ui-dev/solution/android-spike-device.md#The two Android test devices (Samsung A40 of SPIKE-008/009, Pixel 9a for API 34+) and the facts a device run depends on; toolchain provisioning is devex-tooling's": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
+    },
     ".agent-fabric/memory/rust-ui-dev/solution/android17-internet-runtime-permission.md#On the Pixel 9a (Android 17, API 37) INTERNET is a runtime permission; ungranted, EmbeddedHost::start fails with EPERM": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-10"
+      "observed": "2026-10-17"
     },
     ".agent-fabric/memory/rust-ui-dev/solution/desktop-e2e-load-flakes.md#j15 -- how to reproduce desktop-e2e timeouts under load, and the send-without-step defect found (Peer::deliver)": {
       "agent": "rust-ui-dev-01",
@@ -950,10 +1488,30 @@
       "host": "develop-qzapp",
       "observed": "2026-10-11"
     },
+    ".agent-fabric/memory/rust-ui-dev/solution/j85-snackbar-closing-rule.md#ui-slint: one rule in Shared::push takes the snackbar off screen when an input that will close it is queued (SnackUp::closed_by); InterWeave #292": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    ".agent-fabric/memory/rust-ui-dev/solution/j91-focus-ring-snackbar-time.md#j91 (2026-10-17): focus ring on every focusable (N2), snackbar time re-read on settings change (N3), notice button ink; Slint placed-child sizing trick": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    ".agent-fabric/memory/rust-ui-dev/solution/j93-swipe-focus-rules.md#j93 (2026-10-17): #286's later swipe rules built on the j93 branch stacked on j91/#292 — Keep/Unkeep focus, focus when the snackbar closes under its Undo (UndoClosed), late Cancel after leaving": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-17"
+    },
     ".agent-fabric/memory/rust-ui-dev/solution/labels-platform-values.md#decided key shape for the eight labels.rs values naming the transport daemon (Android has none) — implement on the j51 app-shell branch": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-10"
+    },
+    ".agent-fabric/memory/rust-ui-dev/solution/model-only-take-rerender.md#app-core ModelSide::turn renders once then takes: an action the model does alone (Hide, Undo, snackbar close, trust input) needs a render after the take or nothing redraws": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
     },
     ".agent-fabric/memory/rust-ui-dev/solution/stage-15-b2-pr178.md#Stage 15 B2+B3 = PR #178 (branch develop-qzapp/rust-ui-dev-01/feat/stage-15-desktop): app start-up/running + store v7 read_pairs; review history and SQLite lessons": {
       "agent": "rust-ui-dev-01",
@@ -980,6 +1538,46 @@
       "host": "develop-qzapp",
       "observed": "2026-10-11"
     },
+    ".agent-fabric/memory/rust-ui-dev/threads/interweave-seedcipher-seam-256.md#InterWeave Android custody: the per-profile SeedCipher seam (KeyRef alias, seal/open/retire, reseal + credential prompt for step 7) j53's Keystore adapter implements, as stated on InterWeave#256; verify custody.rs on main": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-10"
+    },
+    ".agent-fabric/memory/rust-ui-dev/threads/j87-swipe-spec-fixes.md#j87 delivered 2026-10-16 on #292 (32081440..c542801e): fling window, waiting-Cancel snackbar order, focus-only-from-inside-the-row, focusable headings; what it rests on": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    ".agent-fabric/memory/rust-ui-dev/threads/j88-device-review-run.md#j88 delivered 2026-10-16: Pixel 9a recorded run of swipe spec §11 on main 761d72b3; results, findings now j90, where the evidence is": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    ".agent-fabric/memory/rust-ui-dev/threads/j90-swipe-device-fixes.md#j90 (2026-10-17) on #292's branch: causes and fixes of the j88 device findings 17, 5, 16, 13; item 8 waits on p2p-network-dev-01's answer": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    ".agent-fabric/memory/rust-ui-dev/threads/j94-install-292-apk.md#j94 (closed 2026-10-18): installing #292's build for ux-designer-01's re-check was superseded by j98's install of current main; how to rebuild #292 if it is ever wanted": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
+    },
+    ".agent-fabric/memory/rust-ui-dev/threads/j97-accesskit-prototype.md#j97 (2026-10-17): app-side AccessKit adapter prototype for Android built, two APKs (unpatched / hover-patched) waiting for the Pixel; what is measured and what is not": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-17"
+    },
+    ".agent-fabric/memory/rust-ui-dev/threads/j98-android-look.md#j98 (2026-10-17): build design/2026-10-16-android-look.md (ux-designer-01 REQUEST 01a14813); what I promised and where it must land": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-17"
+    },
+    ".agent-fabric/memory/rust-ui-dev/threads/owner-finds-ui-ugly.md#Owner judged the Android client \"aesthetically very bad\" (2026-10-18) while the pre-j98 build was on the Pixel": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
+    },
     ".agent-fabric/memory/rust-ui-dev/threads/stage-15-b1-pr176.md#Stage 15 B1 = PR #176 (branch develop-qzapp/rust-ui-dev-01/feat/stage-15-core): what it holds, its review history, and lessons for later batches": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
@@ -998,7 +1596,7 @@
     ".agent-fabric/memory/rust-ui-dev/threads/stage-15-b9-trust.md#Stage 15 B9 trust settings + gate (b) + B8 carry -- branch feat/stage-15-trust, what landed where, evidence levels, open asks": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-06"
+      "observed": "2026-10-19"
     },
     ".agent-fabric/memory/rust-ui-dev/threads/stage-15-rulings.md#architect-cto's Stage 15 rulings Q1-Q13 (relay seq 11163, 2026-10-03) — app-core, store path, recovery, read_pairs, re-keep, E2E evidence, inputs; check before building any Stage 15 batch": {
       "agent": "rust-ui-dev-01",
@@ -1023,7 +1621,7 @@
     ".agent-fabric/memory/rust-ui-dev/threads/ui-slint-stage15-carry.md#What I inherit in crates/human/ui-slint at Stage 15 from PR #170 — the root's drain contract and carried P3s; read before writing apps/human-desktop's root or first touching ui-slint": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-03"
+      "observed": "2026-10-19"
     },
     ".agent-fabric/memory/rust-ui-dev/threads/ui-slint-surface-proposal.md#ui-slint (Stage 14 batch 8) surface proposed by p2p-network-dev (seq 10823) and my amendments U1a-U5c (seq 10826); check they land in its PR — I own ui-slint from Stage 15": {
       "agent": "rust-ui-dev-01",
@@ -1040,30 +1638,60 @@
       "host": "develop-qzapp",
       "observed": "2026-10-04"
     },
+    ".agent-fabric/memory/rust-ui-dev/workflow/device-review-run-method.md#how to run a recorded acceptance pass of the InterWeave Android client on the Pixel by adb: real rows from host peers, evidence, redaction, traps (j88, 2026-10-16)": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    ".agent-fabric/memory/rust-ui-dev/workflow/gzcoord-inbox-replay.md#gzcoord-inbox has no --help: it drains and moves the cursor; re-read a consumed message with --replay <seq>, list with --history": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
     ".agent-fabric/memory/rust-ui-dev/workflow/herdr-conventional-commits.md#agent-fabric-herdr (FleetDeck) CI requires conventional-commit PR titles AND commit subjects; title edits do not retrigger CI": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-11"
+    },
+    ".agent-fabric/memory/rust-ui-dev/workflow/keep-later-artifacts-in-home.md#an artifact a later run or another session needs (an APK waiting for the phone, a patched crate copy) goes under ~/scratch/<job> with its sha and rebuild step, never /var/tmp; removed when its job closes": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
     },
     ".agent-fabric/memory/rust-ui-dev/workflow/labels-english-supplier.md#who finalises English for crates/human/ui-model/src/labels.rs values, how it reaches my PR, and the conventions a new placeholder should follow": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-09"
     },
+    ".agent-fabric/memory/rust-ui-dev/workflow/mutate-from-a-scratch-copy.md#Mutation loops: restore from a scratchpad copy, never `git checkout <file>`, which throws away the uncommitted change under test": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    ".agent-fabric/memory/rust-ui-dev/workflow/pipe-masks-exit-status.md#cargo clippy/test piped into grep in a && chain: grep's exit status decides, so a failing lint lets the commit through": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
     ".agent-fabric/memory/rust-ui-dev/workflow/prose-sweep-siblings.md#before committing a human-client behaviour or copy change, sweep the sibling crate READMEs, .slint comments, the parity golden, and every test that asserts the old event behaviour (apps/human-* included)": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-09"
     },
-    ".agent-fabric/memory/rust-ui-dev/workflow/release-phone-after-testing.md#when device testing ends, run adb disconnect and adb kill-server so the shared Android phone is free": {
+    ".agent-fabric/memory/rust-ui-dev/workflow/release-phone-after-testing.md#every Pixel run goes through the remit's .agent-fabric/bin/phone-run (own lease, own adb server, nothing left); never adb on the shared port 5037; how a lost pairing looks": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-09"
+      "observed": "2026-10-18"
     },
     ".agent-fabric/memory/rust-ui-dev/workflow/render-brief-before-dispatch.md#fabric-review brief must render successfully BEFORE a review is dispatched; never dispatch in the same parallel batch as the render": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-07"
+    },
+    ".agent-fabric/memory/rust-ui-dev/workflow/review-loop-p3-tail.md##289 took nine review rounds; rounds 5-9 were P3 doc/test gaps. Fix the class in round 1 (the rule, every call site, its doc and its test) to avoid the tail": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
     },
     ".agent-fabric/memory/rust-ui-dev/workflow/shared-target-worktree.md#Never point a scratch worktree's build at the main checkout's target/ — binaries keep the worktree's CARGO_MANIFEST_DIR after it is deleted": {
       "agent": "rust-ui-dev-01",
@@ -1074,6 +1702,36 @@
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-06"
+    },
+    ".agent-fabric/memory/ux-designer/solution.md#Which message kinds the InterWeave human client shows and which per-row actions each has — the base for any gesture/swipe design": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    ".agent-fabric/memory/ux-designer/threads/android-identity-j27.md#j27: Android identity screens design note (create, show phrase, recover) for plan §20 steps 7-8 — where it is and what it waits on": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
+    },
+    ".agent-fabric/memory/ux-designer/threads/android-look-proposal.md#Owner asked (2026-10-16) for the Android client to look like an Android app with colour, not a prebeta; Material 3 proposal awaiting owner decisions": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
+    },
+    ".agent-fabric/memory/ux-designer/threads/stage17-android-review-j26.md#j26: plan §20 clause (j) — my on-device look-and-feel review of the Android app is a condition of Stage 17's close; status and what it waits on": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
+    },
+    ".agent-fabric/memory/ux-designer/threads/swipe-actions-j1.md#Status of j1, swipe actions on messages in the Android client — spec merged, build merged; the device review is partial and blocked on the phone link, TalkBack items deferred (IW #297)": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    ".agent-fabric/memory/ux-designer/workflow.md#How ux-designer reaches InterWeave's Android test phone (Pixel 9a) for a device review — the lease, pairing, cleanup": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
     },
     "memory/domains/devex-tooling/domain/bash-signal-cleanup-traps.md#Writing cleanup for a CI shell script, or a self-test that signals one: EXIT trap suffices for INT/TERM; & jobs start with INT ignored": {
       "agent": "devex-tooling",
@@ -1115,6 +1773,111 @@
       "host": "develop-qzapp",
       "observed": "2026-10-03"
     },
+    "memory/domains/p2p-network-dev/domain/domain-a-test-waits-for-the-state-it-presumes.md#a test that drives an event from another thread must wait for the state it assumes; widen the real window to prove a race that a loop cannot reproduce": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-17"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-android-selinux-denies-link.md#On Android an app process cannot hard-link in its own data dir (SELinux denies `link` on app_data_file): publish an exclusive file with renameat2(RENAME_NOREPLACE), fall back to link only on EINVAL/ENOSYS": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-bionic-gr-mem-lists-own-name.md#On Android, getgrgid_r never answers an empty member list — every group lists its own name; \"group of one = empty gr_mem\" predicates refuse every group there": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-device-tests-run-in-the-app-process.md#Testing an in-process mobile runtime on a real device: run one generic case body in the app's own process (instrumentation) and on a host stand-in that runs the SAME composition; never a debug IPC port": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-event-stream-owes-current-state.md#A client contract that delivers state only as CHANGE events never shows a state that was true from the start, or true again after a reconnect: owe the current value at route begin and at return": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-event-widening-gates-the-stream.md#Widening an EVENT shape behind a minor (a required member goes optional) must be gated per stream/session, not per message, when new-only events can coalesce with or replace old-shape ones": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-failure-class-by-what-not-who.md#Operator-facing dial-failure classes split by WHAT was refused (a policy refusal of a dialable route vs a refusal of the route itself), not by WHO refused it (this node vs the library)": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-failure-set-needs-a-non-verdict.md#A closed failure set for a platform key operation needs a 'transient — decide nothing' member, or an adapter must report a passing platform error as a verdict that sends the user into recovery": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-first-run-exclusive-under-a-lock.md#Making a first-run creation exclusive (provision one identity record) — hold a kernel-released lock across the whole step, not a reservation file: a crash leaves the file behind and refuses every later attempt": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-free-port-same-port-reuseport.md#two bind-port-0 \"free port\" asks in a row can return the same port; libp2p-tcp's SO_REUSEPORT lets both daemons bind it, and each one's dial to the other is stripped as its own listen address (NoAddresses)": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-hickory-android-ndk-context-panic.md#hickory's Android read_system_conf panics (not Errs) without an initialised ndk_context, which only android-activity sets": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-14"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-key-custody-isolation-and-order.md#Wrapping a secret under a platform key: key the alias per (tenant, purpose) in the trusted layer, and never destroy the old key before the new record is durable — retire after the write, and let a restore try the existing record first": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-libp2p-relay-circuit-canceled-is-the-hops.md#libp2p-relay client: a circuit asked for before its connection to the relay is up is dropped unsent (ResponseFromBehaviourCanceled) — score it as the relay hop's, not the destination peer's, whatever the connection table says at settlement": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-libp2p-reuse-dial-eaddrinuse.md#libp2p-tcp's port-reuse dial falls back only on EADDRNOTAVAIL; EADDRINUSE fails the dial; kad's own dials are Reuse and a built DialOpts cannot change port use": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-14"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-mobile-resolver-from-the-network-view.md#On a phone the name resolver's config comes from the per-network platform view (nameservers change with Wi-Fi/cellular/VPN), never from launch or the libc config; no search list; strict Private DNS fails named lookups closed": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-multistream-select-order-recheck.md#libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; how a \"minor bump\" of a protocol id interoperates": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-12"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-radicle-stale-control-socket-recheck.md#radicle-node killed hard won't restart (stale control.sock); why --force is not the fix": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-12"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-retry-trigger-is-an-edge.md#A retry made due 'at once' by a condition must fire on the condition BECOMING true after the attempt was admitted (an edge), never on it simply holding (a level), or a failure that persists under that condition loops": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-silence-bound-arms-on-first-ping.md#A client-side liveness timer must arm on evidence the server runs keepalive (the first ping read), not at connect, when the handshake does not say whether keepalive was granted": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-stand-in-holds-the-seams-shape.md#a host stand-in for a device runner must enforce the device seam's value shape at its one funnel, for every case, or shape bugs show only on a phone": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    "memory/domains/p2p-network-dev/domain/domain-strace-inject-a-platform-denial.md#To reproduce on a dev host a syscall failure only a device or a CI kernel produces (SELinux EACCES on link, EADDRINUSE on a reuse-port connect), run the test under strace's fault injection and compare main against the fix": {
+      "agent": "p2p-network-dev-02",
+      "host": "develop-qzapp",
+      "observed": "2026-10-15"
+    },
     "memory/domains/p2p-network-dev/domain/error-text-matching-pins-the-public-type.md#when a dependency's error is unexported and matched by its Display text, pin the text on the TYPE THE CALLER RECEIVES and feed the classifier a real event — the AutoNAT client's public Error wraps DialBackError and displays that, so a classifier matching the handler's AddressNotReachable text matched nothing and every real failure was silently 'no outcome' (PR #89, found 2026-09-18)": {
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
@@ -1149,6 +1912,11 @@
       "agent": "p2p-network-dev-02",
       "host": "develop-qzapp",
       "observed": "2026-10-11"
+    },
+    "memory/domains/p2p-network-dev/domain/mutate-a-registry-crate-by-config-patch.md#To prove a test pins a dependency's constant (libp2p-kad MAX_NUM_STREAMS), patch a copy from the command line, never the manifest; plus two libp2p-kad 0.49 seat/stream facts": {
+      "agent": "p2p-network-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-12"
     },
     "memory/domains/p2p-network-dev/domain/never-share-a-target-dir-across-worktrees.md#A worktree of main built with the repo's CARGO_TARGET_DIR overwrote workspace-member artifacts; the branch's next full CI failed to compile on a constant main lacked": {
       "agent": "p2p-network-dev-01",
@@ -1190,26 +1958,78 @@
       "host": "develop-qzapp",
       "observed": "2026-10-01"
     },
+    "memory/domains/rust-ui-dev/domain/android-no-hard-links.md#Android app processes cannot link(2) in their data dir (SELinux untrusted_app), so any create-via-hard-link persistence fails with EACCES on a phone and passes on the host": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-14"
+    },
     "memory/domains/rust-ui-dev/domain/atspi-e2e-lessons.md#Driving a Slint/AccessKit window over AT-SPI in tests -- what the adapter answers, focus under Xvfb, hearing announcements, SELinux on this host": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-05"
+      "observed": "2026-10-15"
+    },
+    "memory/domains/rust-ui-dev/domain/slint-changed-handlers-deferred.md#Slint `changed prop =>` handlers run at the event loop's next turn, not on the change; never keep a Rust copy of a window-derived state, read it live": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
     },
     "memory/domains/rust-ui-dev/domain/slint-rendered-window-lessons.md#Slint 1.18 layout/font traps the testing backend does not show -- monospace by name, wrap min-width, a component's height from its only child layout; look at the winit window under Xvfb": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-06"
+      "observed": "2026-10-17"
+    },
+    "memory/domains/rust-ui-dev/domain/slint-swipe-in-flickable.md#Slint 1.18.1 swipe rows inside a Flickable: what the toolkit does to a press, how to move a row without breaking its height, what a device showed (j82, #289)": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
+    },
+    "memory/domains/rust-ui-dev/domain/slint-window-size-binding-loop.md#Slint 1.18 reads a Window's width/height as its layout info, so a responsive flag on root.width loops; a placed child (x/y) leaves the root's layout info; SLINT_COMPILER_DENY_WARNINGS": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-17"
+    },
+    "memory/domains/rust-ui-dev/domain/talkback-on-opens-permission-dialog.md#Turning TalkBack on over adb on the Pixel 9a opens a phone-call permission dialog that takes every injected key; check the focused window before each step": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
+    },
+    "memory/domains/ux-designer/domain/contrast-on-every-surface.md#Measure a mark's contrast against every surface it can sit on (snackbar, notice, bubble, selection), not only the screen background": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-17"
+    },
+    "memory/domains/ux-designer/domain/focus-table-in-spec.md#When a spec names focus targets, list every case once in a single focus table in the acceptance section, each with its check, instead of scattering focus rules across sections": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    "memory/domains/ux-designer/domain/undo-by-reverse-not-deferral.md#When specifying a snackbar Undo for a destructive action on mobile, run the action at once and undo by the reverse action, rather than deferring it until the snackbar closes": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-16"
+    },
+    "memory/domains/ux-designer/domain/wording-pass-keeps-conditions.md#Read every language/English pass on a spec as a diff for meaning: a reworded if/else can drop a case": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-17"
     }
   },
   "shared_slices": 0,
   "shared_topics": [],
-  "stamp": "2026-10-12",
+  "stamp": "2026-10-18",
   "telemetry": {
-    "devex-tooling": {
-      "admitted": 6,
-      "candidates": 7,
+    "architect-cto": {
+      "admitted": 4,
+      "candidates": 4,
       "merged_into_existing": 0,
-      "observations_in": 7,
+      "observations_in": 4,
+      "rejected": 0
+    },
+    "devex-tooling": {
+      "admitted": 8,
+      "candidates": 9,
+      "merged_into_existing": 0,
+      "observations_in": 9,
       "rejected": 1
     },
     "fabric-coordinator": {
@@ -1220,70 +2040,86 @@
       "rejected": 31
     },
     "language-culture": {
-      "admitted": 6,
-      "candidates": 6,
+      "admitted": 8,
+      "candidates": 9,
       "merged_into_existing": 0,
-      "observations_in": 6,
-      "rejected": 0
+      "observations_in": 9,
+      "rejected": 1
     },
     "p2p-network-dev": {
-      "admitted": 111,
-      "candidates": 135,
+      "admitted": 148,
+      "candidates": 173,
       "merged_into_existing": 0,
-      "observations_in": 135,
-      "rejected": 24
+      "observations_in": 173,
+      "rejected": 25
     },
     "rust-ui-dev": {
-      "admitted": 38,
-      "candidates": 43,
+      "admitted": 60,
+      "candidates": 65,
       "merged_into_existing": 0,
-      "observations_in": 43,
+      "observations_in": 65,
       "rejected": 5
+    },
+    "ux-designer": {
+      "admitted": 10,
+      "candidates": 11,
+      "merged_into_existing": 0,
+      "observations_in": 11,
+      "rejected": 1
     }
   },
   "telemetry_sources": {
+    "architect-cto-01@develop-qzapp": {
+      "architect-cto": {
+        "admitted": 4,
+        "candidates": 4,
+        "merged_into_existing": 0,
+        "observations_in": 4,
+        "rejected": 0
+      }
+    },
     "devex-tooling@develop-qzapp": {
       "devex-tooling": {
-        "admitted": 6,
-        "candidates": 7,
+        "admitted": 8,
+        "candidates": 9,
         "merged_into_existing": 0,
-        "observations_in": 7,
+        "observations_in": 9,
         "rejected": 1
       }
     },
     "language-culture-en@develop-qzapp": {
       "language-culture": {
-        "admitted": 6,
-        "candidates": 6,
+        "admitted": 8,
+        "candidates": 9,
         "merged_into_existing": 0,
-        "observations_in": 6,
-        "rejected": 0
+        "observations_in": 9,
+        "rejected": 1
       }
     },
     "p2p-network-dev-01@develop-qzapp": {
       "p2p-network-dev": {
-        "admitted": 101,
-        "candidates": 116,
+        "admitted": 112,
+        "candidates": 127,
         "merged_into_existing": 0,
-        "observations_in": 116,
+        "observations_in": 127,
         "rejected": 15
       }
     },
     "p2p-network-dev-02@develop-qzapp": {
       "p2p-network-dev": {
-        "admitted": 10,
-        "candidates": 19,
+        "admitted": 36,
+        "candidates": 46,
         "merged_into_existing": 0,
-        "observations_in": 19,
-        "rejected": 9
+        "observations_in": 46,
+        "rejected": 10
       }
     },
     "rust-ui-dev-01@develop-qzapp": {
       "rust-ui-dev": {
-        "admitted": 38,
-        "candidates": 43,
+        "admitted": 60,
+        "candidates": 65,
         "merged_into_existing": 0,
-        "observations_in": 43,
+        "observations_in": 65,
         "rejected": 5
       }
     },
@@ -1295,16 +2131,27 @@
         "observations_in": 31,
         "rejected": 31
       }
+    },
+    "ux-designer-01@develop-qzapp": {
+      "ux-designer": {
+        "admitted": 10,
+        "candidates": 11,
+        "merged_into_existing": 0,
+        "observations_in": 11,
+        "rejected": 1
+      }
     }
   },
   "title_collisions": [],
   "watermarks": {
+    "architect-cto-01@develop-qzapp": 1792385807432,
     "develop-qzapp": 1789652045613,
-    "devex-tooling@develop-qzapp": 1791496718988,
-    "language-culture-en@develop-qzapp": 1791677898039,
-    "p2p-network-dev-01@develop-qzapp": 1789778226999,
-    "p2p-network-dev-02@develop-qzapp": 1791739440371,
-    "rust-ui-dev-01@develop-qzapp": 1791618082999,
-    "user@develop-qzapp": 1791626526518
+    "devex-tooling@develop-qzapp": 1792303091026,
+    "language-culture-en@develop-qzapp": 1792386037270,
+    "p2p-network-dev-01@develop-qzapp": 1792326186654,
+    "p2p-network-dev-02@develop-qzapp": 1792384607566,
+    "rust-ui-dev-01@develop-qzapp": 1792386073233,
+    "user@develop-qzapp": 1791626526518,
+    "ux-designer-01@develop-qzapp": 1792386061416
   }
 }

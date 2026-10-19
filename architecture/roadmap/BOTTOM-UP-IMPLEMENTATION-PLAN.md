@@ -4925,7 +4925,7 @@ Android does not add a localhost daemon/IPC transport just to imitate desktop.
 7. secure recovery Activity;
 8. secure mnemonic UI/picker/no-clipboard path;
 9. Android backup/device-transfer exclusions;
-10. package/store metadata — the store-listing check quotes the Play policy text with the date read, closing ADR-0041's Play-policy condition that SPIKE-008 left open.
+10. package metadata for F-Droid (ADR-0056) — the application's F-Droid metadata under the app's directory, the draft build recipe for F-Droid's data repository, and a check that quotes F-Droid's inclusion policy with the date read, lists every application dependency against the policy's repositories, asserts that no Google Play services, Firebase or Play artifact is on the application classpath (the lockfile), and records the target-SDK half of SPIKE-008's P1 as closed by step 3's device run, citing its API level; ADR-0041's Play-policy half is withdrawn (A 2026-10-19, "The Play-policy half is withdrawn") and no store review is awaited.
 
 ### Platform tests
 
@@ -5022,6 +5022,13 @@ no Android package is built yet, SPIKE-008 and SPIKE-009 closed PASS on 2026-10-
 and nothing below is met. This section gained its gate on 2026-10-08
 (fabric-coordinator's observation, after InterWeave #227's thread); the
 closing record will be appended under it, as §18's and §19's were.
+Clause (j) was added on 2026-10-19 (architect-cto, on the owner's word
+in session, the same day the owner asked for the stage to close): the
+gate until then measured the client's platform guarantees and its
+interoperability and never what a person sees, and the owner's reading
+of the app as built is that it falls short of the messengers a person
+already uses; the standard, and the ranking of what a person notices
+first, are ux-designer's to set in the review.
 
 The first-party human client runs on Android as the same library
 composition the desktop proved — embedded runtime, store, chat protocol,
@@ -5041,7 +5048,7 @@ tests, named in the closing record; (b) every step of "Implement in order" has a
 the closing record and green — host Rust tests for the session and
 domain logic, instrumented tests on a real device (API level recorded)
 for each line of "Platform tests", process death and restart included;
-step 10 by the store-listing check the packaging batch defines; (c)
+step 10 by the F-Droid metadata and inclusion-policy check (ADR-0056); (c)
 `tests/android-e2e` proves Android ↔ desktop interoperability through a
 direct and a relayed path, HumanChatV2 both directions, plain and
 compressed, with the captured payloads validated against the envelope
@@ -5075,7 +5082,20 @@ test shows a trust set in the embedded host's log under a filter
 stricter than INFO, so the sink's admission of the audit target is what
 is proved, not the default level; (h) the Gradle graph's OSV.dev scan (§Dependency hygiene, A 2026-10-10: `osv-scanner` over the committed Gradle lockfiles, run locally, no CI job — the owner's words) has run against the head that closes the stage and the closing PR's body says so with what it found; `osv-scanner.toml` holds only `[[IgnoredVulns]]` entries with their reason, each reviewed; dependency locking is on and the lockfiles are committed; the README command is landed by devex-tooling;
 (i) the ledger holds no `stage-17` entry, and the closing record moves
-the status to the lowest open stage on the owner's word. No contract
+the status to the lowest open stage on the owner's word; (j) (A
+2026-10-19, the owner's word in session: the Android app's look and
+feel are far below what a person expects of a messaging app, and
+ux-designer is to bring it to the level of the mainstream Android
+messengers) ux-designer has reviewed the Android app as built — on the
+device, every screen and flow the app has — against that standard and
+against its own specifications under `design/`, and the review is a
+file under `design/` naming each finding with the spec line it misses
+or the standard it falls short of, ranked; every finding the review
+ranks as what a person would notice first is built by rust-ui-dev and
+re-reviewed by ux-designer before the close, and every lower-ranked
+finding is either built or carried to the owner's release gate by name
+in the closing record, never dropped; the closing record cites the
+review file and its re-review. No contract
 flips at this gate: the Android binding consumes contracts already
 `active` (ADR-0049; each flip is recorded in the stage that made it),
 and a new contract this stage finds it needs lands `approved` first.
@@ -5399,7 +5419,7 @@ Carried here from Stage 13 (§16): hot reload (SIGHUP) and which leases survive 
 
 Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
-Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release.
+Android's release is the F-Droid build (ADR-0056): the recipe submitted to F-Droid's data repository, the project's tagged release run defined and its APK the reference F-Droid's build of the same tag is compared with, the release tag; no Google Play listing exists and none is planned. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release.
 
 Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both. macOS is IN that matrix and owes this stage two things before it ships, neither decided yet: a macOS runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a macOS runner, the v1 build claim being Linux until both exist. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows rows are conditional on the carry above.
 

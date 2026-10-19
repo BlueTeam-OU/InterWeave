@@ -5,7 +5,7 @@ topic: "no-sha-before-commit"
 description: "never name a commit sha in a message composed in the same command as the commit -- read it from git log after the commit succeeds"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
