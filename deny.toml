@@ -32,7 +32,14 @@ exclude-dev = false
 # platform is judged when that platform is built. Without it the graph is
 # every target's, and a Windows-only or iOS-only dependency of the
 # windowing backend would be judged as if it shipped here.
-targets = ["x86_64-unknown-linux-gnu"]
+#
+# `aarch64-linux-android` joined on 2026-10-19 (ADR-0057 decision 3): the
+# phone is built here (plan section 20), so its graph is judged in the
+# same invocation as the desktop's -- one list, the union of both graphs,
+# no second run of the check to wire. Its first run that day added 44
+# crates to the judged graph and rejected two of them, the Android Slint
+# crates admitted below; advisories, bans and sources stayed clean.
+targets = ["x86_64-unknown-linux-gnu", "aarch64-linux-android"]
 
 [advisories]
 version = 2
@@ -207,14 +214,23 @@ confidence-threshold = 0.93
 # THE WINDOWING BACKEND (plan section 18 (14), the owner's decision of
 # 2026-10-04): winit with the software renderer and the accessibility
 # adapter, behind ui-slint's `desktop` feature. Its two Slint crates join
-# the exceptions below on the same terms. The skia renderer, which
-# backend-winit names only for Apple's mobile targets, and BSL-1.0
-# (clipboard-win and error-code, Windows-only through arboard) fall
-# outside the graph `[graph] targets` judges: BSL-1.0 is NOT admitted, and
-# is decided on its own when the Windows binding comes.
+# the exceptions below on the same terms. BSL-1.0 (clipboard-win and
+# error-code, Windows-only through arboard) falls outside the graph
+# `[graph] targets` judges: it is NOT admitted, and is decided on its own
+# when the Windows binding comes.
+#
+# THE ANDROID BACKEND (ADR-0057 decision 3, the owner's choice of
+# 2026-10-19 to keep Slint under the Royalty-free licence on Android):
+# android-activity with the skia renderer, the phone's graph only. Its two
+# Slint crates join the exceptions below per crate, as the 2026-10-04
+# ruling's rule requires -- that ruling covered the winit crates alone.
+# `skia-bindings` and `skia-safe` are MIT and need nothing here; the
+# native Skia library the bindings download is not a crate, so no
+# licence check sees it, and its notices are plan section 20 step 10's.
 #
 # What this does NOT settle: the Royalty-free licence's attribution duty,
-# which the shipped app carries (Stage 15, with its window).
+# which the shipped app carries (Stage 15, with its window; the release
+# page for Android, ADR-0057).
 [[licenses.exceptions]]
 crate = "slint"
 allow = ["LicenseRef-Slint-Royalty-free-2.0"]
@@ -244,6 +260,12 @@ crate = "i-slint-backend-winit"
 allow = ["LicenseRef-Slint-Royalty-free-2.0"]
 [[licenses.exceptions]]
 crate = "i-slint-renderer-software"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+[[licenses.exceptions]]
+crate = "i-slint-backend-android-activity"
+allow = ["LicenseRef-Slint-Royalty-free-2.0"]
+[[licenses.exceptions]]
+crate = "i-slint-renderer-skia"
 allow = ["LicenseRef-Slint-Royalty-free-2.0"]
 
 [bans]
