@@ -5,7 +5,7 @@ topic: "commit-kind-trailer"
 description: "Since 2026-10-08 every commit needs a trailer in its last paragraph — \"Kind: work\", or \"Answers: <finding labels/thread>\" for a fix answering its own PR's review (hook stamps Kind: review-fix)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

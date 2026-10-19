@@ -5,7 +5,7 @@ topic: "post-review-after-github-sees-the-push"
 description: "A review posted with post-review.sh seconds after git push can attach to the PR's previous head; check headRefOid first"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

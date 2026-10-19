@@ -5,7 +5,7 @@ topic: "stage17-spikes-merged"
 description: "SPIKE-008/009 device halves merged (#210, #214) and the human store's RETENTION 8 fix -- what landed and what each did not establish"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

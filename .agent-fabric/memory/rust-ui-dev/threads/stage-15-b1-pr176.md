@@ -5,7 +5,7 @@ topic: "stage-15-b1-pr176"
 description: "Stage 15 B1 = PR #176 (branch develop-qzapp/rust-ui-dev-01/feat/stage-15-core): what it holds, its review history, and lessons for later batches"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

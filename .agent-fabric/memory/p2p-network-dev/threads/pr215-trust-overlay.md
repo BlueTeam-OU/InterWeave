@@ -5,7 +5,7 @@ topic: "pr215-trust-overlay"
 description: "#215 trust overlay merged 92d01a1a 2026-10-07: ADR-0028 A 2026-10-07 built, IPC 2.3 trust rows; P3s carried as j27; multiple area reviewers on one PR worked"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
