@@ -132,9 +132,9 @@ gradle_files() {
 # not open a comment, and a } inside one must not close a block -- each
 # once let the [^}]* matches below accept a call outside its block
 # (review of #307, rounds 2 and 3). It is a quote-pairing scan, not a
-# Kotlin lexer, and it does NOT see: a ${...} template holding a quote or
-# a char literal, a backtick identifier holding an apostrophe, a raw
-# string ending in more than three quotes, or nested /* */ comments.
+# Kotlin lexer (it does count nested /* */ comments), and it does NOT
+# see: a ${...} template holding a quote character, a backtick identifier
+# holding an apostrophe, or a raw string ending in more than three quotes.
 # Each leaves a quote open to the end of its line, which FAILS OPEN on
 # the two presence checks below when the block's closing brace shares
 # that line (a brace on a later line is unaffected). Judged P3 and left
@@ -149,7 +149,10 @@ code_of() {
             while (i <= n) {
                 ch = substr($0, i, 1); two = substr($0, i, 2); three = substr($0, i, 3)
                 if (st == "block") {
-                    if (two == "*/") { st = "code"; i += 2 } else i++
+                    # Kotlin comments nest: /* a /* b */ c */ is one.
+                    if (two == "/*") { depth++; i += 2 }
+                    else if (two == "*/") { if (--depth == 0) st = "code"; i += 2 }
+                    else i++
                     continue
                 }
                 if (st == "triple") {
@@ -162,7 +165,7 @@ code_of() {
                     i++
                     continue
                 }
-                if (two == "/*") { st = "block"; i += 2; continue }
+                if (two == "/*") { st = "block"; depth = 1; i += 2; continue }
                 if (two == "//") break
                 if (three == tq) { out = out tq; st = "triple"; i += 3; continue }
                 if (ch == dq) { out = out ch; st = "dq"; i++; continue }
@@ -227,7 +230,10 @@ LOOSEN='LENIENT|ignoredDependencies|unlockAllConfigurations|deactivateDependency
 # is used, so it may not.
 BANNED='(com\.google\.android\.gms|com\.google\.firebase|com\.google\.android\.play|com\.android\.billingclient|com\.google\.gms)([.:"'"'"'/[:space:]]|$)'
 # A dependency call on a test or lint configuration, by its whole name,
-# a build type or flavour between allowed (testDebugImplementation): a
+# a build type or flavour between allowed (testDebugImplementation). The
+# infix is any capitalised words; test fixtures are taken back out
+# below, because the lockfile check treats their classpaths as the
+# application and the two halves must answer the same (round 5). A
 # bare prefix once exempted `testing { ... }` (round 3), and suffix-only
 # once refused testDebugImplementation and androidTestUtil (round 4).
 TOOLING_LINE='^[0-9]+:[[:space:]]*"?((test|androidTest|[a-z]+UnitTest|[a-z]+AndroidTest)([A-Z][a-z0-9]+)*(Implementation|Api|CompileOnly|RuntimeOnly|AnnotationProcessor)|androidTestUtil|lintChecks|lintPublish)"?[[:space:](]'
@@ -244,7 +250,11 @@ while IFS= read -r src; do
     hits="$(grep -nE "$BANNED" "$src" || true)"
     # The exemption is per statement: a line holding a ; can carry a
     # second one after the test call (review of #307 round 3, finding 2).
-    case "$src" in *.toml) ;; *) hits="$(grep -vE "${TOOLING_LINE}[^;]*$" <<<"$hits" || true)" ;; esac
+    case "$src" in
+        *.toml) ;;
+        *) hits="$(grep -vE "${TOOLING_LINE}[^;]*$" <<<"$hits" || true)
+$(grep -E "${TOOLING_LINE}[^;]*$" <<<"$hits" | grep -E '^[0-9]+:[[:space:]]*"?[A-Za-z]*[Tt]estFixtures' || true)" ;;
+    esac
     while IFS= read -r h; do
         [ -n "$h" ] && fail "$rel: declares a banned group (line ${h%%:*}) -- ${h#*:}"
     done <<<"$hits"

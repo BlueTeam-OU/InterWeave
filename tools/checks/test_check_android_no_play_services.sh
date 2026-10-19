@@ -225,6 +225,8 @@ R="$(tree)"; printf '\ntesting { plugins { id("com.google.gms.google-services") 
 expect_fail "$R" "a line that only starts with test" "declares a banned group"
 R="$(tree)"; printf '\ndependencies {\n    testDebugImplementation("com.google.firebase:x:1.0")\n    androidTestUtil("com.google.android.gms:y:1.0")\n    androidTestReleaseImplementation("com.google.android.play:z:1.0")\n}\n' >> "$R/$APP_BUILD"
 expect_pass "$R" "test configurations with a build type, and androidTestUtil (round 4)"
+R="$(tree)"; printf '\ndependencies {\n    testFixturesImplementation("com.google.firebase:x:1.0")\n}\n' >> "$R/$APP_BUILD"
+expect_fail "$R" "test fixtures, which the lockfile check counts as the application (round 5)" "declares a banned group"
 R="$(tree)"; printf '\ndependencies {\n    testingImplementation("com.google.firebase:x:1.0")\n}\n' >> "$R/$APP_BUILD"
 expect_fail "$R" "a configuration that only starts with test (testingImplementation)" "declares a banned group"
 
@@ -250,6 +252,9 @@ printf '\nallprojects { val b = "}" }\ndependencyLocking { lockAllConfigurations
 expect_fail "$R" "a double-quoted string closes at its own quote (the call after the block fails)" "no lockAllConfigurations() in allprojects"
 R="$(tree)"; sed -i 's/^allprojects {/allprojects {\n    val note = "a } in a string"\n    val url = "https:\/\/x"/' "$R/$ROOT_BUILD"
 expect_pass "$R" "a } and a // in strings inside the real block do not unlock it"
+
+R="$(tree)"; sed -i 's/^\([[:space:]]*\)lockAllConfigurations()$/\1\/* old: \/* nested *\/\n\1lockAllConfigurations()\n\1*\//' "$R/$ROOT_BUILD"; printf '\ndependencyLocking { lockAllConfigurations() }\n' >> "$R/$ROOT_BUILD"
+expect_fail "$R" "a call inside a nested comment does not count (round 5)" "no lockAllConfigurations() in allprojects"
 
 echo "the plugin classpath's lock is checked too"
 R="$(tree)"; sed -i 's/^buildscript {/run {/' "$R/$ROOT_BUILD"
