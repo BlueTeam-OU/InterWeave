@@ -513,10 +513,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # check_license_headers.sh and validate_adr_index.sh read the
-          # working tree, not history — but scan_semantic_collisions.sh
-          # is about what a merge produced, so the merge commit the queue
-          # builds must be the tree under test.
+          # check_license_headers.sh reads the working tree, not history
+          # — but scan_semantic_collisions.sh is about what a merge
+          # produced, so the merge commit the queue builds must be the
+          # tree under test. validate_adr_index.sh reads both: its
+          # AMENDED phase compares against the merge-base with
+          # origin/main, and exits 2 when that does not resolve.
           #
           # FULL HISTORY, because check_spike_locks.sh's provenance phase
           # asks where each spike pin came from: whether it is an
