@@ -11,7 +11,7 @@
 
 Authority order is unchanged (`CLAUDE.md` §2): accepted ADRs → normative contracts and protocol specs → the bottom-up plan and test gates → explanatory documents → this digest and the index (navigation aids).
 
-**Maintenance is binding.** Every new ADR gets an entry here in the same commit; every amendment updates its ADR's entry. `tools/checks/validate_adr_index.sh` fails when an ADR file has no digest entry, no index row, when either references an ADR that does not exist, when an ADR breaks the template, or when its amendment record is inconsistent.
+**Maintenance is binding.** Every new ADR gets an entry here in the same commit; every amendment updates its ADR's entry. `tools/checks/validate_adr_index.sh` fails when an ADR file has no digest entry, no index row, when either references an ADR that does not exist, when an ADR breaks the template, when its amendment record is inconsistent, or when an ADR gained an amendment since the base revision and its digest entry did not change with it (ADR-0048 A 2026-10-19).
 
 ---
 
@@ -21,6 +21,7 @@ Authority order is unchanged (`CLAUDE.md` §2): accepted ADRs → normative cont
 |---|---|
 | layering, what belongs in transport vs application, opaque payload, coordination semantics | **0001** (+ 0021, 0045 for where code lives) |
 | Claude Code Channel, MCP bridge, stdio server, push notifications, tool surface | **0002** + **0023** |
+| automated client, agent or bot as a first-party consumer, what the transport promises a machine client, loopback deployment of many accounts, identity init, service units | **0055** (+ 0044 durability stays in the client, 0019 the dedup window, 0052 operator addresses, 0002 pull delivery) |
 | libp2p backend choice, TCP/Noise/Yamux/Identify wiring | **0003** (+ 0013 security, 0035 reachability wiring) |
 | broadcast, GossipSub, topics, mesh message ID, duplicate key | **0004** + **0025** (+ **0029** validation mapping) |
 | GossipSub validation result, Reject vs Ignore vs Accept, unauthorized publisher | **0029** (+ 0012 trust) |
@@ -40,7 +41,7 @@ Authority order is unchanged (`CLAUDE.md` §2): accepted ADRs → normative cont
 | Noise, encryption in transit, PeerId authentication | **0013** (+ 0014 what is NOT end-to-end encrypted) |
 | group/end-to-end encryption, payload confidentiality from forwarding peers | **0014** (deferred — bounded by the trusted overlay) |
 | daemon vs embedded, process model, surviving Claude Code restarts | **0015** (+ 0041 the Android exception) |
-| Android distribution, F-Droid, Google Play services forbidden, store metadata, inclusion policy, reproducible build | **0056** (+ 0041 the type stays, 0051/0053/0054 vendored source) |
+| Android distribution, release page, no store, Google Play services forbidden, Slint licence on Android, APK signing | **0057** (+ 0056 superseded, 0041 the type stays, 0039 the toolkit) |
 | profile identity, one PeerId per profile, multiple local applications | **0016** (superseded for routing by **0030**) |
 | local IPC, framing, 128 KiB body, hello handshake, keepalive, capabilities | **0017** (+ 0037 admin split) |
 | admin socket, admin authority, client.kind, privilege separation | **0037** (+ 0017, 0032) |
@@ -100,6 +101,12 @@ Architecture B: the Claude bridge connects over local IPC to a separate Rust dae
 - Rules: the daemon owns identity and network lifecycle and survives Claude Code restarts. Carries an Android amendment — ADR-0041 embeds the same runtime in a foreground service instead.
 - Keywords: daemon, embedded, process model, lifecycle, architecture b
 
+### 0055 — Automated clients are first-party consumers above a general-purpose transport (Proposed)
+An agent, a bot or a gateway is a consumer with the human client's standing; the transport stays general purpose (human-to-human included) and the fleet's coordination protocol never enters this repository.
+- Rules: one long-lived process per profile under its account, one endpoint lease, one client kind, keepalive, bounded reconnect, draining as part of the lease, never the admin socket; what is promised: `AcceptedV2` is admission, no durable broadcast, dedup 10,000/5 min in memory so a retry past the window lands twice, queue 256 (`overloaded` before admission for direct, drop-oldest for broadcast), the broadcast ingress bucket (32 burst, 120/min per peer) drops silently, 48 KiB does not rise, `ShuttingDown` and `BackendUnavailable` both mean re-open; what the client owes itself: durable pending with one `message_id`, retry never given up without its operator, its own receipt, its own collapse of a repeat, fan-out as direct sends, compress then chunk, its own authentication of who a PeerId is; `transportctl identity init|show`; config rendered by the deployment; one host, many accounts over loopback with a port per profile (shared silently within one account by `SO_REUSEPORT`); Linux user units; the fleet is the first deployment and its protocol stays in the fabric.
+- Security: the transport authenticates the PeerId and nothing above it; the silent drop is an availability fact, not a boundary; no claim about a second host or Byzantine profiles.
+- Keywords: automated client, machine client, agent client, first-party consumer, fleet deployment, loopback deployment, identity init, service unit, ingress bucket, dedup window
+
 ### 0021 — Rust workspace dependency boundaries (Accepted)
 Neutral contracts stay separate from concrete runtime, libp2p, platform, and application crates.
 - Rules: neutral transport/EndpointId, discovery, trust, local-client, IPC, and Kademlia-control contracts are their own crates; first-party human clients build from shared human-core/store/UI crates; IPC stays language-neutral. The repository currently holds landing zones and an **empty** virtual workspace — no production manifests or source.
@@ -123,7 +130,8 @@ Display name **InterWeave**; machine identifiers lowercase `interweave`.
 ### 0048 — ADR authoring, amendment, and propagation (Accepted)
 How this corpus is written, changed, and navigated.
 - Rules: an ADR body reads **current** — amendments are folded into the section they qualify, never appended as end-matter prose; numbered decision items are permanent citable identifiers and a withdrawn one becomes a tombstone; a change of substance is a **superseding ADR**, not an edit (the test: would a reader who followed the old text now be wrong?). Every amendment is recorded three ways in one commit series — the in-place edit, a dated note in `history/NNNN-amendments.md` (`### Amendment YYYY-MM-DD — title`), and a row in the ADR's `## Amendments` end-matter table; the (date, title) pair is the identity, and `(ii)` suffixes exist only to break byte-identical headings. No changelog, no version counter. Propagation — README row, digest entry, dependent specs, fixtures only on intentional vector change — is part of the change, enforced by `tools/checks/validate_adr_index.sh`. The digest is the default entry point and is non-normative.
-- Keywords: adr template, amendment, supersede vs amend, history file, propagation, digest is non-normative, no changelog
+- The validator holds that an amended ADR's digest entry changed with it (Amendment 2026-10-19): an ADR whose Amendments table gained a (date, title) key since the base revision fails when its `### NNNN` entry is byte-identical to the base's; it proves the entry moved, not that it is right; no citation convention, the digest stays a current-state summary.
+- Keywords: adr template, amendment, supersede vs amend, history file, propagation, digest is non-normative, no changelog, amended digest entry
 
 ### 0049 — Machine-readable wire contracts with lifecycle status (Accepted)
 Wire **shape** gets JSON Schema beside the prose; the prose stays normative for **behaviour**.
@@ -332,16 +340,20 @@ A peer's trust authorizes its protocol, never where this host opens sockets: Aut
 - Rules: the app embeds the Rust runtime in an Android foreground-service host rather than launching a daemon or exposing local TCP/UDS; the UI talks through the neutral in-process `LOCAL-CLIENT` adapter; the service owns the `human` lease while active. Continuous background reachability is explicit opt-in using the `remoteMessaging` foreground-service category subject to SPIKE-008 validation; foreground-only is supported; **no centralized push wake-up dependency**. `stay-reachable` combined with `user-presence` key unlock must expose `background_restart_requires_user_authentication=true` and must not claim automatic reachability after restart.
 - The stay-reachable choice lives in a persisted overlay in the state directory (Amendment 2026-10-10): `runtime.android.availability_mode` in config.yaml is the authored default and is never rewritten; the person's act writes the trust overlay's sibling through one embedded-host call; one effective mode (overlay, else config) for the Service, the derived diagnostic and `background_restart_requires_user_authentication`; off removes the entry; a change restarts the service in the new mode.
 - Network access is a runtime permission on API 37+ (Amendment 2026-10-10): the Activity asks before binding the Service (notifications after); a denial is the ui-model's `network_denied` state — the Service opens the store with no runtime and no lease, reading and Keep working as ADR-0044 defines, nothing sent or joined; a reachable Service restarted without the permission posts one notification and ends (stay reachable requires `POST_NOTIFICATIONS`); the runtime is to answer `EmbeddedRefused::NetworkDenied` (planned). The journey: human-client-android.md §Runtime permissions.
-- The Play-policy half of the `remoteMessaging` condition is withdrawn (Amendment 2026-10-19, the Play half withdrawn; ADR-0056): the condition is the target-SDK half alone, closed by step 3's API 34+ device run; the type stays on the platform's definition and Android's own enforcement; no store declaration, no store review, no `specialUse` fallback for a store; the Play material of the first 2026-10-19 amendment is history; the revisit trigger is Android's platform rules, not a store's policy.
-- Keywords: android, foreground service, localdatasession, no push dependency, spike-008, stay-reachable, remoteMessaging, target-sdk, f-droid
+- The Play-policy half of the `remoteMessaging` condition is withdrawn (Amendment 2026-10-19, the Play half withdrawn; ADR-0056, now ADR-0057): the condition is the target-SDK half alone, closed by step 3's API 34+ device run; the type stays on the platform's definition and Android's own enforcement; no store declaration, no store review, no `specialUse` fallback for a store; the Play material of the first 2026-10-19 amendment is history; the revisit trigger is Android's platform rules, not a store's policy.
+- Keywords: android, foreground service, localdatasession, no push dependency, spike-008, stay-reachable, remoteMessaging, target-sdk, no store
 
 ---
 
-### 0056 — Android distribution is F-Droid only, and the app uses no Google Play services (Accepted)
-The owner's word of 2026-10-19: one store, F-Droid, which builds the app from this repository's source; no Google Play, and no Play services in any form.
-- Rules: F-Droid's repository is the only store (a project release page offering F-Droid's APK is §22's question, never a second store); the application classpath carries no Google Play services, Firebase, Play Integrity, Billing, In-App Update or Install Referrer artifact and no code path depends on them (lint and test tooling excepted; a lockfile guard holds it); F-Droid's inclusion policy binds the build — FLOSS, dependencies from source or a named repository, the native library built by F-Droid's recipe, no prebuilt binary, no API key, no downloaded executable, anti-features disclosed, a build F-Droid cannot reproduce is a release blocker; ADR-0041's Play-policy half is withdrawn (its A 2026-10-19 "The Play-policy half is withdrawn"); plan §20 step 10 is F-Droid metadata, the draft recipe and the inclusion-policy check; §22's `packaging/android` is the F-Droid release.
-- Security: integrity rests on F-Droid's reproducible build and signature and updates on the F-Droid client the person chose; no Play Integrity, no Play update channel; the attack surface shrinks by the libraries that are not there.
-- Keywords: f-droid, android distribution, no google play services, no firebase, inclusion policy, reproducible build, store metadata, play policy withdrawn
+### 0056 — Android distribution is F-Droid only, and the app uses no Google Play services (Superseded by 0057)
+Accepted and superseded on 2026-10-19: F-Droid was dropped for now once step 10's check found Slint's Royalty-free terms are not FLOSS by F-Droid's rule and Skia arrives as a downloaded binary. Its services rule lives on as 0057 decision 2.
+- Keywords: f-droid, superseded, android distribution history
+
+### 0057 — Android is distributed from the project's own release page, with no store, and the app uses no Google Play services (Accepted)
+The owner's word of 2026-10-19: no store for now, the project's own release page, and no Google Play services in any form.
+- Rules: the APK of the tagged release run, signed by the project's key, published on the release page with its SHA-256, release notes and the Slint attribution; installed and updated by hand, no update channel, no self-update; the application classpath carries no Google Play services, Firebase, Play Integrity, Billing, In-App Update or Install Referrer artifact, nor the Google services Gradle plugin's group `com.google.gms` (Amendment 2026-10-19), and no code path depends on them (lint and test tooling excepted; a lockfile guard holds it); Slint stays under the Royalty-free licence on Android as on the desktop (the Android graph's delta — two Slint crates admitted per crate by decision 3, Skia's notices, the Android target in `deny.toml` — owed before the first release); the release run builds the native library from source and Stage 19 decides whether Skia's prebuilt archive is pinned by checksum or built from source; plan §20 step 10 is the release metadata, the dependency and licence listing and the lockfile check; §22's `packaging/android` is the release; ADR-0041 unchanged (target-SDK half only).
+- Security: integrity rests on the project's signing key and the published hash; no store signature, no store update path; the Skia prebuilt archive is a build-time third-party download until Stage 19 pins or removes it.
+- Keywords: android distribution, release page, no store, apk signing, manual update, no google play services, no firebase, slint royalty-free, skia prebuilt
 
 ## Cluster 7 — Identity and key material
 

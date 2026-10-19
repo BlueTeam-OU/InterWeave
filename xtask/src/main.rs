@@ -94,6 +94,11 @@ fn tree_checks() -> Vec<Task> {
             &["tools/checks/check_component_status.sh"],
         ),
         Task::new(
+            "no Google Play services on the Android app's classpath",
+            "bash",
+            &["tools/checks/check_android_no_play_services.sh"],
+        ),
+        Task::new(
             "the discovery schema's config keys are all representable",
             "bash",
             &["tools/checks/check_discovery_config_keys.sh"],

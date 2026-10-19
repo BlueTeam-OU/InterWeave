@@ -8,7 +8,7 @@ use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, XdgRoots};
+use interweave_profile_config::{LoadError, ProfileConfig, ProfileLock, ProfilePaths, XdgRoots};
 use interweave_profile_identity::{IdentityError, ProfileIdentity, RecoveryRecord};
 use zeroize::Zeroizing;
 
@@ -22,6 +22,8 @@ use crate::phrase;
 /// [`Failure::Refused`], naming why -- and never a word of the phrase.
 pub(crate) fn run(command: Identity) -> Result<String, Failure> {
     match command {
+        Identity::Init { profile } => init(&profile),
+        Identity::Show { profile } => show(&profile),
         Identity::Verify { expected } => verify(&phrase::read(expected)?),
         Identity::Backup { profile, to_file } => backup(&profile, to_file.as_deref()),
         Identity::Restore {
@@ -45,6 +47,67 @@ fn profile(name: &str) -> Result<(ProfilePaths, PathBuf), Failure> {
     let config = ProfileConfig::load(&paths).map_err(|e| refused("the profile", &e))?;
     let key_file = config.identity.key_file_in(&paths);
     Ok((paths, key_file))
+}
+
+/// The profile's paths, offline, and its key file -- as its configuration
+/// names it, or, while the profile has no configuration yet, the
+/// profile's default identity file (`ProfilePaths::identity_file`), which
+/// is where a configuration that names no `key_file` keeps it. That is the
+/// fleet's order (ADR-0055 decision 7): the key is minted first, its
+/// `PeerId` goes into the roster, and the configuration is rendered from
+/// the roster after. A configuration that is THERE but does not load is
+/// refused, never read around: it may name another key file.
+fn profile_for_init(name: &str) -> Result<(ProfilePaths, PathBuf), Failure> {
+    let refused = |what: &str, e: &dyn std::fmt::Display| Failure::Refused(format!("{what}: {e}"));
+    let roots = XdgRoots::from_env().map_err(|e| refused("the XDG directories", &e))?;
+    let paths = ProfilePaths::resolve_offline(name, &roots).map_err(crate::profile_refusal)?;
+    match ProfileConfig::load(&paths) {
+        Ok(config) => {
+            let key_file = config.identity.key_file_in(&paths);
+            Ok((paths, key_file))
+        }
+        Err(LoadError::Read(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            let key_file = paths.identity_file();
+            Ok((paths, key_file))
+        }
+        Err(e) => Err(refused("the profile", &e)),
+    }
+}
+
+/// Mint the profile's key and print its `PeerId`, the key's only public
+/// part (ADR-0055 decision 7). Under the lock, so never while its daemon
+/// runs; never over an existing key -- the exclusive create refuses one,
+/// so two inits racing past the lock still cannot both write. The key
+/// written is loaded back before its `PeerId` is printed, as a restore's.
+fn init(name: &str) -> Result<String, Failure> {
+    let refused = |what: &str, e: &dyn std::fmt::Display| Failure::Refused(format!("{what}: {e}"));
+    let (paths, key_file) = profile_for_init(name)?;
+    let _lock = lock(&paths)?;
+    ProfileIdentity::generate()
+        .save(&key_file)
+        .map_err(|e| match e {
+            IdentityError::AlreadyExists => Failure::Refused(format!(
+                "profile {name:?} already has a key: identity show prints its PeerId"
+            )),
+            other => refused("creating the identity key", &other),
+        })?;
+    let peer = ProfileIdentity::load(&key_file)
+        .and_then(|identity| identity.transport_identity())
+        .map_err(|e| refused("reloading the new key", &e))?;
+    Ok(format!("{}\n", peer.as_str()))
+}
+
+/// Print the `PeerId` of the profile's key, read under the lock as the
+/// other verbs read it -- so refused while its daemon runs, whose
+/// `status` says the same -- and nothing else of the key.
+fn show(name: &str) -> Result<String, Failure> {
+    let refused = |what: &str, e: &dyn std::fmt::Display| Failure::Refused(format!("{what}: {e}"));
+    let (paths, key_file) = profile_for_init(name)?;
+    let _lock = lock(&paths)?;
+    let peer = ProfileIdentity::load(&key_file)
+        .and_then(|identity| identity.transport_identity())
+        .map_err(|e| refused("the identity key", &e))?;
+    Ok(format!("{}\n", peer.as_str()))
 }
 
 /// The profile lock, taken at once or not at all: held, it is a running

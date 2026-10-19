@@ -56,6 +56,17 @@ class MainActivity : NativeActivity() {
     @Volatile private var phraseShown = false
 
     override fun onStart() {
+        // Before super.onStart(), which waits for the window's thread to
+        // take the Start; that thread waits for this answer before it
+        // chooses between the identity screens and the chats (onboard.rs).
+        // After it, each would wait on the other (#309 review N1).
+        val identity =
+            if (identityReady) Native.IDENTITY_READY else Native.identityState(applicationInfo.dataDir)
+        if (identity != Native.IDENTITY_READY) {
+            // Before the window can draw a word: the flow's whole length,
+            // cleared once a frame without it was drawn (#309 F3).
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
         super.onStart()
         shown = true
         Thread({ relayAsks() }, "interweave-network-ask").start()
@@ -80,13 +91,11 @@ class MainActivity : NativeActivity() {
         // The identity screens' asks: a first run's or a recovery's before
         // the service, Show my phrase's from Settings after it.
         Thread({ relayIdentity() }, "interweave-identity").start()
-        if (!identityReady) {
-            // The identity screens come before the service: a profile with
-            // no identity, or one the phone lost, binds nothing until the
-            // screens say the identity is ready (onboard.rs).
-            if (Native.identityState(applicationInfo.dataDir) != Native.IDENTITY_READY) return
-            identityReady = true
-        }
+        // The identity screens come before the service: a profile with no
+        // identity, or one the phone lost, binds nothing until the screens
+        // say the identity is ready (onboard.rs).
+        if (identity != Native.IDENTITY_READY) return
+        identityReady = true
         if (!phraseShown) connect()
     }
 
@@ -336,9 +345,10 @@ class MainActivity : NativeActivity() {
     private fun relayIdentity() {
         while (shown) {
             when (Native.waitIdentityAsk(ASK_WAIT_MS)) {
-                // FLAG_SECURE for as long as a word is on screen: no
-                // screenshot, no recents thumbnail (android-key-custody.md).
-                Ask.SECURE_ON -> runOnUiThread { window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+                // FLAG_SECURE goes on before any word can be drawn (onStart,
+                // and OFFLINE below), and off only once the window drew a
+                // frame without the flow: no screenshot, no recording, no
+                // recents thumbnail (android-key-custody.md, #309 F3).
                 Ask.SECURE_OFF -> runOnUiThread { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
                 Ask.PROMPT -> runOnUiThread { prompt() }
                 Ask.BIND -> {
@@ -349,7 +359,12 @@ class MainActivity : NativeActivity() {
                 // Show my phrase: with no service bound, none runs.
                 Ask.OFFLINE -> {
                     phraseShown = true
-                    local?.offline { Native.offline(it) } ?: Native.offline(true)
+                    // The flag first, on the main thread: S2's words are
+                    // drawn only after Native.offline, which runs after it.
+                    runOnUiThread {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        local?.offline { Native.offline(it) } ?: Native.offline(true)
+                    }
                 }
                 Ask.ONLINE -> {
                     phraseShown = false

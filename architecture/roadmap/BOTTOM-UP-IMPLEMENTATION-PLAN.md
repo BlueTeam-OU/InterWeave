@@ -4925,7 +4925,7 @@ Android does not add a localhost daemon/IPC transport just to imitate desktop.
 7. secure recovery Activity;
 8. secure mnemonic UI/picker/no-clipboard path;
 9. Android backup/device-transfer exclusions;
-10. package metadata for F-Droid (ADR-0056) — the application's F-Droid metadata under the app's directory, the draft build recipe for F-Droid's data repository, and a check that quotes F-Droid's inclusion policy with the date read, lists every application dependency against the policy's repositories, asserts that no Google Play services, Firebase or Play artifact is on the application classpath (the lockfile), and records the target-SDK half of SPIKE-008's P1 as closed by step 3's device run, citing its API level; ADR-0041's Play-policy half is withdrawn (A 2026-10-19, "The Play-policy half is withdrawn") and no store review is awaited.
+10. release metadata and the dependency check (ADR-0057; no store) — the APK's application id, version name and code, the signing scheme and where the key is kept (never in the repository), the release-page template with the Slint attribution, the SHA-256 and the manual-update note; a check that lists every application dependency with its licence (the Royalty-free terms for the desktop's ten Slint crates as admitted; `i-slint-backend-android-activity` and `i-slint-renderer-skia` admitted per crate by ADR-0057 decision 3, with `deny.toml` gaining the Android target; Skia's MIT bindings and the native library's notices) and asserts that no Google Play services, Firebase or Play artifact is on the application classpath (the lockfile), and records the target-SDK half of SPIKE-008's P1 as closed by step 3's device run, citing its API level; ADR-0041's Play-policy half is withdrawn (A 2026-10-19, "The Play-policy half is withdrawn") and no store review exists.
 
 ### Platform tests
 
@@ -5048,7 +5048,7 @@ tests, named in the closing record; (b) every step of "Implement in order" has a
 the closing record and green — host Rust tests for the session and
 domain logic, instrumented tests on a real device (API level recorded)
 for each line of "Platform tests", process death and restart included;
-step 10 by the F-Droid metadata and inclusion-policy check (ADR-0056); (c)
+step 10 by the release metadata and the dependency check (ADR-0057); (c)
 `tests/android-e2e` proves Android ↔ desktop interoperability through a
 direct and a relayed path, HumanChatV2 both directions, plain and
 compressed, with the captured payloads validated against the envelope
@@ -5419,7 +5419,7 @@ Carried here from Stage 13 (§16): hot reload (SIGHUP) and which leases survive 
 
 Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
-Android's release is the F-Droid build (ADR-0056): the recipe submitted to F-Droid's data repository, the project's tagged release run defined and its APK the reference F-Droid's build of the same tag is compared with, the release tag; no Google Play listing exists and none is planned. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release.
+Android's release is the project's own (ADR-0057): the tagged release run, the signed APK, its SHA-256 and the Slint attribution on the project's release page, updates by hand; no store listing exists and none is planned; whether the release run builds Skia from source or pins the bindings' prebuilt archive by checksum is decided here before the first release. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release.
 
 Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both. macOS is IN that matrix and owes this stage two things before it ships, neither decided yet: a macOS runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a macOS runner, the v1 build claim being Linux until both exist. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows rows are conditional on the carry above.
 
@@ -5577,3 +5577,123 @@ The historical phase numbers remain useful as scope labels:
 However, **construction follows Stages 0-19 in this document**. In particular, connection/dial policy (Stage 5) precedes Kademlia (Stage 10) and mandatory Internet reachability (Stage 11), even though the older product phase table groups those concerns differently.
 
 This ordering is normative because it ensures autonomous libp2p behaviours are introduced only after their security and resource-control boundary already exists.
+
+## 28. Stage 20 — automated clients and the one-host deployment
+
+Opened by this record on the owner's direction of 2026-10-19 (the
+agents that build InterWeave use it as their transport) and bounded by
+the owner's line of the same day: InterWeave stays a general-purpose
+transport, for human-to-human communication as for anything else, and
+the agents' coordination protocol does not enter this repository —
+"different things, different layer". The stage runs **beside** Stage
+17 and Stage 18 as §19's Stage 16 ran beside Stage 15: the status value
+stays the lowest open stage, and this section is the authorisation for
+its packages (§3 of `CLAUDE.md`). The decision is ADR-0055; this
+section is the construction order, the gate and the record. It is
+numbered after §27 so that no citation of §23–§27 moves.
+
+### Objective
+
+What the transport promises an automated client — an agent, a bot, a
+gateway, a test harness — stated as measured and proved by a
+conformance suite, with the two offline identity verbs and the Linux
+user units a deployment of many profiles under many accounts on one
+host needs. InterWeave's part ends at the data socket's contract and
+those facts; the protocol a deployment carries, its addressing, its
+roster, its journal and its carrier process are the deployment's, and
+for the fleet they are agent-fabric's by its own records.
+
+### Prerequisites
+
+None beyond what is on `main`: the daemon (Stage 13), IPC v2 `active`
+(Stage 13), static bootstrap (Stage 9), the trust overlay (ADR-0028 A
+2026-10-07). Stage 17's close is not a prerequisite, and nothing here
+touches the human client.
+
+### Activate
+
+```text
+packaging/linux                 (the daemon's and a client's user-unit templates; §22's service-lifecycle rows pulled forward for Linux only)
+apps/transportctl               (two offline verbs: identity init, identity show)
+tests/automated-client          (the conformance suite of ADR-0055 decisions 2 and 5)
+architecture/clients/automated  (what the transport promises an automated client, and what such a client owes itself)
+```
+
+No new crate. `packaging/macos`, `packaging/windows` and
+`packaging/android` stay §22's. No name of any coordination protocol
+appears in any of the four.
+
+### Implement in order
+
+1. `transportctl identity init --profile <name>` and `identity show`
+   (ADR-0055 decision 4): offline, under the profile lock, printing the
+   PeerId and nothing secret; refused while a daemon holds the lock;
+   `init` refuses an existing key; tests beside the other identity
+   verbs. (Built on p2p-network-dev's branch at 8dddbbcf, 24 tests,
+   before this record landed.)
+2. `tests/automated-client` (root suite, test-support only): two
+   daemons on loopback with static bootstrap and mutual trust as a
+   deployment renders them, and a generic test client that claims a
+   configured endpoint and joins a channel; cases: a direct message B
+   receives from A; an application receipt B's client sends after it
+   has kept the message, reaching A's client (decision 3, the client's
+   own); a send while B's lease is withheld answered
+   `RemoteEndpointUnavailable`, retried under the same `message_id` and
+   landing once inside the dedup window, and the same retry after B's
+   daemon restarts landing as a second delivery the test client
+   collapses by its own key (decision 2, the limit measured); a
+   fan-out under one `message_id` to two receivers each landing once;
+   A's daemon restarted under a live client (re-lease, re-join, the
+   next message lands; `ShuttingDown` then `BackendUnavailable` both
+   re-opened); a burst of 200 broadcasts with the delivered count read
+   against the ingress bucket, and the same burst as direct sends
+   landing whole through `Overloaded` retries; a loopback
+   static-bootstrap dial, which no test on `main` exercised; a second
+   daemon of the same account sharing a port (decision 5), and a port
+   held by a plain socket without `SO_REUSEPORT` refusing the start
+   (exit 1 on `EADDRINUSE`, a free-port start as the control); the
+   cross-account refusal is carried as unverified until CI has a second
+   account. (Built on p2p-network-dev's branch: nine cases at 4db37607
+   before this record landed, the tenth, the held port, added on #305's
+   review; the suite reads the ingress bucket's constants
+   from `interweave-transport-runtime` as a dev-dependency rather than
+   restating them, which is the right direction for a conformance
+   suite — `tests/support` stays out of production, the reverse is
+   allowed.)
+3. `architecture/clients/automated/AUTOMATED-CLIENT.md`: ADR-0055
+   decisions 2 and 3 as a reader's document, each fact naming the test
+   of step 2 or the contract that holds it, restating no constant; the
+   loopback deployment's `config.yaml` shape; the pacing figures for
+   fan-out. Written by architect-cto from the facts p2p-network-dev
+   states with step 2 (written 2026-10-19 from their REPLY on
+   4db37607 and f68b7b56; one fact new to the record, broadcast order
+   not preserved, folded into ADR-0055 decision 2 the same day).
+4. `packaging/linux`: `interweave-daemon@.service` and
+   `interweave-client@.service` as systemd user units templated on the
+   profile name, `Restart=on-failure`, the daemon stopped by SIGTERM
+   with the grace it already honours, the client `After=` and
+   `BindsTo=` its daemon, binaries from the account's own path, no
+   system-wide install; a README that says how an account installs them
+   and that a deployment's tooling may do it instead. (Built at
+   f68b7b56: a clean stop in 0.19 s with the client stopping with it,
+   the client starting with the daemon, both back 5 s after a SIGKILL,
+   a taken port retried under the start limit; the client unit runs
+   the deployment's program from the account's `libexec`, or a
+   drop-in's `ExecStart`, and InterWeave ships none.)
+5. The stale clause in `CLAUDE.md` §1 about mDNS (the multicast backend
+   was built after Stage 9; this record corrects it) — done in the
+   series that lands this section.
+
+### Exit gate
+
+(a) Steps 1–4 landed with their tests green on `main`, every fact of
+decision 2 held by a named case; (b) the automated-client document
+cites each; (c) the first external deployment, if one has run by the
+close, is cited by its own record with the figures it measured — it is
+evidence, never a condition, since the transport is general purpose and
+no deployment's protocol is this stage's.
+
+### Record
+
+The owner's word closes it, as every stage. The `Met.` block names the
+cases, the measured figures of decision 2 and what was carried.

@@ -47,9 +47,10 @@ pub(crate) mod state {
 /// (`Native.waitIdentityAsk`).
 pub(crate) mod ask {
     use jni::sys::jint;
-    /// Words are shown or entered: `FLAG_SECURE` on.
-    pub(crate) const SECURE_ON: jint = 1;
-    /// No word on screen: `FLAG_SECURE` off.
+    /// The flow is over and a frame without its page was drawn:
+    /// `FLAG_SECURE` off. The Kotlin side sets it, synchronously, before
+    /// any word can be drawn: at a start whose identity is not ready, and
+    /// before Show my phrase takes the service offline (#309 F3).
     pub(crate) const SECURE_OFF: jint = 2;
     /// The device-credential or strong-biometric prompt; answered by
     /// `Native.prompted`.
@@ -87,6 +88,16 @@ impl Asks {
         self.changed.notify_all();
     }
 
+    /// Drop what waits: asks an earlier Activity instance left unread
+    /// belong to its window, and a late `SECURE_OFF` would clear the new
+    /// window's flag while its flow runs (#309 review, risk).
+    fn clear(&self) {
+        self.queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+    }
+
     /// The next ask within `timeout`, or 0.
     pub(crate) fn wait(&self, timeout: Duration) -> jni::sys::jint {
         let queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
@@ -113,11 +124,21 @@ struct Platform {
 }
 
 static PLATFORM: Mutex<Option<Platform>> = Mutex::new(None);
+/// Signalled once [`identity_state`] has set [`PLATFORM`]: the window's
+/// thread and the Activity's `onStart` run at once, and the window must
+/// not choose the chats before it knows (#309 F5).
+static PLATFORM_SET: Condvar = Condvar::new();
+/// How long the window waits for `onStart`'s answer before it shows the
+/// chats and lets the service report what it finds.
+const PLATFORM_WAIT: Duration = Duration::from_secs(10);
 
 /// `Native.identityState`: whether the identity opens, and if not, where
 /// the flow starts. Any other refusal is the service's to report, as it
 /// does today, so it reads as ready.
 pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> jni::sys::jint {
+    // Called by onStart before its relay thread starts: whatever an
+    // earlier instance left in the queue is no longer anyone's.
+    ASKS.clear();
     let found = interweave_human_android_platform::start_identity(
         &app_data_dir,
         PROFILE,
@@ -164,6 +185,7 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         start,
         user_presence,
     });
+    PLATFORM_SET.notify_all();
     code
 }
 
@@ -199,7 +221,6 @@ struct Onboarding {
     creation: Option<Creation>,
     app_data_dir: PathBuf,
     cipher: Arc<KeystoreCipher>,
-    secure: bool,
     /// The presence window, and the key operation waiting on its prompt.
     gate: PresenceGate,
     /// Show my phrase, from Settings: the service is bound already, and
@@ -210,6 +231,11 @@ struct Onboarding {
     /// (android-key-custody.md, Recovery). None where it could not be
     /// taken: the seal then takes its own.
     lock: Option<ProfileLock>,
+    /// Show my phrase asked the service to stop: whatever ends the flow
+    /// must ask it back (#309 F2).
+    offline_asked: bool,
+    /// The service was asked to start (BIND or ONLINE).
+    service_asked: bool,
     /// Called once the flow hands over to the chats.
     done: Rc<dyn Fn()>,
 }
@@ -222,6 +248,12 @@ thread_local! {
 /// once it hands over to the chats. False when there is nothing to show.
 pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool {
     let platform = PLATFORM.lock().unwrap_or_else(PoisonError::into_inner);
+    let (platform, waited) = PLATFORM_SET
+        .wait_timeout_while(platform, PLATFORM_WAIT, |platform| platform.is_none())
+        .unwrap_or_else(PoisonError::into_inner);
+    if waited.timed_out() {
+        log("the identity's state did not arrive; the chats show");
+    }
     let Some(Platform {
         app_data_dir,
         cipher,
@@ -232,19 +264,26 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         return false;
     };
     // Before the network service is bound, so nothing else holds it.
-    let lock = onboarding::hold(app_data_dir, PROFILE)
-        .inspect_err(|why| log(&format!("the identity flow holds no lock: {why:?}")))
-        .ok();
+    // Refused, no word is shown or taken until a Try again takes it.
+    let mut flow = IdentityFlow::new(english(), start.clone());
+    let lock = match onboarding::hold(app_data_dir, PROFILE) {
+        Ok(lock) => Some(lock),
+        Err(why) => {
+            flow.held(Err(failed(&why)));
+            None
+        }
+    };
     let onboarding = Onboarding {
         view: Rc::clone(view),
-        flow: IdentityFlow::new(english(), start.clone()),
+        flow,
         creation: None,
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
-        secure: false,
         gate: PresenceGate::new(*user_presence),
         from_settings: false,
         lock,
+        offline_asked: false,
+        service_asked: false,
         done: Rc::new(done),
     };
     drop(platform);
@@ -275,11 +314,12 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
         creation: None,
         app_data_dir: app_data_dir.clone(),
         cipher: Arc::clone(cipher),
-        secure: false,
         gate: PresenceGate::new(*user_presence),
         from_settings: true,
         // Taken once the service has stopped (`offline`).
         lock: None,
+        offline_asked: false,
+        service_asked: false,
         done: Rc::new(|| {}),
     };
     drop(platform);
@@ -322,9 +362,10 @@ pub(crate) fn prompted(granted: bool) {
                         o.flow.cancelled_step();
                         Vec::new()
                     }
-                    // A cancelled seal leaves C4 as it was, and a
-                    // cancelled service start leaves the profile offline,
-                    // which connectivity and the diagnostic then say.
+                    // A cancelled seal leaves C4 as it was. A cancelled
+                    // service start still ends the flow, which asks the
+                    // service back (`render`): with the key closed it
+                    // stays offline, and says so.
                     Prompted::Dropped(_) => Vec::new(),
                     // S1's own prompt.
                     Prompted::NotHeld => o.flow.prompted(granted),
@@ -346,7 +387,12 @@ pub(crate) fn offline(stopped: bool) {
                 .as_mut()
                 .map(|o| {
                     let outcome = if stopped {
-                        onboarding::hold(&o.app_data_dir, PROFILE)
+                        // A Try again after a failed read keeps the lock
+                        // the first attempt took: taking it again in this
+                        // process would be refused as Busy.
+                        o.lock
+                            .take()
+                            .map_or_else(|| onboarding::hold(&o.app_data_dir, PROFILE), Ok)
                             .and_then(|lock| {
                                 o.lock = Some(lock);
                                 onboarding::shown_phrase(
@@ -419,6 +465,7 @@ fn one(effect: Effect) -> Vec<Effect> {
                 }
                 Err(why) => {
                     log(&format!("no new identity: {why:?}"));
+                    o.flow.not_created(StepFailed::Storage);
                     Vec::new()
                 }
             },
@@ -474,22 +521,27 @@ fn one(effect: Effect) -> Vec<Effect> {
                 .map_err(|why| failed(&why));
                 o.flow.restored(outcome)
             }
+            Effect::Hold => {
+                match onboarding::hold(&o.app_data_dir, PROFILE) {
+                    Ok(lock) => {
+                        o.lock = Some(lock);
+                        o.flow.held(Ok(()));
+                    }
+                    Err(why) => o.flow.held(Err(failed(&why))),
+                }
+                Vec::new()
+            }
             Effect::Prompt => {
                 ASKS.push(ask::PROMPT);
                 Vec::new()
             }
             Effect::GoOffline => {
+                o.offline_asked = true;
                 ASKS.push(ask::OFFLINE);
                 Vec::new()
             }
             Effect::StartService => {
-                // Let go first: the service takes the profile's lock.
-                o.lock = None;
-                ASKS.push(if o.from_settings {
-                    ask::ONLINE
-                } else {
-                    ask::BIND
-                });
+                ask_service(o);
                 Vec::new()
             }
             Effect::OpenChats | Effect::OpenSettings => Vec::new(),
@@ -497,32 +549,36 @@ fn one(effect: Effect) -> Vec<Effect> {
     })
 }
 
-/// Show the page for the flow's screen, or hand over to the chats once it
-/// is done; keep the secure flag on while a word is on screen.
+/// Show the page for the flow's screen, or hand over once it is done.
+/// The flow does not end while the presence gate holds an effect, or the
+/// prompt's answer would find nothing to resume (#309 F1); its end asks
+/// the service back whenever the flow stopped it or a first run awaits it,
+/// a cancelled prompt and a failed step included (F2); and `FLAG_SECURE`,
+/// set by the Activity before any word, is cleared only once a frame
+/// without the flow's page has been drawn (F3).
 fn render() {
     let handover = ONBOARDING.with(|slot| {
         let mut slot = slot.borrow_mut();
         let o = slot.as_mut()?;
-        let screen = o.flow.screen();
-        let secure = matches!(
-            screen,
-            ScreenId::C2 | ScreenId::C3 | ScreenId::R2 | ScreenId::R3 | ScreenId::S2
-        );
-        if secure != o.secure {
-            o.secure = secure;
-            ASKS.push(if secure {
-                ask::SECURE_ON
-            } else {
-                ask::SECURE_OFF
-            });
-        }
-        if screen == ScreenId::Done {
-            o.view.borrow().show_identity(None);
-            Some(Rc::clone(&o.done))
-        } else {
+        if o.flow.screen() != ScreenId::Done {
             o.view.borrow().show_identity(Some(identity_page(&o.flow)));
-            None
+            return None;
         }
+        o.view.borrow().show_identity(None);
+        if o.gate.holding() {
+            return None;
+        }
+        if !o.service_asked && (!o.from_settings || o.offline_asked) {
+            ask_service(o);
+        }
+        let cleared = o
+            .view
+            .borrow_mut()
+            .after_next_frame(|| ASKS.push(ask::SECURE_OFF));
+        if !cleared {
+            log("no frame notifier: FLAG_SECURE stays on for this window");
+        }
+        Some(Rc::clone(&o.done))
     });
     if let Some(done) = handover {
         ONBOARDING.with(|slot| slot.borrow_mut().take());
@@ -533,4 +589,17 @@ fn render() {
         }
         done();
     }
+}
+
+/// Ask the Activity to start the service: bound as a launch does after a
+/// first run or a recovery, brought back after Show my phrase. The lock
+/// goes first: the service takes it.
+fn ask_service(o: &mut Onboarding) {
+    o.lock = None;
+    o.service_asked = true;
+    ASKS.push(if o.from_settings {
+        ask::ONLINE
+    } else {
+        ask::BIND
+    });
 }

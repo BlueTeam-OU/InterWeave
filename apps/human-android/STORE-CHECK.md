@@ -118,12 +118,17 @@ ADR-0057 decision 2. Checked 2026-10-19 over all three lockfiles
 `android/settings-gradle.lockfile`): no `com.google.android.gms`,
 `com.google.firebase`, `com.google.android.play` or
 `com.android.billingclient` artifact on any configuration. The
-`com.google` artifacts present (`guava`, `gson`, `protobuf-java`,
-`jsr305`, `error_prone_annotations`, `j2objc-annotations`, `jimfs`,
-`failureaccess`, `listenablefuture`) are on `androidLintTool` and the
-test platform only, never a runtime classpath. Holding it on every
-change is the lockfile guard's, which is devex-tooling's to shape
-(ADR-0057 decision 2); this check is its reading of today.
+`com.google` artifacts present are on the build's own classpath
+(`buildscript-gradle.lockfile`'s `classpath`: the Android Gradle
+plugin's `com.google.auto.value`, `code.findbugs`, `code.gson`,
+`crypto.tink`, `dagger`, `errorprone`, `flatbuffers`, `guava`,
+`j2objc`, `jimfs` and `protobuf` groups, and
+`com.googlecode.juniversalchardet`),
+on `androidLintTool` and on the test platform, never on a runtime
+classpath. On every change it is held by
+`tools/checks/check_android_no_play_services.sh`, the lockfile guard
+ADR-0057 decision 2 names (run by `cargo xtask checks` and CI); this
+section is the reading of 2026-10-19.
 
 ## SPIKE-008's target-SDK half
 

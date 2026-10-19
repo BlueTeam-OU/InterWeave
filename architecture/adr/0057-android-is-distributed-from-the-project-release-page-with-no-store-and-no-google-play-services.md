@@ -1,0 +1,48 @@
+# Android is distributed from the project's own release page, with no store, and the app uses no Google Play services
+
+**Status:** Accepted — the owner's word of 2026-10-19 ("Drop F-Droid for now"; "keep no google play services"), ratified by the arming of the pull request that lands this record; supersedes ADR-0056's distribution decisions, keeps its services rule
+
+## Context
+
+ADR-0056, accepted earlier on 2026-10-19, made F-Droid the only store. Writing plan §20 step 10's inclusion-policy check against F-Droid's policy (read the same day), rust-ui-dev found two blockers in the Android graph on `main`: Slint 1.18.1's ten crates are offered as "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0", the owner admitted the Royalty-free terms on 2026-10-01 for eight crates and on 2026-10-04 for the winit backend's two, per crate (plan §17; `deny.toml`'s exceptions, which judge the x86_64 Linux target only), those terms are none of the DFSG, FSF, GNU or OSI lists F-Droid's first rule judges by, and the one FLOSS route would make the distributed APK a GPLv3 work; and Slint's Android backend (`i-slint-backend-android-activity` 1.18.1) depends on the Skia renderer unconditionally, whose bindings crate downloads a prebuilt Skia from a GitHub release in its build script, a source F-Droid's binary rule does not name, so Skia would have to be built from source on F-Droid's builder with LLVM, Python 3, Ninja and Skia's sources as a srclib. Put to the owner with GPL-3.0 recommended, the owner chose to drop F-Droid for now and keep Slint under the Royalty-free licence, and confirmed that the app still uses no Google Play services. The `com.google` entries in `apps/human-android/android/app/gradle.lockfile` on that day are lint and test tooling only.
+
+## Decision
+
+1. **No store, for now.** The Android human client is not listed on F-Droid, Google Play or any other store. It is distributed from the project's own release page: the APK the project's tagged release run builds from the tagged commit, signed by the project's Android signing key, with its release notes and the SHA-256 of the file beside it. A person installs it by hand and updates it by hand; there is no update channel, and the app does not check for updates itself.
+2. **No Google Play services, in any form** (ADR-0056 decision 2, extended by A 2026-10-19 with a fifth group). The application classpath carries no Google Play services, Firebase, Play Integrity, Play Billing, Play In-App Update, Play Install Referrer or any `com.google.android.gms`, `com.google.firebase`, `com.google.android.play`, `com.android.billingclient` or `com.google.gms` artifact (the last being the Google services Gradle plugin's group, the usual door for the others; A 2026-10-19), and no code path depends on their presence on the device. Lint and test tooling may depend on what it depends on; the application may not. A guard over the Gradle lockfiles holds this (devex-tooling's to shape; the rule owes the test).
+3. **Slint stays under the Royalty-free licence on Android as on the desktop**, with its attribution duty (plan §18's carry: the Slint badge where the binaries are downloaded — the release page is that page for Android). The GPL-3.0 route was not taken; it is the revisit below. **The Android graph's licence surface is NOT the desktop's, and the admission does not yet cover it**: `deny.toml` judges `x86_64-unknown-linux-gnu` alone and its Royalty-free exceptions name the desktop's ten crates (`i-slint-backend-winit` and `i-slint-renderer-software` among them); the Android build adds `i-slint-backend-android-activity` and `i-slint-renderer-skia`, which carry the same licence expression and are admitted by THIS decision — the owner's choice of 2026-10-19 to keep Slint under the Royalty-free licence — written per crate as `deny.toml` requires, since the 2026-10-04 ruling covered the winit backend's crates only, and `skia-bindings` and `skia-safe` (MIT) with the native Skia library the bindings fetch, whose third-party notices the APK and the release page owe. What is owed, and by whom: `aarch64-linux-android` added to `deny.toml`'s one `targets` list and the two per-crate exceptions (p2p-network-dev's, the manifest; no check wiring changes, one invocation judges the union), the Skia notice set enumerated from the features Slint enables (step 10's check), and `cargo deny --target aarch64-linux-android check licenses` green before the first release.
+4. **The release build is the project's own.** The tagged release run builds the native library with `cargo-ndk` from this repository's source and may use the Skia bindings' prebuilt Skia as every other build does, pinned by the bindings crate's version; whether the release run builds Skia from source, or pins the prebuilt archive by checksum, is Stage 19's packaging decision (§22), stated there before the first release. No reproducibility claim toward any third party is made.
+5. **Plan §20 step 10 becomes the release metadata and the dependency check**: the APK's application id, version name and code, the signing scheme and where the key is kept (never in the repository, CLAUDE.md §6), the release-page template with the attribution and the SHA-256; the check that lists every application dependency with its licence — the Royalty-free terms for the desktop's ten crates as admitted, the two Android Slint crates once admitted per crate, Skia's MIT bindings and the native library's notices — and asserts decision 2 over the lockfile; and the record of SPIKE-008's target-SDK half as closed by step 3's device run, citing its API level. Plan §22's `packaging/android` is the release itself: the tagged run, the signed APK, the page.
+6. **ADR-0041 is unaffected**: its condition is the target-SDK half alone, closed by step 3's device run; no store declaration exists and none is written; a store's policy is not a revisit trigger.
+
+## Alternatives considered
+
+F-Droid on Slint's GPL-3.0-only route (the recommendation put to the owner; refused for now: the Royalty-free admission stands). Replacing Slint on Android to keep F-Droid (ADR-0039's revisit; large, refused for now). Building Skia from source for F-Droid (ruled as the route had F-Droid stayed; moot). Google Play (refused by the owner's earlier decision, and the services rule forbids its libraries). A self-hosted F-Droid repository (not taken; the same licence question).
+
+## Consequences
+
+The app reaches people who install an APK by hand and keep it current by hand; the project's release page is the only source and says so. No store review, no store metadata, no inclusion policy binds the build. The licence surface is the desktop's plus Android's own delta (decision 3), which the dependency check and `deny.toml` must cover before the first release. The one obligation this record adds to the release is honesty on the page: the version, the hash, the attribution, and that updates are manual.
+
+## Security implications
+
+No store signature and no store update channel: the APK's integrity rests on the project's signing key and the published hash, and a person who installs from anywhere else has no assurance this record can give. The signing key is release infrastructure under CLAUDE.md §6, never committed. The absence of Play services keeps Play Integrity and Play's update path out of the trust story, as ADR-0056 said. The Skia prebuilt archive is a build-time download from a third party's release: a supply-chain fact Stage 19 pins or removes (decision 4).
+
+## Operational implications
+
+A release checklist: tag, the release run, the signed APK, the hash, the page with attribution and the manual-update note; a signing key held by the owner; no store accounts. A revisit of F-Droid costs the licence decision above and the Skia build, both known.
+
+## Implementation implications
+
+Plan §20 step 10 and §22 `packaging/android` as decision 5 says; the lockfile guard of decision 2; `human-client-android.md`, `human-client-packaging.md` §6, `RISKS.md` and `SPIKES.md`'s SPIKE-008 note inherit this record; ADR-0056's status points here. rust-ui-dev's step 10 work on the inclusion-policy check stops; its dependency and licence listing is kept as the check's record.
+
+## Revisit conditions
+
+The owner choosing a store (then the licence route and the Skia build decide F-Droid, and the services rule still forbids Play); Slint's licence offering a FLOSS route the owner accepts, or the toolkit changing (ADR-0039); the app gaining an update check of its own, which is a new decision with its own privacy reading.
+
+## Amendments
+
+Full notes: [`history/0057-amendments.md`](./history/0057-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-19 | `com.google.gms` is a fifth refused group | Decision 2 names the Google services Gradle plugin's group beside the four artifact groups, since it is the usual door for them; the lockfile guard refuses it on application configurations like the others. No other rule changes. |

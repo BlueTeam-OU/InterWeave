@@ -1,6 +1,6 @@
 # Android distribution is F-Droid only, and the app uses no Google Play services
 
-**Status:** Accepted — the owner's word of 2026-10-19 ("Interweave will go only on f-droid phone and must not use google play services"), ratified by the arming of the pull request that lands this record
+**Status:** Superseded by ADR-0057 (2026-10-19, the same day: F-Droid dropped for now on Slint's licence route and Skia's prebuilt binary; the no-Google-Play-services rule of decision 2 stands there unchanged). Was: Accepted — the owner's word of 2026-10-19, ratified by the arming of #301
 
 ## Context
 

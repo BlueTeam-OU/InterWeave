@@ -33,22 +33,47 @@
 #              resolves to a real ADR.
 #   HISTORY    an ADR with an `## Amendments` section has a history file
 #              at history/NNNN-amendments.md, and vice versa (ADR-0048).
+#   AMENDED    an ADR whose `## Amendments` table gained a (date, title)
+#              key since the base revision has a `### NNNN` digest entry
+#              that differs from the base's. The DIGEST check only proves
+#              an entry EXISTS, so an amendment whose digest bullet was
+#              never written passed it while the entry went on describing
+#              the record as it stood before (InterWeave #301, ADR-0041).
+#
+# What AMENDED does not prove: that the entry's new text is about the
+# amendment, or that it is right — any edit to the entry satisfies it.
+# It is a forcing function for the omission, not a reader of prose. Nor
+# does it judge the lag that predates its base: the digest's entries
+# cite amendments in several forms, or fold them in with no date at all
+# (ADR-0048 asks for a current-state summary, not a citation), so no
+# count of dated mentions is a rule the corpus follows.
 #
 # Options:
 #   --root <dir>   validate this repository instead of the one
 #                  containing this script
+#   --base <rev>   the revision AMENDED compares against; by default the
+#                  merge-base of HEAD and origin/main, which in CI is the
+#                  pull request's or the queue's base. On a push to main
+#                  it is HEAD itself, so that run compares nothing: the
+#                  queue run before it compared the same change, and the
+#                  ruleset admits no push that skipped the queue. `--base none`
+#                  skips AMENDED, and the success line says it did — for
+#                  a tree that is not a repository. With no base given
+#                  and none resolvable the script exits 2: a check that
+#                  cannot find its base is not a check that passed.
 #   -h, --help     this text
 #
 # Exit codes:
 #   0  everything propagated
 #   1  one or more gaps found
-#   2  invocation problem (expected paths missing)
+#   2  invocation problem (expected paths missing, no base resolvable)
 # <<< help
 
 set -uo pipefail
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
 REPO_ROOT="$( cd -- "$SCRIPT_DIR/../.." && pwd )"
+BASE=""
 
 show_help() {
     sed -n '/^# >>> help$/,/^# <<< help$/p' "$0" | sed -e '1d' -e '$d' -e 's/^# \{0,1\}//'
@@ -59,6 +84,8 @@ while [ $# -gt 0 ]; do
         -h|--help) show_help; exit 0 ;;
         --root)    [ $# -ge 2 ] || { echo "--root needs a value" >&2; exit 2; }
                    REPO_ROOT="$2"; shift 2 ;;
+        --base)    [ $# -ge 2 ] || { echo "--base needs a value" >&2; exit 2; }
+                   BASE="$2"; shift 2 ;;
         *)         echo "validate_adr_index: unexpected argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -70,6 +97,18 @@ DIGEST="$ADR_DIR/ADR-DIGEST.md"
 for p in "$ADR_DIR" "$README" "$DIGEST"; do
     [ -e "$p" ] || { echo "validate_adr_index: expected path not found: $p" >&2; exit 2; }
 done
+
+# The base AMENDED compares against, resolved to a commit before any
+# check runs, so a bad --base is an invocation problem and never a pass.
+if [ "$BASE" = "none" ]; then
+    base_sha=""
+elif [ -n "$BASE" ]; then
+    base_sha="$(git -C "$REPO_ROOT" rev-parse --verify --quiet "$BASE^{commit}")" \
+        || { echo "validate_adr_index: --base $BASE does not resolve to a commit in $REPO_ROOT" >&2; exit 2; }
+else
+    base_sha="$(git -C "$REPO_ROOT" merge-base HEAD origin/main 2>/dev/null)" \
+        || { echo "validate_adr_index: no base for AMENDED — origin/main does not resolve in $REPO_ROOT (fetch it, pass --base <rev>, or --base none to skip)" >&2; exit 2; }
+fi
 
 # The mandatory section set, in order. Kept here rather than in the
 # template file so the check does not depend on parsing prose.
@@ -86,6 +125,30 @@ MANDATORY=(
 
 gaps=0
 report() { printf '%s\n' "$1"; gaps=$((gaps + 1)); }
+
+# amendment_keys: an ADR on stdin -> its `## Amendments` table's
+# "date — title" keys, one per line, sorted. The (date, title) pair is
+# an amendment's identity (ADR-0048); the effect column is not part of it.
+amendment_keys() {
+    awk '/^## Amendments$/{f=1;next} f && /^\| [0-9]{4}-[0-9]{2}-[0-9]{2} /{print}' \
+        | awk -F'|' '{gsub(/^[ \t]+|[ \t]+$/,"",$2); gsub(/^[ \t]+|[ \t]+$/,"",$3); print $2" — "$3}' | sort
+}
+
+# digest_entry <num>: the digest on stdin -> the `### <num> — ` entry,
+# heading through the line before the next entry, cluster heading or
+# rule.
+digest_entry() {
+    awk -v h="### $1 — " 'index($0,h)==1{f=1;print;next} f && (/^### / || /^## / || /^---$/){exit} f{print}'
+}
+
+amended=0
+if [ -n "$base_sha" ]; then
+    # `./` makes every base path relative to --root rather than to the
+    # repository's top level, which differ when --root is a subdirectory.
+    base_digest="$(git -C "$REPO_ROOT" show "$base_sha:./architecture/adr/ADR-DIGEST.md" 2>/dev/null)" \
+        || { echo "validate_adr_index: no architecture/adr/ADR-DIGEST.md at base ${base_sha:0:8} — every entry would compare as changed; pass a later --base" >&2; exit 2; }
+    base_names="$(git -C "$REPO_ROOT" ls-tree --name-only "$base_sha" ./architecture/adr/ | sed 's|.*/||')"
+fi
 
 mapfile -t ADR_FILES < <(find "$ADR_DIR" -maxdepth 1 -name '[0-9][0-9][0-9][0-9]-*.md' -printf '%f\n' | sort)
 [ "${#ADR_FILES[@]}" -gt 0 ] && [ -n "${ADR_FILES[0]}" ] \
@@ -158,13 +221,34 @@ for f in "${ADR_FILES[@]}"; do
         # (date, title) pairs must match between the table and the notes,
         # as multisets. A row without a note is a citation that resolves
         # to nothing; a note without a row is unreachable from the ADR.
-        tbl="$(awk '/^## Amendments$/{f=1;next} f && /^\| [0-9]{4}-[0-9]{2}-[0-9]{2} /{print}' "$path" \
-               | awk -F'|' '{gsub(/^[ \t]+|[ \t]+$/,"",$2); gsub(/^[ \t]+|[ \t]+$/,"",$3); print $2" — "$3}' | sort)"
+        tbl="$(amendment_keys < "$path")"
         notes="$(grep '^### Amendment ' "$hist" | sed 's/^### Amendment //' | sort)"
         if [ "$tbl" != "$notes" ]; then
             report "$f: amendment (date, title) keys differ between the table and history/$num-amendments.md"
             diff <(printf '%s\n' "$tbl") <(printf '%s\n' "$notes") 2>/dev/null \
                 | sed 's/^/      /' | head -6
+        fi
+
+        # --- AMENDED ----------------------------------------------------
+        # The base's copy is found by NUMBER, so a rename in the same
+        # change is still compared. With none the ADR is new: its keys
+        # all count as added, and its entry, absent from the base digest,
+        # compares as changed — no skip, which would also skip a rename.
+        if [ -n "$base_sha" ]; then
+            base_name="$(printf '%s\n' "$base_names" | grep "^$num-.*\.md\$" | head -1)"
+            base_adr=""
+            if [ -n "$base_name" ]; then
+                base_adr="$(git -C "$REPO_ROOT" show "$base_sha:./architecture/adr/$base_name")" \
+                    || { echo "validate_adr_index: cannot read $base_name at base ${base_sha:0:8}" >&2; exit 2; }
+            fi
+            added="$(comm -13 <(printf '%s\n' "$base_adr" | amendment_keys) <(printf '%s\n' "$tbl"))"
+            if [ -n "$added" ]; then
+                amended=$((amended + 1))
+                if [ "$(printf '%s\n' "$base_digest" | digest_entry "$num")" = "$(digest_entry "$num" < "$DIGEST")" ]; then
+                    report "$f: amended since ${base_sha:0:8} but its '### $num — ' digest entry is unchanged — the digest still describes the ADR before:"
+                    printf '%s\n' "$added" | sed 's/^/      /'
+                fi
+            fi
         fi
     fi
 done
@@ -190,4 +274,10 @@ if [ "$gaps" -gt 0 ]; then
     exit 1
 fi
 
-printf 'validate_adr_index: OK — %d ADRs, all template-conformant, indexed, and digested.\n' "${#ADR_FILES[@]}"
+if [ -z "$base_sha" ]; then
+    amended_line="amendments against a base not checked (--base none)"
+else
+    amended_line="$amended amended since ${base_sha:0:8}, each with its digest entry edited"
+fi
+printf 'validate_adr_index: OK — %d ADRs, all template-conformant, indexed, with a digest entry each; %s.\n' \
+    "${#ADR_FILES[@]}" "$amended_line"
