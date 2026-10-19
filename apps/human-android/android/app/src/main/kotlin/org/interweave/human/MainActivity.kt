@@ -10,10 +10,14 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.database.ContentObserver
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.provider.Settings
+import android.text.format.DateFormat
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewConfiguration
@@ -45,6 +49,7 @@ class MainActivity : NativeActivity() {
         Thread({ relayAsks() }, "interweave-network-ask").start()
         Thread({ relayHaptics() }, "interweave-haptic").start()
         window.decorView.viewTreeObserver.addOnGlobalLayoutListener(layout)
+        watchSettings(true)
         touch()
         if (bound) return
         when {
@@ -74,6 +79,7 @@ class MainActivity : NativeActivity() {
     override fun onStop() {
         shown = false
         window.decorView.viewTreeObserver.removeOnGlobalLayoutListener(layout)
+        watchSettings(false)
         // A recreation for a configuration change keeps the binding: the
         // next instance finds it held, and foreground-only mode's runtime
         // and lease survive it (review F2). Any other stop lets go.
@@ -104,14 +110,47 @@ class MainActivity : NativeActivity() {
         touch()
     }
 
+    /**
+     * A screen reader's timeouts, the animation scale or the 12/24-hour
+     * setting changed while the window stays shown -- beside Settings in split screen, or by `adb
+     * shell settings put` -- with no resume to read them: a snackbar
+     * opened after it still got the old time (ux review of 761d72b3, N3).
+     * The AccessibilityManager learns a timeout from the system on its
+     * own path, which may land after this notice, so the value is read
+     * again a moment later; an unchanged one sends nothing.
+     */
+    private val settingsObserver =
+        object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                touch()
+                window.decorView.postDelayed({ if (shown) touch() }, SETTLE_MS)
+            }
+        }
+
+    private fun watchSettings(on: Boolean) {
+        if (!on) {
+            contentResolver.unregisterContentObserver(settingsObserver)
+            return
+        }
+        for (uri in listOf(
+            Settings.Secure.getUriFor(INTERACTIVE_UI_TIMEOUT),
+            Settings.Secure.getUriFor(NON_INTERACTIVE_UI_TIMEOUT),
+            Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
+            Settings.System.getUriFor(Settings.System.TIME_12_24),
+        )) {
+            contentResolver.registerContentObserver(uri, false, settingsObserver)
+        }
+    }
+
     /** A rotation or a window resize moves the gesture insets. */
     private val layout = ViewTreeObserver.OnGlobalLayoutListener { touch() }
 
     /**
      * Hand the swipe its platform values: the touch slop and the system
      * gesture insets (the back-gesture zones) in dp, the layout's
-     * direction, whether animations are off, and the snackbar's
-     * recommended time for content with a control. Sent only when they
+     * direction, whether animations are off, the snackbar's recommended
+     * time for content with a control, and the 12- or 24-hour setting
+     * every shown time follows. Sent only when they
      * change.
      */
     private fun touch() {
@@ -133,6 +172,7 @@ class MainActivity : NativeActivity() {
                             AccessibilityManager.FLAG_CONTENT_TEXT or AccessibilityManager.FLAG_CONTENT_CONTROLS,
                         ) ?: SNACKBAR_MS
                     ).toLong(),
+                hour24 = DateFormat.is24HourFormat(this),
             )
         if (values == sentTouch) return
         sentTouch = values
@@ -143,6 +183,7 @@ class MainActivity : NativeActivity() {
             values.rtl,
             values.reducedMotion,
             values.recommendedMs,
+            values.hour24,
         )
     }
 
@@ -154,6 +195,7 @@ class MainActivity : NativeActivity() {
         val rtl: Boolean,
         val reducedMotion: Boolean,
         val recommendedMs: Long,
+        val hour24: Boolean,
     )
 
     private var sentTouch: Touch? = null
@@ -234,6 +276,12 @@ class MainActivity : NativeActivity() {
 
         /** The snackbar's own time up, before a screen reader's setting lengthens it. */
         private const val SNACKBAR_MS = 6_000
+
+        // The settings behind "Time to take action" and its companion
+        // (Settings.Secure keys since API 29, not public constants).
+        private const val INTERACTIVE_UI_TIMEOUT = "accessibility_interactive_ui_timeout_ms"
+        private const val NON_INTERACTIVE_UI_TIMEOUT = "accessibility_non_interactive_ui_timeout_ms"
+        private const val SETTLE_MS = 500L
         private const val PREFERENCES = "interweave.window"
         private const val ASKED_NETWORK = "asked_network"
 

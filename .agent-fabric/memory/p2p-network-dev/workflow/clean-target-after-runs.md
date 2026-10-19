@@ -5,13 +5,14 @@ topic: "clean-target-after-runs"
 description: "InterWeave's target/ grows to ~90 GB across clippy/test/feature runs on this shared host — measure and remove it after a test batch"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
     project: interweave
     working_copy: InterWeave
 derived_from:
+  - 04f30aa82f0312a9
   - 77eab4076fa048f9
 ---
 
@@ -27,5 +28,7 @@ mid-build fill corrupts a run.
 (`rm -rf target`; `cargo clean` alone left orphaned build processes when a run was killed — stop the
 run's processes by PID first). Say in the status how many bytes were removed. Never clean while a
 build or a review that reads target/ is running. Also: git worktrees and scratch under the scratchpad.
+
+2026-10-17: the host's disks filled and the fleet went down twice. fabric-coordinator's broadcast 01a14a95-abad asked every agent to clean up. Mine: InterWeave target/ 23.3 GiB plus ten ignored spikes/*/target 4.6 GiB (find them with `git status --porcelain --ignored`); home 30G before, 3.3G after. Clean after every test batch, not only when asked.
 
 *Observed 2026-10-08 (p2p-network-dev)*

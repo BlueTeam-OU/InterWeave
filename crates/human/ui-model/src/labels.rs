@@ -121,24 +121,100 @@ ui_texts! {
     ConversationId => "Identifier, select to copy",
     /// Shown when no conversation is selected.
     NoConversation => "Select a conversation",
-    /// What a direct conversation is, beside its title.
+    /// What a direct conversation is, in its row's description.
     DirectConversation => "Direct conversation",
-    /// What a channel conversation is, beside its title.
+    /// What a channel conversation is, in its row's description.
     ChannelConversation => "Channel",
     /// A conversation's unread count. `{count}` is a number, never zero:
-    /// a conversation with nothing unread shows its kind alone.
+    /// a conversation with nothing unread is described without one
+    /// (`ConversationDescriptionRead`).
     UnreadCount => "{count} unread",
-    /// A conversation row's description: `{kind}` is what the
-    /// conversation is, `{unread}` its unread count's text.
-    ConversationDescription => "{kind}, {unread}",
-    /// A route label: `{route}` is the `EndpointId`, verbatim -- a
-    /// routing label, never a name.
-    Route => "Route: {route}",
+    /// A conversation row's description as a screen reader reads it after
+    /// its name, with unread messages (design/2026-10-16-android-look.md
+    /// sections 7 and 9): `{kind}` is what the conversation is, `{unread}`
+    /// its unread count's text, `{preview}` the last message as the list
+    /// shows it, `{time}` the list's time. Three whole templates rather than
+    /// one with optional parts, so a translation can reorder each.
+    ConversationDescription => "{kind}, {unread}, {preview}, {time}",
+    /// The same, with nothing unread.
+    ConversationDescriptionRead => "{kind}, {preview}, {time}",
+    /// The list's preview of one's own last message: `{message}` is the
+    /// preview text. A template, not a prefix.
+    OwnLastMessage => "You: {message}",
+    /// The overflow button in a conversation's app bar: Android's own
+    /// words for it.
+    MoreOptions => "More options",
+    /// The overflow menu's entry that shows the conversation's full
+    /// identifier, to read or copy.
+    Details => "Details",
+    /// A day separator in a conversation, for today.
+    Today => "Today",
+    /// The list's time, and a day separator, for yesterday.
+    Yesterday => "Yesterday",
+    /// A weekday: the list's time, and a day separator, within the last
+    /// seven days.
+    Monday => "Monday",
+    /// A weekday.
+    Tuesday => "Tuesday",
+    /// A weekday.
+    Wednesday => "Wednesday",
+    /// A weekday.
+    Thursday => "Thursday",
+    /// A weekday.
+    Friday => "Friday",
+    /// A weekday.
+    Saturday => "Saturday",
+    /// A weekday.
+    Sunday => "Sunday",
+    /// A month's short name, in a date.
+    January => "Jan",
+    /// A month's short name.
+    February => "Feb",
+    /// A month's short name.
+    March => "Mar",
+    /// A month's short name.
+    April => "Apr",
+    /// A month's short name.
+    May => "May",
+    /// A month's short name.
+    June => "Jun",
+    /// A month's short name.
+    July => "Jul",
+    /// A month's short name.
+    August => "Aug",
+    /// A month's short name.
+    September => "Sep",
+    /// A month's short name.
+    October => "Oct",
+    /// A month's short name.
+    November => "Nov",
+    /// A month's short name.
+    December => "Dec",
+    /// A date earlier than the last seven days, in the current year:
+    /// `{month}` a month's short name, `{day}` the day's number in ASCII
+    /// digits with no leading zero. Never a numeric date, which reads
+    /// differently in different countries.
+    DateThisYear => "{month} {day}",
+    /// The same, in another year: `{year}` the four-digit year.
+    DateOtherYear => "{month} {day}, {year}",
+    /// A clock time on a phone set to 24 hours: `{hour}` 00 to 23 and
+    /// `{minute}` 00 to 59, each two digits, in ASCII digits.
+    Time24 => "{hour}:{minute}",
+    /// A clock time before noon on a phone set to 12 hours: `{hour}` 1 to
+    /// 12 with no leading zero (12 for the hour after midnight),
+    /// `{minute}` two digits. A whole template, with `TimePm`, so a
+    /// translation may put its word before the time.
+    TimeAm => "{hour}:{minute} AM",
+    /// The same, from noon (12 for the hour after noon).
+    TimePm => "{hour}:{minute} PM",
     /// The author of this client's own messages.
     You => "You",
-    /// A message item as a screen reader reads it: `{author}` short,
-    /// then `{status}`, then `{body}` (U5a).
-    Item => "{author}, {status}: {body}",
+    /// A message item as a screen reader reads it, one order on every
+    /// platform (design/2026-10-16-android-look.md section 7): `{author}`
+    /// short ("You" for one's own), the `{body}`, its `{status}`, then
+    /// `{time}`, the clock time it reached this app, as the bubble shows
+    /// it; the day is said once per run by the day separator.
+    Item => "{author}: {body}. {status}, {time}",
     /// A link's control, after the message body: `{destination}` is the
     /// link's full destination as `visible_destination` shows it -- every
     /// character as sent, a hidden one as its code point -- so the person
@@ -255,8 +331,8 @@ ui_texts! {
     NetworkDenied => "Network access is off for this app. You can read your messages, but you cannot send or receive messages until you allow network access.",
     /// Ask for the network access the platform withholds.
     AllowNetwork => "Allow network access",
-    /// The control that opens the trust settings, at the foot of the
-    /// conversation list: a short button label.
+    /// The control that opens the trust settings: the shield icon button
+    /// in the conversation list's app bar, whose label this is.
     TrustSettings => "Trust settings",
     /// The control that leaves the trust settings for the conversations.
     BackToConversations => "Back to conversations",
@@ -923,6 +999,14 @@ mod tests {
             ("reason", "busy"),
             ("kind", "Channel"),
             ("unread", "2 unread"),
+            ("preview", "You: hi"),
+            ("time", "01:18"),
+            ("message", "hi"),
+            ("month", "Oct"),
+            ("day", "9"),
+            ("year", "2025"),
+            ("hour", "01"),
+            ("minute", "18"),
             ("tail", "abcd1234"),
             ("peer", "…abcd1234"),
             ("destination", "https://example.org/a"),

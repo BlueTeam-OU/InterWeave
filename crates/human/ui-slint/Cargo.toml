@@ -34,6 +34,8 @@ i-slint-common = { workspace = true }
 # this crate, not only those a backend feature selects (the workspace
 # manifest says why). Named for its feature; no code calls it.
 i-slint-core = { workspace = true }
+# The local time zone a message's time is shown in (`clock.rs`).
+chrono = { workspace = true }
 # The font stack's own loader, asked by `platform_check`.
 yeslogic-fontconfig-sys = { workspace = true }
 
@@ -62,9 +64,16 @@ desktop = [
 # the platform's NativeActivity. It draws with Skia, whatever renderer
 # feature is named (i-slint-backend-android-activity's window adapter), so
 # none is: the desktop's software renderer would be compiled and unused.
+# `slint/accessibility` is not named, because on this backend it switches
+# nothing on: in Slint 1.18.1 it is `i-slint-backend-selector/accessibility`,
+# which is `i-slint-backend-winit?/accessibility`, and winit is not in this
+# graph; i-slint-backend-android-activity has no accessibility adapter.
+# So TalkBack reads no tree from these views, and human-client-ui.md §13's
+# "accessibility tree contains meaningful labels/actions" is unmet on
+# Android (architect-cto, 2026-10-16: recorded, not waived) until an
+# adapter is built for it.
 android = [
     "slint/backend-android-activity-06",
-    "slint/accessibility",
 ]
 
 [build-dependencies]
@@ -72,6 +81,10 @@ slint-build = { workspace = true }
 
 [dev-dependencies]
 i-slint-backend-testing = { workspace = true }
+# The views compiled again by a test that fails on any warning
+# (tests/compile.rs).
+i-slint-compiler = { workspace = true }
+spin_on = { workspace = true }
 interweave-human-chat-protocol = { path = "../chat-protocol" }
 interweave-human-core = { path = "../core" }
 interweave-profile-identity = { path = "../../identity/profile-identity" }

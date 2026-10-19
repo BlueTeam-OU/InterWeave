@@ -116,8 +116,9 @@ internal object Native {
      * The platform's touch values for a row's swipe (the message swipe
      * spec, sections 4, 6 and 7): the touch slop and the left and right
      * system gesture insets in dp, a right-to-left layout, the system's
-     * animations off, and the recommended time a snackbar with a control
-     * stays up, in ms. Never waits.
+     * animations off, the recommended time a snackbar with a control
+     * stays up, in ms, and whether the person set 24-hour time, which every
+     * time the app shows follows. Never waits.
      */
     @JvmStatic external fun touch(
         slop: Float,
@@ -126,6 +127,7 @@ internal object Native {
         rtl: Boolean,
         reducedMotion: Boolean,
         recommendedMs: Long,
+        hour24: Boolean,
     )
 
     /**

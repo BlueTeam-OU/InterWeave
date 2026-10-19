@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# phone-run <command> [args...] — one run on the shared Pixel 9a, under the
+# pixel-9a lease, on an adb server of this login's own (the rust-ui-dev and
+# ux-designer remits). It exits with the run's status, and leaves no adb
+# process of this login behind on any path.
+#
+# Why each piece is here, so a later tidy-up does not undo it:
+# - every login on the host shares adb's default port 5037, so a
+#   kill-server there drops another account's device: the port is per login;
+# - the server is `nodaemon`, this script's child; a daemonised server
+#   outlives every signal the run gets;
+# - an adb client that finds no server forks a daemon in its own session,
+#   which no group signal reaches: the readiness wait is a bare TCP connect,
+#   and a final kill-server, after the run has stopped, ends one a run's
+#   teardown forked;
+# - fabric-lease runs us in a process group of our own and cannot forward a
+#   SIGKILL it receives, so the lease can free while we run: the watcher
+#   ends the run within a second of the wrapper's death.
+set -u
+if [ $# -lt 1 ]; then
+  echo "usage: phone-run <command> [args...]" >&2
+  exit 2
+fi
+if [ "${PHONE_RUN_HELD:-}" != 1 ]; then
+  exec fabric-lease pixel-9a -- env PHONE_RUN_HELD=1 "$0" "$@"
+fi
+
+export ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000))
+wrapper=$PPID
+run=
+server=
+watcher=
+
+stop() {
+  trap - EXIT TERM INT HUP
+  if [ -n "$run" ]; then
+    kill -TERM "$run" 2>/dev/null
+    for _ in $(seq 50); do kill -0 "$run" 2>/dev/null || break; sleep 0.1; done
+    kill -KILL "$run" 2>/dev/null
+  fi
+  [ -n "$server" ] && kill "$server" 2>/dev/null
+  adb kill-server >/dev/null 2>&1
+  [ -n "$watcher" ] && kill -KILL "$watcher" 2>/dev/null
+}
+trap 'stop; exit 143' TERM
+trap 'stop; exit 130' INT
+trap 'stop; exit 129' HUP
+trap stop EXIT
+
+# A server this login left by an older command, on its own port only.
+adb kill-server >/dev/null 2>&1
+adb nodaemon server >/dev/null 2>&1 &
+server=$!
+
+# Outlives this script if it is SIGKILLed alone: then it clears the server
+# itself and ends the whole group.
+(
+  trap '' TERM INT HUP
+  while kill -0 "$wrapper" 2>/dev/null; do sleep 1; done
+  kill -TERM $$ 2>/dev/null
+  sleep 6
+  adb kill-server >/dev/null 2>&1
+  kill -KILL 0
+) &
+watcher=$!
+
+for _ in $(seq 100); do
+  (: </dev/tcp/127.0.0.1/"$ANDROID_ADB_SERVER_PORT") 2>/dev/null && break
+  kill -0 "$server" 2>/dev/null || { echo "phone-run: adb server did not start" >&2; exit 1; }
+  sleep 0.1
+done
+(: </dev/tcp/127.0.0.1/"$ANDROID_ADB_SERVER_PORT") 2>/dev/null \
+  || { echo "phone-run: adb server not listening after 10 s" >&2; exit 1; }
+
+"$@" &
+run=$!
+wait "$run"
+status=$?
+run=
+exit "$status"

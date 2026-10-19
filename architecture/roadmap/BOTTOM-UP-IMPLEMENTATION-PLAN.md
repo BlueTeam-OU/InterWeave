@@ -4954,9 +4954,65 @@ The Android client brings the repository's first non-Cargo dependency graph — 
 
 Why OSV.dev and not the NVD for this graph is the owner's; why here and not for the Rust workspace holds as before: RustSec plus Dependabot's GHSA view already cover the Cargo graph (§8 of `CLAUDE.md` records the one live gap, `yamux`, and the guard for it), and a second scanner over `Cargo.lock` would add suppressions, not findings. The dependency policy — what is allowed and why — is decided with the network lane, as `deny.toml` is (`.agent-fabric/roles/`); the command and its README are devex-tooling's.
 
+The Cargo graph's own policy gained three ignores during this stage (2026-10-18, p2p-network-dev's decision, 2aa72262, bae39f8a and dde0a007 folded into #297), beside RUSTSEC-2024-0436 (`paste`, since Stage 4) and §18 (14)'s RUSTSEC-2026-0192 (`ttf-parser`): RUSTSEC-2026-0370 (`zvariant` 5.15.0), RUSTSEC-2026-0371 (`zbus_names` 4.3.4) and RUSTSEC-2026-0372 (`zvariant_derive` 5.15.0), one announcement — the standalone crates merged into `zbus` 6.0.0, unmaintained on their own, informational with no patched release; the first two are runtime code in the desktop binary, the third a proc-macro — reached through the desktop's AT-SPI path (`i-slint-backend-winit` 1.18.1 names `zbus` 5 directly) and through `tests/desktop-e2e`'s own direct `zbus` 5.19 and `atspi` 0.29 dev-dependencies, absent from the Android graph. Dated 2026-10-16 in the advisory database, they turned every PR's `tree checks` and `tool self-tests` red from 2026-10-18 until the entries landed; a scan of the whole lock against the database at that date found nothing else unanswered. Their revisit is the next Slint or accesskit bump together with the e2e suite's `zbus`/`atspi` pins: a Slint bump alone leaves the crates in the graph through those pins. §18's Stage 15 record stays as the record of that date.
+
 Carried here from Stage 14 (§17): human-client-ui.md §13's render-parity bullet — desktop and Android render the same HumanChatV2 fixture consistently. The accessibility-tree reach Stage 15 could not prove on a desktop adapter — live-region announcement, contrast, scaling and reduced motion — comes here with it (PeerId copy is proved on the desktop in Stage 15's batch 4 and on Android here) (§18's "Carried on"), to be proved on the Android accessibility services or carried to the owner's release gate.
 
 Carried here from Stage 15 (§18): the trust-audit sink — the embedded host installs a log sink that admits the composition's audit target (`interweave::audit`) at INFO whatever level it otherwise filters at, as the daemon does (LOCAL-CLIENT.md §5, A 2026-10-04); a platform test proves a trust set appears in it.
+
+### Decided 2026-10-18 (architect-cto, on the owner's word in session, after rust-ui-dev-01's OBSERVATION 01a146af-dad3-7023-92fd-38f5747b9e8c and device report 01a14db9-d8e4-79cf-9cf3-b6421528a70a)
+
+**TalkBack on Android is carried to the owner's release gate, and the
+bridge that would serve it is built after everything else in this
+stage.** The reach gate (f) allows that carry when the reason is named;
+this record names it, so §20's closing record cites this subsection
+rather than re-arguing it.
+
+The gap, as measured: Slint 1.18.1's Android backend
+(`i-slint-backend-android-activity`) has no AccessKit adapter, so the
+whole client is one empty `View` to every accessibility service —
+`uiautomator dump` sees no node, and ui-slint's `slint/accessibility`
+switches nothing on there (the manifest comment of 156c450c says so).
+The cause is one backend's missing adapter, not the toolkit: ADR-0039's
+accessibility revisit trigger is NOT fired by it (architect-cto's REPLY
+01a146b2-0833-791d-b4f2-3968484b6bf7, 2026-10-16), and the desktop's
+AT-SPI tree is unaffected.
+
+The bridge, as measured on the Pixel 9a (rust-ui-dev-01, 2026-10-18,
+a one-day prototype at 839e5ac7 on a scratch branch, nothing landed):
+an app-side adapter in ui-slint on `accesskit_android 0.7.5` (the
+release that fits the lock's `accesskit 0.24.1`), built from
+`i-slint-core`'s doc-hidden tree API (we pin `=1.18.1`, so each Slint
+bump re-checks it), feeds the platform tree — an accessibility client
+sees the Chats heading, every conversation row as a focusable node with
+its title, and the Trust settings button — and follows Slint's input
+focus within its 50 ms poll; about 440 lines and three dependencies
+already on the licence allow-list. Three gaps in that tree are known:
+no node advertises itself clickable, a row's description is not
+exposed, and Slint's `AccessibilityAction` has no scroll, so no
+`SCROLL_FORWARD`/`BACKWARD` exists. Explore-by-touch needs a one-line
+change in the backend (`HoverMove` answered `Unhandled` while an adapter
+is active); the Slint Royalty-free 2.0 licence grants a modified copy
+under the attribution duty already owed, so that patch would land as a
+vendored crate in the ADR-0051/0053/0054 shape, by an ADR of its own.
+Whether TalkBack's double-tap activates a row and whether touch
+exploration needs the patch were not measured: the gestures cannot be
+injected over adb, and the finger run was voided by the platform's
+"Allow TalkBack to make and manage phone calls?" dialog standing in
+front of the app. They are the acceptance tests of the build, run by a
+person, when it is built.
+
+What follows, by lane: rust-ui-dev keeps the prototype branch and
+builds nothing of it until the rest of this stage's packages and
+platform tests are done and the owner asks; ux-designer's swipe spec
+(`design/2026-10-16-message-swipe.md`) keeps the bridge as the
+precondition of its TalkBack items, which stay unmet with that reason,
+not failed — its precondition paragraph stands as written, and no
+change to it is asked of ux-designer; architect-cto's §20 closing
+record carries human-client-ui.md §13's accessibility bullet for
+Android to the owner's release gate citing this subsection; the ADR for
+the vendored backend is architect-cto's, written when the build is
+asked for and not before.
 
 ### Exit gate
 

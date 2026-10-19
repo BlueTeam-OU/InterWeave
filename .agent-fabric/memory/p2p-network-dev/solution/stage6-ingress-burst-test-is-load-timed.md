@@ -5,7 +5,7 @@ topic: "stage6-ingress-burst-test-is-load-timed"
 description: "two wall-clock-timed suites flake under a full workspace run on this host — tests/direct-v2 a_peer_cannot_mint_allowance_by_inventing_source_endpoints (burst + 1 vs a refilling bucket, got 34 against 33) and tests/pubsub stage7…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

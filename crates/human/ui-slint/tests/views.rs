@@ -434,13 +434,15 @@ fn the_notice_action_resolves_only_while_its_notice_is_shown() {
     );
 }
 
-/// §13, the accessibility tree: message, route and connectivity controls
-/// carry meaningful labels, roles and descriptions; connectivity is a
-/// polite live region and an item's status is not; the full `PeerId` is on the
-/// author and the header, never in an item's label (U5a).
+/// §13, the accessibility tree: message and connectivity controls carry
+/// meaningful labels, roles and descriptions; connectivity is a polite
+/// live region and an item's status is not; the full `PeerId` is on the
+/// header (and a channel's author, tests/look.rs), never in an item's
+/// label (U5a); and no bubble draws a route line (android-look section 6).
 #[test]
 fn the_tree_labels_message_route_and_connectivity_controls() {
     let mut view = view();
+    view.set_clock(|| 60_000, |_| 0);
     let mut model = UiModel::new();
     let alice = peer();
     model.received(received(1, &alice, "hello alice"));
@@ -455,7 +457,18 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
     );
     let unread = placeholder_en::label(interweave_human_ui_model::LabelKey::Unread);
 
-    let item = the(&view, &format!("{short}, {unread}: hello alice"));
+    let item = the(
+        &view,
+        &interweave_human_ui_model::fill(
+            text(UiText::Item),
+            &[
+                ("author", &short),
+                ("status", unread),
+                ("body", "hello alice"),
+                ("time", "00:00"),
+            ],
+        ),
+    );
     assert_eq!(
         item.accessible_role(),
         Some(i_slint_backend_testing::AccessibleRole::ListItem)
@@ -465,19 +478,22 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
         "the full PeerId is not read on every item"
     );
 
-    let authors: Vec<_> = labelled(&view, &short)
-        .into_iter()
-        .filter(|e| e.accessible_description().as_deref() == Some(id))
-        .collect();
-    assert_eq!(authors.len(), 1, "the author carries the exact PeerId");
-
-    let route = the(
-        &view,
-        &interweave_human_ui_model::fill(text(UiText::Route), &[("route", "human")]),
+    // A direct conversation has two parties, and the bubble's side says
+    // which: no author line (android-look section 6). The channel's,
+    // which carries the exact PeerId, is tests/look.rs's.
+    assert!(
+        labelled(&view, &short).is_empty(),
+        "no author line in a direct conversation"
     );
-    assert_eq!(
-        route.accessible_role(),
-        Some(i_slint_backend_testing::AccessibleRole::Text)
+    // Nor a route line: the title carries the route (section 6), and the
+    // only text naming the route is the title's.
+    assert!(
+        all(&view)
+            .iter()
+            .filter_map(ElementHandle::accessible_label)
+            .filter(|l| l.contains("human"))
+            .all(|l| l.contains(short.as_str())),
+        "no route line"
     );
 
     let status = the(&view, unread);
@@ -756,6 +772,8 @@ fn every_action_element_has_a_default_action_giving_its_intent() {
 
     view.window().invoke_draft_edited("typed".into());
     intents(&mut view, &mut model);
+    // The root renders after every take; Send is active only with text.
+    view.render(&model);
     the(&view, text(UiText::Send)).invoke_accessible_default_action();
     assert_eq!(
         intents(&mut view, &mut model),
@@ -800,6 +818,109 @@ fn tab_reaches_the_composer_send_item_actions_and_the_notice() {
     assert_eq!(actions, 2, "Retry and Cancel: {reached:?}");
 }
 
+/// How many focus rings are drawn: shown, and so opaque.
+fn rings_shown(view: &View) -> usize {
+    let rings: Vec<ElementHandle> = all(view)
+        .into_iter()
+        .filter(|e| e.type_name().as_deref() == Some("FocusRing"))
+        .collect();
+    assert!(!rings.is_empty(), "the window has focus rings to find");
+    rings.iter().filter(|r| r.computed_opacity() > 0.0).count()
+}
+
+/// Tab `stops` times and, at every element focus lands on, one focus ring
+/// is drawn: N2 of ux-designer's review of 761d72b3 (a conversation row,
+/// a message and the peer-id field drew none), and the android-look
+/// spec's section 7. Returns the stops reached.
+fn tab_each_draws_one_ring(view: &View, stops: usize) -> std::collections::BTreeSet<String> {
+    let mut reached = std::collections::BTreeSet::new();
+    for _ in 0..stops {
+        let on = tab(view);
+        slint::platform::update_timers_and_animations();
+        assert!(!on.is_empty(), "Tab lands on a reported element");
+        assert_eq!(rings_shown(view), 1, "one focus ring at {on:?}");
+        reached.insert(on);
+    }
+    reached
+}
+
+/// Every element Tab reaches draws exactly one focus ring -- on the
+/// Chats list, in a conversation with a link, actions, the peer-id field,
+/// the composer and the notice, and on the trust settings -- and none is
+/// drawn while nothing holds focus.
+#[test]
+fn every_tab_stop_draws_exactly_one_focus_ring() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    model.received(received(
+        1,
+        &alice,
+        "see [the docs](https://example.org/docs)",
+    ));
+    let id = sent(&mut model, 4, &bob, "to bob");
+    update(
+        &mut model,
+        4,
+        &id,
+        OutboundStatus::Sending {
+            attempts: 1,
+            next_retry_at: Some(5),
+            last_problem: None,
+        },
+    );
+    model.client_event(ClientEvent::Session(SessionState::StorageDegraded));
+    view.render(&model);
+    assert_eq!(rings_shown(&view), 0, "control: no ring before any focus");
+    let list = tab_each_draws_one_ring(&view, 12);
+    assert!(
+        list.iter().any(|r| r.starts_with("conversation:")),
+        "the list's rows were reached: {list:?}"
+    );
+    open(&mut view, &mut model, &direct(&bob));
+    let chat = tab_each_draws_one_ring(&view, 40);
+    for wanted in ["more-options", "composer", "send", "notice"] {
+        assert!(chat.contains(wanted), "Tab reaches {wanted}: {chat:?}");
+    }
+    assert!(chat.iter().any(|r| r.starts_with("item:")), "{chat:?}");
+    assert!(chat.iter().any(|r| r.starts_with("action:")), "{chat:?}");
+    open(&mut view, &mut model, &direct(&alice));
+    let linked = tab_each_draws_one_ring(&view, 40);
+    assert!(linked.iter().any(|r| r.starts_with("link:")), "{linked:?}");
+    let me = peer();
+    trust_settings(&mut view, &mut model, &me, std::slice::from_ref(&alice));
+    let trust = tab_each_draws_one_ring(&view, 20);
+    for wanted in ["own-peer-id", "trust-entry", "trust-add"] {
+        assert!(trust.contains(wanted), "Tab reaches {wanted}: {trust:?}");
+    }
+    assert!(trust.iter().any(|r| r.starts_with("peer:")), "{trust:?}");
+}
+
+/// A button is never narrower than its label: the storage notice's
+/// action, beside the notice's wrapping text, keeps at a phone's width
+/// the width it has with room to spare (its label ran out of the button
+/// in the rendered window).
+#[test]
+fn the_notice_action_keeps_its_labels_width_when_the_window_narrows() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.client_event(ClientEvent::Session(SessionState::StorageDegraded));
+    view.render(&model);
+    resize(&view, 1000.0);
+    let label = view.window().get_notice_action().to_string();
+    assert!(!label.is_empty(), "control: the notice offers its action");
+    let action = || the(&view, &label);
+    let roomy = action().size().width;
+    resize(&view, 360.0);
+    view.window().set_list_shown(false);
+    slint::platform::update_timers_and_animations();
+    let narrow = action().size().width;
+    assert!(roomy > 0.0, "control: the action is laid out");
+    assert!(
+        narrow >= roomy,
+        "as wide at 360 as at 1000: {narrow} < {roomy}"
+    );
+}
 fn buttons(view: &View) -> Vec<String> {
     all(view)
         .into_iter()
@@ -841,6 +962,7 @@ fn remote_text_is_drawn_and_raises_nothing_but_the_read() {
                 text(UiText::Send),
                 text(UiText::ShowSource),
                 text(UiText::TrustSettings),
+                text(UiText::MoreOptions),
                 open_link("https://example.org").as_str(),
             ]
             .contains(&control.as_str()),
@@ -953,6 +1075,7 @@ fn an_image_without_alt_text_is_named_without_an_empty_alt() {
 #[test]
 fn a_conversation_with_nothing_unread_shows_no_count() {
     let mut view = view();
+    view.set_clock(|| 60_000, |_| 0);
     let mut model = UiModel::new();
     let alice = peer();
     let kind = text(UiText::DirectConversation);
@@ -964,20 +1087,36 @@ fn a_conversation_with_nothing_unread_shows_no_count() {
     };
     sent(&mut model, 1, &alice, "hi");
     view.render(&model);
-    assert_eq!(described(&view, kind), 1, "the kind alone");
+    let own = interweave_human_ui_model::fill(text(UiText::OwnLastMessage), &[("message", "hi")]);
+    let read = interweave_human_ui_model::fill(
+        text(UiText::ConversationDescriptionRead),
+        &[("kind", kind), ("preview", &own), ("time", "00:00")],
+    );
+    assert_eq!(described(&view, &read), 1, "no count");
     model.received(received(2, &alice, "hello"));
     view.render(&model);
     let one = interweave_human_ui_model::fill(text(UiText::UnreadCount), &[("count", "1")]);
     let counted = interweave_human_ui_model::fill(
         text(UiText::ConversationDescription),
-        &[("kind", kind), ("unread", &one)],
+        &[
+            ("kind", kind),
+            ("unread", &one),
+            ("preview", "hello"),
+            ("time", "00:00"),
+        ],
     );
     assert_eq!(
         described(&view, &counted),
         1,
         "the control: a count once unread"
     );
-    assert_eq!(described(&view, kind), 0);
+    assert!(
+        all(&view)
+            .iter()
+            .filter_map(ElementHandle::accessible_description)
+            .all(|d| !d.contains(&*one) || d == counted),
+        "the count is said in the one row that has it"
+    );
 }
 
 /// The source as received is one activation away, and back again
@@ -1394,6 +1533,8 @@ fn a_render_keeps_focus_on_an_items_action() {
 #[test]
 fn no_rendered_text_leaves_a_placeholder_unfilled() {
     let mut view = view();
+    // A minute into the epoch, in UTC: every time shown reads "00:00".
+    view.set_clock(|| 60_000, |_| 0);
     let mut model = UiModel::new();
     let alice = peer();
     let general = ChannelId::parse("general").expect("a channel");
@@ -1459,16 +1600,28 @@ fn no_rendered_text_leaves_a_placeholder_unfilled() {
                 ("author", &short),
                 ("status", unread),
                 ("body", "direct hi"),
+                ("time", "00:00"),
             ],
         ),
         interweave_human_ui_model::fill(
             text(UiText::ConversationDescription),
             &[
-                ("kind", text(UiText::DirectConversation)),
+                ("kind", text(UiText::ChannelConversation)),
                 ("unread", &unread_count),
+                ("preview", "a reply"),
+                ("time", "00:00"),
             ],
         ),
-        interweave_human_ui_model::fill(text(UiText::Route), &[("route", "human")]),
+        // Its read is raised, and not carried out here: still unread.
+        interweave_human_ui_model::fill(
+            text(UiText::ConversationDescription),
+            &[
+                ("kind", text(UiText::DirectConversation)),
+                ("unread", &unread_count),
+                ("preview", "direct hi"),
+                ("time", "00:00"),
+            ],
+        ),
     ] {
         let shown = all(&view).iter().any(|e| {
             e.accessible_label().as_deref() == Some(expected.as_str())
@@ -1665,8 +1818,8 @@ fn the_platform_check_passes_where_fontconfig_loads() {
 
 /// The open conversation's identifier is in the tree in exact canonical
 /// form, as a read-only field a person selects and copies
-/// (human-client-ui.md section 11); with no conversation open there is
-/// none.
+/// (human-client-ui.md section 11), in Details from the overflow menu
+/// (android-look section 6); with no conversation open there is none.
 #[test]
 fn the_open_conversations_identifier_is_exact_and_selectable() {
     let mut view = view();
@@ -1678,6 +1831,11 @@ fn the_open_conversations_identifier_is_exact_and_selectable() {
     );
     model.received(received(1, &alice, "hi"));
     open(&mut view, &mut model, &direct(&alice));
+    // In Details, from the overflow menu (android-look section 6), and
+    // not on the conversation screen itself.
+    assert!(labelled(&view, text(UiText::ConversationId)).is_empty());
+    press(&view, text(UiText::MoreOptions));
+    press(&view, text(UiText::Details));
     let field = the(&view, text(UiText::ConversationId));
     assert_eq!(
         field.accessible_value().as_deref(),
@@ -2000,6 +2158,7 @@ fn long_content_wraps_inside_the_window() {
 #[test]
 fn a_conversation_pressed_is_shown_by_the_take_alone() {
     let mut view = view();
+    view.set_clock(|| 60_000, |_| 0);
     let mut model = UiModel::new();
     let alice = peer();
     model.received(received(1, &alice, "shown at once"));
@@ -2022,7 +2181,19 @@ fn a_conversation_pressed_is_shown_by_the_take_alone() {
     let short = interweave_human_ui_model::short_peer(alice.as_str());
     let unread = placeholder_en::label(interweave_human_ui_model::LabelKey::Unread);
     assert_eq!(
-        labelled(&view, &format!("{short}, {unread}: shown at once")).len(),
+        labelled(
+            &view,
+            &interweave_human_ui_model::fill(
+                text(UiText::Item),
+                &[
+                    ("author", &short),
+                    ("status", unread),
+                    ("body", "shown at once"),
+                    ("time", "00:00"),
+                ],
+            )
+        )
+        .len(),
         1,
         "its message is in the list"
     );

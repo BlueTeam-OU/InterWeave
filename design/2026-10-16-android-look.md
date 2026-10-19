@@ -217,15 +217,28 @@ From the top:
   761d72b3 a drag on a Chats row reads the conversation's messages
   unseen (found on the Pixel 9a, 2026-10-16, running swipe spec §11
   item 17). A preview must not add a second way to do that.
-- With no message held (all were read, not kept, and a restart removed
-  them), the subtitle is "No messages", in `on-surface-variant`.
+- A conversation is listed only while the app holds one of its
+  messages, so every row has a last message to show. After a restart,
+  a conversation whose messages were all read and not kept is not
+  listed at all. (If contacts later list a conversation with no
+  message, its subtitle will need words then.)
 - Every time on these screens is the local time the message reached
   this app (`local_at`), never the time a sender asserts
   (`sent_at_ms`), which a peer chooses. Day separators and the
   one-minute grouping use it too.
-- The time is the last message's: "01:18" today, "Yesterday", the day
-  of the week within the last seven days, else the date, in the phone's
-  locale format.
+- The time is the last message's, computed in the phone's time zone:
+  the time of day for today, "Yesterday", the day of the week within
+  the last seven days (today and the six calendar days before it),
+  else the month and day (and the year when it is not this year). A
+  time later than now (a clock set back) counts as today, never as a
+  future day. The time of day follows the phone's 12- or 24-hour
+  setting (`DateFormat.is24HourFormat`), read again when it changes
+  while the app is open: a person sets it once for the whole phone.
+  The words (weekdays, months, the date and time templates) come from
+  `labels.rs` in English; other locales' formats wait for the
+  localisation contract to carry a second locale (ruled 2026-10-17 on
+  rust-ui-dev's question: the app has no locale formatter, and one call
+  into Android's per row was judged too costly for now).
 
 ## 6. A conversation
 
@@ -270,8 +283,12 @@ From the top:
     The words stay those of `human-client-ui.md` §5. A check never
     means read (§5 there).
   - Consecutive messages from the same side within a minute sit 2 dp
-    apart. A change of side, 8 dp. A day change shows a centred "Today",
-    "Yesterday" or the date, in body small.
+    apart. A change of side, 8 dp. A day change shows a centred
+    separator in body small, naming the day: "Today", "Yesterday", the
+    day of the week within the last seven days, else the month and day
+    (and the year when it is not this year), with days counted as in
+    §5.2. For a screen reader, the separator is an item of its own. It
+    is read before the messages of its day.
   - In a **direct** conversation the author line ("...x6gY6Eri", "You")
     is removed: there are two parties and the bubble's side shows which.
     In a **channel**, received bubbles come from several peers, so each
@@ -344,7 +361,11 @@ From the top:
   shape: round for the back arrow and Send, rounded for chips and list
   items.
 - **TalkBack.** A bubble is read as one item: author ("You" for one's
-  own), the text, the status, the time. The chips follow it in order.
+  own), the text, the status, the time. Its label is `UiText::Item`
+  (§9), on every platform, so the desktop's screen readers read the
+  same order. The chips follow it in order. A day separator is an item
+  of its own, read before the messages of its day (§6), so the day is
+  heard there and not on every bubble.
   Swipe spec §7's labels are unchanged. A conversation row in the list
   is read as one item too: its name (the row's label), then its
   description: the kind (direct or channel, in words), the unread count
@@ -393,24 +414,58 @@ that exist.
 |---|---|---|
 | `Conversations` (exists) | Conversations | the list's app bar title, in place of today's heading: the same key and the same text |
 | `Composer` (exists) | Message | the composer's placeholder. The placeholder is the text field's label, so it is the same key. A second key with the same text would fail the `labels.rs` test that every `UiText` is distinct |
-| `NoMessages` | No messages | the list's subtitle when nothing is held |
 | `OwnLastMessage` | You: {message} | the list's subtitle when the last message is one's own. `{message}` is the preview text. A template, not a prefix: `labels.rs` fills a template by placeholder and never joins strings, so a translation can reorder it |
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the overflow button's label, Android's own words for it |
-| `Today`, `Yesterday` | Today, Yesterday | day separators and list times |
+| `Today`, `Yesterday` | Today, Yesterday | day separators; `Yesterday` also in list times (for today the list shows the time of day) |
+| weekdays (seven keys, `Monday` to `Sunday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | day separators and list times within the last seven days |
+| months (twelve keys, `January` to `December`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |
+| `DateThisYear` | {month} {day} | day separators and list times before the last seven days, this year: "Sep 30" |
+| `DateOtherYear` | {month} {day}, {year} | the same, another year: "Sep 30, 2025" |
+| `Time24` | {hour}:{minute} | the time of day, phone set to 24-hour: "01:18", "13:05" |
+| `TimeAm` | {hour}:{minute} AM | the time of day, phone set to 12-hour, before noon: "1:18 AM", "12:05 AM" just after midnight |
+| `TimePm` | {hour}:{minute} PM | the same, from noon: "1:05 PM", "12:30 PM" |
 | `ConversationDescription` (exists, new value) | {kind}, {unread}, {preview}, {time} | a list row's description as TalkBack reads it (§7), with unread messages. `{kind}` is `DirectConversation` or `ChannelConversation` as today, `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
 | `ConversationDescriptionRead` | {kind}, {preview}, {time} | the same, with nothing unread |
-| `ConversationDescriptionEmpty` | {kind}, {preview} | the same, with no message held: `{preview}` is "No messages", and there is no time |
+| `Item` (exists, new value) | {author}: {body}. {status}, {time} | a message bubble's label, as TalkBack reads it (§7), on every platform: "You: See you at six. Kept, 01:18". `{time}` is the time of day that the bubble shows, whatever day the message is from. The day is read once, from the separator before that day's messages, not on every bubble |
 
-A row's description is three templates, not one with optional parts,
+The weekday, month, date and time values are final (language-culture,
+2026-10-17). What the code fills in, and what a translation may change:
+- `{day}`, `{year}`, `{hour}` and `{minute}` are numbers in ASCII
+  digits. `{day}` has no leading zero. `{minute}` always has two
+  digits. In `Time24`, `{hour}` has two digits (00–23). In `TimeAm`
+  and `TimePm` it has no leading zero (1–12): 12 is the hour from
+  midnight to 1 AM, and from noon to 1 PM.
+- `{month}` is one of the twelve month values. Months are short (three
+  letters, no period) because the list's time column is narrow; a
+  screen reader reads "Sep 30" as the full date. Weekdays stay whole:
+  one word fits, and a short weekday is harder to read.
+- Each date and time is one whole template, never assembled: a
+  translation may reorder the parts ("30 Sep"), and may put its AM or
+  PM word before the time. That is why AM and PM are two templates,
+  not one template with an `{am_pm}` word.
+- A numeric date ("9/30") is not used: it reads differently in
+  different countries.
+
+A row's description is two templates, not one with optional parts,
 because `labels.rs` never joins strings: each case is a whole sentence
 a translation can reorder. The commas give TalkBack its pauses. The
 row's accessible label stays its name (`row.title`, as today), so the
 description does not repeat it. The description keeps `{kind}`: the
 subtitle no longer says "Direct conversation" or "Channel", and a "#"
-read aloud is not a kind (U2a, §7). The three values are final: with
+read aloud is not a kind (U2a, §7). The two values are final: with
 the name first, TalkBack reads a row as, for example, "…x6gY6Eri /
 human, Direct conversation, 2 unread, You: See you at six, 01:18".
+
+A bubble's label, `Item`, puts `{body}` between the author and the
+rest, in §7's reading order. `{body}` can be long, hold several lines
+and end with any punctuation, so the template marks both of its ends:
+a colon after the author, as in the list's "You: {message}", and a
+full stop after the body, so a screen reader pauses before the status
+even when the body ends with no punctuation. A body that ends in "?"
+or "!" then shows "?." to a braille reader; that costs less than a
+status run into the last word. The status and the time are short and
+are separated by a comma, as in the list's descriptions.
 
 The title stays "Conversations", not "Chats". The app calls each item
 a conversation ("Hide conversation", "Conversation hidden", "Back to
@@ -443,8 +498,8 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
    screenshot, in both schemes. The avatar pairs (§5.1) hold 4.5:1.
 2. Chats: the app bar's title is "Conversations" and Trust settings is
    an icon button in it. The bottom outlined button is gone.
-3. Chats: each row shows the avatar, the name, the last message (or
-   "No messages"), the time and, with unread messages, the badge with
+3. Chats: each row shows the avatar, the name, the last message, the
+   time and, with unread messages, the badge with
    their count. The name is bold exactly when the badge shows. With
    nothing unread and one's own pending last message, the clock shows
    in the badge's place.
@@ -457,8 +512,11 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
    it still has both messages unread.
 6. The preview is the first line with markdown removed, a link showing
    its text. One's own reads "You: …". The time reads as §5.2 says for
-   a message from today, yesterday, this week and earlier, and comes
-   from `local_at` (a ui-model test with a peer-asserted time far off).
+   a message from today, yesterday, this week, earlier this year and a
+   past year, and comes from `local_at` (a ui-model test with a
+   peer-asserted time far off). With the phone set to 12-hour the time
+   of day shows AM or PM, and switching the setting while the app is
+   open changes the list's times.
 7. A conversation's app bar has the back arrow, avatar, name,
    connectivity line and, when known, path line. The overflow button is
    labelled "More options" and holds Details, and Hide conversation
@@ -467,7 +525,9 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 8. Received messages are on the start side and sent on the end side,
    with §6's fills, corners and width (at most 80 %). In an RTL locale
    the sides swap. Same-side messages within a minute sit 2 dp apart,
-   and a day change shows its separator.
+   and a day change shows its separator as §6 says: a message from two
+   to six days before today under its weekday, an older one under its
+   date.
 9. In a channel, each received bubble shows its author, and the
    author's description is the full PeerId. In a direct conversation
    no bubble shows an author line.
@@ -493,7 +553,8 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 17. Every swipe spec §11 item still passes. Only the swipe's look has
     changed; the neutral fill holds §3's contrasts.
 18. Under "Remove animations" no ripple plays.
-19. TalkBack reads a bubble as author, text, status, time, and a
+19. TalkBack reads a bubble as author, text, status, time; a day
+    separator as its own item, before the messages of its day; and a
     conversation row as name, kind, unread count, last message, time,
     the name once, and never the avatar: a person's
     check, as swipe spec §11 item 12, blocked until TalkBack reaches the

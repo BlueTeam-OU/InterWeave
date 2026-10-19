@@ -5,7 +5,7 @@ topic: "interweave-glossary-placement"
 description: "Where InterWeave's person-facing glossary lives, how it is shaped and committed, and the platform split for daemon texts"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

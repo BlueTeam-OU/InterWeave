@@ -2,10 +2,10 @@
 role: "p2p-network-dev"
 class: workflow
 topic: "routing-tests-run-on-the-hosts-private-address"
-description: "ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its…"
+description: "ADR-0052 loopback refusal means routing tests listen on the host's private address — corrected without the private-range literal the hygiene lint refuses"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
@@ -13,9 +13,11 @@ origin:
     working_copy: interweave
 derived_from:
   - 18201d3eab65baac
+  - 839755b553c5b908
+  - d9a46bca68fa9891
 ---
 
-## ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks
+## ADR-0052 loopback refusal means routing tests listen on the host's private address — corrected without the private-range literal the hygiene lint refuses
 
 ADR-0052 refuses loopback whoever supplies it, and since A 2026-09-20
 that covers Identify's `listen_addrs` into the book and Kademlia's
@@ -25,7 +27,8 @@ routes the other peer. On PR #111 five Kademlia tests timed out
 
 **The pattern**, first in `tests/connectivity/tests/dcutr.rs`:
 `private_interface_v4()` reads the host's RFC 1918 address off an
-unconnected UDP socket (`connect("10.255.255.255:9")`, no packet sent),
+connected UDP socket to an address in a private range, port 9; no
+packet is sent,
 the runtimes listen there, and rule 3 admits the peer's private address
 beside a private listener of the same family. A host without one stands
 the test DOWN with an `eprintln!` rather than passing it — ADR-0052 has
@@ -60,3 +63,5 @@ the control passes for being loopback rather than for what it tests.
 its tests depends on routing and both carry their own controls.
 
 *Observed 2026-09-25 (p2p-network-dev)*
+
+*Observed 2026-10-18 (p2p-network-dev)*

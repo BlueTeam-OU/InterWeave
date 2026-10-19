@@ -20,7 +20,7 @@ use slint::ComponentHandle as _;
 
 use crate::generated::{AppWindow, SwipeKind};
 use crate::gesture::{Gesture, Side};
-use crate::{Input, Shared, enqueue};
+use crate::{By, Input, Shared, enqueue};
 
 /// What a rendered row's swipe does, by the row's swipe key.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,7 +185,7 @@ pub(crate) fn ended(shared: &Rc<RefCell<Shared>>, window: &slint::Weak<AppWindow
         window.set_swipe_offset(0.0);
     }
     let input = match target {
-        Swipeable::Item(item, _) => Input::Action(item, action),
+        Swipeable::Item(item, _) => Input::Action(item, action, By::Swipe),
         Swipeable::Conversation(conversation) => Input::HideConversation(conversation),
     };
     enqueue(shared, input);

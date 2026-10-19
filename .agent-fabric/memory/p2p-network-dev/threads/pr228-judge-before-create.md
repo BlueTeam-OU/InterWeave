@@ -5,7 +5,7 @@ topic: "pr228-judge-before-create"
 description: "#228 MERGED 0e17a32e 2026-10-08 (j35-j40): judge-before-create, FIFO-safe opens, ADR-0028 #231 private-group predicate, umask-independent suites, 120 s keepalive bound; what is carried"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
