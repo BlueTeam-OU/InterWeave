@@ -18,8 +18,12 @@ use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt as _;
 use std::sync::Mutex;
 
-use interweave_human_android_platform::{FirstRun, IdentityRefused, stand_in, start_identity};
+use interweave_human_android_platform::{
+    Expected, FirstRun, IdentityRefused, RestoreRefused, phrase_peer, restore_identity, stand_in,
+    start_identity,
+};
 use interweave_profile_config::{ProfilePaths, TrustBoundary};
+use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_embedded::custody::{
     self, CipherFailure, IV_LEN, KeyRef, RecoveryCause, SEALED_LEN, SEED_LEN, Sealed, Seed,
     SeedCipher,
@@ -259,4 +263,172 @@ fn a_first_run_whose_old_key_could_not_be_retired_is_provisioned_and_starts() {
     *keystore.retire_fails.lock().unwrap() = false;
     let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse).expect("unlocks");
     assert_eq!(again.transport_identity().expect("a PeerId"), peer);
+}
+
+/// Plan section 20 gate (a), the client clauses: a key the platform lost
+/// enters recovery, mints nothing, and the person's phrase restores the
+/// `PeerId` the record names -- which then unlocks at every later start.
+#[test]
+fn recovery_restores_the_recorded_peer_from_the_phrase_and_it_unlocks_after() {
+    let app = app();
+    let identity = start_identity(
+        &app.dir,
+        PROFILE,
+        &FakeKeystore::default(),
+        FirstRun::Create,
+    )
+    .expect("provisioned");
+    let peer = identity.transport_identity().expect("a PeerId");
+    let phrase = identity.recovery_phrase().expect("its phrase");
+    // The keys are gone: the app reinstalled over its data, or the key
+    // deleted under it.
+    let keystore = FakeKeystore::default();
+    assert_eq!(
+        start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).map(|_| ()),
+        Err(IdentityRefused::RecoveryRequired(RecoveryCause::KeyMissing))
+    );
+
+    let restored = restore_identity(&app.dir, PROFILE, &keystore, &phrase, Expected::Recorded)
+        .expect("the phrase restores");
+    assert_eq!(restored.transport_identity().expect("a PeerId"), peer);
+    let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
+        .expect("the restored record unlocks");
+    assert_eq!(again.transport_identity().expect("a PeerId"), peer);
+}
+
+/// BIP-39's checksum is eight bits: a phrase that parses can be another
+/// identity's. It is refused and the record stays as it was, so the
+/// person's own phrase still restores it.
+#[test]
+fn another_identitys_phrase_is_refused_and_the_record_is_left_as_it_was() {
+    let app = app();
+    let identity = start_identity(
+        &app.dir,
+        PROFILE,
+        &FakeKeystore::default(),
+        FirstRun::Create,
+    )
+    .expect("provisioned");
+    let before = record(&app);
+    let keystore = FakeKeystore::default();
+    let stranger = ProfileIdentity::generate()
+        .recovery_phrase()
+        .expect("a phrase");
+
+    assert_eq!(
+        restore_identity(&app.dir, PROFILE, &keystore, &stranger, Expected::Recorded).map(|_| ()),
+        Err(RestoreRefused::OtherIdentity)
+    );
+    assert_eq!(record(&app), before, "the record is untouched");
+    assert!(keystore.generated.lock().unwrap().is_empty(), "no key made");
+    // Control: the right phrase still restores over the same record.
+    restore_identity(
+        &app.dir,
+        PROFILE,
+        &keystore,
+        &identity.recovery_phrase().expect("its phrase"),
+        Expected::Recorded,
+    )
+    .expect("the person's own phrase restores");
+}
+
+/// A fresh install has no record to say which `PeerId` to restore, and
+/// none is taken on trust: nothing is written.
+#[test]
+fn with_no_record_nothing_is_restored_without_a_confirmed_peer() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let phrase = ProfileIdentity::generate()
+        .recovery_phrase()
+        .expect("a phrase");
+
+    assert_eq!(
+        restore_identity(&app.dir, PROFILE, &keystore, &phrase, Expected::Recorded).map(|_| ()),
+        Err(RestoreRefused::NoRecord)
+    );
+    assert!(
+        !custody::custody_file(&paths(&app)).exists(),
+        "no record written"
+    );
+    assert!(keystore.generated.lock().unwrap().is_empty(), "no key made");
+}
+
+/// The fresh install's restore: the app shows the `PeerId` the phrase
+/// derives to, the person confirms it, and that is what is restored and
+/// unlocks after. A confirmation of another `PeerId` restores nothing.
+#[test]
+fn a_fresh_install_restores_the_peer_the_person_confirmed_and_no_other() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let original = ProfileIdentity::generate();
+    let phrase = original.recovery_phrase().expect("a phrase");
+    let shown = phrase_peer(&phrase).expect("the derived PeerId");
+    assert_eq!(shown, original.transport_identity().expect("a PeerId"));
+
+    let other = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a PeerId");
+    assert_eq!(
+        restore_identity(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &phrase,
+            Expected::Confirmed(&other)
+        )
+        .map(|_| ()),
+        Err(RestoreRefused::OtherIdentity)
+    );
+    assert!(
+        !custody::custody_file(&paths(&app)).exists(),
+        "no record written"
+    );
+
+    let restored = restore_identity(
+        &app.dir,
+        PROFILE,
+        &keystore,
+        &phrase,
+        Expected::Confirmed(&shown),
+    )
+    .expect("the confirmed PeerId restores");
+    assert_eq!(restored.transport_identity().expect("a PeerId"), shown);
+    let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
+        .expect("the new record unlocks");
+    assert_eq!(again.transport_identity().expect("a PeerId"), shown);
+}
+
+/// A confirmed `PeerId` never stands in for a record: over an established
+/// identity, even its own confirmed `PeerId` is refused and the record is
+/// left as it was -- that profile restores as its record names it.
+#[test]
+fn a_confirmed_peer_never_replaces_an_established_record() {
+    let app = app();
+    let identity = start_identity(
+        &app.dir,
+        PROFILE,
+        &FakeKeystore::default(),
+        FirstRun::Create,
+    )
+    .expect("provisioned");
+    let before = record(&app);
+    let phrase = identity.recovery_phrase().expect("its phrase");
+    let peer = identity.transport_identity().expect("a PeerId");
+
+    assert_eq!(
+        restore_identity(
+            &app.dir,
+            PROFILE,
+            &FakeKeystore::default(),
+            &phrase,
+            Expected::Confirmed(&peer)
+        )
+        .map(|_| ()),
+        Err(RestoreRefused::RecordExists)
+    );
+    assert_eq!(record(&app), before, "the record is untouched");
+}
+
+fn paths(app: &App) -> ProfilePaths {
+    ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b")).expect("p")
 }

@@ -27,7 +27,10 @@ pub mod stand_in;
 pub mod view_side;
 
 pub use hub::{Hub, TO_VIEW, ToView, ViewLink};
-pub use identity::{FirstRun, IdentityRefused, start_identity};
+pub use identity::{
+    Expected, FirstRun, IdentityRefused, RestoreRefused, phrase_peer, restore_identity,
+    start_identity,
+};
 pub use interweave_profile_config::runtime::KeyUnlockPolicy;
 /// The embedded custody path, for the app's Keystore adapter of its
 /// `SeedCipher` seam.
