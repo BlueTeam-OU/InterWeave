@@ -20,7 +20,7 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use interweave_human_chat_protocol::{HumanChatV2, MEDIA_TYPE_V2};
-use interweave_human_store::{HumanStore, StoreOptions};
+use interweave_human_store::{HumanStore, StoreError, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_local_client_api::{
     DataCapability, DataSessionBinding, DataSessionPort, SessionRequest,
@@ -197,5 +197,79 @@ async fn tm_44_an_envelope_asking_to_be_kept_arrives_unread_and_is_gone_once_rea
     assert!(
         !holds(&every_stored_value(&path), BODY.as_bytes()),
         "the body survived its read somewhere in the file"
+    );
+}
+
+// -------------------------------------------------------------------
+// TM-45
+// -------------------------------------------------------------------
+
+/// The three shapes a shadow archive takes inside the store's own file: a
+/// trigger copying a row on its way out into a table the shape guard
+/// allows (`settings`, content-free metadata); a view, which is a content
+/// surface of its own; and a full-text index, which keeps its own copy of
+/// every word it indexed. Each is refused at open -- before any read or
+/// release could feed it -- and the control shows that without one, a
+/// released body is in no table at all.
+#[test]
+fn tm_45_a_trigger_view_or_search_index_shadowing_content_is_refused_at_open() {
+    const BODY: &[u8] = b"a body that must leave with its read";
+    let shadows = [
+        (
+            "trigger",
+            "CREATE TRIGGER keep_a_copy AFTER DELETE ON unread_inbound BEGIN
+                 INSERT INTO settings (key, value)
+                 VALUES ('copy_' || old.row_id, CAST(old.payload AS TEXT));
+             END;",
+        ),
+        (
+            "view",
+            "CREATE VIEW recent AS SELECT payload FROM unread_inbound
+                 UNION ALL SELECT payload FROM kept_inbound;",
+        ),
+        (
+            "search index",
+            "CREATE VIRTUAL TABLE search USING fts5(body);
+             INSERT INTO search (body) SELECT CAST(payload AS TEXT) FROM unread_inbound;",
+        ),
+    ];
+    for (what, sql) in shadows {
+        let dir = common::private_tempdir();
+        let path = store_path(dir.path(), "state");
+        {
+            let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+            let mut new = interweave_human_retention_tests::unread_inbound();
+            new.payload = BODY.to_vec();
+            store.commit_unread_inbound(&new).expect("unread");
+        }
+        rusqlite::Connection::open(&path)
+            .expect("raw")
+            .execute_batch(sql)
+            .expect("the shadow is added behind the store's back");
+
+        let refused = HumanStore::open(&path, StoreOptions::default())
+            .expect_err("a store carrying a shadow is not opened");
+        assert!(
+            matches!(&refused, StoreError::Migration(m) if m.contains("not part of this store's schema")),
+            "{what}: {refused:?}"
+        );
+    }
+
+    // THE CONTROL: no shadow, and the body leaves every table with its read.
+    let dir = common::private_tempdir();
+    let path = store_path(dir.path(), "state");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let mut new = interweave_human_retention_tests::unread_inbound();
+    new.payload = BODY.to_vec();
+    let row = store.commit_unread_inbound(&new).expect("unread");
+    assert!(
+        holds(&every_stored_value(&path), BODY),
+        "the scan sees an unread body, so its silence below means something"
+    );
+    drop(store.mark_read(row, WALL).expect("read"));
+    drop(store);
+    assert!(
+        !holds(&every_stored_value(&path), BODY),
+        "a read, unkept body is in no table"
     );
 }

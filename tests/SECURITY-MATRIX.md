@@ -116,7 +116,7 @@ empty.
 | TM-42 | Android remote message triggers admin action | S12 (02) | owed | — |
 | TM-43 | Android key extraction from filesystem | S12 (02) | owed | — |
 | TM-44 | remote sender attempts to force message persistence | — | `tests/human-retention/tests/threat_rows.rs::tm_44_an_envelope_asking_to_be_kept_arrives_unread_and_is_gone_once_read`; `tests/human-retention/tests/retention_conformance.rs::case_9_nothing_a_sender_controls_can_produce_a_kept_row` | A compromised human client can violate its own local policy (threat-model.md). The facade runs over the in-memory fake, not a daemon. |
-| TM-45 | logs/notifications/search indexes become shadow chat archive | S10 (02, with rust-ui-dev) | owed | — |
+| TM-45 | logs/notifications/search indexes become shadow chat archive | S10 (02, with rust-ui-dev) | `tests/human-retention/tests/threat_rows.rs::tm_45_a_trigger_view_or_search_index_shadowing_content_is_refused_at_open`; `crates/human/store/tests/storage_mechanics.rs::debug_output_never_carries_a_message_body`; `crates/human/store/tests/released_content.rs::released_content_is_absent_from_both_files_after_a_clean_close`; `crates/human/store/tests/released_content.rs::released_content_leaves_both_files_before_the_release_returns`; owed: notification content and the clients' own logs (`apps/human-desktop`, `apps/human-android`) | OS and filesystem forensic remnants depend on the platform's storage layer (threat-model.md). |
 | TM-46 | restored pending outbox replays old sends | S10 (02, with rust-ui-dev) | owed | — |
 | TM-47 | OS kills Android runtime | S12 (02) | owed | — |
 | TM-48 | cloned recovery phrase used on two active devices | S11 (02) | owed | — |
