@@ -408,3 +408,35 @@ stage or a later one.
 
 To be written after rust-ui-dev's fixes, on the build that carries them:
 what passed, and what is carried.
+
+## 8. The swipe spec's acceptance on the same build
+
+`design/2026-10-16-message-swipe.md` §11, walked on the same build and
+phone as §6 (main ffce28df, APK 0d1bcbec), 2026-10-19, by script
+through `phone-run`, gestures injected with `input motionevent` and
+`input swipe`. This is j1's device review, which the phone link held
+up since 2026-10-17.
+
+| item | result |
+|---|---|
+| 1 | Pass: a slow right drag on a kind-A row arms the Keep fill, commits "Kept"; Undo unkeeps. |
+| 2 | Pass: a right drag to 30 % and back, released: nothing, no snackbar. |
+| 3 | Not settled: injected flings did not commit at 75 dp / 150 ms or 114 dp / 200 ms, and did at 95 dp / 120 ms. Injection timing is not a finger's; a person at the phone checks it. |
+| 4 | Partly: the left drag on a kind-A row was not run without Undo, since it loses the phone's test message. |
+| 5 | Pass: a right drag on a kind-B row does not move it; the first left drag after it commits "No longer kept" (it did not on 761d72b3); Undo, then a restart: still kept. |
+| 6, 9 | Not run: each removes test data for good. |
+| 7 | Pass: left drag, Undo, force-stop, restart: still kept. |
+| 8 | Pass, after a restart: a right drag arms "Send again", retries, no snackbar, status "Not confirmed, trying again"; a left drag shows "Sending canceled, may have reached the peer"; Undo restores it in place. The ids were not compared (no diagnostics view on the phone). |
+| 10 | Not run: no kind-D row on the phone. |
+| 11 | Pass: a drag about 57° off horizontal leaves the row still. |
+| 12, 13 | Blocked: no accessibility bridge (§11's precondition). |
+| 14 | Not run: Remove animations is a person's check of feel. |
+| 15 | Pass: a drag from the left edge shows the system Back chevron and does not move the row (Back then leaves the app: F1). |
+| 16 | Pass: under an Arabic app locale a right drag on a kind-B row commits Unkeep, and the snackbar mirrors (Undo at the start). |
+| 17 | Pass (§6 run 2): hide offered only on a conversation with nothing kept, unread or pending; "Conversation hidden", Undo restores; a row not offered does not move. |
+
+During item 16 my script tapped where Undo sits in a left-to-right
+layout. The snackbar closed, and the app's restart then dropped the
+test message "T3 RTL test row three." as retention says for a read,
+unkept message. It is gone from the phone; rust-ui-dev-01's seeding
+replaces it.
