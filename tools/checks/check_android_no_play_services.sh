@@ -131,8 +131,16 @@ gradle_files() {
 # string is opaque on purpose: a URL's // or a glob's /* inside one must
 # not open a comment, and a } inside one must not close a block -- each
 # once let the [^}]* matches below accept a call outside its block
-# (review of #307, rounds 2 and 3). Used only for the two calls that must
-# be PRESENT; what is refused is matched on the raw text.
+# (review of #307, rounds 2 and 3). It is a quote-pairing scan, not a
+# Kotlin lexer, and it does NOT see: a ${...} template holding a quote or
+# a char literal, a backtick identifier holding an apostrophe, a raw
+# string ending in more than three quotes, or nested /* */ comments.
+# Each leaves a quote open to the end of its line, which FAILS OPEN on
+# the two presence checks below when the block's closing brace shares
+# that line (a brace on a later line is unaffected). Judged P3 and left
+# (round 4): the shapes are contrived for a guard against drift, and a
+# lexer is not worth its weight. Used only for those two checks; what is
+# refused is matched on the raw text.
 code_of() {
     awk '
         BEGIN { st = "code"; dq = "\""; sq = "\047"; tq = dq dq dq }
@@ -218,9 +226,11 @@ LOOSEN='LENIENT|ignoredDependencies|unlockAllConfigurations|deactivateDependency
 # name one, as decision 2 allows; the catalog cannot say where an entry
 # is used, so it may not.
 BANNED='(com\.google\.android\.gms|com\.google\.firebase|com\.google\.android\.play|com\.android\.billingclient|com\.google\.gms)([.:"'"'"'/[:space:]]|$)'
-# A dependency call on a test or lint configuration, by its whole name:
-# a bare prefix once exempted `testing { ... }` (round 3, judged).
-TOOLING_LINE='^[0-9]+:[[:space:]]*"?((test|androidTest|[a-z]+UnitTest|[a-z]+AndroidTest)(Implementation|Api|CompileOnly|RuntimeOnly|AnnotationProcessor)|lintChecks|lintPublish)"?[[:space:](]'
+# A dependency call on a test or lint configuration, by its whole name,
+# a build type or flavour between allowed (testDebugImplementation): a
+# bare prefix once exempted `testing { ... }` (round 3), and suffix-only
+# once refused testDebugImplementation and androidTestUtil (round 4).
+TOOLING_LINE='^[0-9]+:[[:space:]]*"?((test|androidTest|[a-z]+UnitTest|[a-z]+AndroidTest)([A-Z][a-z0-9]+)*(Implementation|Api|CompileOnly|RuntimeOnly|AnnotationProcessor)|androidTestUtil|lintChecks|lintPublish)"?[[:space:](]'
 
 sources=0
 while IFS= read -r src; do

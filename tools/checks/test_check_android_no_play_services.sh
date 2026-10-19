@@ -223,6 +223,10 @@ R="$(tree)"; printf '\ndependencies {\n    testImplementation("junit:junit:4.13"
 expect_fail "$R" "a second statement after a test call (round 3, finding 2)" "declares a banned group"
 R="$(tree)"; printf '\ntesting { plugins { id("com.google.gms.google-services") } }\n' >> "$R/$APP_BUILD"
 expect_fail "$R" "a line that only starts with test" "declares a banned group"
+R="$(tree)"; printf '\ndependencies {\n    testDebugImplementation("com.google.firebase:x:1.0")\n    androidTestUtil("com.google.android.gms:y:1.0")\n    androidTestReleaseImplementation("com.google.android.play:z:1.0")\n}\n' >> "$R/$APP_BUILD"
+expect_pass "$R" "test configurations with a build type, and androidTestUtil (round 4)"
+R="$(tree)"; printf '\ndependencies {\n    testingImplementation("com.google.firebase:x:1.0")\n}\n' >> "$R/$APP_BUILD"
+expect_fail "$R" "a configuration that only starts with test (testingImplementation)" "declares a banned group"
 
 echo "lockAllConfigurations() counts only where it locks every project (finding 4)"
 ROOT_BUILD=apps/human-android/android/build.gradle.kts
@@ -243,7 +247,7 @@ printf '\nallprojects { val g = "src/*" }\nval q = "*/"; dependencyLocking { loc
 expect_fail "$R" "a glob's /* and a */ in strings" "no lockAllConfigurations() in allprojects"
 R="$(tree)"; sed -i 's/^\([[:space:]]*\)lockAllConfigurations()$/\1lockMode.set(LockMode.DEFAULT)/' "$R/$ROOT_BUILD"
 printf '\nallprojects { val b = "}" }\ndependencyLocking { lockAllConfigurations() }\n' >> "$R/$ROOT_BUILD"
-expect_fail "$R" "a } inside a string does not close the block early... and the call outside still fails" "no lockAllConfigurations() in allprojects"
+expect_fail "$R" "a double-quoted string closes at its own quote (the call after the block fails)" "no lockAllConfigurations() in allprojects"
 R="$(tree)"; sed -i 's/^allprojects {/allprojects {\n    val note = "a } in a string"\n    val url = "https:\/\/x"/' "$R/$ROOT_BUILD"
 expect_pass "$R" "a } and a // in strings inside the real block do not unlock it"
 
