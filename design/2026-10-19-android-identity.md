@@ -11,7 +11,7 @@ and is not merged; it lands with rust-ui-dev's build PR.
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
-Recovery UI hardening, at ecf20942), `IDENTITY-RECOVERY.md` (Restore
+Recovery UI hardening, at ecf20942..252a6f45), `IDENTITY-RECOVERY.md` (Restore
 semantics) and `human-client-ui.md` §2 and §9. This note decides how a
 person meets those rules, and changes none of them.
 
@@ -51,8 +51,10 @@ From the contracts; listed so a reviewer can check each screen:
   S1 to S2 holds the lock throughout: S2 reads the seed through
   `unlock`, which takes no lock. Create and restore take the lock once,
   before the first word is shown or picked (C2, R2), and hand it to the
-  seal or restore they end in: `provision` and `restore` accept a held
-  lock (§11b Q9; custody doc 252a6f45). There is never a release and
+  seal or restore they end in. `provision` and `restore` will accept a
+  held lock (§11b Q9, asked of p2p-network-dev). Today each takes a
+  fresh lock and would refuse one the flow holds, so C4 and the
+  restores are not done until the crate accepts it. There is never a release and
   retake, which would let the service start the profile in between. Creation shows its words before
   the service first starts.
 - Nothing restores silently. A phrase that derives a PeerId other than
@@ -218,7 +220,8 @@ intact field names its PeerId, and K1 restores only a phrase that
 derives it. Until the reader lands, K1's Record causes are not done:
 without it such a record would fall to `IdQNoPath`. K1 has three
 inputs: a record that opens (no K1), a record that names a PeerId
-(restore to it), and a record that names none (`IdQNoPath`). With one, K1 shows it.
+(restore to it), and a record that names none (`IdQNoPath`). When the
+record names a PeerId, K1 shows it.
 Primary: enter my recovery phrase (→ R2, then straight to the check
 against that PeerId, with no R3). Back leaves the app. K1 shows again
 on the next launch until the restore succeeds.
@@ -231,8 +234,8 @@ there. The phrase-only path (R2 and then
 R3) is never offered over a record that exists. The custody design
 allows that path only where no record survives, and
 `IDENTITY-RECOVERY.md` refuses to replace an established profile
-without a matching old PeerId. §11 Q6 asks architect-cto whether this
-case gets a path of its own.
+without a matching old PeerId. This case gets no path of its own
+(§11a Q6).
 
 The person never gets a "start over with a new identity" action here,
 because a new identity would replace an established profile
@@ -351,11 +354,12 @@ comparison a matter of groups, not of single characters.
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
 | Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen before the operation, never by the service. Cancelled or denied: nothing shown and no error. C4 and the restores stay on their screen with the words kept, and nothing is committed. S2's Done drops the words and returns to Settings offline; connectivity and the profile's user-presence diagnostic say why (`android-key-custody.md`, Unlock policies) | The primary action again, or Back |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
-| A refused write: read back first | C4's continue (the seal), R3's yes, R2's check after K1 | Any refusal of a write (`Storage`, `OldKeyRemains`, `AlreadyProvisioned`, or another) may come after the record was written: a directory sync or a key retire can fail after the publish (`persist.rs`, custody's `provision`). So the screen reads the record back (`recorded_identity`) before it shows anything. What it shows then depends only on what the read-back finds, whatever the refusal said, in the four rows below. Together they cover every case | — |
-| Read-back: the PeerId just shown or confirmed | as above | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
-| Read-back: no record | as above | `IdStorageFailed`: nothing was changed, which the read-back has shown, with Try again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
-| Read-back: another PeerId | as above | At C4: `IdAlreadyCreated`, the words just shown were not used; Continue opens the identity the phone holds. At a restore: `IdRestoreOther` on that screen says the identity was not restored and this phone now holds another, with that PeerId in full (§5); Continue goes to the app's normal start, which opens that identity or shows K1 for it. Without it the person could take another identity for their own | Continue |
-| Read-back fails (the record cannot be read) | as above | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again before writing again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
+| A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, a storage error before the publish). The builder must see `Storage`'s inner error to tell the two apart | — |
+| Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
+| Read-back: it does not open, and no record is there | after those two refusals | `IdStorageFailed`: nothing was changed, which the read-back has shown, with Try again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
+| Read-back fails, or the record is there and does not open | after those two refusals | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again before writing again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
+| Storage error before the publish (`Storage` with an inner `Io` error) | C4, R3's yes, R2's check after K1 | `IdStorageFailed`: nothing was changed, with Try again. A restore after K1 never reaches R4 this way | Try again, or Back (words dropped) |
+| Another identity already on record (`AlreadyProvisioned`) | C4's continue | The record was there before this flow's write. `recorded_identity` names the PeerId the phone holds. `IdAlreadyCreated`: the words just shown were not used; Continue opens that identity. At a restore, a record naming another PeerId shows `IdRestoreOther` with that PeerId | Continue |
 | The record names another identity, or is unreadable (`RecordNamesOther`, `Unreadable`) | R2's check after K1 | Not reachable: K1 offers R2 only with the record's own PeerId (§3.4). If a build reaches it, `IdOtherIdentity` with nothing restored | Back |
 | Success | C4 after its seal; R4 after a restore | The PeerId, and continue | Continue |
 
@@ -543,6 +547,11 @@ landscape:
    hook), K1 shows `IdQTitleNoPath`, `IdQReasonNoPath` and `IdQNoPath` with no primary action, and
    no R2 or R3 is reachable. A restore that answers `OldKeyRemains`
    (a test hook) reaches R4, and the next start retries the retire.
+   A K1 restore whose write fails before the publish (a hook) shows
+   `IdStorageFailed` and never R4, and the next start shows K1 again.
+   Once custody's PeerId-field reader lands (§11b Q8), a record refused
+   for its shape (a hook damages its magic) with an intact field shows
+   K1 with that PeerId and restores only to it.
    A C4 that answers `AlreadyProvisioned` with another identity on
    record shows `IdAlreadyCreated`. A C4 whose directory sync fails
    after the record is written (a test hook) reads the record back and
@@ -643,7 +652,7 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   never decides whose record it is (§3.4).
 - **Q9. Handing the profile lock to custody.** A handover, not a gap.
   The flow takes the lock once, before the first word, and hands it to
-  the seal it ends in; `provision` and `restore` accept a held lock
+  the seal it ends in; `provision` and `restore` are to accept a held lock
   (§2).
 
 ## 12. Deliberately left out
