@@ -105,7 +105,7 @@ The root [`Cargo.toml`](./Cargo.toml) is a virtual workspace, and `[workspace].m
 
 ## Building and testing
 
-The workspace builds with the Rust toolchain pinned in [`rust-toolchain.toml`](./rust-toolchain.toml). The tree checks and the suites run through `xtask`:
+The workspace builds with the Rust toolchain pinned in [`rust-toolchain.toml`](./rust-toolchain.toml), which only rustup honours: a distribution's `cargo` is whatever version its package is at, and a system update moves it off the pin with no commit here. Install rustup, with its `cargo` ahead of the system one on `PATH` (on a fleet host, `fabric-tools --install rustup` from a working copy). `tools/checks/check_rustc_pin.sh`, the first tree check, says which compiler, clippy and rustfmt are in use when they are not the pin's. The tree checks and the suites run through `xtask`:
 
 ```text
 cargo xtask checks       # the tree checks under tools/checks/
