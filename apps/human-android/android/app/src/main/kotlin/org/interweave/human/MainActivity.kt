@@ -243,6 +243,8 @@ class MainActivity : NativeActivity() {
                         ) ?: SNACKBAR_MS
                     ).toLong(),
                 hour24 = DateFormat.is24HourFormat(this),
+                // A message's menu opens after the platform's long-press time.
+                longPressMs = ViewConfiguration.getLongPressTimeout().toLong(),
             )
         if (values == sentTouch) return
         sentTouch = values
@@ -254,6 +256,7 @@ class MainActivity : NativeActivity() {
             values.reducedMotion,
             values.recommendedMs,
             values.hour24,
+            values.longPressMs,
         )
     }
 
@@ -266,6 +269,7 @@ class MainActivity : NativeActivity() {
         val reducedMotion: Boolean,
         val recommendedMs: Long,
         val hour24: Boolean,
+        val longPressMs: Long,
     )
 
     private var sentTouch: Touch? = null

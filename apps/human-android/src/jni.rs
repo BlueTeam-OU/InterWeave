@@ -363,6 +363,7 @@ extern "system" fn Java_org_interweave_human_Native_touch<'caller>(
     reduced_motion: jboolean,
     recommended_ms: jlong,
     hour24: jboolean,
+    long_press_ms: jlong,
 ) {
     env.with_env(|_| -> Result<(), jni::errors::Error> {
         crate::activity::touch_changed(TouchSettings {
@@ -373,6 +374,7 @@ extern "system" fn Java_org_interweave_human_Native_touch<'caller>(
             reduced_motion,
             snackbar_ms: snackbar_ms(u64::try_from(recommended_ms).unwrap_or(0)),
             hour24,
+            long_press_ms: u64::try_from(long_press_ms).unwrap_or(500),
         });
         Ok(())
     })

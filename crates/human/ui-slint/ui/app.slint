@@ -219,6 +219,10 @@ export struct IdentityPage {
 
 export global Touch {
     in property <length> slop: 8px;
+    // The platform's long-press time (Android's
+    // ViewConfiguration.getLongPressTimeout): a press held this long within
+    // the slop opens a message's menu (swipe spec section 4).
+    in property <duration> long-press: 500ms;
     // The system's animations are off: a press shows no ripple.
     in property <bool> reduced-motion;
 }
@@ -739,91 +743,6 @@ component Avatar inherits Rectangle {
     }
 }
 
-// A row action as a Material outlined chip (section 6): 32 px drawn and
-// 48 px to touch, the touch area 8 px above and below, an 18 px icon in
-// `primary` before its label.
-component Chip inherits FocusScope {
-    in property <string> text;
-    in property <SwipeKind> kind;
-    // An icon that is no swipe's: Show source's.
-    in property <Glyph> glyph: Glyph.none;
-    in property <string> detail;
-    in property <string> focus-key;
-    in property <int> focus-seq;
-    in property <bool> focus-wanted;
-    changed focus-seq => {
-        if (root.focus-wanted) { root.focus(); }
-    }
-    callback pressed();
-    callback focused(string);
-    accessible-role: button;
-    accessible-label: root.text;
-    accessible-description: root.detail;
-    accessible-action-default => { root.pressed(); }
-    key-pressed(event) => {
-        if (event.text == Key.Return || event.text == " ") {
-            root.pressed();
-            return accept;
-        }
-        reject
-    }
-    changed has-focus => {
-        if (self.has-focus) { root.focused(root.focus-key); }
-    }
-    min-height: 48px;
-    min-width: max(48px, chip-row.preferred-width);
-    chip := Rectangle {
-        y: (root.height - self.height) / 2;
-        width: root.width;
-        height: max(32px, chip-row.preferred-height);
-        border-width: 1px;
-        border-color: Palette.outline;
-        border-radius: 8px;
-        chip-row := HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 12px;
-            spacing: 8px;
-            VerticalLayout {
-                alignment: center;
-                if root.glyph != Glyph.none: GlyphIcon {
-                    width: 18px;
-                    height: 18px;
-                    glyph: root.glyph;
-                    ink: Palette.primary;
-                }
-                if root.glyph == Glyph.none: SwipeIcon {
-                    width: 18px;
-                    height: 18px;
-                    kind: root.kind;
-                    ink: Palette.primary;
-                }
-            }
-            // The chip's label already: not a second node.
-            Text {
-                text: root.text;
-                font-size: Type.label-large;
-                font-weight: 500;
-                color: Palette.on-surface;
-                vertical-alignment: center;
-                accessible-role: none;
-            }
-        }
-    }
-    TapArea {
-        radius: 8px;
-        inset-y: chip.y;
-        tapped => { root.pressed(); }
-    }
-    FocusRing {
-        x: -5px;
-        y: chip.y - 5px;
-        width: root.width + 10px;
-        height: chip.height + 10px;
-        radius: 8px;
-        shown: root.has-focus;
-    }
-}
-
 // What a swipe uncovers: the action's icon and its label on the side the
 // row left, on the neutral fill until armed and the action's colour once
 // armed -- with the icon scaled up, so colour is never the only sign
@@ -951,6 +870,12 @@ component MenuItem inherits FocusScope {
     in property <string> text;
     in property <string> detail;
     in property <string> focus-key;
+    // A message's menu shows each action's icon, 24 px in
+    // `on-surface-variant` before its label (look spec section 6): a swipe
+    // kind's, or `glyph`'s for one that is no swipe's (Show source).
+    in property <bool> iconed;
+    in property <SwipeKind> kind;
+    in property <Glyph> glyph: Glyph.none;
     // The menu's first entry takes focus when the menu opens.
     in property <bool> first;
     in property <bool> rtl;
@@ -990,13 +915,47 @@ component MenuItem inherits FocusScope {
     HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
+        spacing: 12px;
+        if root.iconed && !root.rtl: VerticalLayout {
+            alignment: center;
+            if root.glyph != Glyph.none: GlyphIcon {
+                width: 24px;
+                height: 24px;
+                glyph: root.glyph;
+                ink: Palette.on-surface-variant;
+            }
+            if root.glyph == Glyph.none: SwipeIcon {
+                width: 24px;
+                height: 24px;
+                kind: root.kind;
+                ink: Palette.on-surface-variant;
+            }
+        }
         Text {
             text: root.text;
             font-size: Type.body-large;
             color: Palette.on-surface;
             vertical-alignment: center;
+            // At 200 % a label wraps rather than being cut (section 8).
+            wrap: word-wrap;
+            horizontal-stretch: 1;
             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
             accessible-role: none;
+        }
+        if root.iconed && root.rtl: VerticalLayout {
+            alignment: center;
+            if root.glyph != Glyph.none: GlyphIcon {
+                width: 24px;
+                height: 24px;
+                glyph: root.glyph;
+                ink: Palette.on-surface-variant;
+            }
+            if root.glyph == Glyph.none: SwipeIcon {
+                width: 24px;
+                height: 24px;
+                kind: root.kind;
+                ink: Palette.on-surface-variant;
+            }
         }
     }
     TapArea { tapped => { root.pressed(); } }
@@ -1593,6 +1552,41 @@ export component AppWindow inherits Window {
 
     callback select(int);
     callback action(int, int);
+    // One haptic tick as a long-press opens a message's menu.
+    callback menu-haptic();
+    // The message whose menu is open, by its handle, or -1, with what the
+    // menu shows: the row's actions as rendered, Show source's label, the
+    // message's label, and the bubble it is anchored to.
+    in-out property <int> row-menu: -1;
+    property <[ActionRow]> row-menu-actions;
+    property <string> row-menu-source;
+    property <string> row-menu-detail;
+    property <length> row-menu-x;
+    property <length> row-menu-y;
+    property <length> row-menu-w;
+    property <length> row-menu-h;
+    // Show source chosen from a menu, for the row that keeps the choice.
+    property <int> source-toggle: -1;
+    property <int> source-toggle-seq;
+    function open-row-menu(handle: int, actions: [ActionRow], source: string, detail: string,
+        x: length, y: length, w: length, h: length) {
+        root.row-menu-actions = actions;
+        root.row-menu-source = source;
+        root.row-menu-detail = detail;
+        root.row-menu-x = x;
+        root.row-menu-y = y;
+        root.row-menu-w = w;
+        root.row-menu-h = h;
+        root.row-menu = handle;
+    }
+    // Closed with nothing done (Escape, Back, a tap outside): focus back
+    // on its bubble.
+    public function close-row-menu() {
+        if (root.row-menu < 0) { return; }
+        root.focus-target = "m:" + root.row-menu;
+        root.row-menu = -1;
+        root.focus-seq += 1;
+    }
     callback link(int, int);
     callback send();
     callback notice-pressed();
@@ -1693,6 +1687,10 @@ export component AppWindow inherits Window {
     public function handle-back() -> bool {
         if (root.identity-active) {
             root.identity-back();
+            return true;
+        }
+        if (root.row-menu >= 0) {
+            root.close-row-menu();
             return true;
         }
         if (root.menu-open || root.details-open) {
@@ -2581,17 +2579,41 @@ export component AppWindow inherits Window {
                     property <bool> at-left: row.outbound == root.rtl;
                     property <TextHorizontalAlignment> text-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                     property <string> source-label: item.show-source ? root.show-formatted-label : root.show-source-label;
-                    // Show source's chip, measured as Chip draws it: its icon,
-                    // label and padding, at least 48 px.
-                    property <length> source-chip-width: max(48px, source-measure.preferred-width + 18px + 8px + 20px);
-                    property <bool> chips-wrap: row.actions.length > 0
-                        && actions-row.preferred-width + 8px + item.source-chip-width > root.message-width;
                     accessible-role: list-item;
                     accessible-label: row.label;
                     accessible-item-index: index;
                     accessible-item-count: root.messages.length;
                     changed has-focus => {
                         if (self.has-focus) { root.focus-id = "item:" + row.handle; }
+                    }
+                    // The bubble is the row's one focus stop besides its links,
+                    // and every focus rule's "first control" (swipe spec
+                    // section 7, revised for #304 F2).
+                    property <int> focus-seq: root.focus-seq;
+                    changed focus-seq => {
+                        if (self.focus-here) { self.focus(); }
+                    }
+                    // Its menu holds the actions, at rest nothing does: by
+                    // long-press, Enter, the Menu key, Shift+F10, a secondary
+                    // click, or the default action a screen reader activates.
+                    function open-menu() {
+                        root.open-row-menu(row.handle, row.actions, item.source-label, row.label,
+                            bubble-column.absolute-position.x, bubble-column.absolute-position.y,
+                            bubble-column.width, bubble-column.height);
+                    }
+                    accessible-action-default => { self.open-menu(); }
+                    key-pressed(event) => {
+                        if (event.text == Key.Return || event.text == Key.Menu
+                            || (event.text == Key.F10 && event.modifiers.shift)) {
+                            self.open-menu();
+                            return accept;
+                        }
+                        reject
+                    }
+                    // Toggled from the menu, which lives outside the row.
+                    property <int> source-seq: root.source-toggle-seq;
+                    changed source-seq => {
+                        if (root.source-toggle == row.handle) { self.show-source = !self.show-source; }
                     }
                     animate offset {
                         duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
@@ -2647,7 +2669,33 @@ export component AppWindow inherits Window {
                     // it has taken it, and ends every drag it took
                     // (tests/pointer.rs,
                     // `a_drag_a_row_does_not_offer_leaves_the_next_drag_its_own`).
-                    TouchArea {
+                    // A press held within the slop for the platform's long-press
+                    // time opens the menu, a press past the slop never does,
+                    // and a secondary click opens it at once (section 4).
+                    row-touch := TouchArea {
+                        property <bool> drifted;
+                        pointer-event(event) => {
+                            if (event.kind == PointerEventKind.down) {
+                                self.drifted = false;
+                                if (event.button == PointerEventButton.right) { item.open-menu(); }
+                            }
+                        }
+                        moved => {
+                            if (abs(self.mouse-x - self.pressed-x) > Touch.slop
+                                || abs(self.mouse-y - self.pressed-y) > Touch.slop) {
+                                self.drifted = true;
+                            }
+                        }
+                        Timer {
+                            interval: Touch.long-press;
+                            running: row-touch.pressed && !row-touch.drifted && root.row-menu != row.handle
+                                && !root.swipe-tracking;
+                            triggered => {
+                                self.running = false;
+                                root.menu-haptic();
+                                item.open-menu();
+                            }
+                        }
                     // The bubble's fill (section 6), drawn under its content and
                     // placed on the content's own geometry, so it covers exactly
                     // what the bubble draws.
@@ -2662,6 +2710,16 @@ export component AppWindow inherits Window {
                         border-top-right-radius: 18px;
                         border-bottom-left-radius: item.at-left ? 6px : 18px;
                         border-bottom-right-radius: item.at-left ? 18px : 6px;
+                        // While its menu is open, the bubble keeps a pressed
+                        // state layer, so the person sees which message it is
+                        // about (look spec section 6).
+                        if root.row-menu == row.handle: Rectangle {
+                            background: Palette.on-surface.with-alpha(0.1);
+                            border-top-left-radius: 18px;
+                            border-top-right-radius: 18px;
+                            border-bottom-left-radius: item.at-left ? 6px : 18px;
+                            border-bottom-right-radius: item.at-left ? 18px : 6px;
+                        }
                     }
                     content := VerticalLayout {
                         // Room for a control's focus ring, which the list clips
@@ -2869,75 +2927,11 @@ export component AppWindow inherits Window {
                                     }
                                 }
                         }
-                        // The row's actions as chips under the bubble, on its
-                        // side (section 6): the swipe's equivalent, always
-                        // shown. Show source goes to a second line when the
-                        // chips do not fit on one, as at 200 % (section 8).
-                        HorizontalLayout {
-                            alignment: row.outbound != root.rtl ? end : start;
-                            spacing: 8px;
-                            // Its own height, never more: the bubble above takes
-                            // what the row has left. Stretched, the chips took
-                            // the room a wrapped bubble's last lines needed.
-                            vertical-stretch: 0;
-                            // The action chips alone, measured to decide where
-                            // Show source goes.
-                            actions-row := HorizontalLayout {
-                                spacing: 8px;
-                                for action in row.actions: Chip {
-                                    text: action.text;
-                                    kind: action.kind;
-                                    // What the action acts on: the message, as
-                                    // the row itself is read.
-                                    detail: row.label;
-                                    focus-key: "action:" + row.handle + ":" + action.index;
-                                    focus-seq: root.focus-seq;
-                                    focus-wanted: item.focus-here && action.index == 0;
-                                    pressed => { root.action(row.handle, action.index); }
-                                    focused(k) => { root.focus-id = k; }
-                                }
-                            }
-                            if !item.chips-wrap: Chip {
-                                text: item.source-label;
-                                glyph: Glyph.source;
-                                detail: row.label;
-                                focus-key: "source:" + row.handle;
-                                focus-seq: root.focus-seq;
-                                focus-wanted: item.focus-here && row.actions.length == 0;
-                                pressed => { item.show-source = !item.show-source; }
-                                focused(k) => { root.focus-id = k; }
-                            }
-                        }
-                        if item.chips-wrap: HorizontalLayout {
-                            alignment: row.outbound != root.rtl ? end : start;
-                            vertical-stretch: 0;
-                            Chip {
-                                text: item.source-label;
-                                glyph: Glyph.source;
-                                detail: row.label;
-                                focus-key: "source:" + row.handle;
-                                focus-seq: root.focus-seq;
-                                focus-wanted: item.focus-here && row.actions.length == 0;
-                                pressed => { item.show-source = !item.show-source; }
-                                focused(k) => { root.focus-id = k; }
-                            }
-                        }
                     }
                     }
                         }
                         }
                     }
-                    }
-                    // Show source's label, measured for its chip. Placed, so it
-                    // takes no room in the row.
-                    source-measure := Text {
-                        x: 0;
-                        y: 0;
-                        text: item.source-label;
-                        font-size: Type.label-large;
-                        font-weight: 500;
-                        visible: false;
-                        accessible-role: none;
                     }
                     FocusRing {
                         x: -5px;
@@ -3123,6 +3117,72 @@ export component AppWindow inherits Window {
     // selectable so a person can copy it with the platform's own keys
     // (human-client-ui.md section 11). Read-only: nothing typed here goes
     // anywhere.
+    // A message's menu (swipe spec section 7, look spec section 6): its
+    // actions in the row's order, Show source last, each 48 high with its
+    // icon, anchored under the bubble -- over it when the space below runs
+    // out. Focus opens on its first item; an item chosen, Escape, Back or a
+    // tap outside closes it. Its items keep the focus keys the row's
+    // buttons had, so the view's focus rules read focus here as the row's.
+    if root.row-menu >= 0: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => { root.close-row-menu(); }
+    }
+    if root.row-menu >= 0: row-menu-box := Rectangle {
+        property <length> below: root.row-menu-y + root.row-menu-h + 4px;
+        width: min(root.width - 16px, max(200px, row-menu-items.preferred-width));
+        height: row-menu-items.preferred-height;
+        x: max(8px, min(root.row-menu-x, root.width - self.width - 8px));
+        y: self.below + self.height <= root.height - root.safe-area-insets.bottom - 8px ? self.below
+            : max(root.safe-area-insets.top + 8px, root.row-menu-y - self.height - 4px);
+        background: Palette.surface-container-high;
+        border-radius: 4px;
+        drop-shadow-blur: 8px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: #00000052;
+        // A press on the menu is the menu's, not the scrim's.
+        TouchArea {}
+        row-menu-items := VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            for action in root.row-menu-actions: MenuItem {
+                text: action.text;
+                detail: root.row-menu-detail;
+                iconed: true;
+                kind: action.kind;
+                focus-key: "action:" + root.row-menu + ":" + action.index;
+                first: action.index == 0;
+                rtl: root.rtl;
+                pressed => {
+                    // Closed first, focus on its bubble, which the action's
+                    // own rule may then move (Dismiss, Cancel: the next row).
+                    let handle = root.row-menu;
+                    root.close-row-menu();
+                    root.action(handle, action.index);
+                }
+                closed => { root.close-row-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+            MenuItem {
+                text: root.row-menu-source;
+                detail: root.row-menu-detail;
+                iconed: true;
+                glyph: Glyph.source;
+                focus-key: "source:" + root.row-menu;
+                first: root.row-menu-actions.length == 0;
+                rtl: root.rtl;
+                pressed => {
+                    root.source-toggle = root.row-menu;
+                    root.source-toggle-seq += 1;
+                    root.close-row-menu();
+                }
+                closed => { root.close-row-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+        }
+    }
     // The trust change waiting for the person, as a dialog over a scrim
     // (#304 F4 at 3b19110a): the question with its exact PeerId and what
     // follows, "Do not change" focused, and a button naming the act. A

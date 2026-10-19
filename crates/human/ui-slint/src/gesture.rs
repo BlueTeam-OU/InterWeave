@@ -41,6 +41,10 @@ pub struct TouchSettings {
     /// `DateFormat.is24HourFormat`), which every shown time follows
     /// (design/2026-10-16-android-look.md section 5.2).
     pub hour24: bool,
+    /// The platform's long-press time in milliseconds (Android's
+    /// `ViewConfiguration.getLongPressTimeout`): a press held this long
+    /// within the slop opens a message's menu (swipe spec section 4).
+    pub long_press_ms: u64,
 }
 
 impl Default for TouchSettings {
@@ -55,6 +59,7 @@ impl Default for TouchSettings {
             reduced_motion: false,
             snackbar_ms: SNACKBAR_MIN_MS,
             hour24: true,
+            long_press_ms: 500,
         }
     }
 }

@@ -731,12 +731,10 @@ fn each_status_has_its_words_and_its_icon() {
 }
 
 /// Section 8, a very long message: the bubble wraps and holds every line
-/// of it, its status included, and the chips under it keep their 48 px.
-/// A stretched chip row once took the room the wrapped text needed, so
-/// the bubble's last line and its status ran past the fill, and its
-/// Show source chip grew to 86 px (seen in the rendered window).
+/// of it, its status under the text, and nothing shows under it at rest:
+/// its actions are in its menu (section 6, revised for #304 F2).
 #[test]
-fn a_wrapped_bubble_holds_its_status_above_its_chips() {
+fn a_wrapped_bubble_holds_its_status_and_nothing_under_it() {
     let mut model = UiModel::new();
     let long =
         "A long message with no link at all that goes past the width of the row for sure and wraps";
@@ -752,15 +750,15 @@ fn a_wrapped_bubble_holds_its_status_above_its_chips() {
     let (status_y, status_h, _) = one(placeholder_en::label(
         interweave_human_ui_model::LabelKey::Unread,
     ));
-    let (chip_y, chip_h, _) = one(placeholder_en::text(UiText::ShowSource));
     assert!(text_h > 2.0 * status_h, "the text wrapped: {text_h}");
     assert!(text_w <= 390.0 * 0.8, "inside 80 % of the width: {text_w}");
     assert!(status_y >= text_y + text_h, "the status under the text");
-    assert!(chip_y >= status_y + status_h, "the chips under the bubble");
-    assert!(
-        (chip_h - 48.0).abs() < 0.5,
-        "the chip keeps its 48 px: {chip_h}"
-    );
+    for action in [UiText::ShowSource, UiText::Keep, UiText::Dismiss] {
+        assert!(
+            labelled(&view, placeholder_en::text(action)).is_empty(),
+            "no {action:?} at rest"
+        );
+    }
 }
 
 /// Review F1 on #295: the midnight wake is one timer, however many
@@ -1056,6 +1054,17 @@ fn a_press_ripples_unless_animations_are_off() {
             reduced_motion: reduced,
             ..TouchSettings::default()
         });
+        // A menu item's press, the row's menu opened as a screen reader
+        // opens it.
+        let row = view.window().get_messages().row_data(0).expect("a row");
+        all(&view)
+            .into_iter()
+            .find(|e| {
+                e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::ListItem)
+                    && e.accessible_label().as_deref() == Some(row.label.as_str())
+            })
+            .expect("the row's item")
+            .invoke_accessible_default_action();
         let chip = labelled(&view, text(UiText::Keep));
         assert_eq!(chip.len(), 1);
         let (p, z) = (chip[0].absolute_position(), chip[0].size());
@@ -1088,7 +1097,7 @@ fn a_press_ripples_unless_animations_are_off() {
 }
 
 /// Section 6: a message's swipe fill spans the list's width in the
-/// bubble's height -- over its text and status, never its chips.
+/// bubble's height -- over its text and status.
 #[test]
 fn a_bubbles_swipe_fill_takes_the_bubbles_height() {
     let text = placeholder_en::text;
@@ -1118,15 +1127,11 @@ fn a_bubbles_swipe_fill_takes_the_bubbles_height() {
         &view,
         placeholder_en::label(interweave_human_ui_model::LabelKey::ReadNotKept),
     );
-    let chip = labelled(&view, text(UiText::Keep));
+    let _ = text;
     assert!(top <= body[0].absolute_position().y, "over the text");
     assert!(
         bottom >= status[0].absolute_position().y + status[0].size().height,
         "over the status"
-    );
-    assert!(
-        bottom <= chip[0].absolute_position().y,
-        "not over the chips"
     );
     assert!(fill[0].size().width >= 390.0 - 40.0, "the list's width");
 }

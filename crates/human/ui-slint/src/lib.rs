@@ -716,6 +716,7 @@ impl View {
                 enqueue(&s, Input::Select(key));
             }
         });
+        connect_menu_haptic(&window, &shared);
         let s = Rc::clone(&shared);
         window.on_action(move |handle, index| {
             let pressed = s.borrow().items.get(&handle).and_then(|item| {
@@ -942,6 +943,7 @@ impl View {
         touch.set_slop(settings.slop);
         // A press shows a ripple only while the system animates.
         touch.set_reduced_motion(settings.reduced_motion);
+        touch.set_long_press(i64::try_from(settings.long_press_ms).unwrap_or(i64::MAX));
         let hour_changed = self.shared.borrow().touch.hour24 != settings.hour24;
         self.shared.borrow_mut().touch = settings;
         // Every time is drawn in the setting at render: a change while the
@@ -1586,6 +1588,11 @@ impl View {
         let mut swipes = HashMap::new();
         let channel = matches!(self.shown, Some(ConversationKey::Channel(_)));
         let mut previous: Option<&MessageItem> = None;
+        // A message's open menu shows its actions as they were: one that
+        // changes them, or takes the row away, closes it (swipe spec
+        // section 7).
+        let menu = self.window.get_row_menu();
+        let mut menu_stale = menu >= 0;
         let mut rows: Vec<MessageRow> = items
             .iter()
             .map(|item| {
@@ -1594,7 +1601,12 @@ impl View {
                 let handle = self.item_handles.of(&item.key);
                 let actions = model.row_actions(item.key);
                 let model_rc = match self.action_models.get(&handle) {
-                    Some((same, rc)) if *same == actions => rc.clone(),
+                    Some((same, rc)) if *same == actions => {
+                        if handle == menu {
+                            menu_stale = false;
+                        }
+                        rc.clone()
+                    }
                     _ => {
                         let rc = action_model(&actions);
                         self.action_models
@@ -1623,6 +1635,15 @@ impl View {
                 row
             })
             .collect();
+        if menu_stale {
+            if rendered.contains_key(&menu) {
+                // Its actions changed: focus back on its bubble.
+                self.window.invoke_close_row_menu();
+            } else {
+                // Its row is gone: where focus goes is the removal's rule.
+                self.window.set_row_menu(-1);
+            }
+        }
         // A row gone from the conversation still shown leaves: its space
         // closes rather than the rows below jumping up (swipe spec §5).
         // One gone because another conversation is shown just goes.
@@ -2289,6 +2310,18 @@ fn update_by_key<K: PartialEq + Clone, R: Clone + PartialEq>(
 
 /// The buttons for `actions`, in order: a press is recorded by its index
 /// into the actions as rendered.
+/// A long-press opening a message's menu plays the platform's haptic
+/// tick, as a swipe arming does (swipe spec section 7).
+fn connect_menu_haptic(window: &generated::AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let s = Rc::clone(shared);
+    window.on_menu_haptic(move || {
+        let tick = s.borrow().haptic.clone();
+        if let Some(tick) = tick {
+            tick();
+        }
+    });
+}
+
 fn action_model(actions: &[RowAction]) -> ModelRc<ActionRow> {
     let rows: Vec<ActionRow> = actions
         .iter()

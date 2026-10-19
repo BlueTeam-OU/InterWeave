@@ -128,6 +128,7 @@ internal object Native {
         reducedMotion: Boolean,
         recommendedMs: Long,
         hour24: Boolean,
+        longPressMs: Long,
     )
 
     /**

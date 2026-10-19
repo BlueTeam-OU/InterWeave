@@ -152,6 +152,42 @@ fn labelled(view: &View, label: &str) -> Vec<ElementHandle> {
     ElementHandle::find_by_accessible_label(view.window(), label).collect()
 }
 
+/// Choose `label` from the menu of the first message row that offers it
+/// (Show source and its way back: the first row), opening the menu as a
+/// screen reader does, by the row's default action (swipe spec section
+/// 7; #304 F2 moved the row's buttons into it).
+fn choose(view: &View, label: &str) {
+    use slint::Model as _;
+    let rows = view.window().get_messages();
+    let rows: Vec<_> = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .collect();
+    let row = rows
+        .iter()
+        .find(|r| r.actions.iter().any(|a| a.text.as_str() == label))
+        .or_else(|| rows.first())
+        .expect("a message row");
+    let item = i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .match_accessible_role(i_slint_backend_testing::AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().as_deref() == Some(row.label.as_str()))
+        .expect("the row's item");
+    item.invoke_accessible_default_action();
+    let entry = i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .find_all()
+        .into_iter()
+        .find(|e| {
+            e.accessible_label().as_deref() == Some(label)
+                && e.accessible_description().as_deref() == Some(row.label.as_str())
+        })
+        .expect("the menu's entry");
+    entry.invoke_accessible_default_action();
+    // The row hears a menu's Show source through a change callback, which
+    // runs on the event loop's turn.
+    slint::platform::update_timers_and_animations();
+}
+
 fn the(view: &View, label: &str) -> ElementHandle {
     let mut found = labelled(view, label);
     assert_eq!(found.len(), 1, "exactly one element labelled {label:?}");
@@ -165,6 +201,16 @@ fn all(view: &View) -> Vec<ElementHandle> {
         "the tree is not empty: built with debug info"
     );
     found
+}
+
+fn enter(view: &View) {
+    let key: slint::SharedString = Key::Return.into();
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text: key });
 }
 
 fn tab(view: &View) -> String {
@@ -259,7 +305,7 @@ fn a_press_whose_action_is_gone_yields_nothing() {
         },
     );
     open(&mut view, &mut model, &direct(&bob));
-    the(&view, text(UiText::Retry)).invoke_accessible_default_action();
+    choose(&view, text(UiText::Retry));
     update(
         &mut model,
         7,
@@ -281,7 +327,7 @@ fn a_press_whose_action_is_gone_yields_nothing() {
         },
     );
     view.render(&model);
-    the(&view, text(UiText::Retry)).invoke_accessible_default_action();
+    choose(&view, text(UiText::Retry));
     assert_eq!(
         intents(&mut view, &mut model),
         vec![Intent::Retry(RowId::from_stored(8))]
@@ -748,7 +794,7 @@ fn every_action_element_has_a_default_action_giving_its_intent() {
     );
     model.read(RowId::from_stored(1));
     view.render(&model);
-    the(&view, text(UiText::Keep)).invoke_accessible_default_action();
+    choose(&view, text(UiText::Keep));
     let keep = intents(&mut view, &mut model);
     assert!(matches!(keep.as_slice(), [Intent::Keep { .. }]), "{keep:?}");
 
@@ -764,7 +810,7 @@ fn every_action_element_has_a_default_action_giving_its_intent() {
         },
     );
     view.render(&model);
-    the(&view, text(UiText::Cancel)).invoke_accessible_default_action();
+    choose(&view, text(UiText::Cancel));
     assert_eq!(
         intents(&mut view, &mut model),
         vec![Intent::Cancel(RowId::from_stored(9))]
@@ -784,8 +830,10 @@ fn every_action_element_has_a_default_action_giving_its_intent() {
     );
 }
 
-/// U5b, keyboard: Tab reaches the composer, the send control, every item
-/// action and the notice action.
+/// U5b, keyboard: Tab reaches the composer, the send control, each
+/// message's bubble and the notice action; the bubble's actions are in its
+/// menu, which Enter opens (swipe spec section 7, #304 F2), and nothing of
+/// them is a Tab stop at rest.
 #[test]
 fn tab_reaches_the_composer_send_item_actions_and_the_notice() {
     let mut view = view();
@@ -814,8 +862,26 @@ fn tab_reaches_the_composer_send_item_actions_and_the_notice() {
             "Tab reaches {wanted}: {reached:?}"
         );
     }
-    let actions = reached.iter().filter(|r| r.starts_with("action:")).count();
-    assert_eq!(actions, 2, "Retry and Cancel: {reached:?}");
+    assert!(
+        !reached.iter().any(|r| r.starts_with("action:")),
+        "no action at rest: {reached:?}"
+    );
+    let bubble = reached
+        .iter()
+        .find(|r| r.starts_with("item:"))
+        .expect("the bubble is a stop")
+        .clone();
+    while tab(&view) != bubble {}
+    enter(&view);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(2));
+    slint::platform::update_timers_and_animations();
+    let mut in_menu = std::collections::BTreeSet::new();
+    in_menu.insert(view.window().get_focus_id().to_string());
+    for _ in 0..3 {
+        in_menu.insert(tab(&view));
+    }
+    let actions = in_menu.iter().filter(|r| r.starts_with("action:")).count();
+    assert_eq!(actions, 2, "Retry and Cancel in its menu: {in_menu:?}");
 }
 
 /// How many focus rings are drawn: shown, and so opaque.
@@ -883,7 +949,10 @@ fn every_tab_stop_draws_exactly_one_focus_ring() {
         assert!(chat.contains(wanted), "Tab reaches {wanted}: {chat:?}");
     }
     assert!(chat.iter().any(|r| r.starts_with("item:")), "{chat:?}");
-    assert!(chat.iter().any(|r| r.starts_with("action:")), "{chat:?}");
+    assert!(
+        !chat.iter().any(|r| r.starts_with("action:")),
+        "no action at rest: {chat:?}"
+    );
     open(&mut view, &mut model, &direct(&alice));
     let linked = tab_each_draws_one_ring(&view, 40);
     assert!(linked.iter().any(|r| r.starts_with("link:")), "{linked:?}");
@@ -1131,10 +1200,10 @@ fn the_source_is_one_activation_away() {
     open(&mut view, &mut model, &direct(&alice));
     assert_eq!(labelled(&view, "Hello").len(), 1, "drawn first");
     assert!(labelled(&view, source).is_empty());
-    the(&view, text(UiText::ShowSource)).invoke_accessible_default_action();
+    choose(&view, text(UiText::ShowSource));
     assert_eq!(labelled(&view, source).len(), 1, "the source, as received");
     assert!(labelled(&view, "Hello").is_empty());
-    the(&view, text(UiText::ShowFormatted)).invoke_accessible_default_action();
+    choose(&view, text(UiText::ShowFormatted));
     assert_eq!(labelled(&view, "Hello").len(), 1, "and back");
 }
 
@@ -1490,9 +1559,9 @@ fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine() {
 }
 
 /// Review F1: a render that changes nothing about an item keeps focus on
-/// its action button -- the next Tab continues from it.
+/// it -- the next Tab continues from it.
 #[test]
-fn a_render_keeps_focus_on_an_items_action() {
+fn a_render_keeps_focus_on_an_item() {
     let mut view = view();
     let mut model = UiModel::new();
     let bob = peer();
@@ -1511,11 +1580,11 @@ fn a_render_keeps_focus_on_an_items_action() {
     let mut on = String::new();
     for _ in 0..20 {
         on = tab(&view);
-        if on.starts_with("action:") {
+        if on.starts_with("item:") {
             break;
         }
     }
-    assert!(on.starts_with("action:"), "Tab reaches an action: {on}");
+    assert!(on.starts_with("item:"), "Tab reaches the item: {on}");
     let next = tab(&view);
     for _ in 0..40 {
         if tab(&view) == on {
@@ -2341,12 +2410,12 @@ fn the_source_view_has_no_link_controls() {
     open(&mut view, &mut model, &direct(&alice));
     let control = open_link(destination);
     assert_eq!(labelled(&view, &control).len(), 1, "control: drawn first");
-    the(&view, text(UiText::ShowSource)).invoke_accessible_default_action();
+    choose(&view, text(UiText::ShowSource));
     assert!(
         labelled(&view, &control).is_empty(),
         "no link control beside the source"
     );
-    the(&view, text(UiText::ShowFormatted)).invoke_accessible_default_action();
+    choose(&view, text(UiText::ShowFormatted));
     assert_eq!(
         labelled(&view, &control).len(),
         1,
