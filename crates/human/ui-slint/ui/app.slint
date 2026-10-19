@@ -1538,8 +1538,10 @@ export component AppWindow inherits Window {
     // drawn, and the control named by the target takes focus ("m:" and an
     // item's handle, "c:" and a conversation's, "h" the open
     // conversation's header title, "heading" the list's heading).
-    in property <int> focus-seq;
-    in property <string> focus-target;
+    // Set by the view, and by the trust dialog's own Tab, which keeps
+    // focus on its two buttons.
+    in-out property <int> focus-seq;
+    in-out property <string> focus-target;
     // The snackbar (swipe spec section 6): one at a time, in the
     // conversation above the composer, or on the conversation list.
     // Rust clears it when an input that closes the snackbar is queued, so
@@ -1695,6 +1697,10 @@ export component AppWindow inherits Window {
         }
         if (root.menu-open || root.details-open) {
             root.close-menu();
+            return true;
+        }
+        if (root.trust-page && root.has-pending) {
+            root.trust-cancel();
             return true;
         }
         if (root.trust-page) {
@@ -2178,6 +2184,8 @@ export component AppWindow inherits Window {
                         filled: true;
                         target: 48px;
                         focus-key: "trust-add";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-add";
                         pressed => { root.trust-add(); }
                         focused(k) => { root.focus-id = k; }
                     }
@@ -2199,16 +2207,22 @@ export component AppWindow inherits Window {
                         filled: true;
                         target: 48px;
                         focus-key: "trust-add";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-add";
                         pressed => { root.trust-add(); }
                         focused(k) => { root.focus-id = k; }
                     }
                 }
             }
-            Text {
+            // Where focus goes once the last row it could go to is gone.
+            FocusHeading {
                 text: root.trusted-heading;
-                font-weight: 700;
-                accessible-role: text;
-                accessible-label: self.text;
+                font-size: Type.title-small;
+                rtl: root.rtl;
+                focus-key: "trusted-heading";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "trusted-heading";
+                focused(k) => { root.focus-id = k; }
             }
             if root.trust-placeholder != "": Text {
                 text: root.trust-placeholder;
@@ -2275,54 +2289,12 @@ export component AppWindow inherits Window {
                     ink: Palette.error;
                     target: 48px;
                     focus-key: "remove:" + row.handle;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "remove:" + row.handle;
                     pressed => { root.trust-remove(row.handle); }
                     focused(k) => { root.focus-id = k; }
                 }
             }
-            }
-            }
-            // The change waiting for the person: its exact PeerId and scope,
-            // carried out only by Confirm. Focus lands on "do not change",
-            // so a second Return cannot confirm by accident.
-            if root.has-pending: Rectangle {
-                background: Palette.notice-background;
-                border-radius: 4px;
-            VerticalLayout {
-                padding: 8px;
-                spacing: 8px;
-                Text {
-                    text: root.pending-text;
-                    color: Palette.notice-text;
-                    wrap: word-wrap;
-                    // The exact PeerId is one word wider than a phone: as
-                    // the text's minimum it laid the whole screen out past
-                    // the window's edge, the PeerId cut there (#304 F4).
-                    // Without it the PeerId breaks at the edge, whole.
-                    min-width: 0px;
-                    accessible-role: text;
-                    accessible-label: self.text;
-                }
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    ActionButton {
-                        text: root.confirm-label;
-                        detail: root.pending-text;
-                        focus-key: "trust-confirm";
-                        on-notice: true;
-                        pressed => { root.trust-confirm(); }
-                        focused(k) => { root.focus-id = k; }
-                    }
-                    ActionButton {
-                        text: root.cancel-label;
-                        detail: root.pending-text;
-                        focus-key: "trust-cancel";
-                        on-notice: true;
-                        pressed => { root.trust-cancel(); }
-                        focused(k) => { root.focus-id = k; }
-                        init => { self.focus(); }
-                    }
-                }
             }
             }
             if root.trust-outcome != "": Text {
@@ -3151,6 +3123,115 @@ export component AppWindow inherits Window {
     // selectable so a person can copy it with the platform's own keys
     // (human-client-ui.md section 11). Read-only: nothing typed here goes
     // anywhere.
+    // The trust change waiting for the person, as a dialog over a scrim
+    // (#304 F4 at 3b19110a): the question with its exact PeerId and what
+    // follows, "Do not change" focused, and a button naming the act. A
+    // tap on the scrim, Escape and Back are "Do not change".
+    if root.trust-page && root.has-pending: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => { root.trust-cancel(); }
+        Rectangle { background: #00000052; }
+    }
+    if root.trust-page && root.has-pending: pending := FocusScope {
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: min(root.width - 48px, 560px);
+        height: pending-box.preferred-height;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.trust-cancel();
+                return accept;
+            }
+            // A modal dialog keeps focus on its two buttons.
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                root.focus-target = root.focus-id == "trust-cancel" ? "trust-confirm" : "trust-cancel";
+                root.focus-seq += 1;
+                return accept;
+            }
+            reject
+        }
+        pending-box := Rectangle {
+            background: Palette.surface-container-high;
+            border-radius: 28px;
+            // A press on the dialog is the dialog's, not the scrim's.
+            TouchArea {}
+            VerticalLayout {
+                padding: 24px;
+                spacing: 24px;
+                Text {
+                    text: root.pending-text;
+                    color: Palette.on-surface;
+                    font-size: Type.body-medium;
+                    wrap: word-wrap;
+                    // The exact PeerId is one word wider than a phone: as
+                    // the text's minimum it would lay the dialog past the
+                    // window's edge. Without it the PeerId breaks whole.
+                    min-width: 0px;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                // At the line's end, "Do not change" before the act; right
+                // to left both mirror, as a layout does not on its own.
+                if !root.rtl: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    ActionButton {
+                        text: root.cancel-label;
+                        detail: root.pending-text;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "trust-cancel";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-cancel";
+                        pressed => { root.trust-cancel(); }
+                        focused(k) => { root.focus-id = k; }
+                        init => { self.focus(); }
+                    }
+                    ActionButton {
+                        text: root.confirm-label;
+                        detail: root.pending-text;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "trust-confirm";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-confirm";
+                        pressed => { root.trust-confirm(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                if root.rtl: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    ActionButton {
+                        text: root.confirm-label;
+                        detail: root.pending-text;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "trust-confirm";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-confirm";
+                        pressed => { root.trust-confirm(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    ActionButton {
+                        text: root.cancel-label;
+                        detail: root.pending-text;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "trust-cancel";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-cancel";
+                        pressed => { root.trust-cancel(); }
+                        focused(k) => { root.focus-id = k; }
+                        init => { self.focus(); }
+                    }
+                }
+            }
+        }
+    }
     if root.details-open: details := FocusScope {
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;

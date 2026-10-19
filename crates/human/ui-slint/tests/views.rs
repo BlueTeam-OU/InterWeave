@@ -2446,7 +2446,7 @@ fn a_removal_names_the_exact_peer_id_and_is_asked_only_once_confirmed() {
     view.render(&model);
     let question = fill(UiText::ConfirmRevoke, &[("peer", bob.as_str())]);
     let _ = the(&view, &question);
-    let confirm = the(&view, text(UiText::ConfirmChange));
+    let confirm = confirm_button(&view);
     assert_eq!(
         confirm.accessible_description().as_deref(),
         Some(question.as_str())
@@ -2474,7 +2474,7 @@ fn a_removal_names_the_exact_peer_id_and_is_asked_only_once_confirmed() {
     bobs.invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
     view.render(&model);
-    the(&view, text(UiText::ConfirmChange)).invoke_accessible_default_action();
+    confirm_button(&view).invoke_accessible_default_action();
     assert_eq!(
         intents(&mut view, &mut model),
         vec![Intent::SetTrust(TrustChange {
@@ -2503,7 +2503,7 @@ fn a_typed_peer_id_is_confirmed_whole_and_its_outcome_announced() {
         &view,
         &fill(UiText::ConfirmAllow, &[("peer", dave.as_str())]),
     );
-    the(&view, text(UiText::ConfirmChange)).invoke_accessible_default_action();
+    confirm_button(&view).invoke_accessible_default_action();
     let change = TrustChange {
         peer: dave.clone(),
         allowed: true,
@@ -2858,6 +2858,20 @@ fn a_conversation_under_the_trust_settings_reads_nothing() {
     );
 }
 
+/// The trust dialog's act: the one control described by its question,
+/// other than "Do not change". Its label names the act, which a row's
+/// Remove trust or the entry's Trust this peer shares.
+fn confirm_button(view: &View) -> ElementHandle {
+    let question = view.window().get_pending_text();
+    all(view)
+        .into_iter()
+        .find(|e| {
+            e.accessible_description().as_deref() == Some(question.as_str())
+                && e.accessible_label().as_deref() != Some(text(UiText::CancelChange))
+        })
+        .expect("the dialog's act")
+}
+
 /// The "Remove trust" control naming `peer`.
 fn removal_of(view: &View, peer: &TransportIdentity) -> ElementHandle {
     labelled(view, text(UiText::RemoveTrust))
@@ -2880,7 +2894,7 @@ fn a_confirmation_confirms_only_the_change_it_showed() {
     view.render(&model);
     // Y's removal and the confirmation of X's, both before a render.
     removal_of(&view, &y).invoke_accessible_default_action();
-    the(&view, text(UiText::ConfirmChange)).invoke_accessible_default_action();
+    confirm_button(&view).invoke_accessible_default_action();
     let raised = intents(&mut view, &mut model);
     assert!(
         !raised.iter().any(|i| matches!(i, Intent::SetTrust(_))),
@@ -3097,5 +3111,85 @@ fn the_trust_field_keeps_its_error_under_it_and_its_button_where_it_fits() {
                 .all(|e| e.absolute_position().x + e.size().width <= width + 0.5),
             "{width}: nothing past the edge"
         );
+    }
+}
+
+/// #304 F4: the confirmation is a dialog whose act names it. Back is "Do
+/// not change", and focus returns to the row's Remove trust; after a
+/// confirmed removal, once its row is gone, focus moves to the next row,
+/// else the previous, else the "Trusted peers" heading.
+#[test]
+fn the_trust_dialog_names_its_act_and_hands_focus_back() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, bob, carol, dave) = (peer(), peer(), peer(), peer());
+    trust_settings(
+        &mut view,
+        &mut model,
+        &me,
+        &[bob.clone(), carol.clone(), dave.clone()],
+    );
+    let handle_of = |view: &View, p: &TransportIdentity| {
+        let rows = view.window().get_trusted();
+        (0..rows.row_count())
+            .map(|i| rows.row_data(i).expect("a row"))
+            .find(|r| r.peer.as_str() == p.as_str())
+            .map(|r| r.handle)
+            .expect("listed")
+    };
+    let focus = |view: &View| {
+        slint::platform::update_timers_and_animations();
+        view.window().get_focus_id().to_string()
+    };
+    let ask = |view: &mut View, model: &mut UiModel, p: &TransportIdentity| {
+        removal_of(view, p).invoke_accessible_default_action();
+        let _ = intents(view, model);
+        view.render(model);
+        assert!(view.window().get_has_pending(), "asked");
+    };
+    let carols = handle_of(&view, &carol);
+    ask(&mut view, &mut model, &carol);
+    assert_eq!(
+        confirm_button(&view).accessible_label().as_deref(),
+        Some(text(UiText::RemoveTrust)),
+        "the act is named"
+    );
+    assert!(view.back(), "Back is the dialog's");
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    assert_eq!(model.trust_settings().pending(), None, "do not change");
+    assert_eq!(focus(&view), format!("remove:{carols}"), "back on its row");
+
+    // Removed, focus moves on once the list no longer holds the row.
+    let mut listed = vec![bob.clone(), carol.clone(), dave.clone()];
+    for (gone, next) in [
+        (&carol, format!("remove:{}", handle_of(&view, &dave))),
+        (&dave, format!("remove:{}", handle_of(&view, &bob))),
+        (&bob, "trusted-heading".to_owned()),
+    ] {
+        ask(&mut view, &mut model, gone);
+        confirm_button(&view).invoke_accessible_default_action();
+        let asked = intents(&mut view, &mut model);
+        assert_eq!(
+            asked,
+            vec![Intent::SetTrust(TrustChange {
+                peer: gone.clone(),
+                allowed: false
+            })]
+        );
+        view.render(&model);
+        listed.retain(|p| p != gone);
+        model.trust_settings_mut().set(
+            TrustChange {
+                peer: gone.clone(),
+                allowed: false,
+            },
+            Ok(TrustList {
+                local_peer: Some(me.clone()),
+                allowed: listed.iter().cloned().map(TrustRow::configured).collect(),
+            }),
+        );
+        view.render(&model);
+        assert_eq!(focus(&view), next, "after {}", gone.as_str());
     }
 }

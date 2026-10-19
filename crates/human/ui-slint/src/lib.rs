@@ -28,8 +28,8 @@ use interweave_human_client_api::TrustOrigin;
 use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
     HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
-    RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, UiModel, UiText,
-    fill, placeholder_en, short_peer, visible_destination,
+    RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, TrustSettings,
+    UiModel, UiText, fill, placeholder_en, short_peer, visible_destination,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -330,6 +330,9 @@ struct Shared {
     /// The trust change the confirmation shows, as rendered: what a press
     /// of Confirm names.
     pending_shown: Option<TrustChange>,
+    /// The confirmation was closed by its act, not by "Do not change":
+    /// where focus goes once it has closed.
+    trust_confirmed: bool,
     wake: Option<Rc<dyn Fn()>>,
     /// The rows a swipe can move, as rendered, by their swipe key.
     swipes: HashMap<String, swipe::Swipeable>,
@@ -611,6 +614,18 @@ pub struct View {
     trusted: Rc<VecModel<TrustRow>>,
     trusted_keys: Vec<TransportIdentity>,
     trusted_handles: Handles<TransportIdentity>,
+    /// The trust change the last render showed, to tell when its dialog
+    /// closed, and where its row stood then: the answer that closes it
+    /// may already list the peer gone.
+    pending_was: Option<(TrustChange, Option<usize>)>,
+    /// A confirmed removal whose row is still listed, and where it stood:
+    /// focus stays on its button until the row goes, then moves to the
+    /// next row, else the previous, else the heading (#304 F4).
+    removing: Option<(TransportIdentity, usize)>,
+    /// The focus move [`Self::focus_key`] has scheduled and not applied:
+    /// one at a time, the latest replacing an earlier, since two
+    /// zero-delay timers of one turn fire in no promised order.
+    focus_wanted: Rc<RefCell<Option<String>>>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
     /// Where the runtime runs, which the texts that name it follow.
@@ -767,6 +782,7 @@ impl View {
         window.on_trust_confirm(move || {
             let shown = s.borrow().pending_shown.clone();
             if let Some(change) = shown {
+                s.borrow_mut().trust_confirmed = true;
                 enqueue(&s, Input::Trust(TrustInput::Confirm(change)));
             }
         });
@@ -838,6 +854,9 @@ impl View {
             trusted,
             trusted_keys: Vec::new(),
             trusted_handles: Handles::new(),
+            pending_was: None,
+            removing: None,
+            focus_wanted: Rc::new(RefCell::new(None)),
             trust_announced: 0,
             host,
             shared,
@@ -1822,6 +1841,16 @@ impl View {
             window.set_trust_entry(settings.entry().into());
         }
         self.shared.borrow_mut().pending_shown = settings.pending().cloned();
+        self.trust_focus(settings, &keys);
+        let window = &self.window;
+        window.set_confirm_label(
+            placeholder_en::text(if settings.pending().is_some_and(|c| c.allowed) {
+                UiText::TrustPeer
+            } else {
+                UiText::RemoveTrust
+            })
+            .into(),
+        );
         let pending = settings.pending().map(|change| {
             let template = placeholder_en::text(if change.allowed {
                 UiText::ConfirmAllow
@@ -1995,16 +2024,92 @@ impl View {
         let Some(target) = target else {
             return false;
         };
-        let window = swipe::weak(&self.window);
         // Once the rows it names exist: a restored row is drawn by this
         // render, and its controls are made after it.
+        self.focus_key(target);
+        true
+    }
+
+    /// Where focus goes when the trust dialog closes (#304 F4 at
+    /// 3b19110a): back to the row's Remove trust, or to "Trust this peer"
+    /// for an addition; after a removal, once its row has gone, to the
+    /// next row, else the previous, else the "Trusted peers" heading. A
+    /// removal that was refused leaves its row, and focus, where they are.
+    fn trust_focus(&mut self, settings: &TrustSettings, keys: &[TransportIdentity]) {
+        let now = settings.pending().cloned();
+        let closed = match (self.pending_was.take(), &now) {
+            (Some(was), None) => Some(was),
+            (Some(was), Some(change)) if was.0 == *change => {
+                self.pending_was = Some(was);
+                None
+            }
+            _ => None,
+        };
+        if self.pending_was.is_none() {
+            self.pending_was = now.map(|change| {
+                let at = keys.iter().position(|p| *p == change.peer);
+                (change, at)
+            });
+        }
+        if self.page != Page::Trust {
+            self.removing = None;
+            return;
+        }
+        let row = |handles: &mut Handles<TransportIdentity>, peer: &TransportIdentity| {
+            format!("remove:{}", handles.of(peer))
+        };
+        if let Some((change, stood)) = closed {
+            let confirmed = std::mem::take(&mut self.shared.borrow_mut().trust_confirmed);
+            if change.allowed {
+                self.focus_key("trust-add".to_owned());
+            } else if keys.contains(&change.peer) {
+                // Still listed: its own button, and, once confirmed, the
+                // next row's when it goes.
+                if confirmed && let Some(index) = stood {
+                    self.removing = Some((change.peer.clone(), index));
+                }
+                let target = row(&mut self.trusted_handles, &change.peer);
+                self.focus_key(target);
+            } else if let Some(index) = stood {
+                // Gone with the answer that closed the dialog.
+                self.removing = Some((change.peer.clone(), index));
+            }
+        }
+        let Some((peer, index)) = self.removing.clone() else {
+            return;
+        };
+        if keys.contains(&peer) {
+            if matches!(settings.outcome().0, Some(TrustOutcome::Problem(_))) {
+                self.removing = None;
+            }
+            return;
+        }
+        self.removing = None;
+        let target = keys
+            .get(index)
+            .or_else(|| index.checked_sub(1).and_then(|i| keys.get(i)))
+            .map_or_else(
+                || "trusted-heading".to_owned(),
+                |p| row(&mut self.trusted_handles, p),
+            );
+        self.focus_key(target);
+    }
+
+    /// Focus the control whose focus key is `target`, once the render that
+    /// draws it is done.
+    fn focus_key(&self, target: String) {
+        if self.focus_wanted.borrow_mut().replace(target).is_some() {
+            // Already scheduled: it applies this target instead.
+            return;
+        }
+        let (window, wanted) = (swipe::weak(&self.window), Rc::clone(&self.focus_wanted));
         defer(move || {
-            if let Some(window) = window.upgrade() {
+            let target = wanted.borrow_mut().take();
+            if let (Some(window), Some(target)) = (window.upgrade(), target) {
                 window.set_focus_target(target.into());
                 window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
             }
         });
-        true
     }
 
     /// Wake the root after `delay`, so it renders again: a leaving row
