@@ -67,7 +67,8 @@ for coord in \
     com.google.android.gms:play-services-base:18.5.0 \
     com.google.firebase:firebase-messaging:24.1.0 \
     com.google.android.play:integrity:1.4.0 \
-    com.android.billingclient:billing:7.1.1; do
+    com.android.billingclient:billing:7.1.1 \
+    com.google.gms:google-services:4.4.2; do
     R="$(tree)"
     add "$R/apps/human-android/android/app/gradle.lockfile" "$coord=releaseRuntimeClasspath"
     expect_fail "$R" "${coord%%:*} on releaseRuntimeClasspath" "$coord on releaseRuntimeClasspath"
@@ -78,12 +79,18 @@ R="$(tree)"
 add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.firebase.crashlytics:x:1.0=debugCompileClasspath"
 expect_fail "$R" "com.google.firebase.crashlytics" "com.google.firebase.crashlytics:x:1.0 on debugCompileClasspath"
 
+echo "the Google services plugin on the buildscript classpath fails (ADR-0057 A 2026-10-19)"
+R="$(tree)"
+add "$R/apps/human-android/android/buildscript-gradle.lockfile" "com.google.gms:google-services:4.4.2=classpath"
+expect_fail "$R" "com.google.gms on classpath" "buildscript-gradle.lockfile: com.google.gms:google-services:4.4.2 on classpath"
+
 echo "a group that only shares a prefix is not banned"
 R="$(tree)"
 add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.android.gmsx:x:1.0=releaseRuntimeClasspath"
 add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.android.player:x:1.0=releaseRuntimeClasspath"
 add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.firebaseui:x:1.0=releaseRuntimeClasspath"
-expect_pass "$R" "com.google.android.gmsx, com.google.android.player, com.google.firebaseui"
+add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.gmsx:x:1.0=releaseRuntimeClasspath"
+expect_pass "$R" "com.google.android.gmsx, com.google.android.player, com.google.firebaseui, com.google.gmsx"
 
 echo "lint and test configurations may carry them"
 R="$(tree)"
@@ -131,10 +138,10 @@ expect_fail "$R" "a subproject with no lockfile" "android/lib: a project with no
 echo "the real repository passes its own guard"
 if [ "$(run_code "$REPO")" = "0" ]; then ok "this repository"; else bad "this repository fails: $(run "$REPO")"; fi
 
-echo "--help quotes the decision and names the four groups"
+echo "--help quotes the decision, its amendment and the five groups"
 help="$(bash "$GUARD" --help 2>&1)"; code=$?
 [ "$code" = 0 ] && ok "--help exits 0" || bad "--help exit $code"
-for s in 'ADR-0056 decision 2' 'com.google.android.gms' 'com.google.firebase' 'com.google.android.play' 'com.android.billingclient' 'Lint and'; do
+for s in 'ADR-0056 decision 2' 'com.google.android.gms' 'com.google.firebase' 'com.google.android.play' 'com.android.billingclient' 'com.google.gms`' 'Amendment 2026-10-19' 'Lint and'; do
     case "$help" in *"$s"*) ok "  says $s" ;; *) bad "  --help lacks '$s'" ;; esac
 done
 

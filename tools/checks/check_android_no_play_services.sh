@@ -4,12 +4,13 @@
 #
 # >>> help
 # check_android_no_play_services.sh — no Google Play services, Firebase,
-# Play or Play Billing artifact on the Android app's classpath
+# Play, Play Billing or Google services plugin artifact on the Android
+# app's classpath
 #
 #   tools/checks/check_android_no_play_services.sh [--root <dir>]
 #
 # THE RULE, quoted from ADR-0056 decision 2, which ADR-0057 decision 2
-# carries unchanged:
+# carries:
 #
 #   "No Google Play services, in any form. The application classpath
 #   carries no Google Play services, Firebase, Play Integrity, Play
@@ -21,10 +22,14 @@
 #   not. A guard over the Gradle lockfiles holds this (devex-tooling's
 #   to shape; the rule owes the test)."
 #
+# ADR-0057's Amendment 2026-10-19 adds a fifth group to its decision 2:
+# `com.google.gms`, "the Google services Gradle plugin's group, the
+# usual door for the others". It is refused like the four.
+#
 # This is that guard. It reads every Gradle lockfile under
 # apps/human-android/android/ (`gradle.lockfile` per project,
 # `buildscript-gradle.lockfile`, `settings-gradle.lockfile`) and fails
-# on any line whose group is one of the four, or a subgroup of one
+# on any line whose group is one of the five, or a subgroup of one
 # (`com.google.firebase.foo` is Firebase too), locked into a
 # configuration that is not lint or test tooling.
 #
@@ -39,7 +44,8 @@
 # The build's own plugin classpath (`classpath` in
 # buildscript-gradle.lockfile) and the Kotlin compiler's are NOT exempt:
 # the decision names lint and test tooling only, and nothing there needs
-# these groups today. Widening the list is the decision's owner's word
+# these groups today -- and the buildscript classpath is exactly where
+# the Google services plugin (`com.google.gms`) would land. Widening the list is the decision's owner's word
 # (architect-cto), not an edit to get CI green.
 #
 # A GUARD OVER A LOCKFILE IS ONLY AS GOOD AS THE LOCK, so it also fails
@@ -130,7 +136,8 @@ while IFS= read -r lock; do
             return g == "com.google.android.gms" || index(g, "com.google.android.gms.") == 1 \
                 || g == "com.google.firebase"    || index(g, "com.google.firebase.") == 1 \
                 || g == "com.google.android.play" || index(g, "com.google.android.play.") == 1 \
-                || g == "com.android.billingclient" || index(g, "com.android.billingclient.") == 1
+                || g == "com.android.billingclient" || index(g, "com.android.billingclient.") == 1 \
+                || g == "com.google.gms" || index(g, "com.google.gms.") == 1
         }
         function tooling(c) {
             return c == "androidLintTool" || c == "lintChecks" || c == "lintPublish" \
@@ -165,9 +172,9 @@ $(find "$GRADLE" \( -name gradle.lockfile -o -name '*-gradle.lockfile' \) -not -
 EOF
 
 if [ "$problems" -gt 0 ]; then
-    printf '\ncheck_android_no_play_services: %d problem(s); ADR-0056 decision 2 (ADR-0057 decision 2) forbids these on the application classpath.\n' "$problems" >&2
+    printf '\ncheck_android_no_play_services: %d problem(s); ADR-0056 decision 2 (ADR-0057 decision 2, as amended 2026-10-19) forbids these on the application classpath.\n' "$problems" >&2
     exit 1
 fi
 
-printf 'check_android_no_play_services: OK -- %d lockfile(s), %d artifact(s), none of com.google.android.gms, com.google.firebase, com.google.android.play or com.android.billingclient on an application configuration.\n' \
+printf 'check_android_no_play_services: OK -- %d lockfile(s), %d artifact(s), none of com.google.android.gms, com.google.firebase, com.google.android.play, com.android.billingclient or com.google.gms on an application configuration.\n' \
     "$lockfiles" "$artifacts"
