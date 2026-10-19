@@ -354,7 +354,7 @@ comparison a matter of groups, not of single characters.
 | A refused write: read back first | C4's continue (the seal), R3's yes, R2's check after K1 | Any refusal of a write (`Storage`, `OldKeyRemains`, `AlreadyProvisioned`, or another) may come after the record was written: a directory sync or a key retire can fail after the publish (`persist.rs`, custody's `provision`). So the screen reads the record back (`recorded_identity`) before it shows anything. What it shows then depends only on what the read-back finds, whatever the refusal said, in the four rows below. Together they cover every case | — |
 | Read-back: the PeerId just shown or confirmed | as above | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
 | Read-back: no record | as above | `IdStorageFailed`: nothing was changed, which the read-back has shown, with Try again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
-| Read-back: another PeerId | as above | At C4: `IdAlreadyCreated`, the words just shown were not used; Continue opens the identity the phone holds. At a restore: the restore is not shown as done. The app goes to its normal start, which opens that identity or shows K1 for it | Continue |
+| Read-back: another PeerId | as above | At C4: `IdAlreadyCreated`, the words just shown were not used; Continue opens the identity the phone holds. At a restore: `IdRestoreOther` on that screen says the identity was not restored and this phone now holds another, with that PeerId in full (§5); Continue goes to the app's normal start, which opens that identity or shows K1 for it. Without it the person could take another identity for their own | Continue |
 | Read-back fails (the record cannot be read) | as above | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again before writing again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
 | The record names another identity, or is unreadable (`RecordNamesOther`, `Unreadable`) | R2's check after K1 | Not reachable: K1 offers R2 only with the record's own PeerId (§3.4). If a build reaches it, `IdOtherIdentity` with nothing restored | Back |
 | Success | C4 after its seal; R4 after a restore | The PeerId, and continue | Continue |
@@ -438,6 +438,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdNotWalletSeed` (new) | InterWeave identity recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen: 68 characters. The contract's label also says "transport"; it is left out as a word the person does not know |
 | `IdFormatLine` (new) | Phrase format: | C2 and S2, before the untranslated format identifier (§3.2), one line. "Phrase format" says whose format it is; a bare "Format" could be read as the screen's layout. The label stands alone before a value, so a translation needs no template |
 | `IdStorageUnknown` (new) | The app could not tell whether your identity was saved. Try again to check. | §6's notice when the read-back fails, two lines, with `TryAgain`. It never says that nothing changed. "To check" is true, because Try again reads back before it writes |
+| `IdRestoreOther` (new, pending language-culture) | §6: your identity was not restored; this phone holds another identity, shown by its PeerId | Two lines, the PeerId below |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
 | `IdPeerIdLabel` | Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share. | The PeerId's label (§5) on C2 and S2, where the person writes |
 | `IdPeerIdLabelShown` (new) | Your PeerId. It is the one on your paper. It is not a password, and it is safe to share. | The PeerId's label on C4 and R4, where the person has already written it. One label cannot be true on both kinds of screen |
@@ -492,7 +493,7 @@ Against the list the proposal gave: `IdC1Points` is six keys, one per
 point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
 `IdExpectedPeerId`, `IdDerivedPeerId`, `IdAlreadyCreated`,
 `IdQTitleNoPath`, `IdQReasonNoPath`, `IdQNoPath`, `IdNotWalletSeed`,
-`IdFormatLine` and `IdStorageUnknown` are added. `IdTryAgain` and
+`IdFormatLine`, `IdStorageUnknown` and `IdRestoreOther` are added. `IdTryAgain` and
 `IdRetry` are both `TryAgain`. `IdKeepEntering` is
 `IdContinueEntering`.
 
