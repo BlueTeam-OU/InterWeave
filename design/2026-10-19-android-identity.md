@@ -68,6 +68,18 @@ and the app bar's close or back arrow does the same.
 Back leaves the app, as on any first screen. Nothing has been created
 yet, so the next launch shows W again.
 
+**A void paper.** A creation that showed its words (C2) and never
+reached C4 leaves the person holding words for an identity that was
+never made. That happens on Back to W, or on process death. So C2's
+first display writes one non-secret marker, "words were shown,
+nothing committed". It is a flag with no word, seed or PeerId. C4
+clears it.
+- While the marker is set, W shows a notice above its actions
+  (`IdVoidPaper`): the words shown last time were never used, they are
+  not this phone's identity, and that paper should be destroyed.
+- Starting a new creation, or a restore that completes, clears the
+  marker.
+
 ### 3.2 Create
 
 **C1, Before you see your words.** What the phrase is and why it
@@ -90,7 +102,8 @@ Back → W.
 - The list scrolls if it must. The primary action stays fixed at the
   bottom: "I've written them down" (→ C3).
 - Back → C1. The same words show again on return, because the identity
-  is not committed until C4.
+  is not committed until C4. Back from C1 to W discards the uncommitted
+  identity, and W then shows `IdVoidPaper`.
 
 **C3, Check two words.** Two positions are drawn at random (for
 example 7 and 19). The person enters each with the picker (§4), one
@@ -326,6 +339,7 @@ could hold one. `{n}` and `{peer_id}` are the only placeholders.
 | Key | Purpose | Space |
 |---|---|---|
 | `IdWelcomeTitle`, `IdWelcomeBody` | What the app is, on first launch | Title one line; body two lines |
+| `IdVoidPaper` | W's notice (§3.1): the words shown last time were never used and are not this phone's identity; destroy that paper. Plain, not alarming | Three lines |
 | `IdCreate`, `IdRestore` | W's two actions | A button, about 24 characters |
 | `IdC1Title`, `IdC1Points` (three) | Why the words matter: they are the identity, write them on paper, anyone with them can be you. Calm, not alarming | Title one line; each point at most two lines at 100 % |
 | `IdShowWords` | C1's primary action | Button |
@@ -366,7 +380,10 @@ landscape:
    the entry. Two right words reach C4. Continue starts the service and
    opens Chats.
 5. Back from C2 and returning shows the same words. Process death
-   before C4 leaves no identity: the next launch shows W.
+   before C4 leaves no identity: the next launch shows W with
+   `IdVoidPaper`. So does Back from C1 to W after C2 was shown. A
+   first launch that never showed words has no notice, and after C4
+   the notice never shows.
 6. Picker:
    - typing "ab" disables every letter no BIP-39 word continues "ab"
      with;
@@ -399,6 +416,13 @@ landscape:
     action fit without scrolling, and no word is cut.
 14. Every key and chip is at least 48 dp tall. Keys are at least 28 dp
     wide.
+
+Items 13 and 15 assume that the Android build follows the system font
+scale and takes hardware-keyboard input. rust-ui-dev measures both
+first on Slint 1.18.1. Where one is not met, the item is blocked on
+that measurement, not passed. A build that ignores the system font
+scale would also be a finding of the Android review
+(`design/2026-10-19-android-review.md`, S2).
 15. A hardware keyboard enters a word by its letters, with Enter on a
     single suggestion. Focus follows §8.
 16. No log line, notification, crash report or test snapshot from a
