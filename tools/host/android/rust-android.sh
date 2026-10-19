@@ -11,9 +11,10 @@
 #   bash tools/host/android/rust-android.sh            install (idempotent)
 #   bash tools/host/android/rust-android.sh --check    read-only
 #
-# WHY NOT THE SYSTEM RUST. The host's rustc is the distribution's package
-# (Fedora 1.98.1), which ships no standard library for Android, and has no
-# rustup to add one. rustup installs the same pinned channel with the
+# WHY NOT THE SYSTEM RUST. The host's rustc is the distribution's package,
+# whose version a system update moves off the pin, which ships no standard
+# library for Android, and has no rustup to add one. rustup installs the
+# pinned channel with the
 # target beside it. Its proxies in ~/.cargo/bin must come before /usr/bin
 # on PATH for cargo to use them; this script says so and does not edit
 # your shell files.
