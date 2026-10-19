@@ -49,7 +49,7 @@ An amendment is a **three-part record in one commit series**:
    | 2026-09-01 | Short title | What a reader now does differently |
    ```
 
-The (date, title) pair is the identity, so same-day amendments with distinct titles need no disambiguator; a `(ii)` / `(iii)` suffix exists only to break byte-identical headings. `validate_adr_index.sh` compares rows and headings as multisets — a row without a note, or a note without a row, fails.
+The (date, title) pair is the identity, so same-day amendments with distinct titles need no disambiguator; a `(ii)` / `(iii)` suffix exists only to break byte-identical headings. `validate_adr_index.sh` compares rows and headings as multisets — a row without a note, or a note without a row, fails — and fails an ADR whose table gained a row since the merge-base with `origin/main` while its `### NNNN` digest entry is unchanged.
 
 **Numbered decision items are permanent.** Other documents cite them. Never renumber or reuse: a withdrawn item becomes a one-line tombstone, new items take the next free number.
 
@@ -67,7 +67,7 @@ Partial supersession is normal and is recorded in the Status prose: ADR-0008's r
 In the **same commit series**:
 
 1. row in `architecture/adr/README.md`;
-2. entry in `architecture/adr/ADR-DIGEST.md`, placed in a cluster, plus a keyword-table row if it introduces a topic someone would search for;
+2. entry in `architecture/adr/ADR-DIGEST.md`, placed in a cluster, plus a keyword-table row if it introduces a topic someone would search for; for an amendment, the ADR's own `### NNNN` entry updated to describe the record as it now stands (the entry is a current-state summary, not a list of amendments);
 3. any contract, transport, discovery, or client specification whose text inherits the changed rule;
 4. `fixtures/` **only** if the decision intentionally changes a frozen vector — that is a protocol change, not a fixup;
 5. the rationale in the **commit body**.
@@ -78,6 +78,8 @@ Then:
 bash tools/checks/validate_adr_index.sh
 bash tools/checks/scan_semantic_collisions.sh
 ```
+
+The first compares against the merge-base with `origin/main`, so fetch it first; with no `origin/main` it exits 2 and asks for `--base <rev>`.
 
 ## When a spike or implementation disproves an ADR
 

@@ -272,7 +272,11 @@ out="$(run_base "$R" HEAD)"
 
 # A second amendment on a date the entry already cites is the shape
 # #301 had (ADR-0041, two on 2026-10-19): a date-based rule passes it.
+# The base entry cites the date, so a rule asking only that each added
+# DATE appear in the entry would pass this case.
 R="$TMP/sameday"; git_tree "$R"
+sed -i 's/^- Keywords: first$/- Changed (Amendment 2026-09-01).\n- Keywords: first/' "$R/architecture/adr/ADR-DIGEST.md"
+git -C "$R" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -am cite
 amend "$R" 2026-09-01 "A second change the same day"
 out="$(run_base "$R" HEAD)"
 [[ "$out" == *"digest entry is unchanged"* ]] && ok "a second amendment on an already-cited date is reported" || bad "same-date amendment should be reported: $out"

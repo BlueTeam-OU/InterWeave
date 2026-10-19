@@ -518,7 +518,8 @@ jobs:
           # produced, so the merge commit the queue builds must be the
           # tree under test. validate_adr_index.sh reads both: its
           # AMENDED phase compares against the merge-base with
-          # origin/main, and exits 2 when that does not resolve.
+          # origin/main, and exits 2 when that does not resolve (on a
+          # push to main that is HEAD, so the queue run is the check).
           #
           # FULL HISTORY, because check_spike_locks.sh's provenance phase
           # asks where each spike pin came from: whether it is an

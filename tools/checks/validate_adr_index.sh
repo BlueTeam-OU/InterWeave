@@ -53,7 +53,10 @@
 #                  containing this script
 #   --base <rev>   the revision AMENDED compares against; by default the
 #                  merge-base of HEAD and origin/main, which in CI is the
-#                  pull request's or the queue's base. `--base none`
+#                  pull request's or the queue's base. On a push to main
+#                  it is HEAD itself, so that run compares nothing: the
+#                  queue run before it compared the same change, and the
+#                  ruleset admits no push that skipped the queue. `--base none`
 #                  skips AMENDED, and the success line says it did — for
 #                  a tree that is not a repository. With no base given
 #                  and none resolvable the script exits 2: a check that
