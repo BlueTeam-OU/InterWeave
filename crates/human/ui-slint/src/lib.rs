@@ -1836,7 +1836,11 @@ impl View {
         let said = outcome
             .map(|outcome| outcome_text(self.host, outcome))
             .unwrap_or_default();
-        window.set_trust_outcome(said.as_str().into());
+        // The entry's problem goes under its field; every other outcome
+        // where it was. Either is announced the same way below.
+        let entry = matches!(outcome, Some(TrustOutcome::Entry(_)));
+        window.set_entry_error(if entry { said.as_str() } else { "" }.into());
+        window.set_trust_outcome(if entry { "" } else { said.as_str() }.into());
         if count == self.trust_announced || said.is_empty() {
             self.trust_announced = count;
             return None;

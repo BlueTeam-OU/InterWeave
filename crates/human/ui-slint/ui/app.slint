@@ -367,23 +367,29 @@ component ActionButton inherits FocusScope {
     in property <bool> on-inverse;
     // A text button: no border, the label in `ink` and label large.
     in property <bool> text-button;
+    // A filled button: `primary` behind an `on-primary` label, fully
+    // rounded, label large (Material's filled button).
+    in property <bool> filled;
     in property <color> ink: Palette.primary;
     min-height: root.target;
     // Never narrower than its label: squeezed beside a wrapping text, the
     // label ran out of the button (seen in the rendered window).
-    min-width: max(root.target, label.preferred-width + 16px);
+    min-width: max(root.target, label.preferred-width + (root.filled ? 48px : 16px));
     Rectangle {
-        border-width: root.text-button ? 0px : 1px;
+        border-width: root.text-button || root.filled ? 0px : 1px;
         border-color: root.on-notice ? Palette.notice-text : Palette.outline;
+        background: root.filled ? Palette.primary : transparent;
+        border-radius: root.filled ? self.height / 2 : 0px;
         HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 8px;
+            padding-left: root.filled ? 24px : 8px;
+            padding-right: root.filled ? 24px : 8px;
             // The caption is the button's label already: not a second node.
             label := Text {
                 text: root.text;
-                font-size: root.text-button ? Type.label-large : Type.body-medium;
-                font-weight: root.text-button ? 500 : 400;
-                color: root.text-button ? root.ink : root.on-notice ? Palette.notice-text : Palette.on-surface;
+                font-size: root.text-button || root.filled ? Type.label-large : Type.body-medium;
+                font-weight: root.text-button || root.filled ? 500 : 400;
+                color: root.filled ? Palette.on-primary
+                    : root.text-button ? root.ink : root.on-notice ? Palette.notice-text : Palette.on-surface;
                 vertical-alignment: center;
                 accessible-role: none;
             }
@@ -395,7 +401,7 @@ component ActionButton inherits FocusScope {
         y: -5px;
         width: root.width + 10px;
         height: root.height + 10px;
-        radius: 0px;
+        radius: root.filled ? self.height / 2 : 0px;
         shown: root.has-focus;
         on-notice: root.on-notice;
         on-inverse: root.on-inverse;
@@ -1564,6 +1570,9 @@ export component AppWindow inherits Window {
     in property <string> trusted-heading;
     // Said in place of the list: reading it, or that it holds no peer.
     in property <string> trust-placeholder;
+    // The entry's own problem ("not a PeerId"), shown under its field
+    // rather than with the other outcomes.
+    in property <string> entry-error;
     in property <[TrustRow]> trusted;
     // The allowlist has been read: only then can a typed PeerId be
     // checked, so only then is the add row offered.
@@ -1618,6 +1627,11 @@ export component AppWindow inherits Window {
     // inside its padding and the list's ring room. From the window's width
     // rather than the row's, which the layout computes from what is in it:
     // a bubble's width read from its row loops through the layout.
+    // The trust page's inner width, from the window alone.
+    property <length> trust-width: (root.narrow || root.list-aside ? root.width : root.width - 281px)
+        - root.safe-area-insets.left - root.safe-area-insets.right - 24px;
+    // "Trust this peer"'s label width, measured apart by `add-measure`.
+    property <length> add-label-width: add-measure.preferred-width;
     property <length> message-width: max(0px,
         (root.narrow || root.list-aside ? root.width : root.width - 281px)
             - root.safe-area-insets.left - root.safe-area-insets.right - 34px);
@@ -2117,16 +2131,29 @@ export component AppWindow inherits Window {
                 font-weight: 700;
                 accessible-role: none;
             }
-            if root.trust-list-read: HorizontalLayout {
+            // A Material outlined field, its error under it, and "Trust
+            // this peer" filled beside it when both fit at the font size,
+            // under it when they do not (#304 F4 at 3b19110a).
+            if root.trust-list-read: entry-row := VerticalLayout {
                 spacing: 8px;
-                height: 36px;
+                // Decided from the pane's width, which the window sets: the
+                // row's own width follows what it holds, a loop.
+                property <bool> beside: root.trust-width - root.add-label-width - 56px >= 160px;
+            HorizontalLayout {
+                spacing: 8px;
                 entry-box := Rectangle {
-                    border-width: 1px;
-                    border-color: Palette.outline;
+                    height: max(56px, entry.preferred-height + 24px);
+                    border-width: entry.has-focus || root.entry-error != "" ? 2px : 1px;
+                    border-color: root.entry-error != "" ? Palette.error
+                        : entry.has-focus ? Palette.primary : Palette.outline;
                     border-radius: 4px;
                     entry := TextInput {
-                        x: 8px;
-                        width: parent.width - 16px;
+                        x: 16px;
+                        width: parent.width - 32px;
+                        height: self.preferred-height;
+                        y: (parent.height - self.height) / 2;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
                         vertical-alignment: center;
                         single-line: true;
                         text <=> root.trust-entry;
@@ -2144,11 +2171,37 @@ export component AppWindow inherits Window {
                         shown: entry.has-focus;
                     }
                 }
-                ActionButton {
-                    text: root.add-label;
-                    focus-key: "trust-add";
-                    pressed => { root.trust-add(); }
-                    focused(k) => { root.focus-id = k; }
+                if entry-row.beside: VerticalLayout {
+                    alignment: center;
+                    ActionButton {
+                        text: root.add-label;
+                        filled: true;
+                        target: 48px;
+                        focus-key: "trust-add";
+                        pressed => { root.trust-add(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+                // The entry's error, under the field it is about.
+                if root.entry-error != "": Text {
+                    text: root.entry-error;
+                    color: Palette.error;
+                    font-size: Type.body-small;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if !entry-row.beside: HorizontalLayout {
+                    alignment: start;
+                    ActionButton {
+                        text: root.add-label;
+                        filled: true;
+                        target: 48px;
+                        focus-key: "trust-add";
+                        pressed => { root.trust-add(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
             }
             Text {
@@ -3027,6 +3080,17 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
+    // Never drawn: measures "Trust this peer" for the trust page's field
+    // row, placed so it takes no room in any layout.
+    add-measure := Text {
+        x: 0;
+        y: 0;
+        visible: false;
+        text: root.add-label;
+        font-size: Type.label-large;
+        font-weight: 500;
+        accessible-role: none;
     }
     // Over everything: a press outside the menu or Details closes it, as
     // Escape does.

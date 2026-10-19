@@ -2555,7 +2555,7 @@ fn leaving_drops_a_waiting_change_and_a_non_peer_id_is_said() {
     let _ = intents(&mut view, &mut model);
     view.render(&model);
     assert_eq!(
-        view.window().get_trust_outcome().as_str(),
+        view.window().get_entry_error().as_str(),
         text(UiText::NotAPeerId)
     );
     labelled(&view, text(UiText::RemoveTrust))[0].invoke_accessible_default_action();
@@ -3052,4 +3052,50 @@ fn every_peer_id_on_trust_reads_whole_on_a_phone() {
         !view.window().get_trust_page(),
         "the back arrow leaves Trust"
     );
+}
+
+/// #304 F4: the entry's error sits under its field, and "Trust this peer"
+/// sits beside the field while both fit, under it when they do not -- a
+/// narrow window here, the same rule that 200 % font meets on a phone.
+#[test]
+fn the_trust_field_keeps_its_error_under_it_and_its_button_where_it_fits() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let (me, bob) = (peer(), peer());
+    trust_settings(&mut view, &mut model, &me, std::slice::from_ref(&bob));
+    view.window().invoke_trust_entry_edited("alice".into());
+    the(&view, text(UiText::TrustPeer)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    for (width, beside) in [(390.0, true), (320.0, false)] {
+        resize(&view, width);
+        slint::platform::update_timers_and_animations();
+        let field = the(&view, text(UiText::PeerIdToTrust));
+        // The drawn one; the other is the announcement's, placed off
+        // the screen.
+        let shown: Vec<_> = labelled(&view, text(UiText::NotAPeerId))
+            .into_iter()
+            .filter(|e| e.absolute_position().x >= 0.0)
+            .collect();
+        assert_eq!(shown.len(), 1, "{width}: one drawn error");
+        let error = &shown[0];
+        let button = the(&view, text(UiText::TrustPeer));
+        let bottom = |e: &ElementHandle| e.absolute_position().y + e.size().height;
+        assert!(
+            error.absolute_position().y >= bottom(&field),
+            "{width}: the error under the field"
+        );
+        assert_eq!(
+            button.absolute_position().y < bottom(&field),
+            beside,
+            "{width}: the button beside the field, or under it"
+        );
+        assert!(
+            all(&view)
+                .iter()
+                .all(|e| e.absolute_position().x + e.size().width <= width + 0.5),
+            "{width}: nothing past the edge"
+        );
+    }
 }
