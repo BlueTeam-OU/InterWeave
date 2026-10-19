@@ -229,7 +229,7 @@ impl Home {
     }
 
     /// A profile with no configuration yet: the fleet mints the key before
-    /// it renders one (ADR-0055 decision 7).
+    /// it renders one (ADR-0055 decision 4).
     fn bare() -> Self {
         let root = private_tempdir().expect("tempdir");
         let at = |name: &str| root.path().join(name);
@@ -851,7 +851,7 @@ fn stored_peer(home: &Home) -> String {
         .to_owned()
 }
 
-/// ADR-0055 decision 7: `init` mints the key and prints its `PeerId` and
+/// ADR-0055 decision 4: `init` mints the key and prints its `PeerId` and
 /// nothing else -- one line, the key's only public part -- and `show`
 /// prints the same for the key now stored.
 #[test]

@@ -771,15 +771,14 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
     for k in keys.by_ref().take(NEWCOMERS) {
         newcomers.push(hostile_router_as(k, ip, named.clone()).await);
     }
-    // HONEST: one full bucket, each naming the newcomers, so a walk that
-    // starts at an honest seat goes on to ask a newcomer.
-    let newcomers_named: Vec<(PeerId, Multiaddr)> = newcomers
-        .iter()
-        .map(|n| (peer_id(&n.peer), n.address.clone()))
-        .collect();
+    // HONEST: one full bucket, naming nobody until every one is seated.
+    // libp2p-kad starts a bootstrap 500 ms after a seat is taken, and an
+    // honest router that already named the newcomers would have it dial
+    // and seat them while the bucket still had room -- the last honest
+    // router then never seated (j92: 3 runs in 6).
     let mut honest = Vec::new();
     for k in keys.by_ref().take(BUCKET) {
-        honest.push(hostile_router_as(k, ip, newcomers_named.clone()).await);
+        honest.push(hostile_router_as(k, ip, Vec::new()).await);
     }
     // LATE: the control's newcomer, held back until a seat is free.
     let late = hostile_router_as(keys.next().expect("one more far key"), ip, Vec::new()).await;
@@ -812,6 +811,15 @@ async fn a_full_bucket_of_connected_seats_gives_newcomers_and_their_observations
     let mut events = Vec::new();
     for h in &honest {
         events.extend(seat(&mut subject, &h.peer, h.address.clone()).await);
+    }
+    // The bucket is full: now each honest router names the newcomers, so
+    // a walk that starts at an honest seat goes on to ask a newcomer.
+    for h in &honest {
+        for n in &newcomers {
+            h.orders
+                .send(Order::Know(peer_id(&n.peer), n.address.clone()))
+                .expect("alive");
+        }
     }
 
     // THE NEWCOMERS CONNECT and identify as servers of this network,
