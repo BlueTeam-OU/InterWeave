@@ -311,6 +311,16 @@ for spelling in "$SANDBOX/ch/bin/" "$SANDBOX/ch//bin" "$SANDBOX/ch/./bin" "$SAND
     expect_with 1 "  and \$CARGO_HOME/bin spelled $(sed "s#$SANDBOX#…#" <<<"$spelling") on PATH is on it, as cargo compares" "$SANDBOX/early/clippy-driver: rustc 1.99.0" CARGO_HOME="$SANDBOX/ch" PATH="$SANDBOX/early:$spelling:$SANDBOX/bin:$PATH"
 done
 expect_with 1 "  and so is it when CARGO_HOME carries the trailing slash" "$SANDBOX/early/clippy-driver: rustc 1.99.0" CARGO_HOME="$SANDBOX/ch/" PATH="$SANDBOX/early:$SANDBOX/ch/bin:$SANDBOX/bin:$PATH"
+# A relative CARGO_HOME is cargo's cwd (the root) joined to it: the same
+# relative spelling on PATH is not that path, so cargo puts it first.
+mkdir -p "$REPO/rel/bin"
+cp "$SANDBOX/bin/cargo-clippy" "$SANDBOX/bin/clippy-driver" "$REPO/rel/bin/"
+expect_with 0 "a relative CARGO_HOME is the root's, put first though PATH spells it relative" "" CARGO_HOME=rel PATH="$SANDBOX/early:rel/bin:$SANDBOX/bin:$PATH"
+expect_with 1 "  while its absolute form on PATH is on it" "$SANDBOX/early/clippy-driver: rustc 1.99.0" CARGO_HOME=rel PATH="$SANDBOX/early:$REPO/rel/bin:$SANDBOX/bin:$PATH"
+rm -rf "$REPO/rel"
+out="$(cd "$SANDBOX" && env -u CARGO_HOME -u HOME PATH="$SANDBOX/bin:$PATH" bash "$REPO/tools/checks/check_rustc_pin.sh" 2>&1)"; got=$?
+[[ "$got" -eq 2 && "$out" == *"neither CARGO_HOME nor HOME is set"* ]] && pass "neither CARGO_HOME nor HOME set is a failure to check, not a FAIL (exit 2)" \
+    || fail "neither CARGO_HOME nor HOME set should be exit 2, got $got" "$out"
 mv "$SANDBOX/ch/bin/clippy-driver.off" "$SANDBOX/ch/bin/clippy-driver"
 # A symlinked cargo-clippy runs the driver beside its target.
 mkdir -p "$SANDBOX/farm"

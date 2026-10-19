@@ -85,7 +85,9 @@
 #      whose path cannot be resolved (readlink -f), a cargo-clippy with no
 #      clippy-driver beside it, a
 #      clippy-driver that cannot be run or prints no version, or a rustfmt
-#      that cannot be found or links no librustc_driver
+#      that cannot be found or links no librustc_driver, or a rustc whose
+#      --print sysroot names no directory holding one; and neither
+#      CARGO_HOME nor HOME set
 # <<< help
 
 set -uo pipefail
@@ -137,6 +139,17 @@ if [[ -n "$below" ]]; then
     echo "$me: $below is a cargo config below the repository root, which cargo reads when run from there; this check searches from the root only" >&2
     exit 2
 fi
+# cargo's home, as cargo takes it: $CARGO_HOME joined to the directory
+# cargo runs in (the root, here) when relative — no `..` or symlink
+# resolved — else $HOME/.cargo.
+if [[ -n "${CARGO_HOME:-}" ]]; then
+    cargo_home="$CARGO_HOME"
+    [[ "$cargo_home" == /* ]] || cargo_home="$ROOT/$cargo_home"
+elif [[ -n "${HOME:-}" ]]; then
+    cargo_home="$HOME/.cargo"
+else
+    echo "$me: neither CARGO_HOME nor HOME is set, so cargo's home cannot be told" >&2; exit 2
+fi
 configs=()
 dir="$ROOT"
 while :; do
@@ -144,7 +157,7 @@ while :; do
     [[ "$dir" == / ]] && break
     dir="$(dirname "$dir")"
 done
-configs+=("${CARGO_HOME:-$HOME/.cargo}/config.toml" "${CARGO_HOME:-$HOME/.cargo}/config")
+configs+=("$cargo_home/config.toml" "$cargo_home/config")
 for cfg in "${configs[@]}"; do
     [[ -f "$cfg" ]] || continue
     content="$(cat "$cfg" 2>/dev/null)" || { echo "$me: cannot read $cfg, a cargo config in scope" >&2; exit 2; }
@@ -237,7 +250,7 @@ elif (( rc == 2 )); then
     # measured: cargo did not prepend for `~/.cargo/bin/`). No symlink is
     # resolved, as cargo resolves none.
     norm() { sed 's#/\(\./\)*#/#g; s#/\.$##; s#//*#/#g; s#\(.\)/$#\1#' <<<"$1"; }
-    ch_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+    ch_bin="$cargo_home/bin"
     ch_norm="$(norm "$ch_bin")"
     search="$ch_bin:$PATH"
     IFS=: read -ra path_dirs <<<"$PATH"
