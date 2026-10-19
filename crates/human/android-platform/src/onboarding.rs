@@ -177,6 +177,34 @@ pub fn seal(
     }
 }
 
+/// The words and `PeerId` S2 shows (Show my phrase, design section 3.5),
+/// re-derived from the sealed record. The caller has taken the service
+/// offline first; this only reads.
+///
+/// # Errors
+/// [`WriteRefused::UserNotAuthenticated`] when the key needs the person
+/// again, else [`WriteRefused::Storage`]: nothing is shown.
+pub fn shown_phrase(
+    app_data_dir: &Path,
+    profile: &str,
+    cipher: &dyn SeedCipher,
+) -> Result<(Words, TransportIdentity), WriteRefused> {
+    let paths = paths(app_data_dir, profile)?;
+    let identity = custody::unlock(&paths, cipher).map_err(|refused| match refused {
+        custody::UnlockRefused::UserNotAuthenticated => WriteRefused::UserNotAuthenticated,
+        other => WriteRefused::Storage(format!("{other:?}")),
+    })?;
+    let peer = identity
+        .transport_identity()
+        .map_err(|e| WriteRefused::Storage(e.to_string()))?;
+    let words = words_of(
+        &identity
+            .recovery_phrase()
+            .map_err(|e| WriteRefused::Storage(e.to_string()))?,
+    )?;
+    Ok((words, peer))
+}
+
 /// The `PeerId` a typed phrase derives to, or `None` when it is not a
 /// phrase (a failed checksum, an unknown word, another length). The text
 /// is dropped here.

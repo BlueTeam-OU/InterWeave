@@ -466,6 +466,24 @@ mod onboarding {
         assert_eq!(started.transport_identity().expect("a PeerId"), peer);
     }
 
+    /// S2: the sealed record gives back the words and the `PeerId` the
+    /// creation showed; with no record nothing is shown.
+    #[test]
+    fn show_my_phrase_gives_back_the_words_sealed() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        assert!(matches!(
+            onboarding::shown_phrase(&app.dir, PROFILE, &keystore),
+            Err(WriteRefused::Storage(_))
+        ));
+        let (creation, words, peer, _) = Creation::new().expect("a creation");
+        onboarding::seal(&app.dir, PROFILE, &keystore, &creation).expect("sealed");
+        let (shown, shown_peer) =
+            onboarding::shown_phrase(&app.dir, PROFILE, &keystore).expect("shown");
+        assert_eq!(shown, words);
+        assert_eq!(shown_peer, peer);
+    }
+
     /// Another first run sealed first: the words shown were never used,
     /// and the record stays the other identity's.
     #[test]
