@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# An automated client of one profile's daemon (ADR-0055 decision 1), as a
+# systemd USER unit templated on the profile name:
+# `systemctl --user enable --now interweave-client@<profile>`.
+# Plan section 28 step 4, ADR-0055 decision 6. See ../README.md.
+#
+# InterWeave ships no automated client: the program is the deployment's.
+# ExecStart below names the path a deployment installs it at; one that runs
+# its client from elsewhere overrides ExecStart in a drop-in
+# (`systemctl --user edit interweave-client@<profile>`).
+[Unit]
+Description=InterWeave automated client, profile %i
+Documentation=https://github.com/BlueTeam-OU/InterWeave/tree/main/packaging/linux
+# Started after its daemon, and stopped when its daemon stops.
+After=interweave-daemon@%i.service
+BindsTo=interweave-daemon@%i.service
+
+[Service]
+Type=exec
+ExecStart=%h/.local/libexec/interweave/client --profile %i
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+# Enabling the client hooks it to its daemon's start: BindsTo= stops the
+# client with the daemon, and this is what starts it again when the daemon
+# comes back, its own restart included.
+WantedBy=interweave-daemon@%i.service

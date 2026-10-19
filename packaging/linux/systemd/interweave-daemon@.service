@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# The InterWeave daemon of one profile, as a systemd USER unit templated on
+# the profile name: `systemctl --user enable --now interweave-daemon@<profile>`.
+# Plan section 28 step 4, ADR-0055 decision 6. See ../README.md.
+[Unit]
+Description=InterWeave transport daemon, profile %i
+Documentation=https://github.com/BlueTeam-OU/InterWeave/tree/main/packaging/linux
+After=network.target
+
+[Service]
+Type=exec
+# The account's own binary, not a system-wide install.
+ExecStart=%h/.local/bin/transport-daemon --profile %i
+# A clean stop is SIGTERM, which the daemon answers by stopping within its
+# own grace (`SHUTDOWN_GRACE`, 5 s); systemd waits 30 s before it sends
+# SIGKILL, so that grace is not cut short.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+# Exit 1 is a failure the next start may not repeat -- a listen port another
+# account holds (the kernel's EADDRINUSE, ADR-0055 decision 5) -- so it is
+# retried every 5 s, which stays under the default start limit (5 starts in
+# 10 s). Exit 2 is a usage error, which a restart does not mend.
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=2
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
