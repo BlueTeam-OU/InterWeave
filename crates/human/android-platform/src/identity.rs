@@ -31,11 +31,11 @@
 
 use std::path::Path;
 
-use interweave_profile_config::{ProfilePaths, TrustBoundary};
+use interweave_profile_config::{PersistError, ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
 use interweave_transport_api::TransportIdentity;
 use interweave_transport_embedded::custody::{
-    self, CustodyRefused, RecoveryCause, SeedCipher, UnlockRefused,
+    self, CustodyRefused, RecordName, RecoveryCause, SeedCipher, UnlockRefused,
 };
 
 /// Why a start has no identity.
@@ -104,7 +104,8 @@ pub fn start_identity(
 /// `OldKeyRemains` comes AFTER the record is written: the profile is
 /// provisioned and unlocks, and only a stale key of the other policy
 /// remains for `reseal` to retire -- so it is this start's identity, not
-/// a refusal.
+/// a refusal. `Unsynced` comes after the write too, so the record is read
+/// back: this identity if it opens to it.
 fn create(
     paths: &ProfilePaths,
     cipher: &dyn SeedCipher,
@@ -117,6 +118,16 @@ fn create(
     let identity = ProfileIdentity::generate();
     match custody::provision(paths, cipher, &identity, policy) {
         Ok(_) | Err(CustodyRefused::OldKeyRemains(_)) => Ok(identity),
+        Err(refused @ CustodyRefused::Storage(PersistError::Unsynced(_))) => {
+            let opened = custody::unlock(paths, cipher)
+                .ok()
+                .and_then(|opened| opened.transport_identity().ok());
+            if opened.is_some() && opened == identity.transport_identity().ok() {
+                Ok(identity)
+            } else {
+                Err(IdentityRefused::Provisioning(format!("{refused:?}")))
+            }
+        }
         Err(e) => Err(IdentityRefused::Provisioning(format!("{e:?}"))),
     }
 }
@@ -134,7 +145,8 @@ pub enum RestoreRefused {
     /// [`Expected::Confirmed`] over a profile that has a record: an
     /// established identity is restored only as its record names it.
     RecordExists,
-    /// The record is there but its shape names no `PeerId`.
+    /// The record is there but names no `PeerId`, or could not be read:
+    /// an established profile's, never sealed over.
     RecordUnreadable(String),
     /// The phrase is a valid phrase of another identity, or the record
     /// names another than the phrase restores.
@@ -176,8 +188,10 @@ pub fn phrase_peer(phrase: &RecoveryPhrase) -> Result<TransportIdentity, Restore
 
 /// Restore `profile`'s identity from `phrase`, under the profile's
 /// configured unlock policy, only if the phrase gives back the `PeerId`
-/// `expected` names. The Service must not be running: the restore takes
-/// the profile's lock.
+/// `expected` names. The Service must not be running. `lock` is the
+/// recovery flow's, taken before its first word and lent to the seal,
+/// which keeps it held whatever the outcome (android-key-custody.md,
+/// Recovery); with none the restore takes the profile's lock itself.
 ///
 /// # Errors
 /// [`RestoreRefused`]; nothing is written in any of them.
@@ -187,12 +201,24 @@ pub fn restore_identity(
     cipher: &dyn SeedCipher,
     phrase: &RecoveryPhrase,
     expected: Expected<'_>,
+    lock: Option<&ProfileLock>,
 ) -> Result<ProfileIdentity, RestoreRefused> {
     let paths = TrustBoundary::new(app_data_dir)
         .and_then(|boundary| ProfilePaths::resolve_embedded(profile, boundary))
         .map_err(|e| RestoreRefused::Paths(e.to_string()))?;
-    let recorded = custody::recorded_identity(&paths)
-        .map_err(|why| RestoreRefused::RecordUnreadable(format!("{why:?}")))?;
+    // The PeerId field, read without the cipher whatever the envelope's
+    // state: a record refused for its shape still names whose it is.
+    let recorded = match custody::named_identity(&paths)
+        .map_err(|why| RestoreRefused::RecordUnreadable(format!("{why:?}")))?
+    {
+        RecordName::Absent => None,
+        RecordName::Nobody => {
+            return Err(RestoreRefused::RecordUnreadable(
+                "the record names no PeerId".to_owned(),
+            ));
+        }
+        RecordName::Names(peer) => Some(peer),
+    };
     let expected = match (expected, recorded) {
         (Expected::Recorded, Some(peer)) => peer,
         (Expected::Recorded, None) => return Err(RestoreRefused::NoRecord),
@@ -204,7 +230,11 @@ pub fn restore_identity(
         .runtime
         .android
         .key_unlock_policy;
-    match custody::restore(&paths, cipher, phrase, &expected, policy) {
+    let restored = match lock {
+        Some(lock) => custody::restore_held(&paths, lock, cipher, phrase, &expected, policy),
+        None => custody::restore(&paths, cipher, phrase, &expected, policy),
+    };
+    match restored {
         Ok(identity) => Ok(identity),
         // As for a first run: the record is written and opens, and only a
         // stale key of the other policy is left for `reseal` to retire.
@@ -219,6 +249,9 @@ pub fn restore_identity(
             Err(RestoreRefused::UserNotAuthenticated)
         }
         Err(CustodyRefused::Unreadable(why)) => Err(RestoreRefused::RecordUnreadable(why)),
+        Err(CustodyRefused::RecordNamesNobody) => Err(RestoreRefused::RecordUnreadable(
+            "the record names no PeerId".to_owned(),
+        )),
         Err(CustodyRefused::Storage(interweave_profile_config::PersistError::Unsynced(e))) => {
             Err(RestoreRefused::Unsynced(e.to_string()))
         }

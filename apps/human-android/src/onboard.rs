@@ -17,7 +17,7 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
 use interweave_human_android_platform::KeyUnlockPolicy;
-use interweave_human_android_platform::custody::{self, RecoveryCause};
+use interweave_human_android_platform::custody::{self, RecordName, RecoveryCause};
 use interweave_human_android_platform::onboarding::{self, Creation, WriteRefused, english};
 use interweave_human_android_platform::{Expected, IdentityRefused};
 use interweave_human_ui_model::{
@@ -27,7 +27,7 @@ use interweave_human_ui_model::{
 use interweave_human_ui_slint::{
     IdentityInput, View, apply_identity, defer, identity_page, invoke_on_window,
 };
-use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
+use interweave_profile_config::{ProfileConfig, ProfileLock, ProfilePaths, TrustBoundary};
 
 use crate::jni::{PROFILE, log};
 use crate::keystore::KeystoreCipher;
@@ -134,12 +134,16 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
                 RecoveryCause::KeyInvalidated | RecoveryCause::KeyMissing => RecoveryReason::Key,
                 _ => RecoveryReason::Record,
             },
-            // The PeerId the record names, read without the cipher; none
-            // readable offers no restore (design section 3.4).
+            // The PeerId the record's field names, read without the cipher
+            // whatever the envelope's state; none readable offers no
+            // restore (design section 3.4).
             expected: TrustBoundary::new(&app_data_dir)
                 .and_then(|boundary| ProfilePaths::resolve_embedded(PROFILE, boundary))
                 .ok()
-                .and_then(|paths| custody::recorded_identity(&paths).ok().flatten()),
+                .and_then(|paths| match custody::named_identity(&paths) {
+                    Ok(RecordName::Names(peer)) => Some(peer),
+                    _ => None,
+                }),
         }),
         Err(why) => {
             log(&format!(
@@ -201,6 +205,11 @@ struct Onboarding {
     /// Show my phrase, from Settings: the service is bound already, and
     /// is taken offline and back rather than bound (design section 3.5).
     from_settings: bool,
+    /// The profile's lock, held from before the first word until the
+    /// service is asked to start, and lent to each seal and restore
+    /// (android-key-custody.md, Recovery). None where it could not be
+    /// taken: the seal then takes its own.
+    lock: Option<ProfileLock>,
     /// Called once the flow hands over to the chats.
     done: Rc<dyn Fn()>,
 }
@@ -222,6 +231,10 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
     else {
         return false;
     };
+    // Before the network service is bound, so nothing else holds it.
+    let lock = onboarding::hold(app_data_dir, PROFILE)
+        .inspect_err(|why| log(&format!("the identity flow holds no lock: {why:?}")))
+        .ok();
     let onboarding = Onboarding {
         view: Rc::clone(view),
         flow: IdentityFlow::new(english(), start.clone()),
@@ -231,6 +244,7 @@ pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool
         secure: false,
         gate: PresenceGate::new(*user_presence),
         from_settings: false,
+        lock,
         done: Rc::new(done),
     };
     drop(platform);
@@ -264,6 +278,8 @@ pub(crate) fn show_phrase(view: &Rc<RefCell<View>>) {
         secure: false,
         gate: PresenceGate::new(*user_presence),
         from_settings: true,
+        // Taken once the service has stopped (`offline`).
+        lock: None,
         done: Rc::new(|| {}),
     };
     drop(platform);
@@ -321,7 +337,8 @@ pub(crate) fn prompted(granted: bool) {
 }
 
 /// `Native.offline`: whether the service stopped for Show my phrase. The
-/// words are read only once it has: nothing else holds the profile then.
+/// words are read only once it has and the flow holds the profile's
+/// lock: a lock still held elsewhere shows nothing.
 pub(crate) fn offline(stopped: bool) {
     invoke_on_window(move || {
         let effects = ONBOARDING.with(|slot| {
@@ -329,7 +346,15 @@ pub(crate) fn offline(stopped: bool) {
                 .as_mut()
                 .map(|o| {
                     let outcome = if stopped {
-                        onboarding::shown_phrase(&o.app_data_dir, PROFILE, o.cipher.as_ref())
+                        onboarding::hold(&o.app_data_dir, PROFILE)
+                            .and_then(|lock| {
+                                o.lock = Some(lock);
+                                onboarding::shown_phrase(
+                                    &o.app_data_dir,
+                                    PROFILE,
+                                    o.cipher.as_ref(),
+                                )
+                            })
                             .map_err(|why| failed(&why))
                     } else {
                         log("Show my phrase: the service did not stop");
@@ -382,6 +407,7 @@ fn one(effect: Effect) -> Vec<Effect> {
         };
         match effect {
             Effect::Finish => {
+                o.lock = None;
                 ASKS.push(ask::FINISH);
                 Vec::new()
             }
@@ -408,10 +434,14 @@ fn one(effect: Effect) -> Vec<Effect> {
             }
             Effect::Seal => {
                 let outcome = match o.creation.as_ref() {
-                    Some(creation) => {
-                        onboarding::seal(&o.app_data_dir, PROFILE, o.cipher.as_ref(), creation)
-                            .map_err(|why| failed(&why))
-                    }
+                    Some(creation) => onboarding::seal(
+                        &o.app_data_dir,
+                        PROFILE,
+                        o.cipher.as_ref(),
+                        creation,
+                        o.lock.as_ref(),
+                    )
+                    .map_err(|why| failed(&why)),
                     None => Err(StepFailed::Storage),
                 };
                 if outcome.is_ok() {
@@ -427,6 +457,7 @@ fn one(effect: Effect) -> Vec<Effect> {
                     o.cipher.as_ref(),
                     text,
                     Expected::Recorded,
+                    o.lock.as_ref(),
                 )
                 .map_err(|why| failed(&why));
                 o.flow.restored(outcome)
@@ -438,6 +469,7 @@ fn one(effect: Effect) -> Vec<Effect> {
                     o.cipher.as_ref(),
                     text,
                     Expected::Confirmed(&peer),
+                    o.lock.as_ref(),
                 )
                 .map_err(|why| failed(&why));
                 o.flow.restored(outcome)
@@ -451,6 +483,8 @@ fn one(effect: Effect) -> Vec<Effect> {
                 Vec::new()
             }
             Effect::StartService => {
+                // Let go first: the service takes the profile's lock.
+                o.lock = None;
                 ASKS.push(if o.from_settings {
                     ask::ONLINE
                 } else {

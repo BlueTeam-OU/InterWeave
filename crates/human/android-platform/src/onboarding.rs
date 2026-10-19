@@ -18,7 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
-use interweave_profile_config::{PersistError, ProfilePaths, TrustBoundary};
+use interweave_profile_config::{PersistError, ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
 use interweave_transport_api::TransportIdentity;
 use interweave_transport_embedded::custody::{self, CipherFailure, CustodyRefused, SeedCipher};
@@ -138,7 +138,26 @@ fn opens_to(paths: &ProfilePaths, cipher: &dyn SeedCipher, peer: &TransportIdent
         .is_some_and(|opened| opened == *peer)
 }
 
-/// Seal `creation` under the profile's configured unlock policy (C4).
+/// The profile's lock for a flow that shows or takes words: taken once,
+/// before the first word, without waiting, and lent to [`seal`],
+/// [`restore`] and the read-backs until the flow ends. Released and
+/// retaken, the gap would let the service start the profile and refuse
+/// the seal after all 24 words were entered (android-key-custody.md,
+/// Recovery).
+///
+/// # Errors
+/// [`WriteRefused::Busy`] while another holds it, else
+/// [`WriteRefused::Storage`].
+pub fn hold(app_data_dir: &Path, profile: &str) -> Result<ProfileLock, WriteRefused> {
+    let paths = paths(app_data_dir, profile)?;
+    ProfileLock::acquire(&paths, std::time::Duration::ZERO).map_err(|e| match e {
+        PersistError::ProfileLocked { .. } => WriteRefused::Busy,
+        other => WriteRefused::Storage(other.to_string()),
+    })
+}
+
+/// Seal `creation` under the profile's configured unlock policy (C4),
+/// under the flow's `lock` ([`hold`]), or the seal's own with none.
 ///
 /// # Errors
 /// [`WriteRefused`], after the read-back.
@@ -147,6 +166,7 @@ pub fn seal(
     profile: &str,
     cipher: &dyn SeedCipher,
     creation: &Creation,
+    lock: Option<&ProfileLock>,
 ) -> Result<(), WriteRefused> {
     let paths = paths(app_data_dir, profile)?;
     let policy = interweave_profile_config::ProfileConfig::load(&paths)
@@ -154,7 +174,11 @@ pub fn seal(
         .runtime
         .android
         .key_unlock_policy;
-    match custody::provision(&paths, cipher, &creation.identity, policy) {
+    let provisioned = match lock {
+        Some(lock) => custody::provision_held(&paths, lock, cipher, &creation.identity, policy),
+        None => custody::provision(&paths, cipher, &creation.identity, policy),
+    };
+    match provisioned {
         Ok(_) => Ok(()),
         // Refused after the publish: done if the record opens to this
         // identity, and the next start's reseal finishes the rest.
@@ -216,7 +240,7 @@ pub fn check(text: String) -> Option<TransportIdentity> {
 }
 
 /// Restore the typed phrase to `expected` (R3's confirmed `PeerId`, or
-/// the record's after K1).
+/// the record's after K1), under the flow's `lock` as [`seal`].
 ///
 /// # Errors
 /// [`WriteRefused`], after the read-back.
@@ -226,10 +250,11 @@ pub fn restore(
     cipher: &dyn SeedCipher,
     text: String,
     expected: Expected<'_>,
+    lock: Option<&ProfileLock>,
 ) -> Result<(), WriteRefused> {
     let phrase = RecoveryPhrase::parse(&text).map_err(|_| WriteRefused::OtherIdentity)?;
     drop(text);
-    match restore_identity(app_data_dir, profile, cipher, &phrase, expected) {
+    match restore_identity(app_data_dir, profile, cipher, &phrase, expected, lock) {
         Ok(_) => Ok(()),
         // Published, then the directory's sync failed: done if the record
         // opens to the phrase's identity. (OldKeyRemains is success

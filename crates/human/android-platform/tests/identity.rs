@@ -22,7 +22,7 @@ use interweave_human_android_platform::{
     Expected, FirstRun, IdentityRefused, RestoreRefused, phrase_peer, restore_identity, stand_in,
     start_identity,
 };
-use interweave_profile_config::{ProfilePaths, TrustBoundary};
+use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_embedded::custody::{
     self, CipherFailure, IV_LEN, KeyRef, RecoveryCause, SEALED_LEN, SEED_LEN, Sealed, Seed,
@@ -288,8 +288,15 @@ fn recovery_restores_the_recorded_peer_from_the_phrase_and_it_unlocks_after() {
         Err(IdentityRefused::RecoveryRequired(RecoveryCause::KeyMissing))
     );
 
-    let restored = restore_identity(&app.dir, PROFILE, &keystore, &phrase, Expected::Recorded)
-        .expect("the phrase restores");
+    let restored = restore_identity(
+        &app.dir,
+        PROFILE,
+        &keystore,
+        &phrase,
+        Expected::Recorded,
+        None,
+    )
+    .expect("the phrase restores");
     assert_eq!(restored.transport_identity().expect("a PeerId"), peer);
     let again = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
         .expect("the restored record unlocks");
@@ -316,7 +323,15 @@ fn another_identitys_phrase_is_refused_and_the_record_is_left_as_it_was() {
         .expect("a phrase");
 
     assert_eq!(
-        restore_identity(&app.dir, PROFILE, &keystore, &stranger, Expected::Recorded).map(|_| ()),
+        restore_identity(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &stranger,
+            Expected::Recorded,
+            None
+        )
+        .map(|_| ()),
         Err(RestoreRefused::OtherIdentity)
     );
     assert_eq!(record(&app), before, "the record is untouched");
@@ -328,6 +343,7 @@ fn another_identitys_phrase_is_refused_and_the_record_is_left_as_it_was() {
         &keystore,
         &identity.recovery_phrase().expect("its phrase"),
         Expected::Recorded,
+        None,
     )
     .expect("the person's own phrase restores");
 }
@@ -343,7 +359,15 @@ fn with_no_record_nothing_is_restored_without_a_confirmed_peer() {
         .expect("a phrase");
 
     assert_eq!(
-        restore_identity(&app.dir, PROFILE, &keystore, &phrase, Expected::Recorded).map(|_| ()),
+        restore_identity(
+            &app.dir,
+            PROFILE,
+            &keystore,
+            &phrase,
+            Expected::Recorded,
+            None
+        )
+        .map(|_| ()),
         Err(RestoreRefused::NoRecord)
     );
     assert!(
@@ -374,7 +398,8 @@ fn a_fresh_install_restores_the_peer_the_person_confirmed_and_no_other() {
             PROFILE,
             &keystore,
             &phrase,
-            Expected::Confirmed(&other)
+            Expected::Confirmed(&other),
+            None
         )
         .map(|_| ()),
         Err(RestoreRefused::OtherIdentity)
@@ -390,6 +415,7 @@ fn a_fresh_install_restores_the_peer_the_person_confirmed_and_no_other() {
         &keystore,
         &phrase,
         Expected::Confirmed(&shown),
+        None,
     )
     .expect("the confirmed PeerId restores");
     assert_eq!(restored.transport_identity().expect("a PeerId"), shown);
@@ -421,11 +447,39 @@ fn a_confirmed_peer_never_replaces_an_established_record() {
             PROFILE,
             &FakeKeystore::default(),
             &phrase,
-            Expected::Confirmed(&peer)
+            Expected::Confirmed(&peer),
+            None
         )
         .map(|_| ()),
         Err(RestoreRefused::RecordExists)
     );
+    assert_eq!(record(&app), before, "the record is untouched");
+}
+
+/// A record present whose `PeerId` field names nobody is an established
+/// profile's, not "no record": neither restore is offered over it, and
+/// nothing is written (android-key-custody.md, Recovery).
+#[test]
+fn a_record_naming_nobody_is_restored_by_neither_path_and_left_as_it_was() {
+    let app = app();
+    let keystore = FakeKeystore::default();
+    let identity =
+        start_identity(&app.dir, PROFILE, &keystore, FirstRun::Create).expect("provisioned");
+    // An envelope's length with no PeerId after it.
+    std::fs::write(custody::custody_file(&paths(&app)), [0u8; 66]).expect("overwritten");
+    let before = record(&app);
+    let phrase = identity.recovery_phrase().expect("its phrase");
+    let peer = identity.transport_identity().expect("a PeerId");
+
+    for expected in [Expected::Recorded, Expected::Confirmed(&peer)] {
+        assert!(
+            matches!(
+                restore_identity(&app.dir, PROFILE, &keystore, &phrase, expected, None),
+                Err(RestoreRefused::RecordUnreadable(_))
+            ),
+            "{expected:?}"
+        );
+    }
     assert_eq!(record(&app), before, "the record is untouched");
 }
 
@@ -460,10 +514,81 @@ mod onboarding {
             "nothing sealed yet"
         );
 
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation).expect("sealed");
+        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
         let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
             .expect("the record unlocks");
         assert_eq!(started.transport_identity().expect("a PeerId"), peer);
+    }
+
+    /// The flow's lock (android-key-custody.md, Recovery): taken before
+    /// the first word, it is lent to the seal -- which, taking its own,
+    /// would answer Busy -- and a refused seal leaves it held for the
+    /// read-back and a retry; only the flow lets it go.
+    #[test]
+    fn the_flows_lock_is_lent_to_the_seal_and_held_after_a_refusal() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        let lock = onboarding::hold(&app.dir, PROFILE).expect("held");
+        assert_eq!(
+            onboarding::hold(&app.dir, PROFILE).err(),
+            Some(WriteRefused::Busy),
+            "one holder"
+        );
+        let (creation, _, peer, _) = Creation::new().expect("a creation");
+        assert_eq!(
+            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
+            Err(WriteRefused::Busy),
+            "a seal of its own waits for no lock the flow holds"
+        );
+        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, Some(&lock))
+            .expect("sealed under the flow's lock");
+        assert_eq!(
+            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, Some(&lock)),
+            Err(WriteRefused::AlreadyProvisioned)
+        );
+        assert!(
+            ProfileLock::is_held(&paths(&app)).expect("asked"),
+            "still held after the refusal"
+        );
+        drop(lock);
+        assert!(!ProfileLock::is_held(&paths(&app)).expect("asked"));
+        let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
+            .expect("the record unlocks");
+        assert_eq!(started.transport_identity().expect("a PeerId"), peer);
+    }
+
+    /// A restore runs under the flow's lock too, where one of its own
+    /// would be refused.
+    #[test]
+    fn a_restore_runs_under_the_flows_lock() {
+        let app = app();
+        let keystore = FakeKeystore::default();
+        let (creation, words, ..) = Creation::new().expect("a creation");
+        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
+        let lock = onboarding::hold(&app.dir, PROFILE).expect("held");
+        assert_eq!(
+            onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                words.join(" "),
+                Expected::Recorded,
+                None,
+            ),
+            Err(WriteRefused::Busy)
+        );
+        assert_eq!(
+            onboarding::restore(
+                &app.dir,
+                PROFILE,
+                &keystore,
+                words.join(" "),
+                Expected::Recorded,
+                Some(&lock),
+            ),
+            Ok(())
+        );
+        assert!(ProfileLock::is_held(&paths(&app)).expect("asked"));
     }
 
     /// S2: the sealed record gives back the words and the `PeerId` the
@@ -477,7 +602,7 @@ mod onboarding {
             Err(WriteRefused::Storage(_))
         ));
         let (creation, words, peer, _) = Creation::new().expect("a creation");
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation).expect("sealed");
+        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
         let (shown, shown_peer) =
             onboarding::shown_phrase(&app.dir, PROFILE, &keystore).expect("shown");
         assert_eq!(shown, words);
@@ -494,7 +619,7 @@ mod onboarding {
         let before = record(&app);
         let (creation, ..) = Creation::new().expect("a creation");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation),
+            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
             Err(WriteRefused::AlreadyProvisioned)
         );
         assert_eq!(record(&app), before);
@@ -510,7 +635,7 @@ mod onboarding {
         *keystore.retire_fails.lock().unwrap() = true;
         let (creation, _, peer, _) = Creation::new().expect("a creation");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation),
+            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
             Ok(())
         );
         *keystore.retire_fails.lock().unwrap() = false;
@@ -526,9 +651,9 @@ mod onboarding {
         let app = app();
         let keystore = FakeKeystore::default();
         let (creation, ..) = Creation::new().expect("a creation");
-        onboarding::seal(&app.dir, PROFILE, &keystore, &creation).expect("sealed");
+        onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None).expect("sealed");
         assert_eq!(
-            onboarding::seal(&app.dir, PROFILE, &keystore, &creation),
+            onboarding::seal(&app.dir, PROFILE, &keystore, &creation, None),
             Err(WriteRefused::AlreadyProvisioned)
         );
     }
@@ -559,6 +684,7 @@ mod onboarding {
             &keystore,
             words.join(" "),
             Expected::Recorded,
+            None,
         );
         std::fs::set_permissions(&identity_dir, std::fs::Permissions::from_mode(0o700))
             .expect("writable again");
@@ -591,6 +717,7 @@ mod onboarding {
             &keystore,
             words.join(" "),
             Expected::Confirmed(&derived),
+            None,
         )
         .expect("restored");
         let started = start_identity(&app.dir, PROFILE, &keystore, FirstRun::Refuse)
