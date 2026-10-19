@@ -317,6 +317,13 @@ mkdir -p "$REPO/rel/bin"
 cp "$SANDBOX/bin/cargo-clippy" "$SANDBOX/bin/clippy-driver" "$REPO/rel/bin/"
 expect_with 0 "a relative CARGO_HOME is the root's, put first though PATH spells it relative" "" CARGO_HOME=rel PATH="$SANDBOX/early:rel/bin:$SANDBOX/bin:$PATH"
 expect_with 1 "  while its absolute form on PATH is on it" "$SANDBOX/early/clippy-driver: rustc 1.99.0" CARGO_HOME=rel PATH="$SANDBOX/early:$REPO/rel/bin:$SANDBOX/bin:$PATH"
+# Through a symlinked path the root is the physical one cargo sees: the
+# logical spelling of rel/bin on PATH is not cargo's home.
+ln -s "$REPO" "$SANDBOX/link"
+out="$(cd "$SANDBOX" && CARGO_HOME=rel PATH="$SANDBOX/early:$SANDBOX/link/rel/bin:$SANDBOX/bin:$PATH" bash "$SANDBOX/link/tools/checks/check_rustc_pin.sh" 2>&1)"; got=$?
+[[ "$got" -eq 0 ]] && pass "run through a symlink, a relative CARGO_HOME is joined to the physical root, as cargo's getcwd (exit 0)" \
+    || fail "through a symlink the logical rel/bin should not count as cargo's home, got $got" "$out"
+rm -f "$SANDBOX/link"
 rm -rf "$REPO/rel"
 out="$(cd "$SANDBOX" && env -u CARGO_HOME -u HOME PATH="$SANDBOX/bin:$PATH" bash "$REPO/tools/checks/check_rustc_pin.sh" 2>&1)"; got=$?
 [[ "$got" -eq 2 && "$out" == *"neither CARGO_HOME nor HOME is set"* ]] && pass "neither CARGO_HOME nor HOME set is a failure to check, not a FAIL (exit 2)" \

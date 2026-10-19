@@ -92,7 +92,9 @@
 
 set -uo pipefail
 
-ROOT="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/../.." && pwd )"
+# Physical (-P): cargo runs here and sees getcwd, which resolves symlinks,
+# so its config walk and a relative CARGO_HOME start from this spelling.
+ROOT="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/../.." && pwd -P )"
 cd "$ROOT" || exit 2
 me="check_rustc_pin"
 
