@@ -378,8 +378,8 @@ names are suggestions; rust-ui-dev names them.
 | `IdC1Point1` | These 24 words are the key to your identity. With them, you can restore it on another phone. | C1, first point |
 | `IdC1Point2` | Write them on paper, in order, with your PeerId. Store the paper in a safe place. | C1, second point. The PeerId is named here, because R1 asks for it later |
 | `IdC1Point3` | Anyone who has these words can act as you in InterWeave. Do not show them to anyone. | C1, third point: "can be you", without alarm |
-| `IdC1Point5` (pending) | That the words restore the identity only: contacts, trust and settings are backed up separately (`human-client-ui.md` §9). Before point 4 | C1, two lines |
-| `IdC1Point4` | Your identity exists only after you finish, by checking two of the words. | C1, fourth point (§11 Q3) |
+| `IdC1Point4` | The words bring back your identity only, not your contacts or your settings. | C1, fourth point (`human-client-ui.md` §9). Trust is one of the settings (the trust settings), so it is not named apart |
+| `IdC1Point5` | Your identity exists only after you finish, by checking two of the words. | C1, fifth point (§11 Q3) |
 | `IdShowWords` | Show my words | C1's primary |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
 | `IdPeerIdLabel` | Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share. | The PeerId's label (§5) on C2 and S2, where the person writes |
@@ -397,11 +397,11 @@ names are suggestions; rust-ui-dev names them.
 | `IdCreatedBody` | When you continue, the app connects to the network with this identity. | C4's and R4's body |
 | `IdContinue` | Continue | C4's and R4's primary |
 | `IdR1Title` | Restore your identity | R1's title |
-| `IdR1Body` (pending a reword for R1's new rule) | You need your 24 words and the PeerId that you wrote with them. The app stays offline until the restore is done. | R1's body, three lines |
+| `IdR1Body` | You need your 24 words, and your PeerId from your paper or from a contact's app. The app stays offline until the restore is done. | R1's body, three lines |
 | `IdEnterWords` | Enter my words | R1's primary |
 | `IdCheckWords` | Check my words | R2's primary |
-| `IdR1Settings` (pending) | R1: the words bring back the identity, not contacts, trust or settings, which are restored separately | R1, two lines |
-| `IdR3NoPeerId` (pending) | R3, for a person with no PeerId on paper: compare with the one a contact's app shows for you, and restore only after that | R3, two lines under the question |
+| `IdR1Settings` | The words bring back your identity only. Your contacts and settings are not part of them. | R1's line under the body, two lines. It states the fact and gives no advice: "restored separately" would advise a step the app may not offer yet, which ux-designer's Android review checks. When the app offers it, the line gains that step |
+| `IdR3NoPeerId` | If you have no PeerId on paper, ask a contact to read yours from their app. Restore only if it matches. | R3, two lines under the question |
 | `IdR3Question` | Is this the PeerId that you wrote down? If it is not, a word may be wrong. | R3's question, two lines. It asks; it never says the PeerId is right, and it says what a "no" usually means |
 | `IdR3Yes` | Yes, restore it | R3's primary |
 | `IdR3No` | No, check my words | R3's secondary |
@@ -428,7 +428,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdKeyClear` | Clear this word | The keypad's clear key (its accessible label) |
 | `IdReviewWords` | Show all my words | The grid's button at large font (§4) |
 
-Against the list the proposal gave: `IdC1Points` is four keys, one per
+Against the list the proposal gave: `IdC1Points` is five keys, one per
 point, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
 `IdExpectedPeerId` and `IdDerivedPeerId` are added. `IdTryAgain` and
 `IdRetry` are both `TryAgain`. `IdKeepEntering` is
