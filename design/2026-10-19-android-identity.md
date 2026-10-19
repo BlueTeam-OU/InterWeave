@@ -2,8 +2,11 @@
 
 Status: proposal for plan §20 steps 7–8, 2026-10-19. rust-ui-dev builds
 it on `develop-qzapp/rust-ui-dev-01/feat/j111-android-recovery`. The
-four questions in §11 were answered by architect-cto on 2026-10-19, and
-the custody doc says the first two (425ec5d0).
+four questions in §11 were answered by architect-cto on 2026-10-19.
+The custody doc's text behind them (ecf20942, 425ec5d0) is on
+architect-cto's branch
+`develop-qzapp/architect-cto-01/for/rust-ui-dev-01/custody-phrase-display`
+and is not merged; it lands with rust-ui-dev's build PR.
 
 Owner of the design: ux-designer. The words are language-culture's: §9
 gives each string's text, where it shows and why. The rules
@@ -43,9 +46,12 @@ From the contracts; listed so a reviewer can check each screen:
   system keyboard, never a free-text field.
 - No announcement, log, notification, saved-instance state or snapshot
   carries a word. §8 and §11 Q2 say what a screen reader may speak.
-- The network service is stopped, and the profile lock held, while
-  words are shown or entered. Creation shows its words before the
-  service first starts.
+- The network service is stopped while words are shown or entered,
+  and nothing else holds the profile. The profile lock is taken by
+  custody's own calls (provision, restore), so the flow itself holds no
+  lock into C4's seal or a restore. Who holds the lock is rust-ui-dev's
+  and architect-cto's. Creation shows its words before the service
+  first starts.
 - Nothing restores silently. A phrase that derives a PeerId other than
   the expected one restores nothing. A fresh install restores only
   after the person confirms the derived PeerId by eye; nothing is typed
@@ -494,8 +500,11 @@ landscape:
 7. Fresh-install restore with a known fixture phrase: R2 → R3 shows
    its PeerId. "No" returns to R2 with all 24 words. "Yes" restores,
    and the PeerId on the Settings screen matches.
-8. A phrase with two words swapped shows `IdChecksumFailed`, keeps
-   every word, and lets any position be edited.
+8. A pinned fixture phrase of distinct words, with a pinned swap of two
+   positions that the test first shows fails the BIP-39 checksum (an
+   8-bit checksum passes about one swap in 256), shows
+   `IdChecksumFailed`, keeps every word, and lets any position be
+   edited. The fixture and the swap are named in the test.
 9. Recovery required: with the record's key invalidated (rust-ui-dev's
    test hook), launch shows K1 with `IdQReasonKey` and the expected
    PeerId. The right phrase restores with no R3. Another identity's
@@ -550,11 +559,13 @@ architect-cto, 2026-10-19 (REPLY 01a15282-ac06), against
   in process memory only, never in saved-instance state. They go on
   finish, cancellation, completion or process death. An on-demand
   display does not ask its prompt again on resume of the same Activity
-  instance (§7). The custody doc says so (425ec5d0).
+  instance (§7). The custody doc's 425ec5d0 says the first part; the
+  prompt rule is architect-cto's REPLY 01a15282-ac06, not yet in the
+  doc.
 - **Q2. What may a screen reader speak?** A focused word control's own
   label, which is the secure screen read aloud at the person's request.
   No live region, announcement, hint or error text ever carries a word
-  (§8). This too is in 425ec5d0.
+  (§8). 425ec5d0 says this in the custody doc.
 - **Q3. Commit at C4?** Yes. The seed is generated in memory, the phrase
   is shown and verified (C3), and the seal happens on the last screen,
   straight after the person's confirmation. Back or process death
