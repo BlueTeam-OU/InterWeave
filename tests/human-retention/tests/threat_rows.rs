@@ -19,15 +19,19 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use interweave_human_chat_protocol::{HumanChatV2, MEDIA_TYPE_V2};
-use interweave_human_store::{HumanStore, StoreError, StoreOptions};
-use interweave_human_transport_client::{ClientConfig, TransportClient};
+use interweave_human_chat_protocol::{HumanChatV2, MEDIA_TYPE_V2, MessageKind};
+use interweave_human_store::{
+    BackupCursor, HumanStore, NewInbound, PageLimits, StoreError, StoreOptions, StoredInbound,
+};
+use interweave_human_transport_client::{ClientConfig, Destination, TransportClient};
 use interweave_local_client_api::{
-    DataCapability, DataSessionBinding, DataSessionPort, SessionRequest,
+    DataCapability, DataSessionBinding, DataSessionPort, SessionEvent, SessionRequest,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
-use interweave_transport_api::{DirectDestination, EndpointId, MediaType, MessageId, Payload};
+use interweave_transport_api::{
+    DirectDestination, EndpointId, MediaType, MessageId, Payload, TransportError,
+};
 
 const LIMIT: usize = 49_152;
 const WALL: u64 = 1_786_600_000_000;
@@ -78,6 +82,16 @@ async fn session_on(node: &FakeNode, endpoint: EndpointId) -> impl DataSessionPo
     )
     .await
     .expect("holds the endpoint")
+}
+
+async fn directs_received(session: &impl DataSessionPort) -> usize {
+    session
+        .events(64)
+        .await
+        .expect("events")
+        .iter()
+        .filter(|e| matches!(e, SessionEvent::Direct(_)))
+        .count()
 }
 
 /// Every value of every row of every table in the file, as bytes: what an
@@ -272,4 +286,161 @@ fn tm_45_a_trigger_view_or_search_index_shadowing_content_is_refused_at_open() {
         !holds(&every_stored_value(&path), BODY),
         "a read, unkept body is in no table"
     );
+}
+
+// -------------------------------------------------------------------
+// TM-46
+// -------------------------------------------------------------------
+
+/// A backup is what `backup_eligible_page` walks, and a restore is what
+/// can be made from it: unread rows committed again, kept rows committed,
+/// read and kept again -- the store has no other way in.
+fn backup_of(path: &Path) -> Vec<StoredInbound> {
+    let store = HumanStore::open(path, StoreOptions::default()).expect("opens");
+    let mut out = Vec::new();
+    let mut after: Option<BackupCursor> = None;
+    loop {
+        let page = store
+            .backup_eligible_page(after, PageLimits::default())
+            .expect("page");
+        out.extend(page.items);
+        match page.next {
+            Some(next) => after = Some(next),
+            None => break,
+        }
+    }
+    out
+}
+
+fn restore_into(path: &Path, backup: &[StoredInbound]) {
+    let mut store = HumanStore::open(path, StoreOptions::default()).expect("a fresh device");
+    for record in backup {
+        let row = store
+            .commit_unread_inbound(&NewInbound {
+                app_message_id: record.app_message_id.clone(),
+                origin: record.origin.clone(),
+                media_type: record.media_type.clone(),
+                payload: record.payload.clone(),
+                received_at: record.received_at,
+            })
+            .expect("restored");
+        if let (Some(read_at), Some(kept_at)) = (record.read_at, record.kept_at) {
+            let held = store.mark_read(row, read_at).expect("read");
+            store.keep(&held, kept_at).expect("kept again");
+        }
+    }
+}
+
+#[tokio::test]
+async fn tm_46_a_device_restored_from_backup_sends_nothing_the_original_had_pending() {
+    let dir = common::private_tempdir();
+    let original = store_path(dir.path(), "original");
+
+    // One network throughout: the pending send names `b`, and the control
+    // below must be able to reach it.
+    let (a, b) = FakeNetwork::pair(node(), node());
+
+    // THE ORIGINAL: a send attempted once and still pending (its first
+    // attempt met an unreachable peer), beside an unread and a kept
+    // message, which a backup carries.
+    {
+        let mut store = HumanStore::open(&original, StoreOptions::default()).expect("store");
+        let mut unread = interweave_human_retention_tests::unread_inbound();
+        unread.payload = b"unread, in the backup".to_vec();
+        store.commit_unread_inbound(&unread).expect("unread");
+        let mut kept = interweave_human_retention_tests::unread_inbound();
+        kept.app_message_id =
+            interweave_human_store::AppMessageId::parse("5".repeat(32)).expect("canonical");
+        kept.payload = b"kept, in the backup".to_vec();
+        let row = store.commit_unread_inbound(&kept).expect("unread");
+        let held = store.mark_read(row, WALL).expect("read");
+        store.keep(&held, WALL + 1).expect("kept");
+
+        let mut sender = TransportClient::new(
+            a.clone(),
+            a.clone(),
+            store,
+            config(agent()),
+            Box::new(|| WALL),
+            0,
+        )
+        .expect("client");
+        sender.tick(0).await;
+        a.inject_send(TransportError::PeerUnreachable);
+        sender
+            .send(
+                Destination::Direct {
+                    peer: b.peer().clone(),
+                    endpoint: None,
+                },
+                &HumanChatV2 {
+                    v: 2,
+                    kind: MessageKind::Text,
+                    app_message_id: "6".repeat(32),
+                    text: "an old send".to_owned(),
+                    reply_to: None,
+                    sent_at_ms: None,
+                    from_endpoint: None,
+                },
+                0,
+            )
+            .await
+            .expect("committed");
+        sender.tick(0).await;
+        assert_eq!(
+            sender.store_mut().pending_outbound().expect("read").len(),
+            1,
+            "the failed attempt leaves the send pending"
+        );
+        sender.close().await;
+    }
+
+    // THE BACKUP carries the two inbound messages and nothing of the send.
+    let backup = backup_of(&original);
+    assert_eq!(backup.len(), 2, "the unread and the kept message");
+    assert!(
+        backup
+            .iter()
+            .all(|r| !r.payload.windows(11).any(|w| w == b"an old send")),
+        "no record of the backup carries the pending send"
+    );
+
+    // THE RESTORED DEVICE: started on the backup, it sends nothing.
+    let restored = store_path(dir.path(), "restored");
+    restore_into(&restored, &backup);
+    let store = HumanStore::open(&restored, StoreOptions::default()).expect("restored store");
+    assert!(store.pending_outbound().expect("read").is_empty());
+    assert_eq!(store.unread_inbound().expect("read").len(), 1);
+    assert_eq!(store.kept_inbound().expect("read").len(), 1);
+    let sent = run_client_on(&a, &b, store).await;
+    assert_eq!(sent, 0, "a restored device replays no old send");
+
+    // THE CONTROL: the original file restarted retries its pending send,
+    // so the count above is a live measurement and not a dead receiver.
+    let store = HumanStore::open(&original, StoreOptions::default()).expect("original");
+    let sent = run_client_on(&a, &b, store).await;
+    assert_eq!(sent, 1, "the original retries what it had pending");
+}
+
+/// Start a sender's client on `store` at `a` while a session holds `b`'s
+/// human endpoint; run it as a restart would; answer how many direct
+/// messages reached that session.
+async fn run_client_on(a: &FakeNode, b: &FakeNode, store: HumanStore) -> usize {
+    let holder = session_on(b, human()).await;
+    let mut sender = TransportClient::new(
+        a.clone(),
+        a.clone(),
+        store,
+        config(agent()),
+        Box::new(|| WALL),
+        0,
+    )
+    .expect("client");
+    for now in [0, 1, 10_000, 60_000] {
+        sender.tick(now).await;
+    }
+    sender.close().await;
+    let reached = directs_received(&holder).await;
+    holder.close().await.expect("closes");
+    reached
 }
