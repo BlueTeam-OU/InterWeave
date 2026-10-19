@@ -91,7 +91,7 @@ Contributors and automated sessions load the digest plus the repository-root `CL
 
 ## Implementation implications
 
-`architecture/adr/ADR-DIGEST.md`, `architecture/adr/ADR-TEMPLATE.md`, and `architecture/adr/history/` are documentation artifacts requiring no production code. `tools/checks/validate_adr_index.sh` is a repository check with a self-test, run before pushing and listed in the repository-wide verification list; it enforces the template, both propagation directions, and the amendment record's three-way consistency.
+`architecture/adr/ADR-DIGEST.md`, `architecture/adr/ADR-TEMPLATE.md`, and `architecture/adr/history/` are documentation artifacts requiring no production code. `tools/checks/validate_adr_index.sh` is a repository check with a self-test, run before pushing and listed in the repository-wide verification list; it enforces the template, both propagation directions, the amendment record's three-way consistency, and that an amended ADR's digest entry changed with it (A 2026-10-19).
 
 ## Revisit conditions
 
