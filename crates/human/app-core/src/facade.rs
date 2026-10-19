@@ -9,10 +9,12 @@
 //! desktop, from its own runtime, since a session whose events go
 //! undrained stops answering keepalive pings and loses its lease.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
-use interweave_human_client_api::{ClientEvent, Destination, Diagnostics, RowError, SendError};
+use interweave_human_client_api::{
+    ClientEvent, Destination, Diagnostics, OutboundUpdate, RowError, SendError,
+};
 use interweave_human_store::{ReadEphemeral, RowId, StoreError};
 use interweave_human_transport_client::{CancelledSend, TransportClient};
 use interweave_human_ui_model::{ConversationKey, Table};
@@ -55,6 +57,13 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// going first.
     cancelled: VecDeque<CancelledSend>,
     reported: Option<Diagnostics>,
+    /// Each pending row's last reported status, until it is terminal: a
+    /// listing shows a pending row as a first attempt, and the facade
+    /// reports a row only when it changes, so a view listing after the
+    /// facade has run is told these ([`Self::outbound_now`]), or a row
+    /// the facade holds as not confirmed reads "Sending" until its next
+    /// attempt fails (#304 F10).
+    outbound: BTreeMap<RowId, OutboundUpdate>,
 }
 
 impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
@@ -71,6 +80,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             copies: ReadCopies::default(),
             cancelled: VecDeque::new(),
             reported: None,
+            outbound: BTreeMap::new(),
         }
     }
 
@@ -78,6 +88,14 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     #[must_use]
     pub const fn client(&self) -> &TransportClient<B, A> {
         &self.client
+    }
+
+    /// Every pending row's status as last reported, for a view that lists
+    /// after the facade has run: applied after the listing.
+    pub fn outbound_now(&self) -> impl Iterator<Item = Update> + '_ {
+        self.outbound
+            .values()
+            .map(|update| Update::Client(ClientEvent::Outbound(update.clone())))
     }
 
     /// The store's rows, decoded: the first update a root applies.
@@ -111,6 +129,13 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// One facade event, and what follows from it.
     fn on_event(&mut self, event: ClientEvent, updates: &mut Vec<Update>) {
         let relist = matches!(event, ClientEvent::UnreadInStore { .. });
+        if let ClientEvent::Outbound(update) = &event {
+            if update.status.is_terminal() {
+                self.outbound.remove(&update.row);
+            } else {
+                self.outbound.insert(update.row, update.clone());
+            }
+        }
         updates.push(Update::Client(event));
         if relist {
             // What the facade committed but could not hand over is in the
@@ -366,12 +391,12 @@ impl<V> ReadCopies<V> {
 mod tests {
     use super::*;
 
-    use interweave_human_client_api::{ClientEvent, Connectivity};
+    use interweave_human_client_api::{ClientEvent, Connectivity, OutboundStatus};
     use interweave_human_store::{
         AppMessageId, HumanStore, InboundOrigin, NewInbound, StoreOptions,
     };
     use interweave_human_transport_client::ClientConfig;
-    use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork};
+    use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
     use interweave_profile_identity::ProfileIdentity;
     use interweave_transport_api::MediaType;
 
@@ -456,6 +481,84 @@ mod tests {
             [Update::Client(ClientEvent::Connectivity(
                 Connectivity::Unknown
             ))]
+        );
+    }
+
+    /// A facade over a fake network, its store empty.
+    fn quiet_side() -> FacadeSide<FakeNode, FakeNode> {
+        let human = interweave_transport_api::EndpointId::parse("human").expect("endpoint");
+        let config = || FakeConfig {
+            peer: ProfileIdentity::generate()
+                .transport_identity()
+                .expect("peer"),
+            endpoints: vec![FakeEndpoint::open(human.clone(), false)],
+            default_endpoint: Some(human.clone()),
+            queue_bound: 4,
+        };
+        let (node, _) = FakeNetwork::pair(config(), config());
+        let store = HumanStore::open_in_memory(StoreOptions::default()).expect("store");
+        let client = TransportClient::new(
+            node.clone(),
+            node,
+            store,
+            ClientConfig {
+                client_kind: "human-client".to_owned(),
+                endpoints: vec![human],
+                channels: vec![],
+                max_payload_bytes: 49_152,
+            },
+            Box::new(|| 1),
+            0,
+        )
+        .expect("facade");
+        FacadeSide::new(client, || 1)
+    }
+
+    /// A view listing after the facade has run reads each pending row's
+    /// last status, not the listing's first attempt, and a row that went
+    /// terminal is not told again (#304 F10).
+    #[test]
+    fn a_late_view_is_told_each_pending_rows_last_status() {
+        let mut side = quiet_side();
+        let update = |row: i64, status: OutboundStatus| OutboundUpdate {
+            row: RowId::from_stored(row),
+            app_message_id: AppMessageId::parse(format!("{row:032x}")).expect("id"),
+            status,
+            last_code: None,
+        };
+        let unconfirmed = OutboundStatus::Unconfirmed {
+            next_retry_at: Some(300_000),
+            last_problem: None,
+        };
+        let mut sink = Vec::new();
+        for event in [
+            update(
+                1,
+                OutboundStatus::Sending {
+                    attempts: 1,
+                    next_retry_at: Some(1_000),
+                    last_problem: None,
+                },
+            ),
+            update(2, OutboundStatus::Published),
+            update(1, unconfirmed.clone()),
+            update(3, unconfirmed.clone()),
+            update(
+                3,
+                OutboundStatus::Cancelled {
+                    may_have_reached: true,
+                },
+            ),
+        ] {
+            side.on_event(ClientEvent::Outbound(event), &mut sink);
+        }
+        assert_eq!(
+            side.outbound_now().collect::<Vec<_>>(),
+            [Update::Client(ClientEvent::Outbound(update(
+                1,
+                unconfirmed
+            )))],
+            "row 1's latest only; rows 2 and 3 ended"
         );
     }
 
