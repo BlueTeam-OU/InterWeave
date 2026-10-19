@@ -56,8 +56,10 @@ From the contracts; listed so a reviewer can check each screen:
   fresh lock and would refuse one the flow holds, so C4 and the
   restores are not done until the crate accepts it. A refused seal or
   restore hands the lock back to the flow, which keeps it for the
-  read-back and for Try again, and releases it only when the flow ends
-  (part of the same crate change). There is never a release and
+  read-back and for Try again, and releases it only when the flow ends.
+  A seal or restore that succeeds releases the lock before the service
+  starts. The hand-back on refusal is still to be confirmed for the
+  crate (§11b Q10). There is never a release and
   retake, which would let the service start the profile in between. Creation shows its words before
   the service first starts.
 - Nothing restores silently. A phrase that derives a PeerId other than
@@ -601,8 +603,12 @@ scale would also be a finding of the Android review
     attempted then (a hook starts it while each of C2, C3, R2 on the
     fresh-install path, R2 on the K1 path, and R3 is open) is refused
     as `ProfileLocked` and starts nothing, and the seal or restore that
-    follows succeeds on the handed-over lock. This item waits on §11b
-    Q9 in the crate.
+    follows succeeds on the handed-over lock. The same holds from S1 to
+    S2. After a refused seal or restore (a hook injects `OldKeyRemains`
+    at C4 and at a restore), a service start tried while the notice is
+    open is refused as `ProfileLocked`, and Try again succeeds on the
+    same lock. After a success, the service starts. This item waits on
+    §11b Q9 and Q10 in the crate.
 
 ## 11. Questions answered
 
@@ -663,6 +669,10 @@ custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
   The flow takes the lock once, before the first word, and hands it to
   the seal it ends in; `provision` and `restore` are to accept a held lock
   (§2).
+- **Q10. The lock after a refusal.** Open: a refused `provision` or
+  `restore` hands the lock back to the flow, for the read-back and Try
+  again. Sent to architect-cto for the crate request (INFO
+  01a152bf-8623), not yet confirmed.
 
 ## 12. Deliberately left out
 
