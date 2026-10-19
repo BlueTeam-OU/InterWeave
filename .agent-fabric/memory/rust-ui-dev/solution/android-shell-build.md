@@ -5,7 +5,7 @@ topic: "android-shell-build"
 description: "how the j51 Android app shell builds (Gradle+cargo-ndk+Slint NativeActivity), the env it needs, and first on-device findings"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

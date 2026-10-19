@@ -5,7 +5,7 @@ topic: "escape-literals-decoded-on-write"
 description: writing a test that needs a literal JSON \uXXXX escape (surrogate pair) in source — the write path decodes it into the raw character
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

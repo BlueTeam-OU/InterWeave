@@ -5,7 +5,7 @@ topic: "ancestor-walk-trust-boundary-for-android"
 description: "Owed at Stage 17 §20's first Android package: resolve_private_dir_as / resolve_guarded_dir_as take a composition-supplied trust boundary (ADR-0028 A 2026-10-08 second, #220 0d84cfd7)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

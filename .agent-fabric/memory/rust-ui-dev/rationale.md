@@ -4,7 +4,7 @@ class: rationale
 description: "where Android's Stay reachable choice lives (architect-cto DECISION 01a124ed, 2026-10-10) and what the shell must do with it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
