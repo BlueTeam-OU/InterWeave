@@ -55,23 +55,29 @@ class MainActivity : NativeActivity() {
     // instance's to show: nothing binds or starts the service until they
     // are gone, a return from Home included (design section 7).
     @Volatile private var phraseShown = false
-    // The person declined the Unlock prompt in this instance's life (or
+    // The person declined the Unlock prompt in this Activity's life (or
     // left while it showed): a return to it raises no prompt by itself;
     // the locked notice and its Unlock wait (ux-designer-01, REPLY
-    // 01a155b3). A new instance, a cold launch, prompts again.
+    // 01a155b3). Kept across a recreation in this process (onCreate); a
+    // cold launch, in a new process, prompts again.
     private var unlockDeclined = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // A recreation the system made (a language change, a backgrounded
-        // instance rebuilt) is not a launch by the person: it keeps the
-        // decline (#313 review 3).
-        unlockDeclined = savedInstanceState?.getBoolean(UNLOCK_DECLINED) ?: false
+        // A recreation the system made in this process (a language change,
+        // a backgrounded instance rebuilt) is not a launch by the person:
+        // it keeps the decline (#313 review 3). A bundle from another
+        // process, restored after a process death, is a launch: it prompts
+        // (review 4), so the decline counts only with this process's token.
+        unlockDeclined = savedInstanceState?.let {
+            it.getBoolean(UNLOCK_DECLINED) && it.getString(UNLOCK_DECLINED_IN) == PROCESS_TOKEN
+        } ?: false
         super.onCreate(savedInstanceState)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putBoolean(UNLOCK_DECLINED, unlockDeclined)
+        outState.putString(UNLOCK_DECLINED_IN, PROCESS_TOKEN)
     }
 
     override fun onStart() {
@@ -500,6 +506,9 @@ class MainActivity : NativeActivity() {
         private const val NETWORK_REQUEST = 2
         private const val NOTIFICATIONS_REQUEST = 1
         private const val UNLOCK_DECLINED = "unlock-declined"
+        private const val UNLOCK_DECLINED_IN = "unlock-declined-in"
+        /** This process's, minted once: tells a same-process recreation from a restore after a death. */
+        private val PROCESS_TOKEN: String = java.util.UUID.randomUUID().toString()
         private const val ASK_WAIT_MS = 500L
 
         /** The snackbar's own time up, before a screen reader's setting lengthens it. */
