@@ -24,7 +24,7 @@
 
 **Not ruled.** The wording of the Play declaration and the demo video: rust-ui-dev's and language-culture's, in the Stage 19 store listing. Whether a Play reviewer accepts a hand-entered use case for a P2P messenger: unknowable before submission, which is why the condition is left open rather than declared met.
 
-### Amendment 2026-10-19 (ii) — The Play-policy half is withdrawn: F-Droid only, no Google Play services (ADR-0056)
+### Amendment 2026-10-19 — The Play-policy half is withdrawn: F-Droid only, no Google Play services (ADR-0056)
 
 **Trigger.** The owner, 2026-10-19, after the first amendment of the day had worked out a Play declaration: "Interweave will go only on f-droid phone and must not use google play services." ADR-0056 records the distribution decision.
 
