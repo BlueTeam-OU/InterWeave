@@ -29,6 +29,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewTreeObserver
 import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.accessibility.AccessibilityManager
 
 /**
@@ -72,6 +73,7 @@ class MainActivity : NativeActivity() {
             )
         }
         window.decorView.viewTreeObserver.addOnGlobalLayoutListener(layout)
+        systemBars(resources.configuration)
         watchSettings(true)
         touch()
         // The identity screens' asks: a first run's or a recovery's before
@@ -158,7 +160,24 @@ class MainActivity : NativeActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        systemBars(newConfig)
         touch()
+    }
+
+    /**
+     * The system bars' icons are dark on the light scheme and light on the
+     * dark one. The window is drawn edge to edge under the bars, so they
+     * sit over the app's own surface; the platform's default, light
+     * icons, could not be read over the light one (#304 F8). The views
+     * follow the same night mode (Slint's color scheme), so one setting
+     * decides both.
+     */
+    private fun systemBars(config: Configuration) {
+        val light = (config.uiMode and Configuration.UI_MODE_NIGHT_MASK) != Configuration.UI_MODE_NIGHT_YES
+        val both =
+            WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        window.insetsController?.setSystemBarsAppearance(if (light) both else 0, both)
     }
 
     /**
