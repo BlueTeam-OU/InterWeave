@@ -5650,10 +5650,12 @@ appears in any of the four.
    landing whole through `Overloaded` retries; a loopback
    static-bootstrap dial, which no test on `main` exercised; a second
    daemon of the same account sharing a port (decision 5), and a port
-   held without `SO_REUSEPORT` refusing the start; the cross-account
-   refusal is carried as unverified until CI has a second account.
-   (Built on p2p-network-dev's branch at 4db37607, nine cases, before
-   this record landed; the suite reads the ingress bucket's constants
+   held by a plain socket without `SO_REUSEPORT` refusing the start
+   (exit 1 on `EADDRINUSE`, a free-port start as the control); the
+   cross-account refusal is carried as unverified until CI has a second
+   account. (Built on p2p-network-dev's branch: nine cases at 4db37607
+   before this record landed, the tenth, the held port, added on #305's
+   review; the suite reads the ingress bucket's constants
    from `interweave-transport-runtime` as a dev-dependency rather than
    restating them, which is the right direction for a conformance
    suite — `tests/support` stays out of production, the reverse is
