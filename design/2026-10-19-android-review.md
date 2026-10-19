@@ -375,9 +375,14 @@ but does not re-rank these.
       subtitle under "Conversations", in body medium and
       `on-surface-variant`, with a leading 18 dp icon (a filled cloud
       when online in any form, a crossed-out cloud when offline, none
-      when unknown), so it is not told by colour alone. At 200 % it
-      takes one line, cut with an ellipsis; TalkBack reads it after
-      the title. It updates in place, with no snackbar and no motion;
+      when unknown), so it is not told by colour alone. It takes one
+      line, so its texts are short ones written for it, one per state,
+      that fit at 320 dp and 200 % without an ellipsis
+      (language-culture's; rust-ui-dev-01, QUESTION 01a154cb-b3fe).
+      TalkBack reads it after the title: the short text as shown as
+      its name (WCAG 2.5.3, the name contains the visible text), and
+      the state's full text as its description. It updates in place,
+      with no snackbar and no motion;
     - in a conversation, only "offline" shows anything: a notice
       banner under the app bar (look spec §6, `notice-background`)
       that says the device is offline and that messages written now
@@ -444,7 +449,9 @@ but does not re-rank these.
       focus to ⋮. On Android 13 and later the platform shows its own
       clipboard confirmation, so the app shows none (Android's copy
       and paste guidance: no duplicate confirmation); below 13 a
-      "Copied" snackbar, without Undo. Close, Back and a tap outside
+      "Copied" snackbar, without Undo. The desktop has no platform
+      confirmation, so it shows the same snackbar there (S4,
+      visibility of status). Close, Back and a tap outside
       close it with nothing copied, focus to ⋮;
     - the text is not a selectable field, so no handle or ring shows;
       TalkBack reads the headline, then the PeerId, then each button.
