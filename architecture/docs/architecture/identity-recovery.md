@@ -54,7 +54,7 @@ A first-party human client may guide the operator to the local recovery command,
 
 The display must include:
 
-- `InterWeave transport identity recovery phrase — not a cryptocurrency wallet seed`;
+- the label `InterWeave transport identity recovery phrase — not a cryptocurrency wallet seed`, whose meaning binds and not its words (IDENTITY-RECOVERY.md §Recovery format): the copy says the phrase restores this app's identity, never an account, and is not a wallet seed, in the client's own vocabulary;
 - format identifier;
 - PeerId;
 - 24 numbered words;
