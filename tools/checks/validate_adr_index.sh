@@ -140,7 +140,11 @@ digest_entry() {
 
 amended=0
 if [ -n "$base_sha" ]; then
-    base_digest="$(git -C "$REPO_ROOT" show "$base_sha:architecture/adr/ADR-DIGEST.md" 2>/dev/null)"
+    # `./` makes every base path relative to --root rather than to the
+    # repository's top level, which differ when --root is a subdirectory.
+    base_digest="$(git -C "$REPO_ROOT" show "$base_sha:./architecture/adr/ADR-DIGEST.md" 2>/dev/null)" \
+        || { echo "validate_adr_index: no architecture/adr/ADR-DIGEST.md at base ${base_sha:0:8} — every entry would compare as changed; pass a later --base" >&2; exit 2; }
+    base_names="$(git -C "$REPO_ROOT" ls-tree --name-only "$base_sha" ./architecture/adr/ | sed 's|.*/||')"
 fi
 
 mapfile -t ADR_FILES < <(find "$ADR_DIR" -maxdepth 1 -name '[0-9][0-9][0-9][0-9]-*.md' -printf '%f\n' | sort)
@@ -223,10 +227,17 @@ for f in "${ADR_FILES[@]}"; do
         fi
 
         # --- AMENDED ----------------------------------------------------
-        # An ADR absent at the base is new in this change; DIGEST above
-        # already holds it to having an entry.
-        if [ -n "$base_sha" ] \
-           && base_adr="$(git -C "$REPO_ROOT" show "$base_sha:architecture/adr/$f" 2>/dev/null)"; then
+        # The base's copy is found by NUMBER, so a rename in the same
+        # change is still compared. With none the ADR is new: its keys
+        # all count as added, and its entry, absent from the base digest,
+        # compares as changed — no skip, which would also skip a rename.
+        if [ -n "$base_sha" ]; then
+            base_name="$(printf '%s\n' "$base_names" | grep "^$num-.*\.md\$" | head -1)"
+            base_adr=""
+            if [ -n "$base_name" ]; then
+                base_adr="$(git -C "$REPO_ROOT" show "$base_sha:./architecture/adr/$base_name")" \
+                    || { echo "validate_adr_index: cannot read $base_name at base ${base_sha:0:8}" >&2; exit 2; }
+            fi
             added="$(comm -13 <(printf '%s\n' "$base_adr" | amendment_keys) <(printf '%s\n' "$tbl"))"
             if [ -n "$added" ]; then
                 amended=$((amended + 1))

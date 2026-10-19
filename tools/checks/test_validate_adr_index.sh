@@ -247,11 +247,11 @@ EOF
     git -C "$root" add -A
     git -C "$root" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m base
 }
-# amend <root> <date> <title>: a second amendment, recorded in the table
+# amend <root> <date> <title> [file]: a second amendment, recorded in the table
 # and the history — everything ADR-0048 asks except the digest.
 amend() {
-    local root="$1" date="$2" title="$3"
-    printf '| %s | %s | Effect |\n' "$date" "$title" >> "$root/architecture/adr/0001-first.md"
+    local root="$1" date="$2" title="$3" adr="${4:-0001-first.md}"
+    printf '| %s | %s | Effect |\n' "$date" "$title" >> "$root/architecture/adr/$adr"
     printf '\n### Amendment %s — %s\n\nWhy.\n' "$date" "$title" >> "$root/architecture/adr/history/0001-amendments.md"
 }
 run_base()      { bash "$CHECK" --root "$1" --base "$2" 2>&1; }
@@ -299,16 +299,58 @@ write_adr "$R" 0003 third "## Amendments
 printf '# history\n\n### Amendment 2026-09-02 — Born amended\n\nWhy.\n' > "$R/architecture/adr/history/0003-amendments.md"
 printf '| [0003](./0003-third.md) | Third. |\n' >> "$R/architecture/adr/README.md"
 printf '\n### 0003 — A decision about third (Accepted)\n' >> "$R/architecture/adr/ADR-DIGEST.md"
-[ "$(run_base_code "$R" HEAD)" = "0" ] && ok "a new ADR with an amendment table is not reported as amended" || bad "new ADR should pass: $(run_base "$R" HEAD)"
+out="$(run_base "$R" HEAD)"
+[ "$(run_base_code "$R" HEAD)" = "0" ] && ok "a new ADR with an amendment table passes on its new entry" || bad "new ADR should pass: $out"
+[[ "$out" == *"1 amended since"* ]] && ok "and is counted, not skipped" || bad "a new ADR's amendments should be compared, not skipped: $out"
+
+# A rename in the same change as the amendment is still the same ADR.
+R="$TMP/rename"; git_tree "$R"
+git -C "$R" mv architecture/adr/0001-first.md architecture/adr/0001-renamed.md
+sed -i 's|(./0001-first.md)|(./0001-renamed.md)|' "$R/architecture/adr/README.md"
+amend "$R" 2026-09-05 "Something else changed" 0001-renamed.md
+out="$(run_base "$R" HEAD)"
+[[ "$out" == *"0001-renamed.md: amended since"*"digest entry is unchanged"* ]] \
+    && ok "an ADR renamed and amended in one change is still held to its entry" || bad "rename+amend should be reported: $out"
+
+# A rename alone adds no amendment: the base's copy is the same ADR.
+R="$TMP/renameonly"; git_tree "$R"
+git -C "$R" mv architecture/adr/0001-first.md architecture/adr/0001-renamed.md
+sed -i 's|(./0001-first.md)|(./0001-renamed.md)|' "$R/architecture/adr/README.md"
+[ "$(run_base_code "$R" HEAD)" = "0" ] && ok "a rename with no new amendment needs no digest edit" || bad "rename alone should pass: $(run_base "$R" HEAD)"
+
+# --root below the repository top: base paths resolve from --root.
+R="$TMP/nested"; mkdir -p "$R"; git_tree "$R/sub"
+mv "$R/sub/.git" "$R/.git"
+git -C "$R" add -A
+git -C "$R" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m nest
+amend "$R/sub" 2026-09-05 "Something else changed"
+out="$(run_base "$R/sub" HEAD)"
+[[ "$out" == *"digest entry is unchanged"* ]] && ok "a --root below the repository top still finds its base" || bad "nested --root should compare against the base: $out"
+
+# A base older than the digest cannot be compared against.
+R="$TMP/olddigest"; git_tree "$R"
+git -C "$R" rm -q architecture/adr/ADR-DIGEST.md
+git -C "$R" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m nodigest
+git -C "$R" checkout -q HEAD~1 -- architecture/adr/ADR-DIGEST.md
+[ "$(run_base_code "$R" HEAD)" = "2" ] && ok "a base with no digest exits 2" || bad "a base with no digest should exit 2: $(run_base "$R" HEAD)"
 
 # ── AMENDED: the base must resolve, or nothing passes ────────────────────
 R="$TMP/nobase"; git_tree "$R"
 [ "$(bash "$CHECK" --root "$R" >/dev/null 2>&1; printf '%s' "$?")" = "2" ] \
     && ok "no --base and no origin/main exits 2" || bad "a missing default base should exit 2"
+# origin/main moves on past the branch point and carries the same
+# amendment with its entry edited: compared against main's TIP the branch
+# would look propagated, against the merge-base it does not.
+fork="$(git -C "$R" rev-parse HEAD)"
+amend "$R" 2026-09-05 "Something else changed"
+sed -i 's/^- Keywords: first$/- On main.\n- Keywords: first/' "$R/architecture/adr/ADR-DIGEST.md"
+git -C "$R" add -A
+git -C "$R" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m main-moves
 git -C "$R" update-ref refs/remotes/origin/main HEAD
+git -C "$R" checkout -q "$fork" 2>/dev/null
 amend "$R" 2026-09-05 "Something else changed"
 out="$(bash "$CHECK" --root "$R" 2>&1)"
-[[ "$out" == *"digest entry is unchanged"* ]] && ok "the default base is the merge-base with origin/main" || bad "default base should catch the stale entry: $out"
+[[ "$out" == *"digest entry is unchanged"* ]] && ok "the default base is the merge-base with origin/main, not its tip" || bad "default base should catch the stale entry: $out"
 [ "$(run_base_code "$R" no-such-rev)" = "2" ] && ok "an unresolvable --base exits 2" || bad "a bad --base should exit 2"
 out="$(run "$R")"
 [[ "$out" == *"not checked (--base none)"* ]] && ok "--base none says AMENDED did not run" || bad "--base none should say so: $out"
