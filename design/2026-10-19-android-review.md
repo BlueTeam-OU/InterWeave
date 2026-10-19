@@ -329,10 +329,18 @@ but does not re-rank these.
     conversation and is typing in it; the peer's name comes back the
     moment the keyboard closes. Back with the keyboard up closes the
     keyboard first, as the platform does.
+    5. Whatever space the messages keep, the list stays anchored at
+       its newest message: shrinking it never shows older messages or
+       the date line in place of the newest.
   - Acceptance on the phone: in landscape with the keyboard up, at
-    100 % and 200 % font, the draft and at least the newest message
-    are in view, and the composer's whole height is above the
-    keyboard.
+    100 % and 200 % font, the composer's whole height and the draft
+    are above the keyboard, and the space left to the messages shows
+    the newest message's end. Where that space is less than *M* (a
+    phone in landscape can leave less, since nothing more can step
+    aside), it shows as much of the newest message as fits.
+    (Revised 2026-10-19 at the re-review: the first acceptance
+    promised the whole newest message, which the Pixel's landscape
+    height cannot give; step 5 was implied and is now written.)
 
 ### Rank 2
 
@@ -488,8 +496,41 @@ stage or a later one.
 
 ## 7. Re-review
 
-To be written after rust-ui-dev's fixes, on the build that carries them:
-what passed, and what is carried.
+Round 1, 2026-10-19 (13:00-13:05 phone time), of rank 1 on
+rust-ui-dev-01's `feat/j111-android-recovery` at 80fe2281, debug build,
+APK sha256 beginning c85eb889 (read from the phone), installed with
+the app's data kept. Same phone and method as §6; dark theme and font
+1.0 unless named.
+
+| finding | result |
+|---|---|
+| F1 | Pass. Back hides the keyboard first, then closes the bubble's menu, the Remove trust dialog, a conversation and Trust in turn, each returning to the screen under it; from Chats it leaves the app. |
+| F2 | Pass. Nothing under a bubble at rest. A long-press opens a menu anchored to the bubble (Stop keeping, Show source on a kept message) with the bubble in its pressed state; Back closes it and focus goes to the bubble. |
+| F3 | Partly. The composer is one line high at rest, with the keyboard and at 200 %, and the inner pill is gone. Still seen: after Back hides the keyboard, the empty field keeps its text-insertion handle, 6 s later as at once. |
+| F4 | Partly. The app bar, whole PeerIds, the error-coloured Remove trust, the filled Trust this peer, and the confirmation as a dialog over a scrim (whole PeerId, "Do not change" focused, Back = "Do not change", focus back to the row's button) all pass; nothing passes the edge. Still seen: the PeerIds are in the body font, not the monospace F4's spec item 2 asks for. |
+| F8 | Pass. In light theme the status bar's icons are dark on the light top. |
+| F9 | Partly. In landscape with the keyboard up the list and the app bar step aside and the composer and its draft are wholly above the keyboard. Still seen: the strip left to the messages shows the top of the conversation (the date line, cut), not the newest message (F9 step 5). |
+| F13 | Pass. Font scale 2.0 and back to 1.0 keep the open conversation. |
+
+Rank 2 (F5) still shows, as expected: the ring after touch on the
+bubble, the menu's first item, the composer and the row's Remove trust,
+and the Chats row a person came back from stays filled.
+
+New, rank 2:
+- **F14. "Show recovery phrase" on Trust is a boxed text button** in
+  the style F4 removed, under this profile's PeerId. It comes with the
+  recovery flow (plan §20 steps 7-8) on the same branch. Against: S1,
+  S4 (consistency). What has to change: a Material button of the
+  screen's own style; where the recovery entry belongs (Trust, or a
+  settings or profile screen of its own) is `design/` work with the
+  recovery flow's note, not settled here.
+
+Not judged here: whether the landscape strip left of the conversation
+(about 125 px, with a thin vertical line) is the display cutout's
+inset or a remnant of the list pane.
+
+Owed for the close: F3's handle, F4's monospace and F9's anchoring,
+then round 2 on the build that carries them.
 
 ## 8. The swipe spec's acceptance on the same build
 
