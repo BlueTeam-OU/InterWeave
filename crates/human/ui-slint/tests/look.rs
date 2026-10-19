@@ -1445,3 +1445,75 @@ fn the_composer_keeps_its_height_whatever_the_free_space() {
         "the field sits on Send's line"
     );
 }
+
+/// #304 F9: a landscape phone with the keyboard up. The list beside the
+/// conversation, the network notice and the app bar step aside in that
+/// order, as far as the space above the keyboard needs, leaving the
+/// composer whole above it and the newest message in view; with the
+/// keyboard closed every part is back. The keyboard is stood in for by
+/// the height it covers, which the testing backend cannot raise.
+#[test]
+fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "the newest", NOW));
+    let view = opened(&model, false);
+    let window = view.window();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(915.0, 411.0));
+    slint::platform::update_timers_and_animations();
+    let field_left = |view: &View| {
+        labelled(view, text(UiText::Composer))[0]
+            .absolute_position()
+            .x
+    };
+    let bar = |view: &View| labelled(view, text(UiText::MoreOptions)).len();
+    assert!(field_left(&view) > 281.0, "control: the list beside it");
+    assert_eq!(bar(&view), 1, "control: the app bar");
+    assert!(window.get_has_notice(), "control: a network notice");
+
+    for (covered, list, notice, app_bar) in [
+        // H = 300: the list and the notice step aside, the bar stays.
+        (111.0, false, false, true),
+        // H = 191: the app bar too.
+        (220.0, false, false, false),
+        // Closed: everything is back.
+        (0.0, true, true, true),
+    ] {
+        window.set_keyboard_overlap(covered);
+        slint::platform::update_timers_and_animations();
+        assert_eq!(
+            field_left(&view) > 281.0,
+            list,
+            "covered {covered}: the list"
+        );
+        assert_eq!(
+            !window.get_notice_aside(),
+            notice,
+            "covered {covered}: the notice"
+        );
+        assert_eq!(bar(&view) == 1, app_bar, "covered {covered}: the app bar");
+        let field = &labelled(&view, text(UiText::Composer))[0];
+        let above = 411.0 - covered;
+        assert!(
+            field.absolute_position().y + field.size().height <= above,
+            "covered {covered}: the composer above the keyboard"
+        );
+        let newest: Vec<_> = all(&view)
+            .into_iter()
+            .filter(|e| {
+                e.accessible_label()
+                    .is_some_and(|l| l.contains("the newest"))
+            })
+            .collect();
+        assert!(!newest.is_empty(), "the message is in the tree");
+        assert!(
+            newest.iter().any(|e| {
+                let (y, h) = (e.absolute_position().y, e.size().height);
+                y >= 0.0 && y + h <= above
+            }),
+            "covered {covered}: the newest message in view"
+        );
+    }
+}

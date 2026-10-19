@@ -290,14 +290,28 @@ class MainActivity : NativeActivity() {
     /** Back below API 33, where no callback is registered. */
     @Deprecated("The platform's own deprecation; API 33+ uses the callback")
     override fun onBackPressed() {
-        Native.back()
+        goBack()
     }
 
     /**
      * Back on API 33+, to the window. Lazy: the callback's class exists
      * from API 33 only, and is made only inside the version checks.
      */
-    private val back by lazy { OnBackInvokedCallback { Native.back() } }
+    private val back by lazy { OnBackInvokedCallback { goBack() } }
+
+    /**
+     * Back closes an open keyboard first, as the platform does, and only
+     * then goes to the window: with the keyboard up the conversation may
+     * have set its app bar aside, and Back would otherwise leave it
+     * (#304 F9). Focus stays where it is.
+     */
+    private fun goBack() {
+        if (window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true) {
+            window.insetsController?.hide(WindowInsets.Type.ime())
+            return
+        }
+        Native.back()
+    }
 
     /** Back found no way back: leave, as the platform would. */
     private fun relayLeave() {

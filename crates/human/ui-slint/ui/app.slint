@@ -1619,7 +1619,7 @@ export component AppWindow inherits Window {
     // rather than the row's, which the layout computes from what is in it:
     // a bubble's width read from its row loops through the layout.
     property <length> message-width: max(0px,
-        (root.narrow ? root.width : root.width - 281px)
+        (root.narrow || root.list-aside ? root.width : root.width - 281px)
             - root.safe-area-insets.left - root.safe-area-insets.right - 34px);
     // In a narrow window: the conversation list is the pane shown.
     in-out property <bool> list-shown: true;
@@ -1629,9 +1629,38 @@ export component AppWindow inherits Window {
     // cannot leave a conversation counted as seen behind the list.
     out property <bool> pane-shown: !root.narrow || !root.list-shown;
     changed pane-shown => { root.pane-changed(); }
-    // The bottom of the window an open virtual keyboard covers.
-    property <length> keyboard-overlap: root.virtual-keyboard-size.height > 0
+    // The bottom of the window an open virtual keyboard covers. Set only
+    // by the platform's keyboard; in-out so a view test can stand in for
+    // a keyboard, which the testing backend has none of.
+    in-out property <length> keyboard-overlap: root.virtual-keyboard-size.height > 0
         ? max(0px, root.height - root.virtual-keyboard-position.y) : 0px;
+    // While the keyboard is up and the space above it is short -- a
+    // landscape phone -- the conversation keeps its messages and its
+    // composer, and the rest steps aside in this order: the list beside
+    // it, then the network notice, then the app bar; all of it comes back
+    // at once when the keyboard closes (#304 F9; Slint's Android backend
+    // forbids the platform's full-screen editor). Nothing moves focus.
+    property <bool> typing: root.keyboard-overlap > 0;
+    // H: the height above the keyboard.
+    property <length> above-keyboard: root.height - root.safe-area-insets.top
+        - max(root.safe-area-insets.bottom, root.keyboard-overlap);
+    // M: the least message area worth showing, two one-line bubbles.
+    property <length> least-messages: 120px;
+    // The pane's own padding and the spacing between its rows, which take
+    // height whatever steps aside.
+    property <length> pane-chrome: 56px;
+    // C, B and the notice: last measured while shown, so a part that
+    // steps aside keeps the height it would take back.
+    property <length> composer-height: 48px;
+    property <length> bar-height: 64px;
+    property <length> notice-height: 0px;
+    property <length> messages-left: root.above-keyboard - root.pane-chrome
+        - root.composer-height - root.bar-height
+        - (root.has-notice ? root.notice-height : 0px);
+    out property <bool> list-aside: root.typing && !root.narrow && root.messages-left < root.least-messages;
+    out property <bool> notice-aside: root.typing && root.has-notice && root.messages-left < root.least-messages;
+    out property <bool> bar-aside: root.typing
+        && root.above-keyboard - root.pane-chrome - root.composer-height - root.bar-height < root.least-messages;
 
     function choose(handle: int) {
         root.list-shown = false;
@@ -1707,8 +1736,9 @@ export component AppWindow inherits Window {
         padding-right: root.safe-area-insets.right;
         padding-bottom: max(root.safe-area-insets.bottom, root.keyboard-overlap);
         Rectangle {
-            visible: !root.narrow || root.list-shown;
-            width: !root.narrow ? 280px
+            visible: (!root.narrow || root.list-shown) && !root.list-aside;
+            width: root.list-aside ? 0px
+                : !root.narrow ? 280px
                 : root.list-shown ? root.width - root.safe-area-insets.left - root.safe-area-insets.right
                 : 0px;
             background: root.narrow ? Palette.surface : Palette.surface-container;
@@ -2218,9 +2248,11 @@ export component AppWindow inherits Window {
             // avatar, the name over the connectivity line and, once known,
             // the path line, and the overflow menu. The identifier is in
             // Details, no longer on the screen itself.
-            HorizontalLayout {
+            if !root.bar-aside: HorizontalLayout {
                 min-height: 64px;
                 spacing: 8px;
+                init => { root.bar-height = self.height; }
+                changed height => { root.bar-height = self.height; }
                 // A layout has no direction of its own: right to left, the
                 // children come in the mirrored order, so Back sits at the
                 // line's start on the right and More at its end on the left
@@ -2334,9 +2366,11 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            if root.has-notice: Rectangle {
+            if root.has-notice && !root.notice-aside: Rectangle {
                 background: Palette.notice-background;
                 border-radius: 12px;
+                init => { root.notice-height = self.height; }
+                changed height => { root.notice-height = self.height; }
             HorizontalLayout {
                 padding: 12px;
                 spacing: 8px;
@@ -2889,6 +2923,8 @@ export component AppWindow inherits Window {
             if root.composer-enabled: Rectangle {
                 vertical-stretch: 0;
                 height: max(48px, input.preferred-height + 24px);
+                init => { root.composer-height = self.height; }
+                changed height => { root.composer-height = self.height; }
                 HorizontalLayout {
                     spacing: 8px;
                     if root.rtl: Rectangle { width: 48px; }
