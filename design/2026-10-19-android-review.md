@@ -251,6 +251,34 @@ but does not re-rank these.
   - Against: S2 (the IME resizes the screen so the composer stays
     above the keyboard; in landscape Android's own answer is the
     full-screen editor when the space is too small).
+  - The full-screen editor is not available: Slint 1.18.1's Android
+    backend sets `IME_FLAG_NO_EXTRACT_UI` whatever the app asks
+    (rust-ui-dev-01, QUESTION 01a15310-3d0c). A patched backend would
+    be architect-cto's decision and would trade the app's look for
+    Android's editor, so the answer is the app's own layout.
+  - What has to change, as seen, while the keyboard is up. Let *H* be
+    the height above the keyboard, *C* the composer's height at the
+    current font size, *B* the app bar's height, and *M* = 120 dp, the
+    least message area worth showing (about two one-line bubbles at
+    100 % font):
+    1. if the window shows the list beside the conversation, and the
+       conversation pane would leave the messages less than *M*, the
+       list steps aside and the conversation takes the whole width;
+    2. if *H* − *C* − *B* is still less than *M*, the network notice
+       steps aside, then the app bar;
+    3. the composer is never covered by the keyboard, and the typed
+       text is always in view;
+    4. when the keyboard closes, everything that stepped aside comes
+       back, at once, with no other change to the screen.
+    Nothing moves focus: it stays in the composer throughout. The app
+    bar stepping aside is acceptable because the person opened this
+    conversation and is typing in it; the peer's name comes back the
+    moment the keyboard closes. Back with the keyboard up closes the
+    keyboard first, as the platform does.
+  - Acceptance on the phone: in landscape with the keyboard up, at
+    100 % and 200 % font, the draft and at least the newest message
+    are in view, and the composer's whole height is above the
+    keyboard.
 
 ### Rank 2
 
