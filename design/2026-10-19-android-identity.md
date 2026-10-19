@@ -415,7 +415,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdC1Point2` | They are an InterWeave identity recovery phrase, not a cryptocurrency wallet seed. | C1, second point, in the order of §3.2's list (`IDENTITY-RECOVERY.md`) |
 | `IdC1Point3` | Write them on paper, in order, with your PeerId. Store the paper in a safe place. | C1, third point. The PeerId is named here, because R1 asks for it later |
 | `IdC1Point4` | Anyone who has these words can act as you in InterWeave. Do not show them to anyone. | C1, fourth point: "can be you", without alarm |
-| `IdC1Point5` (pending reword, language-culture: §9 as amended at 2f3b0587, the identity only, nothing asked) | To recover everything, you need these words and a separate backup of your contacts, trust and settings. | C1, fifth point: `human-client-ui.md` §9's statement, whole |
+| `IdC1Point5` | The words bring back your identity only, not your contacts, trust, settings or messages. | C1, fifth point: `human-client-ui.md` §9 as amended (2f3b0587). It names the fact and asks for nothing, since Android has no export of the rest |
 | `IdC1Point6` | Your identity exists only after you finish, by checking two of the words. | C1, sixth point (§11 Q3) |
 | `IdShowWords` | Show my words | C1's primary |
 | `IdNotWalletSeed` | InterWeave identity recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen: 68 characters. The contract's label also says "transport"; it is left out as a word the person does not know |
@@ -438,7 +438,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdR1Body` | You need your 24 words, and the PeerId that goes with them: from your paper, or from a contact who has it. The app stays offline until the restore is done. | R1's body, three lines. "The PeerId that goes with them" is true whether the person moved phones or reinstalled on the same one |
 | `IdEnterWords` | Enter my words | R1's primary |
 | `IdCheckWords` | Check my words | R2's primary |
-| `IdR1Settings` (pending reword, language-culture: §9 as amended at 2f3b0587, the identity only, nothing asked) | Your words restore your identity only. Your contacts, trust and settings come from a separate backup. | R1's line under the body, two lines: `human-client-ui.md` §9's statement, whole |
+| `IdR1Settings` | Your words restore your identity only. Contacts, trust, settings and messages are not part of them. | R1's line under the body, two lines: the same statement, with nothing asked |
 | `IdR3NoPeerId` | If the PeerId is not on your paper, ask a contact for the one they have for the phone that had these words. Restore only if it matches. | R3, under the question: about three lines at 100 %, one over the space. A contact can hold one PeerId per device, so the text names which one |
 | `IdR3Question` | Is this the PeerId that you wrote down? If it is not, a word may be wrong. | R3's question, two lines. It asks; it never says the PeerId is right, and it says what a "no" usually means |
 | `IdR3Yes` | Yes, restore it | R3's primary |
