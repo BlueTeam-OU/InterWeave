@@ -17,7 +17,7 @@
 # while Fedora shipped 1.98.1, and a routine system update moves every
 # login on the host to a new compiler at once with no commit here. CI
 # builds with the pin, so the first sign is a lint that fires on one side
-# only — as clippy 1.99's double_must_use did on develop-qzapp in 2026-10.
+# only.
 # This asks the compiler and compares.
 #
 # WHAT IS ASKED: the compiler cargo would invoke — `$RUSTC`, else
@@ -46,20 +46,26 @@
 # pinned compiler. Both move together, and this is what says so.
 #
 # CLIPPY AND RUSTFMT are separate packages on a distribution, which can
-# update apart from the compiler; under rustup they come with it. Each is
-# built on a compiler, and that is what is compared:
-#   - clippy: `clippy-driver --rustc --version` prints the compiler it is
-#     built on, which must match the pin as rustc's does;
-#   - rustfmt: its own version (1.9.0) names no compiler, so the
-#     librustc_driver it links (ldd) must be one in that rustc's sysroot —
-#     the library's hash names the toolchain build.
-# Under rustup each binary is `rustup which <tool>`, run from the root:
-# rustup's cargo puts the pinned toolchain's bin first on the PATH it
-# hands `cargo clippy` and `cargo fmt`, so that is what they run, whatever
-# this shell's PATH finds. A rustup that links only some proxies onto
-# PATH leaves the distribution's clippy-driver and rustfmt first there,
-# and asking those would fail a toolchain that is right
-# (test_check_rustc_pin.sh, both tools). Without rustup it is the PATH's.
+# update apart from the compiler; under rustup they come with it. What is
+# asked is what cargo runs: `cargo clippy --version` and `cargo fmt
+# --version`, from the root, with `$CARGO` (set under `cargo xtask`) else
+# `cargo`. Predicting the binary instead fails both ways: cargo finds a
+# subcommand in `$CARGO_HOME/bin` before PATH, and rustup's proxy puts
+# that directory first, so neither PATH's tool nor `rustup which` is
+# reliably the one run (a CARGO_HOME without rustup's proxies made
+# `cargo clippy` the distribution's while rustup's tool was the pin's —
+# test_check_rustc_pin.sh, both tools).
+#   - A build that names its commit, `clippy 0.1.98 (48a229ceae
+#     2026-09-01)` as rustup's do, must name rustc's: one hash a prefix of
+#     the other, and the same date.
+#   - A build that names none is a distribution's, and its version does
+#     not say which compiler it was built on. For clippy, its minor
+#     (0.1.<minor>) must be the pin's, and the clippy-driver on PATH —
+#     the distribution's beside it — must be built on the pin
+#     (`clippy-driver --rustc --version`). For rustfmt, whose version
+#     (1.9.0) names no compiler, the rustfmt on PATH must link a
+#     librustc_driver (ldd) in that rustc's sysroot; the library's hash
+#     names the toolchain build.
 #
 # Exit codes:
 #   0  the compiler, clippy and rustfmt are the pinned toolchain's, and
@@ -69,9 +75,12 @@
 #      Cargo.toml or no rust-version in its [workspace.package], a
 #      channel that names no version (`stable`, a nightly), a cargo
 #      config in scope setting a rustc key or unreadable, a tracked cargo
-#      config below the root, a tree git cannot list, a rustc or
-#      clippy-driver that cannot be found, run or prints no version, or a rustfmt
-#      that cannot be found or links no librustc_driver
+#      config below the root, a tree git cannot list, a rustc that cannot
+#      be run or prints no version, a `cargo clippy` or `cargo fmt` that
+#      cannot be run or prints no version, or for a build naming no
+#      commit, a clippy-driver that cannot be found, run or prints no
+#      version, or a rustfmt that cannot be found or links no
+#      librustc_driver
 # <<< help
 
 set -uo pipefail
@@ -169,35 +178,79 @@ if ! pinned "$version"; then
     exit 1
 fi
 
-# clippy: the compiler clippy-driver is built on.
-clippy_bin="$(rustup which clippy-driver 2>/dev/null)" || clippy_bin="$(command -v clippy-driver)" || {
-    echo "$me: no clippy-driver found (cargo clippy runs it)" >&2; exit 2; }
-if ! cout="$("$clippy_bin" --rustc --version 2>&1)"; then
-    echo "$me: \`$clippy_bin --rustc --version\` failed (cargo clippy runs it):" >&2
-    printf '%s\n' "$cout" | tail -3 >&2
-    exit 2
-fi
-cversion="$(sed -n 's/^rustc \([^ ]*\).*$/\1/p' <<<"$cout" | head -1)"
-[[ -n "$cversion" ]] || { echo "$me: \`$clippy_bin --rustc --version\` printed no version: $cout" >&2; exit 2; }
-if ! pinned "$cversion"; then
-    echo "FAIL: clippy is built on rustc $cversion; $pin_file pins $channel"
-    echo "      ($clippy_bin: $cout)"
+# clippy and rustfmt: as cargo runs them (the help block says why).
+cargo_bin="${CARGO:-cargo}"
+rustc_build="$(sed -n 's/^rustc [^ ]* (\([0-9a-f]\{7,\}\) \([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)).*$/\1 \2/p' <<<"$out" | head -1)"
+
+# cargo_says <subcommand>: the first line of `cargo <sub> --version`.
+cargo_says() {
+    local o
+    if ! o="$("$cargo_bin" "$1" --version 2>&1)" || [[ -z "$o" ]]; then
+        echo "$me: \`$cargo_bin $1 --version\` failed or printed nothing:" >&2
+        printf '%s\n' "$o" | tail -3 >&2
+        exit 2
+    fi
+    head -1 <<<"$o"
+}
+
+# same_build <version line>: 0 when it names rustc's build, 1 when it
+# names another, 2 when it names none.
+same_build() {
+    local b h d rh rd
+    b="$(sed -n 's/^.* (\([0-9a-f]\{7,\}\) \([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\))$/\1 \2/p' <<<"$1")"
+    [[ -n "$b" ]] || return 2
+    read -r h d <<<"$b"
+    read -r rh rd <<<"${rustc_build:-none none}"
+    [[ "$d" == "$rd" && ( "$h" == "$rh"* || "$rh" == "$h"* ) ]]
+}
+
+cline="$(cargo_says clippy)"
+same_build "$cline"; rc=$?
+if (( rc == 1 )); then
+    echo "FAIL: cargo clippy is $cline, not rustc $version's build (${rustc_build:-which names none})"
     exit 1
+elif (( rc == 2 )); then
+    cminor="$(sed -n 's/^clippy 0\.1\.\([0-9]*\)\([^0-9].*\)\{0,1\}$/\1/p' <<<"$cline")"
+    [[ -n "$cminor" ]] || { echo "$me: \`$cargo_bin clippy --version\` printed no version: $cline" >&2; exit 2; }
+    if [[ "$cminor" != "$(cut -d. -f2 <<<"$channel")" ]]; then
+        echo "FAIL: cargo clippy is $cline; $pin_file pins $channel"
+        exit 1
+    fi
+    clippy_bin="$(command -v clippy-driver)" || {
+        echo "$me: no clippy-driver on PATH beside $cline, which names no build" >&2; exit 2; }
+    if ! cout="$("$clippy_bin" --rustc --version 2>&1)"; then
+        echo "$me: \`$clippy_bin --rustc --version\` failed (cargo clippy runs it):" >&2
+        printf '%s\n' "$cout" | tail -3 >&2
+        exit 2
+    fi
+    cversion="$(sed -n 's/^rustc \([^ ]*\).*$/\1/p' <<<"$cout" | head -1)"
+    [[ -n "$cversion" ]] || { echo "$me: \`$clippy_bin --rustc --version\` printed no version: $cout" >&2; exit 2; }
+    if ! pinned "$cversion"; then
+        echo "FAIL: clippy is built on rustc $cversion; $pin_file pins $channel"
+        echo "      ($clippy_bin: $cout)"
+        exit 1
+    fi
 fi
 
-# rustfmt: the librustc_driver it links, against the compiler's sysroot.
-fmt_bin="$(rustup which rustfmt 2>/dev/null)" || fmt_bin="$(command -v rustfmt)" || {
-    echo "$me: no rustfmt found (cargo fmt runs it)" >&2; exit 2; }
-fmt_driver="$(ldd "$fmt_bin" 2>/dev/null | sed -n 's/^[[:space:]]*\(librustc_driver-[^[:space:]]*\.so\).*/\1/p' | head -1)"
-[[ -n "$fmt_driver" ]] || { echo "$me: $fmt_bin links no librustc_driver that ldd reports, so its compiler cannot be told" >&2; exit 2; }
-sysroot="$("$rustc_bin" --print sysroot 2>/dev/null)"
-if [[ -z "$sysroot" ]] || ! compgen -G "$sysroot/lib*/librustc_driver-*.so" >/dev/null; then
-    echo "$me: \`$rustc_bin --print sysroot\` names no directory holding a librustc_driver" >&2; exit 2
-fi
-if ! compgen -G "$sysroot/lib*/$fmt_driver" >/dev/null; then
-    echo "FAIL: rustfmt ($fmt_bin) links $fmt_driver, which is not rustc $version's"
-    echo "      ($sysroot holds $(cd "$sysroot" && ls lib*/librustc_driver-*.so | tr '\n' ' '))"
+fline="$(cargo_says fmt)"
+same_build "$fline"; rc=$?
+if (( rc == 1 )); then
+    echo "FAIL: cargo fmt is $fline, not rustc $version's build (${rustc_build:-which names none})"
     exit 1
+elif (( rc == 2 )); then
+    fmt_bin="$(command -v rustfmt)" || {
+        echo "$me: no rustfmt on PATH beside $fline, which names no build" >&2; exit 2; }
+    fmt_driver="$(ldd "$fmt_bin" 2>/dev/null | sed -n 's/^[[:space:]]*\(librustc_driver-[^[:space:]]*\.so\).*/\1/p' | head -1)"
+    [[ -n "$fmt_driver" ]] || { echo "$me: $fmt_bin links no librustc_driver that ldd reports, so its compiler cannot be told" >&2; exit 2; }
+    sysroot="$("$rustc_bin" --print sysroot 2>/dev/null)"
+    if [[ -z "$sysroot" ]] || ! compgen -G "$sysroot/lib*/librustc_driver-*.so" >/dev/null; then
+        echo "$me: \`$rustc_bin --print sysroot\` names no directory holding a librustc_driver" >&2; exit 2
+    fi
+    if ! compgen -G "$sysroot/lib*/$fmt_driver" >/dev/null; then
+        echo "FAIL: rustfmt ($fmt_bin) links $fmt_driver, which is not rustc $version's"
+        echo "      ($sysroot holds $(cd "$sysroot" && ls lib*/librustc_driver-*.so | tr '\n' ' '))"
+        exit 1
+    fi
 fi
 
 echo "$me: rustc $version is the pinned $channel, clippy and rustfmt are built on it, and rust-version states it"
