@@ -5629,21 +5629,35 @@ appears in any of the four.
    against the ingress bucket, and the same burst as direct sends
    landing whole through `Overloaded` retries; a loopback
    static-bootstrap dial, which no test on `main` exercised; a second
-   daemon of another account on a taken port failing its start, and of
-   the same account sharing it (decision 5).
+   daemon of the same account sharing a port (decision 5), and a port
+   held without `SO_REUSEPORT` refusing the start; the cross-account
+   refusal is carried as unverified until CI has a second account.
+   (Built on p2p-network-dev's branch at 4db37607, nine cases, before
+   this record landed; the suite reads the ingress bucket's constants
+   from `interweave-transport-runtime` as a dev-dependency rather than
+   restating them, which is the right direction for a conformance
+   suite — `tests/support` stays out of production, the reverse is
+   allowed.)
 3. `architecture/clients/automated/AUTOMATED-CLIENT.md`: ADR-0055
    decisions 2 and 3 as a reader's document, each fact naming the test
    of step 2 or the contract that holds it, restating no constant; the
    loopback deployment's `config.yaml` shape; the pacing figures for
    fan-out. Written by architect-cto from the facts p2p-network-dev
-   states with step 2.
+   states with step 2 (written 2026-10-19 from their REPLY on
+   4db37607 and f68b7b56; one fact new to the record, broadcast order
+   not preserved, folded into ADR-0055 decision 2 the same day).
 4. `packaging/linux`: `interweave-daemon@.service` and
    `interweave-client@.service` as systemd user units templated on the
    profile name, `Restart=on-failure`, the daemon stopped by SIGTERM
    with the grace it already honours, the client `After=` and
    `BindsTo=` its daemon, binaries from the account's own path, no
    system-wide install; a README that says how an account installs them
-   and that a deployment's tooling may do it instead.
+   and that a deployment's tooling may do it instead. (Built at
+   f68b7b56: a clean stop in 0.19 s with the client stopping with it,
+   the client starting with the daemon, both back 5 s after a SIGKILL,
+   a taken port retried under the start limit; the client unit runs
+   the deployment's program from the account's `libexec`, or a
+   drop-in's `ExecStart`, and InterWeave ships none.)
 5. The stale clause in `CLAUDE.md` §1 about mDNS (the multicast backend
    was built after Stage 9; this record corrects it) — done in the
    series that lands this section.
