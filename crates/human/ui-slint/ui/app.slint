@@ -157,6 +157,66 @@ export struct TrustRow {
 
 // The platform's touch slop, which Rust sets from the system's
 // (swipe spec section 4).
+// The identity screens (design/2026-10-19-android-identity.md): one page
+// at a time, filled from ui-model's IdentityFlow by the Rust side, so the
+// view holds no flow of its own.
+export struct IdKey {
+    letter: string,
+    enabled: bool,
+}
+
+export struct IdKeyRow {
+    keys: [IdKey],
+}
+
+export struct IdSlot {
+    number: int,
+    word: string,
+    current: bool,
+}
+
+export struct IdentityPage {
+    title: string,
+    paragraphs: [string],
+    // An inline banner (section 6), above the content; empty for none.
+    notice: string,
+    peer-label: string,
+    // A PeerId grouped by fours for comparing by eye (section 5).
+    peer-groups: string,
+    second-peer-label: string,
+    second-peer-groups: string,
+    // C2's and S2's numbered words.
+    words: [IdSlot],
+    // The picker (section 4), on C3 and R2.
+    picker: bool,
+    position: string,
+    typed: string,
+    // "{n} words fit these letters" while more than four match.
+    matches: string,
+    chips: [string],
+    // The letters in QWERTY rows of 10, 9 and 7, and in alphabetical
+    // rows of 7 for a narrow screen: the view picks by width (section
+    // 4.3). Rows, so a shorter row centres under the first.
+    rows: [IdKeyRow],
+    alpha-rows: [IdKeyRow],
+    key-delete-label: string,
+    key-clear-label: string,
+    // R2's phrase so far.
+    grid: [IdSlot],
+    primary: string,
+    primary-enabled: bool,
+    // A progress line in place of the primary action ("Going offline…").
+    waiting: string,
+    secondary: string,
+    tertiary: string,
+    // Plain text below the actions (K1's way out, R3's no-paper line).
+    footnote: string,
+    dialog: bool,
+    dialog-title: string,
+    dialog-delete: string,
+    dialog-keep: string,
+}
+
 export global Touch {
     in property <length> slop: 8px;
     // The system's animations are off: a press shows no ripple.
@@ -968,8 +1028,422 @@ component UnreadBadge inherits Rectangle {
     }
 }
 
+// The identity screens' page. FLAG_SECURE, the no-clipboard rule and the
+// IME-free entry are kept by what is NOT here: no TextInput, so no
+// system keyboard and no copy of a word; the window's secure flag is the
+// platform's (human-android).
+component IdentityScreen inherits FocusScope {
+    in property <IdentityPage> page;
+    in property <bool> rtl;
+    // A monospace face resolved by the Rust side: "monospace" by name
+    // matches nothing in Slint 1.18 and falls back to sans.
+    in property <string> code-font;
+    in property <length> inset-top;
+    in property <length> inset-bottom;
+    in property <length> inset-left;
+    in property <length> inset-right;
+    callback primary();
+    callback secondary();
+    callback tertiary();
+    callback back();
+    callback key(string);
+    callback delete-letter();
+    callback clear-word();
+    callback chip(string);
+    callback slot(int);
+    callback dialog(bool);
+    // A hardware keyboard enters letters (acceptance item 15); Escape is
+    // Back.
+    key-pressed(event) => {
+        if (event.text == Key.Escape) {
+            root.back();
+            return accept;
+        }
+        if (event.text == Key.Backspace && root.page.picker) {
+            root.delete-letter();
+            return accept;
+        }
+        if (root.page.picker && event.text >= "a" && event.text <= "z" && event.text.character-count == 1) {
+            root.key(event.text);
+            return accept;
+        }
+        if (event.text == Key.Return && root.page.picker && root.page.chips.length == 1) {
+            root.chip(root.page.chips[0]);
+            return accept;
+        }
+        reject
+    }
+    Rectangle { background: Palette.surface; }
+    // Nothing behind the page is reachable while it shows.
+    TouchArea { }
+    VerticalLayout {
+        padding-top: root.inset-top + 8px;
+        padding-bottom: root.inset-bottom + 8px;
+        padding-left: root.inset-left + 16px;
+        padding-right: root.inset-right + 16px;
+        spacing: 12px;
+        Text {
+            text: root.page.title;
+            font-size: Type.title-large;
+            font-weight: 500;
+            color: Palette.on-surface;
+            wrap: word-wrap;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        Flickable {
+            vertical-stretch: 1;
+            content-height: content.preferred-height;
+            content := VerticalLayout {
+                spacing: 12px;
+                alignment: start;
+                if root.page.notice != "": Rectangle {
+                    background: Palette.surface-container;
+                    border-radius: 4px;
+                    VerticalLayout {
+                        padding: 12px;
+                        Text {
+                            text: root.page.notice;
+                            color: Palette.error;
+                            font-size: Type.body-medium;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                    }
+                }
+                for paragraph in root.page.paragraphs: Text {
+                    text: paragraph;
+                    font-size: Type.body-large;
+                    color: Palette.on-surface;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                // The words, read down the first column then the second;
+                // one column when narrow (section 3.2, C2).
+                if root.page.words.length > 0: GridLayout {
+                    spacing: 8px;
+                    property <int> per-column: root.width < 360px ? 24 : 12;
+                    for slot[i] in root.page.words: HorizontalLayout {
+                        row: mod(i, parent.per-column);
+                        col: floor(i / parent.per-column);
+                        spacing: 8px;
+                        Text {
+                            text: slot.number;
+                            min-width: 24px;
+                            horizontal-alignment: right;
+                            font-size: Type.body-large;
+                            color: Palette.on-surface-variant;
+                            accessible-role: none;
+                        }
+                        Text {
+                            text: slot.word;
+                            font-size: Type.body-large;
+                            color: Palette.on-surface;
+                            accessible-role: text;
+                            accessible-label: slot.number + " " + slot.word;
+                        }
+                    }
+                }
+                if root.page.peer-groups != "": VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: root.page.peer-label;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface-variant;
+                        wrap: word-wrap;
+                        accessible-role: none;
+                    }
+                    Text {
+                        text: root.page.peer-groups;
+                        font-family: root.code-font;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        accessible-role: text;
+                        accessible-label: root.page.peer-label + " " + root.page.peer-groups;
+                    }
+                }
+                if root.page.second-peer-groups != "": VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: root.page.second-peer-label;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface-variant;
+                        wrap: word-wrap;
+                        accessible-role: none;
+                    }
+                    Text {
+                        text: root.page.second-peer-groups;
+                        font-family: root.code-font;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        accessible-role: text;
+                        accessible-label: root.page.second-peer-label + " " + root.page.second-peer-groups;
+                    }
+                }
+                // R2's phrase so far: four columns of six (section 4.4).
+                if root.page.grid.length > 0: GridLayout {
+                    spacing: 4px;
+                    for slot[i] in root.page.grid: Rectangle {
+                        row: floor(i / 4);
+                        col: mod(i, 4);
+                        min-height: 48px;
+                        border-width: slot.current ? 2px : 1px;
+                        border-color: slot.current ? Palette.primary : Palette.outline;
+                        border-radius: 4px;
+                        accessible-role: button;
+                        accessible-label: slot.number + (slot.word != "" ? " " + slot.word : "");
+                        accessible-action-default => { root.slot(i); }
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            spacing: 6px;
+                            alignment: start;
+                            Text {
+                                text: slot.number;
+                                font-size: Type.body-small;
+                                color: Palette.on-surface-variant;
+                                vertical-alignment: center;
+                                accessible-role: none;
+                            }
+                            Text {
+                                text: slot.word;
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface;
+                                vertical-alignment: center;
+                                accessible-role: none;
+                            }
+                        }
+                        TapArea { tapped => { root.slot(i); } }
+                    }
+                }
+            }
+        }
+        // The picker (section 4): position, letters, suggestions, keypad.
+        if root.page.picker: VerticalLayout {
+            spacing: 8px;
+            Text {
+                text: root.page.position;
+                font-size: Type.title-small;
+                color: Palette.on-surface;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            // Looks like a field, is not one: no IME ever opens.
+            Rectangle {
+                height: 52px;
+                border-width: 1px;
+                border-color: Palette.outline;
+                border-radius: 4px;
+                Text {
+                    x: 12px;
+                    text: root.page.typed;
+                    font-size: Type.body-large;
+                    color: Palette.on-surface;
+                    vertical-alignment: center;
+                    accessible-role: none;
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                min-height: 48px;
+                for word in root.page.chips: Rectangle {
+                    min-height: 48px;
+                    min-width: chip-text.preferred-width + 24px;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: Palette.outline;
+                    background: Palette.surface-container;
+                    accessible-role: button;
+                    accessible-label: word;
+                    accessible-action-default => { root.chip(word); }
+                    chip-text := Text {
+                        text: word;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        accessible-role: none;
+                    }
+                    TapArea { tapped => { root.chip(word); } }
+                }
+                if root.page.matches != "": Text {
+                    text: root.page.matches;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface-variant;
+                    vertical-alignment: center;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+            }
+            // QWERTY rows of 10, 9 and 7, or alphabetical sevens when
+            // narrower than 340 (section 4.3); keys never move, and every
+            // key of a layout is one width.
+            keypad := VerticalLayout {
+                spacing: 4px;
+                property <bool> alphabetical: root.width < 340px;
+                property <int> per-row: self.alphabetical ? 7 : 10;
+                property <length> key-width: (self.width - (self.per-row - 1) * 4px) / self.per-row;
+                for row in (self.alphabetical ? root.page.alpha-rows : root.page.rows): HorizontalLayout {
+                    spacing: 4px;
+                    alignment: center;
+                    for key in row.keys: Rectangle {
+                        width: keypad.key-width;
+                        height: 48px;
+                        border-radius: 4px;
+                        background: Palette.surface-container-high;
+                        opacity: key.enabled ? 1.0 : 0.38;
+                        accessible-role: button;
+                        accessible-label: key.letter;
+                        accessible-enabled: key.enabled;
+                        accessible-action-default => { if (key.enabled) { root.key(key.letter); } }
+                        Text {
+                            text: key.letter;
+                            font-size: Type.body-large;
+                            color: Palette.on-surface;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            accessible-role: none;
+                        }
+                        TapArea {
+                            enabled: key.enabled;
+                            tapped => { root.key(key.letter); }
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+                ActionButton {
+                    text: root.page.key-delete-label;
+                    target: 48px;
+                    pressed => { root.delete-letter(); }
+                }
+                ActionButton {
+                    text: root.page.key-clear-label;
+                    target: 48px;
+                    pressed => { root.clear-word(); }
+                }
+            }
+        }
+        if root.page.waiting != "": Text {
+            text: root.page.waiting;
+            font-size: Type.body-large;
+            color: Palette.on-surface-variant;
+            horizontal-alignment: center;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        if root.page.waiting == "" && root.page.primary != "": Rectangle {
+            min-height: 48px;
+            border-radius: 24px;
+            background: root.page.primary-enabled ? Palette.primary : Palette.surface-container-high;
+            accessible-role: button;
+            accessible-label: root.page.primary;
+            accessible-enabled: root.page.primary-enabled;
+            accessible-action-default => { if (root.page.primary-enabled) { root.primary(); } }
+            Text {
+                text: root.page.primary;
+                font-size: Type.label-large;
+                font-weight: 500;
+                color: root.page.primary-enabled ? Palette.on-primary : Palette.on-surface-variant;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
+            TapArea {
+                enabled: root.page.primary-enabled;
+                tapped => { root.primary(); }
+            }
+        }
+        if root.page.secondary != "": HorizontalLayout {
+            alignment: center;
+            ActionButton {
+                text: root.page.secondary;
+                text-button: true;
+                target: 48px;
+                pressed => { root.secondary(); }
+            }
+        }
+        if root.page.tertiary != "": HorizontalLayout {
+            alignment: center;
+            ActionButton {
+                text: root.page.tertiary;
+                text-button: true;
+                target: 48px;
+                pressed => { root.tertiary(); }
+            }
+        }
+        if root.page.footnote != "": Text {
+            text: root.page.footnote;
+            font-size: Type.body-medium;
+            color: Palette.on-surface-variant;
+            wrap: word-wrap;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+    }
+    // Section 7's dialog: "Continue entering" is the default.
+    if root.page.dialog: Rectangle {
+        background: #00000080;
+        TouchArea { }
+        Rectangle {
+            width: min(parent.width - 48px, 360px);
+            height: dialog-box.preferred-height;
+            background: Palette.surface-container-high;
+            border-radius: 16px;
+            dialog-box := VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                Text {
+                    text: root.page.dialog-title;
+                    font-size: Type.title-medium;
+                    color: Palette.on-surface;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    ActionButton {
+                        text: root.page.dialog-delete;
+                        text-button: true;
+                        target: 48px;
+                        pressed => { root.dialog(true); }
+                    }
+                    ActionButton {
+                        text: root.page.dialog-keep;
+                        text-button: true;
+                        target: 48px;
+                        focus-seq: root.page.dialog ? 1 : 0;
+                        focus-wanted: true;
+                        pressed => { root.dialog(false); }
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     in property <string> window-title;
+    // The identity screens (Android): shown over everything while active.
+    in property <bool> identity-active;
+    in property <IdentityPage> identity;
+    callback identity-primary();
+    callback identity-secondary();
+    callback identity-tertiary();
+    callback identity-back();
+    callback identity-key(string);
+    callback identity-delete();
+    callback identity-clear();
+    callback identity-chip(string);
+    callback identity-slot(int);
+    callback identity-dialog(bool);
     title: root.window-title;
     // Generated with the rest of the icon set (assets/README.md). winit
     // shows it on X11; a Wayland compositor takes the icon from the app's
@@ -2560,5 +3034,30 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
+
+    if root.identity-active: IdentityScreen {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        page: root.identity;
+        rtl: root.rtl;
+        code-font: root.code-font;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        primary => { root.identity-primary(); }
+        secondary => { root.identity-secondary(); }
+        tertiary => { root.identity-tertiary(); }
+        back => { root.identity-back(); }
+        key(letter) => { root.identity-key(letter); }
+        delete-letter => { root.identity-delete(); }
+        clear-word => { root.identity-clear(); }
+        chip(word) => { root.identity-chip(word); }
+        slot(i) => { root.identity-slot(i); }
+        dialog(delete) => { root.identity-dialog(delete); }
+        init => { self.focus(); }
     }
 }

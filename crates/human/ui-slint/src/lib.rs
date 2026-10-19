@@ -37,9 +37,13 @@ use slint::{Model as _, ModelRc, SharedString, VecModel};
 mod body;
 mod clock;
 mod gesture;
+mod identity;
 mod swipe;
 
 pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
+pub use identity::{
+    IdentityInput, apply as apply_identity, grouped as grouped_peer, page as identity_page,
+};
 
 #[allow(
     missing_docs,
@@ -62,6 +66,7 @@ mod generated {
 pub use generated::AppWindow;
 /// The icons the views draw; a test reads which one a status takes.
 pub use generated::Glyph;
+pub use generated::IdentityPage;
 /// The colour roles of design/2026-10-16-android-look.md section 3, so a
 /// test can switch the scheme and measure every pair the section names.
 pub use generated::Palette;
@@ -928,6 +933,54 @@ impl View {
                 wake();
             }
         }
+    }
+
+    /// Show the identity screens' `page` over everything, or hide them
+    /// with `None` (design/2026-10-19-android-identity.md). The page is
+    /// rebuilt from the flow by [`identity_page`] after every input.
+    pub fn show_identity(&self, page: Option<IdentityPage>) {
+        if let Some(page) = page {
+            self.window.set_identity(page);
+            self.window.set_identity_active(true);
+        } else {
+            self.window.set_identity_active(false);
+            // Its words leave the view with it (section 7).
+            self.window.set_identity(IdentityPage::default());
+        }
+    }
+
+    /// Hand each identity-page input to `input`, which applies it to the
+    /// flow ([`apply_identity`]) and shows the page again.
+    pub fn on_identity(&self, input: impl Fn(IdentityInput) + 'static) {
+        let input = Rc::new(input);
+        let w = &self.window;
+        let i = Rc::clone(&input);
+        w.on_identity_primary(move || i(IdentityInput::Primary));
+        let i = Rc::clone(&input);
+        w.on_identity_secondary(move || i(IdentityInput::Secondary));
+        let i = Rc::clone(&input);
+        w.on_identity_tertiary(move || i(IdentityInput::Tertiary));
+        let i = Rc::clone(&input);
+        w.on_identity_back(move || i(IdentityInput::Back));
+        let i = Rc::clone(&input);
+        w.on_identity_key(move |letter| {
+            if let Some(letter) = letter.chars().next() {
+                i(IdentityInput::Key(letter));
+            }
+        });
+        let i = Rc::clone(&input);
+        w.on_identity_delete(move || i(IdentityInput::Delete));
+        let i = Rc::clone(&input);
+        w.on_identity_clear(move || i(IdentityInput::Clear));
+        let i = Rc::clone(&input);
+        w.on_identity_chip(move |word| i(IdentityInput::Chip(word.to_string())));
+        let i = Rc::clone(&input);
+        w.on_identity_slot(move |slot| {
+            if let Ok(slot) = usize::try_from(slot) {
+                i(IdentityInput::Slot(slot));
+            }
+        });
+        w.on_identity_dialog(move |delete| input(IdentityInput::Dialog(delete)));
     }
 
     /// Play `tick` once each time a swipe arms (§4): the platform's
