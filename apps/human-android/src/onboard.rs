@@ -45,9 +45,9 @@ pub(crate) mod state {
 /// (`Native.waitIdentityAsk`).
 pub(crate) mod ask {
     use jni::sys::jint;
-    /// Words are shown or entered: FLAG_SECURE on.
+    /// Words are shown or entered: `FLAG_SECURE` on.
     pub(crate) const SECURE_ON: jint = 1;
-    /// No word on screen: FLAG_SECURE off.
+    /// No word on screen: `FLAG_SECURE` off.
     pub(crate) const SECURE_OFF: jint = 2;
     /// The device-credential or strong-biometric prompt; answered by
     /// `Native.prompted`.
@@ -132,7 +132,9 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
                 .and_then(|paths| custody::recorded_identity(&paths).ok().flatten()),
         }),
         Err(why) => {
-            log(&format!("the identity's state: {why:?}; the service reports it"));
+            log(&format!(
+                "the identity's state: {why:?}; the service reports it"
+            ));
             None
         }
     };
@@ -332,9 +334,7 @@ fn one(effect: Effect) -> Vec<Effect> {
 fn render() {
     let handover = ONBOARDING.with(|slot| {
         let mut slot = slot.borrow_mut();
-        let Some(o) = slot.as_mut() else {
-            return None;
-        };
+        let o = slot.as_mut()?;
         let screen = o.flow.screen();
         let secure = matches!(
             screen,
@@ -342,7 +342,11 @@ fn render() {
         );
         if secure != o.secure {
             o.secure = secure;
-            ASKS.push(if secure { ask::SECURE_ON } else { ask::SECURE_OFF });
+            ASKS.push(if secure {
+                ask::SECURE_ON
+            } else {
+                ask::SECURE_OFF
+            });
         }
         if screen == ScreenId::Done {
             o.view.borrow().show_identity(None);
@@ -354,10 +358,10 @@ fn render() {
     });
     if let Some(done) = handover {
         ONBOARDING.with(|slot| slot.borrow_mut().take());
-        if let Ok(mut platform) = PLATFORM.lock() {
-            if let Some(platform) = platform.as_mut() {
-                platform.start = None;
-            }
+        if let Ok(mut platform) = PLATFORM.lock()
+            && let Some(platform) = platform.as_mut()
+        {
+            platform.start = None;
         }
         done();
     }
