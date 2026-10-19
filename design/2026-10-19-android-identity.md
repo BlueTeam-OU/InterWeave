@@ -3,7 +3,7 @@
 Status: proposal for plan §20 steps 7–8, 2026-10-19. rust-ui-dev builds
 it on `develop-qzapp/rust-ui-dev-01/feat/j111-android-recovery`. The
 four questions in §11 were answered by architect-cto on 2026-10-19.
-The custody doc's text behind them (ecf20942..2f3b0587) is on
+The custody doc's text behind them (ecf20942..252a6f45) is on
 architect-cto's branch
 `develop-qzapp/architect-cto-01/for/rust-ui-dev-01/custody-phrase-display`
 and is not merged; it lands with rust-ui-dev's build PR.
@@ -49,11 +49,11 @@ From the contracts; listed so a reviewer can check each screen:
 - The network service is stopped, and the profile exclusively locked,
   while words are shown or entered (`android-key-custody.md`, Recovery).
   S1 to S2 holds the lock throughout: S2 reads the seed through
-  `unlock`, which takes no lock. C2 to C3, and R2 to R3, hold it up to
-  custody's own call. `provision` and `restore` take the lock
-  themselves without waiting, so a lock the flow still holds would
-  refuse them. How the lock passes from the flow to those calls is
-  architect-cto's to decide (§11b Q9). Creation shows its words before
+  `unlock`, which takes no lock. Create and restore take the lock once,
+  before the first word is shown or picked (C2, R2), and hand it to the
+  seal or restore they end in: `provision` and `restore` accept a held
+  lock (§11b Q9; custody doc 252a6f45). There is never a release and
+  retake, which would let the service start the profile in between. Creation shows its words before
   the service first starts.
 - Nothing restores silently. A phrase that derives a PeerId other than
   the expected one restores nothing. A fresh install restores only
@@ -211,14 +211,14 @@ answers `RecoveryRequired`. It says, by cause:
   `IdQReasonRecord`): the stored identity cannot be read on this phone.
 
 K1's expected PeerId is the one the record's PeerId field names, read
-even when the record is otherwise refused. Custody has no public
-reader for that today: `recorded_identity` refuses every damaged
-record, and the field reader `named_peer` is private. The note needs
-one, for example `named_identity(paths)`, which is architect-cto's to
-add (§11b Q8). Without it, a record with a damaged header and an intact
-PeerId field would fall to `IdQNoPath` and tell a person to wipe a
-profile that `restore` would accept. So K1's Record causes are not
-done until the reader exists. With one, K1 shows it.
+even when the record is otherwise refused. Custody gains a
+public reader of that field for this (§11b Q8; custody doc 252a6f45,
+asked of p2p-network-dev): a record refused for its shape with an
+intact field names its PeerId, and K1 restores only a phrase that
+derives it. Until the reader lands, K1's Record causes are not done:
+without it such a record would fall to `IdQNoPath`. K1 has three
+inputs: a record that opens (no K1), a record that names a PeerId
+(restore to it), and a record that names none (`IdQNoPath`). With one, K1 shows it.
 Primary: enter my recovery phrase (→ R2, then straight to the check
 against that PeerId, with no R3). Back leaves the app. K1 shows again
 on the next launch until the restore succeeds.
@@ -632,15 +632,18 @@ architect-cto, 2026-10-19 (REPLY 01a1529f-5231). The doc text is
   facts without the contract's "transport". `IDENTITY-RECOVERY.md` now
   says so (497d6b42, on #301's branch).
 
-## 11b. Open with architect-cto (from #303's round 2)
+## 11b. Answered after #303's round 2
 
-- **Q8. A public reader of the record's PeerId field** (§3.4): it
-  returns the PeerId the field names for a record refused for its
-  shape, for K1. Today only the private `named_peer` does this.
-- **Q9. Handing the profile lock to custody** (§2): `provision` and
-  `restore` take it with no wait, so the flow must release it just
-  before, or custody must accept a lock already held. Releasing it
-  leaves a short gap in which nothing holds it.
+architect-cto, 2026-10-19 (REPLY 01a152aa-64d6), ruled into the
+custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
+
+- **Q8. A public reader of the record's PeerId field.** Yes, with
+  `named_peer`'s semantics, whatever the envelope's state. The cipher
+  never decides whose record it is (§3.4).
+- **Q9. Handing the profile lock to custody.** A handover, not a gap.
+  The flow takes the lock once, before the first word, and hands it to
+  the seal it ends in; `provision` and `restore` accept a held lock
+  (§2).
 
 ## 12. Deliberately left out
 
