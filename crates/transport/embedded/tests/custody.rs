@@ -30,7 +30,7 @@ use interweave_profile_config::{ProfileLock, ProfilePaths, TrustBoundary};
 use interweave_profile_identity::{ProfileIdentity, RecoveryPhrase};
 use interweave_transport_api::TransportIdentity;
 use interweave_transport_embedded::custody::{
-    self, CipherFailure, CustodyRefused, ENVELOPE_LEN, IV_LEN, KeyRef, RecordRefused,
+    self, CipherFailure, CustodyRefused, ENVELOPE_LEN, IV_LEN, KeyRef, RecordName, RecordRefused,
     RecoveryCause, SEALED_LEN, Sealed, Seed, SeedCipher, UnlockRefused,
 };
 
@@ -1185,6 +1185,211 @@ fn restore_asks_whose_record_it_is_whatever_its_mode_or_header() {
     // The provision, and the restore over the damaged header (whose record
     // cannot open); the restore over the 0644 record kept it, opening.
     assert_eq!(cipher.seals(), 2, "nothing sealed but those two");
+}
+
+/// A record present but naming nobody -- its `PeerId` field empty, too
+/// long, not UTF-8 or not a `PeerId` -- is an established profile's, not
+/// "no record" (android-key-custody.md, Recovery): restore refuses it,
+/// writing and sealing nothing, even for the phrase of the identity the
+/// field once named. The controls: the same restore over its own record,
+/// and with no record at all, proceed.
+#[test]
+fn restore_refuses_a_record_naming_nobody_and_writes_nothing() {
+    let (mnemonic, frozen) = vectors().remove(0);
+    let own = TransportIdentity::parse(frozen.clone()).expect("peer");
+    let phrase = RecoveryPhrase::parse(&mnemonic).expect("phrase");
+    let policy = KeyUnlockPolicy::BackgroundCompatible;
+
+    let app = new_app();
+    let cipher = SoftCipher::default();
+    custody::provision(&app.paths, &cipher, &identity(&mnemonic), policy).expect("stored");
+    let good = record(&app);
+    let envelope = &good[..ENVELOPE_LEN];
+    let with = |field: &[u8]| [envelope, field].concat();
+    let nameless: [(&str, Vec<u8>); 6] = [
+        ("an empty file", Vec::new()),
+        ("an envelope with no field", envelope.to_vec()),
+        ("a field too long", with(frozen.repeat(3).as_bytes())),
+        ("a field not UTF-8", with(&[0xff; 52])),
+        ("a field not a PeerId", with(b"not-a-peer-id")),
+        ("a field one byte short", with(&frozen.as_bytes()[1..])),
+    ];
+    for (what, bytes) in nameless {
+        put(&app, &bytes);
+        assert_eq!(
+            custody::named_identity(&app.paths).expect("read"),
+            RecordName::Nobody,
+            "{what}: the reader agrees"
+        );
+        assert!(
+            matches!(
+                custody::restore(&app.paths, &cipher, &phrase, &own, policy),
+                Err(CustodyRefused::RecordNamesNobody)
+            ),
+            "{what}"
+        );
+        assert_eq!(record(&app), bytes, "{what}: nothing written");
+    }
+    assert_eq!(cipher.seals(), 1, "nothing sealed but the provision");
+
+    // The controls: its own record is restored over, kept as it opens...
+    put(&app, &good);
+    custody::restore(&app.paths, &cipher, &phrase, &own, policy).expect("its own record");
+    assert_eq!(record(&app), good);
+    // ...and with no record, the phrase restores the identity it derives.
+    std::fs::remove_file(custody::custody_file(&app.paths)).expect("removed");
+    custody::restore(&app.paths, &cipher, &phrase, &own, policy).expect("no record");
+    assert_eq!(cipher.seals(), 2);
+    assert_eq!(
+        peer_of(&custody::unlock(&app.paths, &cipher).expect("opens")),
+        frozen
+    );
+}
+
+/// `named_identity` reads the `PeerId` field whatever the envelope's
+/// state: a damaged magic, version, policy or length, or a record readable
+/// by others, still names its `PeerId` -- where `recorded_identity`
+/// answers the refusal (the contrast) -- and restore accepts the phrase
+/// deriving it. No record is `Absent`; a link is an error, not a name.
+#[test]
+fn named_identity_reads_the_field_whatever_the_envelope_state() {
+    let (mnemonic, frozen) = vectors().remove(0);
+    let own = TransportIdentity::parse(frozen.clone()).expect("peer");
+    let phrase = RecoveryPhrase::parse(&mnemonic).expect("phrase");
+    let policy = KeyUnlockPolicy::BackgroundCompatible;
+    let app = new_app();
+    let cipher = SoftCipher::default();
+    assert_eq!(
+        custody::named_identity(&app.paths).expect("read"),
+        RecordName::Absent
+    );
+
+    custody::provision(&app.paths, &cipher, &identity(&mnemonic), policy).expect("stored");
+    let good = record(&app);
+    assert_eq!(
+        custody::named_identity(&app.paths).expect("read"),
+        RecordName::Names(own.clone())
+    );
+    // The magic's first and last bytes, the version and the policy: each
+    // refused for its shape, each leaving the field where it was.
+    for at in [0, 3, 4, 5] {
+        let mut damaged = good.clone();
+        damaged[at] ^= 0x40;
+        put(&app, &damaged);
+        assert!(
+            custody::recorded_identity(&app.paths).is_err(),
+            "byte {at}: the shape reader refuses it"
+        );
+        assert_eq!(
+            custody::named_identity(&app.paths).expect("read"),
+            RecordName::Names(own.clone()),
+            "byte {at}"
+        );
+    }
+    put(&app, &good);
+    let path = custody::custody_file(&app.paths);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+    assert!(custody::recorded_identity(&app.paths).is_err(), "0644");
+    assert_eq!(
+        custody::named_identity(&app.paths).expect("read"),
+        RecordName::Names(own.clone()),
+        "0644"
+    );
+    custody::restore(&app.paths, &cipher, &phrase, &own, policy).expect("the phrase it names");
+
+    let real = path.with_extension("real");
+    std::fs::rename(&path, &real).expect("move");
+    std::os::unix::fs::symlink(&real, &path).expect("link");
+    assert!(
+        custody::named_identity(&app.paths).is_err(),
+        "a link names nobody known"
+    );
+}
+
+/// The recovery flow holds the profile lock from the first word to the
+/// seal: `provision_held` and `restore_held` seal under the lock handed
+/// in, where `provision` and `restore` are refused by it (the control
+/// that it is held), and the lock is never released -- still held after
+/// each call, refused ones included, so a refusal is retried under the
+/// same lock, until the flow drops it. Another profile's lock is refused,
+/// writing and sealing nothing, before its own is accepted.
+#[test]
+fn a_held_lock_is_sealed_under_and_never_released() {
+    let (mnemonic, frozen) = vectors().remove(0);
+    let own = TransportIdentity::parse(frozen.clone()).expect("peer");
+    let phrase = RecoveryPhrase::parse(&mnemonic).expect("phrase");
+    let policy = KeyUnlockPolicy::BackgroundCompatible;
+    let app = new_app();
+    let cipher = SoftCipher::default();
+    let still_held = |what: &str| {
+        assert!(ProfileLock::is_held(&app.paths).expect("asked"), "{what}");
+        assert!(
+            ProfileLock::acquire(&app.paths, Duration::ZERO).is_err(),
+            "{what}: no one else takes it"
+        );
+    };
+
+    let other = app.profile("home");
+    let theirs = ProfileLock::acquire(&other, Duration::ZERO).expect("another profile's");
+    assert!(matches!(
+        custody::provision_held(&app.paths, &theirs, &cipher, &identity(&mnemonic), policy),
+        Err(CustodyRefused::LockOfAnotherProfile)
+    ));
+    assert!(matches!(
+        custody::restore_held(&app.paths, &theirs, &cipher, &phrase, &own, policy),
+        Err(CustodyRefused::LockOfAnotherProfile)
+    ));
+    assert_eq!(
+        custody::named_identity(&app.paths).expect("read"),
+        RecordName::Absent,
+        "nothing written under another's lock"
+    );
+    assert_eq!(cipher.seals(), 0);
+    drop(theirs);
+
+    let held = ProfileLock::acquire(&app.paths, Duration::ZERO).expect("the flow's");
+    assert!(matches!(
+        custody::provision(&app.paths, &cipher, &identity(&mnemonic), policy),
+        Err(CustodyRefused::ProfileLocked)
+    ));
+    custody::provision_held(&app.paths, &held, &cipher, &identity(&mnemonic), policy)
+        .expect("provisioned under the held lock");
+    still_held("after provision_held");
+
+    // A refusal under the held lock leaves the flow holding it: a refused
+    // provision, then a refused restore, then the retry -- the same lock,
+    // no ProfileLocked in between.
+    assert!(matches!(
+        custody::provision_held(&app.paths, &held, &cipher, &identity(&mnemonic), policy),
+        Err(CustodyRefused::AlreadyProvisioned)
+    ));
+    still_held("after a refused provision_held");
+    put(&app, &[]);
+    assert!(matches!(
+        custody::restore_held(&app.paths, &held, &cipher, &phrase, &own, policy),
+        Err(CustodyRefused::RecordNamesNobody)
+    ));
+    still_held("after a refused restore_held");
+
+    std::fs::remove_file(custody::custody_file(&app.paths)).expect("removed");
+    assert!(matches!(
+        custody::restore(&app.paths, &cipher, &phrase, &own, policy),
+        Err(CustodyRefused::ProfileLocked)
+    ));
+    custody::restore_held(&app.paths, &held, &cipher, &phrase, &own, policy)
+        .expect("the retry, under the same lock");
+    still_held("after restore_held");
+    assert_eq!(cipher.seals(), 2);
+
+    drop(held);
+    assert!(
+        !ProfileLock::is_held(&app.paths).expect("asked"),
+        "released only when the flow drops it"
+    );
+    assert_eq!(
+        peer_of(&custody::unlock(&app.paths, &cipher).expect("opens")),
+        frozen
+    );
 }
 
 /// One alias per profile and policy: two profiles' aliases never meet,
