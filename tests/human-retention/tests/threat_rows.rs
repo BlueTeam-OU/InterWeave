@@ -387,11 +387,15 @@ async fn tm_46_a_device_restored_from_backup_sends_nothing_the_original_had_pend
             .await
             .expect("committed");
         sender.tick(0).await;
+        let pending = sender.store_mut().pending_outbound().expect("read");
         assert_eq!(
-            sender.store_mut().pending_outbound().expect("read").len(),
+            pending.len(),
             1,
             "the failed attempt leaves the send pending"
         );
+        // Attempted, so the injected failure was spent here and cannot
+        // carry into the control run below.
+        assert_eq!(pending[0].attempts, 1, "attempted once");
         sender.close().await;
     }
 

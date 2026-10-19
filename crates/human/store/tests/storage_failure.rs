@@ -234,7 +234,7 @@ fn a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every
     let error = HumanStore::open(&path, StoreOptions::default())
         .expect_err("a migration that cannot apply refuses the open");
     assert!(
-        matches!(&error, StoreError::Migration(m) if m.contains("read_pairs")),
+        matches!(&error, StoreError::Migration(m) if m.contains("already an index named read_pairs")),
         "{error:?}"
     );
     assert!(error.needs_recovery(), "{error:?}");
