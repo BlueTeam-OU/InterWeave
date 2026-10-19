@@ -351,9 +351,11 @@ comparison a matter of groups, not of single characters.
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
 | Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen before the operation, never by the service. Cancelled or denied: nothing shown and no error. C4 and the restores stay on their screen with the words kept, and nothing is committed. S2's Done drops the words and returns to Settings offline; connectivity and the profile's user-presence diagnostic say why (`android-key-custody.md`, Unlock policies) | The primary action again, or Back |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
-| A refused write: read back first | C4's continue (the seal), R3's yes, R2's check after K1 | Any refusal of a write (`Storage`, `OldKeyRemains`, `AlreadyProvisioned`) may come after the record was written: a directory sync or a key retire can fail after the publish (`persist.rs`, custody's `provision`). So the screen reads the record back (`recorded_identity`) before it shows anything. If the record now holds the PeerId the person just saw or confirmed, it is success, whatever the refusal said: C4 and the restores go on as below, and the app retries the retire at its next start (`reseal`), with one diagnostic line and never a word. Only when it does not is the refusal shown, as the next two rows say | — |
-| Storage fails (`Unavailable`, a write error), and the read-back holds no record | Where the write runs (above). R4 shows only after a restore succeeded | A notice (`IdStorageFailed`): nothing was changed, which the read-back has shown, with Try again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
-| Another first run sealed first (`AlreadyProvisioned`), and the read-back holds another PeerId | C4's continue | `IdAlreadyCreated` on C4: the words just shown were not used. Continue then opens the identity the phone holds | Continue |
+| A refused write: read back first | C4's continue (the seal), R3's yes, R2's check after K1 | Any refusal of a write (`Storage`, `OldKeyRemains`, `AlreadyProvisioned`, or another) may come after the record was written: a directory sync or a key retire can fail after the publish (`persist.rs`, custody's `provision`). So the screen reads the record back (`recorded_identity`) before it shows anything. What it shows then depends only on what the read-back finds, whatever the refusal said, in the four rows below. Together they cover every case | — |
+| Read-back: the PeerId just shown or confirmed | as above | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
+| Read-back: no record | as above | `IdStorageFailed`: nothing was changed, which the read-back has shown, with Try again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
+| Read-back: another PeerId | as above | At C4: `IdAlreadyCreated`, the words just shown were not used; Continue opens the identity the phone holds. At a restore: the restore is not shown as done. The app goes to its normal start, which opens that identity or shows K1 for it | Continue |
+| Read-back fails (the record cannot be read) | as above | `IdStorageUnknown`: the app cannot tell whether the identity was saved. Try again reads back again before writing again. Entered words stay while the screen is open | Try again, or Back (words dropped) |
 | The record names another identity, or is unreadable (`RecordNamesOther`, `Unreadable`) | R2's check after K1 | Not reachable: K1 offers R2 only with the record's own PeerId (§3.4). If a build reaches it, `IdOtherIdentity` with nothing restored | Back |
 | Success | C4 after its seal; R4 after a restore | The PeerId, and continue | Continue |
 
@@ -435,6 +437,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdShowWords` | Show my words | C1's primary |
 | `IdNotWalletSeed` (new) | InterWeave identity recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen: 68 characters. The contract's label also says "transport"; it is left out as a word the person does not know |
 | `IdFormatLine` (new) | Phrase format: | C2 and S2, before the untranslated format identifier (§3.2), one line. "Phrase format" says whose format it is; a bare "Format" could be read as the screen's layout. The label stands alone before a value, so a translation needs no template |
+| `IdStorageUnknown` (new, pending language-culture) | §6: the app cannot tell whether the identity was saved; try again. Never "nothing was changed" | Two lines |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
 | `IdPeerIdLabel` | Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share. | The PeerId's label (§5) on C2 and S2, where the person writes |
 | `IdPeerIdLabelShown` (new) | Your PeerId. It is the one on your paper. It is not a password, and it is safe to share. | The PeerId's label on C4 and R4, where the person has already written it. One label cannot be true on both kinds of screen |
@@ -488,8 +491,8 @@ names are suggestions; rust-ui-dev names them.
 Against the list the proposal gave: `IdC1Points` is six keys, one per
 point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
 `IdExpectedPeerId`, `IdDerivedPeerId`, `IdAlreadyCreated`,
-`IdQTitleNoPath`, `IdQReasonNoPath`, `IdQNoPath`, `IdNotWalletSeed` and
-`IdFormatLine` are added. `IdTryAgain` and
+`IdQTitleNoPath`, `IdQReasonNoPath`, `IdQNoPath`, `IdNotWalletSeed`,
+`IdFormatLine` and `IdStorageUnknown` are added. `IdTryAgain` and
 `IdRetry` are both `TryAgain`. `IdKeepEntering` is
 `IdContinueEntering`.
 
@@ -561,7 +564,8 @@ landscape:
     word. Leaving S2 and returning to the same instance shows the
     words with no new prompt.
 12. Profile busy and storage failure, by rust-ui-dev's test hooks, show
-    §6's notices. Try again works, and Back leaves with nothing changed.
+    §6's notices. A refused write whose read-back fails (a hook) shows
+    `IdStorageUnknown`, never "nothing was changed". Try again works, and Back leaves with nothing changed.
 13. At 200 % on the Pixel 9a, R2's keypad, suggestions and primary
     action fit without scrolling, and no word is cut.
 14. Every key and chip is at least 48 dp tall. Keys are at least 28 dp
