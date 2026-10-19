@@ -751,8 +751,9 @@ fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
     let mut first = attach(&service);
     let mut held = Vec::new();
     until(&mut first, &mut held, "a ready session", is_ready);
-    // A peer nobody knows: every attempt fails, and is retried later and
-    // later or left for the person.
+    // A peer this profile does not trust: the send needs the person and
+    // the facade never retries it, so after this no event can stand in
+    // for the late view's replay (#309 round 2, risk).
     let stranger = interweave_profile_identity::ProfileIdentity::generate()
         .transport_identity()
         .expect("a PeerId");
@@ -763,12 +764,7 @@ fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
         },
         draft: "to nobody".to_owned(),
     }));
-    // Until its next attempt is seconds away, or none is due.
-    let settled = |status: &OutboundStatus| match status {
-        OutboundStatus::Sending { attempts, .. } => *attempts >= 3,
-        OutboundStatus::Unconfirmed { .. } | OutboundStatus::NeedsAttention { .. } => true,
-        _ => false,
-    };
+    let settled = |status: &OutboundStatus| matches!(status, OutboundStatus::NeedsAttention { .. });
     let mut row = None;
     until(&mut first, &mut held, "a settled pending row", |message| {
         if let ToView::Update(update) = message

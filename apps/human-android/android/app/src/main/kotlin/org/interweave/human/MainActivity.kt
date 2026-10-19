@@ -56,6 +56,17 @@ class MainActivity : NativeActivity() {
     @Volatile private var phraseShown = false
 
     override fun onStart() {
+        // Before super.onStart(), which waits for the window's thread to
+        // take the Start; that thread waits for this answer before it
+        // chooses between the identity screens and the chats (onboard.rs).
+        // After it, each would wait on the other (#309 review N1).
+        val identity =
+            if (identityReady) Native.IDENTITY_READY else Native.identityState(applicationInfo.dataDir)
+        if (identity != Native.IDENTITY_READY) {
+            // Before the window can draw a word: the flow's whole length,
+            // cleared once a frame without it was drawn (#309 F3).
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
         super.onStart()
         shown = true
         Thread({ relayAsks() }, "interweave-network-ask").start()
@@ -80,19 +91,11 @@ class MainActivity : NativeActivity() {
         // The identity screens' asks: a first run's or a recovery's before
         // the service, Show my phrase's from Settings after it.
         Thread({ relayIdentity() }, "interweave-identity").start()
-        if (!identityReady) {
-            // The identity screens come before the service: a profile with
-            // no identity, or one the phone lost, binds nothing until the
-            // screens say the identity is ready (onboard.rs).
-            if (Native.identityState(applicationInfo.dataDir) != Native.IDENTITY_READY) {
-                // Before the window can draw a word: the flow's whole
-                // length, cleared once a frame without it was drawn
-                // (onboard.rs, #309 F3).
-                window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                return
-            }
-            identityReady = true
-        }
+        // The identity screens come before the service: a profile with no
+        // identity, or one the phone lost, binds nothing until the screens
+        // say the identity is ready (onboard.rs).
+        if (identity != Native.IDENTITY_READY) return
+        identityReady = true
         if (!phraseShown) connect()
     }
 

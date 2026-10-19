@@ -981,10 +981,13 @@ impl View {
         }
     }
 
-    /// Run `task` once a frame drawn after this call has reached the
-    /// screen: what is cleared then, as a secure flag, was off screen by
-    /// then. A redraw is asked for. False, and `task` dropped unrun, when
-    /// the renderer cannot say when it drew (the testing backend).
+    /// Run `task` once a frame rendered after this call has been handed to
+    /// the display: what is cleared then, as a secure flag, is off the
+    /// screen's next frame. Slint's `AfterRendering` comes before the
+    /// buffer swap, so the task waits for the event loop's next turn,
+    /// which the render's swap precedes on this thread (#309 review N3).
+    /// A redraw is asked for. False, and `task` dropped unrun, when the
+    /// renderer cannot say when it rendered (the testing backend).
     pub fn after_next_frame(&mut self, task: impl FnOnce() + 'static) -> bool {
         if self.frame_tasks.is_none() {
             let tasks: FrameTasks = Rc::new(RefCell::new(Vec::new()));
@@ -993,8 +996,12 @@ impl View {
                 move |state, _| {
                     if matches!(state, slint::RenderingState::AfterRendering) {
                         let due: Vec<_> = queued.borrow_mut().drain(..).collect();
-                        for task in due {
-                            task();
+                        if !due.is_empty() {
+                            slint::Timer::single_shot(Duration::ZERO, move || {
+                                for task in due {
+                                    task();
+                                }
+                            });
                         }
                     }
                 },

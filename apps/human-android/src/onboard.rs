@@ -88,6 +88,16 @@ impl Asks {
         self.changed.notify_all();
     }
 
+    /// Drop what waits: asks an earlier Activity instance left unread
+    /// belong to its window, and a late `SECURE_OFF` would clear the new
+    /// window's flag while its flow runs (#309 review, risk).
+    fn clear(&self) {
+        self.queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+    }
+
     /// The next ask within `timeout`, or 0.
     pub(crate) fn wait(&self, timeout: Duration) -> jni::sys::jint {
         let queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
@@ -126,6 +136,9 @@ const PLATFORM_WAIT: Duration = Duration::from_secs(10);
 /// the flow starts. Any other refusal is the service's to report, as it
 /// does today, so it reads as ready.
 pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> jni::sys::jint {
+    // Called by onStart before its relay thread starts: whatever an
+    // earlier instance left in the queue is no longer anyone's.
+    ASKS.clear();
     let found = interweave_human_android_platform::start_identity(
         &app_data_dir,
         PROFILE,
@@ -374,7 +387,12 @@ pub(crate) fn offline(stopped: bool) {
                 .as_mut()
                 .map(|o| {
                     let outcome = if stopped {
-                        onboarding::hold(&o.app_data_dir, PROFILE)
+                        // A Try again after a failed read keeps the lock
+                        // the first attempt took: taking it again in this
+                        // process would be refused as Busy.
+                        o.lock
+                            .take()
+                            .map_or_else(|| onboarding::hold(&o.app_data_dir, PROFILE), Ok)
                             .and_then(|lock| {
                                 o.lock = Some(lock);
                                 onboarding::shown_phrase(

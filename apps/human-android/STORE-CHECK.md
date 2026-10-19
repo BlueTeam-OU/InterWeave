@@ -122,7 +122,8 @@ ADR-0057 decision 2. Checked 2026-10-19 over all three lockfiles
 (`buildscript-gradle.lockfile`'s `classpath`: the Android Gradle
 plugin's `com.google.auto.value`, `code.findbugs`, `code.gson`,
 `crypto.tink`, `dagger`, `errorprone`, `flatbuffers`, `guava`,
-`jimfs` and `protobuf` groups, and `com.googlecode.juniversalchardet`),
+`j2objc`, `jimfs` and `protobuf` groups, and
+`com.googlecode.juniversalchardet`),
 on `androidLintTool` and on the test platform, never on a runtime
 classpath. On every change it is held by
 `tools/checks/check_android_no_play_services.sh`, the lockfile guard
