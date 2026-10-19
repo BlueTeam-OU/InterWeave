@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <!-- API 33+: posting the Stay-reachable and new-message notifications. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The prompt before the recovery phrase is shown on demand
+         (android-key-custody.md). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!-- No fullBackupContent: below Android 12 (minSdk 30) allowBackup
          "false" turns off cloud backup and device-to-device transfer alike,

@@ -4,6 +4,10 @@ package org.interweave.human
 
 import android.Manifest
 import android.app.NativeActivity
+import android.hardware.biometrics.BiometricManager.Authenticators
+import android.hardware.biometrics.BiometricPrompt
+import android.os.CancellationSignal
+import android.view.WindowManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -51,6 +55,21 @@ class MainActivity : NativeActivity() {
         window.decorView.viewTreeObserver.addOnGlobalLayoutListener(layout)
         watchSettings(true)
         touch()
+        if (!identityReady) {
+            // The identity screens come before the service: a profile with
+            // no identity, or one the phone lost, binds nothing until the
+            // screens say the identity is ready (onboard.rs).
+            if (Native.identityState(applicationInfo.dataDir) != Native.IDENTITY_READY) {
+                Thread({ relayIdentity() }, "interweave-identity").start()
+                return
+            }
+            identityReady = true
+        }
+        connect()
+    }
+
+    /** Bind the network service, asking for access first where needed. */
+    private fun connect() {
         if (bound) return
         when {
             networkGranted() -> {
@@ -217,6 +236,49 @@ class MainActivity : NativeActivity() {
         }
     }
 
+    /** What the identity screens ask, carried out on the main thread. */
+    private fun relayIdentity() {
+        while (shown && !identityReady) {
+            when (Native.waitIdentityAsk(ASK_WAIT_MS)) {
+                // FLAG_SECURE for as long as a word is on screen: no
+                // screenshot, no recents thumbnail (android-key-custody.md).
+                Ask.SECURE_ON -> runOnUiThread { window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+                Ask.SECURE_OFF -> runOnUiThread { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+                Ask.PROMPT -> runOnUiThread { prompt() }
+                Ask.BIND -> {
+                    identityReady = true
+                    runOnUiThread { connect() }
+                }
+                Ask.FINISH -> runOnUiThread { finish() }
+            }
+        }
+    }
+
+    /**
+     * The device credential or a strong biometric, whatever the profile's
+     * unlock policy, before the phrase is shown on demand (ADR-0042, the
+     * custody doc). A cancel or an error shows nothing.
+     */
+    private fun prompt() {
+        BiometricPrompt.Builder(this)
+            .setTitle(Native.text(Text.PHRASE_PROMPT_TITLE, 0))
+            .setAllowedAuthenticators(Authenticators.BIOMETRIC_STRONG or Authenticators.DEVICE_CREDENTIAL)
+            .build()
+            .authenticate(
+                CancellationSignal(),
+                mainExecutor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
+                        Native.prompted(true)
+                    }
+
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                        Native.prompted(false)
+                    }
+                },
+            )
+    }
+
     /** The window's "Allow network access", carried out on the main thread. */
     private fun relayAsks() {
         while (shown) {
@@ -288,6 +350,10 @@ class MainActivity : NativeActivity() {
         // The binding is the application's, not an Activity instance's,
         // so it can outlive one instance and pass to the next.
         private var bound = false
+
+        // The identity opened, or the identity screens finished: the
+        // service may be bound. The process's, as the binding is.
+        @Volatile private var identityReady = false
         @Volatile private var local: NetworkService.Local? = null
         private val connection =
             object : ServiceConnection {

@@ -14,6 +14,7 @@ mod e2e;
 mod jni;
 #[cfg(target_os = "android")]
 mod keystore;
+mod onboard;
 // On every target, so the host tests the filter the phone writes with.
 #[cfg_attr(
     not(target_os = "android"),

@@ -262,7 +262,19 @@ fn android_main(app: AndroidApp) {
     view.set_wake(|| defer(turn));
     view.on_haptic(|| HAPTIC.raise());
     let view = Rc::new(RefCell::new(view));
-    ROOT.with(|root| *root.borrow_mut() = Some(Root::attach(view)));
+    // No identity yet, or one the phone lost: the identity screens first,
+    // and the chats attach once the flow hands over (onboard.rs).
+    let attach = {
+        let view = Rc::clone(&view);
+        move || {
+            let view = Rc::clone(&view);
+            ROOT.with(|root| *root.borrow_mut() = Some(Root::attach(view)));
+            defer(turn);
+        }
+    };
+    if !crate::onboard::start(&view, attach.clone()) {
+        attach();
+    }
     // Values the Activity read before this window existed.
     defer(apply_touch);
     defer(turn);
