@@ -13,18 +13,19 @@ origin:
     working_copy: interweave
 derived_from:
   - 42a3dfc7b9e5800f
+  - 85571680f6a71963
 ---
 
 ## how to run a recorded acceptance pass of the InterWeave Android client on the Pixel by adb: real rows from host peers, evidence, redaction, traps (j88, 2026-10-16)
 
-Learned running swipe spec §11 on the Pixel 9a for j88 (evidence in [host path]).
+Learned running swipe spec §11 on the Pixel 9a for j88 (its findings landed as InterWeave #292; the run's local evidence directory did not survive the 2026-10-17 /var/tmp wipe).
 
 **Real rows of every kind.** I used a scratch, uncommitted `#[ignore]` test in tests/android-e2e. Its parts:
 - `AdbDevice::connect` and two `Desktop` daemons.
 - `relayed_example_of("human-android.yaml", ...)`, given both static routes joined with `", "` (`concrete` quotes the one route it is given).
 - `phone.reach` for each port.
 - A loop reading `send <i> <text>`, `stop <i>`, `start <i>` and `quit` from a file.
-- The phone keeps its data (`adb install -r`; no `pm clear`). Kind C = stop the daemon, then send from the phone. Kind D lasts only for the session.
+- The phone keeps its data (install with `adb install -r` run through `.agent-fabric/bin/phone-run`, never raw adb; no `pm clear`). Kind C = stop the daemon, then send from the phone. Kind D lasts only for the session.
 - A HumanChatV2 `app_message_id` must be 32 hex characters; anything else is refused as `InvalidEnvelope`.
 
 **Evidence.**

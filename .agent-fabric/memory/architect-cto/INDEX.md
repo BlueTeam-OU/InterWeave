@@ -40,6 +40,15 @@ control plane checked out beside it.
 
 - [`.agent-fabric/memory/architect-cto/rationale.md`](.agent-fabric/memory/architect-cto/rationale.md) — Android accessibility (j141): the owner's 2026-10-18 decision — TalkBack carried to the release gate, the AccessKit bridge built after everything else — and the facts the next step rests on
 
+## workflow
+
+- [`.agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md`](.agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md) — architect-cto is commits.boundary_authority for BlueTeam-OU/agent-fabric-gateway (and agent-fabric): how an arm-below-minimum REQUEST is judged and answered, and that the AUTHORIZES DECISION send passes auto mode since 2026-10-19
+- [`.agent-fabric/memory/architect-cto/workflow/rustsec-zbus-family-ignores-and-arming-below-minimum.md`](.agent-fabric/memory/architect-cto/workflow/rustsec-zbus-family-ignores-and-arming-below-minimum.md) — The 2026-10-18 CI outage on InterWeave (zbus-family RustSec unmaintained advisories) and what landing #297 taught about folding a supply, the deny.toml boundary, and the architect-cto AUTHORIZES send
+
+## threads
+
+- [`.agent-fabric/memory/architect-cto/threads.md`](.agent-fabric/memory/architect-cto/threads.md) — Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)
+
 ## recall
 
 - [`../agent-fabric/identities/roles/architect-cto/recall.md`](../agent-fabric/identities/roles/architect-cto/recall.md) — Where architect-cto's knowledge lives — charter, remit, distilled slices, this agent's memory — and how to trace a claim to its sources.

@@ -12,6 +12,7 @@ origin:
     project: interweave
     working_copy: interweave
 derived_from:
+  - 395dc9566d3fa2a8
   - a4864a6089350af5
 ---
 
@@ -33,7 +34,8 @@ swipe spec §7 still names one swipe-on-fill for all four fills — change it on
 
 2026-10-17 04:15Z: #293 merged (62cbce3a) on the owner's "arm 293". Handed to rust-ui-dev-01 to build (REQUEST 01a14813-2baa); my device review follows their install.
 2026-10-17: ruled B on rust-ui-dev-01's QUESTION 01a14816-d3a1 (list times): English words via labels.rs (weekdays, months, date and AM/PM templates, language-culture-en finalises) plus the phone's 12/24-hour setting (DateFormat.is24HourFormat). TODO: amend android-look §5.2 and §9 to say so, on the for/ branch once #286 has merged (needs main's copy of the file).
+- 2026-10-18 j22: #300 (025bb324 + language-culture-en F1-F3 + round 1) answered at 0f7db13d on for/user/swipe-followups (REPLY 01a150d4-67a3); separator names the day as the list does.
 
 *References: focus-table-in-spec, swipe-actions-j1*
 
-*Observed 2026-10-17 (ux-designer)*
+*Observed 2026-10-18 (ux-designer)*

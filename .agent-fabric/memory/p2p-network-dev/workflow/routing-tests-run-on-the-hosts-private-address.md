@@ -2,7 +2,7 @@
 role: "p2p-network-dev"
 class: workflow
 topic: "routing-tests-run-on-the-hosts-private-address"
-description: "ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its…"
+description: "ADR-0052 loopback refusal means routing tests listen on the host's private address — corrected without the private-range literal the hygiene lint refuses"
 tier: 1
 knowledge_scope: full
 distilled_at: "2026-10-18"

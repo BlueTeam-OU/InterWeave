@@ -13,17 +13,6 @@
     },
     {
       "agent": "rust-ui-dev-01",
-      "applied_key": "c99b64475aec1ccb",
-      "heading": "SPIKE-008/009 test device (Samsung A40, adb over network) and its baseline facts; toolchain provisioning is devex-tooling's",
-      "host": "develop-qzapp",
-      "memory": "android-spike-device",
-      "replaced": "SPIKE-008/009 test device: no StrongBox, Smart Switch path, no emulator (no /dev/kvm), release after use; the owner unlocks it",
-      "replaced_key": "47e11b00549e784e",
-      "slice": ".agent-fabric/memory/rust-ui-dev/solution/android-spike-device.md",
-      "stamp": "2026-10-18"
-    },
-    {
-      "agent": "rust-ui-dev-01",
       "applied_key": "0a958baf5d182ebc",
       "heading": "every Pixel run goes through the remit's .agent-fabric/bin/phone-run (own lease, own adb server, nothing left); never adb on the shared port 5037; how a lost pairing looks",
       "host": "develop-qzapp",
@@ -31,6 +20,17 @@
       "replaced": "when device testing ends, run adb disconnect and adb kill-server so the shared Android phone is free",
       "replaced_key": "4b4a7ee7f76de9af",
       "slice": ".agent-fabric/memory/rust-ui-dev/workflow/release-phone-after-testing.md",
+      "stamp": "2026-10-18"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "applied_key": "80481301b95e43cb",
+      "heading": "The two Android test devices (Samsung A40 of SPIKE-008/009, Pixel 9a for API 34+) and the facts a device run depends on; toolchain provisioning is devex-tooling's",
+      "host": "develop-qzapp",
+      "memory": "android-spike-device",
+      "replaced": "SPIKE-008/009 test device: no StrongBox, Smart Switch path, no emulator (no /dev/kvm), release after use; the owner unlocks it",
+      "replaced_key": "47e11b00549e784e",
+      "slice": ".agent-fabric/memory/rust-ui-dev/solution/android-spike-device.md",
       "stamp": "2026-10-18"
     }
   ],
@@ -144,6 +144,82 @@
       "key": "p2p-network-dev/workflow:independent-codecs-lessons#writing an \"independent\" codec from contract text — what it finds, how to keep it independent, how to compare it with production",
       "observed_at": "2026-10-15",
       "rule": "same-agent"
+    },
+    {
+      "agent": "language-culture-en",
+      "decision": "supersede",
+      "key": "language-culture/workflow:holder-addenda-installed#My English-holder charter and brief addenda (agent-fabric ADR-060) live in my store, not the shared charter; edit them through fabric-coordinator",
+      "observed_at": "2026-10-19",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/workflow:desktop-e2e-stale-binary#desktop-e2e runs whatever human-desktop binary sits in target/ -- rebuild it before a package-only test run or a mutation check",
+      "observed_at": "2026-10-04",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/workflow:device-review-run-method#how to run a recorded acceptance pass of the InterWeave Android client on the Pixel by adb: real rows from host peers, evidence, redaction, traps (j88, 2026-10-16)",
+      "observed_at": "2026-10-16",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:j88-device-review-run#j88 delivered 2026-10-16: Pixel 9a recorded run of swipe spec §11 on main 761d72b3; results, findings now j90, where the evidence is",
+      "observed_at": "2026-10-16",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:j97-accesskit-prototype#j97 (2026-10-17): app-side AccessKit adapter prototype for Android built, two APKs (unpatched / hover-patched) waiting for the Pixel; what is measured and what is not",
+      "observed_at": "2026-10-17",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:j98-android-look#j98 (2026-10-17): build design/2026-10-16-android-look.md (ux-designer-01 REQUEST 01a14813); what I promised and where it must land",
+      "observed_at": "2026-10-17",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:owner-finds-ui-ugly#Owner judged the Android client \"aesthetically very bad\" (2026-10-18) while the pre-j98 build was on the Pixel",
+      "observed_at": "2026-10-18",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:stage-15-b9-trust#Stage 15 B9 trust settings + gate (b) + B8 carry -- branch feat/stage-15-trust, what landed where, evidence levels, open asks",
+      "observed_at": "2026-10-19",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/threads:ui-slint-stage15-carry#What I inherit in crates/human/ui-slint at Stage 15 from PR #170 — the root's drain contract and carried P3s; read before writing apps/human-desktop's root or first touching ui-slint",
+      "observed_at": "2026-10-19",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "ux-designer-01",
+      "decision": "supersede",
+      "key": "ux-designer/threads:android-look-proposal#Owner asked (2026-10-16) for the Android client to look like an Android app with colour, not a prebeta; Material 3 proposal awaiting owner decisions",
+      "observed_at": "2026-10-18",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "p2p-network-dev-01",
+      "decision": "drop",
+      "key": "p2p-network-dev/workflow:routing-tests-run-on-the-hosts-private-address#ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks@d9a46bca68fa",
+      "observed_at": "2026-09-25"
     },
     {
       "agent": "p2p-network-dev-02",
@@ -389,25 +465,40 @@
     ".agent-fabric/memory/p2p-network-dev/workflow/no-sha-before-commit.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/own-store-never-by-hand.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/pkill-f-kills-own-shell.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/routing-tests-private-address-reworded.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/run-whole-crate-not-a-filter.md",
-    ".agent-fabric/memory/p2p-network-dev/workflow/workflow-to-role-finding-goes-to-the-holder-in-the-crate.md"
+    ".agent-fabric/memory/p2p-network-dev/workflow/workflow-to-role-finding-goes-to-the-holder-in-the-crate.md",
+    ".agent-fabric/memory/architect-cto/threads.md",
+    ".agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md",
+    ".agent-fabric/memory/architect-cto/workflow/rustsec-zbus-family-ignores-and-arming-below-minimum.md",
+    ".agent-fabric/memory/ux-designer/threads/android-identity-j27.md",
+    ".agent-fabric/memory/ux-designer/threads/stage17-android-review-j26.md"
   ],
-  "files_written": 239,
+  "files_written": 243,
   "harvest": {
     "host": "develop-qzapp",
-    "in_scope": 8,
-    "next_watermark": 1792326638628,
+    "in_scope": 46,
+    "next_watermark": 1792384607566,
     "provisional_agent": 0,
-    "reflection": 1,
+    "reflection": 0,
     "since_watermark": 0,
-    "skipped_no_roles_class": []
+    "skipped_no_roles_class": [
+      "interop-stage17-scope-question.md",
+      "interweave-share-with-dev-01.md",
+      "j13-android-e2e-device.md",
+      "j14-osv-acceptance-policy.md",
+      "j17-gates-a-b-device-lines.md",
+      "j36-values-as-text-state.md",
+      "merged-pr-counts.md",
+      "pr230-ipc-client-carries.md",
+      "pr252-android-e2e-state.md",
+      "report-own-work-only.md"
+    ]
   },
   "harvest_sources": {
     "architect-cto-01@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 1,
-      "next_watermark": 1792318312249,
+      "in_scope": 4,
+      "next_watermark": 1792385807432,
       "provisional_agent": 0,
       "reflection": 0,
       "since_watermark": 0,
@@ -427,7 +518,7 @@
     "language-culture-en@develop-qzapp": {
       "host": "develop-qzapp",
       "in_scope": 9,
-      "next_watermark": 1792240632309,
+      "next_watermark": 1792386037270,
       "provisional_agent": 0,
       "reflection": 0,
       "since_watermark": 0,
@@ -462,8 +553,8 @@
     },
     "p2p-network-dev-02@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 47,
-      "next_watermark": 1792326526054,
+      "in_scope": 46,
+      "next_watermark": 1792384607566,
       "provisional_agent": 0,
       "reflection": 0,
       "since_watermark": 0,
@@ -483,7 +574,7 @@
     "rust-ui-dev-01@develop-qzapp": {
       "host": "develop-qzapp",
       "in_scope": 65,
-      "next_watermark": 1792330989011,
+      "next_watermark": 1792386073233,
       "provisional_agent": 0,
       "reflection": 3,
       "since_watermark": 0,
@@ -538,12 +629,14 @@
     },
     "ux-designer-01@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 8,
-      "next_watermark": 1792326638628,
+      "in_scope": 11,
+      "next_watermark": 1792386061416,
       "provisional_agent": 0,
       "reflection": 1,
       "since_watermark": 0,
-      "skipped_no_roles_class": []
+      "skipped_no_roles_class": [
+        "verify-for-branch-head-landed.md"
+      ]
     }
   },
   "held_back": [],
@@ -551,6 +644,22 @@
   "memory_helpful": {},
   "memory_marks": {},
   "memory_retrieval": {
+    "architect-cto-01": {
+      "finds": 7,
+      "finds_followed_by_read": 0,
+      "hosts": [
+        "develop-qzapp"
+      ],
+      "indexes": 2,
+      "marks": 0,
+      "read_through": 0.0,
+      "reads": 0,
+      "refused": 0,
+      "since_ms": 0,
+      "until_ms": 1792385444207,
+      "zero_hit_finds": 0,
+      "zero_hit_share": 0.0
+    },
     "p2p-network-dev-02": {
       "finds": 3,
       "finds_followed_by_read": 0,
@@ -585,6 +694,22 @@
     }
   },
   "memory_use": {
+    "architect-cto-01@develop-qzapp": {
+      "calls": {
+        "memory_find": 7,
+        "memory_index": 2
+      },
+      "errors": 0,
+      "finds_followed_by_read": 0,
+      "ids_read": {},
+      "marks": 0,
+      "notes_withheld": 0,
+      "since_ms": 0,
+      "unattributed_lines": 0,
+      "unreadable_lines": 0,
+      "until_ms": 1792385444207,
+      "zero_hit_finds": 0
+    },
     "p2p-network-dev-02@develop-qzapp": {
       "calls": {
         "memory_find": 3
@@ -620,7 +745,9 @@
     "p2p-network-dev/threads:correction-threads-86-gate-history#Correction to threads/threads-carried-2026-09-17.md: the --automated-only/@codex gate its #86 paragraph records was the procedure of 2026-09-10, superseded by #114; history, not current procedure: merge_target 'Correction to threads.md lines 25 and 27: the --automated-only/@codex gate they record was the procedure of 2026-09-10 and is superseded; history, not current procedure' names no section of p2p-network-dev/threads; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "p2p-network-dev/domain:domain-multistream-select-order-recheck#libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; how a \"minor bump\" of a protocol id interoperates: merge_target 'libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; how a \"minor bump\" of a protocol id interoperates' names no section of p2p-network-dev/domain; written as its own topic",
     "p2p-network-dev/domain:domain-radicle-stale-control-socket-recheck#radicle-node killed hard won't restart (stale control.sock); why --force is not the fix: merge_target \"radicle-node killed hard won't restart (stale control.sock); why --force is not the fix\" names no section of p2p-network-dev/domain; written as its own topic",
-    "p2p-network-dev/workflow:routing-tests-private-address-reworded#\"ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's pr...\" — the slice reworded with no private-network address in it: merge_target \"ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks\" names no section of p2p-network-dev/workflow; written as its own topic"
+    "p2p-network-dev/workflow:routing-tests-private-address-reworded#\"ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's pr...\" — the slice reworded with no private-network address in it: merge_target \"ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks\" names no section of p2p-network-dev/workflow; written as its own topic",
+    "rust-ui-dev/workflow:release-phone-after-testing#every Pixel run goes through the remit's .agent-fabric/bin/phone-run (own lease, own adb server, nothing left); never adb on the shared port 5037; how a lost pairing looks: merge_target 'when device testing ends, run adb disconnect and adb kill-server so the shared Android phone is free' names no section of rust-ui-dev/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "p2p-network-dev/workflow:routing-tests-run-on-the-hosts-private-address#ADR-0052 loopback refusal means routing tests listen on the host's private address — corrected without the private-range literal the hygiene lint refuses: merge_target \"ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks\" names no section of p2p-network-dev/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target"
   ],
   "migrated": [],
   "oversized_claims": [
@@ -630,7 +757,8 @@
     "p2p-network-dev/threads:stage-15-r1-r2-shapes: one claim is ~1878 tokens, over the 1800 budget; split the memory it came from",
     "rust-ui-dev/solution:android-spike-device: one claim is ~1934 tokens, over the 1800 budget; split the memory it came from",
     "rust-ui-dev/threads:j98-android-look: one claim is ~1960 tokens, over the 1800 budget; split the memory it came from",
-    "ux-designer/threads:swipe-actions-j1: one claim is ~2157 tokens, over the 1800 budget; split the memory it came from"
+    "ux-designer/threads:swipe-actions-j1: one claim is ~2157 tokens, over the 1800 budget; split the memory it came from",
+    "rust-ui-dev/threads:j98-android-look: one claim is ~1952 tokens, over the 1800 budget; split the memory it came from"
   ],
   "project": "interweave",
   "redactions": [
@@ -638,7 +766,9 @@
     "rust-ui-dev/threads:j97-accesskit-prototype body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
     "rust-ui-dev/threads:j97-accesskit-prototype body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
     "ux-designer/workflow:device-review-pixel-lease body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
-    "ux-designer/threads:swipe-actions-j1 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'"
+    "ux-designer/threads:swipe-actions-j1 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'",
+    "rust-ui-dev/threads:j97-accesskit-prototype body: one account's scratch path -- name the artifact by commit, sha and how to rebuild it -> 'a scratch path'",
+    "ux-designer/threads:stage17-android-review-j26 body: private-network address (192.168.0.0/16) -- say 'a private address' or name the role -> 'a private-network address'"
   ],
   "rejected_hygiene": [],
   "retired_in_siblings": [],
@@ -675,6 +805,21 @@
   ],
   "section_writers": {
     ".agent-fabric/memory/architect-cto/rationale.md#Android accessibility (j141): the owner's 2026-10-18 decision — TalkBack carried to the release gate, the AccessKit bridge built after everything else — and the facts the next step rests on": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-18"
+    },
+    ".agent-fabric/memory/architect-cto/threads.md#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md#architect-cto is commits.boundary_authority for BlueTeam-OU/agent-fabric-gateway (and agent-fabric): how an arm-below-minimum REQUEST is judged and answered, and that the AUTHORIZES DECISION send passes auto mode since 2026-10-19": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
+    },
+    ".agent-fabric/memory/architect-cto/workflow/rustsec-zbus-family-ignores-and-arming-below-minimum.md#The 2026-10-18 CI outage on InterWeave (zbus-family RustSec unmaintained advisories) and what landing #297 taught about folding a supply, the deny.toml boundary, and the architect-cto AUTHORIZES send": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-18"
@@ -732,7 +877,7 @@
     ".agent-fabric/memory/language-culture/workflow/holder-addenda-installed.md#My English-holder charter and brief addenda (agent-fabric ADR-060) live in my store, not the shared charter; edit them through fabric-coordinator": {
       "agent": "language-culture-en",
       "host": "develop-qzapp",
-      "observed": "2026-10-17"
+      "observed": "2026-10-19"
     },
     ".agent-fabric/memory/language-culture/workflow/keep-else-whole.md#In a spec's English pass, never reword an \"else\" branch into a narrower named condition; that changes behaviour": {
       "agent": "language-culture-en",
@@ -1229,11 +1374,6 @@
       "host": "develop-qzapp",
       "observed": "2026-09-26"
     },
-    ".agent-fabric/memory/p2p-network-dev/workflow/routing-tests-private-address-reworded.md#\"ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's pr...\" — the slice reworded with no private-network address in it": {
-      "agent": "p2p-network-dev-02",
-      "host": "develop-qzapp",
-      "observed": "2026-10-14"
-    },
     ".agent-fabric/memory/p2p-network-dev/workflow/routing-tests-run-on-the-hosts-private-address.md#ADR-0052 loopback refusal means routing tests listen on the host's private address — corrected without the private-range literal the hygiene lint refuses": {
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
@@ -1318,6 +1458,11 @@
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-18"
+    },
+    ".agent-fabric/memory/rust-ui-dev/solution/android-spike-device.md#The two Android test devices (Samsung A40 of SPIKE-008/009, Pixel 9a for API 34+) and the facts a device run depends on; toolchain provisioning is devex-tooling's": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
     },
     ".agent-fabric/memory/rust-ui-dev/solution/android17-internet-runtime-permission.md#On the Pixel 9a (Android 17, API 37) INTERNET is a runtime permission; ungranted, EmbeddedHost::start fails with EPERM": {
       "agent": "rust-ui-dev-01",
@@ -1424,6 +1569,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-17"
     },
+    ".agent-fabric/memory/rust-ui-dev/threads/j94-install-292-apk.md#j94 (closed 2026-10-18): installing #292's build for ux-designer-01's re-check was superseded by j98's install of current main; how to rebuild #292 if it is ever wanted": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
+    },
     ".agent-fabric/memory/rust-ui-dev/threads/j97-accesskit-prototype.md#j97 (2026-10-17): app-side AccessKit adapter prototype for Android built, two APKs (unpatched / hover-patched) waiting for the Pixel; what is measured and what is not": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
@@ -1457,7 +1607,7 @@
     ".agent-fabric/memory/rust-ui-dev/threads/stage-15-b9-trust.md#Stage 15 B9 trust settings + gate (b) + B8 carry -- branch feat/stage-15-trust, what landed where, evidence levels, open asks": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-06"
+      "observed": "2026-10-19"
     },
     ".agent-fabric/memory/rust-ui-dev/threads/stage-15-rulings.md#architect-cto's Stage 15 rulings Q1-Q13 (relay seq 11163, 2026-10-03) — app-core, store path, recovery, read_pairs, re-keep, E2E evidence, inputs; check before building any Stage 15 batch": {
       "agent": "rust-ui-dev-01",
@@ -1482,7 +1632,7 @@
     ".agent-fabric/memory/rust-ui-dev/threads/ui-slint-stage15-carry.md#What I inherit in crates/human/ui-slint at Stage 15 from PR #170 — the root's drain contract and carried P3s; read before writing apps/human-desktop's root or first touching ui-slint": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-03"
+      "observed": "2026-10-19"
     },
     ".agent-fabric/memory/rust-ui-dev/threads/ui-slint-surface-proposal.md#ui-slint (Stage 14 batch 8) surface proposed by p2p-network-dev (seq 10823) and my amendments U1a-U5c (seq 10826); check they land in its PR — I own ui-slint from Stage 15": {
       "agent": "rust-ui-dev-01",
@@ -1569,10 +1719,20 @@
       "host": "develop-qzapp",
       "observed": "2026-10-16"
     },
+    ".agent-fabric/memory/ux-designer/threads/android-identity-j27.md#j27: Android identity screens design note (create, show phrase, recover) for plan §20 steps 7-8 — where it is and what it waits on": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
+    },
     ".agent-fabric/memory/ux-designer/threads/android-look-proposal.md#Owner asked (2026-10-16) for the Android client to look like an Android app with colour, not a prebeta; Material 3 proposal awaiting owner decisions": {
       "agent": "ux-designer-01",
       "host": "develop-qzapp",
-      "observed": "2026-10-17"
+      "observed": "2026-10-18"
+    },
+    ".agent-fabric/memory/ux-designer/threads/stage17-android-review-j26.md#j26: plan §20 clause (j) — my on-device look-and-feel review of the Android app is a condition of Stage 17's close; status and what it waits on": {
+      "agent": "ux-designer-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
     },
     ".agent-fabric/memory/ux-designer/threads/swipe-actions-j1.md#Status of j1, swipe actions on messages in the Android client — spec merged, build merged; the device review is partial and blocked on the phone link, TalkBack items deferred (IW #297)": {
       "agent": "ux-designer-01",
@@ -1870,10 +2030,10 @@
   "stamp": "2026-10-18",
   "telemetry": {
     "architect-cto": {
-      "admitted": 1,
-      "candidates": 1,
+      "admitted": 4,
+      "candidates": 4,
       "merged_into_existing": 0,
-      "observations_in": 1,
+      "observations_in": 4,
       "rejected": 0
     },
     "devex-tooling": {
@@ -1898,10 +2058,10 @@
       "rejected": 1
     },
     "p2p-network-dev": {
-      "admitted": 149,
-      "candidates": 174,
+      "admitted": 148,
+      "candidates": 173,
       "merged_into_existing": 0,
-      "observations_in": 174,
+      "observations_in": 173,
       "rejected": 25
     },
     "rust-ui-dev": {
@@ -1912,20 +2072,20 @@
       "rejected": 5
     },
     "ux-designer": {
-      "admitted": 8,
-      "candidates": 8,
+      "admitted": 10,
+      "candidates": 11,
       "merged_into_existing": 0,
-      "observations_in": 8,
-      "rejected": 0
+      "observations_in": 11,
+      "rejected": 1
     }
   },
   "telemetry_sources": {
     "architect-cto-01@develop-qzapp": {
       "architect-cto": {
-        "admitted": 1,
-        "candidates": 1,
+        "admitted": 4,
+        "candidates": 4,
         "merged_into_existing": 0,
-        "observations_in": 1,
+        "observations_in": 4,
         "rejected": 0
       }
     },
@@ -1958,10 +2118,10 @@
     },
     "p2p-network-dev-02@develop-qzapp": {
       "p2p-network-dev": {
-        "admitted": 37,
-        "candidates": 47,
+        "admitted": 36,
+        "candidates": 46,
         "merged_into_existing": 0,
-        "observations_in": 47,
+        "observations_in": 46,
         "rejected": 10
       }
     },
@@ -1985,24 +2145,24 @@
     },
     "ux-designer-01@develop-qzapp": {
       "ux-designer": {
-        "admitted": 8,
-        "candidates": 8,
+        "admitted": 10,
+        "candidates": 11,
         "merged_into_existing": 0,
-        "observations_in": 8,
-        "rejected": 0
+        "observations_in": 11,
+        "rejected": 1
       }
     }
   },
   "title_collisions": [],
   "watermarks": {
-    "architect-cto-01@develop-qzapp": 1792318312249,
+    "architect-cto-01@develop-qzapp": 1792385807432,
     "develop-qzapp": 1789652045613,
     "devex-tooling@develop-qzapp": 1792303091026,
-    "language-culture-en@develop-qzapp": 1792240632309,
+    "language-culture-en@develop-qzapp": 1792386037270,
     "p2p-network-dev-01@develop-qzapp": 1792326186654,
-    "p2p-network-dev-02@develop-qzapp": 1792326526054,
-    "rust-ui-dev-01@develop-qzapp": 1792330989011,
+    "p2p-network-dev-02@develop-qzapp": 1792384607566,
+    "rust-ui-dev-01@develop-qzapp": 1792386073233,
     "user@develop-qzapp": 1791626526518,
-    "ux-designer-01@develop-qzapp": 1792326638628
+    "ux-designer-01@develop-qzapp": 1792386061416
   }
 }

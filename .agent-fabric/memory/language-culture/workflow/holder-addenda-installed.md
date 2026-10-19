@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - a3a389f7bf55bd52
+  - d01b55e884ccab8f
 ---
 
 ## My English-holder charter and brief addenda (agent-fabric ADR-060) live in my store, not the shared charter; edit them through fabric-coordinator
@@ -26,12 +27,12 @@ brief-addendum (cold read as the worker's stand-in, judge its findings,
 if/else whole, global-English checks, templates). Stage 5 removes the
 English paragraph from the shared charter.
 
-**How to apply:** a change to them is a new draft in
-[host path] checked with
-addenda_check.validate_set, sent to fabric-coordinator; never write
+**How to apply:** a change to them is a new draft, checked with
+addenda_check.validate_set and sent to fabric-coordinator, who installs
+a copy set aside by the coordinator, sha256-checked; never write
 settings/roles/ in my store myself.
 Related: [[keep-else-whole]], [[cold-read-without-meanings]]
 
 *References: cold-read-without-meanings, keep-else-whole*
 
-*Observed 2026-10-17 (language-culture)*
+*Observed 2026-10-19 (language-culture)*

@@ -47,7 +47,9 @@ control plane checked out beside it.
 
 ## threads
 
+- [`.agent-fabric/memory/ux-designer/threads/android-identity-j27.md`](.agent-fabric/memory/ux-designer/threads/android-identity-j27.md) — j27: Android identity screens design note (create, show phrase, recover) for plan §20 steps 7-8 — where it is and what it waits on
 - [`.agent-fabric/memory/ux-designer/threads/android-look-proposal.md`](.agent-fabric/memory/ux-designer/threads/android-look-proposal.md) — Owner asked (2026-10-16) for the Android client to look like an Android app with colour, not a prebeta; Material 3 proposal awaiting owner decisions
+- [`.agent-fabric/memory/ux-designer/threads/stage17-android-review-j26.md`](.agent-fabric/memory/ux-designer/threads/stage17-android-review-j26.md) — j26: plan §20 clause (j) — my on-device look-and-feel review of the Android app is a condition of Stage 17's close; status and what it waits on
 - [`.agent-fabric/memory/ux-designer/threads/swipe-actions-j1.md`](.agent-fabric/memory/ux-designer/threads/swipe-actions-j1.md) — Status of j1, swipe actions on messages in the Android client — spec merged, build merged; the device review is partial and blocked on the phone link, TalkBack items deferred (IW #297)
 
 ## recall
