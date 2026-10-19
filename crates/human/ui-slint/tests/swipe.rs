@@ -145,6 +145,16 @@ fn tab_to(view: &View, prefix: &str) -> String {
     panic!("Tab never reached {prefix}");
 }
 
+/// Open row `handle`'s menu from the keyboard, as swipe spec section 7
+/// says: Tab to its bubble, Enter; the menu takes focus on its first item
+/// once it is in the window.
+fn menu_by_keyboard(view: &View, handle: i32) {
+    tab_to(view, &format!("item:{handle}"));
+    press_focused(view);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(2));
+    slint::platform::update_timers_and_animations();
+}
+
 fn key(view: &View, key: Key) {
     let text: slint::SharedString = key.into();
     let window = view.window().window();
@@ -199,6 +209,42 @@ fn labelled(view: &View, label: &str) -> Vec<ElementHandle> {
     ElementHandle::find_by_accessible_label(view.window(), label).collect()
 }
 
+/// Choose `label` from the menu of the first message row that offers it
+/// (Show source and its way back: the first row), opening the menu as a
+/// screen reader does, by the row's default action (swipe spec section
+/// 7; #304 F2 moved the row's buttons into it).
+fn choose(view: &View, label: &str) {
+    use slint::Model as _;
+    let rows = view.window().get_messages();
+    let rows: Vec<_> = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .collect();
+    let row = rows
+        .iter()
+        .find(|r| r.actions.iter().any(|a| a.text.as_str() == label))
+        .or_else(|| rows.first())
+        .expect("a message row");
+    let item = i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .match_accessible_role(i_slint_backend_testing::AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().as_deref() == Some(row.label.as_str()))
+        .expect("the row's item");
+    item.invoke_accessible_default_action();
+    let entry = i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .find_all()
+        .into_iter()
+        .find(|e| {
+            e.accessible_label().as_deref() == Some(label)
+                && e.accessible_description().as_deref() == Some(row.label.as_str())
+        })
+        .expect("the menu's entry");
+    entry.invoke_accessible_default_action();
+    // The row hears a menu's Show source through a change callback, which
+    // runs on the event loop's turn.
+    slint::platform::update_timers_and_animations();
+}
+
 /// What the window's announcement says now.
 fn announced(view: &View) -> String {
     let a = view.window().get_announcement_a().to_string();
@@ -206,13 +252,13 @@ fn announced(view: &View) -> String {
     if a.is_empty() { b } else { a }
 }
 
-/// §7, checked by §11 item 13: every row button of every kind -- read,
-/// kept, pending -- is at least 48 x 48, its touch area with it. On the Pixel the drawn
-/// border measured 125.5 px of 126, which this does not explain: the
-/// element is 48, so the likely cause is a row at a fractional pixel with
-/// its edge anti-aliased (not checked on the device).
+/// §7, checked by §11 item 13: every item of every row kind's menu --
+/// read, kept, pending -- is at least 48 x 48, its touch area with it.
 #[test]
-fn every_rows_buttons_are_48_by_48() {
+fn every_menu_item_is_48_by_48() {
+    use slint::Model as _;
+    let all =
+        |view: &View| i_slint_backend_testing::ElementQuery::from_root(view.window()).find_all();
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
@@ -227,6 +273,39 @@ fn every_rows_buttons_are_48_by_48() {
         .window()
         .set_size(slint::LogicalSize::new(900.0, 1200.0));
     open(&mut view, &mut model, &key);
+    let rows = view.window().get_messages();
+    let rows: Vec<_> = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    for row in &rows {
+        let item = all(&view)
+            .into_iter()
+            .find(|e| {
+                e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::ListItem)
+                    && e.accessible_label().as_deref() == Some(row.label.as_str())
+            })
+            .expect("the row's item");
+        item.invoke_accessible_default_action();
+        let entries: Vec<_> = all(&view)
+            .into_iter()
+            .filter(|e| e.accessible_description().as_deref() == Some(row.label.as_str()))
+            .filter(|e| {
+                e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Button)
+            })
+            .collect();
+        assert!(!entries.is_empty(), "{}: its menu", row.label);
+        for entry in entries {
+            let size = entry.size();
+            let label = entry.accessible_label().unwrap_or_default().to_string();
+            assert!(
+                size.width >= 48.0 && size.height >= 48.0,
+                "{label} is {size:?}, under 48 x 48"
+            );
+            seen.insert(label);
+        }
+        view.window().invoke_close_row_menu();
+    }
     for label in [
         UiText::Keep,
         UiText::Dismiss,
@@ -235,15 +314,7 @@ fn every_rows_buttons_are_48_by_48() {
         UiText::Cancel,
         UiText::ShowSource,
     ] {
-        let found = labelled(&view, text(label));
-        assert!(!found.is_empty(), "a {label:?} button");
-        for button in found {
-            let size = button.size();
-            assert!(
-                size.width >= 48.0 && size.height >= 48.0,
-                "{label:?} is {size:?}, under 48 x 48"
-            );
-        }
+        assert!(seen.contains(text(label)), "a {label:?} item");
     }
 }
 
@@ -370,7 +441,7 @@ fn a_hide_is_confirmed_announced_and_undone_in_place() {
     assert_eq!(announced(&view), text(UiText::ActionUndone));
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{first_handle}:0"),
+        format!("item:{first_handle}"),
         "an Undo focuses the restored row's first control"
     );
 }
@@ -383,8 +454,7 @@ fn a_leaving_rows_space_closes_and_then_it_goes() {
     read(&mut model, 1, &alice, "first");
     read(&mut model, 2, &alice, "second");
     open(&mut view, &mut model, &direct(&alice));
-    let hide = labelled(&view, text(UiText::Dismiss));
-    hide[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Dismiss));
     let _ = turn(&mut view, &mut model);
     let rows = view.window().get_messages();
     assert_eq!(rows.row_count(), 2, "kept while its space closes");
@@ -432,7 +502,7 @@ fn the_snackbar_closes_after_its_time() {
     let alice = peer();
     read(&mut model, 1, &alice, "first");
     open(&mut view, &mut model, &direct(&alice));
-    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Keep));
     let intents = turn(&mut view, &mut model);
     let Some(Intent::Keep { item, .. }) = intents.first() else {
         panic!("Keep: {intents:?}");
@@ -489,8 +559,10 @@ fn a_conversation_whose_rows_are_all_hidden_keeps_its_header() {
     open(&mut view, &mut model, &direct(&alice));
     let title = view.window().get_header_title().to_string();
     assert!(!title.is_empty(), "control");
-    // Dismiss is the row's second action, after Keep.
-    tab_to(&view, &format!("action:{}:1", handle(&view, 0)));
+    // Dismiss is the menu's second item, after Keep.
+    let only = handle(&view, 0);
+    menu_by_keyboard(&view, only);
+    tab_to(&view, &format!("action:{only}:1"));
     press_focused(&view);
     let _ = turn(&mut view, &mut model);
     assert_eq!(view.window().get_header_title().as_str(), title);
@@ -512,7 +584,7 @@ fn closings_and_leavings_wait_once_each() {
     let alice = peer();
     read(&mut model, 1, &alice, "first");
     open(&mut view, &mut model, &direct(&alice));
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Dismiss));
     let _ = turn(&mut view, &mut model);
     assert!(model.snackbar().is_some(), "control");
     let before = view.queued_inputs();
@@ -541,7 +613,7 @@ fn dismissed_beside_a_list_kept_shown(view: &mut View, model: &mut UiModel) -> C
     let _ = turn(view, model);
     labelled(view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
     let _ = turn(view, model);
-    labelled(view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(view, text(UiText::Dismiss));
     let _ = turn(view, model);
     assert!(
         model.snackbar().is_some_and(|s| s.conversation.is_some()),
@@ -601,7 +673,7 @@ fn leaving_and_coming_back_in_one_take_closes_the_snackbar() {
     read(&mut model, 1, &alice, "first");
     read(&mut model, 2, &alice, "second");
     open(&mut view, &mut model, &direct(&alice));
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Dismiss));
     let _ = turn(&mut view, &mut model);
     assert!(model.snackbar().is_some(), "control");
     labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
@@ -629,7 +701,7 @@ fn a_snackbar_made_after_coming_back_stays_up() {
     read(&mut model, 2, &alice, "second");
     read(&mut model, 3, &alice, "third");
     open(&mut view, &mut model, &direct(&alice));
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Dismiss));
     let _ = turn(&mut view, &mut model);
     let before = model.snackbar().expect("control: one up").id;
     // The dismissed row is held while its space closes; then it goes.
@@ -637,7 +709,7 @@ fn a_snackbar_made_after_coming_back_stays_up() {
     view.render(&model);
     labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
     view.select(direct(&alice));
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Dismiss));
     view.window().invoke_draft_edited("h".into());
     slint::platform::update_timers_and_animations();
     let _ = turn(&mut view, &mut model);
@@ -667,7 +739,7 @@ fn no_undo_is_offered_after_leaving_and_coming_back() {
     read(&mut model, 1, &alice, "first");
     read(&mut model, 2, &alice, "second");
     open(&mut view, &mut model, &direct(&alice));
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Dismiss));
     let _ = turn(&mut view, &mut model);
     assert_eq!(
         labelled(&view, text(UiText::Undo)).len(),
@@ -704,7 +776,7 @@ fn dismissed_in_a_wide_window(
     read(model, 2, &alice, "second");
     read(model, 3, &bob, "hello");
     open(view, model, &direct(&alice));
-    labelled(view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(view, text(UiText::Dismiss));
     let _ = turn(view, model);
     assert_eq!(
         labelled(view, text(UiText::Undo)).len(),
@@ -854,7 +926,7 @@ fn dismiss_leave_and_come_back(keystroke: bool) {
         read(&mut model, 2, &alice, "second");
         open(&mut view, &mut model, &direct(&alice));
         assert!(model.snackbar().is_none(), "control: none up");
-        labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+        choose(&view, text(UiText::Dismiss));
         if keystroke {
             view.window().invoke_draft_edited("h".into());
         }
@@ -889,7 +961,7 @@ fn a_dismiss_then_a_resize_to_the_list_in_one_take_leaves_no_snackbar() {
     labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
     let _ = turn(&mut view, &mut model);
     assert!(model.snackbar().is_none(), "control: none up yet");
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Dismiss));
     view.window()
         .window()
         .set_size(slint::LogicalSize::new(390.0, 800.0));
@@ -956,7 +1028,8 @@ fn dismiss_by_keyboard(rows: usize, at: usize) -> (View, Vec<i32>) {
     }
     open(&mut view, &mut model, &direct(&alice));
     let handles: Vec<i32> = (0..rows).map(|i| handle(&view, i)).collect();
-    // Dismiss is the row's second action, after Keep.
+    // Dismiss is the menu's second item, after Keep.
+    menu_by_keyboard(&view, handles[at]);
     tab_to(&view, &format!("action:{}:1", handles[at]));
     press_focused(&view);
     let _ = turn(&mut view, &mut model);
@@ -968,7 +1041,7 @@ fn a_dismiss_by_keyboard_focuses_the_next_rows_first_control() {
     let (view, handles) = dismiss_by_keyboard(3, 1);
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{}:0", handles[2])
+        format!("item:{}", handles[2])
     );
 }
 
@@ -977,7 +1050,7 @@ fn a_dismiss_of_the_last_row_focuses_the_previous_one() {
     let (view, handles) = dismiss_by_keyboard(3, 2);
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{}:0", handles[1])
+        format!("item:{}", handles[1])
     );
 }
 
@@ -996,7 +1069,7 @@ fn a_touch_swipe_leaves_focus_held_in_another_row() {
         read(&mut model, n, &alice, "text");
     }
     open(&mut view, &mut model, &direct(&alice));
-    let on = tab_to(&view, &format!("action:{}:", handle(&view, 2)));
+    let on = tab_to(&view, &format!("item:{}", handle(&view, 2)));
     swipe(&view, &row_key(&view, 0), -170.0, 0.0, 8);
     let _ = turn(&mut view, &mut model);
     assert!(view.window().get_snack_shown(), "control: it was dismissed");
@@ -1013,12 +1086,12 @@ fn a_touch_swipe_on_the_row_holding_focus_moves_it_as_a_button_would() {
     }
     open(&mut view, &mut model, &direct(&alice));
     let (first, second) = (handle(&view, 0), handle(&view, 1));
-    tab_to(&view, &format!("action:{first}:"));
+    tab_to(&view, &format!("item:{first}"));
     swipe(&view, &row_key(&view, 0), -170.0, 0.0, 8);
     let _ = turn(&mut view, &mut model);
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{second}:0")
+        format!("item:{second}")
     );
 }
 
@@ -1103,7 +1176,7 @@ fn the_snackbar_mirrors_right_to_left() {
         let alice = peer();
         read(&mut model, 1, &alice, "first");
         open(&mut view, &mut model, &direct(&alice));
-        labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+        choose(&view, text(UiText::Dismiss));
         let _ = turn(&mut view, &mut model);
         assert!(view.window().get_snack_shown());
         let undo = labelled(&view, text(UiText::Undo));
@@ -1171,14 +1244,20 @@ fn two_read_rows_focus_on_the_second() -> (View, UiModel, i32, String) {
     read(&mut model, 2, &alice, "second");
     open(&mut view, &mut model, &direct(&alice));
     let first = handle(&view, 0);
-    let elsewhere = tab_to(&view, &format!("action:{}:", handle(&view, 1)));
+    let elsewhere = tab_to(&view, &format!("item:{}", handle(&view, 1)));
     (view, model, first, elsewhere)
 }
 
 #[test]
-fn keep_by_its_button_from_the_keyboard_focuses_the_rows_first_control() {
+fn keep_from_the_menu_by_keyboard_focuses_the_rows_first_control() {
     let (mut view, mut model, first, _) = two_read_rows_focus_on_the_second();
-    tab_to(&view, &format!("action:{first}:0"));
+    // Keep is the menu's first item, which takes focus as it opens.
+    menu_by_keyboard(&view, first);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("action:{first}:0"),
+        "control: Keep holds focus"
+    );
     press_focused(&view);
     let intents = turn(&mut view, &mut model);
     answer(&mut view, &mut model, &intents, 10);
@@ -1194,33 +1273,32 @@ fn keep_by_its_button_from_the_keyboard_focuses_the_rows_first_control() {
     );
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{first}:0"),
-        "the pressed Keep is gone; focus is on the row's Unkeep"
+        format!("item:{first}"),
+        "the menu closed; focus is on the row's bubble"
     );
 }
 
-/// A tap on the button does not focus it, and focus still goes to the
-/// row: the spec names the button, not where focus was.
+/// Chosen from the menu, Keep and Unkeep leave focus on the row's bubble,
+/// wherever it was before the menu opened.
 #[test]
-fn keep_and_unkeep_by_a_tap_on_the_button_focus_the_rows_first_control() {
+fn keep_and_unkeep_from_the_menu_focus_the_rows_first_control() {
     let (mut view, mut model, first, elsewhere) = two_read_rows_focus_on_the_second();
-    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    let _ = elsewhere;
+    choose(&view, text(UiText::Keep));
     let intents = turn(&mut view, &mut model);
-    assert_eq!(view.window().get_focus_id().as_str(), elsewhere, "control");
     answer(&mut view, &mut model, &intents, 10);
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{first}:0")
+        format!("item:{first}")
     );
 
-    let on = tab_to(&view, &format!("action:{}:", handle(&view, 1)));
-    labelled(&view, text(UiText::Unkeep))[0].invoke_accessible_default_action();
+    let _ = tab_to(&view, &format!("item:{}", handle(&view, 1)));
+    choose(&view, text(UiText::Unkeep));
     let intents = turn(&mut view, &mut model);
-    assert_eq!(view.window().get_focus_id().as_str(), on, "control");
     answer(&mut view, &mut model, &intents, 0);
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{first}:0")
+        format!("item:{first}")
     );
 }
 
@@ -1239,7 +1317,7 @@ fn keep_by_a_touch_swipe_leaves_focus_held_in_another_row() {
 #[test]
 fn a_swipe_after_a_refused_press_moves_focus_only_from_inside_the_row() {
     let (mut view, mut model, first, _) = two_read_rows_focus_on_the_second();
-    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Keep));
     let intents = turn(&mut view, &mut model);
     let keep = intents.first().expect("Keep").clone();
     model.intent_refused(&keep);
@@ -1255,11 +1333,11 @@ fn a_swipe_after_a_refused_press_moves_focus_only_from_inside_the_row() {
 #[test]
 fn unkeep_by_a_touch_swipe_on_the_row_holding_focus_focuses_its_first_control() {
     let (mut view, mut model, first, _) = two_read_rows_focus_on_the_second();
-    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Keep));
     let intents = turn(&mut view, &mut model);
     answer(&mut view, &mut model, &intents, 10);
-    // Focus on the row's Show source, after its Unkeep.
-    tab_to(&view, &format!("source:{first}"));
+    // Focus inside the row: its bubble.
+    tab_to(&view, &format!("item:{first}"));
     swipe(&view, &format!("m:{first}"), -170.0, 0.0, 8);
     let intents = turn(&mut view, &mut model);
     answer(&mut view, &mut model, &intents, 0);
@@ -1275,19 +1353,21 @@ fn unkeep_by_a_touch_swipe_on_the_row_holding_focus_focuses_its_first_control() 
     );
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{first}:0")
+        format!("item:{first}")
     );
 }
 
 #[test]
-fn retry_by_its_button_leaves_focus_on_it() {
+fn retry_from_the_menu_focuses_the_rows_bubble() {
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
     pending(&mut model, 1, &alice, "out");
     open(&mut view, &mut model, &direct(&alice));
-    let retry = format!("action:{}:0", handle(&view, 0));
-    tab_to(&view, &retry);
+    let only = handle(&view, 0);
+    // Retry is the menu's first item.
+    menu_by_keyboard(&view, only);
+    let retry = format!("item:{only}");
     press_focused(&view);
     let intents = turn(&mut view, &mut model);
     assert!(
@@ -1315,14 +1395,14 @@ fn a_timed_out_dismiss_with_focus_on_its_undo_focuses_the_next_row() {
     }
     open(&mut view, &mut model, &direct(&alice));
     let second = handle(&view, 1);
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Dismiss));
     let _ = turn(&mut view, &mut model);
     tab_to(&view, "undo");
     time_out(&mut view, &mut model);
     assert!(model.snackbar().is_none(), "control: timed out");
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{second}:0")
+        format!("item:{second}")
     );
 }
 
@@ -1335,14 +1415,14 @@ fn a_timed_out_keep_with_focus_on_its_undo_focuses_the_kept_row() {
     read(&mut model, 2, &alice, "second");
     open(&mut view, &mut model, &direct(&alice));
     let first = handle(&view, 0);
-    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Keep));
     let intents = turn(&mut view, &mut model);
     answer(&mut view, &mut model, &intents, 10);
     tab_to(&view, "undo");
     time_out(&mut view, &mut model);
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{first}:0")
+        format!("item:{first}")
     );
 }
 
@@ -1358,7 +1438,7 @@ fn a_snackbar_replaced_under_its_focused_undo_focuses_the_older_actions_place() 
     }
     open(&mut view, &mut model, &direct(&alice));
     let (second, third) = (handle(&view, 1), handle(&view, 2));
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Dismiss));
     let _ = turn(&mut view, &mut model);
     tab_to(&view, "undo");
     swipe(&view, &format!("m:{third}"), 170.0, 0.0, 8);
@@ -1371,7 +1451,7 @@ fn a_snackbar_replaced_under_its_focused_undo_focuses_the_older_actions_place() 
     );
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        format!("action:{second}:0")
+        format!("item:{second}")
     );
 }
 
@@ -1388,7 +1468,7 @@ fn leaving_with_focus_on_the_undo_focuses_the_conversations_row() {
     read(&mut model, 1, &alice, "first");
     read(&mut model, 2, &alice, "second");
     open(&mut view, &mut model, &direct(&alice));
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Dismiss));
     let _ = turn(&mut view, &mut model);
     tab_to(&view, "undo");
     labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
@@ -1456,8 +1536,9 @@ fn a_message_into_a_hidden_conversation_moves_focus_from_the_undo_to_its_row() {
 }
 
 /// An Undo pressed from the keyboard whose answer has not come: the
-/// snackbar has gone, and a later snackbar's timeout, with focus nowhere,
-/// moves nothing -- the gone Undo's name no longer stands for focus.
+/// snackbar has gone, and a later snackbar's timeout moves nothing -- the
+/// gone Undo's name no longer stands for focus. (The later Dismiss is
+/// chosen from a menu, which leaves focus on a bubble.)
 #[test]
 fn a_stale_undo_focus_moves_nothing_later() {
     let mut view = view();
@@ -1467,7 +1548,7 @@ fn a_stale_undo_focus_moves_nothing_later() {
         read(&mut model, n, &alice, "text");
     }
     open(&mut view, &mut model, &direct(&alice));
-    labelled(&view, text(UiText::Keep))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Keep));
     let intents = turn(&mut view, &mut model);
     answer(&mut view, &mut model, &intents, 10);
     tab_to(&view, "undo");
@@ -1478,11 +1559,13 @@ fn a_stale_undo_focus_moves_nothing_later() {
         "control: {intents:?}"
     );
     assert_eq!(view.window().get_focus_id().as_str(), "", "cleared");
-    labelled(&view, text(UiText::Dismiss))[0].invoke_accessible_default_action();
+    choose(&view, text(UiText::Dismiss));
     let _ = turn(&mut view, &mut model);
+    slint::platform::update_timers_and_animations();
+    let before = view.window().get_focus_id().to_string();
     time_out(&mut view, &mut model);
     assert!(model.snackbar().is_none(), "control: timed out");
-    assert_eq!(view.window().get_focus_id().as_str(), "");
+    assert_eq!(view.window().get_focus_id().as_str(), before);
 }
 
 // --- a Cancel's success after leaving (§6; §11 item 19) --------------------
@@ -1493,7 +1576,7 @@ fn cancel_waiting(view: &mut View, model: &mut UiModel, alice: &TransportIdentit
     read(model, 1, alice, "in");
     pending(model, 2, alice, "out");
     open(view, model, &direct(alice));
-    labelled(view, text(UiText::Cancel))[0].invoke_accessible_default_action();
+    choose(view, text(UiText::Cancel));
     let intents = turn(view, model);
     let Some(cancel @ Intent::Cancel(row)) = intents.first().cloned() else {
         panic!("Cancel: {intents:?}");
@@ -1573,4 +1656,117 @@ fn a_cancels_success_in_the_conversation_shows_its_snackbar() {
     let _ = turn(&mut view, &mut model);
     assert!(view.window().get_snack_shown());
     assert!(view.window().get_snack_undo());
+}
+
+/// The platform's Back in a narrow window's conversation leaves it as the
+/// header's Back does, the snackbar closing with it (§5); a second Back
+/// finds the list, with no way back, so the platform leaves the app.
+/// Before, Back with no control focused reached nothing and left the app
+/// from the conversation (ux-designer-01's review of ffce28df).
+#[test]
+fn platform_back_leaves_the_conversation_then_the_app() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    read(&mut model, 2, &alice, "second");
+    open(&mut view, &mut model, &direct(&alice));
+    choose(&view, text(UiText::Dismiss));
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_some(), "control");
+    assert!(view.back(), "the conversation takes Back");
+    let _ = turn(&mut view, &mut model);
+    assert!(model.snackbar().is_none(), "left as by the header's Back");
+    assert!(!view.back(), "the list has no way back");
+}
+
+/// Back on the trust settings closes them, and only then leaves the app.
+#[test]
+fn platform_back_closes_the_trust_settings_first() {
+    let mut view = view();
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 800.0));
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "first");
+    open(&mut view, &mut model, &direct(&alice));
+    assert!(
+        !view.back(),
+        "control: a wide window's conversation has no way back"
+    );
+    labelled(&view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    let _ = turn(&mut view, &mut model);
+    assert!(view.back(), "the trust settings take Back");
+    let _ = turn(&mut view, &mut model);
+    assert!(
+        labelled(&view, text(UiText::BackToConversations)).is_empty(),
+        "the trust settings are closed"
+    );
+    assert!(!view.back());
+}
+
+// --- the row's menu (§7, revised for #304 F2) -------------------------------
+
+/// Escape and Back close the menu with nothing done and focus back on
+/// its bubble; Shift+F10 opens it from the bubble as Enter does.
+#[test]
+fn the_menu_closes_to_its_bubble_and_opens_by_shift_f10() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    read(&mut model, 1, &alice, "text");
+    open(&mut view, &mut model, &direct(&alice));
+    let row = handle(&view, 0);
+    menu_by_keyboard(&view, row);
+    assert_eq!(view.window().get_row_menu(), row, "control: open");
+    key(&view, Key::Escape);
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_row_menu(), -1, "Escape closes it");
+    assert_eq!(view.window().get_focus_id().as_str(), format!("item:{row}"));
+    assert!(turn(&mut view, &mut model).is_empty(), "nothing done");
+
+    // Shift+F10 on the focused bubble.
+    let window = view.window().window();
+    let shift: slint::SharedString = Key::Shift.into();
+    let f10: slint::SharedString = Key::F10.into();
+    window.dispatch_event(WindowEvent::KeyPressed {
+        text: shift.clone(),
+    });
+    window.dispatch_event(WindowEvent::KeyPressed { text: f10.clone() });
+    window.dispatch_event(WindowEvent::KeyReleased { text: f10 });
+    window.dispatch_event(WindowEvent::KeyReleased { text: shift });
+    assert_eq!(view.window().get_row_menu(), row, "Shift+F10 opens it");
+    assert!(view.back(), "Back is the menu's");
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_row_menu(), -1, "Back closes it");
+    assert_eq!(view.window().get_focus_id().as_str(), format!("item:{row}"));
+    assert!(turn(&mut view, &mut model).is_empty(), "nothing done");
+}
+
+/// A pending row accepted while its menu is open no longer offers what
+/// the menu shows: the menu closes and focus goes to its bubble.
+#[test]
+fn a_row_whose_actions_change_under_its_open_menu_closes_it() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    pending(&mut model, 1, &alice, "out");
+    open(&mut view, &mut model, &direct(&alice));
+    let row = handle(&view, 0);
+    menu_by_keyboard(&view, row);
+    assert_eq!(view.window().get_row_menu(), row, "control: open");
+    model.client_event(ClientEvent::Outbound(OutboundUpdate {
+        row: RowId::from_stored(1),
+        app_message_id: AppMessageId::parse(format!("{:032x}", 1)).expect("id"),
+        status: OutboundStatus::Accepted { endpoint: human() },
+        last_code: None,
+    }));
+    let _ = turn(&mut view, &mut model);
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_row_menu(), -1, "closed");
+    assert_eq!(view.window().get_focus_id().as_str(), format!("item:{row}"));
 }

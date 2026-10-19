@@ -157,8 +157,81 @@ export struct TrustRow {
 
 // The platform's touch slop, which Rust sets from the system's
 // (swipe spec section 4).
+// The identity screens (design/2026-10-19-android-identity.md): one page
+// at a time, filled from ui-model's IdentityFlow by the Rust side, so the
+// view holds no flow of its own.
+export struct IdKey {
+    letter: string,
+    enabled: bool,
+}
+
+export struct IdKeyRow {
+    keys: [IdKey],
+}
+
+export struct IdSlot {
+    number: int,
+    word: string,
+    current: bool,
+}
+
+export struct IdentityPage {
+    title: string,
+    paragraphs: [string],
+    // An inline banner (section 6), above the content; empty for none.
+    notice: string,
+    peer-label: string,
+    // A PeerId grouped by fours for comparing by eye (section 5).
+    peer-groups: string,
+    second-peer-label: string,
+    second-peer-groups: string,
+    // C2's and S2's numbered words.
+    words: [IdSlot],
+    // The picker (section 4), on C3 and R2.
+    picker: bool,
+    position: string,
+    typed: string,
+    // "{n} words fit these letters" while more than four match.
+    matches: string,
+    chips: [string],
+    // The letters in QWERTY rows of 10, 9 and 7, and in alphabetical
+    // rows of 7 for a narrow screen: the view picks by width (section
+    // 4.3). Rows, so a shorter row centres under the first.
+    rows: [IdKeyRow],
+    alpha-rows: [IdKeyRow],
+    key-delete-label: string,
+    key-clear-label: string,
+    // R2's phrase so far.
+    grid: [IdSlot],
+    primary: string,
+    primary-enabled: bool,
+    // A progress line in place of the primary action ("Going offline…").
+    waiting: string,
+    secondary: string,
+    tertiary: string,
+    // Plain text below the actions (K1's way out, R3's no-paper line).
+    footnote: string,
+    dialog: bool,
+    dialog-title: string,
+    dialog-delete: string,
+    dialog-keep: string,
+}
+
+// Whether the person is using the keyboard: focus that came by Tab sets
+// it, focus that came by a pointer, or any press, clears it. The focus
+// ring is for keyboard focus only (#304 F5): a touch user sees none, even
+// where a rule moves focus after an action, which it does for keyboard
+// and screen-reader users.
+export global FocusMode {
+    in-out property <bool> keyboard;
+}
+
 export global Touch {
     in property <length> slop: 8px;
+    // The platform's long-press time (Android's
+    // ViewConfiguration.getLongPressTimeout): a press held this long within
+    // the slop opens a message's menu (swipe spec section 4).
+    in property <duration> long-press: 500ms;
     // The system's animations are off: a press shows no ripple.
     in property <bool> reduced-motion;
 }
@@ -214,7 +287,10 @@ component TapArea inherits TouchArea {
             || abs(self.mouse-y - self.pressed-y) > Touch.slop
     }
     pointer-event(event) => {
-        if (event.kind == PointerEventKind.down) { self.drifted = false; }
+        if (event.kind == PointerEventKind.down) {
+            self.drifted = false;
+            FocusMode.keyboard = false;
+        }
     }
     moved => {
         if (self.past-slop()) { self.drifted = true; }
@@ -264,10 +340,14 @@ component FocusRing inherits Rectangle {
         : Palette.primary;
     border-radius: root.radius + 5px;
     // Opacity rather than `visible`, so a test reads it.
-    opacity: root.shown ? 1 : 0;
+    opacity: root.shown && FocusMode.keyboard ? 1 : 0;
 }
 
 component ActionButton inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
     in property <string> text;
     in property <string> focus-key;
     // The least touch target: 48 on a message row and the snackbar,
@@ -307,23 +387,29 @@ component ActionButton inherits FocusScope {
     in property <bool> on-inverse;
     // A text button: no border, the label in `ink` and label large.
     in property <bool> text-button;
+    // A filled button: `primary` behind an `on-primary` label, fully
+    // rounded, label large (Material's filled button).
+    in property <bool> filled;
     in property <color> ink: Palette.primary;
     min-height: root.target;
     // Never narrower than its label: squeezed beside a wrapping text, the
     // label ran out of the button (seen in the rendered window).
-    min-width: max(root.target, label.preferred-width + 16px);
+    min-width: max(root.target, label.preferred-width + (root.filled ? 48px : 16px));
     Rectangle {
-        border-width: root.text-button ? 0px : 1px;
+        border-width: root.text-button || root.filled ? 0px : 1px;
         border-color: root.on-notice ? Palette.notice-text : Palette.outline;
+        background: root.filled ? Palette.primary : transparent;
+        border-radius: root.filled ? self.height / 2 : 0px;
         HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 8px;
+            padding-left: root.filled ? 24px : 8px;
+            padding-right: root.filled ? 24px : 8px;
             // The caption is the button's label already: not a second node.
             label := Text {
                 text: root.text;
-                font-size: root.text-button ? Type.label-large : Type.body-medium;
-                font-weight: root.text-button ? 500 : 400;
-                color: root.text-button ? root.ink : root.on-notice ? Palette.notice-text : Palette.on-surface;
+                font-size: root.text-button || root.filled ? Type.label-large : Type.body-medium;
+                font-weight: root.text-button || root.filled ? 500 : 400;
+                color: root.filled ? Palette.on-primary
+                    : root.text-button ? root.ink : root.on-notice ? Palette.notice-text : Palette.on-surface;
                 vertical-alignment: center;
                 accessible-role: none;
             }
@@ -335,7 +421,7 @@ component ActionButton inherits FocusScope {
         y: -5px;
         width: root.width + 10px;
         height: root.height + 10px;
-        radius: 0px;
+        radius: root.filled ? self.height / 2 : 0px;
         shown: root.has-focus;
         on-notice: root.on-notice;
         on-inverse: root.on-inverse;
@@ -346,6 +432,10 @@ component ActionButton inherits FocusScope {
 // nothing when activated (swipe spec section 7): where focus goes once
 // the rows below it are gone, so focus is never lost.
 component FocusHeading inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
     in property <string> text;
     in property <string> description;
     in property <string> focus-key;
@@ -392,6 +482,10 @@ component FocusHeading inherits FocusScope {
 // long and have no spaces, so it wraps -- inside a word if it must --
 // rather than widening the window, and reads from the left.
 component LinkButton inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
     in property <string> text;
     in property <string> focus-key;
     // Its colour: `primary` in a received bubble, the bubble's own text
@@ -588,6 +682,10 @@ component SwipeIcon inherits GlyphIcon {
 // A control that is an icon: a round 48 px target (Android's and WCAG
 // 2.5.8's), its label the icon's meaning, and a round focus ring.
 component IconButton inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
     in property <Glyph> glyph;
     in property <string> label;
     in property <string> focus-key;
@@ -670,91 +768,6 @@ component Avatar inherits Rectangle {
         horizontal-alignment: center;
         vertical-alignment: center;
         accessible-role: none;
-    }
-}
-
-// A row action as a Material outlined chip (section 6): 32 px drawn and
-// 48 px to touch, the touch area 8 px above and below, an 18 px icon in
-// `primary` before its label.
-component Chip inherits FocusScope {
-    in property <string> text;
-    in property <SwipeKind> kind;
-    // An icon that is no swipe's: Show source's.
-    in property <Glyph> glyph: Glyph.none;
-    in property <string> detail;
-    in property <string> focus-key;
-    in property <int> focus-seq;
-    in property <bool> focus-wanted;
-    changed focus-seq => {
-        if (root.focus-wanted) { root.focus(); }
-    }
-    callback pressed();
-    callback focused(string);
-    accessible-role: button;
-    accessible-label: root.text;
-    accessible-description: root.detail;
-    accessible-action-default => { root.pressed(); }
-    key-pressed(event) => {
-        if (event.text == Key.Return || event.text == " ") {
-            root.pressed();
-            return accept;
-        }
-        reject
-    }
-    changed has-focus => {
-        if (self.has-focus) { root.focused(root.focus-key); }
-    }
-    min-height: 48px;
-    min-width: max(48px, chip-row.preferred-width);
-    chip := Rectangle {
-        y: (root.height - self.height) / 2;
-        width: root.width;
-        height: max(32px, chip-row.preferred-height);
-        border-width: 1px;
-        border-color: Palette.outline;
-        border-radius: 8px;
-        chip-row := HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 12px;
-            spacing: 8px;
-            VerticalLayout {
-                alignment: center;
-                if root.glyph != Glyph.none: GlyphIcon {
-                    width: 18px;
-                    height: 18px;
-                    glyph: root.glyph;
-                    ink: Palette.primary;
-                }
-                if root.glyph == Glyph.none: SwipeIcon {
-                    width: 18px;
-                    height: 18px;
-                    kind: root.kind;
-                    ink: Palette.primary;
-                }
-            }
-            // The chip's label already: not a second node.
-            Text {
-                text: root.text;
-                font-size: Type.label-large;
-                font-weight: 500;
-                color: Palette.on-surface;
-                vertical-alignment: center;
-                accessible-role: none;
-            }
-        }
-    }
-    TapArea {
-        radius: 8px;
-        inset-y: chip.y;
-        tapped => { root.pressed(); }
-    }
-    FocusRing {
-        x: -5px;
-        y: chip.y - 5px;
-        width: root.width + 10px;
-        height: chip.height + 10px;
-        radius: 8px;
-        shown: root.has-focus;
     }
 }
 
@@ -882,9 +895,19 @@ component Snackbar inherits Rectangle {
 // One entry of a menu: 48 px tall, its label at the start, a focus ring
 // that follows the row. Escape closes the menu.
 component MenuItem inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
     in property <string> text;
     in property <string> detail;
     in property <string> focus-key;
+    // A message's menu shows each action's icon, 24 px in
+    // `on-surface-variant` before its label (look spec section 6): a swipe
+    // kind's, or `glyph`'s for one that is no swipe's (Show source).
+    in property <bool> iconed;
+    in property <SwipeKind> kind;
+    in property <Glyph> glyph: Glyph.none;
     // The menu's first entry takes focus when the menu opens.
     in property <bool> first;
     in property <bool> rtl;
@@ -924,13 +947,47 @@ component MenuItem inherits FocusScope {
     HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
+        spacing: 12px;
+        if root.iconed && !root.rtl: VerticalLayout {
+            alignment: center;
+            if root.glyph != Glyph.none: GlyphIcon {
+                width: 24px;
+                height: 24px;
+                glyph: root.glyph;
+                ink: Palette.on-surface-variant;
+            }
+            if root.glyph == Glyph.none: SwipeIcon {
+                width: 24px;
+                height: 24px;
+                kind: root.kind;
+                ink: Palette.on-surface-variant;
+            }
+        }
         Text {
             text: root.text;
             font-size: Type.body-large;
             color: Palette.on-surface;
             vertical-alignment: center;
+            // At 200 % a label wraps rather than being cut (section 8).
+            wrap: word-wrap;
+            horizontal-stretch: 1;
             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
             accessible-role: none;
+        }
+        if root.iconed && root.rtl: VerticalLayout {
+            alignment: center;
+            if root.glyph != Glyph.none: GlyphIcon {
+                width: 24px;
+                height: 24px;
+                glyph: root.glyph;
+                ink: Palette.on-surface-variant;
+            }
+            if root.glyph == Glyph.none: SwipeIcon {
+                width: 24px;
+                height: 24px;
+                kind: root.kind;
+                ink: Palette.on-surface-variant;
+            }
         }
     }
     TapArea { tapped => { root.pressed(); } }
@@ -968,8 +1025,426 @@ component UnreadBadge inherits Rectangle {
     }
 }
 
+// The identity screens' page. FLAG_SECURE, the no-clipboard rule and the
+// IME-free entry are kept by what is NOT here: no TextInput, so no
+// system keyboard and no copy of a word; the window's secure flag is the
+// platform's (human-android).
+component IdentityScreen inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
+    in property <IdentityPage> page;
+    in property <bool> rtl;
+    // A monospace face resolved by the Rust side: "monospace" by name
+    // matches nothing in Slint 1.18 and falls back to sans.
+    in property <string> code-font;
+    in property <length> inset-top;
+    in property <length> inset-bottom;
+    in property <length> inset-left;
+    in property <length> inset-right;
+    callback primary();
+    callback secondary();
+    callback tertiary();
+    callback back();
+    callback key(string);
+    callback delete-letter();
+    callback clear-word();
+    callback chip(string);
+    callback slot(int);
+    callback dialog(bool);
+    // A hardware keyboard enters letters (acceptance item 15); Escape is
+    // Back.
+    key-pressed(event) => {
+        if (event.text == Key.Escape) {
+            root.back();
+            return accept;
+        }
+        if (event.text == Key.Backspace && root.page.picker) {
+            root.delete-letter();
+            return accept;
+        }
+        if (root.page.picker && event.text >= "a" && event.text <= "z" && event.text.character-count == 1) {
+            root.key(event.text);
+            return accept;
+        }
+        if (event.text == Key.Return && root.page.picker && root.page.chips.length == 1) {
+            root.chip(root.page.chips[0]);
+            return accept;
+        }
+        reject
+    }
+    Rectangle { background: Palette.surface; }
+    // Nothing behind the page is reachable while it shows.
+    TouchArea { }
+    VerticalLayout {
+        padding-top: root.inset-top + 8px;
+        padding-bottom: root.inset-bottom + 8px;
+        padding-left: root.inset-left + 16px;
+        padding-right: root.inset-right + 16px;
+        spacing: 12px;
+        Text {
+            text: root.page.title;
+            font-size: Type.title-large;
+            font-weight: 500;
+            color: Palette.on-surface;
+            wrap: word-wrap;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        Flickable {
+            vertical-stretch: 1;
+            content-height: content.preferred-height;
+            content := VerticalLayout {
+                spacing: 12px;
+                alignment: start;
+                if root.page.notice != "": Rectangle {
+                    background: Palette.surface-container;
+                    border-radius: 4px;
+                    VerticalLayout {
+                        padding: 12px;
+                        Text {
+                            text: root.page.notice;
+                            color: Palette.error;
+                            font-size: Type.body-medium;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                    }
+                }
+                for paragraph in root.page.paragraphs: Text {
+                    text: paragraph;
+                    font-size: Type.body-large;
+                    color: Palette.on-surface;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                // The words, read down the first column then the second;
+                // one column when narrow (section 3.2, C2).
+                if root.page.words.length > 0: GridLayout {
+                    spacing: 8px;
+                    property <int> per-column: root.width < 360px ? 24 : 12;
+                    for slot[i] in root.page.words: HorizontalLayout {
+                        row: mod(i, parent.per-column);
+                        col: floor(i / parent.per-column);
+                        spacing: 8px;
+                        Text {
+                            text: slot.number;
+                            min-width: 24px;
+                            horizontal-alignment: right;
+                            font-size: Type.body-large;
+                            color: Palette.on-surface-variant;
+                            accessible-role: none;
+                        }
+                        Text {
+                            text: slot.word;
+                            font-size: Type.body-large;
+                            color: Palette.on-surface;
+                            accessible-role: text;
+                            accessible-label: slot.number + " " + slot.word;
+                        }
+                    }
+                }
+                if root.page.peer-groups != "": VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: root.page.peer-label;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface-variant;
+                        wrap: word-wrap;
+                        accessible-role: none;
+                    }
+                    Text {
+                        text: root.page.peer-groups;
+                        font-family: root.code-font;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        accessible-role: text;
+                        accessible-label: root.page.peer-label + " " + root.page.peer-groups;
+                    }
+                }
+                if root.page.second-peer-groups != "": VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: root.page.second-peer-label;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface-variant;
+                        wrap: word-wrap;
+                        accessible-role: none;
+                    }
+                    Text {
+                        text: root.page.second-peer-groups;
+                        font-family: root.code-font;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        accessible-role: text;
+                        accessible-label: root.page.second-peer-label + " " + root.page.second-peer-groups;
+                    }
+                }
+                // R2's phrase so far: four columns of six (section 4.4).
+                if root.page.grid.length > 0: GridLayout {
+                    spacing: 4px;
+                    for slot[i] in root.page.grid: Rectangle {
+                        row: floor(i / 4);
+                        col: mod(i, 4);
+                        min-height: 48px;
+                        border-width: slot.current ? 2px : 1px;
+                        border-color: slot.current ? Palette.primary : Palette.outline;
+                        border-radius: 4px;
+                        accessible-role: button;
+                        accessible-label: slot.number + (slot.word != "" ? " " + slot.word : "");
+                        accessible-action-default => { root.slot(i); }
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            spacing: 6px;
+                            alignment: start;
+                            Text {
+                                text: slot.number;
+                                font-size: Type.body-small;
+                                color: Palette.on-surface-variant;
+                                vertical-alignment: center;
+                                accessible-role: none;
+                            }
+                            Text {
+                                text: slot.word;
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface;
+                                vertical-alignment: center;
+                                accessible-role: none;
+                            }
+                        }
+                        TapArea { tapped => { root.slot(i); } }
+                    }
+                }
+            }
+        }
+        // The picker (section 4): position, letters, suggestions, keypad.
+        if root.page.picker: VerticalLayout {
+            spacing: 8px;
+            Text {
+                text: root.page.position;
+                font-size: Type.title-small;
+                color: Palette.on-surface;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            // Looks like a field, is not one: no IME ever opens.
+            Rectangle {
+                height: 52px;
+                border-width: 1px;
+                border-color: Palette.outline;
+                border-radius: 4px;
+                Text {
+                    x: 12px;
+                    text: root.page.typed;
+                    font-size: Type.body-large;
+                    color: Palette.on-surface;
+                    vertical-alignment: center;
+                    accessible-role: none;
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                min-height: 48px;
+                for word in root.page.chips: Rectangle {
+                    min-height: 48px;
+                    min-width: chip-text.preferred-width + 24px;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: Palette.outline;
+                    background: Palette.surface-container;
+                    accessible-role: button;
+                    accessible-label: word;
+                    accessible-action-default => { root.chip(word); }
+                    chip-text := Text {
+                        text: word;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        accessible-role: none;
+                    }
+                    TapArea { tapped => { root.chip(word); } }
+                }
+                if root.page.matches != "": Text {
+                    text: root.page.matches;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface-variant;
+                    vertical-alignment: center;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+            }
+            // QWERTY rows of 10, 9 and 7, or alphabetical sevens when
+            // narrower than 340 (section 4.3); keys never move, and every
+            // key of a layout is one width.
+            keypad := VerticalLayout {
+                spacing: 4px;
+                property <bool> alphabetical: root.width < 340px;
+                property <int> per-row: self.alphabetical ? 7 : 10;
+                property <length> key-width: (self.width - (self.per-row - 1) * 4px) / self.per-row;
+                for row in (self.alphabetical ? root.page.alpha-rows : root.page.rows): HorizontalLayout {
+                    spacing: 4px;
+                    alignment: center;
+                    for key in row.keys: Rectangle {
+                        width: keypad.key-width;
+                        height: 48px;
+                        border-radius: 4px;
+                        background: Palette.surface-container-high;
+                        opacity: key.enabled ? 1.0 : 0.38;
+                        accessible-role: button;
+                        accessible-label: key.letter;
+                        accessible-enabled: key.enabled;
+                        accessible-action-default => { if (key.enabled) { root.key(key.letter); } }
+                        Text {
+                            text: key.letter;
+                            font-size: Type.body-large;
+                            color: Palette.on-surface;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            accessible-role: none;
+                        }
+                        TapArea {
+                            enabled: key.enabled;
+                            tapped => { root.key(key.letter); }
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+                ActionButton {
+                    text: root.page.key-delete-label;
+                    target: 48px;
+                    pressed => { root.delete-letter(); }
+                }
+                ActionButton {
+                    text: root.page.key-clear-label;
+                    target: 48px;
+                    pressed => { root.clear-word(); }
+                }
+            }
+        }
+        if root.page.waiting != "": Text {
+            text: root.page.waiting;
+            font-size: Type.body-large;
+            color: Palette.on-surface-variant;
+            horizontal-alignment: center;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+        if root.page.waiting == "" && root.page.primary != "": Rectangle {
+            min-height: 48px;
+            border-radius: 24px;
+            background: root.page.primary-enabled ? Palette.primary : Palette.surface-container-high;
+            accessible-role: button;
+            accessible-label: root.page.primary;
+            accessible-enabled: root.page.primary-enabled;
+            accessible-action-default => { if (root.page.primary-enabled) { root.primary(); } }
+            Text {
+                text: root.page.primary;
+                font-size: Type.label-large;
+                font-weight: 500;
+                color: root.page.primary-enabled ? Palette.on-primary : Palette.on-surface-variant;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
+            TapArea {
+                enabled: root.page.primary-enabled;
+                tapped => { root.primary(); }
+            }
+        }
+        if root.page.secondary != "": HorizontalLayout {
+            alignment: center;
+            ActionButton {
+                text: root.page.secondary;
+                text-button: true;
+                target: 48px;
+                pressed => { root.secondary(); }
+            }
+        }
+        if root.page.tertiary != "": HorizontalLayout {
+            alignment: center;
+            ActionButton {
+                text: root.page.tertiary;
+                text-button: true;
+                target: 48px;
+                pressed => { root.tertiary(); }
+            }
+        }
+        if root.page.footnote != "": Text {
+            text: root.page.footnote;
+            font-size: Type.body-medium;
+            color: Palette.on-surface-variant;
+            wrap: word-wrap;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+    }
+    // Section 7's dialog: "Continue entering" is the default.
+    if root.page.dialog: Rectangle {
+        background: #00000080;
+        TouchArea { }
+        Rectangle {
+            width: min(parent.width - 48px, 360px);
+            height: dialog-box.preferred-height;
+            background: Palette.surface-container-high;
+            border-radius: 16px;
+            dialog-box := VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                Text {
+                    text: root.page.dialog-title;
+                    font-size: Type.title-medium;
+                    color: Palette.on-surface;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    ActionButton {
+                        text: root.page.dialog-delete;
+                        text-button: true;
+                        target: 48px;
+                        pressed => { root.dialog(true); }
+                    }
+                    ActionButton {
+                        text: root.page.dialog-keep;
+                        text-button: true;
+                        target: 48px;
+                        focus-seq: root.page.dialog ? 1 : 0;
+                        focus-wanted: true;
+                        pressed => { root.dialog(false); }
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     in property <string> window-title;
+    // The identity screens (Android): shown over everything while active.
+    in property <bool> identity-active;
+    in property <IdentityPage> identity;
+    callback identity-primary();
+    callback identity-secondary();
+    callback identity-tertiary();
+    callback identity-back();
+    callback identity-key(string);
+    callback identity-delete();
+    callback identity-clear();
+    callback identity-chip(string);
+    callback identity-slot(int);
+    callback identity-dialog(bool);
     title: root.window-title;
     // Generated with the rest of the icon set (assets/README.md). winit
     // shows it on X11; a Wayland compositor takes the icon from the app's
@@ -1058,8 +1533,10 @@ export component AppWindow inherits Window {
     // drawn, and the control named by the target takes focus ("m:" and an
     // item's handle, "c:" and a conversation's, "h" the open
     // conversation's header title, "heading" the list's heading).
-    in property <int> focus-seq;
-    in property <string> focus-target;
+    // Set by the view, and by the trust dialog's own Tab, which keeps
+    // focus on its two buttons.
+    in-out property <int> focus-seq;
+    in-out property <string> focus-target;
     // The snackbar (swipe spec section 6): one at a time, in the
     // conversation above the composer, or on the conversation list.
     // Rust clears it when an input that closes the snackbar is queued, so
@@ -1077,6 +1554,10 @@ export component AppWindow inherits Window {
     // The trust settings (human-client-ui.md section 8), shown in place of
     // the conversation: every string from Rust, every press back to it.
     in property <bool> trust-page;
+    // Android: Settings offers the recovery phrase under the PeerId
+    // (design/2026-10-19-android-identity.md section 3.5).
+    in property <bool> show-phrase-offered;
+    in property <string> show-phrase-label;
     in property <string> trust-settings-label;
     in property <string> back-label;
     in property <string> trust-heading;
@@ -1086,6 +1567,9 @@ export component AppWindow inherits Window {
     in property <string> trusted-heading;
     // Said in place of the list: reading it, or that it holds no peer.
     in property <string> trust-placeholder;
+    // The entry's own problem ("not a PeerId"), shown under its field
+    // rather than with the other outcomes.
+    in property <string> entry-error;
     in property <[TrustRow]> trusted;
     // The allowlist has been read: only then can a typed PeerId be
     // checked, so only then is the add row offered.
@@ -1104,11 +1588,47 @@ export component AppWindow inherits Window {
 
     callback select(int);
     callback action(int, int);
+    // One haptic tick as a long-press opens a message's menu.
+    callback menu-haptic();
+    // The message whose menu is open, by its handle, or -1, with what the
+    // menu shows: the row's actions as rendered, Show source's label, the
+    // message's label, and the bubble it is anchored to.
+    in-out property <int> row-menu: -1;
+    property <[ActionRow]> row-menu-actions;
+    property <string> row-menu-source;
+    property <string> row-menu-detail;
+    property <length> row-menu-x;
+    property <length> row-menu-y;
+    property <length> row-menu-w;
+    property <length> row-menu-h;
+    // Show source chosen from a menu, for the row that keeps the choice.
+    property <int> source-toggle: -1;
+    property <int> source-toggle-seq;
+    function open-row-menu(handle: int, actions: [ActionRow], source: string, detail: string,
+        x: length, y: length, w: length, h: length) {
+        root.row-menu-actions = actions;
+        root.row-menu-source = source;
+        root.row-menu-detail = detail;
+        root.row-menu-x = x;
+        root.row-menu-y = y;
+        root.row-menu-w = w;
+        root.row-menu-h = h;
+        root.row-menu = handle;
+    }
+    // Closed with nothing done (Escape, Back, a tap outside): focus back
+    // on its bubble.
+    public function close-row-menu() {
+        if (root.row-menu < 0) { return; }
+        root.focus-target = "m:" + root.row-menu;
+        root.row-menu = -1;
+        root.focus-seq += 1;
+    }
     callback link(int, int);
     callback send();
     callback notice-pressed();
     callback draft-edited(string);
     callback open-trust();
+    callback show-phrase();
     callback close-trust();
     callback trust-entry-edited(string);
     callback trust-add();
@@ -1139,8 +1659,13 @@ export component AppWindow inherits Window {
     // inside its padding and the list's ring room. From the window's width
     // rather than the row's, which the layout computes from what is in it:
     // a bubble's width read from its row loops through the layout.
+    // The trust page's inner width, from the window alone.
+    property <length> trust-width: (root.narrow || root.list-aside ? root.width : root.width - 281px)
+        - root.safe-area-insets.left - root.safe-area-insets.right - 24px;
+    // "Trust this peer"'s label width, measured apart by `add-measure`.
+    property <length> add-label-width: add-measure.preferred-width;
     property <length> message-width: max(0px,
-        (root.narrow ? root.width : root.width - 281px)
+        (root.narrow || root.list-aside ? root.width : root.width - 281px)
             - root.safe-area-insets.left - root.safe-area-insets.right - 34px);
     // In a narrow window: the conversation list is the pane shown.
     in-out property <bool> list-shown: true;
@@ -1150,9 +1675,38 @@ export component AppWindow inherits Window {
     // cannot leave a conversation counted as seen behind the list.
     out property <bool> pane-shown: !root.narrow || !root.list-shown;
     changed pane-shown => { root.pane-changed(); }
-    // The bottom of the window an open virtual keyboard covers.
-    property <length> keyboard-overlap: root.virtual-keyboard-size.height > 0
+    // The bottom of the window an open virtual keyboard covers. Set only
+    // by the platform's keyboard; in-out so a view test can stand in for
+    // a keyboard, which the testing backend has none of.
+    in-out property <length> keyboard-overlap: root.virtual-keyboard-size.height > 0
         ? max(0px, root.height - root.virtual-keyboard-position.y) : 0px;
+    // While the keyboard is up and the space above it is short -- a
+    // landscape phone -- the conversation keeps its messages and its
+    // composer, and the rest steps aside in this order: the list beside
+    // it, then the network notice, then the app bar; all of it comes back
+    // at once when the keyboard closes (#304 F9; Slint's Android backend
+    // forbids the platform's full-screen editor). Nothing moves focus.
+    property <bool> typing: root.keyboard-overlap > 0;
+    // H: the height above the keyboard.
+    property <length> above-keyboard: root.height - root.safe-area-insets.top
+        - max(root.safe-area-insets.bottom, root.keyboard-overlap);
+    // M: the least message area worth showing, two one-line bubbles.
+    property <length> least-messages: 120px;
+    // The pane's own padding and the spacing between its rows, which take
+    // height whatever steps aside.
+    property <length> pane-chrome: 56px;
+    // C, B and the notice: last measured while shown, so a part that
+    // steps aside keeps the height it would take back.
+    property <length> composer-height: 48px;
+    property <length> bar-height: 64px;
+    property <length> notice-height: 0px;
+    property <length> messages-left: root.above-keyboard - root.pane-chrome
+        - root.composer-height - root.bar-height
+        - (root.has-notice ? root.notice-height : 0px);
+    out property <bool> list-aside: root.typing && !root.narrow && root.messages-left < root.least-messages;
+    out property <bool> notice-aside: root.typing && root.has-notice && root.messages-left < root.least-messages;
+    out property <bool> bar-aside: root.typing
+        && root.above-keyboard - root.pane-chrome - root.composer-height - root.bar-height < root.least-messages;
 
     function choose(handle: int) {
         root.list-shown = false;
@@ -1161,6 +1715,38 @@ export component AppWindow inherits Window {
     function open-settings() {
         root.list-shown = false;
         root.open-trust();
+    }
+    // The platform's Back (Android's gesture or key), from the Rust side:
+    // it reaches the window even when no control has focus, which a key
+    // handler never sees. True when a screen took it; false means there
+    // is no way back here, and the platform leaves the app.
+    public function handle-back() -> bool {
+        if (root.identity-active) {
+            root.identity-back();
+            return true;
+        }
+        if (root.row-menu >= 0) {
+            root.close-row-menu();
+            return true;
+        }
+        if (root.menu-open || root.details-open) {
+            root.close-menu();
+            return true;
+        }
+        if (root.trust-page && root.has-pending) {
+            root.trust-cancel();
+            return true;
+        }
+        if (root.trust-page) {
+            root.close-settings();
+            return true;
+        }
+        if (root.narrow && !root.list-shown) {
+            root.list-shown = true;
+            root.left-conversation();
+            return true;
+        }
+        return false;
     }
     function close-settings() {
         root.list-shown = true;
@@ -1204,8 +1790,9 @@ export component AppWindow inherits Window {
         padding-right: root.safe-area-insets.right;
         padding-bottom: max(root.safe-area-insets.bottom, root.keyboard-overlap);
         Rectangle {
-            visible: !root.narrow || root.list-shown;
-            width: !root.narrow ? 280px
+            visible: (!root.narrow || root.list-shown) && !root.list-aside;
+            width: root.list-aside ? 0px
+                : !root.narrow ? 280px
                 : root.list-shown ? root.width - root.safe-area-insets.left - root.safe-area-insets.right
                 : 0px;
             background: root.narrow ? Palette.surface : Palette.surface-container;
@@ -1268,6 +1855,10 @@ export component AppWindow inherits Window {
                 padding: 5px;
                 alignment: start;
             for row[index] in root.conversations: conversation := FocusScope {
+                focus-gained(reason) => {
+                    if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+                    if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+                }
                 property <string> swipe-key: "c:" + row.handle;
                 property <length> offset: root.swipe-key == self.swipe-key ? root.swipe-offset : 0px;
                 property <int> focus-seq: root.focus-seq;
@@ -1479,21 +2070,46 @@ export component AppWindow inherits Window {
             visible: root.pane-shown;
             padding: 12px;
             spacing: 8px;
+            // The top app bar, as a conversation's (#304 F4 at 3b19110a):
+            // the back arrow at the line's start and the screen's title.
+            // A layout has no direction of its own, so right to left the
+            // arrow comes last.
             HorizontalLayout {
-                alignment: start;
-                ActionButton {
-                    text: root.back-label;
-                    focus-key: "close-trust";
-                    pressed => { root.close-settings(); }
-                    focused(k) => { root.focus-id = k; }
+                min-height: 64px;
+                spacing: 8px;
+                if !root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.back;
+                        rtl: root.rtl;
+                        ink: Palette.on-surface;
+                        label: root.back-label;
+                        focus-key: "close-trust";
+                        pressed => { root.close-settings(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
-            }
-            Text {
-                text: root.trust-heading;
-                font-weight: 700;
-                font-size: 16px;
-                accessible-role: text;
-                accessible-label: self.text;
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.trust-heading;
+                    font-size: Type.title-large;
+                    vertical-alignment: center;
+                    horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.back;
+                        rtl: root.rtl;
+                        ink: Palette.on-surface;
+                        label: root.back-label;
+                        focus-key: "close-trust";
+                        pressed => { root.close-settings(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
             }
             Text {
                 text: root.trust-explanation;
@@ -1506,7 +2122,7 @@ export component AppWindow inherits Window {
             // field below carries the same words for a screen reader.
             Text {
                 text: root.own-peer-id-label;
-                font-size: 12px;
+                font-size: Type.body-small;
                 font-weight: 700;
                 accessible-role: none;
             }
@@ -1519,8 +2135,14 @@ export component AppWindow inherits Window {
                 own-id-input := TextInput {
                     text: root.own-peer-id;
                     read-only: true;
-                    single-line: true;
-                    font-size: 12px;
+                    // Whole over as many lines as it needs, never cut: the
+                    // characters a person compares, in the code font so
+                    // they line up (#304 F4). Nothing is inserted, so the
+                    // copied text stays the canonical form.
+                    single-line: false;
+                    wrap: char-wrap;
+                    font-family: root.code-font;
+                    font-size: Type.body-medium;
                     color: Palette.on-surface-variant;
                     accessible-label: root.own-peer-id-label;
                     accessible-value: self.text;
@@ -1536,24 +2158,50 @@ export component AppWindow inherits Window {
                     shown: own-id-input.has-focus;
                 }
             }
+            if root.show-phrase-offered: HorizontalLayout {
+                alignment: start;
+                // A text button, as Trust's others are (#304 F14; F4's
+                // spec at 3b19110a).
+                ActionButton {
+                    text: root.show-phrase-label;
+                    text-button: true;
+                    target: 48px;
+                    focus-key: "show-phrase";
+                    pressed => { root.show-phrase(); }
+                    focused(k) => { root.focus-id = k; }
+                }
+            }
             // The add row under the explanation, above the list it adds to,
             // with a visible caption (the field's own accessible label).
             if root.trust-list-read: Text {
                 text: root.entry-label;
-                font-size: 12px;
+                font-size: Type.body-small;
                 font-weight: 700;
                 accessible-role: none;
             }
-            if root.trust-list-read: HorizontalLayout {
+            // A Material outlined field, its error under it, and "Trust
+            // this peer" filled beside it when both fit at the font size,
+            // under it when they do not (#304 F4 at 3b19110a).
+            if root.trust-list-read: entry-row := VerticalLayout {
                 spacing: 8px;
-                height: 36px;
+                // Decided from the pane's width, which the window sets: the
+                // row's own width follows what it holds, a loop.
+                property <bool> beside: root.trust-width - root.add-label-width - 56px >= 160px;
+            HorizontalLayout {
+                spacing: 8px;
                 entry-box := Rectangle {
-                    border-width: 1px;
-                    border-color: Palette.outline;
+                    height: max(56px, entry.preferred-height + 24px);
+                    border-width: entry.has-focus || root.entry-error != "" ? 2px : 1px;
+                    border-color: root.entry-error != "" ? Palette.error
+                        : entry.has-focus ? Palette.primary : Palette.outline;
                     border-radius: 4px;
                     entry := TextInput {
-                        x: 8px;
-                        width: parent.width - 16px;
+                        x: 16px;
+                        width: parent.width - 32px;
+                        height: self.preferred-height;
+                        y: (parent.height - self.height) / 2;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
                         vertical-alignment: center;
                         single-line: true;
                         text <=> root.trust-entry;
@@ -1571,18 +2219,52 @@ export component AppWindow inherits Window {
                         shown: entry.has-focus;
                     }
                 }
-                ActionButton {
-                    text: root.add-label;
-                    focus-key: "trust-add";
-                    pressed => { root.trust-add(); }
-                    focused(k) => { root.focus-id = k; }
+                if entry-row.beside: VerticalLayout {
+                    alignment: center;
+                    ActionButton {
+                        text: root.add-label;
+                        filled: true;
+                        target: 48px;
+                        focus-key: "trust-add";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-add";
+                        pressed => { root.trust-add(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
             }
-            Text {
+                // The entry's error, under the field it is about.
+                if root.entry-error != "": Text {
+                    text: root.entry-error;
+                    color: Palette.error;
+                    font-size: Type.body-small;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if !entry-row.beside: HorizontalLayout {
+                    alignment: start;
+                    ActionButton {
+                        text: root.add-label;
+                        filled: true;
+                        target: 48px;
+                        focus-key: "trust-add";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-add";
+                        pressed => { root.trust-add(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+            // Where focus goes once the last row it could go to is gone.
+            FocusHeading {
                 text: root.trusted-heading;
-                font-weight: 700;
-                accessible-role: text;
-                accessible-label: self.text;
+                font-size: Type.title-small;
+                rtl: root.rtl;
+                focus-key: "trusted-heading";
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "trusted-heading";
+                focused(k) => { root.focus-id = k; }
             }
             if root.trust-placeholder != "": Text {
                 text: root.trust-placeholder;
@@ -1617,7 +2299,10 @@ export component AppWindow inherits Window {
                         peer-input := TextInput {
                             text: row.peer;
                             read-only: true;
-                            single-line: true;
+                            // As this profile's own: whole, in the code font.
+                            single-line: false;
+                            wrap: char-wrap;
+                            font-family: root.code-font;
                             accessible-label: row.peer;
                             accessible-value: self.text;
                             changed has-focus => {
@@ -1635,55 +2320,27 @@ export component AppWindow inherits Window {
                     Text {
                         text: row.origin;
                         color: Palette.on-surface-variant;
+                        // Wrapped: unwrapped, its whole width was the
+                        // column's minimum, which pushed Remove trust past
+                        // the window's edge in a wider font (CI's DejaVu).
+                        wrap: word-wrap;
                     }
                 }
+                // A text button in the error colour, at a 48 target, on
+                // every row: the one place trust is taken back.
                 ActionButton {
                     text: root.remove-label;
                     detail: row.peer;
+                    text-button: true;
+                    ink: Palette.error;
+                    target: 48px;
                     focus-key: "remove:" + row.handle;
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "remove:" + row.handle;
                     pressed => { root.trust-remove(row.handle); }
                     focused(k) => { root.focus-id = k; }
                 }
             }
-            }
-            }
-            // The change waiting for the person: its exact PeerId and scope,
-            // carried out only by Confirm. Focus lands on "do not change",
-            // so a second Return cannot confirm by accident.
-            if root.has-pending: Rectangle {
-                background: Palette.notice-background;
-                border-radius: 4px;
-            VerticalLayout {
-                padding: 8px;
-                spacing: 8px;
-                Text {
-                    text: root.pending-text;
-                    color: Palette.notice-text;
-                    wrap: word-wrap;
-                    accessible-role: text;
-                    accessible-label: self.text;
-                }
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    ActionButton {
-                        text: root.confirm-label;
-                        detail: root.pending-text;
-                        focus-key: "trust-confirm";
-                        on-notice: true;
-                        pressed => { root.trust-confirm(); }
-                        focused(k) => { root.focus-id = k; }
-                    }
-                    ActionButton {
-                        text: root.cancel-label;
-                        detail: root.pending-text;
-                        focus-key: "trust-cancel";
-                        on-notice: true;
-                        pressed => { root.trust-cancel(); }
-                        focused(k) => { root.focus-id = k; }
-                        init => { self.focus(); }
-                    }
-                }
             }
             }
             if root.trust-outcome != "": Text {
@@ -1701,9 +2358,11 @@ export component AppWindow inherits Window {
             // avatar, the name over the connectivity line and, once known,
             // the path line, and the overflow menu. The identifier is in
             // Details, no longer on the screen itself.
-            HorizontalLayout {
+            if !root.bar-aside: HorizontalLayout {
                 min-height: 64px;
                 spacing: 8px;
+                init => { root.bar-height = self.height; }
+                changed height => { root.bar-height = self.height; }
                 // A layout has no direction of its own: right to left, the
                 // children come in the mirrored order, so Back sits at the
                 // line's start on the right and More at its end on the left
@@ -1817,9 +2476,11 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            if root.has-notice: Rectangle {
+            if root.has-notice && !root.notice-aside: Rectangle {
                 background: Palette.notice-background;
                 border-radius: 12px;
+                init => { root.notice-height = self.height; }
+                changed height => { root.notice-height = self.height; }
             HorizontalLayout {
                 padding: 12px;
                 spacing: 8px;
@@ -1870,6 +2531,27 @@ export component AppWindow inherits Window {
                 // A row tracking a swipe holds its touch: the list does
                 // not scroll for it (swipe spec section 4).
                 interactive: !root.swipe-tracking;
+                // While the keyboard is up the list is anchored at its
+                // newest message, whatever space it keeps: as the keyboard
+                // opens, as the space changes, as a message arrives (#304
+                // F9 step 5).
+                // The content's height can lag the change a turn (read
+                // early it is the padding alone); its own change anchors
+                // again, so the list settles at its newest message.
+                function to-newest() {
+                    self.content-y = min(0px, self.height - self.content-height);
+                }
+                property <bool> anchored: root.typing;
+                changed anchored => {
+                    if (self.anchored) { self.to-newest(); }
+                }
+                changed height => {
+                    if (self.anchored) { self.to-newest(); }
+                }
+                property <length> content: self.content-height;
+                changed content => {
+                    if (self.anchored) { self.to-newest(); }
+                }
             messages-column := VerticalLayout {
                 width: parent.width;
                 // The space between rows is each row's gap (section 6: 2 px
@@ -1889,6 +2571,7 @@ export component AppWindow inherits Window {
             // tests/look.rs, `a_leaving_message_closes_its_space_without_a_jump`).
             // Clipped so it hides what it covered.
             for row[index] in root.messages: row-box := Rectangle {
+
                 // Clipped only while it closes: a clipped row is skipped when
                 // focus moves to rows outside the window, so a long list
                 // could not be tabbed through
@@ -1951,6 +2634,10 @@ export component AppWindow inherits Window {
                     accessible-role: none;
                 }
                 item := FocusScope {
+                    focus-gained(reason) => {
+                        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+                        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+                    }
                     // The person's choice for this message, kept with its row
                     // while the row exists: the drawn body, or the source.
                     in-out property <bool> show-source: false;
@@ -1966,17 +2653,41 @@ export component AppWindow inherits Window {
                     property <bool> at-left: row.outbound == root.rtl;
                     property <TextHorizontalAlignment> text-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                     property <string> source-label: item.show-source ? root.show-formatted-label : root.show-source-label;
-                    // Show source's chip, measured as Chip draws it: its icon,
-                    // label and padding, at least 48 px.
-                    property <length> source-chip-width: max(48px, source-measure.preferred-width + 18px + 8px + 20px);
-                    property <bool> chips-wrap: row.actions.length > 0
-                        && actions-row.preferred-width + 8px + item.source-chip-width > root.message-width;
                     accessible-role: list-item;
                     accessible-label: row.label;
                     accessible-item-index: index;
                     accessible-item-count: root.messages.length;
                     changed has-focus => {
                         if (self.has-focus) { root.focus-id = "item:" + row.handle; }
+                    }
+                    // The bubble is the row's one focus stop besides its links,
+                    // and every focus rule's "first control" (swipe spec
+                    // section 7, revised for #304 F2).
+                    property <int> focus-seq: root.focus-seq;
+                    changed focus-seq => {
+                        if (self.focus-here) { self.focus(); }
+                    }
+                    // Its menu holds the actions, at rest nothing does: by
+                    // long-press, Enter, the Menu key, Shift+F10, a secondary
+                    // click, or the default action a screen reader activates.
+                    function open-menu() {
+                        root.open-row-menu(row.handle, row.actions, item.source-label, row.label,
+                            bubble-column.absolute-position.x, bubble-column.absolute-position.y,
+                            bubble-column.width, bubble-column.height);
+                    }
+                    accessible-action-default => { self.open-menu(); }
+                    key-pressed(event) => {
+                        if (event.text == Key.Return || event.text == Key.Menu
+                            || (event.text == Key.F10 && event.modifiers.shift)) {
+                            self.open-menu();
+                            return accept;
+                        }
+                        reject
+                    }
+                    // Toggled from the menu, which lives outside the row.
+                    property <int> source-seq: root.source-toggle-seq;
+                    changed source-seq => {
+                        if (root.source-toggle == row.handle) { self.show-source = !self.show-source; }
                     }
                     animate offset {
                         duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
@@ -2032,7 +2743,34 @@ export component AppWindow inherits Window {
                     // it has taken it, and ends every drag it took
                     // (tests/pointer.rs,
                     // `a_drag_a_row_does_not_offer_leaves_the_next_drag_its_own`).
-                    TouchArea {
+                    // A press held within the slop for the platform's long-press
+                    // time opens the menu, a press past the slop never does,
+                    // and a secondary click opens it at once (section 4).
+                    row-touch := TouchArea {
+                        property <bool> drifted;
+                        pointer-event(event) => {
+                            if (event.kind == PointerEventKind.down) {
+                                self.drifted = false;
+                                FocusMode.keyboard = false;
+                                if (event.button == PointerEventButton.right) { item.open-menu(); }
+                            }
+                        }
+                        moved => {
+                            if (abs(self.mouse-x - self.pressed-x) > Touch.slop
+                                || abs(self.mouse-y - self.pressed-y) > Touch.slop) {
+                                self.drifted = true;
+                            }
+                        }
+                        Timer {
+                            interval: Touch.long-press;
+                            running: row-touch.pressed && !row-touch.drifted && root.row-menu != row.handle
+                                && !root.swipe-tracking;
+                            triggered => {
+                                self.running = false;
+                                root.menu-haptic();
+                                item.open-menu();
+                            }
+                        }
                     // The bubble's fill (section 6), drawn under its content and
                     // placed on the content's own geometry, so it covers exactly
                     // what the bubble draws.
@@ -2047,6 +2785,16 @@ export component AppWindow inherits Window {
                         border-top-right-radius: 18px;
                         border-bottom-left-radius: item.at-left ? 6px : 18px;
                         border-bottom-right-radius: item.at-left ? 18px : 6px;
+                        // While its menu is open, the bubble keeps a pressed
+                        // state layer, so the person sees which message it is
+                        // about (look spec section 6).
+                        if root.row-menu == row.handle: Rectangle {
+                            background: Palette.on-surface.with-alpha(0.1);
+                            border-top-left-radius: 18px;
+                            border-top-right-radius: 18px;
+                            border-bottom-left-radius: item.at-left ? 6px : 18px;
+                            border-bottom-right-radius: item.at-left ? 18px : 6px;
+                        }
                     }
                     content := VerticalLayout {
                         // Room for a control's focus ring, which the list clips
@@ -2231,10 +2979,16 @@ export component AppWindow inherits Window {
                                                 ink: row.status-error ? Palette.error : Palette.on-surface-variant;
                                             }
                                         }
+                                        // The words may wrap; the time never shrinks:
+                                        // a long status ran the time off the bubble's
+                                        // end on a phone (#304 round 2).
                                         Text {
                                             text: row.status;
                                             font-size: Type.body-small;
                                             color: row.status-error ? Palette.error : Palette.on-surface-variant;
+                                            wrap: word-wrap;
+                                            min-width: 0px;
+                                            horizontal-alignment: root.rtl ? TextHorizontalAlignment.left : TextHorizontalAlignment.right;
                                             accessible-role: text;
                                             accessible-label: self.text;
                                         }
@@ -2242,87 +2996,25 @@ export component AppWindow inherits Window {
                                             text: "·";
                                             font-size: Type.body-small;
                                             color: Palette.on-surface-variant;
+                                            min-width: self.preferred-width;
                                             accessible-role: none;
                                         }
                                         Text {
                                             text: row.time;
                                             font-size: Type.body-small;
                                             color: Palette.on-surface-variant;
+                                            min-width: self.preferred-width;
                                             accessible-role: text;
                                             accessible-label: self.text;
                                         }
                                     }
                                 }
                         }
-                        // The row's actions as chips under the bubble, on its
-                        // side (section 6): the swipe's equivalent, always
-                        // shown. Show source goes to a second line when the
-                        // chips do not fit on one, as at 200 % (section 8).
-                        HorizontalLayout {
-                            alignment: row.outbound != root.rtl ? end : start;
-                            spacing: 8px;
-                            // Its own height, never more: the bubble above takes
-                            // what the row has left. Stretched, the chips took
-                            // the room a wrapped bubble's last lines needed.
-                            vertical-stretch: 0;
-                            // The action chips alone, measured to decide where
-                            // Show source goes.
-                            actions-row := HorizontalLayout {
-                                spacing: 8px;
-                                for action in row.actions: Chip {
-                                    text: action.text;
-                                    kind: action.kind;
-                                    // What the action acts on: the message, as
-                                    // the row itself is read.
-                                    detail: row.label;
-                                    focus-key: "action:" + row.handle + ":" + action.index;
-                                    focus-seq: root.focus-seq;
-                                    focus-wanted: item.focus-here && action.index == 0;
-                                    pressed => { root.action(row.handle, action.index); }
-                                    focused(k) => { root.focus-id = k; }
-                                }
-                            }
-                            if !item.chips-wrap: Chip {
-                                text: item.source-label;
-                                glyph: Glyph.source;
-                                detail: row.label;
-                                focus-key: "source:" + row.handle;
-                                focus-seq: root.focus-seq;
-                                focus-wanted: item.focus-here && row.actions.length == 0;
-                                pressed => { item.show-source = !item.show-source; }
-                                focused(k) => { root.focus-id = k; }
-                            }
-                        }
-                        if item.chips-wrap: HorizontalLayout {
-                            alignment: row.outbound != root.rtl ? end : start;
-                            vertical-stretch: 0;
-                            Chip {
-                                text: item.source-label;
-                                glyph: Glyph.source;
-                                detail: row.label;
-                                focus-key: "source:" + row.handle;
-                                focus-seq: root.focus-seq;
-                                focus-wanted: item.focus-here && row.actions.length == 0;
-                                pressed => { item.show-source = !item.show-source; }
-                                focused(k) => { root.focus-id = k; }
-                            }
-                        }
                     }
                     }
                         }
                         }
                     }
-                    }
-                    // Show source's label, measured for its chip. Placed, so it
-                    // takes no room in the row.
-                    source-measure := Text {
-                        x: 0;
-                        y: 0;
-                        text: item.source-label;
-                        font-size: Type.label-large;
-                        font-weight: 500;
-                        visible: false;
-                        accessible-role: none;
                     }
                     FocusRing {
                         x: -5px;
@@ -2366,7 +3058,14 @@ export component AppWindow inherits Window {
             // Send is placed rather than laid out, at the line's end -- the
             // right, or the left right to left -- as the snackbar's Undo is
             // (tests/look.rs, `the_composer_mirrors_right_to_left`).
+            // Its own height, the field's lines and their padding: in the
+            // pane's layout a box without one took the free space under
+            // the messages (#304 F3).
             if root.composer-enabled: Rectangle {
+                vertical-stretch: 0;
+                height: max(48px, input.preferred-height + 24px);
+                init => { root.composer-height = self.height; }
+                changed height => { root.composer-height = self.height; }
                 HorizontalLayout {
                     spacing: 8px;
                     if root.rtl: Rectangle { width: 48px; }
@@ -2398,6 +3097,8 @@ export component AppWindow inherits Window {
                         input := TextInput {
                             x: 20px;
                             width: parent.width - 40px;
+                            height: self.preferred-height;
+                            y: (parent.height - self.height) / 2;
                             vertical-alignment: center;
                             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                             font-size: Type.body-large;
@@ -2405,6 +3106,17 @@ export component AppWindow inherits Window {
                             text <=> root.draft;
                             enabled: root.composer-enabled;
                             accessible-label: root.composer-label;
+                            // A touch user who closes the keyboard (Back, or
+                            // the keyboard's own key) is done typing: the field
+                            // lets focus go, and its insertion handle with it,
+                            // which stayed drawn on the empty field (#304 F3,
+                            // round 1). A keyboard user keeps focus.
+                            property <bool> keyboard-up: root.keyboard-overlap > 0;
+                            changed keyboard-up => {
+                                if (!self.keyboard-up && !FocusMode.keyboard && self.has-focus) {
+                                    self.clear-focus();
+                                }
+                            }
                             edited => { root.draft-edited(self.text); }
                             changed has-focus => {
                                 if (self.has-focus) { root.focus-id = "composer"; }
@@ -2429,6 +3141,17 @@ export component AppWindow inherits Window {
             }
         }
     }
+    // Never drawn: measures "Trust this peer" for the trust page's field
+    // row, placed so it takes no room in any layout.
+    add-measure := Text {
+        x: 0;
+        y: 0;
+        visible: false;
+        text: root.add-label;
+        font-size: Type.label-large;
+        font-weight: 500;
+        accessible-role: none;
+    }
     // Over everything: a press outside the menu or Details closes it, as
     // Escape does.
     if root.menu-open || root.details-open: TouchArea {
@@ -2436,7 +3159,10 @@ export component AppWindow inherits Window {
         y: 0;
         width: root.width;
         height: root.height;
-        clicked => { root.close-menu(); }
+        clicked => {
+            FocusMode.keyboard = false;
+            root.close-menu();
+        }
         Rectangle {
             background: root.details-open ? #00000052 : transparent;
         }
@@ -2488,7 +3214,197 @@ export component AppWindow inherits Window {
     // selectable so a person can copy it with the platform's own keys
     // (human-client-ui.md section 11). Read-only: nothing typed here goes
     // anywhere.
+    // A message's menu (swipe spec section 7, look spec section 6): its
+    // actions in the row's order, Show source last, each 48 high with its
+    // icon, anchored under the bubble -- over it when the space below runs
+    // out. Focus opens on its first item; an item chosen, Escape, Back or a
+    // tap outside closes it. Its items keep the focus keys the row's
+    // buttons had, so the view's focus rules read focus here as the row's.
+    if root.row-menu >= 0: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => {
+            FocusMode.keyboard = false;
+            root.close-row-menu();
+        }
+    }
+    if root.row-menu >= 0: row-menu-box := Rectangle {
+        property <length> below: root.row-menu-y + root.row-menu-h + 4px;
+        width: min(root.width - 16px, max(200px, row-menu-items.preferred-width));
+        height: row-menu-items.preferred-height;
+        x: max(8px, min(root.row-menu-x, root.width - self.width - 8px));
+        y: self.below + self.height <= root.height - root.safe-area-insets.bottom - 8px ? self.below
+            : max(root.safe-area-insets.top + 8px, root.row-menu-y - self.height - 4px);
+        background: Palette.surface-container-high;
+        border-radius: 4px;
+        drop-shadow-blur: 8px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: #00000052;
+        // A press on the menu is the menu's, not the scrim's.
+        TouchArea {}
+        row-menu-items := VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            for action in root.row-menu-actions: MenuItem {
+                text: action.text;
+                detail: root.row-menu-detail;
+                iconed: true;
+                kind: action.kind;
+                focus-key: "action:" + root.row-menu + ":" + action.index;
+                first: action.index == 0;
+                rtl: root.rtl;
+                pressed => {
+                    // Closed first, focus on its bubble, which the action's
+                    // own rule may then move (Dismiss, Cancel: the next row).
+                    let handle = root.row-menu;
+                    root.close-row-menu();
+                    root.action(handle, action.index);
+                }
+                closed => { root.close-row-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+            MenuItem {
+                text: root.row-menu-source;
+                detail: root.row-menu-detail;
+                iconed: true;
+                glyph: Glyph.source;
+                focus-key: "source:" + root.row-menu;
+                first: root.row-menu-actions.length == 0;
+                rtl: root.rtl;
+                pressed => {
+                    root.source-toggle = root.row-menu;
+                    root.source-toggle-seq += 1;
+                    root.close-row-menu();
+                }
+                closed => { root.close-row-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+        }
+    }
+    // The trust change waiting for the person, as a dialog over a scrim
+    // (#304 F4 at 3b19110a): the question with its exact PeerId and what
+    // follows, "Do not change" focused, and a button naming the act. A
+    // tap on the scrim, Escape and Back are "Do not change".
+    if root.trust-page && root.has-pending: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => {
+            FocusMode.keyboard = false;
+            root.trust-cancel();
+        }
+        Rectangle { background: #00000052; }
+    }
+    if root.trust-page && root.has-pending: pending := FocusScope {
+        focus-gained(reason) => {
+            if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+            if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        }
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: min(root.width - 48px, 560px);
+        height: pending-box.preferred-height;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.trust-cancel();
+                return accept;
+            }
+            // A modal dialog keeps focus on its two buttons.
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                FocusMode.keyboard = true;
+                root.focus-target = root.focus-id == "trust-cancel" ? "trust-confirm" : "trust-cancel";
+                root.focus-seq += 1;
+                return accept;
+            }
+            reject
+        }
+        pending-box := Rectangle {
+            background: Palette.surface-container-high;
+            border-radius: 28px;
+            // A press on the dialog is the dialog's, not the scrim's.
+            TouchArea {}
+            VerticalLayout {
+                padding: 24px;
+                spacing: 24px;
+                Text {
+                    text: root.pending-text;
+                    color: Palette.on-surface;
+                    font-size: Type.body-medium;
+                    wrap: word-wrap;
+                    // The exact PeerId is one word wider than a phone: as
+                    // the text's minimum it would lay the dialog past the
+                    // window's edge. Without it the PeerId breaks whole.
+                    min-width: 0px;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                // At the line's end, "Do not change" before the act; right
+                // to left both mirror, as a layout does not on its own.
+                if !root.rtl: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    ActionButton {
+                        text: root.cancel-label;
+                        detail: root.pending-text;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "trust-cancel";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-cancel";
+                        pressed => { root.trust-cancel(); }
+                        focused(k) => { root.focus-id = k; }
+                        init => { self.focus(); }
+                    }
+                    ActionButton {
+                        text: root.confirm-label;
+                        detail: root.pending-text;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "trust-confirm";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-confirm";
+                        pressed => { root.trust-confirm(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                if root.rtl: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    ActionButton {
+                        text: root.confirm-label;
+                        detail: root.pending-text;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "trust-confirm";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-confirm";
+                        pressed => { root.trust-confirm(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    ActionButton {
+                        text: root.cancel-label;
+                        detail: root.pending-text;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "trust-cancel";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-cancel";
+                        pressed => { root.trust-cancel(); }
+                        focused(k) => { root.focus-id = k; }
+                        init => { self.focus(); }
+                    }
+                }
+            }
+        }
+    }
     if root.details-open: details := FocusScope {
+        focus-gained(reason) => {
+            if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+            if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+        }
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;
         width: min(root.width - 48px, 560px);
@@ -2503,6 +3419,8 @@ export component AppWindow inherits Window {
             // no ring and reports no focus, nor on the controls behind the
             // scrim (tests/look.rs, `tab_stays_in_details_and_escape_closes_it`).
             if (event.text == Key.Tab || event.text == Key.Backtab) {
+                // Kept here, it moves no focus: still the keyboard's.
+                FocusMode.keyboard = true;
                 return accept;
             }
             reject
@@ -2560,5 +3478,30 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
+
+    if root.identity-active: IdentityScreen {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        page: root.identity;
+        rtl: root.rtl;
+        code-font: root.code-font;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        primary => { root.identity-primary(); }
+        secondary => { root.identity-secondary(); }
+        tertiary => { root.identity-tertiary(); }
+        back => { root.identity-back(); }
+        key(letter) => { root.identity-key(letter); }
+        delete-letter => { root.identity-delete(); }
+        clear-word => { root.identity-clear(); }
+        chip(word) => { root.identity-chip(word); }
+        slot(i) => { root.identity-slot(i); }
+        dialog(delete) => { root.identity-dialog(delete); }
+        init => { self.focus(); }
     }
 }

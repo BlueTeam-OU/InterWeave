@@ -4925,7 +4925,7 @@ Android does not add a localhost daemon/IPC transport just to imitate desktop.
 7. secure recovery Activity;
 8. secure mnemonic UI/picker/no-clipboard path;
 9. Android backup/device-transfer exclusions;
-10. package/store metadata — the store-listing check quotes the Play policy text with the date read, closing ADR-0041's Play-policy condition that SPIKE-008 left open.
+10. release metadata and the dependency check (ADR-0057; no store) — the APK's application id, version name and code, the signing scheme and where the key is kept (never in the repository), the release-page template with the Slint attribution, the SHA-256 and the manual-update note; a check that lists every application dependency with its licence (the Royalty-free terms for the desktop's ten Slint crates as admitted; `i-slint-backend-android-activity` and `i-slint-renderer-skia` admitted per crate by ADR-0057 decision 3, with `deny.toml` gaining the Android target; Skia's MIT bindings and the native library's notices) and asserts that no Google Play services, Firebase or Play artifact is on the application classpath (the lockfile), and records the target-SDK half of SPIKE-008's P1 as closed by step 3's device run, citing its API level; ADR-0041's Play-policy half is withdrawn (A 2026-10-19, "The Play-policy half is withdrawn") and no store review exists.
 
 ### Platform tests
 
@@ -5022,6 +5022,13 @@ no Android package is built yet, SPIKE-008 and SPIKE-009 closed PASS on 2026-10-
 and nothing below is met. This section gained its gate on 2026-10-08
 (fabric-coordinator's observation, after InterWeave #227's thread); the
 closing record will be appended under it, as §18's and §19's were.
+Clause (j) was added on 2026-10-19 (architect-cto, on the owner's word
+in session, the same day the owner asked for the stage to close): the
+gate until then measured the client's platform guarantees and its
+interoperability and never what a person sees, and the owner's reading
+of the app as built is that it falls short of the messengers a person
+already uses; the standard, and the ranking of what a person notices
+first, are ux-designer's to set in the review.
 
 The first-party human client runs on Android as the same library
 composition the desktop proved — embedded runtime, store, chat protocol,
@@ -5041,7 +5048,7 @@ tests, named in the closing record; (b) every step of "Implement in order" has a
 the closing record and green — host Rust tests for the session and
 domain logic, instrumented tests on a real device (API level recorded)
 for each line of "Platform tests", process death and restart included;
-step 10 by the store-listing check the packaging batch defines; (c)
+step 10 by the release metadata and the dependency check (ADR-0057); (c)
 `tests/android-e2e` proves Android ↔ desktop interoperability through a
 direct and a relayed path, HumanChatV2 both directions, plain and
 compressed, with the captured payloads validated against the envelope
@@ -5075,7 +5082,20 @@ test shows a trust set in the embedded host's log under a filter
 stricter than INFO, so the sink's admission of the audit target is what
 is proved, not the default level; (h) the Gradle graph's OSV.dev scan (§Dependency hygiene, A 2026-10-10: `osv-scanner` over the committed Gradle lockfiles, run locally, no CI job — the owner's words) has run against the head that closes the stage and the closing PR's body says so with what it found; `osv-scanner.toml` holds only `[[IgnoredVulns]]` entries with their reason, each reviewed; dependency locking is on and the lockfiles are committed; the README command is landed by devex-tooling;
 (i) the ledger holds no `stage-17` entry, and the closing record moves
-the status to the lowest open stage on the owner's word. No contract
+the status to the lowest open stage on the owner's word; (j) (A
+2026-10-19, the owner's word in session: the Android app's look and
+feel are far below what a person expects of a messaging app, and
+ux-designer is to bring it to the level of the mainstream Android
+messengers) ux-designer has reviewed the Android app as built — on the
+device, every screen and flow the app has — against that standard and
+against its own specifications under `design/`, and the review is a
+file under `design/` naming each finding with the spec line it misses
+or the standard it falls short of, ranked; every finding the review
+ranks as what a person would notice first is built by rust-ui-dev and
+re-reviewed by ux-designer before the close, and every lower-ranked
+finding is either built or carried to the owner's release gate by name
+in the closing record, never dropped; the closing record cites the
+review file and its re-review. No contract
 flips at this gate: the Android binding consumes contracts already
 `active` (ADR-0049; each flip is recorded in the stage that made it),
 and a new contract this stage finds it needs lands `approved` first.
@@ -5399,7 +5419,7 @@ Carried here from Stage 13 (§16): hot reload (SIGHUP) and which leases survive 
 
 Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
-Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release.
+Android's release is the project's own (ADR-0057): the tagged release run, the signed APK, its SHA-256 and the Slint attribution on the project's release page, updates by hand; no store listing exists and none is planned; whether the release run builds Skia from source or pins the bindings' prebuilt archive by checksum is decided here before the first release. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release.
 
 Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both. macOS is IN that matrix and owes this stage two things before it ships, neither decided yet: a macOS runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a macOS runner, the v1 build claim being Linux until both exist. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows rows are conditional on the carry above.
 
@@ -5557,3 +5577,215 @@ The historical phase numbers remain useful as scope labels:
 However, **construction follows Stages 0-19 in this document**. In particular, connection/dial policy (Stage 5) precedes Kademlia (Stage 10) and mandatory Internet reachability (Stage 11), even though the older product phase table groups those concerns differently.
 
 This ordering is normative because it ensures autonomous libp2p behaviours are introduced only after their security and resource-control boundary already exists.
+
+## 28. Stage 20 — automated clients and the one-host deployment
+
+Opened by this record on the owner's direction of 2026-10-19 (the
+agents that build InterWeave use it as their transport) and bounded by
+the owner's line of the same day: InterWeave stays a general-purpose
+transport, for human-to-human communication as for anything else, and
+the agents' coordination protocol does not enter this repository —
+"different things, different layer". The stage ran **beside** Stage
+17 and Stage 18 as §19's Stage 16 ran beside Stage 15, and closed the
+same day (Met, below): the status value stays the lowest open stage,
+and this section was the authorisation for its packages (§3 of `CLAUDE.md`). The decision is ADR-0055; this
+section is the construction order, the gate and the record. It is
+numbered after §27 so that no citation of §23–§27 moves.
+
+### Objective
+
+What the transport promises an automated client — an agent, a bot, a
+gateway, a test harness — stated as measured and proved by a
+conformance suite, with the two offline identity verbs and the Linux
+user units a deployment of many profiles under many accounts on one
+host needs. InterWeave's part ends at the data socket's contract and
+those facts; the protocol a deployment carries, its addressing, its
+roster, its journal and its carrier process are the deployment's, and
+for the fleet they are agent-fabric's by its own records.
+
+### Prerequisites
+
+None beyond what is on `main`: the daemon (Stage 13), IPC v2 `active`
+(Stage 13), static bootstrap (Stage 9), the trust overlay (ADR-0028 A
+2026-10-07). Stage 17's close is not a prerequisite, and nothing here
+touches the human client.
+
+### Activate
+
+```text
+packaging/linux                 (the daemon's and a client's user-unit templates; §22's service-lifecycle rows pulled forward for Linux only)
+apps/transportctl               (two offline verbs: identity init, identity show)
+tests/automated-client          (the conformance suite of ADR-0055 decisions 2 and 5)
+architecture/clients/automated  (what the transport promises an automated client, and what such a client owes itself)
+```
+
+No new crate. `packaging/macos`, `packaging/windows` and
+`packaging/android` stay §22's. No name of any coordination protocol
+appears in any of the four.
+
+### Implement in order
+
+1. `transportctl identity init --profile <name>` and `identity show`
+   (ADR-0055 decision 4): offline, under the profile lock, printing the
+   PeerId and nothing secret; refused while a daemon holds the lock;
+   `init` refuses an existing key; tests beside the other identity
+   verbs. (Built on p2p-network-dev's branch at 8dddbbcf, five tests
+   beside the file's nineteen for the earlier verbs, before this record
+   landed.)
+2. `tests/automated-client` (root suite, test-support only): two
+   daemons on loopback with static bootstrap and mutual trust as a
+   deployment renders them, and a generic test client that claims a
+   configured endpoint and joins a channel; cases: a direct message B
+   receives from A; an application receipt B's client sends after it
+   has kept the message, reaching A's client (decision 3, the client's
+   own); a send while B's lease is withheld answered
+   `RemoteEndpointUnavailable`, retried under the same `message_id` and
+   landing once inside the dedup window, and the same retry after B's
+   daemon restarts landing as a second delivery the test client
+   collapses by its own key (decision 2, the limit measured); a
+   fan-out under one `message_id` to two receivers each landing once;
+   A's daemon restarted under a live client (re-lease, re-join, the
+   next message lands; `ShuttingDown` then `BackendUnavailable` both
+   re-opened); a burst of 200 broadcasts with the delivered count read
+   against the ingress bucket, and the same burst as direct sends
+   landing whole through `Overloaded` retries; a loopback
+   static-bootstrap dial, which no test on `main` exercised; a second
+   daemon of the same account sharing a port (decision 5), and a port
+   held by a plain socket without `SO_REUSEPORT` refusing the start
+   (exit 1 on `EADDRINUSE`, a free-port start as the control); the
+   cross-account refusal is carried as unverified until CI has a second
+   account. (Built on p2p-network-dev's branch: nine cases at 4db37607
+   before this record landed, the tenth, the held port, added on #305's
+   review; the suite reads the ingress bucket's constants
+   from `interweave-transport-runtime` as a dev-dependency rather than
+   restating them, which is the right direction for a conformance
+   suite — `tests/support` stays out of production, the reverse is
+   allowed.)
+3. `architecture/clients/automated/AUTOMATED-CLIENT.md`: ADR-0055
+   decisions 2 and 3 as a reader's document, each fact naming the test
+   of step 2 or the contract that holds it, restating no constant; the
+   loopback deployment's `config.yaml` shape; the pacing figures for
+   fan-out. Written by architect-cto from the facts p2p-network-dev
+   states with step 2 (written 2026-10-19 from their REPLY on
+   4db37607 and f68b7b56; one fact new to the record, broadcast order
+   not preserved, folded into ADR-0055 decision 2 the same day).
+4. `packaging/linux`: `interweave-daemon@.service` and
+   `interweave-client@.service` as systemd user units templated on the
+   profile name, `Restart=on-failure`, the daemon stopped by SIGTERM
+   with the grace it already honours, the client `After=` and
+   `BindsTo=` its daemon, binaries from the account's own path, no
+   system-wide install; a README that says how an account installs them
+   and that a deployment's tooling may do it instead. (Built at
+   f68b7b56: a clean stop in 0.19 s with the client stopping with it,
+   the client starting with the daemon, both back 5 s after a SIGKILL,
+   a taken port retried under the start limit; the client unit runs
+   the deployment's program from the account's `libexec`, or a
+   drop-in's `ExecStart`, and InterWeave ships none.)
+5. The stale clause in `CLAUDE.md` §1 about mDNS (the multicast backend
+   was built after Stage 9; this record corrects it) — done in the
+   series that lands this section.
+
+### Exit gate
+
+(a) Steps 1–4 landed with their tests green on `main`, every fact of
+decision 2 held by a named case; (b) the automated-client document
+cites each; (c) the first external deployment, if one has run by the
+close, is cited by its own record with the figures it measured — it is
+evidence, never a condition, since the transport is general purpose and
+no deployment's protocol is this stage's.
+
+### Record
+
+The owner's word closes it, as every stage. The `Met.` block names the
+cases, the measured figures of decision 2 and what was carried.
+
+**Met (2026-10-19; the closing record).** Stage 20 closed on the owner's
+word of 2026-10-19 — given on the arming of the pull request that lands
+this record, which is its approval on record, as Stage 16's was — the
+day it opened beside Stage 17 by record (#305, bcfd515d, merged
+4a607b2e; the same merge is ADR-0055's acceptance by the arming rule of
+2026-09-27, the owner's word "Arm #305" of 2026-10-19), on the steps
+above in order, all of them in that one pull request —
+p2p-network-dev's lane, with ADR-0055, this section, the review-fix
+text and `AUTOMATED-CLIENT.md` supplied by architect-cto on the way:
+step 1 (`apps/transportctl/tests/identity.rs`, five cases of its 24:
+`init_mints_a_key_and_show_prints_its_peer_id`,
+`init_refuses_an_existing_key`,
+`init_without_a_configuration_writes_the_default_key_file`,
+`init_and_show_under_a_held_lock_are_refused` and
+`show_without_a_key_is_refused_and_mints_none`; the other nineteen are
+the earlier verbs'); step 2 (`tests/automated-client/tests/automated_client.rs`,
+ten cases: `a_direct_message_lands_over_a_static_loopback_entry`,
+`a_broadcast_on_the_channel_reaches_the_other_client`,
+`an_application_receipt_reaches_the_sender_after_the_receiver_kept_it`,
+`a_withheld_lease_is_retried_under_one_id_and_lands_once`,
+`a_fan_out_under_one_id_lands_once_at_each_receiver`,
+`a_daemon_gone_under_a_live_client_is_reopened_either_way`,
+`a_burst_of_200_broadcasts_is_bounded_by_the_ingress_bucket`,
+`the_same_burst_as_direct_sends_lands_whole_through_overloaded_retries`,
+`two_daemons_of_one_account_share_a_port` and
+`a_port_held_without_reuseport_refuses_the_start`); step 3
+(`architecture/clients/automated/AUTOMATED-CLIENT.md`, every row of its
+§2 naming its case or its contract); step 4 (`packaging/linux`: the two
+user units and their README); step 5 (the mDNS clause of `CLAUDE.md`
+§1). The exit gate: (a) steps 1–4 are on `main` with CI green at the
+merge (4a607b2e) and at the next (c9766159), and each fact of decision
+2 is held by a named case or by the contract that states it, as the
+document's §2 records row by row — in this suite where the suite
+reaches it, elsewhere in the tree where an earlier stage already held
+it, and by contract alone where no case asserts it (the 256 itself,
+LOCAL-IPC.md; no durable broadcast, ADR-0020) — admission not delivery by the withheld-lease
+case (a retry inside the window is accepted again and not delivered
+again) with the receipt case showing what delivery takes; `no_route`
+coarse by `tests/security`'s
+`the_four_no_route_causes_are_byte_identical_on_the_wire`; no durable
+broadcast by contract, with the broadcast-burst case showing only that
+a dropped publish did not arrive within its three-second watch; the
+256-event queue's refusal by the runtime's
+`a_full_queue_refuses_rather_than_accepting_falsely`, a broadcast
+dropping the oldest by the runtime's
+`a_full_queue_drops_for_that_session_and_nobody_else`, the wedged
+close by `ipc-server`'s
+`a_silent_client_that_stopped_reading_is_closed_and_frees_its_slot` and
+the lease lost with the keepalive-miss close by its
+`unanswered_probes_close_the_connection_and_release_its_lease`;
+the 48 KiB ceiling by `ipc-protocol`'s
+`a_payload_past_the_ceiling_is_payload_too_large`; dedup inside the
+window and the second delivery across a restart by the withheld-lease
+case, the ingress bucket and the
+silent drop by the broadcast-burst case, the whole landing of the same
+burst as direct sends by the direct-burst case, `ShuttingDown` then
+`BackendUnavailable` both re-opened by the daemon-gone case, the port rule of decision 5 by the two port cases, and the figures: 34–41 of 200 broadcasts
+delivered over thirteen runs, each inside the bound the bucket's
+constants give over the run's elapsed time (a later run 50 within
+31–56 over 11.9 s); 200 of 200 direct sends landed, each once, through
+632–686 `Overloaded` refusals over the thirteen runs and 568 in a later
+one, about 84 s a run; broadcast order lost in one run of thirteen;
+(b) the document cites each (its §2 table, a row per promise); (c) no
+external deployment had run by the close, so none is cited — the first
+is evidence under its own record when it runs, never a condition. The
+status value does not move: Stage 17 stays the lowest open stage, and
+the human client is untouched by this stage. ADR-0055 moves from
+Proposed to Accepted in the series that lands this record, by the
+merge named above.
+
+**Measured, and carried as limits.** Every case ran on one host's
+loopback under one uid. Carried by name, from `AUTOMATED-CLIENT.md` §5
+and decision 2: the cross-account port refusal rests on the kernel's
+documented `SO_REUSEPORT` rule and is not measured (one uid in the
+suite, as decision 5 says, until CI has a second account); a second
+host is ADR-0034 §7's and SPIKE-004's limit; the second delivery of a
+retry after the dedup WINDOW is by decision (ADR-0019) and measured
+here only across the receiving daemon's restart; ordering across
+senders is promised nowhere and measured nowhere; Byzantine resistance
+among profiles and protection from same-uid code are outside the
+transport's threat model as stated there. Step 4's figures — a clean
+stop in 0.19 s with the client stopping with it, both units back 5 s
+after a SIGKILL, a taken port retried under the start limit — were
+measured on the host's user manager by hand (f68b7b56's record) and no
+CI case holds them: a unit is proved by a deployment's own run, and the
+first deployment's record is where that lands. The refusal counts and
+the durations of the two burst cases are samples that depend on the
+client's retry step and the bucket's refill, not promises, as decision
+2 says; the cases assert the delivered counts and the bound, nothing of
+the timing.

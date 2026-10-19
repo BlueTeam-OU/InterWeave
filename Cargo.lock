@@ -3286,6 +3286,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "interweave-automated-client-tests"
+version = "0.0.0"
+dependencies = [
+ "interweave-ipc-client",
+ "interweave-local-client-api",
+ "interweave-test-support",
+ "interweave-transport-api",
+ "interweave-transport-runtime",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "interweave-claude-channel"
 version = "0.0.0"
 dependencies = [
@@ -3487,6 +3500,7 @@ dependencies = [
 name = "interweave-human-android-platform"
 version = "0.0.0"
 dependencies = [
+ "bip39",
  "interweave-android-e2e-cases",
  "interweave-human-android-platform",
  "interweave-human-app-core",
@@ -3501,6 +3515,7 @@ dependencies = [
  "interweave-profile-identity",
  "interweave-transport-api",
  "interweave-transport-embedded",
+ "rand 0.10.3",
  "tempfile",
  "tokio",
 ]

@@ -152,6 +152,42 @@ fn labelled(view: &View, label: &str) -> Vec<ElementHandle> {
     ElementHandle::find_by_accessible_label(view.window(), label).collect()
 }
 
+/// Choose `label` from the menu of the first message row that offers it
+/// (Show source and its way back: the first row), opening the menu as a
+/// screen reader does, by the row's default action (swipe spec section
+/// 7; #304 F2 moved the row's buttons into it).
+fn choose(view: &View, label: &str) {
+    use slint::Model as _;
+    let rows = view.window().get_messages();
+    let rows: Vec<_> = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .collect();
+    let row = rows
+        .iter()
+        .find(|r| r.actions.iter().any(|a| a.text.as_str() == label))
+        .or_else(|| rows.first())
+        .expect("a message row");
+    let item = i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .match_accessible_role(i_slint_backend_testing::AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .find(|e| e.accessible_label().as_deref() == Some(row.label.as_str()))
+        .expect("the row's item");
+    item.invoke_accessible_default_action();
+    let entry = i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .find_all()
+        .into_iter()
+        .find(|e| {
+            e.accessible_label().as_deref() == Some(label)
+                && e.accessible_description().as_deref() == Some(row.label.as_str())
+        })
+        .expect("the menu's entry");
+    entry.invoke_accessible_default_action();
+    // The row hears a menu's Show source through a change callback, which
+    // runs on the event loop's turn.
+    slint::platform::update_timers_and_animations();
+}
+
 fn the(view: &View, label: &str) -> ElementHandle {
     let mut found = labelled(view, label);
     assert_eq!(found.len(), 1, "exactly one element labelled {label:?}");
@@ -165,6 +201,16 @@ fn all(view: &View) -> Vec<ElementHandle> {
         "the tree is not empty: built with debug info"
     );
     found
+}
+
+fn enter(view: &View) {
+    let key: slint::SharedString = Key::Return.into();
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text: key });
 }
 
 fn tab(view: &View) -> String {
@@ -259,7 +305,7 @@ fn a_press_whose_action_is_gone_yields_nothing() {
         },
     );
     open(&mut view, &mut model, &direct(&bob));
-    the(&view, text(UiText::Retry)).invoke_accessible_default_action();
+    choose(&view, text(UiText::Retry));
     update(
         &mut model,
         7,
@@ -281,7 +327,7 @@ fn a_press_whose_action_is_gone_yields_nothing() {
         },
     );
     view.render(&model);
-    the(&view, text(UiText::Retry)).invoke_accessible_default_action();
+    choose(&view, text(UiText::Retry));
     assert_eq!(
         intents(&mut view, &mut model),
         vec![Intent::Retry(RowId::from_stored(8))]
@@ -481,8 +527,14 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
     // A direct conversation has two parties, and the bubble's side says
     // which: no author line (android-look section 6). The channel's,
     // which carries the exact PeerId, is tests/look.rs's.
+    // An author line is a text of the short PeerId described by the full
+    // one; the list's row and the app bar's heading title the conversation
+    // with the short PeerId too (human-client-ui.md §4).
     assert!(
-        labelled(&view, &short).is_empty(),
+        labelled(&view, &short)
+            .iter()
+            .all(|e| e.type_name().as_deref() != Some("Text")
+                || e.accessible_description().as_deref() != Some(id)),
         "no author line in a direct conversation"
     );
     // Nor a route line: the title carries the route (section 6), and the
@@ -520,8 +572,11 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
     let header = all(&view)
         .into_iter()
         .find(|e| {
+            // The peer's only conversation: titled by the short PeerId,
+            // described by the full one (human-client-ui.md §4).
             e.accessible_description().as_deref() == Some(id)
-                && e.accessible_label().is_some_and(|l| l.contains("human"))
+                && e.accessible_label().as_deref() == Some(short.as_str())
+                && e.type_name().as_deref() == Some("FocusHeading")
         })
         .expect("the conversation header");
     assert_eq!(
@@ -679,17 +734,9 @@ fn network_denied_shows_its_action_and_no_composer() {
 #[test]
 fn a_narrow_window_shows_one_pane_at_a_time_with_a_way_back() {
     let alice = peer();
-    // The conversation's row, by the title the list gives it.
-    let title = interweave_human_ui_model::fill(
-        text(UiText::DirectTitle),
-        &[
-            (
-                "peer",
-                &interweave_human_ui_model::short_peer(alice.as_str()),
-            ),
-            ("route", human().as_str()),
-        ],
-    );
+    // The conversation's row, by the title the list gives it: the short
+    // PeerId alone, the peer's only conversation (human-client-ui.md §4).
+    let title = interweave_human_ui_model::short_peer(alice.as_str());
     // Whether the conversation's row is in the tree: a folded pane is
     // not, for a screen reader as for the eye.
     let row_shown = |view: &View| {
@@ -748,7 +795,7 @@ fn every_action_element_has_a_default_action_giving_its_intent() {
     );
     model.read(RowId::from_stored(1));
     view.render(&model);
-    the(&view, text(UiText::Keep)).invoke_accessible_default_action();
+    choose(&view, text(UiText::Keep));
     let keep = intents(&mut view, &mut model);
     assert!(matches!(keep.as_slice(), [Intent::Keep { .. }]), "{keep:?}");
 
@@ -764,7 +811,7 @@ fn every_action_element_has_a_default_action_giving_its_intent() {
         },
     );
     view.render(&model);
-    the(&view, text(UiText::Cancel)).invoke_accessible_default_action();
+    choose(&view, text(UiText::Cancel));
     assert_eq!(
         intents(&mut view, &mut model),
         vec![Intent::Cancel(RowId::from_stored(9))]
@@ -784,8 +831,10 @@ fn every_action_element_has_a_default_action_giving_its_intent() {
     );
 }
 
-/// U5b, keyboard: Tab reaches the composer, the send control, every item
-/// action and the notice action.
+/// U5b, keyboard: Tab reaches the composer, the send control, each
+/// message's bubble and the notice action; the bubble's actions are in its
+/// menu, which Enter opens (swipe spec section 7, #304 F2), and nothing of
+/// them is a Tab stop at rest.
 #[test]
 fn tab_reaches_the_composer_send_item_actions_and_the_notice() {
     let mut view = view();
@@ -814,8 +863,26 @@ fn tab_reaches_the_composer_send_item_actions_and_the_notice() {
             "Tab reaches {wanted}: {reached:?}"
         );
     }
-    let actions = reached.iter().filter(|r| r.starts_with("action:")).count();
-    assert_eq!(actions, 2, "Retry and Cancel: {reached:?}");
+    assert!(
+        !reached.iter().any(|r| r.starts_with("action:")),
+        "no action at rest: {reached:?}"
+    );
+    let bubble = reached
+        .iter()
+        .find(|r| r.starts_with("item:"))
+        .expect("the bubble is a stop")
+        .clone();
+    while tab(&view) != bubble {}
+    enter(&view);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(2));
+    slint::platform::update_timers_and_animations();
+    let mut in_menu = std::collections::BTreeSet::new();
+    in_menu.insert(view.window().get_focus_id().to_string());
+    for _ in 0..3 {
+        in_menu.insert(tab(&view));
+    }
+    let actions = in_menu.iter().filter(|r| r.starts_with("action:")).count();
+    assert_eq!(actions, 2, "Retry and Cancel in its menu: {in_menu:?}");
 }
 
 /// How many focus rings are drawn: shown, and so opaque.
@@ -883,7 +950,10 @@ fn every_tab_stop_draws_exactly_one_focus_ring() {
         assert!(chat.contains(wanted), "Tab reaches {wanted}: {chat:?}");
     }
     assert!(chat.iter().any(|r| r.starts_with("item:")), "{chat:?}");
-    assert!(chat.iter().any(|r| r.starts_with("action:")), "{chat:?}");
+    assert!(
+        !chat.iter().any(|r| r.starts_with("action:")),
+        "no action at rest: {chat:?}"
+    );
     open(&mut view, &mut model, &direct(&alice));
     let linked = tab_each_draws_one_ring(&view, 40);
     assert!(linked.iter().any(|r| r.starts_with("link:")), "{linked:?}");
@@ -1131,10 +1201,10 @@ fn the_source_is_one_activation_away() {
     open(&mut view, &mut model, &direct(&alice));
     assert_eq!(labelled(&view, "Hello").len(), 1, "drawn first");
     assert!(labelled(&view, source).is_empty());
-    the(&view, text(UiText::ShowSource)).invoke_accessible_default_action();
+    choose(&view, text(UiText::ShowSource));
     assert_eq!(labelled(&view, source).len(), 1, "the source, as received");
     assert!(labelled(&view, "Hello").is_empty());
-    the(&view, text(UiText::ShowFormatted)).invoke_accessible_default_action();
+    choose(&view, text(UiText::ShowFormatted));
     assert_eq!(labelled(&view, "Hello").len(), 1, "and back");
 }
 
@@ -1490,9 +1560,9 @@ fn a_queue_with_leavings_holds_at_most_six_times_the_cap_plus_nine() {
 }
 
 /// Review F1: a render that changes nothing about an item keeps focus on
-/// its action button -- the next Tab continues from it.
+/// it -- the next Tab continues from it.
 #[test]
-fn a_render_keeps_focus_on_an_items_action() {
+fn a_render_keeps_focus_on_an_item() {
     let mut view = view();
     let mut model = UiModel::new();
     let bob = peer();
@@ -1511,11 +1581,11 @@ fn a_render_keeps_focus_on_an_items_action() {
     let mut on = String::new();
     for _ in 0..20 {
         on = tab(&view);
-        if on.starts_with("action:") {
+        if on.starts_with("item:") {
             break;
         }
     }
-    assert!(on.starts_with("action:"), "Tab reaches an action: {on}");
+    assert!(on.starts_with("item:"), "Tab reaches the item: {on}");
     let next = tab(&view);
     for _ in 0..40 {
         if tab(&view) == on {
@@ -2341,12 +2411,12 @@ fn the_source_view_has_no_link_controls() {
     open(&mut view, &mut model, &direct(&alice));
     let control = open_link(destination);
     assert_eq!(labelled(&view, &control).len(), 1, "control: drawn first");
-    the(&view, text(UiText::ShowSource)).invoke_accessible_default_action();
+    choose(&view, text(UiText::ShowSource));
     assert!(
         labelled(&view, &control).is_empty(),
         "no link control beside the source"
     );
-    the(&view, text(UiText::ShowFormatted)).invoke_accessible_default_action();
+    choose(&view, text(UiText::ShowFormatted));
     assert_eq!(
         labelled(&view, &control).len(),
         1,
@@ -2446,7 +2516,7 @@ fn a_removal_names_the_exact_peer_id_and_is_asked_only_once_confirmed() {
     view.render(&model);
     let question = fill(UiText::ConfirmRevoke, &[("peer", bob.as_str())]);
     let _ = the(&view, &question);
-    let confirm = the(&view, text(UiText::ConfirmChange));
+    let confirm = confirm_button(&view);
     assert_eq!(
         confirm.accessible_description().as_deref(),
         Some(question.as_str())
@@ -2474,7 +2544,7 @@ fn a_removal_names_the_exact_peer_id_and_is_asked_only_once_confirmed() {
     bobs.invoke_accessible_default_action();
     let _ = intents(&mut view, &mut model);
     view.render(&model);
-    the(&view, text(UiText::ConfirmChange)).invoke_accessible_default_action();
+    confirm_button(&view).invoke_accessible_default_action();
     assert_eq!(
         intents(&mut view, &mut model),
         vec![Intent::SetTrust(TrustChange {
@@ -2503,7 +2573,7 @@ fn a_typed_peer_id_is_confirmed_whole_and_its_outcome_announced() {
         &view,
         &fill(UiText::ConfirmAllow, &[("peer", dave.as_str())]),
     );
-    the(&view, text(UiText::ConfirmChange)).invoke_accessible_default_action();
+    confirm_button(&view).invoke_accessible_default_action();
     let change = TrustChange {
         peer: dave.clone(),
         allowed: true,
@@ -2555,7 +2625,7 @@ fn leaving_drops_a_waiting_change_and_a_non_peer_id_is_said() {
     let _ = intents(&mut view, &mut model);
     view.render(&model);
     assert_eq!(
-        view.window().get_trust_outcome().as_str(),
+        view.window().get_entry_error().as_str(),
         text(UiText::NotAPeerId)
     );
     labelled(&view, text(UiText::RemoveTrust))[0].invoke_accessible_default_action();
@@ -2858,6 +2928,20 @@ fn a_conversation_under_the_trust_settings_reads_nothing() {
     );
 }
 
+/// The trust dialog's act: the one control described by its question,
+/// other than "Do not change". Its label names the act, which a row's
+/// Remove trust or the entry's Trust this peer shares.
+fn confirm_button(view: &View) -> ElementHandle {
+    let question = view.window().get_pending_text();
+    all(view)
+        .into_iter()
+        .find(|e| {
+            e.accessible_description().as_deref() == Some(question.as_str())
+                && e.accessible_label().as_deref() != Some(text(UiText::CancelChange))
+        })
+        .expect("the dialog's act")
+}
+
 /// The "Remove trust" control naming `peer`.
 fn removal_of(view: &View, peer: &TransportIdentity) -> ElementHandle {
     labelled(view, text(UiText::RemoveTrust))
@@ -2880,7 +2964,7 @@ fn a_confirmation_confirms_only_the_change_it_showed() {
     view.render(&model);
     // Y's removal and the confirmation of X's, both before a render.
     removal_of(&view, &y).invoke_accessible_default_action();
-    the(&view, text(UiText::ConfirmChange)).invoke_accessible_default_action();
+    confirm_button(&view).invoke_accessible_default_action();
     let raised = intents(&mut view, &mut model);
     assert!(
         !raised.iter().any(|i| matches!(i, Intent::SetTrust(_))),
@@ -2956,4 +3040,232 @@ fn the_add_row_waits_for_the_list() {
     }));
     view.render(&model);
     let _ = the(&view, text(UiText::TrustPeer));
+}
+
+/// Show recovery phrase sits on Settings only where the platform offers it
+/// (Android, design/2026-10-19-android-identity.md section 3.5), and one
+/// activation reaches the platform.
+#[test]
+fn settings_offer_the_recovery_phrase_only_where_the_platform_does() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    the(&view, text(UiText::TrustSettings)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::IdShowPhraseItem)).is_empty(),
+        "not offered: the desktop"
+    );
+    let asked = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = std::rc::Rc::clone(&asked);
+    view.offer_show_phrase(move || counted.set(counted.get() + 1));
+    view.render(&model);
+    let item = the(&view, text(UiText::IdShowPhraseItem));
+    let size = item.size();
+    assert!(
+        size.width >= 48.0 && size.height >= 48.0,
+        "a 48 target: {size:?}"
+    );
+    item.invoke_accessible_default_action();
+    assert_eq!(asked.get(), 1);
+}
+
+/// #304 F4: on a phone-wide window the removal's confirmation, with the
+/// exact `PeerId` it asks about, fits the window: nothing of the screen is
+/// laid out past its right edge while it is up.
+#[test]
+fn the_removal_confirmation_fits_a_phone_wide_window() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let (me, bob) = (peer(), peer());
+    trust_settings(&mut view, &mut model, &me, std::slice::from_ref(&bob));
+    let widest = |view: &View| {
+        all(view)
+            .iter()
+            .map(|e| e.absolute_position().x + e.size().width)
+            .fold(0.0_f32, f32::max)
+    };
+    assert!(widest(&view) <= 390.5, "control: the list alone fits");
+    removal_of(&view, &bob).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    slint::platform::update_timers_and_animations();
+    assert!(model.trust_settings().pending().is_some(), "control: asked");
+    let past: Vec<(String, f32)> = all(&view)
+        .into_iter()
+        .map(|e| {
+            let right = e.absolute_position().x + e.size().width;
+            (
+                e.accessible_label()
+                    .map(|l| l.to_string())
+                    .unwrap_or_default(),
+                right,
+            )
+        })
+        .filter(|(_, right)| *right > 390.5)
+        .collect();
+    assert!(past.is_empty(), "laid out past the window: {past:?}");
+}
+
+/// #304 F4: on a phone-wide window every `PeerId` on Trust lies inside the
+/// window, never past its edge, and the screen has its app bar with the
+/// back arrow. That the `PeerId`s wrap is seen in the rendered window: the
+/// testing backend's font measures them one line wide.
+#[test]
+fn every_peer_id_on_trust_reads_whole_on_a_phone() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let (me, bob) = (peer(), peer());
+    trust_settings(&mut view, &mut model, &me, std::slice::from_ref(&bob));
+    for id in [me.as_str(), bob.as_str()] {
+        let field = all(&view)
+            .into_iter()
+            .find(|e| e.accessible_value().as_deref() == Some(id))
+            .expect("the PeerId's field");
+        let (at, size) = (field.absolute_position(), field.size());
+        assert!(
+            at.x >= 0.0 && at.x + size.width <= 390.5,
+            "{id} inside the window"
+        );
+    }
+    assert!(
+        all(&view)
+            .iter()
+            .all(|e| e.absolute_position().x + e.size().width <= 390.5),
+        "nothing past the edge"
+    );
+    the(&view, text(UiText::BackToConversations)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    assert!(
+        !view.window().get_trust_page(),
+        "the back arrow leaves Trust"
+    );
+}
+
+/// #304 F4: the entry's error sits under its field, and "Trust this peer"
+/// sits beside the field while both fit, under it when they do not -- a
+/// narrow window here, the same rule that 200 % font meets on a phone.
+#[test]
+fn the_trust_field_keeps_its_error_under_it_and_its_button_where_it_fits() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let (me, bob) = (peer(), peer());
+    trust_settings(&mut view, &mut model, &me, std::slice::from_ref(&bob));
+    view.window().invoke_trust_entry_edited("alice".into());
+    the(&view, text(UiText::TrustPeer)).invoke_accessible_default_action();
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    for (width, beside) in [(390.0, true), (320.0, false)] {
+        resize(&view, width);
+        slint::platform::update_timers_and_animations();
+        let field = the(&view, text(UiText::PeerIdToTrust));
+        // The drawn one; the other is the announcement's, placed off
+        // the screen.
+        let shown: Vec<_> = labelled(&view, text(UiText::NotAPeerId))
+            .into_iter()
+            .filter(|e| e.absolute_position().x >= 0.0)
+            .collect();
+        assert_eq!(shown.len(), 1, "{width}: one drawn error");
+        let error = &shown[0];
+        let button = the(&view, text(UiText::TrustPeer));
+        let bottom = |e: &ElementHandle| e.absolute_position().y + e.size().height;
+        assert!(
+            error.absolute_position().y >= bottom(&field),
+            "{width}: the error under the field"
+        );
+        assert_eq!(
+            button.absolute_position().y < bottom(&field),
+            beside,
+            "{width}: the button beside the field, or under it"
+        );
+        assert!(
+            all(&view)
+                .iter()
+                .all(|e| e.absolute_position().x + e.size().width <= width + 0.5),
+            "{width}: nothing past the edge"
+        );
+    }
+}
+
+/// #304 F4: the confirmation is a dialog whose act names it. Back is "Do
+/// not change", and focus returns to the row's Remove trust; after a
+/// confirmed removal, once its row is gone, focus moves to the next row,
+/// else the previous, else the "Trusted peers" heading.
+#[test]
+fn the_trust_dialog_names_its_act_and_hands_focus_back() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, bob, carol, dave) = (peer(), peer(), peer(), peer());
+    trust_settings(
+        &mut view,
+        &mut model,
+        &me,
+        &[bob.clone(), carol.clone(), dave.clone()],
+    );
+    let handle_of = |view: &View, p: &TransportIdentity| {
+        let rows = view.window().get_trusted();
+        (0..rows.row_count())
+            .map(|i| rows.row_data(i).expect("a row"))
+            .find(|r| r.peer.as_str() == p.as_str())
+            .map(|r| r.handle)
+            .expect("listed")
+    };
+    let focus = |view: &View| {
+        slint::platform::update_timers_and_animations();
+        view.window().get_focus_id().to_string()
+    };
+    let ask = |view: &mut View, model: &mut UiModel, p: &TransportIdentity| {
+        removal_of(view, p).invoke_accessible_default_action();
+        let _ = intents(view, model);
+        view.render(model);
+        assert!(view.window().get_has_pending(), "asked");
+    };
+    let carols = handle_of(&view, &carol);
+    ask(&mut view, &mut model, &carol);
+    assert_eq!(
+        confirm_button(&view).accessible_label().as_deref(),
+        Some(text(UiText::RemoveTrust)),
+        "the act is named"
+    );
+    assert!(view.back(), "Back is the dialog's");
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    assert_eq!(model.trust_settings().pending(), None, "do not change");
+    assert_eq!(focus(&view), format!("remove:{carols}"), "back on its row");
+
+    // Removed, focus moves on once the list no longer holds the row.
+    let mut listed = vec![bob.clone(), carol.clone(), dave.clone()];
+    for (gone, next) in [
+        (&carol, format!("remove:{}", handle_of(&view, &dave))),
+        (&dave, format!("remove:{}", handle_of(&view, &bob))),
+        (&bob, "trusted-heading".to_owned()),
+    ] {
+        ask(&mut view, &mut model, gone);
+        confirm_button(&view).invoke_accessible_default_action();
+        let asked = intents(&mut view, &mut model);
+        assert_eq!(
+            asked,
+            vec![Intent::SetTrust(TrustChange {
+                peer: gone.clone(),
+                allowed: false
+            })]
+        );
+        view.render(&model);
+        listed.retain(|p| p != gone);
+        model.trust_settings_mut().set(
+            TrustChange {
+                peer: gone.clone(),
+                allowed: false,
+            },
+            Ok(TrustList {
+                local_peer: Some(me.clone()),
+                allowed: listed.iter().cloned().map(TrustRow::configured).collect(),
+            }),
+        );
+        view.render(&model);
+        assert_eq!(focus(&view), next, "after {}", gone.as_str());
+    }
 }

@@ -49,7 +49,7 @@ Sandboxed packaging formats require explicit access to the profile IPC/runtime d
 
 The Android package contains one application identity/process family. The foreground service hosts the Rust TransportRuntime; the Activity/Slint UI is a presentation client of the service-owned local session.
 
-Stay-reachable packaging must declare and satisfy the Android foreground-service type/permission/store-policy requirements validated by SPIKE-008. If policy validation fails, the release must honestly fall back to foreground-only behavior or supersede ADR-0041; it must not silently introduce centralized push infrastructure.
+Stay-reachable packaging must declare and satisfy the Android foreground-service type and permission requirements the platform enforces, closed by §20 step 3's API 34+ device run; there is no store policy to satisfy, since the app is distributed from the project's own release page with no store and carries no Google Play services (ADR-0057); the release page carries the signed APK, its hash, the Slint attribution and the manual-update note. If a platform rule disallowed the type for this use, the release must honestly fall back to foreground-only behavior or revisit ADR-0041; it must not silently introduce centralized push infrastructure.
 
 Supported ABI/minimum/target API choices are release parameters, not architecture constants, but every shipped ABI must run the same wire/crypto conformance fixtures.
 

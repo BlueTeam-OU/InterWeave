@@ -40,7 +40,7 @@ PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" + passphrase, 2048)
 
 There is no BIP-39 recovery passphrase in this transport format. Feeding these 24 words into a cryptocurrency wallet produces unrelated wallet material and is not a valid transport restore procedure.
 
-The backup UI/CLI must label the phrase as an **InterWeave transport identity recovery phrase — not a cryptocurrency wallet seed**.
+The backup UI/CLI must label the phrase as an **InterWeave transport identity recovery phrase — not a cryptocurrency wallet seed**. The meaning binds, not these words: the person-facing copy says that the phrase restores this app's identity (the PeerId, a device identity and never an account, contacts or messages) and that it is not a wallet seed, in the vocabulary the client's language rules set — "transport" is this document's word for that identity, not the person's (clarified 2026-10-19 on ux-designer's question; no ADR rule changes).
 
 ## Recovery record
 

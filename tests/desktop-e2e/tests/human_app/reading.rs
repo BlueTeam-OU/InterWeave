@@ -28,7 +28,8 @@ fn conversation(element: &Element) -> bool {
 fn message<'a>(text: &'a str, status: &'a str) -> impl Fn(&Element) -> bool + 'a {
     move |e| {
         e.role == "list item"
-            && e.actions.is_empty()
+            // Its one action opens its menu (swipe spec section 7).
+            && e.actions == ["click"]
             && e.name.contains(&format!(": {text}. {status}, "))
     }
 }
@@ -36,7 +37,7 @@ fn message<'a>(text: &'a str, status: &'a str) -> impl Fn(&Element) -> bool + 'a
 /// Any message item whose body is `text`, whatever its status.
 fn any_message(text: &str) -> impl Fn(&Element) -> bool + '_ {
     move |e| {
-        e.role == "list item" && e.actions.is_empty() && e.name.contains(&format!(": {text}. "))
+        e.role == "list item" && e.actions == ["click"] && e.name.contains(&format!(": {text}. "))
     }
 }
 
@@ -144,13 +145,16 @@ async fn a_message_kept_after_reading_stays_across_a_restart() {
     let sent = envelope(51, text);
     arrives(&world, &mut peer, &sent, &client).await;
     open(&window, &client).await;
-    window
+    let item = window
         .until(
             "the message, read",
             message(text, label(LabelKey::ReadNotKept)),
             || client.log(),
         )
         .await;
+    // Keep is in the message's menu, which its default action opens
+    // (swipe spec section 7, #304 F2).
+    window.activate(&item, "click").await;
     let keep = window
         .until(
             "its Keep control",
