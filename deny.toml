@@ -98,6 +98,15 @@ ignore = [
 
 [licenses]
 version = 2
+# An allow entry or an exception that matches nothing FAILS the check,
+# rather than printing a warning beside "licenses ok". Either one is the
+# policy no longer describing the graph it judges: an aspirational
+# licence, or -- the case that set this on 2026-10-19 (#314) -- a target
+# dropped from `[graph] targets` above, after which the Android
+# exceptions below match nothing and the phone's graph goes unjudged with
+# every check green. tools/checks/test_check_dependencies.sh plants both.
+unused-allowed-license = "deny"
+unused-license-exception = "deny"
 # Everything not listed is DENIED. These are the terms compatible with
 # shipping an Apache-2.0 project, and each was observed in the current
 # graph rather than added speculatively.
@@ -221,7 +230,7 @@ confidence-threshold = 0.93
 #
 # THE ANDROID BACKEND (ADR-0057 decision 3, the owner's choice of
 # 2026-10-19 to keep Slint under the Royalty-free licence on Android):
-# android-activity with the skia renderer, the phone's graph only. Its two
+# android-activity with the skia renderer, in the phone's graph. Its two
 # Slint crates join the exceptions below per crate, as the 2026-10-04
 # ruling's rule requires -- that ruling covered the winit crates alone.
 # `skia-bindings` and `skia-safe` are MIT and need nothing here; the
