@@ -239,7 +239,13 @@ One position is entered at a time. From the top of the screen:
    - While more than four match, the row shows how many still match
      instead (`IdWordMatches`). A row of four arbitrary words would
      invite a wrong tap.
-   - Every word is unique by its first four letters, so the row always
+   - When the letters typed are themselves a whole word, that word is
+     a chip at the row's start, beside the count or the other chips.
+     Six words need this, because each is a whole word and also the
+     start of five or more others: act, can, car, cat, man and win.
+     "car" alone matches seven words, and any fourth letter leaves it
+     behind, so without its own chip it could never be entered.
+   - Every other word is unique by its first four letters, so the row
      comes down to four or fewer by the fourth letter, and often
      sooner.
    - Tapping a chip fills the position and moves to the next empty
@@ -343,7 +349,8 @@ access.
 - Focus order follows the reading order: app bar, position, letters,
   suggestions, keypad, grid, primary action.
 - A typed hardware letter acts as its key. Enter takes the only
-  suggestion when exactly one is shown.
+  suggestion when exactly one is shown, or the whole-word chip when the
+  letters typed are a word.
 - After a chip fills a position, focus goes to the keypad's first
   enabled key.
 - After an error banner appears, focus goes to the banner.
@@ -460,6 +467,8 @@ landscape:
    - typing "ab" disables every letter no BIP-39 word continues "ab"
      with;
    - the suggestion row shows a count until four or fewer words match;
+   - typing "car" shows a "car" chip beside the count of seven, and a
+     tap enters "car"; the same holds for act, can, cat, man and win;
    - a chip tap fills the position and advances;
    - no word fills itself;
    - no IME appears at any time (`dumpsys input_method` shows no
