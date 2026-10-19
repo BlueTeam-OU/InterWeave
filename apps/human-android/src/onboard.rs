@@ -13,6 +13,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -124,10 +125,14 @@ struct Platform {
 }
 
 static PLATFORM: Mutex<Option<Platform>> = Mutex::new(None);
-/// Signalled once [`identity_state`] has set [`PLATFORM`]: the window's
-/// thread and the Activity's `onStart` run at once, and the window must
-/// not choose the chats before it knows (#309 F5).
+/// Signalled once `Native.identityState` has answered, by [`answered`]:
+/// the window's thread and the Activity's `onStart` run at once, and the
+/// window must not choose the chats before it knows (#309 F5).
 static PLATFORM_SET: Condvar = Condvar::new();
+/// Whether `Native.identityState` has answered in this process, whatever
+/// it answered: with no [`PLATFORM`] set it chose no flow, and the window
+/// waits no longer (#309 review N5).
+static ANSWERED: AtomicBool = AtomicBool::new(false);
 /// How long the window waits for `onStart`'s answer before it shows the
 /// chats and lets the service report what it finds.
 const PLATFORM_WAIT: Duration = Duration::from_secs(10);
@@ -185,8 +190,16 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         start,
         user_presence,
     });
-    PLATFORM_SET.notify_all();
     code
+}
+
+/// `Native.identityState` returned, on any path: wake the window's wait.
+/// Set under [`PLATFORM`]'s lock, so the waiter cannot miss it between its
+/// check and its wait.
+pub(crate) fn answered() {
+    let _platform = PLATFORM.lock().unwrap_or_else(PoisonError::into_inner);
+    ANSWERED.store(true, Ordering::SeqCst);
+    PLATFORM_SET.notify_all();
 }
 
 /// Whether the profile's configured unlock policy needs the person. A
@@ -249,7 +262,9 @@ thread_local! {
 pub(crate) fn start(view: &Rc<RefCell<View>>, done: impl Fn() + 'static) -> bool {
     let platform = PLATFORM.lock().unwrap_or_else(PoisonError::into_inner);
     let (platform, waited) = PLATFORM_SET
-        .wait_timeout_while(platform, PLATFORM_WAIT, |platform| platform.is_none())
+        .wait_timeout_while(platform, PLATFORM_WAIT, |platform| {
+            platform.is_none() && !ANSWERED.load(Ordering::SeqCst)
+        })
         .unwrap_or_else(PoisonError::into_inner);
     if waited.timed_out() {
         log("the identity's state did not arrive; the chats show");

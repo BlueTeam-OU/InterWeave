@@ -633,24 +633,30 @@ extern "system" fn Java_org_interweave_human_Native_identityState<'caller>(
     _class: JClass<'caller>,
     app_data_dir: JString<'caller>,
 ) -> jint {
-    env.with_env(|env| -> Result<jint, jni::errors::Error> {
-        let app_data_dir = app_data_dir.try_to_string(env)?;
-        if provision(&app_data_dir).is_err() {
-            return Ok(crate::onboard::state::READY);
-        }
-        let cipher = match KeystoreCipher::new(env) {
-            Ok(cipher) => cipher,
-            Err(e) => {
-                log(&format!("the Keystore cipher could not be reached: {e}"));
+    let state = env
+        .with_env(|env| -> Result<jint, jni::errors::Error> {
+            let app_data_dir = app_data_dir.try_to_string(env)?;
+            if provision(&app_data_dir).is_err() {
                 return Ok(crate::onboard::state::READY);
             }
-        };
-        Ok(crate::onboard::identity_state(
-            std::path::PathBuf::from(app_data_dir),
-            cipher,
-        ))
-    })
-    .resolve::<ThrowRuntimeExAndDefault>()
+            let cipher = match KeystoreCipher::new(env) {
+                Ok(cipher) => cipher,
+                Err(e) => {
+                    log(&format!("the Keystore cipher could not be reached: {e}"));
+                    return Ok(crate::onboard::state::READY);
+                }
+            };
+            Ok(crate::onboard::identity_state(
+                std::path::PathBuf::from(app_data_dir),
+                cipher,
+            ))
+        })
+        .resolve::<ThrowRuntimeExAndDefault>();
+    // Every return answers the window's wait, the early ones and a thrown
+    // one included: onStart calls this before super.onStart(), which waits
+    // on the window's thread (#309 review N5).
+    crate::onboard::answered();
+    state
 }
 
 /// `Native.waitIdentityAsk(timeoutMs)`: the identity screens' next ask of
