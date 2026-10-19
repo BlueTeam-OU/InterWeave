@@ -657,7 +657,7 @@ architect-cto, 2026-10-19 (REPLY 01a1529f-5231). The doc text is
   facts without the contract's "transport". `IDENTITY-RECOVERY.md` now
   says so (497d6b42, on #301's branch).
 
-## 11b. Answered after #303's round 2
+## 11b. After #303's round 2 (Q8 and Q9 answered, Q10 open)
 
 architect-cto, 2026-10-19 (REPLY 01a152aa-64d6), ruled into the
 custody doc at 252a6f45 and asked of p2p-network-dev for the crate:
