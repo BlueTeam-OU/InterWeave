@@ -306,6 +306,10 @@ pub enum CustodyRefused {
     /// Another holder has the profile -- a running host, or a provision,
     /// restore or reseal in flight -- so nothing was sealed.
     ProfileLocked,
+    /// [`provision_held`] or [`restore_held`] was handed a lock that is not
+    /// this profile's: it excludes nobody from this one, so nothing was
+    /// sealed.
+    LockOfAnotherProfile,
     /// The record WAS written and opens; the profile's key for the other
     /// policy could not be deleted, so a copy of the record from before
     /// may still open until it is. [`reseal`] retries the deletion.
@@ -361,6 +365,7 @@ impl std::fmt::Display for CustodyRefused {
                 "the identity is stored; the previous key could not be deleted: {failure:?}"
             ),
             Self::ProfileLocked => f.write_str("the profile is held by another host or flow"),
+            Self::LockOfAnotherProfile => f.write_str("the lock handed in is another profile's"),
             Self::OtherIdentity => f.write_str("the phrase restores another identity"),
             Self::RecordNamesOther => f.write_str("the stored record names another identity"),
             Self::RecordNamesNobody => f.write_str("the stored record names no identity"),
@@ -542,10 +547,50 @@ fn private_bytes(paths: &ProfilePaths) -> Result<Option<Vec<u8>>, UnlockRefused>
     }
 }
 
-/// Whose record `bytes` is, from its `PeerId` field ALONE: a header
-/// damaged, a policy swapped or a ciphertext flipped leaves the field
-/// readable, and the field is public. `None` only when no `PeerId` can
-/// be read there.
+/// What a profile's record says about whose it is, from its `PeerId`
+/// field alone ([`named_identity`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordName {
+    /// No record: nothing on disk says the profile ever had an identity.
+    Absent,
+    /// A record is there, but its `PeerId` field names nobody (empty, too
+    /// long, not UTF-8, not a `PeerId`). It is NOT [`RecordName::Absent`]:
+    /// it is an established profile's, whose identity is unknown, and
+    /// [`restore`] refuses to seal over it.
+    Nobody,
+    /// The record's field names this `PeerId` -- whatever its mode, header
+    /// or ciphertext. A third-party claim until the record opens to it:
+    /// [`restore`] verifies the phrase against it, [`unlock`] the seed.
+    Names(TransportIdentity),
+}
+
+/// Whose record the profile has, read from the `PeerId` field without the
+/// cipher and whatever the envelope's state: a damaged magic, version,
+/// policy or length, or a record readable by others, still answers the
+/// name it carries, which [`recorded_identity`] does not. The recovery
+/// flow reads it, offers only a phrase deriving [`RecordName::Names`]'s
+/// `PeerId`, and offers nothing over [`RecordName::Nobody`]. [`restore`]
+/// decides by the same reading, so the two cannot disagree.
+///
+/// # Errors
+/// [`UnlockRefused`] when the record cannot be read at all -- a link,
+/// another kind of entry, a directory refused, an I/O failure: whose it is
+/// is unknown, which is neither of the answers above.
+pub fn named_identity(paths: &ProfilePaths) -> Result<RecordName, UnlockRefused> {
+    Ok(match read_record(paths)? {
+        Read::Absent => RecordName::Absent,
+        Read::Bytes { bytes, .. } => name_in(&bytes),
+    })
+}
+
+/// [`RecordName`] of a record's bytes: never [`RecordName::Absent`].
+fn name_in(bytes: &[u8]) -> RecordName {
+    named_peer(bytes).map_or(RecordName::Nobody, RecordName::Names)
+}
+
+/// The `PeerId` in a record's field ALONE: a header damaged, a policy
+/// swapped or a ciphertext flipped leaves the field readable, and the
+/// field is public. `None` only when no `PeerId` can be read there.
 fn named_peer(bytes: &[u8]) -> Option<TransportIdentity> {
     if bytes.len() <= ENVELOPE_LEN || bytes.len() > ENVELOPE_LEN + PEER_MAX {
         return None;
@@ -567,7 +612,8 @@ fn identity_of(seed: &Seed) -> Option<(ProfileIdentity, TransportIdentity)> {
 /// The `PeerId` the profile's record names, read without the cipher: the
 /// `expected` a recovery flow passes to [`restore`] when the person has
 /// not typed one. `None` when there is no record; a record refused for
-/// its shape names nobody, and says why.
+/// its shape answers the refusal even when its field names a `PeerId` --
+/// [`named_identity`] reads the field whatever the shape.
 ///
 /// # Errors
 /// [`UnlockRefused`], as [`unlock`] would answer before the cipher.
@@ -667,13 +713,35 @@ fn seal_record(
 /// the record is written: the profile is provisioned and unlocks, and a
 /// stale key of its other policy is still there -- [`reseal`] retries
 /// the deletion; provisioning again answers `AlreadyProvisioned`.
+/// `Storage(PersistError::Unsynced)` arrives AFTER the record is
+/// published (the directory's sync failed, so its name may not survive a
+/// crash), and the other policy's key is then not retired: the record is
+/// there now. A caller reads it back ([`named_identity`]) before saying
+/// the write was refused.
 pub fn provision(
     paths: &ProfilePaths,
     cipher: &dyn SeedCipher,
     identity: &ProfileIdentity,
     policy: KeyUnlockPolicy,
 ) -> Result<TransportIdentity, CustodyRefused> {
-    let _held = hold(paths)?;
+    let held = hold(paths)?;
+    provision_held(paths, &held, cipher, identity, policy)
+}
+
+/// [`provision`] under the profile lock the caller already holds ([`hold`]
+/// says why a flow keeps it), which is still held when this returns.
+///
+/// # Errors
+/// [`CustodyRefused::LockOfAnotherProfile`] when `lock` is not `paths`'
+/// profile's; the others as [`provision`]'s, never `ProfileLocked`.
+pub fn provision_held(
+    paths: &ProfilePaths,
+    lock: &ProfileLock,
+    cipher: &dyn SeedCipher,
+    identity: &ProfileIdentity,
+    policy: KeyUnlockPolicy,
+) -> Result<TransportIdentity, CustodyRefused> {
+    held_for(paths, lock)?;
     // Checked before sealing as well, because a seal replaces the key at
     // its alias: sealing first would leave an existing record under that
     // policy unopenable even though the write is then refused.
@@ -714,11 +782,29 @@ fn retire_others(
 /// second is refused before it seals; and a running host holds it, so
 /// recovery runs with the profile exclusively locked, as the custody
 /// doc requires. A kernel lock: a flow that dies releases it.
+///
+/// A flow that needs the profile for longer than the seal -- the recovery
+/// screens, from before the first word is shown or picked -- takes the
+/// lock itself and hands it to [`provision_held`] or [`restore_held`],
+/// which never release it. Taking it again here would be refused (the
+/// lock is per open file), and releasing it to retake it would leave a
+/// gap in which the Service starts the profile and the seal is refused
+/// after all 24 words.
 fn hold(paths: &ProfilePaths) -> Result<ProfileLock, CustodyRefused> {
     ProfileLock::acquire(paths, Duration::ZERO).map_err(|e| match e {
         PersistError::ProfileLocked { .. } => CustodyRefused::ProfileLocked,
         e => CustodyRefused::Storage(e),
     })
+}
+
+/// Whether `lock` is `paths`' profile lock. A lock value is held for as
+/// long as it lives, so only WHICH profile's it is needs asking.
+fn held_for(paths: &ProfilePaths, lock: &ProfileLock) -> Result<(), CustodyRefused> {
+    if lock.path() == ProfileLock::path_for(paths) {
+        Ok(())
+    } else {
+        Err(CustodyRefused::LockOfAnotherProfile)
+    }
 }
 
 /// Whether a record entry exists, whatever it holds.
@@ -770,18 +856,53 @@ pub fn restore(
         return Err(CustodyRefused::OtherIdentity);
     }
     let _held = hold(paths)?;
-    // Whose record this is comes from its PeerId field alone (`named_peer`),
+    restore_locked(paths, cipher, phrase, expected, policy)
+}
+
+/// [`restore`] under the profile lock the caller already holds ([`hold`]
+/// says why a flow keeps it), which is still held when this returns.
+///
+/// # Errors
+/// [`CustodyRefused::LockOfAnotherProfile`] when `lock` is not `paths`'
+/// profile's; the others as [`restore`]'s, never `ProfileLocked`.
+pub fn restore_held(
+    paths: &ProfilePaths,
+    lock: &ProfileLock,
+    cipher: &dyn SeedCipher,
+    phrase: &RecoveryPhrase,
+    expected: &TransportIdentity,
+    policy: KeyUnlockPolicy,
+) -> Result<ProfileIdentity, CustodyRefused> {
+    if ProfileIdentity::verify_phrase(phrase, expected).is_err() {
+        return Err(CustodyRefused::OtherIdentity);
+    }
+    held_for(paths, lock)?;
+    restore_locked(paths, cipher, phrase, expected, policy)
+}
+
+/// [`restore`]'s work, the phrase verified and the profile lock held.
+fn restore_locked(
+    paths: &ProfilePaths,
+    cipher: &dyn SeedCipher,
+    phrase: &RecoveryPhrase,
+    expected: &TransportIdentity,
+    policy: KeyUnlockPolicy,
+) -> Result<ProfileIdentity, CustodyRefused> {
+    // Whose record this is comes from its PeerId field alone (`name_in`, as
+    // `named_identity` answers it),
     // read whatever the file's mode or the envelope's state. Only an absent
     // record is "no record": one naming nobody, or one that cannot be read
     // at all, may be another's, so nothing is written over either.
     let existing = match read_record(paths) {
         Ok(Read::Absent) => None,
-        Ok(Read::Bytes { bytes, private }) => match named_peer(&bytes) {
-            None => return Err(CustodyRefused::RecordNamesNobody),
-            Some(named) if named.as_str() != expected.as_str() => {
+        Ok(Read::Bytes { bytes, private }) => match name_in(&bytes) {
+            RecordName::Absent | RecordName::Nobody => {
+                return Err(CustodyRefused::RecordNamesNobody);
+            }
+            RecordName::Names(named) if named.as_str() != expected.as_str() => {
                 return Err(CustodyRefused::RecordNamesOther);
             }
-            Some(_) => Some((bytes, private)),
+            RecordName::Names(_) => Some((bytes, private)),
         },
         Err(e) => return Err(CustodyRefused::Unreadable(e.to_string())),
     };
