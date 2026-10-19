@@ -1,8 +1,8 @@
 # Android app review: look and feel against the messengers people use
 
-Status: frame written 2026-10-19; the device run waits for the phone
-link. No finding below is recorded until it has been seen on the
-device. The ranked findings and the re-review are added to this file.
+Status: 2026-10-19, two device runs on main ffce28df; ranked findings
+in §6, for rust-ui-dev-01 to build. Tasks 3 (failure), 7 (offline), 9
+and 10 wait for what §6 names. The re-review is added in §7.
 
 Owner: ux-designer. It is the review that plan §20's exit gate, clause
 (j), asks for (architect-cto-01's REQUEST of 2026-10-19). Findings go to
@@ -138,70 +138,190 @@ gate.
 
 ## 6. Findings
 
-Run 1, 2026-10-19, on the Pixel 9a:
-- the build was main ffce28df's debug build, APK sha256 beginning
-  0d1bcbec, installed by rust-ui-dev-01 with the app's data kept;
-- the phone was at 1080 x 2424, 420 dpi, font scale 1.0, dark theme.
+Both runs used the same build and phone:
+- main ffce28df's debug build, APK sha256 beginning 0d1bcbec, installed
+  by rust-ui-dev-01 with the app's data kept (re-read from the phone
+  before run 2);
+- a Pixel 9a at 1080 x 2424, 420 dpi, font scale 1.0, dark theme,
+  unless a finding names another setting.
 
-The run stopped partway through. A scripted tap of mine most likely
-switched the phone's Wireless debugging off (§3, method). Tasks 1, 2,
-8 and part of 6 were walked; the rest wait for the next run.
+Run 1 (2026-10-19, morning) stopped partway: a scripted tap of mine
+most likely switched the phone's Wireless debugging off. From run 2
+(2026-10-19, 10:50-11:15 phone time) every scripted input first checks
+that InterWeave has the window focus and stops otherwise; every
+setting a run changed (theme, font scale, rotation, the app's locale)
+was put back and read back at the end.
 
-The ranks are provisional until every task in §4 is walked. What was
-seen is kept apart from what it is judged against.
+Walked: tasks 1, 2, 4 (by button and by swipe, each with Undo), 5
+(the header's "Hide conversation" and its Undo; the row's left swipe
+where it is not offered), 6 (as far as the app goes, see M1), 8
+(rotation with a draft, the keyboard, the app's own back arrow), and
+part of 3 and 7 (the pending states and the connectivity line as they
+stand). Light theme, 200 % font and an RTL locale were checked on
+Chats and a conversation.
 
-### Rank 1 (provisional)
+Not walked, and why:
+- 3's failure path and 7's offline state: making the peer or the phone
+  unreachable also cuts the phone link this review runs over. They
+  need a person at the phone, or a peer the team can stop.
+- 9 and 10: the phone holds two conversations of one and four short
+  messages, with no link, quote or multi-day history. They need seeded
+  content (asked of rust-ui-dev with the findings).
+- Remove animations: the motion the specs add is the swipe and the
+  snackbar, whose feel is a person's check (§3).
+
+What was seen is kept apart from what it is judged against. The ranks
+are final for the tasks walked; a task walked later can add findings
+but does not re-rank these.
+
+### Rank 1
 
 - **F1. Back leaves the app from an open conversation and from the
   Trust screen.**
-  - Seen: one Back from an open conversation shows the launcher. The
-    focused window was `com.android.launcher3`, reproduced in a clean
-    run. The same holds from Trust: the previous task came up instead
-    of Chats.
+  - Seen: one system Back from an open conversation shows the
+    launcher, or the task that was open before the app (focused window
+    `com.android.launcher3`, reproduced in a clean run). The same holds
+    from Trust. The app's own back arrow in the conversation's app bar
+    does return to Chats (run 2).
   - Against: S2 (Back returns through the app's own screens), and S4
     (consistency and standards). A person who presses Back to return
     to the list leaves the app instead.
 - **F2. Every message shows its actions as permanent outlined buttons
-  under the bubble.**
+  under the bubble, and long-press does nothing.**
   - Seen: "Stop keeping" and "Show source" under each kept message;
-    "Send again", "Cancel" and "Show source" under each pending one.
-    On a screen of four messages the buttons take more room than the
-    messages do.
+    "Keep", "Dismiss" and "Show source" under each read, unkept one;
+    "Send again", "Cancel" and "Show source" under each pending one. On
+    a screen of four messages the buttons take more room than the
+    messages do; at 200 % font each button takes a line of its own.
+    A 900 ms press on a bubble shows no menu, no selection and no
+    change (run 2).
   - Against: S3 (actions behind long-press, and the swipe the swipe
     spec already gives), and S4 (aesthetic and minimalist design).
-  - Not yet checked: what long-press does today.
-- **F3. The composer draws wrongly.**
+  - The swipe itself behaves as specified (run 2, swipe spec §4 and
+    §5): the row tracks the finger over the neutral fill with its
+    label, turns to the armed fill past the threshold, and on release
+    commits with the snackbar; Undo restores the row.
+  - What has to change, as seen: a message at rest shows its bubble
+    and its status line only. Its actions are reached by long-press (a
+    menu or an action bar, as the reference apps do) and by the swipe;
+    the swipe spec §7's equivalents for anyone who cannot swipe stay
+    reachable from that long-press, without a gesture beyond it.
+- **F3. The composer draws wrongly, and its height follows the free
+  space on the screen.**
   - Seen: unfocused, it is a tall pill about 250 px high, with a
-    lighter inner pill drawn over the "Message" placeholder. After Back
-    hides the keyboard, the field stays focused and tall, with a teal
-    ring and a text-selection handle showing.
-  - Against: S1 (text field), and `design/2026-10-16-android-look.md`
-    §6 (the composer).
-- **F4. The Trust screen has none of the Android look.**
+    lighter inner pill drawn over the "Message" placeholder. In a
+    conversation of one message it swells to a shape about 700 px tall
+    (run 2). When a snackbar appears it shrinks by the snackbar's
+    height, and grows back when the snackbar goes. After Back hides the
+    keyboard, the field stays focused and tall, with a teal ring and a
+    text-selection handle showing. At 200 % font it is one line high,
+    as it should be at every size.
+  - Against: S1 (text field), S3 (a composer pinned at the bottom), and
+    `design/2026-10-16-android-look.md` §6 (the composer).
+- **F4. The Trust screen has none of the Android look, and its
+  confirmation pushes the screen past its right edge.**
   - Seen: a boxed "Back to conversations" text button instead of an app
     bar, plain square buttons, and PeerIds clipped mid-string with no
-    ellipsis. A "Remove trust" button sits on every row.
-  - Against: S1, and S4 (consistency: it looks like another app).
-  - Not yet checked: what "Remove trust" asks before acting
-    (`human-client-ui.md` §8 requires a confirmation showing the exact
+    ellipsis. A "Remove trust" button sits on every row. Remove trust
+    does ask first, as `human-client-ui.md` §8 requires, with "Do not
+    change" holding focus, and "Do not change" leaves the list as it
+    was (run 2). But while the confirmation is up, the whole screen is
+    laid out wider than the phone: the explanation, the Remove trust
+    buttons and the confirmation's own text are cut at the right edge,
+    including the PeerId it asks about, so the person cannot read
+    which peer they are about to remove.
+  - Against: S1, S4 (consistency: it looks like another app; error
+    prevention: the consequence is not readable before commitment),
+    and `human-client-ui.md` §8 (the confirmation shows the exact
     PeerId).
+- **F8. In light theme the status bar's icons are white on the app's
+  white top.**
+  - Seen: with the phone in light theme, the clock, signal, Wi-Fi and
+    battery icons are drawn white over the app's light background and
+    cannot be read, on Chats and in a conversation (run 2).
+  - Against: S2 (edge-to-edge: the app sets the system bars' icon
+    appearance to match the surface under them), and S5 (contrast).
+- **F9. In landscape the open keyboard covers the composer and every
+  message.**
+  - Seen: rotated with a draft in the composer, the app shows the list
+    and the conversation side by side; the conversation keeps the
+    draft (good). With the keyboard open, only the conversation's app
+    bar and the composer's top edge are above it: no message and none
+    of the typed text can be seen (run 2).
+  - Against: S2 (the IME resizes the screen so the composer stays
+    above the keyboard; in landscape Android's own answer is the
+    full-screen editor when the space is too small).
 
-### Rank 2 (provisional)
+### Rank 2
 
-- **F5. The focus ring is drawn on touch focus.**
-  - Seen: tapping the composer draws the 3 px teal ring.
+- **F5. The focus ring is drawn on touch.**
+  - Seen: the 3 px teal ring after a tap on the composer, on the ⋮
+    button after its menu closes, on the menu's first item, on the
+    Chats row a person came back from, on the button that replaced the
+    one tapped (Keep after Stop keeping), on the "Conversations"
+    heading when tapped, and on the Details field.
   - Against: S1, where the focus indicator is for keyboard focus only.
     The look spec's §7 ring was meant for keyboard and switch access.
+    Where the specs move focus after an action, they move it for
+    keyboard and TalkBack users; a touch user sees no ring.
 - **F6. Conversation titles are a PeerId fragment with "/ human".**
   - Seen: "...x6gY6Eri / human", in the Chats rows and in the app bar.
+    At 200 % font the title is cut at both ends ("...x6gY6Eri /..."),
+    so nothing that tells two conversations apart is left.
   - Against: S4 (match with the real world). "human" is an endpoint
     name, an implementation concept. The names a person would give
-    (contacts, `human-client-ui.md` §3) are a missing flow; see below.
+    (contacts, `human-client-ui.md` §3) are a missing flow; see M2.
 - **F7. The app bar's subtitle shows the network state where
   messengers show the contact's.**
   - Seen: "Online, some peers might not reach you" under the peer's
     name.
   - Against: S4, because it reads as the peer's state.
+- **F10. A pending message's status alternates for hours and its time
+  never moves.**
+  - Seen: two messages sent at 01:14 read "Sending" and "Not
+    confirmed, trying again" in turn, nine hours later, each still
+    showing 01:14 and offering both "Send again" and "Cancel". Nothing
+    says how long it has been or that the peer may be offline.
+  - Against: S4 (visibility of status) and S3 (a clear status on every
+    outgoing message). Whether a message is ever given up on is a
+    product rule (architect-cto's); how its state reads is this
+    review's.
+- **F11. "Details" is a bare floating field.**
+  - Seen: ⋮ → Details opens a panel holding only "Identifier, select
+    to copy" over a text field with the full PeerId, its focus ring and
+    a selection handle. There is no title, no Copy button and no close
+    control; a tap outside closes it.
+  - Against: S1 (a dialog or a screen with its title and actions), S4
+    (recognition rather than recall: copying is an action, not a text
+    selection), and `design/2026-10-16-android-look.md` §6 ("copyable
+    in its exact canonical form").
+
+### Rank 3
+
+- **F12. The Trust screen is reached only by an unlabelled shield
+  icon.**
+  - Seen: the shield at the end of the Chats app bar is the only way
+    in; nothing names it on screen.
+  - Against: S4 (recognition rather than recall). A tooltip on long
+    press and a content description are the platform's minimum; the
+    owner's reference apps put such settings in a menu entry with a
+    name.
+- **F13. Changing the font scale while a conversation is open drops
+  the person on Chats.**
+  - Seen: in a conversation, font scale 2.0 then back to 1.0: the app
+    showed Chats afterwards (run 2). Rotation, in contrast, kept the
+    conversation and its draft.
+  - Against: S2 (state survives a configuration change).
+
+### Carried, not ranked here
+
+- **The app is invisible to Android's accessibility services.** A
+  `uiautomator` dump of Chats and of a conversation finds one node,
+  "InterWeave", at the title's place, and nothing else. This is the
+  known gap of Slint 1.18.1's Android backend, which has no
+  accessibility bridge (rust-ui-dev-01's finding of 2026-10-16, look
+  spec §7). TalkBack is carried to the release gate (§2, S5), so this
+  review only records that the run saw it unchanged.
 
 ### Not the app's
 
@@ -209,6 +329,25 @@ seen is kept apart from what it is judged against.
   OTHER_SENSORS, ACCESS_LOCAL_NETWORK", shows over the app when it
   opens. It is likely the debug build's. rust-ui-dev to confirm that a
   release build does not show it.
+- **N2.** The app's strings stay English under an Arabic app locale,
+  while the layout mirrors correctly (run 2). The translations are
+  language-culture's; this review only notes that the RTL layout held.
+
+### What works as specified
+
+Kept apart, so that a fix does not undo it (run 2):
+- Stop keeping and Keep by button, each with its snackbar and Undo;
+  focus lands on the replacing button.
+- The swipe on a message row (above, F2).
+- "Hide conversation" is offered in ⋮ only when the conversation holds
+  nothing kept, unread or pending; it returns to Chats with
+  "Conversation hidden" and Undo, and Undo puts the row back in place.
+  The row's left swipe does not move a conversation that is not
+  offered (swipe spec §10).
+- Remove trust asks first, with the safe choice focused.
+- Rotation keeps the open conversation and its draft.
+- An RTL locale mirrors Chats: the shield to the start, avatars to the
+  end, times to the start.
 
 ### Flows the reference apps have and this app lacks
 
@@ -216,13 +355,21 @@ Each such flow is named here, with the product question it raises and
 whose that question is. The owner decides whether it belongs to this
 stage or a later one.
 
-- **M1. Starting a conversation.** The Chats screen has no visible way
-  to start one: no button, no menu entry. Whether one exists elsewhere
-  is not yet checked. If none does, the product question (how a person
-  reaches a new peer) is architect-cto's.
+- **M1. Starting a conversation.** Chats has no way to start one: no
+  button, no menu entry. Trust lets a person add a PeerId, but trusting
+  a peer opens no conversation with it, and nothing on Trust says how
+  to write to the peer just trusted. How a person reaches a new peer
+  is architect-cto's product question.
 - **M2. Contact names.** Conversations are titled by a PeerId fragment
   (F6). `human-client-ui.md` §3 has contacts as named application
   metadata; the app has no screen for them.
+- **M3. Recovery.** `human-client-ui.md` §9 requires both platforms to
+  state prominently that recovering a profile needs the recovery phrase
+  and separately backed-up configuration, trust and endpoint settings.
+  The app shows no such statement and has no recovery or settings
+  screen to put it on (Chats, a conversation, Details and Trust are the
+  whole app). Where that flow lives, and whether the app offers any way
+  to back the settings up, is architect-cto's question.
 
 ## 7. Re-review
 
