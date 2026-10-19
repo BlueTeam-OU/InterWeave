@@ -6,7 +6,7 @@ four questions in §11 were answered by architect-cto on 2026-10-19, and
 the custody doc says the first two (425ec5d0).
 
 Owner of the design: ux-designer. The words are language-culture's: §9
-gives each string's purpose and space, never its text. The rules
+gives each string's text, where it shows and why. The rules
 behind the design are fixed by `android-key-custody.md` (Recovery, and
 Recovery UI hardening, at ecf20942), `IDENTITY-RECOVERY.md` (Restore
 semantics) and `human-client-ui.md` §2 and §9. This note decides how a
@@ -24,7 +24,7 @@ person meets those rules, and changes none of them.
   did nothing wrong in the app.
 - **Fresh-install restore:** "Be the same identity on this phone." They
   have the 24 words and, on the same paper, the PeerId.
-- **Show my phrase:** "Check or copy my backup again." The app goes
+- **Show my phrase:** "Check my backup, or write it out again." The app goes
   offline while the words are shown.
 
 Entering 24 words is the costliest step in every flow. The picker in §4
@@ -46,7 +46,7 @@ From the contracts; listed so a reviewer can check each screen:
 - The network service is stopped, and the profile lock held, while
   words are shown or entered. Creation shows its words before the
   service first starts.
-- Nothing restores silently. A phrase that derives another PeerId than
+- Nothing restores silently. A phrase that derives a PeerId other than
   the expected one restores nothing. A fresh install restores only
   after the person confirms the derived PeerId by eye; nothing is typed
   or scanned for it.
@@ -105,7 +105,7 @@ Back → W.
 - Below the words comes the PeerId in full (§5). Its label says to
   write it down with the words.
 - The list scrolls if it must. The primary action stays fixed at the
-  bottom: "I've written them down" (→ C3).
+  bottom: "I wrote down the words and PeerId" (→ C3).
 - Back → C1. The same words show again on return, because the identity
   is not committed until C4. Back from C1 to W discards the uncommitted
   identity, and W then shows `IdVoidPaper`.
@@ -113,7 +113,7 @@ Back → W.
 **C3, Check two words.** Two positions are drawn at random (for
 example 7 and 19). The person enters each with the picker (§4), one
 after the other. "Word 7 of 24" heads each entry.
-- A right word moves on to the next one.
+- After a right word, the entry moves on to the next position.
 - After both are right: → C4.
 - A wrong word shows an inline error under the entry (string
   `IdCheckWrong`). It says which position, and to compare with the
@@ -232,7 +232,8 @@ One position is entered at a time. From the top of the screen:
      one. Nothing ever fills itself: even a single remaining match is
      a chip the person taps, so no word is entered without being seen.
 3. **The keypad:** the 26 letters in QWERTY rows (10, 9, 7). Its last
-   row holds delete-a-letter and clear-the-position.
+   row holds two keys: one deletes the last letter, one clears the
+   position.
    - A letter no word can continue with is disabled: shown at 38 %
      opacity, not removed, so the keys never move.
    - Keys answer with a state layer and a haptic tick on press.
@@ -245,7 +246,7 @@ One position is entered at a time. From the top of the screen:
    - the current position outlined in `primary`;
    - tapping a position edits it: its word goes back into the letters
      display, ready to delete or replace;
-   - at a font scale over 130 % the grid is replaced by a "review my
+   - at a font scale over 130 % the grid is replaced by a "show all my
      words" button opening it as a full list, so the keypad keeps its
      room.
 
@@ -282,7 +283,7 @@ keypad stay left-to-right: they are English words in Latin letters.
   password, and it is safe to write down and share.
 
 A 52-character string is compared by chunks. Chunks of four make that
-compare a matter of groups, not single characters.
+comparison a matter of groups, not of single characters.
 
 ## 6. States
 
@@ -291,8 +292,8 @@ compare a matter of groups, not single characters.
 | Checksum fails (a wrong word or a wrong order) | R2 | A banner above the grid (`IdChecksumFailed`): the words are not a valid phrase; check each word and its order against the paper. Every word stays. | Edit any position, then check again |
 | Another identity (with an expected PeerId) | R2 after Q1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
 | Authentication needed | S1; a restore that must open a healthy user-presence record first | The system prompt. Cancelled or denied: back to the step before, nothing shown, no error | Try again by the primary action |
-| Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Retry. Entered words stay. | Retry, or Back |
-| Storage fails (`Unavailable`, a write error) | C4, R4, the Q1 restore | A notice (`IdStorageFailed`): nothing was changed. Retry. Entered words stay while the screen is open. | Retry, or Back (words dropped) |
+| Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
+| Storage fails (`Unavailable`, a write error) | C4, R4, the Q1 restore | A notice (`IdStorageFailed`): nothing was changed, with Try again. Entered words stay while the screen is open. | Try again, or Back (words dropped) |
 | Success | C4, R4 | The PeerId, and continue | Continue |
 
 Errors appear inline on the screen they belong to, never in a snackbar.
@@ -304,9 +305,9 @@ do.
 ## 7. Leaving, Back and interruptions
 
 - **Back with words entered (R2, C3):** a dialog asks whether to
-  discard the words entered (`IdDiscardTitle`). The actions are discard
-  and keep entering; keep is the default focus. With nothing entered,
-  Back goes straight back.
+  delete the words entered (`IdDiscardTitle`). The actions are delete
+  and continue entering; continue entering is the default focus. With
+  nothing entered, Back goes straight back.
 - **The app leaves the screen.** Home, a call, or another app opening.
   A stopped Activity is neither completion nor cancellation (§11 Q1):
   - on return, every screen shows what it showed, with entered words
@@ -345,37 +346,78 @@ ever carries a word (§11 Q2).
 
 ## 9. Strings
 
-For language-culture to write. Each entry gives the purpose, the tone
-and the space. None may contain a phrase word or a placeholder that
-could hold one. `{n}` and `{peer_id}` are the only placeholders.
+The text is final (language-culture, 2026-10-19). No string contains
+a word of a person's phrase, and no placeholder can hold one: `{n}`
+(a number, in digits) and `{peer_id}` are the only placeholders. The
+words are plain and calm. A person on Q1 did nothing wrong, so no
+string there blames them or names a fault code. A PeerId is called
+"PeerId", as in the trust settings. No string uses "keep" as an
+ordinary verb, because Keep is the name of a message action. Key
+names are suggestions; rust-ui-dev names them.
 
-| Key | Purpose | Space |
+| Key | Text | Where, and why this text |
 |---|---|---|
-| `IdWelcomeTitle`, `IdWelcomeBody` | What the app is, on first launch | Title one line; body two lines |
-| `IdVoidPaper` | W's notice (§3.1): the words shown last time were never used and are not this phone's identity; keep only the paper from the creation that completes. Plain, not alarming | Three lines |
-| `IdCreate`, `IdRestore` | W's two actions | A button, about 24 characters |
-| `IdC1Title`, `IdC1Points` (four) | Why the words matter: they are the identity, write them on paper, anyone with them can be you, the identity exists only once creation is complete. Calm, not alarming | Title one line; each point at most two lines at 100 % |
-| `IdShowWords` | C1's primary action | Button |
-| `IdWordsTitle`, `IdPeerIdLabel` | C2 and S2's heading; the PeerId's label (§5): write it down with the words, safe to share | Title one line; label two lines |
-| `IdWrittenDown` | C2's primary: I've written them down | Button |
-| `IdCheckTitle`, `IdCheckBody` | C3: check two words from your paper | Title one line; body one line |
-| `IdWordPosition` | "Word {n} of 24" | One line, 20 characters |
-| `IdWordMatches` | How many words still match the letters ({n}) | One line, at most 30 characters |
-| `IdCheckWrong` | C3's error: that is not word {n}; compare with your paper | Two lines |
-| `IdShowAgain`, `IdTryAgain` | C3's two actions after an error | Buttons |
-| `IdCreatedTitle`, `IdCreatedBody`, `IdContinue` | C4 and R4 | Title one line; body two lines; button |
-| `IdR1Title`, `IdR1Body`, `IdEnterWords` | R1: what is needed, the network stays off | Title one line; body three lines; button |
-| `IdCheckWords` | R2's primary | Button |
-| `IdR3Question`, `IdR3Yes`, `IdR3No` | R3's question and its two actions. Never claims the PeerId is right | Question two lines; buttons |
-| `IdQTitle`, `IdQReasonKey`, `IdQReasonRecord`, `IdEnterPhrase` | Q1 and its two causes (§3.4): reassuring, not technical | Title one line; each reason three lines |
-| `IdShowPhraseItem`, `IdS1Title`, `IdS1Body` | The Settings item; S1: the network goes offline while shown | Item one line; body two lines |
-| `IdGoingOffline` | Progress while the service stops | One line |
-| `IdDone` | S2's primary | Button |
-| `IdChecksumFailed`, `IdOtherIdentity` | §6's banners. `IdOtherIdentity` labels the derived and expected PeerIds | Three lines each, with PeerIds below |
-| `IdBusy`, `IdStorageFailed`, `IdRetry` | §6's notices | Two lines each; button |
-| `IdDiscardTitle`, `IdDiscard`, `IdKeepEntering` | §7's dialog | Title two lines; buttons |
-| `IdQLost` | Q1's way out when the words are lost (§3.4): clearing the app's data in the phone's settings starts a new identity that contacts must trust again. Plain text, no button | Three lines |
-| `IdKeyDelete`, `IdKeyClear`, `IdReviewWords` | The keypad's two keys (their accessible labels) and the grid's button at large font | Labels; button |
+| `IdWelcomeTitle` | Welcome to InterWeave | W's title |
+| `IdWelcomeBody` | Exchange messages with the people you trust, directly from this phone. There is no account to create. | W's body, two lines |
+| `IdVoidPaper` | The words shown last time were never used. They are not your identity, so do not use that paper as your backup. | W's notice while the void-paper marker is set (§3.1), three lines. It says what the old paper is not, and what not to do with it |
+| `IdCreate` | Create a new identity | W's primary |
+| `IdRestore` | Restore my identity | W's secondary |
+| `IdC1Title` | About your recovery phrase | C1's title |
+| `IdC1Point1` | These 24 words are the key to your identity. With them, you can restore it on another phone. | C1, first point |
+| `IdC1Point2` | Write them on paper, in order, with your PeerId. Store the paper in a safe place. | C1, second point. The PeerId is named here, because R1 asks for it later |
+| `IdC1Point3` | Anyone who has these words can act as you in InterWeave. Do not show them to anyone. | C1, third point: "can be you", without alarm |
+| `IdC1Point4` | Your identity exists only after you finish, by checking two of the words. | C1, fourth point (§11 Q3) |
+| `IdShowWords` | Show my words | C1's primary |
+| `IdWordsTitle` | Your 24 words | C2's and S2's title |
+| `IdPeerIdLabel` | Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share. | The PeerId's label (§5) on C2 and S2, where the person writes |
+| `IdPeerIdLabelShown` (new) | Your PeerId. It is the one on your paper. It is not a password, and it is safe to share. | The PeerId's label on C4 and R4, where the person has already written it. One label cannot be true on both kinds of screen |
+| `IdWrittenDown` | I wrote down the words and PeerId | C2's primary |
+| `IdCheckTitle` | Check your words | C3's title |
+| `IdCheckBody` | Enter two words from your paper. | C3's body, one line |
+| `IdWordPosition` | Word {n} of 24 | The picker's position (§4), and C3's heading of each entry |
+| `IdWordMatches` | {n} words fit these letters | The suggestions row while more than four words match (§4). {n} is then always more than four, so English needs one plural form; a translation that needs more gets them by key |
+| `IdCheckWrong` | This does not match word {n}. Check word {n} on your paper. | C3's inline error. It names the position and what to do, and says nothing about the word typed |
+| `IdShowAgain` | Show my words again | C3's action after an error |
+| `TryAgain` (exists) | Try again | C3's other action after an error, and the retry action of §6's notices. The key exists, and a second key with the same text would fail `every_ui_text_appears_once_in_all`. One action has one name, so §6 says "Try again" too |
+| `IdCreatedTitle` | Identity created | C4's title |
+| `IdRestoredTitle` (new) | Identity restored | R4's title. "Identity created" would be false after a restore |
+| `IdCreatedBody` | When you continue, the app connects to the network with this identity. | C4's and R4's body |
+| `IdContinue` | Continue | C4's and R4's primary |
+| `IdR1Title` | Restore your identity | R1's title |
+| `IdR1Body` | You need your 24 words and the PeerId that you wrote with them. The app stays offline until the restore is done. | R1's body, three lines |
+| `IdEnterWords` | Enter my words | R1's primary |
+| `IdCheckWords` | Check my words | R2's primary |
+| `IdR3Question` | Is this the PeerId that you wrote down? If it is not, a word may be wrong. | R3's question, two lines. It asks; it never says the PeerId is right, and it says what a "no" usually means |
+| `IdR3Yes` | Yes, restore it | R3's primary |
+| `IdR3No` | No, check my words | R3's secondary |
+| `IdQTitle` | This phone needs your recovery phrase | Q1's title |
+| `IdQReasonKey` | This phone's screen lock or security changed, so the app cannot open your identity. Restore it with your recovery phrase. | Q1 for `KeyInvalidated` and `KeyMissing`. It names the likely cause in the person's terms, and the way back |
+| `IdQReasonRecord` | The app cannot read your identity on this phone. Restore it with your recovery phrase. | Q1 for `Record`, `Authentication` and `WrongIdentity` |
+| `IdEnterPhrase` | Enter my recovery phrase | Q1's primary |
+| `IdQLost` | If your words are lost, clear this app's data in the phone's settings. That starts a new identity, which each contact must trust again. | Q1's plain text below its primary (§3.4), three lines |
+| `IdExpectedPeerId` (new) | PeerId this phone expects | The label of the expected PeerId, on Q1 and in `IdOtherIdentity`'s banner |
+| `IdDerivedPeerId` (new) | PeerId from your words | The label of the derived PeerId in `IdOtherIdentity`'s banner |
+| `IdShowPhraseItem` | Show recovery phrase | The Settings item (§3.5) |
+| `IdS1Title` | Show your recovery phrase | S1's title |
+| `IdS1Body` | You will be asked to unlock your phone first. The app goes offline while your words are shown. | S1's body, two lines |
+| `IdGoingOffline` | Going offline… | The progress state (§3.5, §6) |
+| `IdDone` | Done | S2's primary |
+| `IdChecksumFailed` | These words do not form a recovery phrase. A word may be wrong or in the wrong place. Check them against your paper. | §6's checksum banner |
+| `IdOtherIdentity` | These words open a different identity, so nothing on this phone was changed. Compare the two PeerIds below with your paper. | §6's other-identity banner, above the two labelled PeerIds |
+| `IdBusy` | The app could not go offline. Wait a moment, then try again. | §6's busy notice, with `TryAgain` |
+| `IdStorageFailed` | The app could not save your identity on this phone. Nothing was changed. | §6's storage notice, with `TryAgain` |
+| `IdDiscardTitle` | Delete the words you entered? | §7's dialog title |
+| `IdDiscard` | Delete words | §7's dialog: the action that drops the words |
+| `IdContinueEntering` | Continue entering | §7's dialog: the default action |
+| `IdKeyDelete` | Delete last letter | The keypad's delete key (its accessible label) |
+| `IdKeyClear` | Clear this word | The keypad's clear key (its accessible label) |
+| `IdReviewWords` | Show all my words | The grid's button at large font (§4) |
+
+Against the list the proposal gave: `IdC1Points` is four keys, one per
+point, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
+`IdExpectedPeerId` and `IdDerivedPeerId` are added. `IdTryAgain` and
+`IdRetry` are both `TryAgain`. `IdKeepEntering` is
+`IdContinueEntering`.
 
 ## 10. Acceptance
 
@@ -427,7 +469,7 @@ landscape:
     word. Leaving S2 and returning to the same instance shows the
     words with no new prompt.
 12. Profile busy and storage failure, by rust-ui-dev's test hooks, show
-    §6's notices. Retry works, and Back leaves with nothing changed.
+    §6's notices. Try again works, and Back leaves with nothing changed.
 13. At 200 % on the Pixel 9a, R2's keypad, suggestions and primary
     action fit without scrolling, and no word is cut.
 14. Every key and chip is at least 48 dp tall. Keys are at least 28 dp
