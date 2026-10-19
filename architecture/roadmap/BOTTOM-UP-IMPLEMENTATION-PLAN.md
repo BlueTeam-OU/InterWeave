@@ -5557,3 +5557,102 @@ The historical phase numbers remain useful as scope labels:
 However, **construction follows Stages 0-19 in this document**. In particular, connection/dial policy (Stage 5) precedes Kademlia (Stage 10) and mandatory Internet reachability (Stage 11), even though the older product phase table groups those concerns differently.
 
 This ordering is normative because it ensures autonomous libp2p behaviours are introduced only after their security and resource-control boundary already exists.
+
+## 28. Stage 20 — InterWeave carries the fleet's GZCoord
+
+Opened by this record on the owner's direction of 2026-10-19 ("go on
+with InterWeave so we start to use it instead of the current
+transport"), to run **beside** Stage 17 and Stage 18 as §19's Stage 16
+ran beside Stage 15: the status value stays the lowest open stage, and
+this section is the authorisation for its packages (§3 of `CLAUDE.md`).
+The decision is ADR-0055; this section is the construction order, the
+gate and the record. Its sections are numbered after §27 so that no
+citation of §23–§27 moves.
+
+### Objective
+
+The agents that build InterWeave talk over it: one daemon and one
+carrier process per login on the one host, every login's wire identity
+its own key, direct and broadcast GZCOORD/1 traffic through the
+carrier's lease on the `gzcoord` endpoint and the `gzapp:gzcoord`
+channel, durability in the carrier and the login's journal, the relay
+kept as the fallback until the fabric retires it. InterWeave's part
+ends at the data socket's contract; the carrier process, the roster and
+the fabric's tooling are agent-fabric's, by its own records
+(agent-fabric ADR-033's successor, ADR-029 phase 2).
+
+### Prerequisites
+
+None beyond what is on `main`: the daemon (Stage 13), IPC v2 `active`
+(Stage 13), static bootstrap (Stage 9), the trust overlay (ADR-0028 A
+2026-10-07). Stage 17's close is not a prerequisite, and nothing here
+touches the human client.
+
+### Activate
+
+```text
+packaging/linux            (the daemon's and the carrier's user units; the service-lifecycle rows of §22 pulled forward for Linux only)
+apps/transportctl          (two offline verbs: identity init, identity show)
+tests/fleet-carrier        (the conformance suite of ADR-0055 decision 9)
+architecture/clients/agent (what the transport promises an automated client)
+```
+
+No new crate. `packaging/macos`, `packaging/windows` and
+`packaging/android` stay §22's.
+
+### Implement in order
+
+1. `transportctl identity init --profile <name>` and `identity show`
+   (ADR-0055 decision 7): offline, under the profile lock, printing the
+   PeerId and nothing secret; refused while a daemon holds the lock;
+   `init` refuses an existing key. Tests beside the other identity
+   verbs.
+2. `packaging/linux`: `interweave-daemon@.service` and
+   `interweave-carrier@.service` as systemd user units templated on the
+   profile name, `Restart=on-failure`, the daemon stopped by SIGTERM with
+   the grace the daemon already honours, the carrier `After=` and
+   `BindsTo=` its daemon; a README that says how a login installs them
+   and what the fabric's bootstrap does instead. The units run the
+   binaries from the login's own `~/.local/bin` or a path the README
+   names; no system-wide install.
+3. `architecture/clients/agent/AGENT-CARRIER.md`: the promises and the
+   limits an automated client reads — the lease, the 48 KiB ceiling,
+   `AcceptedV2` and `no_route`, the per-client queue of 256 and what a
+   wedged client loses, the loopback deployment's static bootstrap, and
+   the carrier's own obligations (journal before offer, same
+   `message_id` on retry, `FROM` against the roster). It cites the
+   contracts and restates no constant.
+4. `tests/fleet-carrier`: two daemons on loopback with static bootstrap
+   and mutual trust rendered the way the roster will render them; a
+   test carrier (test-support, never a production dependency) that
+   claims `gzcoord` and joins the channel; cases: a direct message B
+   receives from A and a broadcast A publishes that B receives; a send
+   while B's lease is withheld answered `RemoteEndpointUnavailable`,
+   retried under the same `message_id` and landing once with no
+   duplicate when the lease returns; A's daemon restarted under a live
+   carrier, the carrier re-leasing and re-joining and the next message
+   landing; a burst of 200 broadcasts with the receiver draining,
+   counting what the bounded queue dropped; a loopback static-bootstrap
+   dial, which no test on `main` exercises.
+5. The stale clause in `CLAUDE.md` §1 about mDNS (the multicast backend
+   was built after Stage 9; this record corrects it) — done in the
+   series that lands this section.
+
+### Exit gate
+
+(a) Steps 1–4 landed with their tests green on `main`; (b) the fabric's
+cut-over of at least two logins on `develop-qzapp`, each session's inbox
+watch reading its journal, B receiving A's direct and A's broadcast
+through the carriers (agent-fabric ADR-033 rule 4), recorded in
+agent-fabric with the two logins, the date and the message ids; (c) a
+soak the fabric defines, the relay running as the fallback throughout,
+with the candidate record's unverified items — behaviour under load,
+ordering across senders, loss during a session's absence and a daemon
+restart — each measured and written down, met or carried by name; (d)
+the control plane's move (phase 2) and the relay's retirement are NOT
+conditions of this gate: they are the fabric's, after it.
+
+### Record
+
+The owner's word closes it, as every stage. The `Met.` block names the
+two logins, the soak's figures and what was carried.
