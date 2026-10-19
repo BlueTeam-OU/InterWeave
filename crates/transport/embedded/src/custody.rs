@@ -565,9 +565,11 @@ pub enum RecordName {
 }
 
 /// Whose record the profile has, read from the `PeerId` field without the
-/// cipher and whatever the envelope's state: a damaged magic, version,
-/// policy or length, or a record readable by others, still answers the
-/// name it carries, which [`recorded_identity`] does not. The recovery
+/// cipher and whatever the envelope's state: a damaged magic, version or
+/// policy, or a record readable by others, still answers the name it
+/// carries, which [`recorded_identity`] does not. A record of the wrong
+/// size has no field where the name is read, so it is
+/// [`RecordName::Nobody`], as `parse` refuses it. The recovery
 /// flow reads it, offers only a phrase deriving [`RecordName::Names`]'s
 /// `PeerId`, and offers nothing over [`RecordName::Nobody`]. [`restore`]
 /// decides by the same reading, so the two cannot disagree.
@@ -579,13 +581,10 @@ pub enum RecordName {
 pub fn named_identity(paths: &ProfilePaths) -> Result<RecordName, UnlockRefused> {
     Ok(match read_record(paths)? {
         Read::Absent => RecordName::Absent,
-        Read::Bytes { bytes, .. } => name_in(&bytes),
+        Read::Bytes { bytes, .. } => {
+            named_peer(&bytes).map_or(RecordName::Nobody, RecordName::Names)
+        }
     })
-}
-
-/// [`RecordName`] of a record's bytes: never [`RecordName::Absent`].
-fn name_in(bytes: &[u8]) -> RecordName {
-    named_peer(bytes).map_or(RecordName::Nobody, RecordName::Names)
 }
 
 /// The `PeerId` in a record's field ALONE: a header damaged, a policy
@@ -844,7 +843,9 @@ fn custody_present(paths: &ProfilePaths) -> Result<bool, CustodyRefused> {
 /// [`CustodyRefused::Cipher`] when the record's own key cannot be asked
 /// whether it still opens; nothing is written in any of these.
 /// [`CustodyRefused::OldKeyRemains`] arrives after the record is written,
-/// as for [`reseal`].
+/// as for [`reseal`]; so does `Storage(PersistError::Unsynced)`, the
+/// record replaced and the other policy's key not retired, as
+/// [`provision`] says.
 pub fn restore(
     paths: &ProfilePaths,
     cipher: &dyn SeedCipher,
@@ -888,21 +889,19 @@ fn restore_locked(
     expected: &TransportIdentity,
     policy: KeyUnlockPolicy,
 ) -> Result<ProfileIdentity, CustodyRefused> {
-    // Whose record this is comes from its PeerId field alone (`name_in`, as
-    // `named_identity` answers it),
+    // Whose record this is comes from its PeerId field alone (`named_peer`,
+    // as `named_identity` answers it),
     // read whatever the file's mode or the envelope's state. Only an absent
     // record is "no record": one naming nobody, or one that cannot be read
     // at all, may be another's, so nothing is written over either.
     let existing = match read_record(paths) {
         Ok(Read::Absent) => None,
-        Ok(Read::Bytes { bytes, private }) => match name_in(&bytes) {
-            RecordName::Absent | RecordName::Nobody => {
-                return Err(CustodyRefused::RecordNamesNobody);
-            }
-            RecordName::Names(named) if named.as_str() != expected.as_str() => {
+        Ok(Read::Bytes { bytes, private }) => match named_peer(&bytes) {
+            None => return Err(CustodyRefused::RecordNamesNobody),
+            Some(named) if named.as_str() != expected.as_str() => {
                 return Err(CustodyRefused::RecordNamesOther);
             }
-            RecordName::Names(_) => Some((bytes, private)),
+            Some(_) => Some((bytes, private)),
         },
         Err(e) => return Err(CustodyRefused::Unreadable(e.to_string())),
     };
@@ -972,8 +971,10 @@ fn restore_locked(
 /// would refuse before its cipher; nothing is sealed or written in any of
 /// these. After the seal: [`CustodyRefused::CipherShape`] or
 /// [`CustodyRefused::Storage`], the record on disk untouched and still
-/// opening; [`CustodyRefused::OldKeyRemains`] with the new record
-/// written.
+/// opening -- except `Storage(PersistError::Unsynced)`, which arrives
+/// after the new record replaced it, the old policy's key not retired, as
+/// [`provision`] says; [`CustodyRefused::OldKeyRemains`] with the new
+/// record written.
 pub fn reseal(
     paths: &ProfilePaths,
     cipher: &dyn SeedCipher,
