@@ -96,3 +96,11 @@ Contributors and automated sessions load the digest plus the repository-root `CL
 ## Revisit conditions
 
 Revisit if the ADR set grows past the point where one digest file is itself expensive to load, in which case per-cluster digests become the natural split; if amendment traffic makes the three-way record the dominant authoring cost without the notes being read, which would argue for collapsing back to git as the sole record; or if a generated index becomes necessary to serve tooling that cannot parse the human-readable ones.
+
+## Amendments
+
+Full notes: [`history/0048-amendments.md`](./history/0048-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-19 | The validator holds that an amended ADR's digest entry changed with it | Decision: `validate_adr_index.sh` fails an ADR whose Amendments table gained a (date, title) key since the base revision while its `### NNNN` digest entry is byte-identical to the base's; it proves the entry moved, not that it is right. No change to the three-part record or to propagation item 2; no citation convention is added. |
