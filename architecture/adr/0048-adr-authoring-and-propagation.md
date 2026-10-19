@@ -51,7 +51,7 @@ An ADR change is never the ADR file alone. In the same commit series:
 4. update `fixtures/` if and only if the decision intentionally changes a frozen vector;
 5. for an amendment, add the history note and the end-matter row described above.
 
-`tools/checks/validate_adr_index.sh` enforces the mechanical part — items 1 and 2, the template every ADR follows, and the amendment record's three-way consistency — and is part of the repository-wide verification list in `CLAUDE.md` §9.
+`tools/checks/validate_adr_index.sh` enforces the mechanical part — items 1 and 2, the template every ADR follows, the amendment record's three-way consistency, and, since 2026-10-19, that an ADR whose Amendments table gained a (date, title) key since the base revision has a digest entry that changed with it (A 2026-10-19: the check proves the entry moved, never that it is right; what it says stays the author's and the review's) — and is part of the repository-wide verification list in `CLAUDE.md` §9.
 
 ### The digest is the default entry point, and it is non-normative
 
@@ -91,8 +91,16 @@ Contributors and automated sessions load the digest plus the repository-root `CL
 
 ## Implementation implications
 
-`architecture/adr/ADR-DIGEST.md`, `architecture/adr/ADR-TEMPLATE.md`, and `architecture/adr/history/` are documentation artifacts requiring no production code. `tools/checks/validate_adr_index.sh` is a repository check with a self-test, run before pushing and listed in the repository-wide verification list; it enforces the template, both propagation directions, and the amendment record's three-way consistency.
+`architecture/adr/ADR-DIGEST.md`, `architecture/adr/ADR-TEMPLATE.md`, and `architecture/adr/history/` are documentation artifacts requiring no production code. `tools/checks/validate_adr_index.sh` is a repository check with a self-test, run before pushing and listed in the repository-wide verification list; it enforces the template, both propagation directions, the amendment record's three-way consistency, and that an amended ADR's digest entry changed with it (A 2026-10-19).
 
 ## Revisit conditions
 
 Revisit if the ADR set grows past the point where one digest file is itself expensive to load, in which case per-cluster digests become the natural split; if amendment traffic makes the three-way record the dominant authoring cost without the notes being read, which would argue for collapsing back to git as the sole record; or if a generated index becomes necessary to serve tooling that cannot parse the human-readable ones.
+
+## Amendments
+
+Full notes: [`history/0048-amendments.md`](./history/0048-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-19 | The validator holds that an amended ADR's digest entry changed with it | Decision: `validate_adr_index.sh` fails an ADR whose Amendments table gained a (date, title) key since the base revision while its `### NNNN` digest entry is byte-identical to the base's; it proves the entry moved, not that it is right. No change to the three-part record or to propagation item 2; no citation convention is added. |

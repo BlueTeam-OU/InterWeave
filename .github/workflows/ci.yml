@@ -513,10 +513,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # check_license_headers.sh and validate_adr_index.sh read the
-          # working tree, not history — but scan_semantic_collisions.sh
-          # is about what a merge produced, so the merge commit the queue
-          # builds must be the tree under test.
+          # check_license_headers.sh reads the working tree, not history
+          # — but scan_semantic_collisions.sh is about what a merge
+          # produced, so the merge commit the queue builds must be the
+          # tree under test. validate_adr_index.sh reads both: its
+          # AMENDED phase compares against the merge-base with
+          # origin/main, and exits 2 when that does not resolve. On a
+          # push to main the merge-base is HEAD itself, so that run
+          # compares nothing and passes; the queue run is the check.
           #
           # FULL HISTORY, because check_spike_locks.sh's provenance phase
           # asks where each spike pin came from: whether it is an
@@ -590,6 +594,12 @@ jobs:
 
       - name: Required check contexts match the workflow's job names
         run: bash tools/checks/check_required_contexts.sh
+
+      # ADR-0056 decision 2 (ADR-0057 decision 2): no Google Play
+      # services, Firebase, Play or Play Billing artifact on the Android
+      # app's classpath, read from the committed Gradle lockfiles.
+      - name: No Google Play services on the Android app's classpath
+        run: bash tools/checks/check_android_no_play_services.sh
 
       # A domain function nothing calls is a rule that binds nothing, and
       # its own green unit tests are what make it look covered. Stage 6
