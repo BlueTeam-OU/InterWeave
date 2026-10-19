@@ -5629,8 +5629,9 @@ appears in any of the four.
    (ADR-0055 decision 4): offline, under the profile lock, printing the
    PeerId and nothing secret; refused while a daemon holds the lock;
    `init` refuses an existing key; tests beside the other identity
-   verbs. (Built on p2p-network-dev's branch at 8dddbbcf, 24 tests,
-   before this record landed.)
+   verbs. (Built on p2p-network-dev's branch at 8dddbbcf, five tests
+   beside the file's nineteen for the earlier verbs, before this record
+   landed.)
 2. `tests/automated-client` (root suite, test-support only): two
    daemons on loopback with static bootstrap and mutual trust as a
    deployment renders them, and a generic test client that claims a
@@ -5729,16 +5730,24 @@ ten cases: `a_direct_message_lands_over_a_static_loopback_entry`,
 user units and their README); step 5 (the mDNS clause of `CLAUDE.md`
 §1). The exit gate: (a) steps 1–4 are on `main` with CI green at the
 merge (4a607b2e) and at the next (c9766159), and each fact of decision
-2 is held by a named case, in this suite where the suite reaches it and
-elsewhere in the tree where an earlier stage already held it, the
-document's §2 naming each — admission not delivery by the withheld-lease
+2 is held by a named case or by the contract that states it, as the
+document's §2 records row by row — in this suite where the suite
+reaches it, elsewhere in the tree where an earlier stage already held
+it, and by contract alone where no case asserts it (the 256 itself,
+LOCAL-IPC.md; no durable broadcast, ADR-0020; the lease lost with a
+wedged close, LOCAL-IPC.md) — admission not delivery by the withheld-lease
 case (a retry inside the window is accepted again and not delivered
 again) with the receipt case showing what delivery takes; `no_route`
 coarse by `tests/security`'s
 `the_four_no_route_causes_are_byte_identical_on_the_wire`; no durable
-broadcast by decision (ADR-0020) with the broadcast-burst case showing
-that a dropped publish never arrives later; the 256-event queue's
-refusal by the runtime's `a_full_queue_refuses_rather_than_accepting_falsely`;
+broadcast by contract, with the broadcast-burst case showing only that
+a dropped publish did not arrive within its three-second watch; the
+256-event queue's refusal by the runtime's
+`a_full_queue_refuses_rather_than_accepting_falsely`, a broadcast
+dropping the oldest by the runtime's
+`a_full_queue_drops_for_that_session_and_nobody_else`, the wedged
+close by `ipc-server`'s
+`a_silent_client_that_stopped_reading_is_closed_and_frees_its_slot`;
 the 48 KiB ceiling by `ipc-protocol`'s
 `a_payload_past_the_ceiling_is_payload_too_large`; dedup inside the
 window and the second delivery across a restart by the withheld-lease
