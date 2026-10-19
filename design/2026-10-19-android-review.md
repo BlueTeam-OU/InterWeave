@@ -234,6 +234,52 @@ but does not re-rank these.
     prevention: the consequence is not readable before commitment),
     and `human-client-ui.md` §8 (the confirmation shows the exact
     PeerId).
+  - The overflow is fixed on rust-ui-dev-01's branch (4f784a1e): the
+    PeerId breaks whole at the edge. The look below is the Trust
+    screen's spec, since `design/2026-10-16-android-look.md` covers
+    only Chats and a conversation; it takes rust-ui-dev-01's proposal
+    (QUESTION 01a15315-4f61) with the changes marked.
+  - What has to change, as seen:
+    1. A top app bar as a conversation's: the back arrow (labelled as
+       "Back to conversations" is today) and the screen's title. It
+       replaces the boxed button and the "Trust" heading. The title's
+       words are language-culture's; until they say otherwise it is
+       today's "Trust".
+    2. Every PeerId (this profile's and each row's) wraps whole over
+       as many lines as it needs, never cut or ellipsized, and stays
+       selectable to copy. Monospace, so that characters a person
+       compares line up. No spaces or grouping are inserted: the
+       copied text is the canonical form.
+    3. The field is a Material outlined text field labelled "PeerId to
+       trust", with its error ("not a PeerId") under it, not beside
+       it. "Trust this peer" is a filled button beside the field when
+       both fit at the current font size, and under it when they do
+       not (at 200 % they do not).
+    4. Each trusted peer is a list item: the PeerId, then its origin
+       ("Added here", "From this profile's configuration") as the
+       supporting line. "Remove trust" stays on every row as a text
+       button in the error colour, with a 48 dp target. It is not
+       moved behind a long-press: this is a settings list with one
+       action per row, the one place trust is taken back, and F2's
+       long-press is for the density of a conversation.
+    5. Changed from the proposal: the confirmation is a Material
+       dialog over a scrim, not a notice at the foot of the screen,
+       which today opens far from the row that was tapped. It holds
+       the question, the exact PeerId (2 above) and what follows
+       (connections close now), and two text buttons: "Do not change"
+       and the confirming action, which names the act ("Remove trust")
+       rather than "Confirm"; the words are language-culture's.
+       "Do not change" has focus when it opens; Back and a tap on the
+       scrim are "Do not change". After either, focus returns to the
+       row's Remove trust button, or, after a removal, to the next
+       row, else the previous, else the "Trusted peers" heading.
+       If Slint makes a dialog costly, the notice may stay, opened
+       directly under the row it is about, with the same contents,
+       focus and Back; say which before building.
+  - Acceptance on the phone: at 100 % and 200 % font, in both themes,
+    no text on Trust reaches past the screen's edge, with and without
+    the confirmation up; every PeerId on the screen can be read whole;
+    Back from Trust returns to Chats.
 - **F8. In light theme the status bar's icons are white on the app's
   white top.**
   - Seen: with the phone in light theme, the clock, signal, Wi-Fi and
