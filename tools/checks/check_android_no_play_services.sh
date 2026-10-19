@@ -64,14 +64,15 @@
 #     buildscript classpath (`activateDependencyLocking()`), or no
 #     buildscript-gradle.lockfile; comments do not count;
 #   - any Gradle script, version catalog or buildSrc/build-logic Kotlin
-#     under the root naming LockMode.LENIENT, ignoredDependencies,
+#     under the root naming LENIENT, ignoredDependencies,
 #     unlockAllConfigurations, deactivateDependencyLocking, lockFile,
 #     startParameter, writeDependencyLocks or LockedDependenciesToUpdate
 #     -- read raw, so a comment naming one fails too.
 #
 # AND THE DECLARATIONS: the same files may not name a banned group
 # (a plugins { } id, a dependency coordinate, a catalog entry), except
-# on a dependency line of a test or lint configuration. A subproject's
+# on a dependency line of a test or lint configuration (one statement,
+# no ;). A subproject's
 # own plugin classpath is in no lockfile, so this is what refuses the
 # Google services plugin applied there.
 #
@@ -124,29 +125,45 @@ gradle_files() {
 
 [ -f "$GRADLE/app/gradle.lockfile" ] || fail "apps/human-android/android/app/gradle.lockfile: missing -- the app's classpath is unlocked or the lockfile was not committed"
 
-# A Gradle script with its comments removed and its lines joined, so a
-# call inside /* ... */ or after // does not count toward the two REQUIRED
-# calls below, and a block can be matched across lines. It does not parse
-# strings, so "**/*.kt" or a URL removes text that is code; for a call
-# that must be PRESENT that fails closed, which is why nothing is ever
-# refused on its output (the loosening scan reads raw text).
+# A Gradle script as code only, its lines joined so a block can be
+# matched across them: comments removed, and every string literal ("..",
+# """..""", Groovy '..') kept as its quotes with its content blanked. A
+# string is opaque on purpose: a URL's // or a glob's /* inside one must
+# not open a comment, and a } inside one must not close a block -- each
+# once let the [^}]* matches below accept a call outside its block
+# (review of #307, rounds 2 and 3). Used only for the two calls that must
+# be PRESENT; what is refused is matched on the raw text.
 code_of() {
     awk '
+        BEGIN { st = "code"; dq = "\""; sq = "\047"; tq = dq dq dq }
         {
-            line = $0; out = ""
-            while (line != "") {
-                if (inblock) {
-                    e = index(line, "*/")
-                    if (e == 0) { line = ""; break }
-                    line = substr(line, e + 2); inblock = 0; continue
+            n = length($0); i = 1; out = ""
+            while (i <= n) {
+                ch = substr($0, i, 1); two = substr($0, i, 2); three = substr($0, i, 3)
+                if (st == "block") {
+                    if (two == "*/") { st = "code"; i += 2 } else i++
+                    continue
                 }
-                b = index(line, "/*"); c = index(line, "//")
-                if (b > 0 && (c == 0 || b < c)) {
-                    out = out substr(line, 1, b - 1); line = substr(line, b + 2); inblock = 1; continue
+                if (st == "triple") {
+                    if (three == tq) { out = out tq; st = "code"; i += 3 } else i++
+                    continue
                 }
-                if (c > 0) { out = out substr(line, 1, c - 1); line = "" ; break }
-                out = out line; line = ""
+                if (st == "dq" || st == "sq") {
+                    if (ch == "\\") { i += 2; continue }
+                    if ((st == "dq" && ch == dq) || (st == "sq" && ch == sq)) { out = out ch; st = "code" }
+                    i++
+                    continue
+                }
+                if (two == "/*") { st = "block"; i += 2; continue }
+                if (two == "//") break
+                if (three == tq) { out = out tq; st = "triple"; i += 3; continue }
+                if (ch == dq) { out = out ch; st = "dq"; i++; continue }
+                if (ch == sq) { out = out ch; st = "sq"; i++; continue }
+                out = out ch; i++
             }
+            # A one-line string ends with its line; only a triple-quoted
+            # string and a block comment carry over.
+            if (st == "dq" || st == "sq") st = "code"
             printf "%s ", out
         }
     ' "$1"
@@ -182,14 +199,16 @@ build_sources() {
 # the glob "**/*.kt" as a comment opening and drops the rest of the file
 # (review of #307 round 2, finding 1). A comment naming one fails too:
 # write the prose another way.
-#   LockMode.LENIENT              resolves past the lock without failing
+#   LENIENT                       resolves past the lock without failing
+#                                 (the bare word: a star import or a
+#                                 Groovy string names it without LockMode.)
 #   ignoredDependencies           neither written to the lock nor checked
 #   unlockAllConfigurations       undoes lockAllConfigurations()
 #   deactivateDependencyLocking   one configuration out of the lock
 #   lockFile                      the lock state read from another file
 #   startParameter                write-locks or update-locks on every build
 #   writeDependencyLocks / LockedDependenciesToUpdate  the same, by name
-LOOSEN='LockMode\.LENIENT|ignoredDependencies|unlockAllConfigurations|deactivateDependencyLocking|lockFile|startParameter|[Ww]riteDependencyLocks|[Ll]ockedDependenciesToUpdate'
+LOOSEN='LENIENT|ignoredDependencies|unlockAllConfigurations|deactivateDependencyLocking|lockFile|startParameter|[Ww]riteDependencyLocks|[Ll]ockedDependenciesToUpdate'
 
 # A banned group named in the build's own text, whatever resolves: a
 # subproject's plugins { id(...) version ... } resolves into that
@@ -199,7 +218,9 @@ LOOSEN='LockMode\.LENIENT|ignoredDependencies|unlockAllConfigurations|deactivate
 # name one, as decision 2 allows; the catalog cannot say where an entry
 # is used, so it may not.
 BANNED='(com\.google\.android\.gms|com\.google\.firebase|com\.google\.android\.play|com\.android\.billingclient|com\.google\.gms)([.:"'"'"'/[:space:]]|$)'
-TOOLING_LINE='^[0-9]+:[[:space:]]*"?(test|androidTest|lintChecks|lintPublish|[a-z]+UnitTest|[a-z]+AndroidTest)[A-Za-z]*"?[[:space:](]'
+# A dependency call on a test or lint configuration, by its whole name:
+# a bare prefix once exempted `testing { ... }` (round 3, judged).
+TOOLING_LINE='^[0-9]+:[[:space:]]*"?((test|androidTest|[a-z]+UnitTest|[a-z]+AndroidTest)(Implementation|Api|CompileOnly|RuntimeOnly|AnnotationProcessor)|lintChecks|lintPublish)"?[[:space:](]'
 
 sources=0
 while IFS= read -r src; do
@@ -211,7 +232,9 @@ while IFS= read -r src; do
         [ -n "$h" ] && fail "$rel: ${h#*:} (line ${h%%:*}) -- the lockfile would no longer describe what resolves"
     done <<<"$hits"
     hits="$(grep -nE "$BANNED" "$src" || true)"
-    case "$src" in *.toml) ;; *) hits="$(grep -vE "$TOOLING_LINE" <<<"$hits" || true)" ;; esac
+    # The exemption is per statement: a line holding a ; can carry a
+    # second one after the test call (review of #307 round 3, finding 2).
+    case "$src" in *.toml) ;; *) hits="$(grep -vE "${TOOLING_LINE}[^;]*$" <<<"$hits" || true)" ;; esac
     while IFS= read -r h; do
         [ -n "$h" ] && fail "$rel: declares a banned group (line ${h%%:*}) -- ${h#*:}"
     done <<<"$hits"

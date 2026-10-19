@@ -37,6 +37,9 @@ tree() {
     mkdir -p "$g/app"
     cp "$REAL/build.gradle.kts" "$REAL/settings.gradle.kts" "$REAL/buildscript-gradle.lockfile" "$REAL/settings-gradle.lockfile" "$g/"
     cp "$REAL/app/build.gradle.kts" "$REAL/app/gradle.lockfile" "$g/app/"
+    # The real catalog too: the guard reads it, so a copy of the real tree
+    # must carry it.
+    cp -r "$REAL/gradle" "$g/"
     printf '%s' "$r"
 }
 # Adds one artifact line to a lockfile, above its `empty=` line as
@@ -158,7 +161,7 @@ expect_fail "$R" "a lockfile that does not cover the shipped classpath" "names n
 R="$(tree)"; sed -i 's/^\([[:space:]]*\)lockAllConfigurations()/\1\/\/ lockAllConfigurations()/' "$R/apps/human-android/android/build.gradle.kts"
 expect_fail "$R" "lockAllConfigurations() commented out" "no lockAllConfigurations()"
 R="$(tree)"; sed -i 's/lockAllConfigurations()/lockAllConfigurations()\n        lockMode.set(LockMode.LENIENT)/' "$R/apps/human-android/android/build.gradle.kts"
-expect_fail "$R" "LockMode.LENIENT" "LockMode.LENIENT"
+expect_fail "$R" "LockMode.LENIENT" "LENIENT (line"
 R="$(tree)"; mkdir -p "$R/apps/human-android/android/lib"; printf '// x\n' > "$R/apps/human-android/android/lib/build.gradle.kts"
 expect_fail "$R" "a subproject with no lockfile" "android/lib: a project with no gradle.lockfile"
 R="$(tree)"; mkdir -p "$R/apps/human-android/android/lib"; printf '// x\n' > "$R/apps/human-android/android/lib/build.gradle"
@@ -167,7 +170,7 @@ expect_fail "$R" "a Groovy subproject with no lockfile" "android/lib: a project 
 echo "a subproject's script cannot loosen the lock (review of #307, finding 2)"
 APP_BUILD=apps/human-android/android/app/build.gradle.kts
 for loosen in \
-    'dependencyLocking { lockMode.set(LockMode.LENIENT) }:LockMode.LENIENT' \
+    'dependencyLocking { lockMode.set(LockMode.LENIENT) }:LENIENT' \
     'dependencyLocking { ignoredDependencies.add("com.google.firebase:*") }:ignoredDependencies' \
     'dependencyLocking { unlockAllConfigurations() }:unlockAllConfigurations' \
     'configurations.named("releaseRuntimeClasspath") { resolutionStrategy.deactivateDependencyLocking() }:deactivateDependencyLocking'; do
@@ -179,11 +182,11 @@ for loosen in \
     expect_fail "$R" "  the same commented out" "app/build.gradle.kts:"
 done
 R="$(tree)"; printf '\ndependencyLocking { lockMode.set(LockMode.LENIENT) }\n' >> "$R/apps/human-android/android/settings.gradle.kts"
-expect_fail "$R" "LENIENT in settings.gradle.kts" "settings.gradle.kts: LockMode.LENIENT"
+expect_fail "$R" "LENIENT in settings.gradle.kts" "settings.gradle.kts: LENIENT"
 
 echo "a string that looks like a comment hides nothing (review of #307 round 2, finding 1)"
 R="$(tree)"; printf '\nval kt = fileTree("src") { include("**/*.kt") }\nval p = "a//b"\ndependencyLocking { lockMode.set(LockMode.LENIENT) }\n' >> "$R/$APP_BUILD"
-expect_fail "$R" "LENIENT after a glob and a // in a string" "LockMode.LENIENT"
+expect_fail "$R" "LENIENT after a glob and a // in a string" "LENIENT (line"
 
 echo "moving the lock state elsewhere loosens it too (round 2, finding 2)"
 R="$(tree)"; printf '\ndependencyLocking { lockFile.set(file("alt.lock")) }\n' >> "$R/$APP_BUILD"
@@ -192,6 +195,14 @@ R="$(tree)"; printf '\ngradle.startParameter.isWriteDependencyLocks = true\n' >>
 expect_fail "$R" "startParameter write-locks in settings.gradle.kts" "settings.gradle.kts:"
 R="$(tree)"; printf '\nval sp = gradle.startParameter\n' >> "$R/apps/human-android/android/settings.gradle.kts"
 expect_fail "$R" "any startParameter use, whatever it then sets" "settings.gradle.kts: startParameter"
+# The Java getters, which the case-sensitive startParameter does not match
+# (round 3, finding 3).
+R="$(tree)"; printf '\ngradle.getStartParameter().setWriteDependencyLocks(true)\n' >> "$R/apps/human-android/android/settings.gradle.kts"
+expect_fail "$R" "setWriteDependencyLocks through the getter" "settings.gradle.kts: WriteDependencyLocks"
+R="$(tree)"; printf '\ngradle.getStartParameter().setLockedDependenciesToUpdate(listOf("x:y"))\n' >> "$R/apps/human-android/android/settings.gradle.kts"
+expect_fail "$R" "setLockedDependenciesToUpdate through the getter" "settings.gradle.kts: LockedDependenciesToUpdate"
+R="$(tree)"; printf '\nimport org.gradle.api.artifacts.dsl.LockMode.*\ndependencyLocking { lockMode.set(LENIENT) }\n' >> "$R/$APP_BUILD"
+expect_fail "$R" "LENIENT through a star import" "app/build.gradle.kts: LENIENT"
 R="$(tree)"; mkdir -p "$R/apps/human-android/android/buildSrc/src/main/kotlin"
 printf 'fun Project.x() { dependencyLocking { unlockAllConfigurations() } }\n' > "$R/apps/human-android/android/buildSrc/src/main/kotlin/Locks.kt"
 expect_fail "$R" "unlockAllConfigurations in buildSrc Kotlin" "buildSrc/src/main/kotlin/Locks.kt: unlockAllConfigurations"
@@ -208,6 +219,10 @@ printf '[libraries]\ntestFcm = { module = "com.google.firebase:firebase-messagin
 expect_fail "$R" "a Firebase catalog entry" "gradle/libs.versions.toml: declares a banned group (line 2)"
 R="$(tree)"; printf '\ndependencies {\n    testImplementation("com.google.firebase:x:1.0")\n    androidTestImplementation("com.google.android.gms:y:1.0")\n    lintChecks("com.google.android.play:z:1.0")\n    implementation("com.google.gmsx:w:1.0")\n}\n' >> "$R/$APP_BUILD"
 expect_pass "$R" "test and lint dependency lines, and a lookalike group"
+R="$(tree)"; printf '\ndependencies {\n    testImplementation("junit:junit:4.13"); implementation("com.google.firebase:firebase-messaging:24.1.0")\n}\n' >> "$R/$APP_BUILD"
+expect_fail "$R" "a second statement after a test call (round 3, finding 2)" "declares a banned group"
+R="$(tree)"; printf '\ntesting { plugins { id("com.google.gms.google-services") } }\n' >> "$R/$APP_BUILD"
+expect_fail "$R" "a line that only starts with test" "declares a banned group"
 
 echo "lockAllConfigurations() counts only where it locks every project (finding 4)"
 ROOT_BUILD=apps/human-android/android/build.gradle.kts
@@ -218,6 +233,19 @@ expect_fail "$R" "lockAllConfigurations() for the root project alone" "no lockAl
 
 R="$(tree)"; sed -i 's/^\([[:space:]]*\)lockAllConfigurations()$/\1lockMode.set(LockMode.DEFAULT)/' "$R/$ROOT_BUILD"; printf '\ndependencyLocking { lockAllConfigurations() }\n' >> "$R/$ROOT_BUILD"
 expect_fail "$R" "the call after the allprojects block has closed (round 2, finding 3)" "no lockAllConfigurations() in allprojects"
+
+echo "a string cannot hide or forge a block's brace (review of #307 round 3, finding 1)"
+R="$(tree)"; sed -i 's/^\([[:space:]]*\)lockAllConfigurations()$/\1lockMode.set(LockMode.DEFAULT)/' "$R/$ROOT_BUILD"
+printf '\nallprojects { repositories { maven { url = uri("https://jitpack.io") } } }\ndependencyLocking { lockAllConfigurations() }\n' >> "$R/$ROOT_BUILD"
+expect_fail "$R" "a URL's // in a one-line allprojects block" "no lockAllConfigurations() in allprojects"
+R="$(tree)"; sed -i 's/^\([[:space:]]*\)lockAllConfigurations()$/\1lockMode.set(LockMode.DEFAULT)/' "$R/$ROOT_BUILD"
+printf '\nallprojects { val g = "src/*" }\nval q = "*/"; dependencyLocking { lockAllConfigurations() }\n' >> "$R/$ROOT_BUILD"
+expect_fail "$R" "a glob's /* and a */ in strings" "no lockAllConfigurations() in allprojects"
+R="$(tree)"; sed -i 's/^\([[:space:]]*\)lockAllConfigurations()$/\1lockMode.set(LockMode.DEFAULT)/' "$R/$ROOT_BUILD"
+printf '\nallprojects { val b = "}" }\ndependencyLocking { lockAllConfigurations() }\n' >> "$R/$ROOT_BUILD"
+expect_fail "$R" "a } inside a string does not close the block early... and the call outside still fails" "no lockAllConfigurations() in allprojects"
+R="$(tree)"; sed -i 's/^allprojects {/allprojects {\n    val note = "a } in a string"\n    val url = "https:\/\/x"/' "$R/$ROOT_BUILD"
+expect_pass "$R" "a } and a // in strings inside the real block do not unlock it"
 
 echo "the plugin classpath's lock is checked too"
 R="$(tree)"; sed -i 's/^buildscript {/run {/' "$R/$ROOT_BUILD"
