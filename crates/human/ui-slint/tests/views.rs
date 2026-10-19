@@ -2981,7 +2981,7 @@ fn settings_offer_the_recovery_phrase_only_where_the_platform_does() {
 }
 
 /// #304 F4: on a phone-wide window the removal's confirmation, with the
-/// exact PeerId it asks about, fits the window: nothing of the screen is
+/// exact `PeerId` it asks about, fits the window: nothing of the screen is
 /// laid out past its right edge while it is up.
 #[test]
 fn the_removal_confirmation_fits_a_phone_wide_window() {
@@ -3018,9 +3018,9 @@ fn the_removal_confirmation_fits_a_phone_wide_window() {
     assert!(past.is_empty(), "laid out past the window: {past:?}");
 }
 
-/// #304 F4: on a phone-wide window every PeerId on Trust lies inside the
+/// #304 F4: on a phone-wide window every `PeerId` on Trust lies inside the
 /// window, never past its edge, and the screen has its app bar with the
-/// back arrow. That the PeerIds wrap is seen in the rendered window: the
+/// back arrow. That the `PeerId`s wrap is seen in the rendered window: the
 /// testing backend's font measures them one line wide.
 #[test]
 fn every_peer_id_on_trust_reads_whole_on_a_phone() {
