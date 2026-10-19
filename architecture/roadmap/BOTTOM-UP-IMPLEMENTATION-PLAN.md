@@ -5734,8 +5734,7 @@ merge (4a607b2e) and at the next (c9766159), and each fact of decision
 document's §2 records row by row — in this suite where the suite
 reaches it, elsewhere in the tree where an earlier stage already held
 it, and by contract alone where no case asserts it (the 256 itself,
-LOCAL-IPC.md; no durable broadcast, ADR-0020; the lease lost with a
-wedged close, LOCAL-IPC.md) — admission not delivery by the withheld-lease
+LOCAL-IPC.md; no durable broadcast, ADR-0020) — admission not delivery by the withheld-lease
 case (a retry inside the window is accepted again and not delivered
 again) with the receipt case showing what delivery takes; `no_route`
 coarse by `tests/security`'s
@@ -5747,7 +5746,9 @@ a dropped publish did not arrive within its three-second watch; the
 dropping the oldest by the runtime's
 `a_full_queue_drops_for_that_session_and_nobody_else`, the wedged
 close by `ipc-server`'s
-`a_silent_client_that_stopped_reading_is_closed_and_frees_its_slot`;
+`a_silent_client_that_stopped_reading_is_closed_and_frees_its_slot` and
+the lease lost with the keepalive-miss close by its
+`unanswered_probes_close_the_connection_and_release_its_lease`;
 the 48 KiB ceiling by `ipc-protocol`'s
 `a_payload_past_the_ceiling_is_payload_too_large`; dedup inside the
 window and the second delivery across a restart by the withheld-lease
