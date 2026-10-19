@@ -183,21 +183,31 @@ pub fn platform_check() -> Result<(), PlatformProblem> {
 /// asks the font stack the renderer itself uses which family that generic
 /// is. Empty -- the default font -- when it names none, or without a
 /// window.
+///
+/// On Android the platform's own fonts.xml names a family "monospace"
+/// (Droid Sans Mono), which the Skia renderer there resolves by name; the
+/// desktop's lookup is not built for it, and without a name every `PeerId`
+/// and code line fell back to the body font on the phone (#304 F4).
+#[cfg(feature = "desktop")]
 fn code_font() -> SharedString {
-    #[cfg(feature = "desktop")]
-    {
-        use i_slint_common::sharedfontique::fontique::{
-            Collection, CollectionOptions, GenericFamily,
-        };
-        let mut fonts = Collection::new(CollectionOptions {
-            shared: false,
-            system_fonts: true,
-        });
-        let family = fonts.generic_families(GenericFamily::Monospace).next();
-        if let Some(name) = family.and_then(|id| fonts.family_name(id)) {
-            return name.into();
-        }
-    }
+    use i_slint_common::sharedfontique::fontique::{Collection, CollectionOptions, GenericFamily};
+    let mut fonts = Collection::new(CollectionOptions {
+        shared: false,
+        system_fonts: true,
+    });
+    let family = fonts.generic_families(GenericFamily::Monospace).next();
+    family
+        .and_then(|id| fonts.family_name(id))
+        .map_or_else(SharedString::new, SharedString::from)
+}
+
+#[cfg(all(feature = "android", not(feature = "desktop")))]
+fn code_font() -> SharedString {
+    SharedString::from("monospace")
+}
+
+#[cfg(not(any(feature = "desktop", feature = "android")))]
+fn code_font() -> SharedString {
     SharedString::new()
 }
 
