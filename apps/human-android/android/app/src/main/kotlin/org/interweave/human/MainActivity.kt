@@ -3,6 +3,7 @@
 package org.interweave.human
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NativeActivity
 import android.hardware.biometrics.BiometricManager.Authenticators
 import android.hardware.biometrics.BiometricPrompt
@@ -291,8 +292,15 @@ class MainActivity : NativeActivity() {
         }
     }
 
-    /** Back below API 33, where no callback is registered. */
+    /**
+     * Back below API 33, where no callback is registered. Lint's
+     * GestureBackNavigation asks for AndroidX's dispatcher, which a
+     * NativeActivity has not; on API 33+ the callback below takes Back,
+     * gestures included, and below 33 there is no predictive gesture for
+     * this to miss.
+     */
     @Deprecated("The platform's own deprecation; API 33+ uses the callback")
+    @SuppressLint("GestureBackNavigation")
     override fun onBackPressed() {
         goBack()
     }
