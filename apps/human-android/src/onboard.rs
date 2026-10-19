@@ -152,9 +152,6 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
     // Called by onStart before its relay thread starts: whatever an
     // earlier instance left in the queue is no longer anyone's.
     ASKS.clear();
-    // Whatever this reads, the last answer's "locked" no longer holds by
-    // itself: only a refusal for authentication below sets it again.
-    clear_authentication();
     let found = interweave_human_android_platform::start_identity(
         &app_data_dir,
         PROFILE,
@@ -202,6 +199,13 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         Some(Start::FirstRun { .. }) => state::FIRST_RUN,
         Some(_) => state::RECOVERY,
     };
+    // Anything but a refusal for authentication ends the locked state.
+    // Cleared after the read, never before it: cleared first, a return
+    // still locked would flicker to "will connect" and back, with a dead
+    // Unlock between (#313 review 2).
+    if code != state::AUTHENTICATION_NEEDED {
+        clear_authentication();
+    }
     let user_presence = needs_presence(&app_data_dir);
     *PLATFORM.lock().unwrap_or_else(PoisonError::into_inner) = Some(Platform {
         app_data_dir,
