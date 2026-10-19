@@ -20,6 +20,7 @@ import android.content.res.Configuration
 import android.database.ContentObserver
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -59,6 +60,19 @@ class MainActivity : NativeActivity() {
     // the locked notice and its Unlock wait (ux-designer-01, REPLY
     // 01a155b3). A new instance, a cold launch, prompts again.
     private var unlockDeclined = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // A recreation the system made (a language change, a backgrounded
+        // instance rebuilt) is not a launch by the person: it keeps the
+        // decline (#313 review 3).
+        unlockDeclined = savedInstanceState?.getBoolean(UNLOCK_DECLINED) ?: false
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(UNLOCK_DECLINED, unlockDeclined)
+    }
 
     override fun onStart() {
         // Before super.onStart(), which waits for the window's thread to
@@ -485,6 +499,7 @@ class MainActivity : NativeActivity() {
         private const val RUNTIME_INTERNET_SDK = 37
         private const val NETWORK_REQUEST = 2
         private const val NOTIFICATIONS_REQUEST = 1
+        private const val UNLOCK_DECLINED = "unlock-declined"
         private const val ASK_WAIT_MS = 500L
 
         /** The snackbar's own time up, before a screen reader's setting lengthens it. */
