@@ -3,7 +3,7 @@
 Status: proposal for plan §20 steps 7–8, 2026-10-19. rust-ui-dev builds
 it on `develop-qzapp/rust-ui-dev-01/feat/j111-android-recovery`. The
 four questions in §11 were answered by architect-cto on 2026-10-19.
-The custody doc's text behind them (ecf20942, 425ec5d0) is on
+The custody doc's text behind them (ecf20942..2f3b0587) is on
 architect-cto's branch
 `develop-qzapp/architect-cto-01/for/rust-ui-dev-01/custody-phrase-display`
 and is not merged; it lands with rust-ui-dev's build PR.
@@ -98,9 +98,10 @@ matters, in six short points:
   cryptocurrency wallet seed (`IDENTITY-RECOVERY.md`, Recovery format);
 - write them on paper and keep it safe;
 - anyone who has them can be you;
-- they bring back the identity only: a complete recovery also needs
-  the contacts, trust and settings backed up separately
-  (`human-client-ui.md` §9 makes this statement unconditional);
+- they bring back the identity only, not the contacts, trust,
+  settings or messages; on Android there is nothing else to back up
+  them from, so the point asks for nothing (`human-client-ui.md` §9 as
+  amended at 2f3b0587);
 - the identity exists only once creation is complete, after the check
   of two words.
 
@@ -159,11 +160,10 @@ words, or else the one a contact has for the phone that had these
 words (a contact can hold one PeerId per device, `human-client-ui.md`
 §3). The
 network stays off until the restore is done. One line
-(`IdR1Settings`) states what `human-client-ui.md` §9 requires: a
-complete recovery needs the recovery phrase and a separate backup of
-the contacts, trust and settings. Whether the Android app offers that
-backup is architect-cto's question (§11 Q5); the statement is made
-either way. Primary: enter my words (→ R2). Back → W.
+(`IdR1Settings`) states what `human-client-ui.md` §9 requires, as
+amended at 2f3b0587: the words restore the identity only, not the
+contacts, trust, settings or messages. Android has no export of
+those in standard v1, so the line asks for nothing (§11a Q5). Primary: enter my words (→ R2). Back → W.
 
 **R2, Enter your 24 words.** The picker over all 24 positions (§4).
 When all 24 are filled, the primary action, check my words, is
@@ -415,7 +415,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdC1Point2` | They are an InterWeave identity recovery phrase, not a cryptocurrency wallet seed. | C1, second point, in the order of §3.2's list (`IDENTITY-RECOVERY.md`) |
 | `IdC1Point3` | Write them on paper, in order, with your PeerId. Store the paper in a safe place. | C1, third point. The PeerId is named here, because R1 asks for it later |
 | `IdC1Point4` | Anyone who has these words can act as you in InterWeave. Do not show them to anyone. | C1, fourth point: "can be you", without alarm |
-| `IdC1Point5` | To recover everything, you need these words and a separate backup of your contacts, trust and settings. | C1, fifth point: `human-client-ui.md` §9's statement, whole |
+| `IdC1Point5` (pending reword, language-culture: §9 as amended at 2f3b0587, the identity only, nothing asked) | To recover everything, you need these words and a separate backup of your contacts, trust and settings. | C1, fifth point: `human-client-ui.md` §9's statement, whole |
 | `IdC1Point6` | Your identity exists only after you finish, by checking two of the words. | C1, sixth point (§11 Q3) |
 | `IdShowWords` | Show my words | C1's primary |
 | `IdNotWalletSeed` | InterWeave identity recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen: 68 characters. The contract's label also says "transport"; it is left out as a word the person does not know |
@@ -438,7 +438,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdR1Body` | You need your 24 words, and the PeerId that goes with them: from your paper, or from a contact who has it. The app stays offline until the restore is done. | R1's body, three lines. "The PeerId that goes with them" is true whether the person moved phones or reinstalled on the same one |
 | `IdEnterWords` | Enter my words | R1's primary |
 | `IdCheckWords` | Check my words | R2's primary |
-| `IdR1Settings` | Your words restore your identity only. Your contacts, trust and settings come from a separate backup. | R1's line under the body, two lines: `human-client-ui.md` §9's statement, whole |
+| `IdR1Settings` (pending reword, language-culture: §9 as amended at 2f3b0587, the identity only, nothing asked) | Your words restore your identity only. Your contacts, trust and settings come from a separate backup. | R1's line under the body, two lines: `human-client-ui.md` §9's statement, whole |
 | `IdR3NoPeerId` | If the PeerId is not on your paper, ask a contact for the one they have for the phone that had these words. Restore only if it matches. | R3, under the question: about three lines at 100 %, one over the space. A contact can hold one PeerId per device, so the text names which one |
 | `IdR3Question` | Is this the PeerId that you wrote down? If it is not, a word may be wrong. | R3's question, two lines. It asks; it never says the PeerId is right, and it says what a "no" usually means |
 | `IdR3Yes` | Yes, restore it | R3's primary |
@@ -567,9 +567,7 @@ architect-cto, 2026-10-19 (REPLY 01a15282-ac06), against
   in process memory only, never in saved-instance state. They go on
   finish, cancellation, completion or process death. An on-demand
   display does not ask its prompt again on resume of the same Activity
-  instance (§7). The custody doc's 425ec5d0 says the first part; the
-  prompt rule is architect-cto's REPLY 01a15282-ac06, not yet in the
-  doc.
+  instance (§7). The custody doc says both (425ec5d0, 2f3b0587).
 - **Q2. What may a screen reader speak?** A focused word control's own
   label, which is the secure screen read aloud at the person's request.
   No live region, announcement, hint or error text ever carries a word
@@ -585,16 +583,22 @@ architect-cto, 2026-10-19 (REPLY 01a15282-ac06), against
   record) is the owner's product call. architect-cto carries it by
   name in the Stage 17 closing record.
 
-## 11a. Open with architect-cto (from #303's review)
+## 11a. Answered after #303's review
 
-- **Q5.** Does the Android app have, or will it have, a backup of the
-  contacts, trust and settings? `human-client-ui.md` §9's statement is
-  made either way on C1 and R1. If there is no such backup, the person
-  is told of a need they cannot meet; that would be a gap to decide.
-- **Q6.** K1 over a record with no readable PeerId offers no path but
-  `IdQNoPath` (§3.4). Does this case get one, for example an explicit
-  replace with a warning about the contacts and messages the profile
-  holds? Default: none.
+architect-cto, 2026-10-19 (REPLY 01a1529f-5231). The doc text is
+2f3b0587 on the custody branch named in the header, not yet merged.
+
+- **Q5. A settings backup on Android?** None in standard v1: no export
+  exists, system backup and device transfer exclude the profile, and
+  profile and config migration is Stage 19's. `human-client-ui.md` §9
+  now says that a platform without an export states what the phrase
+  restores and asks for nothing more. C1 and R1 do that.
+- **Q6. A path for K1 with no readable PeerId?** None. A record that is
+  present but names no readable PeerId belongs to an established
+  profile, so it joins the lost-phrase case (§3.4, `IdQNoPath`). An
+  in-app start-over is the owner's product item, with Q4's. The custody
+  doc now says such a record is not "no record". The custody code's
+  contrary branch goes to its owner as architect-cto's finding.
 
 ## 12. Deliberately left out
 
