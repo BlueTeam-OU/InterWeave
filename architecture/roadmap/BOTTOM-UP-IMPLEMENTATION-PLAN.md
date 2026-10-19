@@ -5022,6 +5022,13 @@ no Android package is built yet, SPIKE-008 and SPIKE-009 closed PASS on 2026-10-
 and nothing below is met. This section gained its gate on 2026-10-08
 (fabric-coordinator's observation, after InterWeave #227's thread); the
 closing record will be appended under it, as §18's and §19's were.
+Clause (j) was added on 2026-10-19 (architect-cto, on the owner's word
+in session, the same day the owner asked for the stage to close): the
+gate until then measured the client's platform guarantees and its
+interoperability and never what a person sees, and the owner's reading
+of the app as built is that it falls short of the messengers a person
+already uses; the standard, and the ranking of what a person notices
+first, are ux-designer's to set in the review.
 
 The first-party human client runs on Android as the same library
 composition the desktop proved — embedded runtime, store, chat protocol,
@@ -5075,7 +5082,20 @@ test shows a trust set in the embedded host's log under a filter
 stricter than INFO, so the sink's admission of the audit target is what
 is proved, not the default level; (h) the Gradle graph's OSV.dev scan (§Dependency hygiene, A 2026-10-10: `osv-scanner` over the committed Gradle lockfiles, run locally, no CI job — the owner's words) has run against the head that closes the stage and the closing PR's body says so with what it found; `osv-scanner.toml` holds only `[[IgnoredVulns]]` entries with their reason, each reviewed; dependency locking is on and the lockfiles are committed; the README command is landed by devex-tooling;
 (i) the ledger holds no `stage-17` entry, and the closing record moves
-the status to the lowest open stage on the owner's word. No contract
+the status to the lowest open stage on the owner's word; (j) (A
+2026-10-19, the owner's word in session: the Android app's look and
+feel are far below what a person expects of a messaging app, and
+ux-designer is to bring it to the level of the mainstream Android
+messengers) ux-designer has reviewed the Android app as built — on the
+device, every screen and flow the app has — against that standard and
+against its own specifications under `design/`, and the review is a
+file under `design/` naming each finding with the spec line it misses
+or the standard it falls short of, ranked; every finding the review
+ranks as what a person would notice first is built by rust-ui-dev and
+re-reviewed by ux-designer before the close, and every lower-ranked
+finding is either built or carried to the owner's release gate by name
+in the closing record, never dropped; the closing record cites the
+review file and its re-review. No contract
 flips at this gate: the Android binding consumes contracts already
 `active` (ADR-0049; each flip is recorded in the stage that made it),
 and a new contract this stage finds it needs lands `approved` first.
