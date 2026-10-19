@@ -42,7 +42,7 @@ The UI must show this tradeoff rather than silently weakening user-presence poli
 
 ## Recovery
 
-The portable 24-word recovery phrase remains the disaster-recovery path and represents the same 32-byte secret. It is never stored by the app after display/import. Phrase display/import requires explicit local flow with the transport service stopped/profile exclusively locked; `expected_peer_id` verification remains mandatory under ADR-0033.
+The portable 24-word recovery phrase remains the disaster-recovery path and represents the same 32-byte secret. It is never stored by the app after display/import. Phrase display/import requires explicit local flow with the transport service stopped/profile exclusively locked; `expected_peer_id` verification remains mandatory under ADR-0033. Where no record survives (a fresh install), the flow takes `IDENTITY-RECOVERY.md`'s phrase-only path: the derived PeerId is displayed in full and the person confirms it is the one they recorded before an empty record is initialised; the confirmed value is the expected PeerId the restore verifies against, and nothing is typed or scanned (decided 2026-10-19, §20 steps 7–8).
 
 ### Recovery UI hardening
 
@@ -54,6 +54,8 @@ Android recovery screens are treated as private-key surfaces, not ordinary text 
 - there is **no clipboard copy/paste path** for the full phrase or individual phrase words in standard v1, even after an explicit gesture;
 - accessibility announcements, analytics, crash reports, debug logs, saved-instance state, notification text, UI test snapshots, and application telemetry must never contain phrase words;
 - phrase words and derived seed material are removed from the UI/view-model state immediately after successful verification/import or cancellation, subject to normal best-effort memory-zeroization limits.
+- the phrase is SHOWN on-device as well as imported (`human-client-ui.md` §9): at creation, before the transport service first starts, and on demand with the service stopped and the profile lock held, the words re-derived from the unwrapped seed for that screen only and subject to every rule in this list; beside the words the screen shows the PeerId they derive to, the value a later restore confirms against;
+- an on-demand display is preceded by a device-credential or Class-3 biometric prompt whatever the profile's `key_unlock_policy`: under `background-compatible` the Keystore would otherwise hand the seed to whoever holds the unlocked phone, and the phrase is the whole transport identity (ADR-0033). The prompt is bound to no operation; a denied or cancelled prompt shows nothing (decided 2026-10-19, §20 step 8).
 
 Restoring a phrase on a second device is migration/disaster recovery, not permission to run the same PeerId concurrently on multiple devices.
 
