@@ -54,7 +54,9 @@ page per release. It carries what ADR-0057 decision 1 names:
 - the Slint attribution the Royalty-free licence owes, as the badge on
   the page the binaries are downloaded from (ADR-0057 decision 3);
 - the third-party notices the APK's native library owes
-  (`STORE-CHECK.md`, "The native Skia library").
+  (`STORE-CHECK.md`, "The native Skia library"), FreeType's credit line
+  among them, which the release run fills from the licence files of the
+  sources it built: the template carries none of those texts itself.
 
 The page's words are placeholders until language-culture finalises
 them; the facts in them are this file's.

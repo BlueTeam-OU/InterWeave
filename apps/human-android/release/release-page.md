@@ -1,10 +1,12 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- The release page's template (RELEASE.md). The release run fills each
-     {placeholder}. Every sentence below is a placeholder (en) until
+     {placeholder}: {freetype_credit} with the credit line FreeType's
+     LICENSE.TXT asks for, and {third_party_notice_texts} with each bundled
+     component's licence text, both read from the sources the build used. Every sentence below is a placeholder (en) until
      language-culture finalises it; the facts are RELEASE.md's. -->
 # InterWeave for Android {version}
 
-Download: [interweave-{version}-arm64-v8a.apk]({apk_url})
+Download: `interweave-{version}-arm64-v8a.apk`, at {apk_url}
 
 - SHA-256 of the file: `{apk_sha256}`
 - Signing certificate, SHA-256 (the same for every release):
@@ -40,7 +42,8 @@ each under its own licence: Skia and skcms (BSD-3-Clause),
 libjpeg-turbo (IJG and BSD-style), FreeType (FreeType License),
 libpng (PNG Reference Library License version 2), zlib (zlib License),
 Expat (MIT), Wuffs (Apache-2.0), Vulkan Memory Allocator (MIT) and
-cpu_features (BSD-2-Clause). Portions of this software are copyright
-© The FreeType Project (www.freetype.org). All rights reserved.
+cpu_features (BSD-2-Clause).
+
+{freetype_credit}
 
 {third_party_notice_texts}
