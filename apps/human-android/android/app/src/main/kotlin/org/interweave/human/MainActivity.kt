@@ -54,6 +54,11 @@ class MainActivity : NativeActivity() {
     // instance's to show: nothing binds or starts the service until they
     // are gone, a return from Home included (design section 7).
     @Volatile private var phraseShown = false
+    // The person declined the Unlock prompt in this instance's life (or
+    // left while it showed): a return to it raises no prompt by itself;
+    // the locked notice and its Unlock wait (ux-designer-01, REPLY
+    // 01a155b3). A new instance, a cold launch, prompts again.
+    private var unlockDeclined = false
 
     override fun onStart() {
         // Before super.onStart(), which waits for the window's thread to
@@ -95,7 +100,7 @@ class MainActivity : NativeActivity() {
         // a grant binds (Ask.BIND), a cancel leaves the window offline
         // with its Unlock (onboard.rs, the custody doc's failure list).
         if (identity == Native.IDENTITY_AUTHENTICATION_NEEDED) {
-            window.decorView.post { prompt(Text.UNLOCK_PROMPT_TITLE) }
+            if (!unlockDeclined) window.decorView.post { prompt(Text.UNLOCK_PROMPT_TITLE) }
             return
         }
         // The identity screens come before the service: a profile with no
@@ -412,10 +417,13 @@ class MainActivity : NativeActivity() {
                 mainExecutor,
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
+                        if (title == Text.UNLOCK_PROMPT_TITLE) unlockDeclined = false
                         Native.prompted(true)
                     }
 
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                        // A cancel, or Home while it showed: either way, declined.
+                        if (title == Text.UNLOCK_PROMPT_TITLE) unlockDeclined = true
                         Native.prompted(false)
                     }
                 },
