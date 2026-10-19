@@ -283,9 +283,27 @@ but does not re-rank these.
     showing 01:14 and offering both "Send again" and "Cancel". Nothing
     says how long it has been or that the peer may be offline.
   - Against: S4 (visibility of status) and S3 (a clear status on every
-    outgoing message). Whether a message is ever given up on is a
-    product rule (architect-cto's); how its state reads is this
-    review's.
+    outgoing message).
+  - The rule (architect-cto-01, REPLY 01a15308-4fa0): the app never
+    gives a pending message up. It is retried, 1 s doubling to a 5 min
+    cap, until the transport accepts it or the person cancels it
+    (ADR-0044, `human-client-ui.md` §6). "Sending" and "Not confirmed,
+    trying again" are the facade's states taken in turn at each retry
+    (rust-ui-dev-01, REPLY 01a15308-9534).
+  - What has to change, as seen:
+    - a waiting message shows one status while it waits, not two in
+      turn; whether an earlier attempt may have reached the peer
+      (swipe spec §5) stays visible in that one status, never as a
+      flicker;
+    - the status says how long it has been waiting, in the coarse
+      relative form the reference apps use, and the last problem the
+      client has (no network path, peer not reachable, busy, service
+      unavailable) when it has one;
+    - the time beside it stays the time the person wrote it;
+    - "Send again" (retry now, same message) and "Cancel" (the only
+      way out) stay as the swipe spec gives them, reached as F2 says.
+    The words are language-culture's; this says what each must
+    communicate.
 - **F11. "Details" is a bare floating field.**
   - Seen: ⋮ → Details opens a panel holding only "Identifier, select
     to copy" over a text field with the full PeerId, its focus ring and
@@ -307,7 +325,8 @@ but does not re-rank these.
     owner's reference apps put such settings in a menu entry with a
     name.
 - **F13. Changing the font scale while a conversation is open drops
-  the person on Chats.**
+  the person on Chats.** (rust-ui-dev-01: the manifest's
+  `configChanges` omits `fontScale`, so the Activity is recreated.)
   - Seen: in a conversation, font scale 2.0 then back to 1.0: the app
     showed Chats afterwards (run 2). Rotation, in contrast, kept the
     conversation and its draft.
@@ -328,7 +347,12 @@ but does not re-rank these.
 - **N1.** A system toast, "App has unexpected permission:
   OTHER_SENSORS, ACCESS_LOCAL_NETWORK", shows over the app when it
   opens. It is likely the debug build's. rust-ui-dev to confirm that a
-  release build does not show it.
+  release build does not show it. rust-ui-dev-01 (REPLY 01a15308-9534):
+  neither permission is declared, main or merged debug manifest; their
+  reading is that the platform implies both for an app targeting SDK
+  36 on an API 37 phone, so a release build would show it too. Not run:
+  a release APK means a reinstall that wipes the phone's data. Raising
+  the target SDK is architect-cto's. Carried, not ranked.
 - **N2.** The app's strings stay English under an Arabic app locale,
   while the layout mirrors correctly (run 2). The translations are
   language-culture's; this review only notes that the RTL layout held.
@@ -359,17 +383,26 @@ stage or a later one.
   button, no menu entry. Trust lets a person add a PeerId, but trusting
   a peer opens no conversation with it, and nothing on Trust says how
   to write to the peer just trusted. How a person reaches a new peer
-  is architect-cto's product question.
+  is architect-cto's product question. Answered (architect-cto-01,
+  REPLY 01a15308-4fa0): carried by name from Stage 15's record
+  ("conversations exist from traffic"; plan §18), so not a §20
+  finding; the owner is asked whether the smallest form, a peer
+  trusted on Trust opening its conversation, comes in Stage 18 or 19.
 - **M2. Contact names.** Conversations are titled by a PeerId fragment
   (F6). `human-client-ui.md` §3 has contacts as named application
-  metadata; the app has no screen for them.
+  metadata; the app has no screen for them. Carried by name with M1,
+  together with the owner's privacy review (same answer).
 - **M3. Recovery.** `human-client-ui.md` §9 requires both platforms to
   state prominently that recovering a profile needs the recovery phrase
   and separately backed-up configuration, trust and endpoint settings.
   The app shows no such statement and has no recovery or settings
   screen to put it on (Chats, a conversation, Details and Trust are the
   whole app). Where that flow lives, and whether the app offers any way
-  to back the settings up, is architect-cto's question.
+  to back the settings up, is architect-cto's question. Answered: §9
+  was amended on 2026-10-19 (2f3b0587): Android asks for no backup it
+  has no export for, and the statement lives on the recovery flow,
+  plan §20 steps 7-8 (rust-ui-dev-01's recovery branch). M3 closes
+  with it and is re-checked in §7.
 
 ## 7. Re-review
 
