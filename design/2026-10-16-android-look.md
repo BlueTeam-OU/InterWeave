@@ -400,6 +400,25 @@ From the top:
   app follows the system's setting and never picks its own scheme.
 - **A conversation selected and then hidden** on a wide screen. The
   selection goes with it, as today.
+- **Back with the list and a conversation side by side.** Back leaves
+  the app, as it does from Chats: the list is already on screen, so
+  there is no screen of the app to return to. This is the platform's
+  default for a list and its detail shown together (Material 3's
+  adaptive list-detail layout, which goes back only when the panes
+  shown would change). The selection and any draft are kept, and the
+  conversation is open again when the person comes back, in either
+  orientation.
+- **A display cutout in landscape.** The cutout's inset sits at one
+  side. The surface next to it reaches under it: the list pane's when
+  the list shows, the conversation's when the list has stepped aside
+  for the keyboard. Content, touch targets and the selected row's bar
+  stay inside the safe area. No strip of the window's own background
+  shows there (S2 of the Android review: edge-to-edge).
+- **A message's status line longer than the bubble.** A pending
+  message's status ("May have reached the peer, send again or cancel")
+  can be wider than the bubble. The line wraps inside the bubble; the
+  time stays whole, on the line's last row, and never runs past the
+  bubble's edge, at 100 % and 200 %.
 
 ## 9. Words
 
@@ -554,3 +573,10 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
     the name once, and never the avatar: a person's
     check, as swipe spec §11 item 12, blocked until TalkBack reaches the
     app.
+20. With the list and a conversation side by side, Back leaves the app.
+    Back in the app afterwards shows the same conversation selected,
+    with its draft.
+21. In landscape, nothing but the adjacent pane's surface shows in the
+    cutout's inset, with the keyboard up and down.
+22. A pending message in a phone-wide portrait window shows its whole
+    time inside the bubble, at 100 % and 200 %.
