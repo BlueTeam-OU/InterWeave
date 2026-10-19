@@ -573,6 +573,15 @@ landscape:
       to Settings offline, with the words gone. The same profile's C4
       and restore raise the prompt outside the window, and a cancel
       there commits nothing.
+    - After a cancel, the person is offline with the locked notice and
+      Unlock; nothing raises the prompt again by itself. A return to
+      the same Activity (Home or Recents, then back) raises no prompt:
+      it binds silently if the window has opened meanwhile, and
+      otherwise keeps the notice and Unlock. Leaving while the system
+      prompt shows counts as a cancel. A cold launch past the window
+      raises the prompt before anything binds (rust-ui-dev-01,
+      QUESTION 01a155b3-448f; the person who declined is not asked
+      again each time they switch in: S4, user control and freedom).
 11. Leaving R2 with words entered (Home) and returning shows every
     word still entered. After the process is killed (`adb shell am
     kill` while in the background), the next launch starts at the
