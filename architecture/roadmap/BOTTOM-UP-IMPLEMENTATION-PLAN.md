@@ -4925,7 +4925,7 @@ Android does not add a localhost daemon/IPC transport just to imitate desktop.
 7. secure recovery Activity;
 8. secure mnemonic UI/picker/no-clipboard path;
 9. Android backup/device-transfer exclusions;
-10. package/store metadata — the store-listing check quotes the Play policy text and the platform's service-type definition with the date read, states the hand-entered use case and the gap between them (ADR-0041 A 2026-10-19), and closes the target-SDK half of SPIKE-008's P1; ADR-0041's Play-policy condition stays open by name until Play accepts the declaration at §22's store submission.
+10. package/store metadata — the store-listing check quotes the Play policy text and the platform's service-type definition with the date read, states the hand-entered use case and the gap between them (ADR-0041 A 2026-10-19), and records the target-SDK half of SPIKE-008's P1 as closed by step 3's device run, citing its API level; ADR-0041's Play-policy condition stays open by name until Play accepts the declaration at §22's store submission.
 
 ### Platform tests
 
