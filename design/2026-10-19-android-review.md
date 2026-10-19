@@ -138,13 +138,91 @@ gate.
 
 ## 6. Findings
 
-To be recorded from the device run. Rank 1 first.
+Run 1, 2026-10-19, on the Pixel 9a:
+- the build was main ffce28df's debug build, APK sha256 beginning
+  0d1bcbec, installed by rust-ui-dev-01 with the app's data kept;
+- the phone was at 1080 x 2424, 420 dpi, font scale 1.0, dark theme.
+
+The run stopped partway through. A scripted tap of mine most likely
+switched the phone's Wireless debugging off (§3, method). Tasks 1, 2,
+8 and part of 6 were walked; the rest wait for the next run.
+
+The ranks are provisional until every task in §4 is walked. What was
+seen is kept apart from what it is judged against.
+
+### Rank 1 (provisional)
+
+- **F1. Back leaves the app from an open conversation and from the
+  Trust screen.**
+  - Seen: one Back from an open conversation shows the launcher. The
+    focused window was `com.android.launcher3`, reproduced in a clean
+    run. The same holds from Trust: the previous task came up instead
+    of Chats.
+  - Against: S2 (Back returns through the app's own screens), and S4
+    (consistency and standards). A person who presses Back to return
+    to the list leaves the app instead.
+- **F2. Every message shows its actions as permanent outlined buttons
+  under the bubble.**
+  - Seen: "Stop keeping" and "Show source" under each kept message;
+    "Send again", "Cancel" and "Show source" under each pending one.
+    On a screen of four messages the buttons take more room than the
+    messages do.
+  - Against: S3 (actions behind long-press, and the swipe the swipe
+    spec already gives), and S4 (aesthetic and minimalist design).
+  - Not yet checked: what long-press does today.
+- **F3. The composer draws wrongly.**
+  - Seen: unfocused, it is a tall pill about 250 px high, with a
+    lighter inner pill drawn over the "Message" placeholder. After Back
+    hides the keyboard, the field stays focused and tall, with a teal
+    ring and a text-selection handle showing.
+  - Against: S1 (text field), and `design/2026-10-16-android-look.md`
+    §6 (the composer).
+- **F4. The Trust screen has none of the Android look.**
+  - Seen: a boxed "Back to conversations" text button instead of an app
+    bar, plain square buttons, and PeerIds clipped mid-string with no
+    ellipsis. A "Remove trust" button sits on every row.
+  - Against: S1, and S4 (consistency: it looks like another app).
+  - Not yet checked: what "Remove trust" asks before acting
+    (`human-client-ui.md` §8 requires a confirmation showing the exact
+    PeerId).
+
+### Rank 2 (provisional)
+
+- **F5. The focus ring is drawn on touch focus.**
+  - Seen: tapping the composer draws the 3 px teal ring.
+  - Against: S1, where the focus indicator is for keyboard focus only.
+    The look spec's §7 ring was meant for keyboard and switch access.
+- **F6. Conversation titles are a PeerId fragment with "/ human".**
+  - Seen: "...x6gY6Eri / human", in the Chats rows and in the app bar.
+  - Against: S4 (match with the real world). "human" is an endpoint
+    name, an implementation concept. The names a person would give
+    (contacts, `human-client-ui.md` §3) are a missing flow; see below.
+- **F7. The app bar's subtitle shows the network state where
+  messengers show the contact's.**
+  - Seen: "Online, some peers might not reach you" under the peer's
+    name.
+  - Against: S4, because it reads as the peer's state.
+
+### Not the app's
+
+- **N1.** A system toast, "App has unexpected permission:
+  OTHER_SENSORS, ACCESS_LOCAL_NETWORK", shows over the app when it
+  opens. It is likely the debug build's. rust-ui-dev to confirm that a
+  release build does not show it.
 
 ### Flows the reference apps have and this app lacks
 
 Each such flow is named here, with the product question it raises and
 whose that question is. The owner decides whether it belongs to this
 stage or a later one.
+
+- **M1. Starting a conversation.** The Chats screen has no visible way
+  to start one: no button, no menu entry. Whether one exists elsewhere
+  is not yet checked. If none does, the product question (how a person
+  reaches a new peer) is architect-cto's.
+- **M2. Contact names.** Conversations are titled by a PeerId fragment
+  (F6). `human-client-ui.md` §3 has contacts as named application
+  metadata; the app has no screen for them.
 
 ## 7. Re-review
 
