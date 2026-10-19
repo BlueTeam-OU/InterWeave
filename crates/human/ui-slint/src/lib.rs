@@ -521,9 +521,6 @@ impl Shared {
     }
 }
 
-/// Queue `input` from a window callback, and wake the root after the
-/// borrow is released. The root's own calls queue without waking: the
-/// root is in control already, and may hold the view borrowed (review N4).
 /// The trust settings' callbacks: each becomes an input, taken by
 /// [`View::take_events`] as the others are.
 fn wire_trust(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
@@ -552,6 +549,9 @@ fn wire_trust(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     window.on_trust_cancel(move || enqueue(&s, Input::Trust(TrustInput::Cancel)));
 }
 
+/// Queue `input` from a window callback, and wake the root after the
+/// borrow is released. The root's own calls queue without waking: the
+/// root is in control already, and may hold the view borrowed (review N4).
 fn enqueue(shared: &RefCell<Shared>, input: Input) {
     let wake = shared.borrow_mut().push(input);
     if let Some(wake) = wake {
@@ -1910,11 +1910,6 @@ impl View {
         self.pressed.retain(|key| drawn.contains(key));
     }
 
-    /// Announce what changed since the last render, in the window's one
-    /// polite live region (rust-ui-dev F4): an item's own status is not a
-    /// live region, or a list of fifty would speak fifty times. Two slots
-    /// take turns, so an announcement equal to the last one is still a
-    /// change a screen reader hears.
     /// One wake at `due`, the soonest age change of a shown waiting
     /// message, as the day's wake is kept: a render while it runs keeps it.
     fn wake_for_age(&mut self, due: Option<u64>, now_ms: u64) {
@@ -1948,7 +1943,10 @@ impl View {
         said
     }
 
-    /// Say `said` in the window's one live region.
+    /// Say `said` in the window's one polite live region (rust-ui-dev
+    /// F4): an item's own status is not a live region, or a list of fifty
+    /// would speak fifty times. Two slots take turns, so an announcement
+    /// equal to the last one is still a change a screen reader hears.
     fn announce(&mut self, said: String) {
         let (said, cleared) = (SharedString::from(said), SharedString::new());
         if self.next_slot_b {

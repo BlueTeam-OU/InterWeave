@@ -638,12 +638,14 @@ extern "system" fn Java_org_interweave_human_Native_identityState<'caller>(
         .with_env(|env| -> Result<jint, jni::errors::Error> {
             let app_data_dir = app_data_dir.try_to_string(env)?;
             if provision(&app_data_dir).is_err() {
+                crate::onboard::clear_authentication();
                 return Ok(crate::onboard::state::READY);
             }
             let cipher = match KeystoreCipher::new(env) {
                 Ok(cipher) => cipher,
                 Err(e) => {
                     log(&format!("the Keystore cipher could not be reached: {e}"));
+                    crate::onboard::clear_authentication();
                     return Ok(crate::onboard::state::READY);
                 }
             };

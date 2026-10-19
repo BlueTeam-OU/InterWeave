@@ -152,6 +152,9 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
     // Called by onStart before its relay thread starts: whatever an
     // earlier instance left in the queue is no longer anyone's.
     ASKS.clear();
+    // Whatever this reads, the last answer's "locked" no longer holds by
+    // itself: only a refusal for authentication below sets it again.
+    clear_authentication();
     let found = interweave_human_android_platform::start_identity(
         &app_data_dir,
         PROFILE,
@@ -394,6 +397,19 @@ fn await_authentication(start: jni::sys::jint) {
         .set_authentication_needed(true);
 }
 
+/// Nothing waits on the person any more: a start by any route ends the
+/// locked state, or the window would read "offline because it is
+/// locked" while the service runs (#313 review 1).
+pub(crate) fn clear_authentication() {
+    AFTER_PROMPT
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
+    interweave_human_android_platform::ServiceHost::global()
+        .hub()
+        .set_authentication_needed(false);
+}
+
 /// The notice's Unlock: the prompt again, while something waits on it.
 /// Raised by the person only, never on a retry of the app's own.
 pub(crate) fn authenticate() {
@@ -418,9 +434,7 @@ fn authenticated(granted: bool) {
         .unwrap_or_else(PoisonError::into_inner)
         .take();
     if let Some(start) = held {
-        interweave_human_android_platform::ServiceHost::global()
-            .hub()
-            .set_authentication_needed(false);
+        clear_authentication();
         ASKS.push(start);
     }
 }
@@ -689,6 +703,7 @@ fn render() {
 fn ask_service(o: &mut Onboarding) {
     o.lock = None;
     o.service_asked = true;
+    clear_authentication();
     ASKS.push(if o.from_settings {
         ask::ONLINE
     } else {
