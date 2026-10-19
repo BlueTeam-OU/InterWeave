@@ -735,3 +735,68 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     assert_eq!(kept.len(), 1, "only the kept read survives");
     assert_eq!(kept[0].app_message_id.as_str(), format!("{:032x}", 1));
 }
+
+/// #309 F8: a view attaching to a facade that has run is told each pending
+/// row's status as it is now, after its listing, without waiting for the
+/// row's next attempt: the listing alone reads a pending row as a first
+/// attempt ("Sending"), and the facade reports a row only when it changes.
+#[test]
+fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
+    use interweave_human_app_core::Command;
+    use interweave_human_client_api::OutboundStatus;
+    use interweave_human_ui_model::ConversationKey;
+
+    let app = app();
+    let service = started(&app);
+    let mut first = attach(&service);
+    let mut held = Vec::new();
+    until(&mut first, &mut held, "a ready session", is_ready);
+    // A peer nobody knows: every attempt fails, and is retried later and
+    // later or left for the person.
+    let stranger = interweave_profile_identity::ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a PeerId");
+    assert!(service.hub().command(Command::Send {
+        key: ConversationKey::Direct {
+            peer: stranger,
+            endpoint: None,
+        },
+        draft: "to nobody".to_owned(),
+    }));
+    // Until its next attempt is seconds away, or none is due.
+    let settled = |status: &OutboundStatus| match status {
+        OutboundStatus::Sending { attempts, .. } => *attempts >= 3,
+        OutboundStatus::Unconfirmed { .. } | OutboundStatus::NeedsAttention { .. } => true,
+        _ => false,
+    };
+    let mut row = None;
+    until(&mut first, &mut held, "a settled pending row", |message| {
+        if let ToView::Update(update) = message
+            && let Update::Client(ClientEvent::Outbound(outbound)) = &**update
+            && settled(&outbound.status)
+        {
+            row = Some(outbound.row);
+            return true;
+        }
+        false
+    });
+    let row = row.expect("a row");
+
+    let mut late = attach(&service);
+    let mut held = Vec::new();
+    until(&mut late, &mut held, "the late view's listing", is_listing);
+    let deadline = Instant::now() + Duration::from_millis(1_000);
+    let told = loop {
+        held.extend(late.take());
+        let told = held.iter().any(|message| {
+            matches!(message, ToView::Update(update)
+                if matches!(&**update, Update::Client(ClientEvent::Outbound(o)) if o.row == row))
+        });
+        if told || Instant::now() > deadline {
+            break told;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(told, "the row's status came with the listing");
+    service.stop(GRACE).expect("it ran");
+}
