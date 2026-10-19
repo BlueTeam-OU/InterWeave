@@ -86,10 +86,12 @@ clears it.
 ### 3.2 Create
 
 **C1, Before you see your words.** What the phrase is and why it
-matters, in four short points:
+matters, in five short points:
 - these 24 words are your identity;
 - write them on paper and keep it safe;
 - anyone who has them can be you;
+- they bring back the identity only, not the contacts, trust or
+  settings, which are backed up separately (`human-client-ui.md` §9);
 - the identity exists only once creation is complete, after the check
   of two words.
 
@@ -139,9 +141,13 @@ reach the screen only through §3.5.
 
 ### 3.3 Restore on a fresh install (no record)
 
-**R1, Restore your identity.** What is needed: the 24 words and the
-PeerId written beside them. The network stays off until the restore is
-done. Primary: enter my words (→ R2). Back → W.
+**R1, Restore your identity.** What is needed: the 24 words, and the
+PeerId to compare at R3. The PeerId is the one written beside the
+words, or else the one a contact's app shows for this person. The
+network stays off until the restore is done. One line
+(`IdR1Settings`) says that the words bring back the identity, not the
+contacts, trust or other settings, which are restored separately
+(`human-client-ui.md` §9). Primary: enter my words (→ R2). Back → W.
 
 **R2, Enter your 24 words.** The picker over all 24 positions (§4).
 When all 24 are filled, the primary action, check my words, is
@@ -159,13 +165,19 @@ enabled.
 - Back does the same as the secondary.
 - R3 never says the PeerId is "correct". The app cannot know; the
   person's paper decides.
+- A person with the words but no PeerId on paper reads a line under
+  the question (`IdR3NoPeerId`): compare with the PeerId a contact's
+  app shows for you, and restore only after that. They leave by Back,
+  with their words kept while the Activity lives (§7). There is no
+  third button: confirming a PeerId nobody compared is exactly what R3
+  exists to prevent.
 
 **R4, Restored.** The same layout as C4. Primary: continue (starts the
 service, opens Chats).
 
 ### 3.4 Recovery required (a record exists and does not open)
 
-The app opens on **Q1** instead of the Chats screen whenever the start
+The app opens on **K1** instead of the Chats screen whenever the start
 answers `RecoveryRequired`. It says, by cause:
 - `KeyInvalidated`, `KeyMissing` (string `IdQReasonKey`): the phone's
   security changed, for example its screen lock was removed or reset,
@@ -174,9 +186,9 @@ answers `RecoveryRequired`. It says, by cause:
 - `Record`, `Authentication`, `WrongIdentity` (string
   `IdQReasonRecord`): the stored identity cannot be read on this phone.
 
-Q1 shows the expected PeerId from the record when the record still
+K1 shows the expected PeerId from the record when the record still
 names one. Primary: enter my recovery phrase (→ R2, then straight to
-the check against that PeerId, with no R3). Back leaves the app. Q1
+the check against that PeerId, with no R3). Back leaves the app. K1
 shows again on the next launch until the restore succeeds.
 
 If the record names no readable PeerId, the flow is the fresh-install
@@ -184,7 +196,7 @@ one: R2, then R3.
 
 The person never gets a "start over with a new identity" action here,
 because a new identity would replace an established profile
-(`IDENTITY-RECOVERY.md`, ADR-0042; §11 Q4). Q1 names the one way out
+(`IDENTITY-RECOVERY.md`, ADR-0042; §11 Q4). K1 names the one way out
 when the words are lost (`IdQLost`), in plain text below its primary
 action, with no button: clearing the app's data in the phone's
 settings starts over with a new identity, which every contact must
@@ -290,10 +302,10 @@ comparison a matter of groups, not of single characters.
 | State | Where | What shows | Way out |
 |---|---|---|---|
 | Checksum fails (a wrong word or a wrong order) | R2 | A banner above the grid (`IdChecksumFailed`): the words are not a valid phrase; check each word and its order against the paper. Every word stays. | Edit any position, then check again |
-| Another identity (with an expected PeerId) | R2 after Q1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
+| Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
 | Authentication needed | S1; a restore that must open a healthy user-presence record first | The system prompt. Cancelled or denied: back to the step before, nothing shown, no error | Try again by the primary action |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
-| Storage fails (`Unavailable`, a write error) | C4, R4, the Q1 restore | A notice (`IdStorageFailed`): nothing was changed, with Try again. Entered words stay while the screen is open. | Try again, or Back (words dropped) |
+| Storage fails (`Unavailable`, a write error) | C4, R4, the K1 restore | A notice (`IdStorageFailed`): nothing was changed, with Try again. Entered words stay while the screen is open. | Try again, or Back (words dropped) |
 | Success | C4, R4 | The PeerId, and continue | Continue |
 
 Errors appear inline on the screen they belong to, never in a snackbar.
@@ -317,7 +329,7 @@ do.
     prompt.
 - **Finish, cancellation, completion or process death** drops the
   words. After process death the flow restarts at its first screen (W,
-  Q1 or Settings), with nothing entered and nothing half-done
+  K1 or Settings), with nothing entered and nothing half-done
   committed.
 - **Rotation** keeps everything on screen, entered words included. A
   rotation is not leaving.
@@ -349,7 +361,7 @@ ever carries a word (§11 Q2).
 The text is final (language-culture, 2026-10-19). No string contains
 a word of a person's phrase, and no placeholder can hold one: `{n}`
 (a number, in digits) and `{peer_id}` are the only placeholders. The
-words are plain and calm. A person on Q1 did nothing wrong, so no
+words are plain and calm. A person on K1 did nothing wrong, so no
 string there blames them or names a fault code. A PeerId is called
 "PeerId", as in the trust settings. No string uses "keep" as an
 ordinary verb, because Keep is the name of a message action. Key
@@ -366,6 +378,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdC1Point1` | These 24 words are the key to your identity. With them, you can restore it on another phone. | C1, first point |
 | `IdC1Point2` | Write them on paper, in order, with your PeerId. Store the paper in a safe place. | C1, second point. The PeerId is named here, because R1 asks for it later |
 | `IdC1Point3` | Anyone who has these words can act as you in InterWeave. Do not show them to anyone. | C1, third point: "can be you", without alarm |
+| `IdC1Point5` (pending) | That the words restore the identity only: contacts, trust and settings are backed up separately (`human-client-ui.md` §9). Before point 4 | C1, two lines |
 | `IdC1Point4` | Your identity exists only after you finish, by checking two of the words. | C1, fourth point (§11 Q3) |
 | `IdShowWords` | Show my words | C1's primary |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
@@ -384,18 +397,20 @@ names are suggestions; rust-ui-dev names them.
 | `IdCreatedBody` | When you continue, the app connects to the network with this identity. | C4's and R4's body |
 | `IdContinue` | Continue | C4's and R4's primary |
 | `IdR1Title` | Restore your identity | R1's title |
-| `IdR1Body` | You need your 24 words and the PeerId that you wrote with them. The app stays offline until the restore is done. | R1's body, three lines |
+| `IdR1Body` (pending a reword for R1's new rule) | You need your 24 words and the PeerId that you wrote with them. The app stays offline until the restore is done. | R1's body, three lines |
 | `IdEnterWords` | Enter my words | R1's primary |
 | `IdCheckWords` | Check my words | R2's primary |
+| `IdR1Settings` (pending) | R1: the words bring back the identity, not contacts, trust or settings, which are restored separately | R1, two lines |
+| `IdR3NoPeerId` (pending) | R3, for a person with no PeerId on paper: compare with the one a contact's app shows for you, and restore only after that | R3, two lines under the question |
 | `IdR3Question` | Is this the PeerId that you wrote down? If it is not, a word may be wrong. | R3's question, two lines. It asks; it never says the PeerId is right, and it says what a "no" usually means |
 | `IdR3Yes` | Yes, restore it | R3's primary |
 | `IdR3No` | No, check my words | R3's secondary |
-| `IdQTitle` | This phone needs your recovery phrase | Q1's title |
-| `IdQReasonKey` | This phone's screen lock or security changed, so the app cannot open your identity. Restore it with your recovery phrase. | Q1 for `KeyInvalidated` and `KeyMissing`. It names the likely cause in the person's terms, and the way back |
-| `IdQReasonRecord` | The app cannot read your identity on this phone. Restore it with your recovery phrase. | Q1 for `Record`, `Authentication` and `WrongIdentity` |
-| `IdEnterPhrase` | Enter my recovery phrase | Q1's primary |
-| `IdQLost` | If your words are lost, clear this app's data in the phone's settings. That starts a new identity, which each contact must trust again. | Q1's plain text below its primary (§3.4), three lines |
-| `IdExpectedPeerId` (new) | PeerId this phone expects | The label of the expected PeerId, on Q1 and in `IdOtherIdentity`'s banner |
+| `IdQTitle` | This phone needs your recovery phrase | K1's title |
+| `IdQReasonKey` | This phone's screen lock or security changed, so the app cannot open your identity. Restore it with your recovery phrase. | K1 for `KeyInvalidated` and `KeyMissing`. It names the likely cause in the person's terms, and the way back |
+| `IdQReasonRecord` | The app cannot read your identity on this phone. Restore it with your recovery phrase. | K1 for `Record`, `Authentication` and `WrongIdentity` |
+| `IdEnterPhrase` | Enter my recovery phrase | K1's primary |
+| `IdQLost` | If your words are lost, clear this app's data in the phone's settings. That starts a new identity, which each contact must trust again. | K1's plain text below its primary (§3.4), three lines |
+| `IdExpectedPeerId` (new) | PeerId this phone expects | The label of the expected PeerId, on K1 and in `IdOtherIdentity`'s banner |
 | `IdDerivedPeerId` (new) | PeerId from your words | The label of the derived PeerId in `IdOtherIdentity`'s banner |
 | `IdShowPhraseItem` | Show recovery phrase | The Settings item (§3.5) |
 | `IdS1Title` | Show your recovery phrase | S1's title |
@@ -453,7 +468,7 @@ landscape:
 8. A phrase with two words swapped shows `IdChecksumFailed`, keeps
    every word, and lets any position be edited.
 9. Recovery required: with the record's key invalidated (rust-ui-dev's
-   test hook), launch shows Q1 with `IdQReasonKey` and the expected
+   test hook), launch shows K1 with `IdQReasonKey` and the expected
    PeerId. The right phrase restores with no R3. Another identity's
    phrase shows `IdOtherIdentity` with both PeerIds and restores
    nothing.
@@ -507,7 +522,7 @@ architect-cto, 2026-10-19 (REPLY 01a15282-ac06), against
   straight after the person's confirmation. Back or process death
   before it leaves a first run and no record. C1 says that the identity
   exists only once creation is complete.
-- **Q4. A new identity from Q1?** Not in v1. Q1's text names the way
+- **Q4. A new identity from K1?** Not in v1. K1's text names the way
   out instead (`IdQLost`). Whether v1.x gets an in-app start-over path
   (delete the whole profile, then provision; never mint over the
   record) is the owner's product call. architect-cto carries it by
