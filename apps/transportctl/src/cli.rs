@@ -29,6 +29,8 @@ usage:
   transportctl --profile <name> trust allow|revoke <peer>
   transportctl --profile <name> peers list [--json]
   transportctl --profile <name> shutdown [--grace <ms>]
+  transportctl --profile <name> identity init
+  transportctl --profile <name> identity show
   transportctl --profile <name> identity backup [--to-file <new path>]
   transportctl identity verify [--expected-peer-id <peer>]
   transportctl --profile <name> identity restore --new [--expected-peer-id <peer>]
@@ -80,6 +82,17 @@ pub(crate) enum Admin {
 /// An offline identity command: never over IPC (ADR-0033).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Identity {
+    /// Mint the profile's key, which must not exist, and print its
+    /// `PeerId` (ADR-0055 decision 7).
+    Init {
+        /// The profile the key is minted for.
+        profile: String,
+    },
+    /// Print the `PeerId` of the profile's existing key.
+    Show {
+        /// The profile whose key is read.
+        profile: String,
+    },
     /// Emit the profile's recovery record.
     Backup {
         /// The profile whose key is backed up.
@@ -229,6 +242,17 @@ fn identity(words: &[&str], mut flags: Flags) -> Result<Identity, String> {
         .map(|id| peer(id, "--expected-peer-id"))
         .transpose()?;
     let command = match words {
+        [verb @ ("init" | "show")] => {
+            if expected.is_some() {
+                return Err(format!("--expected-peer-id does not apply to {verb}"));
+            }
+            let profile = flags.profile.take().ok_or("--profile <name> is required")?;
+            if *verb == "init" {
+                Identity::Init { profile }
+            } else {
+                Identity::Show { profile }
+            }
+        }
         ["backup"] => {
             if expected.is_some() {
                 return Err("--expected-peer-id does not apply to backup".to_owned());
@@ -402,6 +426,18 @@ mod tests {
             })
         );
         assert_eq!(
+            parse_str("--profile p identity init").expect("parses"),
+            Command::Identity(Identity::Init {
+                profile: "p".into()
+            })
+        );
+        assert_eq!(
+            parse_str("identity show --profile p").expect("parses"),
+            Command::Identity(Identity::Show {
+                profile: "p".into()
+            })
+        );
+        assert_eq!(
             parse_str("identity verify").expect("parses"),
             Command::Identity(Identity::Verify { expected: None })
         );
@@ -474,6 +510,13 @@ mod tests {
             "--profile p identity restore --replace",
             "--profile p identity restore --new --replacing x",
             "--profile p identity verify --to-file f",
+            "identity init",
+            "identity show",
+            "--profile p identity init --json",
+            "--profile p identity show --to-file f",
+            "--profile p identity init --new",
+            "--profile p identity show extra",
+            "--profile p identity init --expected-peer-id 12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
         ] {
             assert!(parse_str(line).is_err(), "{line:?} should be refused");
         }
