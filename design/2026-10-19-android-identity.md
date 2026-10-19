@@ -599,6 +599,11 @@ architect-cto, 2026-10-19 (REPLY 01a1529f-5231). The doc text is
   in-app start-over is the owner's product item, with Q4's. The custody
   doc now says such a record is not "no record". The custody code's
   contrary branch goes to its owner as architect-cto's finding.
+- **Q7. Does the wallet-seed label bind its words?** Its meaning
+  (REPLY 01a152a1-54f4). The phrase restores this app's identity and is
+  not a wallet seed. `IdNotWalletSeed` and `IdC1Point2` keep both
+  facts without the contract's "transport". `IDENTITY-RECOVERY.md` now
+  says so (497d6b42, on #301's branch).
 
 ## 12. Deliberately left out
 
