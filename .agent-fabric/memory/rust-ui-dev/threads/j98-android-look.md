@@ -72,7 +72,7 @@ Ruling (ux-designer-01 REPLY 01a14884, spec 025bb324): a bubble's spoken {time} 
 #295 ARMED 2026-10-17 at head 7c922639 (19 work, 4 fix). Three re-reviews; the last one is clean (5556707295). The basis is posted. wait-merged is running.
 After it merges: tell ux-designer-01, install main's build on the Pixel for their review (the remit's lease command, adb connect .39:43191), then branch j98 part 2 off main. Part 2: the composer, the Material snackbar with the inverse roles, the press state layer, is24HourFormat, the bubble's spoken time as the clock time (025bb324), and the swipe fill's shape.
 
-**#295 MERGED 2026-10-17 07:20 (31b40d15).** Its APK is at /var/tmp/agent-fabric-rust-ui-dev-01/j98-295/app-debug-31b40d15.apk (sha256 bcd889ef…). It is NOT installed: the phone was unreachable at 09:31 (port 43191 refused, no mDNS). REQUEST 01a148c6 to fabric-coordinator asks for the owner's re-enable; INFO 01a148c6-218a sent to ux-designer-01.
+**#295 MERGED 2026-10-17 07:20 (31b40d15).** Its APK is at [host path] (sha256 bcd889ef…). It is NOT installed: the phone was unreachable at 09:31 (port 43191 refused, no mDNS). REQUEST 01a148c6 to fabric-coordinator asks for the owner's re-enable; INFO 01a148c6-218a sent to ux-designer-01.
 Part 2 is branch develop-qzapp/rust-ui-dev-01/feat/j98-android-look-part-2 (same worktree), with 9 work commits:
 - the spoken clock time and the separator item;
 - hour24 via TouchSettings, plus Kotlin;
@@ -85,7 +85,7 @@ Lessons:
 - A test written before its mutation was vacuous twice: the model refused an empty send, and an absolute position did not show which side. Mutate first.
 - To render dark/RTL in a scratch example: set RTL via set_touch_settings, and set the Palette scheme from a Timer after the window shows (the backend overwrites it on show).
 #296 (part 2) ARMED 2026-10-17 at head 8ccb2fd4 (9 work, 5 fix) after five review rounds. Carried P3: in lib.rs's hand-over loop, rename the binding `first` to `head` (it holds the run's last separator row). Risk: the two-leaves test is wall-clock based. If it flakes on CI, inject the leave clock.
-**#296 MERGED 2026-10-17 10:04 (400b42b6).** j98 is complete except the device install. The APK for main 400b42b6 is at /var/tmp/agent-fabric-rust-ui-dev-01/j98-296/app-debug-400b42b6.apk (sha256 63852e2a…). The phone had no route at 12:08.
+**#296 MERGED 2026-10-17 10:04 (400b42b6).** j98 is complete except the device install. The APK for main 400b42b6 is at [host path] (sha256 63852e2a…). The phone had no route at 12:08.
 - j98 and j94 are blocked on the owner (Wireless debugging).
 - INFO sent: 01a14957-ddc9 to fabric-coordinator, 01a14957-e4da to ux-designer-01.
 - When the phone is back: install 400b42b6 with `adb install -r` under the lease, then tell ux-designer-01 the sha and deliver j98 and j94.

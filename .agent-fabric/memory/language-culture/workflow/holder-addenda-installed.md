@@ -27,7 +27,7 @@ if/else whole, global-English checks, templates). Stage 5 removes the
 English paragraph from the shared charter.
 
 **How to apply:** a change to them is a new draft in
-/var/tmp/holder-addenda/drafts/language-culture-en/ checked with
+[host path] checked with
 addenda_check.validate_set, sent to fabric-coordinator; never write
 settings/roles/ in my store myself.
 Related: [[keep-else-whole]], [[cold-read-without-meanings]]

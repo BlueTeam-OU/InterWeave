@@ -17,7 +17,7 @@ derived_from:
 
 ## how to run a recorded acceptance pass of the InterWeave Android client on the Pixel by adb: real rows from host peers, evidence, redaction, traps (j88, 2026-10-16)
 
-Learned running swipe spec §11 on the Pixel 9a for j88 (evidence in /var/tmp/j88-swipe-review).
+Learned running swipe spec §11 on the Pixel 9a for j88 (evidence in [host path]).
 
 **Real rows of every kind.** I used a scratch, uncommitted `#[ignore]` test in tests/android-e2e. Its parts:
 - `AdbDevice::connect` and two `Desktop` daemons.

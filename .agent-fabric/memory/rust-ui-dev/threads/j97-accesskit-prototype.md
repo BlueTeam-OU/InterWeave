@@ -22,7 +22,7 @@ j97 is architect-cto-01's time-boxed measurement (REPLY 01a14718): one working d
 State on 2026-10-17 ~01:40Z:
 - Commit 839e5ac7 on develop-qzapp/rust-ui-dev-01/feat/j97-android-accesskit-go-on-the-time (local, not pushed). It adds `crates/human/ui-slint/src/android_a11y.rs` (405 lines, 1 file) plus 6 lines in `apps/human-android/src/activity.rs` and 3 deps (accesskit =0.24.1, accesskit_android =0.7.5 with embedded-dex, vtable 0.5). It compiled for aarch64 on the first try.
 - Shape: `InjectingAdapter` on `android.R.id.content`'s child, found over JNI from Rust using AndroidApp's vm/activity pointers. Kotlin is not changed. The tree is built from `accessible_descendents`. A 50 ms slint Timer rebuilds the tree when the PropertyTracker is dirty and polls `focus_item`. Actions go back through `invoke_from_event_loop`. It logs to logcat under the tag `a11y-proto`.
-- APKs: `/var/tmp/agent-fabric-rust-ui-dev-01/j97/j97-unpatched-839e5ac7.apk` (sha 08054338) and `j97-hover-patched-839e5ac7.apk` (sha 6984dbd5). The patch copy is `/var/tmp/agent-fabric-rust-ui-dev-01/j97/backend-hover`: HoverMove returns `InputStatus::Unhandled`, a one-line code change. It is applied with a temporary `[patch.crates-io]` in `.cargo/config.toml`; config and lock were restored afterwards.
+- APKs: `[host path]` (sha 08054338) and `j97-hover-patched-839e5ac7.apk` (sha 6984dbd5). The patch copy is `[host path]`: HoverMove returns `InputStatus::Unhandled`, a one-line code change. It is applied with a temporary `[patch.crates-io]` in `.cargo/config.toml`; config and lock were restored afterwards.
 - Why hover can work at all: NativePostImeInputStage forwards an event the native queue left unhandled to the view hierarchy, where the adapter's OnHoverListener is. This is read, not measured.
 - Not built in: popups, scroll actions (Slint has none; a Flickable is not an accessible item), and text-input roles beyond MultilineTextInput.
 - Blocked: the Pixel was unreachable (no adb device, no mDNS). The owner must re-pair it. This is the same blocker as j94.
@@ -31,7 +31,7 @@ Related: [[android-accesskit-bridge]] [[device-review-run-method]] [[release-pho
 
 **2026-10-18.** architect-cto-01 REQUEST 01a14d9d (queued as j103) asks for the device report now. j141, the owner's decision, waits on nothing else.
 - The phone is at a private-network address:39231. TCP is open, but adb connect is refused: the pairing is lost. My REPLY 01a14d9e asks the owner for the pairing code and port.
-- The APKs are rebuilt into ~/scratch/j97 (the /var/tmp copies went in the 18:06 wipe). The hover patch copy is ~/scratch/j97/backend-hover: the registry's 1.18.1 with HoverMove → InputStatus::Unhandled at androidwindowadapter.rs:428.
+- The APKs are rebuilt into [host path] (the /var/tmp copies went in the 18:06 wipe). The hover patch copy is [host path] the registry's 1.18.1 with HoverMove → InputStatus::Unhandled at androidwindowadapter.rs:428.
 - Items to report (01a14718), each with its evidence level:
   1. TalkBack swipe navigation and double-tap on Chats; what is announced for a message row, the route, trust and connectivity (the §13 set).
   2. Touch exploration: unpatched not working, patched working?
@@ -39,7 +39,7 @@ Related: [[android-accesskit-bridge]] [[device-review-run-method]] [[release-pho
   4. A chat row off screen reached by swipe: scrolled into view or not.
   5. Adapter size: 405 lines, 1 file, plus 6 lines in activity.rs and 3 deps.
 - After the run, install main 400b42b6 for ux-designer-01 (j98).
-- 2026-10-18 rebuilt: ~/scratch/j97/j97-unpatched-839e5ac7.apk (sha 7f7045a8) and j97-hover-patched-839e5ac7.apk (sha 5756c4dc). Their libs differ. The patched build needs `cargo update -p i-slint-backend-android-activity --offline` after adding the config patch, because cargoNdk runs `--locked`; restore config.toml and Cargo.lock from ~/scratch/j97/*.orig afterwards. Waiting only on the owner's pairing code and port.
+- 2026-10-18 rebuilt: [host path] (sha 7f7045a8) and j97-hover-patched-839e5ac7.apk (sha 5756c4dc). Their libs differ. The patched build needs `cargo update -p i-slint-backend-android-activity --offline` after adding the config patch, because cargoNdk runs `--locked`; restore config.toml and Cargo.lock from [host path] afterwards. Waiting only on the owner's pairing code and port.
 **2026-10-18 device run, report REPLY 01a14db9 to 01a14d9d.**
 - Paired with the owner's code; phone at a private-network address:39231.
 - TalkBack is com.android.talkback/com.google.android.marvin.talkback.TalkBackService. Enabling it opens TalkBack's tutorial over the app (re-`am start` the app) and briefly a volume panel (wait ~14 s).
@@ -50,7 +50,7 @@ Related: [[android-accesskit-bridge]] [[device-review-run-method]] [[release-pho
   - no TalkBack box follows the focus.
 - The wireless link drops mid-run: reconnect before every adb call (`adb get-state || adb connect`).
 - The hover-patched build is installed now. Next: the owner's checklist or main 400b42b6 for ux-designer-01, as architect-cto-01 says.
-- Order (architect-cto-01 REPLY 01a14dba): the owner finger-tests the hover-patched build first, then the unpatched one, then main 400b42b6 for ux-designer-01. Install NOTHING until architect-cto-01 says. The gaps are noted on the scratch branch in 48cf3672 (local). Main's APK is being rebuilt into ~/scratch/j98.
+- Order (architect-cto-01 REPLY 01a14dba): the owner finger-tests the hover-patched build first, then the unpatched one, then main 400b42b6 for ux-designer-01. Install NOTHING until architect-cto-01 says. The gaps are noted on the scratch branch in 48cf3672 (local). Main's APK is being rebuilt into [host path]
 
 *References: android-accesskit-bridge, device-review-run-method, j94-install-292-apk, release-phone-after-testing*
 

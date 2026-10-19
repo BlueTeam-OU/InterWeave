@@ -27,7 +27,7 @@ built is not the same as a client that looks good.
 complaint into an observable problem and send it to ux-designer-01, whose specs say what the
 look should be ([[j98-android-look]]). Don't restyle on my own taste.
 
-2026-10-18 render of main 400b42b6 next to WhatsApp/Telegram conventions (~/scratch/look-compare/both.png,
+2026-10-18 render of main 400b42b6 next to WhatsApp/Telegram conventions ([host path],
 scratch example under Xvfb, SLINT_SCALE_FACTOR=2, 412x915, deleted after). Biggest gaps, by size:
 PeerId fragments as names and avatars ("…Z8Hh8wh4 / human", "h4"); a row of buttons under every
 message ("Show source"; "Send again"/"Cancel" on every pending one); the word "Unread" inside each
