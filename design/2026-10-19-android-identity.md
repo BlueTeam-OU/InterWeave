@@ -46,12 +46,15 @@ From the contracts; listed so a reviewer can check each screen:
   system keyboard, never a free-text field.
 - No announcement, log, notification, saved-instance state or snapshot
   carries a word. §8 and §11 Q2 say what a screen reader may speak.
-- The network service is stopped while words are shown or entered,
-  and nothing else holds the profile. The profile lock is taken by
-  custody's own calls (provision, restore), so the flow itself holds no
-  lock into C4's seal or a restore. Who holds the lock is rust-ui-dev's
-  and architect-cto's. Creation shows its words before the service
-  first starts.
+- The network service is stopped, and the profile exclusively locked,
+  while words are shown or entered (`android-key-custody.md`, Recovery).
+  S1 to S2 holds the lock throughout: S2 reads the seed through
+  `unlock`, which takes no lock. C2 to C3, and R2 to R3, hold it up to
+  custody's own call. `provision` and `restore` take the lock
+  themselves without waiting, so a lock the flow still holds would
+  refuse them. How the lock passes from the flow to those calls is
+  architect-cto's to decide (§11b Q9). Creation shows its words before
+  the service first starts.
 - Nothing restores silently. A phrase that derives a PeerId other than
   the expected one restores nothing. A fresh install restores only
   after the person confirms the derived PeerId by eye; nothing is typed
@@ -116,7 +119,11 @@ Back → W.
 - Each word is in body large, with its number in `on-surface-variant`.
 - Above the words, one line (`IdNotWalletSeed`) says that this is an
   InterWeave identity recovery phrase, not a cryptocurrency wallet
-  seed. S2 shows it too.
+  seed. Under it, in body small and `on-surface-variant`, the format
+  identifier, `interweave-ed25519-bip39-entropy-v1`, after a short label
+  (`IdFormatLine`). `identity-recovery.md` (Backup UX) lists it among
+  what the display must include. It is public, and not a word of the
+  phrase. S2 shows both lines too.
 - Below the words comes the PeerId in full (§5). Its label says to
   write it down with the words.
 - The list scrolls if it must. The primary action stays fixed at the
@@ -182,8 +189,9 @@ enabled.
 - R3 never says the PeerId is "correct". The app cannot know; the
   person's paper decides.
 - A person with the words but no PeerId on paper reads a line under
-  the question (`IdR3NoPeerId`): compare with the PeerId a contact's
-  has for the phone that had these words, and restore only after that. They leave by Back,
+  the question (`IdR3NoPeerId`): compare with the PeerId a contact
+  has for the phone that had these words, and restore only after that.
+  They leave by Back,
   with their words kept while the Activity lives (§7). There is no
   third button: confirming a PeerId nobody compared is exactly what R3
   exists to prevent.
@@ -203,7 +211,14 @@ answers `RecoveryRequired`. It says, by cause:
   `IdQReasonRecord`): the stored identity cannot be read on this phone.
 
 K1's expected PeerId is the one the record's PeerId field names, read
-even when the record is otherwise refused. With one, K1 shows it.
+even when the record is otherwise refused. Custody has no public
+reader for that today: `recorded_identity` refuses every damaged
+record, and the field reader `named_peer` is private. The note needs
+one, for example `named_identity(paths)`, which is architect-cto's to
+add (§11b Q8). Without it, a record with a damaged header and an intact
+PeerId field would fall to `IdQNoPath` and tell a person to wipe a
+profile that `restore` would accept. So K1's Record causes are not
+done until the reader exists. With one, K1 shows it.
 Primary: enter my recovery phrase (→ R2, then straight to the check
 against that PeerId, with no R3). Back leaves the app. K1 shows again
 on the next launch until the restore succeeds.
@@ -418,7 +433,8 @@ names are suggestions; rust-ui-dev names them.
 | `IdC1Point5` | The words bring back your identity only, not your contacts, trust, settings or messages. | C1, fifth point: `human-client-ui.md` §9 as amended (2f3b0587). It names the fact and asks for nothing, since Android has no export of the rest |
 | `IdC1Point6` | Your identity exists only after you finish, by checking two of the words. | C1, sixth point (§11 Q3) |
 | `IdShowWords` | Show my words | C1's primary |
-| `IdNotWalletSeed` | InterWeave identity recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen: 68 characters. The contract's label also says "transport"; it is left out as a word the person does not know |
+| `IdNotWalletSeed` (new) | InterWeave identity recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen: 68 characters. The contract's label also says "transport"; it is left out as a word the person does not know |
+| `IdFormatLine` (new, pending language-culture) | A short label before the format identifier on C2 and S2 (§3.2); the identifier itself is not translated | One line |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
 | `IdPeerIdLabel` | Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share. | The PeerId's label (§5) on C2 and S2, where the person writes |
 | `IdPeerIdLabelShown` (new) | Your PeerId. It is the one on your paper. It is not a password, and it is safe to share. | The PeerId's label on C4 and R4, where the person has already written it. One label cannot be true on both kinds of screen |
@@ -471,7 +487,9 @@ names are suggestions; rust-ui-dev names them.
 
 Against the list the proposal gave: `IdC1Points` is six keys, one per
 point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
-`IdExpectedPeerId` and `IdDerivedPeerId` are added. `IdTryAgain` and
+`IdExpectedPeerId`, `IdDerivedPeerId`, `IdAlreadyCreated`,
+`IdQTitleNoPath`, `IdQReasonNoPath`, `IdQNoPath`, `IdNotWalletSeed` and
+`IdFormatLine` are added. `IdTryAgain` and
 `IdRetry` are both `TryAgain`. `IdKeepEntering` is
 `IdContinueEntering`.
 
@@ -556,7 +574,8 @@ that measurement, not passed. A build that ignores the system font
 scale would also be a finding of the Android review
 (`design/2026-10-19-android-review.md`, S2).
 15. A hardware keyboard enters a word by its letters, with Enter on a
-    single suggestion. Focus follows §8.
+    single suggestion and on the whole-word chip ("car"). Focus follows
+    §8.
 16. No log line, notification, crash report or test snapshot from a
     run of items 2–11 contains a fixture word. That is checked by
     `adb logcat -d` searched for the fixture's 24 words, and by the
@@ -608,6 +627,16 @@ architect-cto, 2026-10-19 (REPLY 01a1529f-5231). The doc text is
   not a wallet seed. `IdNotWalletSeed` and `IdC1Point2` keep both
   facts without the contract's "transport". `IDENTITY-RECOVERY.md` now
   says so (497d6b42, on #301's branch).
+
+## 11b. Open with architect-cto (from #303's round 2)
+
+- **Q8. A public reader of the record's PeerId field** (§3.4): it
+  returns the PeerId the field names for a record refused for its
+  shape, for K1. Today only the private `named_peer` does this.
+- **Q9. Handing the profile lock to custody** (§2): `provision` and
+  `restore` take it with no wait, so the flow must release it just
+  before, or custody must accept a lock already held. Releasing it
+  leaves a short gap in which nothing holds it.
 
 ## 12. Deliberately left out
 
