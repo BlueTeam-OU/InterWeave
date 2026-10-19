@@ -5577,3 +5577,123 @@ The historical phase numbers remain useful as scope labels:
 However, **construction follows Stages 0-19 in this document**. In particular, connection/dial policy (Stage 5) precedes Kademlia (Stage 10) and mandatory Internet reachability (Stage 11), even though the older product phase table groups those concerns differently.
 
 This ordering is normative because it ensures autonomous libp2p behaviours are introduced only after their security and resource-control boundary already exists.
+
+## 28. Stage 20 — automated clients and the one-host deployment
+
+Opened by this record on the owner's direction of 2026-10-19 (the
+agents that build InterWeave use it as their transport) and bounded by
+the owner's line of the same day: InterWeave stays a general-purpose
+transport, for human-to-human communication as for anything else, and
+the agents' coordination protocol does not enter this repository —
+"different things, different layer". The stage runs **beside** Stage
+17 and Stage 18 as §19's Stage 16 ran beside Stage 15: the status value
+stays the lowest open stage, and this section is the authorisation for
+its packages (§3 of `CLAUDE.md`). The decision is ADR-0055; this
+section is the construction order, the gate and the record. It is
+numbered after §27 so that no citation of §23–§27 moves.
+
+### Objective
+
+What the transport promises an automated client — an agent, a bot, a
+gateway, a test harness — stated as measured and proved by a
+conformance suite, with the two offline identity verbs and the Linux
+user units a deployment of many profiles under many accounts on one
+host needs. InterWeave's part ends at the data socket's contract and
+those facts; the protocol a deployment carries, its addressing, its
+roster, its journal and its carrier process are the deployment's, and
+for the fleet they are agent-fabric's by its own records.
+
+### Prerequisites
+
+None beyond what is on `main`: the daemon (Stage 13), IPC v2 `active`
+(Stage 13), static bootstrap (Stage 9), the trust overlay (ADR-0028 A
+2026-10-07). Stage 17's close is not a prerequisite, and nothing here
+touches the human client.
+
+### Activate
+
+```text
+packaging/linux                 (the daemon's and a client's user-unit templates; §22's service-lifecycle rows pulled forward for Linux only)
+apps/transportctl               (two offline verbs: identity init, identity show)
+tests/automated-client          (the conformance suite of ADR-0055 decisions 2 and 5)
+architecture/clients/automated  (what the transport promises an automated client, and what such a client owes itself)
+```
+
+No new crate. `packaging/macos`, `packaging/windows` and
+`packaging/android` stay §22's. No name of any coordination protocol
+appears in any of the four.
+
+### Implement in order
+
+1. `transportctl identity init --profile <name>` and `identity show`
+   (ADR-0055 decision 4): offline, under the profile lock, printing the
+   PeerId and nothing secret; refused while a daemon holds the lock;
+   `init` refuses an existing key; tests beside the other identity
+   verbs. (Built on p2p-network-dev's branch at 8dddbbcf, 24 tests,
+   before this record landed.)
+2. `tests/automated-client` (root suite, test-support only): two
+   daemons on loopback with static bootstrap and mutual trust as a
+   deployment renders them, and a generic test client that claims a
+   configured endpoint and joins a channel; cases: a direct message B
+   receives from A; an application receipt B's client sends after it
+   has kept the message, reaching A's client (decision 3, the client's
+   own); a send while B's lease is withheld answered
+   `RemoteEndpointUnavailable`, retried under the same `message_id` and
+   landing once inside the dedup window, and the same retry after B's
+   daemon restarts landing as a second delivery the test client
+   collapses by its own key (decision 2, the limit measured); a
+   fan-out under one `message_id` to two receivers each landing once;
+   A's daemon restarted under a live client (re-lease, re-join, the
+   next message lands; `ShuttingDown` then `BackendUnavailable` both
+   re-opened); a burst of 200 broadcasts with the delivered count read
+   against the ingress bucket, and the same burst as direct sends
+   landing whole through `Overloaded` retries; a loopback
+   static-bootstrap dial, which no test on `main` exercised; a second
+   daemon of the same account sharing a port (decision 5), and a port
+   held by a plain socket without `SO_REUSEPORT` refusing the start
+   (exit 1 on `EADDRINUSE`, a free-port start as the control); the
+   cross-account refusal is carried as unverified until CI has a second
+   account. (Built on p2p-network-dev's branch: nine cases at 4db37607
+   before this record landed, the tenth, the held port, added on #305's
+   review; the suite reads the ingress bucket's constants
+   from `interweave-transport-runtime` as a dev-dependency rather than
+   restating them, which is the right direction for a conformance
+   suite — `tests/support` stays out of production, the reverse is
+   allowed.)
+3. `architecture/clients/automated/AUTOMATED-CLIENT.md`: ADR-0055
+   decisions 2 and 3 as a reader's document, each fact naming the test
+   of step 2 or the contract that holds it, restating no constant; the
+   loopback deployment's `config.yaml` shape; the pacing figures for
+   fan-out. Written by architect-cto from the facts p2p-network-dev
+   states with step 2 (written 2026-10-19 from their REPLY on
+   4db37607 and f68b7b56; one fact new to the record, broadcast order
+   not preserved, folded into ADR-0055 decision 2 the same day).
+4. `packaging/linux`: `interweave-daemon@.service` and
+   `interweave-client@.service` as systemd user units templated on the
+   profile name, `Restart=on-failure`, the daemon stopped by SIGTERM
+   with the grace it already honours, the client `After=` and
+   `BindsTo=` its daemon, binaries from the account's own path, no
+   system-wide install; a README that says how an account installs them
+   and that a deployment's tooling may do it instead. (Built at
+   f68b7b56: a clean stop in 0.19 s with the client stopping with it,
+   the client starting with the daemon, both back 5 s after a SIGKILL,
+   a taken port retried under the start limit; the client unit runs
+   the deployment's program from the account's `libexec`, or a
+   drop-in's `ExecStart`, and InterWeave ships none.)
+5. The stale clause in `CLAUDE.md` §1 about mDNS (the multicast backend
+   was built after Stage 9; this record corrects it) — done in the
+   series that lands this section.
+
+### Exit gate
+
+(a) Steps 1–4 landed with their tests green on `main`, every fact of
+decision 2 held by a named case; (b) the automated-client document
+cites each; (c) the first external deployment, if one has run by the
+close, is cited by its own record with the figures it measured — it is
+evidence, never a condition, since the transport is general purpose and
+no deployment's protocol is this stage's.
+
+### Record
+
+The owner's word closes it, as every stage. The `Met.` block names the
+cases, the measured figures of decision 2 and what was carried.

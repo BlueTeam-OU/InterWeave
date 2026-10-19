@@ -21,6 +21,7 @@ Authority order is unchanged (`CLAUDE.md` §2): accepted ADRs → normative cont
 |---|---|
 | layering, what belongs in transport vs application, opaque payload, coordination semantics | **0001** (+ 0021, 0045 for where code lives) |
 | Claude Code Channel, MCP bridge, stdio server, push notifications, tool surface | **0002** + **0023** |
+| automated client, agent or bot as a first-party consumer, what the transport promises a machine client, loopback deployment of many accounts, identity init, service units | **0055** (+ 0044 durability stays in the client, 0019 the dedup window, 0052 operator addresses, 0002 pull delivery) |
 | libp2p backend choice, TCP/Noise/Yamux/Identify wiring | **0003** (+ 0013 security, 0035 reachability wiring) |
 | broadcast, GossipSub, topics, mesh message ID, duplicate key | **0004** + **0025** (+ **0029** validation mapping) |
 | GossipSub validation result, Reject vs Ignore vs Accept, unauthorized publisher | **0029** (+ 0012 trust) |
@@ -99,6 +100,12 @@ rust-libp2p is the first backend, behind the neutral transport contract.
 Architecture B: the Claude bridge connects over local IPC to a separate Rust daemon.
 - Rules: the daemon owns identity and network lifecycle and survives Claude Code restarts. Carries an Android amendment — ADR-0041 embeds the same runtime in a foreground service instead.
 - Keywords: daemon, embedded, process model, lifecycle, architecture b
+
+### 0055 — Automated clients are first-party consumers above a general-purpose transport (Proposed)
+An agent, a bot or a gateway is a consumer with the human client's standing; the transport stays general purpose (human-to-human included) and the fleet's coordination protocol never enters this repository.
+- Rules: one long-lived process per profile under its account, one endpoint lease, one client kind, keepalive, bounded reconnect, draining as part of the lease, never the admin socket; what is promised: `AcceptedV2` is admission, no durable broadcast, dedup 10,000/5 min in memory so a retry past the window lands twice, queue 256 (`overloaded` before admission for direct, drop-oldest for broadcast), the broadcast ingress bucket (32 burst, 120/min per peer) drops silently, 48 KiB does not rise, `ShuttingDown` and `BackendUnavailable` both mean re-open; what the client owes itself: durable pending with one `message_id`, retry never given up without its operator, its own receipt, its own collapse of a repeat, fan-out as direct sends, compress then chunk, its own authentication of who a PeerId is; `transportctl identity init|show`; config rendered by the deployment; one host, many accounts over loopback with a port per profile (shared silently within one account by `SO_REUSEPORT`); Linux user units; the fleet is the first deployment and its protocol stays in the fabric.
+- Security: the transport authenticates the PeerId and nothing above it; the silent drop is an availability fact, not a boundary; no claim about a second host or Byzantine profiles.
+- Keywords: automated client, machine client, agent client, first-party consumer, fleet deployment, loopback deployment, identity init, service unit, ingress bucket, dedup window
 
 ### 0021 — Rust workspace dependency boundaries (Accepted)
 Neutral contracts stay separate from concrete runtime, libp2p, platform, and application crates.

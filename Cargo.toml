@@ -42,6 +42,9 @@ members = [
     # commands that never touch a socket (plan §16 (10)).
     "apps/transportctl",
     "tests/desktop-e2e",
+    # Stage 20 (plan section 28 step 2, ADR-0055 decisions 2 and 5): two
+    # daemons on loopback and a generic automated test client.
+    "tests/automated-client",
     # Stage 17 (plan §20 gate (c)): Android <-> desktop, the device behind
     # a seam, a host stand-in for it until a device exists.
     "tests/android-e2e",
@@ -670,6 +673,7 @@ planned_test_packages = [
   "tests/security",
   "tests/security-local",
   "tests/desktop-e2e",
+  "tests/automated-client",
   "tests/android-e2e",
   "tests/android-e2e-cases",
   "tests/interoperability",
