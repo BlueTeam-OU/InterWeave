@@ -8,8 +8,9 @@
 // to the graph is written with --write-locks and reviewed as a diff.
 // STRICT: a locked configuration with no lock state yet (a new build
 // type's classpath before --write-locks) fails here instead of resolving
-// unseen, so the lockfiles, which ADR-0057 decision 2's guard reads for
-// Play artifacts, cover every configuration the build resolves.
+// unseen, so the lockfiles cover every configuration the build resolves:
+// what ADR-0057 decision 2's guard, still to be built, will read for Play
+// artifacts, and what STORE-CHECK.md reads today.
 buildscript {
     configurations.classpath {
         resolutionStrategy.activateDependencyLocking()
