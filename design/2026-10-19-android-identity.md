@@ -307,8 +307,8 @@ comparison a matter of groups, not of single characters.
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
 | Authentication needed | S1; a restore that must open a healthy user-presence record first | The system prompt. Cancelled or denied: back to the step before, nothing shown, no error | Try again by the primary action |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
-| Storage fails (`Unavailable`, a write error) | C4, R4, the K1 restore | A notice (`IdStorageFailed`): nothing was changed, with Try again. Entered words stay while the screen is open. | Try again, or Back (words dropped) |
-| Success | C4, R4 | The PeerId, and continue | Continue |
+| Storage fails (`Unavailable`, a write error) | Where the write runs: C4's continue (the seal); R3's yes (a fresh-install restore); R2's check after K1 (a restore against the record). R4 shows only after a restore succeeded | A notice (`IdStorageFailed`): nothing was changed, with Try again. Entered words stay while the screen is open. | Try again, or Back (words dropped) |
+| Success | C4 after its seal; R4 after a restore | The PeerId, and continue | Continue |
 
 Errors appear inline on the screen they belong to, never in a snackbar.
 A snackbar times out, and these need the person's action. Their text
