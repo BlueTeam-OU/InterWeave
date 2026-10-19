@@ -51,7 +51,7 @@ When endpoint-directory lookup is used, returned EndpointIds are displayed as re
 
 ## 4. Conversations
 
-A direct conversation is keyed locally by the selected remote route `{PeerId, EndpointId?}`. A channel conversation is keyed by ChannelId. Human-readable titles can be changed without altering transport addresses.
+A direct conversation is keyed locally by the selected remote route `{PeerId, EndpointId?}`. A channel conversation is keyed by ChannelId. Human-readable titles can be changed without altering transport addresses. A direct conversation's title carries the route label only when it is needed to tell conversations apart: while this client holds one conversation with a peer, the title is the short PeerId (or the contact's name, once contacts exist) and the route is shown on the conversation's details as a peer-asserted label; the moment a second conversation with the same peer on another route exists, every title for that peer carries its route label, worded as a route and never as a role. ADR-0032's rule is about what the label IS when shown — peer-controlled routing, never identity — not about where it must appear (ruled 2026-10-19, #304 F6).
 
 The first-party text payload uses `HumanChatV2`. Text is markdown rendered inside the closed subset of ADR-0050 — raw HTML shown literally, allowlisted link schemes, no automatic image fetch, raw source always viewable. Remote content cannot trigger trust/config changes, commands, link opening, downloads, recovery operations, or admin actions.
 
