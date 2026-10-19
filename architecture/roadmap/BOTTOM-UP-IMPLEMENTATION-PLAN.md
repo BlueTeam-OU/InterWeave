@@ -5629,7 +5629,10 @@ No new crate. `packaging/macos`, `packaging/windows` and
    receives from A and a broadcast A publishes that B receives; a send
    while B's lease is withheld answered `RemoteEndpointUnavailable`,
    retried under the same `message_id` and landing once with no
-   duplicate when the lease returns; A's daemon restarted under a live
+   duplicate when the lease returns inside the dedup window, and the
+   same retry after B's daemon restarts landing as a second delivery
+   that the test carrier's journal collapses by `MESSAGE-ID` (ADR-0055
+   decision 4; the limit measured, not assumed); A's daemon restarted under a live
    carrier, the carrier re-leasing and re-joining and the next message
    landing; a burst of 200 broadcasts with the receiver draining,
    counting what the bounded queue dropped; a loopback static-bootstrap
