@@ -3286,6 +3286,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "interweave-automated-client-tests"
+version = "0.0.0"
+dependencies = [
+ "interweave-ipc-client",
+ "interweave-local-client-api",
+ "interweave-test-support",
+ "interweave-transport-api",
+ "interweave-transport-runtime",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "interweave-claude-channel"
 version = "0.0.0"
 dependencies = [
