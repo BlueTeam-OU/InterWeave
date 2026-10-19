@@ -116,6 +116,13 @@ R="$(tree)"
 add "$R/apps/human-android/android/buildscript-gradle.lockfile" "com.google.android.gms:oss-licenses-plugin:0.10.6=classpath"
 expect_fail "$R" "a Play-services plugin on the buildscript classpath" "buildscript-gradle.lockfile: com.google.android.gms:oss-licenses-plugin:0.10.6 on classpath"
 
+echo "the Kotlin compiler's classpaths are not exempt (review of #307, finding 3)"
+for conf in kotlinCompilerClasspath kotlinBuildToolsApiClasspath kotlinCompilerPluginClasspathRelease; do
+    R="$(tree)"
+    add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.android.gms:k:1.0=$conf"
+    expect_fail "$R" "$conf" "com.google.android.gms:k:1.0 on $conf"
+done
+
 echo "a lockfile in a new subproject is read"
 R="$(tree)"
 mkdir -p "$R/apps/human-android/android/lib"
