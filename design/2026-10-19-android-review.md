@@ -377,9 +377,12 @@ but does not re-rank these.
   - The rule (architect-cto-01, REPLY 01a15308-4fa0): the app never
     gives a pending message up. It is retried, 1 s doubling to a 5 min
     cap, until the transport accepts it or the person cancels it
-    (ADR-0044, `human-client-ui.md` §6). "Sending" and "Not confirmed,
-    trying again" are the facade's states taken in turn at each retry
-    (rust-ui-dev-01, REPLY 01a15308-9534).
+    (ADR-0044, `human-client-ui.md` §6). The alternation seen was not
+    the retries: each time the window attached to the running service
+    it showed every waiting message as "Sending" until the next failed
+    attempt reported it again (rust-ui-dev-01, REPLY 01a15450-4812,
+    correcting their REPLY 01a15308-9534; fixed in 62312ee5, not yet
+    seen on the phone).
   - What has to change, as seen:
     - a waiting message shows one status while it waits, not two in
       turn; whether an earlier attempt may have reached the peer
