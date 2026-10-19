@@ -48,7 +48,7 @@ The portable 24-word recovery phrase remains the disaster-recovery path and repr
 
 Android recovery screens are treated as private-key surfaces, not ordinary text forms:
 
-- recovery runs in a dedicated non-exported Activity/task whose manifest sets `android:excludeFromRecents="true"`; its window sets `FLAG_SECURE` before any phrase material is rendered and keeps it set for the complete phrase display/import lifetime. The release harness must verify that phrase material never appears in screenshots, screen recording/non-secure displays, or Recents/task snapshots on supported Android versions;
+- recovery runs in the app's own Activity (amended 2026-10-19: a dedicated non-exported Activity/task with `android:excludeFromRecents="true"` was the first wording and stays allowed); the window sets `FLAG_SECURE` before any phrase material can be rendered and keeps it set until a frame without phrase material has drawn, and on API 33+ `setRecentsScreenshotEnabled(false)` for the same span; no intent, extra or deep link from outside the app starts a phrase flow. The release harness must verify that phrase material never appears in screenshots, screen recording/non-secure displays, or Recents/task snapshots on supported Android versions;
 - phrase import uses an **in-app BIP-39 word-list picker** for each of the 24 positions. Standard v1 does not offer a free-text 24-word field and therefore does not require a third-party IME to observe the phrase;
 - if an implementation temporarily invokes an IME for word filtering/accessibility, it requests no suggestions/autocorrect and `IME_FLAG_NO_PERSONALIZED_LEARNING`, but this is defense in depth rather than a guarantee that an arbitrary IME behaves correctly;
 - there is **no clipboard copy/paste path** for the full phrase or individual phrase words in standard v1, even after an explicit gesture;
@@ -71,7 +71,7 @@ Standard v1 does **not** use Android Auto Backup, cloud backup, or device-to-dev
 - Keystore key missing/invalidated -> fail identity unlock; do not generate a replacement silently for an established profile;
 - ciphertext/authentication failure -> fail closed;
 - expected PeerId mismatch after unwrap -> fail closed;
-- user-presence denied/cancelled -> remain offline;
+- user-presence denied/cancelled -> remain offline, with the diagnostic and the action that raises the prompt again; a launch of the app's Activity by the person is presence, so on a `user-presence` profile outside `USER_PRESENCE_WINDOW_S` the Activity raises the prompt before it binds the service (the same order the identity flows keep for their own start), and only a cancel leaves the person offline — the diagnostic alone, with no way to authenticate, is never the resting state (amended 2026-10-19);
 - hardware-backed capability absent -> use Android Keystore software/TEE availability per platform policy, report protection level diagnostically; do not change PeerId;
 - any other platform error (`Unavailable`) -> returned to the caller for its log, decides nothing: unlock answers "try again", never recovery; the record is untouched (ADR-0042 A 2026-10-10).
 
