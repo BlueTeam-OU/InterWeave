@@ -1310,7 +1310,8 @@ fn named_identity_reads_the_field_whatever_the_envelope_state() {
 /// seal: `provision_held` and `restore_held` seal under the lock handed
 /// in, where `provision` and `restore` are refused by it (the control
 /// that it is held), and the lock is never released -- still held after
-/// each call, until the flow drops it. Another profile's lock is refused,
+/// each call, refused ones included, so a refusal is retried under the
+/// same lock, until the flow drops it. Another profile's lock is refused,
 /// writing and sealing nothing, before its own is accepted.
 #[test]
 fn a_held_lock_is_sealed_under_and_never_released() {
@@ -1355,13 +1356,28 @@ fn a_held_lock_is_sealed_under_and_never_released() {
         .expect("provisioned under the held lock");
     still_held("after provision_held");
 
+    // A refusal under the held lock leaves the flow holding it: a refused
+    // provision, then a refused restore, then the retry -- the same lock,
+    // no ProfileLocked in between.
+    assert!(matches!(
+        custody::provision_held(&app.paths, &held, &cipher, &identity(&mnemonic), policy),
+        Err(CustodyRefused::AlreadyProvisioned)
+    ));
+    still_held("after a refused provision_held");
+    put(&app, &[]);
+    assert!(matches!(
+        custody::restore_held(&app.paths, &held, &cipher, &phrase, &own, policy),
+        Err(CustodyRefused::RecordNamesNobody)
+    ));
+    still_held("after a refused restore_held");
+
     std::fs::remove_file(custody::custody_file(&app.paths)).expect("removed");
     assert!(matches!(
         custody::restore(&app.paths, &cipher, &phrase, &own, policy),
         Err(CustodyRefused::ProfileLocked)
     ));
     custody::restore_held(&app.paths, &held, &cipher, &phrase, &own, policy)
-        .expect("restored under the held lock");
+        .expect("the retry, under the same lock");
     still_held("after restore_held");
     assert_eq!(cipher.seals(), 2);
 
