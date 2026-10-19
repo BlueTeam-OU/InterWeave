@@ -124,9 +124,10 @@ plugin's `com.google.auto.value`, `code.findbugs`, `code.gson`,
 `crypto.tink`, `dagger`, `errorprone`, `flatbuffers`, `guava`,
 `jimfs` and `protobuf` groups, and `com.googlecode.juniversalchardet`),
 on `androidLintTool` and on the test platform, never on a runtime
-classpath. Holding it on every
-change is the lockfile guard's, which is devex-tooling's to shape
-(ADR-0057 decision 2); this check is its reading of today.
+classpath. On every change it is held by
+`tools/checks/check_android_no_play_services.sh`, the lockfile guard
+ADR-0057 decision 2 names (run by `cargo xtask checks` and CI); this
+section is the reading of 2026-10-19.
 
 ## SPIKE-008's target-SDK half
 

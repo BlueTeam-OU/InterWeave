@@ -9,8 +9,9 @@
 // STRICT: a locked configuration with no lock state yet (a new build
 // type's classpath before --write-locks) fails here instead of resolving
 // unseen, so the lockfiles cover every configuration the build resolves:
-// what ADR-0057 decision 2's guard, still to be built, will read for Play
-// artifacts, and what STORE-CHECK.md reads today.
+// what ADR-0057 decision 2's guard
+// (tools/checks/check_android_no_play_services.sh) reads for Play
+// artifacts.
 buildscript {
     configurations.classpath {
         resolutionStrategy.activateDependencyLocking()
