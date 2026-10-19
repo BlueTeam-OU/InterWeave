@@ -35,7 +35,7 @@ tree() {
     r="$(mktemp -d "$TMP/r.XXXXXX")"
     g="$r/apps/human-android/android"
     mkdir -p "$g/app"
-    cp "$REAL/build.gradle.kts" "$REAL/buildscript-gradle.lockfile" "$REAL/settings-gradle.lockfile" "$g/"
+    cp "$REAL/build.gradle.kts" "$REAL/settings.gradle.kts" "$REAL/buildscript-gradle.lockfile" "$REAL/settings-gradle.lockfile" "$g/"
     cp "$REAL/app/build.gradle.kts" "$REAL/app/gradle.lockfile" "$g/app/"
     printf '%s' "$r"
 }
@@ -151,6 +151,34 @@ R="$(tree)"; mkdir -p "$R/apps/human-android/android/lib"; printf '// x\n' > "$R
 expect_fail "$R" "a subproject with no lockfile" "android/lib: a project with no gradle.lockfile"
 R="$(tree)"; mkdir -p "$R/apps/human-android/android/lib"; printf '// x\n' > "$R/apps/human-android/android/lib/build.gradle"
 expect_fail "$R" "a Groovy subproject with no lockfile" "android/lib: a project with no gradle.lockfile"
+
+echo "a subproject's script cannot loosen the lock (review of #307, finding 2)"
+APP_BUILD=apps/human-android/android/app/build.gradle.kts
+for loosen in \
+    'dependencyLocking { lockMode.set(LockMode.LENIENT) }:LockMode.LENIENT' \
+    'dependencyLocking { ignoredDependencies.add("com.google.firebase:*") }:ignoredDependencies' \
+    'dependencyLocking { unlockAllConfigurations() }:unlockAllConfigurations' \
+    'configurations.named("releaseRuntimeClasspath") { resolutionStrategy.deactivateDependencyLocking() }:deactivateDependencyLocking'; do
+    R="$(tree)"; printf '\n%s\n' "${loosen%:*}" >> "$R/$APP_BUILD"
+    expect_fail "$R" "${loosen##*:} in app/build.gradle.kts" "app/build.gradle.kts: ${loosen##*:}"
+    R="$(tree)"; printf '\n// %s\n/*\n%s\n*/\n' "${loosen%:*}" "${loosen%:*}" >> "$R/$APP_BUILD"
+    expect_pass "$R" "  the same commented out"
+done
+R="$(tree)"; printf '\ndependencyLocking { lockMode.set(LockMode.LENIENT) }\n' >> "$R/apps/human-android/android/settings.gradle.kts"
+expect_fail "$R" "LENIENT in settings.gradle.kts" "settings.gradle.kts: LockMode.LENIENT"
+
+echo "lockAllConfigurations() counts only where it locks every project (finding 4)"
+ROOT_BUILD=apps/human-android/android/build.gradle.kts
+R="$(tree)"; sed -i 's/^allprojects {/\/*\nallprojects {/' "$R/$ROOT_BUILD"; printf '*/\n' >> "$R/$ROOT_BUILD"
+expect_fail "$R" "the allprojects block inside /* */" "no lockAllConfigurations() in allprojects"
+R="$(tree)"; sed -i 's/^allprojects {/dependencyLocking { lockAllConfigurations() }\nsubprojects {/; s/^\([[:space:]]*\)lockAllConfigurations()$/\1lockMode.set(LockMode.DEFAULT)/' "$R/$ROOT_BUILD"
+expect_fail "$R" "lockAllConfigurations() for the root project alone" "no lockAllConfigurations() in allprojects"
+
+echo "the plugin classpath's lock is checked too"
+R="$(tree)"; sed -i 's/resolutionStrategy.activateDependencyLocking()/\/\/ resolutionStrategy.activateDependencyLocking()/' "$R/$ROOT_BUILD"
+expect_fail "$R" "buildscript locking switched off" "the buildscript classpath is not locked"
+R="$(tree)"; rm "$R/apps/human-android/android/buildscript-gradle.lockfile"
+expect_fail "$R" "no buildscript-gradle.lockfile" "buildscript-gradle.lockfile: missing"
 
 echo "the real repository passes its own guard"
 if [ "$(run_code "$REPO")" = "0" ]; then ok "this repository"; else bad "this repository fails: $(run "$REPO")"; fi

@@ -59,9 +59,20 @@
 #   - the app lockfile not naming `releaseRuntimeClasspath`, the
 #     classpath the shipped APK is built from (the control that the
 #     lockfile covers what ships);
-#   - the root build.gradle.kts not calling `lockAllConfigurations()`, or
-#     naming LockMode.LENIENT, under which Gradle would resolve past the
-#     lock instead of failing.
+#   - the root build.gradle.kts not calling `lockAllConfigurations()`
+#     inside `allprojects { dependencyLocking { } }`, or not locking the
+#     buildscript classpath (`activateDependencyLocking()`), or no
+#     buildscript-gradle.lockfile; comments do not count;
+#   - any Gradle script under the root, a subproject's included, naming
+#     LockMode.LENIENT, ignoredDependencies, unlockAllConfigurations or
+#     deactivateDependencyLocking.
+#
+# WHAT IT CANNOT SEE: under Gradle's DEFAULT lock mode a locked
+# configuration with NO lock state (a new build type's classpath before
+# --write-locks) resolves unvalidated and appears in no lockfile.
+# LockMode.STRICT closes that, and is the build's to set; the
+# releaseRuntimeClasspath control above covers the one configuration
+# that ships today.
 #
 # Exit codes:
 #   0  no banned group on an application configuration, lock intact
@@ -105,16 +116,71 @@ gradle_files() {
 
 [ -f "$GRADLE/app/gradle.lockfile" ] || fail "apps/human-android/android/app/gradle.lockfile: missing -- the app's classpath is unlocked or the lockfile was not committed"
 
+# A Gradle script with its comments removed and its lines joined, so a
+# call inside /* ... */ or after // does not count, and a block can be
+# matched across lines. `//` after a `:` is kept: it is a URL's scheme.
+code_of() {
+    awk '
+        {
+            line = $0; out = ""
+            while (line != "") {
+                if (inblock) {
+                    e = index(line, "*/")
+                    if (e == 0) { line = ""; break }
+                    line = substr(line, e + 2); inblock = 0; continue
+                }
+                b = index(line, "/*"); c = 0; rest = line
+                while ((k = index(rest, "//")) > 0) {
+                    pos = c + k
+                    if (pos == 1 || substr(line, pos - 1, 1) != ":") { c = pos; break }
+                    c = pos + 1; rest = substr(line, c + 1)
+                }
+                if (k == 0) c = 0
+                if (b > 0 && (c == 0 || b < c)) {
+                    out = out substr(line, 1, b - 1); line = substr(line, b + 2); inblock = 1; continue
+                }
+                if (c > 0) { out = out substr(line, 1, c - 1); line = "" ; break }
+                out = out line; line = ""
+            }
+            printf "%s ", out
+        }
+    ' "$1"
+}
+
 root_build="$GRADLE/build.gradle.kts"
 if [ ! -f "$root_build" ]; then
     fail "apps/human-android/android/build.gradle.kts: missing -- nothing says the configurations are locked"
 else
-    grep -Eq '^[^/]*lockAllConfigurations\(\)' "$root_build" \
-        || fail "apps/human-android/android/build.gradle.kts: no lockAllConfigurations() -- a configuration outside the lock is outside this guard"
-    if grep -Eq '^[^/]*LockMode\.LENIENT' "$root_build"; then
-        fail "apps/human-android/android/build.gradle.kts: LockMode.LENIENT -- Gradle would resolve past the lock"
-    fi
+    root_code="$(code_of "$root_build")"
+    # Inside allprojects, so every project is locked and not the root
+    # alone; [^}]* keeps the match inside the block, and a block with a
+    # nested one before the call fails closed.
+    grep -Eq 'allprojects[[:space:]]*\{[^}]*dependencyLocking[[:space:]]*\{[^}]*lockAllConfigurations\(\)' <<<"$root_code" \
+        || fail "apps/human-android/android/build.gradle.kts: no lockAllConfigurations() in allprojects { dependencyLocking { } } -- a configuration outside the lock is outside this guard"
+    grep -Eq 'buildscript[[:space:]]*\{[^}]*activateDependencyLocking\(\)' <<<"$root_code" \
+        || fail "apps/human-android/android/build.gradle.kts: the buildscript classpath is not locked -- buildscript-gradle.lockfile would not describe the plugins"
 fi
+[ -f "$GRADLE/buildscript-gradle.lockfile" ] \
+    || fail "apps/human-android/android/buildscript-gradle.lockfile: missing -- the plugin classpath is unread"
+
+# What loosens a lock, in ANY Gradle script under the root: a subproject's
+# own dependencyLocking block is evaluated after the root's allprojects
+# and overrides it for that project (review of #307, finding 2).
+#   LockMode.LENIENT              resolves past the lock without failing
+#   ignoredDependencies           neither written to the lock nor checked
+#   unlockAllConfigurations()     undoes lockAllConfigurations()
+#   deactivateDependencyLocking() one configuration out of the lock
+while IFS= read -r script; do
+    [ -n "$script" ] || continue
+    code="$(code_of "$script")"
+    for loosen in 'LockMode\.LENIENT' 'ignoredDependencies' 'unlockAllConfigurations' 'deactivateDependencyLocking'; do
+        if grep -Eq "$loosen" <<<"$code"; then
+            fail "${script#"$ROOT"/}: ${loosen//\\/} -- the lockfile would no longer describe what resolves"
+        fi
+    done
+done <<EOF
+$(gradle_files -name '*.gradle' -o -name '*.gradle.kts')
+EOF
 
 # Every subproject (a directory below the Gradle root holding a
 # build.gradle.kts or a Groovy build.gradle) owes a lockfile beside it.
