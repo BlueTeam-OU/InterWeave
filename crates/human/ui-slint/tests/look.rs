@@ -573,9 +573,9 @@ fn the_overflow_menu_holds_details_and_hide_exactly_when_offered() {
         "an unread message: not offered"
     );
     press(&view, text(UiText::Details));
-    let id = labelled(&view, text(UiText::ConversationId));
-    assert_eq!(id.len(), 1);
-    assert_eq!(id[0].accessible_value().as_deref(), Some(ALICE));
+    // #304 F11: the whole PeerId as text under its label, not a field.
+    assert_eq!(labelled(&view, text(UiText::DetailsPeerId)).len(), 1);
+    assert_eq!(labelled(&view, ALICE).len(), 1, "the PeerId, whole");
     assert!(
         labelled(&view, text(UiText::Details)).is_empty(),
         "the menu closed"
@@ -875,10 +875,11 @@ fn the_conversation_bar_and_its_menu_mirror_right_to_left() {
     }
 }
 
-/// Review F3 on #295 and its re-review: Details is a modal dialog. Tab
-/// and Shift+Tab stay on its identifier field -- never on the dialog
-/// itself, which draws no ring, nor on the controls behind the scrim --
-/// and Escape closes it, giving focus back to More options.
+/// Review F3 on #295, as #304 F11 reshaped it: Details is a modal
+/// dialog. Focus starts on Copy; Tab and Shift+Tab move between its two
+/// actions -- never to the dialog itself, which draws no ring, nor to the
+/// controls behind the scrim -- and Escape closes it, giving focus back
+/// to More options.
 #[test]
 fn tab_stays_in_details_and_escape_closes_it() {
     use slint::platform::{Key, WindowEvent};
@@ -910,23 +911,25 @@ fn tab_stays_in_details_and_escape_closes_it() {
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        "header-id",
-        "in the field"
+        "details-copy",
+        "on Copy, the dialog's act (#304 F11)"
     );
-    for key in [Key::Backtab, Key::Tab, Key::Tab, Key::Backtab] {
+    // Tab either way moves between the dialog's two actions, never out.
+    for (key, to) in [
+        (Key::Backtab, "details-close"),
+        (Key::Tab, "details-copy"),
+        (Key::Tab, "details-close"),
+        (Key::Backtab, "details-copy"),
+    ] {
         send(key);
-        assert_eq!(
-            view.window().get_focus_id().as_str(),
-            "header-id",
-            "still in the field"
-        );
+        assert_eq!(view.window().get_focus_id().as_str(), to, "{key:?}");
         assert_eq!(rings(), 1, "its ring shown");
         assert!(view.window().get_details_open());
     }
-    // A press on the dialog's padding, beside the field, leaves focus there.
-    let field = labelled(&view, text(UiText::ConversationId));
-    assert_eq!(field.len(), 1);
-    let (at, window) = (field[0].absolute_position(), view.window().window());
+    // A press on the dialog's padding, beside the PeerId, leaves focus.
+    let id = labelled(&view, ALICE);
+    assert_eq!(id.len(), 1);
+    let (at, window) = (id[0].absolute_position(), view.window().window());
     let position = slint::LogicalPosition::new(at.x - 12.0, at.y + 4.0);
     let button = slint::platform::PointerEventButton::Left;
     window.dispatch_event(WindowEvent::PointerPressed { position, button });
@@ -934,10 +937,9 @@ fn tab_stays_in_details_and_escape_closes_it() {
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        "header-id",
+        "details-copy",
         "a press beside it"
     );
-    assert_eq!(rings(), 1, "the field keeps focus and its ring");
     assert!(
         view.window().get_details_open(),
         "a press inside the dialog keeps it"

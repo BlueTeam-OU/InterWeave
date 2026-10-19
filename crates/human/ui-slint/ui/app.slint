@@ -1472,7 +1472,14 @@ export component AppWindow inherits Window {
     in property <string> header-title;
     // The full PeerId of a direct conversation, or the channel id (U5a).
     in property <string> header-id;
-    in property <string> header-id-label;
+    // Details' texts: the identifier's label, the route line (empty for
+    // none), its two actions.
+    in property <string> details-id-label;
+    in property <string> details-route;
+    in property <string> details-copy-label;
+    in property <string> close-label;
+    // Copy put the identifier on the clipboard.
+    callback identifier-copied();
     // The open direct conversation's route indicator, once the runtime has
     // said; empty for a channel or before it has (human-client-ui.md 7).
     in property <string> header-path;
@@ -3267,10 +3274,6 @@ export component AppWindow inherits Window {
             }
         }
     }
-    // Details (section 6): the identifier in exact canonical form, whole,
-    // selectable so a person can copy it with the platform's own keys
-    // (human-client-ui.md section 11). Read-only: nothing typed here goes
-    // anywhere.
     // A message's menu (swipe spec section 7, look spec section 6): its
     // actions in the row's order, Show source last, each 48 high with its
     // icon, anchored under the bubble -- over it when the space below runs
@@ -3457,6 +3460,11 @@ export component AppWindow inherits Window {
             }
         }
     }
+    // Details (#304 F11, a Material basic dialog): the conversation's
+    // title, its identifier whole in the code font -- text, not a field --
+    // and for a direct one the route as the peer named it, unverified;
+    // Copy puts the identifier on the clipboard and closes, focus back on
+    // the overflow button (human-client-ui.md section 11).
     if root.details-open: details := FocusScope {
         focus-gained(reason) => {
             if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
@@ -3471,66 +3479,109 @@ export component AppWindow inherits Window {
                 root.close-menu();
                 return accept;
             }
-            // A modal dialog keeps focus: its one control is the field, so
-            // Tab either way stays on it -- never on this scope, which draws
-            // no ring and reports no focus, nor on the controls behind the
-            // scrim (tests/look.rs, `tab_stays_in_details_and_escape_closes_it`).
+            // A modal dialog keeps focus: Tab either way moves between its
+            // two actions, never to the controls behind the scrim.
             if (event.text == Key.Tab || event.text == Key.Backtab) {
-                // Kept here, it moves no focus: still the keyboard's.
                 FocusMode.keyboard = true;
+                if (details-copy.has-focus) {
+                    details-close.focus();
+                } else {
+                    details-copy.focus();
+                }
                 return accept;
             }
             reject
         }
-        // Focus moves to the identifier once Details is in the window.
+        // Focus moves to Copy once Details is in the window.
         property <bool> taken;
         Timer {
             interval: 1ms;
             running: !details.taken;
             triggered => {
                 details.taken = true;
-                header-id-input.focus();
+                details-copy.focus();
             }
+        }
+        // What Copy copies: the identifier, through the platform's
+        // clipboard as a field's copy would. Never shown.
+        copy-source := TextInput {
+            x: 0;
+            y: 0;
+            width: 0;
+            height: 0;
+            visible: false;
+            read-only: true;
+            text: root.header-id;
+            accessible-role: none;
         }
         details-box := Rectangle {
             background: Palette.surface-container-high;
             border-radius: 28px;
-            // A press on the dialog is the dialog's and moves no focus:
-            // without this it reached this scope, which took the field's
-            // focus and draws no ring (tests/look.rs,
-            // `tab_stays_in_details_and_escape_closes_it`).
+            // A press on the dialog is the dialog's and moves no focus.
             TouchArea {}
             VerticalLayout {
                 padding: 24px;
-                spacing: 12px;
+                spacing: 16px;
                 Text {
-                    text: root.header-id-label;
-                    font-size: Type.body-small;
-                    font-weight: 700;
-                    color: Palette.on-surface-variant;
-                    accessible-role: none;
+                    text: root.header-title;
+                    font-size: Type.title-large;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
                 }
-                header-id-box := Rectangle {
-                    height: header-id-input.preferred-height;
-                    header-id-input := TextInput {
-                        text: root.header-id;
-                        read-only: true;
-                        single-line: false;
-                        wrap: char-wrap;
-                        font-size: Type.body-medium;
-                        color: Palette.on-surface;
-                        accessible-label: root.header-id-label;
-                        accessible-value: self.text;
-                        changed has-focus => {
-                            if (self.has-focus) { root.focus-id = "header-id"; }
-                        }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: root.details-id-label;
+                        font-size: Type.body-small;
+                        font-weight: 700;
+                        color: Palette.on-surface-variant;
+                        accessible-role: text;
+                        accessible-label: self.text;
                     }
-                    FocusRing {
-                        x: -5px;
-                        y: -5px;
-                        width: header-id-box.width + 10px;
-                        height: header-id-box.height + 10px;
-                        shown: header-id-input.has-focus;
+                    Text {
+                        text: root.header-id;
+                        font-family: root.code-font;
+                        font-size: Type.body-medium;
+                        wrap: char-wrap;
+                        color: Palette.on-surface;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                }
+                if root.details-route != "": Text {
+                    text: root.details-route;
+                    font-size: Type.body-medium;
+                    wrap: word-wrap;
+                    color: Palette.on-surface-variant;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    details-close := ActionButton {
+                        text: root.close-label;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "details-close";
+                        pressed => { root.close-menu(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    details-copy := ActionButton {
+                        text: root.details-copy-label;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "details-copy";
+                        pressed => {
+                            copy-source.select-all();
+                            copy-source.copy();
+                            copy-source.clear-selection();
+                            root.close-menu();
+                            root.identifier-copied();
+                        }
+                        focused(k) => { root.focus-id = k; }
                     }
                 }
             }

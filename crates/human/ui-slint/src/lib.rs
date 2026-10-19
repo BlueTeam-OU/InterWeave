@@ -258,6 +258,9 @@ enum Input {
     /// The snackbar closed without one: its timeout, a swipe away, the
     /// app leaving the foreground.
     SnackClosed(u64),
+    /// Details' Copy put the shown conversation's identifier on the
+    /// clipboard.
+    IdentifierCopied,
     /// The notice's action, with the notice that was shown.
     Notice(SessionNotice),
     /// A link's control, with the destination as rendered: the model
@@ -521,6 +524,34 @@ impl Shared {
 /// Queue `input` from a window callback, and wake the root after the
 /// borrow is released. The root's own calls queue without waking: the
 /// root is in control already, and may hold the view borrowed (review N4).
+/// The trust settings' callbacks: each becomes an input, taken by
+/// [`View::take_events`] as the others are.
+fn wire_trust(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let s = Rc::clone(shared);
+    window.on_trust_entry_edited(move |text| {
+        enqueue(&s, Input::Trust(TrustInput::EntryChanged(text.to_string())));
+    });
+    let s = Rc::clone(shared);
+    window.on_trust_add(move || enqueue(&s, Input::Trust(TrustInput::ProposeAllow)));
+    let s = Rc::clone(shared);
+    window.on_trust_remove(move |handle| {
+        let peer = s.borrow().trusted.get(&handle).cloned();
+        if let Some(peer) = peer {
+            enqueue(&s, Input::Trust(TrustInput::ProposeRevoke(peer)));
+        }
+    });
+    let s = Rc::clone(shared);
+    window.on_trust_confirm(move || {
+        let shown = s.borrow().pending_shown.clone();
+        if let Some(change) = shown {
+            s.borrow_mut().trust_confirmed = true;
+            enqueue(&s, Input::Trust(TrustInput::Confirm(change)));
+        }
+    });
+    let s = Rc::clone(shared);
+    window.on_trust_cancel(move || enqueue(&s, Input::Trust(TrustInput::Cancel)));
+}
+
 fn enqueue(shared: &RefCell<Shared>, input: Input) {
     let wake = shared.borrow_mut().push(input);
     if let Some(wake) = wake {
@@ -667,6 +698,8 @@ pub struct View {
     /// The one wake at the next local midnight, and when it is due.
     day_timer: slint::Timer,
     day_due: Option<u64>,
+    /// Who confirms a copy from Details.
+    copy_feedback: CopyFeedback,
     /// The one wake when a shown waiting message's age next reads
     /// otherwise, and when it is due.
     age_timer: slint::Timer,
@@ -675,6 +708,16 @@ pub struct View {
     /// ([`View::after_next_frame`]); `None` until the window's one
     /// rendering notifier is set.
     frame_tasks: Option<FrameTasks>,
+}
+
+/// Who tells the person that Details' Copy worked (#304 F11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyFeedback {
+    /// The app's snackbar: the desktop, and Android below 13.
+    Snackbar,
+    /// The platform's own: Android 13 and later show one, and a second
+    /// from the app would say it twice.
+    Platform,
 }
 
 /// The tasks [`View::after_next_frame`] queued, which the window's
@@ -701,7 +744,7 @@ impl View {
         window.set_window_title(text(UiText::AppTitle));
         window.set_conversations_heading(text(UiText::Conversations));
         window.set_messages_heading(text(UiText::Messages));
-        window.set_header_id_label(text(UiText::ConversationId));
+        window.set_close_label(text(UiText::Close));
         window.set_composer_label(text(UiText::Composer));
         window.set_send_label(text(UiText::Send));
         window.set_show_source_label(text(UiText::ShowSource));
@@ -788,28 +831,8 @@ impl View {
         let s = Rc::clone(&shared);
         window.on_close_trust(move || enqueue(&s, Input::TrustPage(false)));
         let s = Rc::clone(&shared);
-        window.on_trust_entry_edited(move |text| {
-            enqueue(&s, Input::Trust(TrustInput::EntryChanged(text.to_string())));
-        });
-        let s = Rc::clone(&shared);
-        window.on_trust_add(move || enqueue(&s, Input::Trust(TrustInput::ProposeAllow)));
-        let s = Rc::clone(&shared);
-        window.on_trust_remove(move |handle| {
-            let peer = s.borrow().trusted.get(&handle).cloned();
-            if let Some(peer) = peer {
-                enqueue(&s, Input::Trust(TrustInput::ProposeRevoke(peer)));
-            }
-        });
-        let s = Rc::clone(&shared);
-        window.on_trust_confirm(move || {
-            let shown = s.borrow().pending_shown.clone();
-            if let Some(change) = shown {
-                s.borrow_mut().trust_confirmed = true;
-                enqueue(&s, Input::Trust(TrustInput::Confirm(change)));
-            }
-        });
-        let s = Rc::clone(&shared);
-        window.on_trust_cancel(move || enqueue(&s, Input::Trust(TrustInput::Cancel)));
+        window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
+        wire_trust(&window, &shared);
 
         let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
         window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
@@ -868,6 +891,7 @@ impl View {
             shown_items: HashMap::new(),
             day_timer: slint::Timer::default(),
             day_due: None,
+            copy_feedback: CopyFeedback::Snackbar,
             age_timer: slint::Timer::default(),
             age_due: None,
             frame_tasks: None,
@@ -986,6 +1010,12 @@ impl View {
                 wake();
             }
         }
+    }
+
+    /// Who confirms a copy from Details: the platform, or this view's
+    /// snackbar (the default).
+    pub fn set_copy_feedback(&mut self, feedback: CopyFeedback) {
+        self.copy_feedback = feedback;
     }
 
     /// Run `task` once a frame rendered after this call has been handed to
@@ -1256,6 +1286,15 @@ impl View {
                     }
                 }
                 Input::SnackClosed(id) => out.push(ViewEvent::SnackbarClosed(id)),
+                // Said only where the platform confirms nothing itself:
+                // from Android 13 on, it shows its own (#304 F11).
+                Input::IdentifierCopied => {
+                    if self.copy_feedback == CopyFeedback::Snackbar
+                        && let Some(key) = self.shown.clone()
+                    {
+                        out.push(ViewEvent::IdentifierCopied(key));
+                    }
+                }
                 Input::Link(destination) => {
                     out.extend(model.link_activated(&destination).map(ViewEvent::Intent));
                 }
@@ -2288,6 +2327,24 @@ impl View {
                 let title = model.title(key);
                 window.set_header_title(title.into());
                 window.set_header_id(full_id(key).into());
+                let (label, copy, route) = match key {
+                    ConversationKey::Direct { endpoint, .. } => (
+                        UiText::DetailsPeerId,
+                        UiText::CopyPeerId,
+                        endpoint.as_ref().map(|e| {
+                            fill(
+                                placeholder_en::text(UiText::DetailsRoute),
+                                &[("route", e.as_str())],
+                            )
+                        }),
+                    ),
+                    ConversationKey::Channel(_) => {
+                        (UiText::DetailsChannelId, UiText::CopyChannelId, None)
+                    }
+                };
+                window.set_details_id_label(placeholder_en::text(label).into());
+                window.set_details_copy_label(placeholder_en::text(copy).into());
+                window.set_details_route(route.unwrap_or_default().into());
                 let avatar = Avatar::of(key);
                 window.set_header_avatar_letters(avatar.letters.as_str().into());
                 window.set_header_avatar_hue(hue_index(avatar.hue));

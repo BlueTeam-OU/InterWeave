@@ -283,13 +283,18 @@ fn android_main(app: AndroidApp) {
         log(&format!("the views' platform could not be set: {e}"));
         return;
     }
-    let view = match View::new(RuntimeHost::Embedded) {
+    let mut view = match View::new(RuntimeHost::Embedded) {
         Ok(view) => view,
         Err(e) => {
             log(&format!("no window: {e}"));
             return;
         }
     };
+    // From Android 13 (API 33) the platform confirms a copy itself, and a
+    // snackbar of the app's would say it twice (#304 F11).
+    if AndroidApp::sdk_version() >= 33 {
+        view.set_copy_feedback(interweave_human_ui_slint::CopyFeedback::Platform);
+    }
     let handle = view.handle();
     view.set_wake(|| defer(turn));
     view.on_haptic(|| HAPTIC.raise());

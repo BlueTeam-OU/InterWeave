@@ -119,6 +119,7 @@ fn intents(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
                 ViewEvent::Trust(input) => out.extend(model.trust_settings_mut().input(input)),
                 ViewEvent::Undo(id) => out.extend(model.undo(id)),
                 ViewEvent::SnackbarClosed(id) => model.snackbar_closed(id),
+                ViewEvent::IdentifierCopied(key) => model.identifier_copied(key),
             }
         }
     }
@@ -1948,45 +1949,75 @@ fn the_apps_options_name_trust_and_hand_focus_back() {
     assert_eq!(view.window().get_focus_id(), "app-options");
 }
 
-/// The open conversation's identifier is in the tree in exact canonical
-/// form, as a read-only field a person selects and copies
-/// (human-client-ui.md section 11), in Details from the overflow menu
-/// (android-look section 6); with no conversation open there is none.
+/// #304 F11: Details, from the overflow menu, is a dialog with the
+/// conversation's title, its identifier whole under its label as text,
+/// the route as the peer named it, and Copy and Close. Copy closes it with
+/// focus back on the overflow button, and is confirmed by the app's
+/// snackbar only where the platform confirms nothing itself. A channel's
+/// says Channel ID and has no route. With no conversation open there is
+/// none.
 #[test]
-fn the_open_conversations_identifier_is_exact_and_selectable() {
+fn details_shows_the_identifier_whole_and_copy_closes_with_its_confirmation() {
+    use interweave_human_ui_slint::CopyFeedback;
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
-    assert!(
-        labelled(&view, text(UiText::ConversationId)).is_empty(),
-        "no conversation, no identifier"
-    );
+    assert!(labelled(&view, text(UiText::DetailsPeerId)).is_empty());
     model.received(received(1, &alice, "hi"));
     open(&mut view, &mut model, &direct(&alice));
-    // In Details, from the overflow menu (android-look section 6), and
-    // not on the conversation screen itself.
-    assert!(labelled(&view, text(UiText::ConversationId)).is_empty());
+    assert!(
+        labelled(&view, text(UiText::DetailsPeerId)).is_empty(),
+        "not on the conversation screen itself"
+    );
     press(&view, text(UiText::MoreOptions));
     press(&view, text(UiText::Details));
-    let field = the(&view, text(UiText::ConversationId));
-    assert_eq!(
-        field.accessible_value().as_deref(),
-        Some(alice.as_str()),
-        "the PeerId, exact"
+    assert_eq!(labelled(&view, text(UiText::DetailsPeerId)).len(), 1);
+    assert!(
+        labelled(&view, alice.as_str())
+            .iter()
+            .any(|e| e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Text)),
+        "the PeerId whole, as text, not a field"
     );
-    // Selectable: a text input, so a person can select and copy it.
-    assert_eq!(
-        field.accessible_role(),
-        Some(i_slint_backend_testing::AccessibleRole::TextInput),
-        "a field a person can select in"
+    let route = interweave_human_ui_model::fill(text(UiText::DetailsRoute), &[("route", "human")]);
+    assert_eq!(labelled(&view, &route).len(), 1, "the route, as named");
+    assert_eq!(labelled(&view, text(UiText::Close)).len(), 1);
+
+    the(&view, text(UiText::CopyPeerId)).invoke_accessible_default_action();
+    assert!(!view.window().get_details_open(), "Copy closes Details");
+    let events = view.take_events(&model);
+    assert!(
+        events.contains(&ViewEvent::IdentifierCopied(direct(&alice))),
+        "the app confirms where the platform does not: {events:?}"
     );
-    // And read-only: an edit would drop the binding and leave an
-    // identifier that is not the conversation's.
-    assert_eq!(
-        field.accessible_read_only(),
-        Some(true),
-        "the identifier cannot be edited"
+
+    view.set_copy_feedback(CopyFeedback::Platform);
+    press(&view, text(UiText::MoreOptions));
+    press(&view, text(UiText::Details));
+    the(&view, text(UiText::CopyPeerId)).invoke_accessible_default_action();
+    let events = view.take_events(&model);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, ViewEvent::IdentifierCopied(_))),
+        "the platform confirms it, so nothing more: {events:?}"
     );
+
+    let general = ChannelId::parse("general").expect("a channel");
+    model.received(Received {
+        row: RowId::from_stored(2),
+        origin: Origin::Channel {
+            channel: general.clone(),
+            publisher: alice.clone(),
+        },
+        envelope: envelope(78, "on the channel"),
+        received_at: 2,
+    });
+    open(&mut view, &mut model, &ConversationKey::Channel(general));
+    press(&view, text(UiText::MoreOptions));
+    press(&view, text(UiText::Details));
+    assert_eq!(labelled(&view, text(UiText::DetailsChannelId)).len(), 1);
+    assert_eq!(labelled(&view, text(UiText::CopyChannelId)).len(), 1);
+    assert!(labelled(&view, &route).is_empty(), "no route for a channel");
 }
 
 /// Whether the list item at `index` of `count` -- conversations when

@@ -116,6 +116,10 @@ pub enum ViewEvent {
     /// The snackbar with this id closed without an Undo: the root passes
     /// it to [`UiModel::snackbar_closed`].
     SnackbarClosed(u64),
+    /// The person copied this conversation's identifier from Details, on a
+    /// platform that confirms nothing itself: the root passes it to
+    /// [`UiModel::identifier_copied`] (#304 F11).
+    IdentifierCopied(ConversationKey),
 }
 
 /// Which table an item's row is in: a row id names a row within one.

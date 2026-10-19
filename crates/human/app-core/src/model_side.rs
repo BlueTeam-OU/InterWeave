@@ -324,6 +324,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                         unrendered = true;
                         self.model.snackbar_closed(id);
                     }
+                    ViewEvent::IdentifierCopied(key) => {
+                        unrendered = true;
+                        self.model.identifier_copied(key);
+                    }
                 }
             }
         }

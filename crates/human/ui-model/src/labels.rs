@@ -116,9 +116,26 @@ ui_texts! {
     Conversations => "Conversations",
     /// The heading of a conversation's messages.
     Messages => "Messages",
-    /// The open conversation's full identifier, selectable to copy: a
-    /// direct route's `PeerId` or a channel's id, in exact form.
-    ConversationId => "Identifier, select to copy",
+    /// Details (#304 F11): the label above a direct conversation's whole
+    /// `PeerId`.
+    DetailsPeerId => "PeerId",
+    /// Details: the label above a channel's whole id.
+    DetailsChannelId => "Channel ID",
+    /// Details: the route a direct conversation goes to, as the peer named
+    /// it and nothing verified. `{route}` is the routing label, quoted as
+    /// a label, never read as a role.
+    DetailsRoute => "Route named by the peer, not verified: “{route}”",
+    /// Details' action: the whole `PeerId` to the clipboard.
+    CopyPeerId => "Copy PeerId",
+    /// Details' action for a channel: its whole id to the clipboard.
+    CopyChannelId => "Copy channel ID",
+    /// Details' other action.
+    Close => "Close",
+    /// The snackbar after Copy where the platform confirms nothing itself
+    /// (below Android 13, and the desktop).
+    PeerIdCopied => "PeerId copied",
+    /// The same, for a channel's id.
+    ChannelIdCopied => "Channel ID copied",
     /// Shown when no conversation is selected.
     NoConversation => "Select a conversation",
     /// What a direct conversation is, in its row's description.
