@@ -274,3 +274,98 @@ fn a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every
         .expect("version");
     assert_eq!(version, SCHEMA_VERSION);
 }
+
+/// A medium that fills while the person is SENDING. The full-medium cases
+/// beside this one fill it with inbound; a send is the other road to the
+/// same disk, and its refusal must degrade the store too, since the
+/// receiver shares the file: an outbound that hit the ceiling leaves no
+/// room for the next unread message either.
+///
+/// The ceiling is a page quota, so the failure is the `SQLITE_FULL` a full
+/// filesystem returns (SQLite maps `ENOSPC` to it), through the code a full
+/// filesystem takes.
+#[test]
+fn a_send_that_fills_the_medium_is_refused_degrades_the_store_and_keeps_every_acknowledged_row() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let mut store = HumanStore::open(
+        &path,
+        StoreOptions {
+            max_pages: Some(64),
+        },
+    )
+    .expect("opens");
+
+    let maximal = |n: u32| {
+        let mut payload = vec![0_u8; interweave_transport_api::MAX_PAYLOAD_BYTES];
+        payload[..4].copy_from_slice(&n.to_be_bytes());
+        payload
+    };
+    let mut acknowledged = Vec::new();
+    let mut refused = None;
+    for n in 1..=8 {
+        match store.commit_pending_outbound(&outbound(n, maximal(n))) {
+            Ok(_) => acknowledged.push(n),
+            Err(e) => {
+                refused = Some((n, e));
+                break;
+            }
+        }
+    }
+    let (refused_n, refused) = refused.expect("8 x 48 KiB cannot fit 64 pages");
+    assert!(
+        !acknowledged.is_empty(),
+        "the ceiling admits a send first, so the store filled rather than never fitting"
+    );
+    assert!(
+        matches!(&refused, StoreError::Sql(_)),
+        "the refusal is the medium's own: {refused:?}"
+    );
+
+    // THE CLAIM: the send's refusal degrades the store, as an inbound's
+    // does, so the receiver stops presenting as durable.
+    assert_eq!(
+        store.health(),
+        StorageHealth::Degraded,
+        "a full medium met by a send degrades the store"
+    );
+    assert!(
+        store
+            .health()
+            .degraded_response()
+            .is_some_and(|r| r.release_human_endpoint && r.suspend_broadcast_joins),
+    );
+    let next = store
+        .commit_unread_inbound(&inbound(100, b"tiny"))
+        .expect_err("a degraded store takes no unread content, however small");
+    assert!(matches!(next, StoreError::Degraded), "{next:?}");
+    let next = store
+        .commit_pending_outbound(&outbound(101, b"tiny".to_vec()))
+        .expect_err("nor a new send");
+    assert!(matches!(next, StoreError::Degraded), "{next:?}");
+    drop(store);
+
+    // NEVER SILENTLY: reopened without the ceiling, the file holds every
+    // acknowledged send, byte for byte under its own ids, and nothing of
+    // the refused one.
+    let store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    let pending = store.pending_outbound().expect("read");
+    let held: Vec<u32> = pending
+        .iter()
+        .map(|p| {
+            let n = u32::from_be_bytes(p.payload[..4].try_into().expect("four bytes"));
+            assert_eq!(p.payload, maximal(n), "send {n} is intact");
+            assert_eq!(p.app_message_id, id(n));
+            assert_eq!(
+                p.transport_message_id,
+                outbound(n, Vec::new()).transport_message_id
+            );
+            n
+        })
+        .collect();
+    assert_eq!(
+        held, acknowledged,
+        "every acknowledged send, and only those"
+    );
+    assert!(!held.contains(&refused_n));
+}
