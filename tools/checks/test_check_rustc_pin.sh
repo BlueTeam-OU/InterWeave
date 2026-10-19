@@ -25,7 +25,10 @@ unset RUSTC CARGO_BUILD_RUSTC CARGO
 export CARGO_HOME="/nonexistent-cargo-home"
 
 failures=0
-SANDBOX="$(mktemp -d)"
+# Physical: the check works from the physical root (cargo's getcwd), so
+# paths it prints and the cwd its stubs record are spelled that way; a
+# TMPDIR reached through a symlink must not make them differ from these.
+SANDBOX="$(mktemp -d)" && SANDBOX="$(cd "$SANDBOX" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 # The check walks from the repository up to / for cargo configs, so one
 # above the sandbox that sets a rustc key would decide every case; refuse,
