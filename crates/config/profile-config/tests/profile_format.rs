@@ -463,9 +463,10 @@ fn a_state_directory_the_load_cannot_search_is_left_to_the_lock() {
     let path = path_for(&paths);
 
     // A regular file where the state directory should be: the lookup
-    // fails on the path (ENOTDIR), so the marker check reads no marker -- the load refuses it by its own older rule (the human
-    // directory under it cannot be resolved), never as a marker error,
-    // and the lock refuses it too.
+    // fails on the path (ENOTDIR), so the marker check reads no marker --
+    // the load refuses it by its own older rule (the human directory
+    // under it cannot be resolved), never as a marker error, and the lock
+    // refuses it too.
     persist::create_private_dir_within(
         paths.state_dir().parent().expect("a parent"),
         paths.boundary(),
