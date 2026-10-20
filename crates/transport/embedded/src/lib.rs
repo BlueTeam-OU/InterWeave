@@ -30,6 +30,7 @@ use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort 
 pub use interweave_profile_config::availability_overlay::StayReachable;
 use interweave_profile_config::availability_overlay::{self, AvailabilityError};
 use interweave_profile_config::endpoint_overlay::EndpointOverlayError;
+use interweave_profile_config::profile_format::{self, ProfileFormatError};
 pub use interweave_profile_config::runtime::AvailabilityMode;
 use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::trust_overlay::OverlayError;
@@ -166,7 +167,25 @@ impl From<LoadError> for EmbeddedRefused {
             LoadError::ConfigDirUnguarded(_) | LoadError::ConfigFileUnguarded { .. } => {
                 Self::DirectoryRefused(e.to_string())
             }
+            LoadError::ProfileFormat(e) => Self::from(e),
             _ => Self::ProfileInvalid(e.to_string()),
+        }
+    }
+}
+
+impl From<ProfileFormatError> for EmbeddedRefused {
+    fn from(e: ProfileFormatError) -> Self {
+        match e {
+            // A file the person cannot have written is the directory's
+            // fault, as an overlay's is.
+            ProfileFormatError::NotPrivate { .. } => Self::DirectoryRefused(e.to_string()),
+            ProfileFormatError::Read(io) => Self::from(PersistError::Io(io)),
+            ProfileFormatError::Write(persist) => Self::from(persist),
+            // A newer app's profile: the message names the file and both
+            // formats, and the person's remedy is that newer app.
+            ProfileFormatError::Newer { .. }
+            | ProfileFormatError::TooLarge
+            | ProfileFormatError::Parse(_) => Self::ProfileInvalid(e.to_string()),
         }
     }
 }
@@ -321,6 +340,12 @@ impl EmbeddedHost {
             .enable_all()
             .build()
             .map_err(|e| EmbeddedRefused::Internal(e.to_string()))?;
+        // The profile-format marker raised to this build's (ADR-0028 A
+        // 2026-10-20): the embedded host is the profile's state writer on
+        // Android, and the runtime's start is the first step that may
+        // write the profile -- an overlay's normalisation rewrite. Under
+        // the lock; a marker above this build's was refused by `load`.
+        profile_format::raise(&paths)?;
         let composed = executor.block_on(ComposedRuntime::start(
             &identity,
             &config,
