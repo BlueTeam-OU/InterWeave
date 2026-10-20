@@ -476,8 +476,9 @@ async fn the_installed_daemon_unit_starts_restarts_on_sighup_and_stops() {
     );
 }
 
-/// Every regular file under a profile's four XDG directories
-/// (`interweave/` under each root), whatever the profile.
+/// Every directory and regular file under a profile's four XDG
+/// directories (`interweave/` under each root), whatever the profile: a
+/// directory counts, since a profile's cache may hold no file yet.
 fn profile_files(roots: &[&Path]) -> BTreeSet<PathBuf> {
     fn walk(dir: &Path, out: &mut BTreeSet<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -489,6 +490,7 @@ fn profile_files(roots: &[&Path]) -> BTreeSet<PathBuf> {
                 .expect("metadata")
                 .file_type();
             if kind.is_dir() {
+                out.insert(path.clone());
                 walk(&path, out);
             } else if kind.is_file() {
                 out.insert(path);
@@ -538,13 +540,18 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
         roots.state_home.as_path(),
         roots.cache_home.as_path(),
     ];
+    // This profile configures no discovery cache, so nothing has written
+    // under the cache root: a stand-in there, as a peer cache would be.
+    let cache = roots.cache_home.join("interweave/profiles/kept");
+    common::private_dir(&cache);
+    std::fs::write(cache.join("peers"), b"a peer cache's stand-in").expect("a cache file");
     let files_before = profile_files(&profile_roots);
     assert!(
         files_before.contains(&installed.home.paths.identity_file())
-            && files_before
+            && profile_roots
                 .iter()
-                .any(|f| f.starts_with(&roots.state_home)),
-        "the control: the profile has its key and its state: {files_before:?}"
+                .all(|root| files_before.iter().any(|f| f.starts_with(root))),
+        "the control: the profile has its key and something under each root: {files_before:?}"
     );
     let kept: Vec<(PathBuf, Vec<u8>)> = [
         installed.home.paths.config_file(),
@@ -573,7 +580,7 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
     assert!(!client_wanted.is_symlink(), "the client disabled");
     let files_after = profile_files(&profile_roots);
     let lost: Vec<_> = files_before.difference(&files_after).collect();
-    assert!(lost.is_empty(), "no profile file removed: {lost:?}");
+    assert!(lost.is_empty(), "nothing of the profile removed: {lost:?}");
     for exe in ["transport-daemon", "transportctl", "human-desktop"] {
         assert!(
             !installed.installed_bin().join(exe).exists(),
