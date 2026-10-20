@@ -125,6 +125,12 @@ run; rc=$?
 [[ $rc -eq 1 && ! -e "$SANDBOX/out.json" ]] && grep -qF 'no single credit sentence' "$SANDBOX/err" \
     && pass "an FTL.TXT with no credit sentence is refused (1), nothing written" \
     || fail "an FTL.TXT with no credit sentence exited $rc" "$(cat "$SANDBOX/err")"
+printf '   """\n    Portions of this software are copyright © 2019 Someone.\n   """\n' > "$SRC/FTL.TXT"
+write_pin
+run; rc=$?
+[[ $rc -eq 1 && ! -e "$SANDBOX/out.json" ]] && grep -qF 'no single credit sentence' "$SANDBOX/err" \
+    && pass "a credit sentence with no <year> to fill is refused (1)" \
+    || fail "a credit sentence with no <year> exited $rc" "$(cat "$SANDBOX/err")"
 mv "$SRC/FTL.keep" "$SRC/FTL.TXT"
 write_pin "" "Delta | x | https://example.invalid/x"
 run; rc=$?
