@@ -106,7 +106,7 @@ PY
 OUT="$SANDBOX/out"
 sign() {
     rm -rf "$OUT"
-    ANDROID_BUILD_TOOLS="$TOOLS" \
+    ANDROID_BUILD_TOOLS="${BT:-$TOOLS}" \
     INTERWEAVE_RELEASE_KEYSTORE="$SANDBOX/${KEY:-rel}.p12" \
     INTERWEAVE_RELEASE_KEY_ALIAS="${KEY:-rel}" \
     INTERWEAVE_RELEASE_KEYSTORE_PASS="$PASS" \
@@ -199,6 +199,48 @@ make_apk "$SANDBOX/none.apk" org.interweave.human 0.4.1 false
 refused "no native code" "not arm64-v8a alone" 0.4.1 "$SANDBOX/none.apk" "$OUT"
 CERT=ABC refused "an expected fingerprint that is not lowercase hex" "64 lowercase hex" \
     0.4.1 "$SANDBOX/good.apk" "$OUT"
+
+# apksigner's verify output as each version prints it. Up to 36.1 a
+# certificate line reads "Signer #1 certificate SHA-256 digest: ...", from
+# 37.0 "V3.0 Signer: certificate SHA-256 digest: ...". A stand-in rewrites
+# the real tool's output with REWRITE (a sed -E script), so the shape this
+# host's tool does not print is run too, and so are shapes no version
+# should print.
+RW="$SANDBOX/rewrite"
+mkdir -p "$RW"
+ln -s "$real_tools/aapt2" "$RW/aapt2"
+ln -s "$real_tools/zipalign" "$RW/zipalign"
+cat > "$RW/apksigner" <<EOF
+#!/usr/bin/env bash
+[[ "\$1" == verify ]] || exec "$real_tools/apksigner" "\$@"
+out="\$("$real_tools/apksigner" "\$@")" || exit \$?
+sed -E "\$REWRITE" <<<"\$out"
+EOF
+chmod +x "$RW/apksigner"
+for shape in old new; do
+    if [[ $shape == old ]]; then
+        export REWRITE='s/^V[0-9.]+ Signer: certificate /Signer #1 certificate /'
+    else
+        export REWRITE='s/^Signer #1 certificate /V3.0 Signer: certificate /'
+    fi
+    if BT="$RW" sign 0.4.1 "$SANDBOX/good.apk" "$OUT" \
+        && grep -qF "\"cert_sha256\": \"$REL_CERT\"" "$OUT/android-values.json"; then
+        pass "apksigner's $shape certificate lines give the release key's fingerprint"
+    else
+        fail "apksigner's $shape certificate lines were not read" "$(cat "$SANDBOX/err")"
+    fi
+done
+REWRITE='s/^Number of signers: 1$/Number of signers: 2/' BT="$RW" \
+    refused "apksigner reporting two signers" "2 signers, not one" 0.4.1 "$SANDBOX/good.apk" "$OUT"
+REWRITE='/^Number of signers:/d' BT="$RW" \
+    refused "apksigner reporting no signer count" "no signers, not one" 0.4.1 "$SANDBOX/good.apk" "$OUT"
+REWRITE='s/^(Signer #1|V[0-9.]+ Signer:) certificate SHA-256/Signer one certificate SHA-256/' BT="$RW" \
+    refused "certificate lines in a shape not known" "named no single signing certificate" \
+    0.4.1 "$SANDBOX/good.apk" "$OUT"
+REWRITE='s/^((Signer #1|V[0-9.]+ Signer:) certificate SHA-256 digest: )([0-9a-f]{64})$/\1\3\nV3.1 Signer: certificate SHA-256 digest: '"$(printf 'e%.0s' {1..64})"'/' \
+    BT="$RW" refused "two different certificates" "named no single signing certificate" \
+    0.4.1 "$SANDBOX/good.apk" "$OUT"
+unset REWRITE
 
 # The last write fails, after the APK and its hash are moved: an `mv` on
 # PATH that refuses the values file. Nothing of the run is left.

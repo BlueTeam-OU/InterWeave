@@ -177,9 +177,14 @@ for scheme in "v2 scheme (APK Signature Scheme v2): true" "v3 scheme (APK Signat
     "v1 scheme (JAR signing): false"; do
     grep -qF "Verified using $scheme" <<<"$verify" || die "not verified as: $scheme"
 done
-signers="$(grep -c '^Signer #[0-9]* certificate SHA-256 digest: ' <<<"$verify" || true)"
-[[ "$signers" == 1 ]] || die "$signers signers, not one"
-cert="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<<"$verify")"
+# The signer count and the certificate are read the same way from every
+# apksigner: up to 36.1 a certificate line is "Signer #1 certificate ...",
+# from 37.0 "V3.0 Signer: certificate ...", and both print "Number of
+# signers". A line in neither shape gives no certificate, which is refused.
+signers="$(sed -n 's/^Number of signers: //p' <<<"$verify")"
+[[ "$signers" == 1 ]] || die "${signers:-no} signers, not one"
+cert="$(sed -En 's/^(Signer #[0-9]+|V[0-9.]+ Signer:) certificate SHA-256 digest: ([0-9a-f]{64})$/\2/p' <<<"$verify" | sort -u)"
+[[ "$cert" =~ ^[0-9a-f]{64}$ ]] || die "apksigner verify named no single signing certificate: '${cert//$'\n'/ }'"
 if (( ! first_release )) && [[ "$cert" != "$expected_cert" ]]; then
     die "signed with certificate $cert, not the release key's $expected_cert"
 fi
