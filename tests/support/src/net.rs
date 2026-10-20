@@ -32,7 +32,7 @@
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::net::{IpAddr, Ipv4Addr, TcpListener, UdpSocket};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 /// This host's private-range (RFC 1918) IPv4 address, or a panic that
@@ -96,13 +96,14 @@ static HANDED_OUT: Mutex<BTreeMap<u16, File>> = Mutex::new(BTreeMap::new());
 /// (`a_port_another_process_claims_is_refused_until_it_ends`,
 /// `free_port_holds_the_claim_on_what_it_answers`).
 ///
-/// What this does not close: a process that is not a `free_port` caller
-/// -- or one under another temporary directory, such as another account
-/// on a shared host -- may bind the port between this answer and the
+/// What this does not close: a process that is not a `free_port` caller,
+/// or one of ANOTHER ACCOUNT -- the claims are per account
+/// ([`claims_dir`]) -- may bind the port between this answer and the
 /// daemon's bind, which fails that daemon's start.
 ///
 /// # Panics
-/// When the host will not bind `ip`.
+/// When the host will not bind `ip`, or this account's claims directory
+/// cannot be made or written.
 #[must_use]
 pub fn free_port(ip: Ipv4Addr) -> u16 {
     let mut handed_out = HANDED_OUT.lock().unwrap_or_else(PoisonError::into_inner);
@@ -120,10 +121,38 @@ pub fn free_port(ip: Ipv4Addr) -> u16 {
     }
 }
 
-/// Where the claims are: the temporary directory, which every process of
-/// one test run shares.
+/// Where the claims are: under the temporary directory, which every
+/// process of one test run shares, in a directory of this account's own.
+///
+/// PER ACCOUNT, because with `TMPDIR` unset two accounts share `/tmp`:
+/// a directory one made with its umask is one the other cannot create
+/// a claim in, and `fs.protected_regular` refuses an open with `O_CREAT`
+/// of another's file in a sticky world-writable one. Either way every
+/// `free_port` of the second account panicked
+/// (`another_accounts_claims_directory_is_not_this_ones`). The uid is
+/// read from `/proc/self/status`, as `profile-config`'s `effective_uid`
+/// reads it; without `/proc` the name carries none, and the temporary
+/// directory is the account's own on such a host (macOS's per-user
+/// `TMPDIR`).
 fn claims_dir() -> PathBuf {
-    std::env::temp_dir().join("interweave-free-port")
+    claims_dir_in(&std::env::temp_dir())
+}
+
+fn claims_dir_in(base: &Path) -> PathBuf {
+    base.join(effective_uid().map_or_else(
+        || "interweave-free-port".to_owned(),
+        |uid| format!("interweave-free-port-{uid}"),
+    ))
+}
+
+/// This process's effective uid, if `/proc/self/status` says it.
+fn effective_uid() -> Option<u32> {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))
+        .and_then(|ids| ids.split_whitespace().nth(1))
+        .and_then(|id| id.parse().ok())
 }
 
 /// `port`'s claim, if no other holder has it: an exclusive advisory lock
@@ -134,8 +163,11 @@ fn claims_dir() -> PathBuf {
 /// # Panics
 /// When the claims directory or a claim file cannot be made or locked.
 fn claim(port: u16) -> Option<File> {
-    let dir = claims_dir();
-    std::fs::create_dir_all(&dir)
+    claim_in(&claims_dir(), port)
+}
+
+fn claim_in(dir: &Path, port: u16) -> Option<File> {
+    std::fs::create_dir_all(dir)
         .unwrap_or_else(|e| panic!("the port claims at {}: {e}", dir.display()));
     let path = dir.join(port.to_string());
     let file = OpenOptions::new()
@@ -153,7 +185,7 @@ fn claim(port: u16) -> Option<File> {
 
 #[cfg(test)]
 mod tests {
-    use super::{claim, free_port};
+    use super::{claim, claim_in, claims_dir_in, free_port};
     use std::collections::BTreeSet;
     use std::net::Ipv4Addr;
 
@@ -220,5 +252,30 @@ mod tests {
     fn free_port_holds_the_claim_on_what_it_answers() {
         let port = free_port(Ipv4Addr::LOCALHOST);
         assert!(claim(port).is_none(), "port {port} answered unclaimed");
+    }
+
+    /// A claims directory left by ANOTHER ACCOUNT under the old shared
+    /// name -- one this account cannot write, made so here by its mode --
+    /// does not stop this account's claims. The control is that the
+    /// same unwritable directory, were it this account's, refuses them.
+    #[test]
+    fn another_accounts_claims_directory_is_not_this_ones() {
+        use std::os::unix::fs::PermissionsExt;
+        let base =
+            std::env::temp_dir().join(format!("interweave-free-port-test-{}", std::process::id()));
+        let theirs = base.join("interweave-free-port");
+        std::fs::create_dir_all(&theirs).expect("their directory");
+        let read_only = std::fs::Permissions::from_mode(0o555);
+        std::fs::set_permissions(&theirs, read_only).expect("read-only");
+        let port = 1;
+        let ours = claims_dir_in(&base);
+        let claimed = std::panic::catch_unwind(|| claim_in(&ours, port).is_some());
+        let control = std::panic::catch_unwind(|| claim_in(&theirs, port).is_some());
+        std::fs::set_permissions(&theirs, std::fs::Permissions::from_mode(0o755))
+            .expect("writable again");
+        std::fs::remove_dir_all(&base).expect("cleaned");
+        assert_ne!(ours, theirs, "this account's claims share the old name");
+        assert!(matches!(claimed, Ok(true)), "this account cannot claim");
+        assert!(control.is_err(), "an unwritable directory did not refuse");
     }
 }
