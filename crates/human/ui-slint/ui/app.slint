@@ -2627,7 +2627,18 @@ export component AppWindow inherits Window {
                 function to-newest() {
                     self.content-y = min(0px, self.height - self.content-height);
                 }
-                property <bool> anchored: root.typing;
+                // Pinned to its end until the person scrolls away from it:
+                // a conversation opens at its end and stays there as its
+                // space or its messages change (the spec's S3); scrolled
+                // back to the end, it is pinned again. The list is made
+                // again, pinned, when the list beside it steps aside or
+                // comes back, with no change to tell it.
+                property <bool> pinned: true;
+                flicked => {
+                    self.pinned = self.content-y <= self.height - self.content-height + 1px;
+                }
+                property <bool> anchored: root.typing || self.pinned;
+                init => { self.to-newest(); }
                 changed anchored => {
                     if (self.anchored) { self.to-newest(); }
                 }

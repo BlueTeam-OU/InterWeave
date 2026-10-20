@@ -1525,7 +1525,13 @@ fn the_composer_keeps_its_height_whatever_the_free_space() {
 fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() {
     let text = placeholder_en::text;
     let mut model = UiModel::new();
-    model.received(received(1, "the newest", NOW));
+    // A conversation longer than any space above the keyboard, so being
+    // anchored is something the list does, not where it starts (#304 §7:
+    // the phone showed the top, the day line cut).
+    for row in 1..20 {
+        model.received(received(row, &format!("earlier {row}"), NOW));
+    }
+    model.received(received(20, "the newest", NOW));
     let view = opened(&model, false);
     let window = view.window();
     window
@@ -1543,6 +1549,8 @@ fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() 
     assert!(window.get_has_notice(), "control: a network notice");
 
     for (covered, list, notice, app_bar) in [
+        // The keyboard closed: the conversation opens at its end.
+        (0.0, true, true, true),
         // H = 300: the list and the notice step aside, the bar stays.
         (111.0, false, false, true),
         // H = 191: the app bar too.
@@ -1552,6 +1560,7 @@ fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() 
     ] {
         window.set_keyboard_overlap(covered);
         slint::platform::update_timers_and_animations();
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
         assert_eq!(
             field_left(&view) > 281.0,
             list,
@@ -1576,7 +1585,10 @@ fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() 
                     .is_some_and(|l| l.contains("the newest"))
             })
             .collect();
-        assert!(!newest.is_empty(), "the message is in the tree");
+        assert!(
+            !newest.is_empty(),
+            "covered {covered}: the newest message is drawn"
+        );
         // Anchored at its newest message: its end is in view above the
         // keyboard, however little of it the space can hold (step 5).
         assert!(
@@ -1587,6 +1599,59 @@ fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() 
             "covered {covered}: the newest message in view"
         );
     }
+}
+
+/// The spec's S3: a conversation opens at its end and stays there as
+/// messages arrive, until the person scrolls away from it. Scrolled up,
+/// a new message does not pull the list back down.
+#[test]
+fn the_list_follows_its_end_until_the_person_scrolls_away() {
+    use slint::platform::WindowEvent;
+    let settle = || {
+        slint::platform::update_timers_and_animations();
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+        slint::platform::update_timers_and_animations();
+    };
+    let drawn = |view: &View, text: &str| {
+        all(view)
+            .into_iter()
+            .any(|e| e.accessible_label().is_some_and(|l| l.contains(text)))
+    };
+    let mut model = UiModel::new();
+    for row in 1..20 {
+        model.received(received(row, &format!("earlier {row}"), NOW));
+    }
+    let mut view = opened(&model, false);
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 600.0));
+    settle();
+    assert!(drawn(&view, "earlier 19"), "it opens at its end");
+
+    model.received(received(20, "arrived at the end", NOW));
+    view.render(&model);
+    settle();
+    assert!(drawn(&view, "arrived at the end"), "and follows it");
+
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::PointerScrolled {
+            position: slint::LogicalPosition::new(195.0, 300.0),
+            delta_x: 0.0,
+            delta_y: 400.0,
+        });
+    settle();
+    assert!(
+        !drawn(&view, "arrived at the end"),
+        "control: the scroll moved the list off its end"
+    );
+    model.received(received(21, "arrived while away", NOW));
+    view.render(&model);
+    settle();
+    assert!(
+        !drawn(&view, "arrived while away"),
+        "scrolled away, a new message leaves the list where the person put it"
+    );
 }
 
 /// #304 F3, round 1: a touch user who closes the keyboard leaves the
