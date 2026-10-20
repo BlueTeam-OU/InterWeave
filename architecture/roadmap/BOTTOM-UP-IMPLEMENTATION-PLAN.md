@@ -5406,13 +5406,17 @@ and 18 (done in this change). The status value stays the lowest open stage,
 stage's packages (`CLAUDE.md` §3) — the packaging roots under Activate below,
 each added to `[workspace].members` in the change that creates it where it is
 a crate. The split, by lane: p2p-network-dev takes packaging/linux beyond §28
-step 4's user units (whose CI cover §28 left open) with the Validate rows
+step 4's user units (the Stage 13 supervision-units carry is met by those two
+units, `interweave-daemon@.service` and `interweave-client@.service`; what
+remains of it is their CI cover, which §28 left open and p2p-network-dev
+holds here) with the Validate rows
 service/autostart lifecycle and uninstall semantics, the Stage 13 carry (hot
 reload on SIGHUP and which leases survive it, decided below; flock on NFS
 homes), and the Android release run of ADR-0057 — the tagged release run, the
 signed APK, its SHA-256 and the Slint attribution on the release page — with
 the Validate row Android update/reinstall behavior (S12's device evidence,
-§21, feeds it); rust-ui-dev takes the Validate rows fresh install, upgrade,
+§21, feeds it) — packaging/android is p2p-network-dev's by that run;
+rust-ui-dev takes the Validate rows fresh install, upgrade,
 rollback, profile/config migration, PeerId preservation and the recovery drill
 as host tests against a packaged build, and the Stage 15 carry (the Slint
 attribution on the public download page). The Skia choice ADR-0057 leaves to
@@ -5424,8 +5428,10 @@ of #320; measured on their branch, the §22 line following their verdict). packa
 packaging/windows (with the Stage 18 Windows carry below) wait on a lane and a
 host and open on their own record line here: the macOS runtime-directory rule
 is architect-cto's; the macOS runner, the Windows binding and its BSL-1.0
-decision are unassigned, by name, until a lane and a host exist; macOS stays
-in the v1 matrix and the closing record says what became of it. Nothing in
+decision have no building lane until a lane and a host exist, and until then
+architect-cto holds them as carries, by name, so that no row of this stage is
+nobody's; macOS stays in the v1 matrix and the closing record says what
+became of it. Nothing in
 this stage invents trust, network or application semantics (the rule below).
 The stage closes on the owner's word, as every stage, once every Validate row
 has a green test on `main` or a `limit` naming its reason, every item carried
@@ -5476,9 +5482,13 @@ when a test shows SIGHUP producing SIGTERM's stop sequence and exiting with
 the status it reads from the unit file, asserting that `SuccessExitStatus=`
 and `RestartForceExitStatus=` both name it (so the daemon and the unit cannot
 drift apart), and the service/autostart lifecycle row shows the restart; until
-then it is open, not decided-as-met. Supervision units; flock on NFS homes.
+then it is open, not decided-as-met. Supervision units: met by §28 step 4's
+two user units, their CI cover p2p-network-dev's (the split above). flock on
+NFS homes: p2p-network-dev's (the split above).
 
-Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
+Carried here from Stage 15 (§18): client autostart of the daemon (§18 (9),
+the owner's with packaging — the service/autostart lifecycle row,
+p2p-network-dev's in the split above, is where it is met or re-carried); the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
 Android's release is the project's own (ADR-0057): the tagged release run, the signed APK, its SHA-256 and the Slint attribution on the project's release page, updates by hand; no store listing exists and none is planned; whether the release run builds Skia from source or pins the bindings' prebuilt archive by checksum is decided here before the first release. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release — rust-services-dev's since 2026-10-20 (remit #320), the bridge, its package and SPIKE-001's carried measurements with it.
 
