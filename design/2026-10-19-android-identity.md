@@ -479,6 +479,10 @@ names are suggestions; rust-ui-dev names them.
 | `IdShowWords` | Show my words | C1's primary |
 | `IdNotWalletSeed` (new) | InterWeave identity recovery phrase, not a cryptocurrency wallet seed | C2 and S2, above the words. One line at 100 % only on a wide screen: 68 characters. The contract's label also says "transport"; it is left out as a word the person does not know |
 | `IdFormatLine` (new) | Phrase format: | C2 and S2, before the untranslated format identifier (§3.2), one line. "Phrase format" says whose format it is; a bare "Format" could be read as the screen's layout. The label stands alone before a value, so a translation needs no template |
+| `AuthenticationNeeded` (the app's, #313, not yet on main) | InterWeave is offline because it is locked. To unlock it, tap Unlock and enter your phone's PIN, pattern or password. Your conversations are saved on this phone and appear again after you unlock InterWeave. | The locked notice: offline after a cancelled unlock at S2's Done, at a launch, or after C4's or R4's continue (§6) |
+| `Authenticate` (the app's, #313, not yet on main) | Unlock | The locked notice's action; it raises the prompt (§6) |
+| `UnlockPromptTitle` (the app's, #313, not yet on main) | Unlock InterWeave | The system prompt's title for a key operation or a launch; S1's prompt keeps its own |
+| `CopyPeerId`, `PeerIdCopied` (the app's, #313, not yet on main) | Copy PeerId · PeerId copied | The button under a PeerId and its confirmation below Android 13 (§5) |
 | `IdStorageUnknown` (new) | The app could not tell whether your identity was saved. Try again to check. | §6's notice when the read-back fails, two lines, with `TryAgain`. It never says that nothing changed. "To check" is true, because Try again reads back before it writes |
 | `IdRestoreOther` (new) | Your identity was not restored. This phone has another identity, with the PeerId below. | §6's another-identity-on-record row, at a restore (a record that names a PeerId other than the one restored), two lines, the PeerId in full below it. "With the PeerId below" ties the PeerId to the other identity, so it is not read as the person's own |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
@@ -543,7 +547,9 @@ point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestored
 on 2026-10-20 `IdPeerIdTitle`, `IdPeerIdWritten`, `IdNext` and
 `IdPeerIdNoteShown`. The locked notice and its prompt
 (`AuthenticationNeeded`, `Authenticate`, `UnlockPromptTitle`) are the
-app's keys, not this flow's, in `labels.rs` (#313). `IdTryAgain` and
+app's keys, not this flow's, added to `labels.rs` by #313 and not yet
+on main; so are `CopyPeerId` and `PeerIdCopied` (§5). Their rows are
+in the table above. `IdTryAgain` and
 `IdRetry` are both `TryAgain`. `IdKeepEntering` is
 `IdContinueEntering`.
 

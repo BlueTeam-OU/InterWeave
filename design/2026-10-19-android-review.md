@@ -259,8 +259,9 @@ but does not re-rank these.
        compares line up. No spaces or grouping are inserted: the
        copied text is the canonical form. This differs from the
        identity flow's groups of four (identity design §5) on
-       purpose: there the PeerId is display-only text with a copy of
-       its own, so the spacing never reaches the clipboard; here the
+       purpose: there the PeerId is not selectable and its "Copy
+       PeerId" button gives the canonical string (identity §5), so
+       the spacing never reaches the clipboard; here the
        person copies by selecting the text itself, and any spacing
        would be copied with it.
     3. The field is a Material outlined text field labelled "PeerId to
