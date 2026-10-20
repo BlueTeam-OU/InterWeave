@@ -131,9 +131,17 @@ pub enum StartError {
     /// land among the daemon's files.
     RolesOverlap,
     /// The profile's configuration could not be loaded.
-    Config(LoadError),
+    Config {
+        /// Why.
+        error: LoadError,
+        /// The profile's paths, for the file a refusal names.
+        paths: Box<ProfilePaths>,
+    },
     /// No endpoint in the profile allows this client's kind.
-    NoHumanEndpoint,
+    NoHumanEndpoint {
+        /// The profile's paths, for the file a refusal names.
+        paths: Box<ProfilePaths>,
+    },
     /// The socket paths could not be derived.
     Sockets(PersistError),
 }
@@ -147,8 +155,13 @@ impl fmt::Display for StartError {
                 "two of the profile's directories are the same or nest inside one another; \
                  refusing to put the message store where the daemon's files are",
             ),
-            Self::Config(e) => write!(f, "the profile's configuration could not be loaded: {e}"),
-            Self::NoHumanEndpoint => write!(
+            Self::Config { error, .. } => {
+                write!(
+                    f,
+                    "the profile's configuration could not be loaded: {error}"
+                )
+            }
+            Self::NoHumanEndpoint { .. } => write!(
                 f,
                 "no endpoint in the profile allows the {CLIENT_KIND} client kind"
             ),
@@ -167,7 +180,10 @@ pub fn resolve(launch: &Launch, roots: &XdgRoots) -> Result<Profile, StartError>
     if !paths.roles_are_distinct() {
         return Err(StartError::RolesOverlap);
     }
-    let config = ProfileConfig::load(&paths).map_err(StartError::Config)?;
+    let config = ProfileConfig::load(&paths).map_err(|error| StartError::Config {
+        error,
+        paths: Box::new(paths.clone()),
+    })?;
     let endpoints: Vec<EndpointId> = config
         .endpoints
         .entries
@@ -180,7 +196,9 @@ pub fn resolve(launch: &Launch, roots: &XdgRoots) -> Result<Profile, StartError>
         .map(|e| e.id.clone())
         .collect();
     if endpoints.is_empty() {
-        return Err(StartError::NoHumanEndpoint);
+        return Err(StartError::NoHumanEndpoint {
+            paths: Box::new(paths),
+        });
     }
     Ok(Profile {
         endpoints,
@@ -197,9 +215,9 @@ pub enum Opened {
     /// Open, at its current schema. A store over its quota opens too; the
     /// facade reports it degraded on its first turn.
     Ready(HumanStore),
-    /// Not usable now: the app shows why, holds no session and no lease,
-    /// and never renames, moves or deletes the file (architect-cto's Q4
-    /// ruling).
+    /// Not usable now: the app shows why on the refusal screen
+    /// (`refusal.rs`), holds no session and no lease, and never renames,
+    /// moves or deletes the file (architect-cto's Q4 ruling).
     Blocked(Blocked),
 }
 

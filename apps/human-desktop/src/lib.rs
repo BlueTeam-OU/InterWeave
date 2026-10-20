@@ -16,6 +16,8 @@ pub mod facade_thread;
 #[cfg(unix)]
 pub mod ipc;
 #[cfg(unix)]
+pub mod refusal;
+#[cfg(unix)]
 pub mod run;
 #[cfg(unix)]
 mod signals;
