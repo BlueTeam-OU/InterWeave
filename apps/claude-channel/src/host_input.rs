@@ -14,12 +14,22 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt as _};
 
 /// The most bytes one host line may hold before its newline.
 ///
-/// Sized from the payload ceiling (`MAX_PAYLOAD_BYTES`, 49,152): content
-/// escaped at JSON's worst, six bytes per byte, is 294,912, so every
+/// Sized from the payload ceiling: content escaped at JSON's worst
+/// (`\u00XX`, six bytes per byte) with room for the envelope, so every
 /// line that carries an admissible payload, and most that carry one too
 /// large, reach the parse and are answered under their id; a line past
-/// this is refused unread.
+/// this is refused unread, and answered with nothing.
 pub const MAX_HOST_LINE_BYTES: usize = 1 << 20;
+
+/// The envelope beside the content: the JSON-RPC frame, the tool's name
+/// and its other arguments.
+const ENVELOPE_ROOM_BYTES: usize = 64 << 10;
+
+// A payload ceiling raised past this would have the bridge refuse, with
+// no answer, a `tools/call` the payload check would accept.
+const _: () = assert!(
+    6 * interweave_transport_api::MAX_PAYLOAD_BYTES + ENVELOPE_ROOM_BYTES <= MAX_HOST_LINE_BYTES
+);
 
 /// One line of the host's, as the serve loop takes it.
 #[derive(Debug, PartialEq, Eq)]
