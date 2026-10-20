@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# tools/ci/release_notices.py
+#
+# >>> help
+# Write the third-party notices a release archive ships beside its
+# programs: every crate compiled into them, with its licence and the
+# licence texts the crate itself publishes.
+#
+#   tools/ci/release_notices.py <metadata.json> <out.md> <package>...
+#
+# <metadata.json> is `cargo metadata --locked --format-version 1
+# --filter-platform <target>` for the target the programs are built for;
+# <package>... are the workspace packages whose programs ship. A crate is
+# included when it is reached from them by NORMAL dependencies: a
+# build-dependency runs at build time and is not in the program, and a
+# dev-dependency is not built at all. A proc macro is a normal dependency
+# and is listed, since its expansion is compiled in. Workspace members
+# are this repository's own and are covered by its LICENSE; a vendored
+# crate under third_party/ is NOT a member and is listed like any other.
+#
+# The texts are each crate's own files whose names begin LICENSE, LICENCE,
+# COPYING, NOTICE, COPYRIGHT or UNLICENSE (and the files of a directory so
+# named, as a LICENSES/ directory holds them), or its `license-file`; a text
+# several crates share is printed once and named by each. A crate that
+# publishes no licence file is listed with its licence expression and
+# marked so, never given a text it does not carry.
+#
+# REFUSED, writing nothing, when a named package is not a workspace member
+# or a crate carries no licence expression and no licence file.
+#
+# Exit codes:
+#   0  written; the counts are printed
+#   1  a refusal above
+#   2  usage
+# <<< help
+
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+PREFIXES = ("LICENSE", "LICENCE", "COPYING", "NOTICE", "COPYRIGHT", "UNLICENSE")
+
+
+def help_text() -> str:
+    lines = Path(__file__).read_text().splitlines()
+    start = lines.index("# >>> help") + 1
+    end = lines.index("# <<< help")
+    return "\n".join(line[2:] for line in lines[start:end]) + "\n"
+
+
+def shipped(metadata: dict, roots: list) -> tuple:
+    """(the third-party packages reached by normal dependencies, sorted)."""
+    packages = {p["id"]: p for p in metadata["packages"]}
+    members = set(metadata["workspace_members"])
+    nodes = {n["id"]: n for n in metadata["resolve"]["nodes"]}
+    by_name = {packages[i]["name"]: i for i in members}
+    missing = [r for r in roots if r not in by_name]
+    if missing:
+        raise ValueError("not a workspace member: " + ", ".join(missing))
+    seen, stack = set(), [by_name[r] for r in roots]
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        for dep in nodes[node]["deps"]:
+            if any(kind["kind"] is None for kind in dep["dep_kinds"]):
+                stack.append(dep["pkg"])
+    third = [packages[i] for i in seen if i not in members]
+    return sorted(third, key=lambda p: (p["name"], p["version"]))
+
+
+def licence_files(package: dict) -> list:
+    root = Path(package["manifest_path"]).parent
+    files = set()
+    if package.get("license_file"):
+        files.add(root / package["license_file"])
+    for entry in os.listdir(root):
+        if not entry.upper().startswith(PREFIXES):
+            continue
+        path = root / entry
+        if path.is_file():
+            files.add(path)
+        elif path.is_dir():
+            # A REUSE-style LICENSES/ directory, one text per file.
+            files.update(f for f in path.iterdir() if f.is_file())
+    return sorted(files)
+
+
+def render(third: list) -> tuple:
+    texts, order, lines, bare = {}, [], [], 0
+    for package in third:
+        expr = package.get("license") or ""
+        files = licence_files(package)
+        if not expr and not files:
+            raise ValueError(f"{package['name']} {package['version']} has no licence expression and no licence file")
+        refs = []
+        for path in files:
+            text = path.read_text(errors="replace").strip() + "\n"
+            digest = hashlib.sha256(text.encode()).hexdigest()
+            if digest not in texts:
+                texts[digest] = {"text": text, "label": f"T{len(texts) + 1}", "users": []}
+                order.append(digest)
+            texts[digest]["users"].append(f"{package['name']} {package['version']} ({path.name})")
+            refs.append(texts[digest]["label"])
+        line = f"- `{package['name']}` {package['version']}: {expr or 'see its licence file'}"
+        if refs:
+            line += " — text " + ", ".join(refs)
+        else:
+            bare += 1
+            line += " — publishes no licence file"
+            if package.get("repository"):
+                line += f"; source {package['repository']}"
+        lines.append(line)
+    out = [
+        "# Third-party notices",
+        "",
+        "These programs are InterWeave's own, under the Apache License 2.0",
+        "(`LICENSE`), and they contain the following crates, each under its",
+        "own licence. A licence text that several crates share is printed",
+        "once, below the list, and named by each.",
+        "",
+        *lines,
+        "",
+        "## Licence texts",
+    ]
+    for digest in order:
+        entry = texts[digest]
+        out += ["", f"### {entry['label']}", "", "Used by " + "; ".join(entry["users"]) + ".", "",
+                "```text", entry["text"].rstrip("\n"), "```"]
+    return "\n".join(out) + "\n", len(order), bare
+
+
+def main(argv: list) -> int:
+    if len(argv) == 2 and argv[1] in ("-h", "--help"):
+        sys.stdout.write(help_text())
+        return 0
+    if len(argv) < 4:
+        sys.stderr.write("usage: release_notices.py <metadata.json> <out.md> <package>...\n")
+        return 2
+    try:
+        metadata = json.loads(Path(argv[1]).read_text())
+        third = shipped(metadata, argv[3:])
+        page, distinct, bare = render(third)
+    except (OSError, ValueError, KeyError) as err:
+        sys.stderr.write(f"release_notices: {err}\n")
+        return 1
+    Path(argv[2]).write_text(page)
+    print(f"{len(third)} crates, {distinct} distinct licence texts, {bare} crates with no licence file")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+# tools/ci/test_release_linux_archive.sh
+#
+# Self-test for release_linux_archive.sh and release_notices.py.
+#
+# The three programs are stand-in scripts (--bin-dir) and the dependency
+# graph a small `cargo metadata` document over sandbox crates, so nothing
+# is compiled. The archive is unpacked and its own install.sh run into a
+# sandbox home -- the positive control that the layout is the one the
+# script expects -- with systemctl a stub that finds no user manager, so
+# the test never touches the account's real one. Two builds from the same
+# inputs must be the same bytes.
+#
+# Exit codes:
+#   0  all assertions passed
+#   1  one or more failed
+
+set -uo pipefail
+
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
+UNDER_TEST="$SCRIPT_DIR/release_linux_archive.sh"
+NOTICES="$SCRIPT_DIR/release_notices.py"
+[[ -f "$UNDER_TEST" && -f "$NOTICES" ]] || { echo "test: scripts not found" >&2; exit 1; }
+
+failures=0
+SANDBOX="$(realpath -- "$(mktemp -d)")"
+trap 'rm -rf "$SANDBOX"' EXIT
+pass() { echo "  ✓ $1"; }
+fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2
+         failures=$((failures + 1)); }
+
+BIN="$SANDBOX/bin"
+mkdir -p "$BIN"
+for p in transport-daemon transportctl human-desktop; do
+    printf '#!/bin/sh\necho %s\n' "$p" > "$BIN/$p"
+    chmod 0700 "$BIN/$p"
+done
+
+# crate <dir> <file>...: a sandbox crate directory with those files.
+crate() {
+    local d="$SANDBOX/crates/$1"; shift
+    mkdir -p "$d"
+    printf '[package]\n' > "$d/Cargo.toml"
+    local f
+    for f in "$@"; do
+        mkdir -p "$(dirname "$d/$f")"
+        printf 'the text of %s\n' "$(basename "$f")" > "$d/$f"
+    done
+}
+crate daemon
+crate ctl
+crate desktop
+crate libfoo LICENSE-MIT LICENSE-APACHE
+crate libbar LICENSE-MIT
+cp "$SANDBOX/crates/libfoo/LICENSE-MIT" "$SANDBOX/crates/libbar/LICENSE-MIT"
+crate macro LICENSES/MIT.txt
+crate bare
+crate buildonly LICENSE
+crate devonly LICENSE
+
+M="$SANDBOX/metadata.json"
+python3 - "$SANDBOX" > "$M" <<'PY'
+import json, sys
+root = sys.argv[1] + "/crates"
+def pkg(name, dir, license, repo=None):
+    return {"id": f"{name}-id", "name": name, "version": "1.0.0", "license": license,
+            "license_file": None, "repository": repo,
+            "manifest_path": f"{root}/{dir}/Cargo.toml"}
+packages = [
+    pkg("interweave-transport-daemon", "daemon", "Apache-2.0"),
+    pkg("interweave-transportctl", "ctl", "Apache-2.0"),
+    pkg("interweave-human-desktop", "desktop", "Apache-2.0"),
+    pkg("libfoo", "libfoo", "MIT OR Apache-2.0"),
+    pkg("libbar", "libbar", "MIT"),
+    pkg("a-macro", "macro", "MIT"),
+    pkg("bare", "bare", "MIT", "https://example.invalid/bare"),
+    pkg("buildonly", "buildonly", "MIT"),
+    pkg("devonly", "devonly", "MIT"),
+]
+normal = [{"kind": None, "target": None}]
+def dep(name, kinds=normal):
+    return {"name": name, "pkg": f"{name}-id", "dep_kinds": kinds}
+nodes = [
+    {"id": "interweave-transport-daemon-id", "deps": [dep("libfoo"), dep("buildonly", [{"kind": "build", "target": None}])]},
+    {"id": "interweave-transportctl-id", "deps": [dep("libbar"), dep("devonly", [{"kind": "dev", "target": None}])]},
+    {"id": "interweave-human-desktop-id", "deps": [dep("a-macro"), dep("bare")]},
+] + [{"id": f"{n}-id", "deps": []} for n in ("libfoo", "libbar", "a-macro", "bare", "buildonly", "devonly")]
+print(json.dumps({"packages": packages, "workspace_members": [p["id"] for p in packages[:3]],
+                  "resolve": {"nodes": nodes}}))
+PY
+
+cat > "$BIN/systemctl" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod +x "$BIN/systemctl"
+
+OUT="$SANDBOX/out"
+build() {
+    rm -rf "$OUT"
+    SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" \
+        bash "$UNDER_TEST" --bin-dir "$BIN" "$@" >"$SANDBOX/stdout" 2>"$SANDBOX/err"
+}
+
+echo "release_linux_archive.sh:"
+NAME=interweave-0.3.0-x86_64-unknown-linux-gnu
+A="$OUT/$NAME.tar.gz"
+if build 0.3.0 "$OUT"; then
+    listing="$(tar -tzvf "$A" | awk '{print $1, $2, $6}' | sort -k3)"
+    want="$(sort -k3 <<EOF
+drwxr-xr-x 0/0 $NAME/
+-rw-r--r-- 0/0 $NAME/LICENSE
+-rw-r--r-- 0/0 $NAME/README.md
+-rw-r--r-- 0/0 $NAME/THIRD-PARTY-NOTICES.md
+drwxr-xr-x 0/0 $NAME/bin/
+-rwxr-xr-x 0/0 $NAME/bin/human-desktop
+-rwxr-xr-x 0/0 $NAME/bin/transport-daemon
+-rwxr-xr-x 0/0 $NAME/bin/transportctl
+-rwxr-xr-x 0/0 $NAME/install.sh
+drwxr-xr-x 0/0 $NAME/systemd/
+-rw-r--r-- 0/0 $NAME/systemd/interweave-client@.service
+-rw-r--r-- 0/0 $NAME/systemd/interweave-daemon@.service
+-rwxr-xr-x 0/0 $NAME/uninstall.sh
+EOF
+)"
+    if [[ "$listing" == "$want" ]]; then
+        pass "the archive holds exactly the layout, owned by 0/0 with release modes"
+    else
+        fail "the archive's listing is not the expected one" "$(diff <(echo "$want") <(echo "$listing"))"
+    fi
+    if (cd "$OUT" && sha256sum -c --quiet "$NAME.tar.gz.sha256"); then
+        pass "the .sha256 file checks against the archive"
+    else
+        fail "the .sha256 file does not check"
+    fi
+    want_json="{\"linux_archive\": \"$NAME.tar.gz\", \"linux_sha256\": \"$(sha256sum "$A" | cut -d' ' -f1)\"}"
+    [[ "$(cat "$OUT/linux-values.json")" == "$want_json" ]] \
+        && pass "linux-values.json names the archive and its hash" \
+        || fail "linux-values.json is not the expected one" "$(cat "$OUT/linux-values.json")"
+    stamps="$(python3 -c 'import sys, tarfile; print(sorted({m.mtime for m in tarfile.open(sys.argv[1])}))' "$A")"
+    [[ "$stamps" == "[1760000000]" ]] \
+        && pass "every entry's mtime is SOURCE_DATE_EPOCH" \
+        || fail "the entries' mtimes are $stamps, not SOURCE_DATE_EPOCH alone"
+    first="$(sha256sum "$A" | cut -d' ' -f1)"
+    touch "$BIN/transportctl"
+    build 0.3.0 "$OUT"
+    [[ "$(sha256sum "$A" | cut -d' ' -f1)" == "$first" ]] \
+        && pass "two builds from the same inputs are the same bytes" \
+        || fail "a second build of the same inputs differs"
+
+    X="$SANDBOX/x"
+    mkdir -p "$X" "$SANDBOX/home"
+    tar -xzf "$A" -C "$X"
+    if HOME="$SANDBOX/home" XDG_CONFIG_HOME="$SANDBOX/home/.config" PATH="$BIN:$PATH" \
+        sh "$X/$NAME/install.sh" >"$SANDBOX/install.out" 2>&1 \
+        && [[ "$("$SANDBOX/home/.local/bin/transportctl")" == transportctl ]] \
+        && [[ -f "$SANDBOX/home/.config/systemd/user/interweave-daemon@.service" ]]; then
+        pass "the unpacked archive's install.sh installs its programs and units"
+    else
+        fail "the unpacked archive's install.sh did not install" "$(cat "$SANDBOX/install.out")"
+    fi
+
+    N="$X/$NAME/THIRD-PARTY-NOTICES.md"
+    for line in '- `libfoo` 1.0.0: MIT OR Apache-2.0 — text T' '- `libbar` 1.0.0: MIT — text T' \
+        '- `a-macro` 1.0.0: MIT — text T' \
+        '- `bare` 1.0.0: MIT — publishes no licence file; source https://example.invalid/bare'; do
+        grep -qF -- "$line" "$N" || { fail "the notices lack: $line"; lacking=1; }
+    done
+    [[ -n "${lacking-}" ]] || pass "the notices list every crate reached by a normal dependency, a proc macro included"
+    if grep -qE 'buildonly|devonly|interweave-' "$N"; then
+        fail "the notices list a build-only, dev-only or workspace crate" "$(grep -E 'buildonly|devonly|interweave-' "$N")"
+    else
+        pass "a build-dependency, a dev-dependency and the workspace's own crates are not listed"
+    fi
+    shared="$(grep -c '^the text of LICENSE-MIT$' "$N")"
+    [[ "$shared" == 1 ]] && grep -qF 'Used by libbar 1.0.0 (LICENSE-MIT); libfoo 1.0.0 (LICENSE-MIT).' "$N" \
+        && pass "a text two crates share is printed once and names both" \
+        || fail "a shared text is printed $shared times or not attributed to both"
+    grep -qx 'the text of MIT.txt' "$N" \
+        && pass "a LICENSES/ directory's texts are included" \
+        || fail "a LICENSES/ directory's text is missing"
+else
+    fail "a complete set of inputs was refused" "$(cat "$SANDBOX/err")"
+fi
+
+refused() {
+    local what="$1" needle="$2"; shift 2
+    if build "$@"; then fail "$what: accepted"
+    elif ls "$OUT"/*.tar.gz >/dev/null 2>&1; then fail "$what: refused but left an archive"
+    elif ! grep -qF -- "$needle" "$SANDBOX/err"; then fail "$what: refused without saying $needle" "$(cat "$SANDBOX/err")"
+    else pass "$what: refused, no archive"; fi
+}
+refused "a version that is not MAJOR.MINOR.PATCH" "not MAJOR.MINOR.PATCH" 0.3 "$OUT"
+mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
+refused "a missing program" "no executable $BIN/human-desktop" 0.3.0 "$OUT"
+mv "$BIN/human-desktop.gone" "$BIN/human-desktop"
+python3 - "$M" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1])); m["packages"][4]["license"] = None
+import os; os.remove(m["packages"][4]["manifest_path"].replace("Cargo.toml", "LICENSE-MIT"))
+json.dump(m, open(sys.argv[1], "w"))
+PY
+refused "a crate with no licence expression and no licence file" "libbar 1.0.0 has no licence" 0.3.0 "$OUT"
+
+echo "release_notices.py:"
+python3 "$NOTICES" "$M" "$SANDBOX/n.md" no-such-member >/dev/null 2>"$SANDBOX/err"
+[[ $? -eq 1 ]] && grep -qF 'not a workspace member: no-such-member' "$SANDBOX/err" && [[ ! -e "$SANDBOX/n.md" ]] \
+    && pass "a package that is not a workspace member is refused" \
+    || fail "an unknown package was not refused" "$(cat "$SANDBOX/err")"
+
+if (( failures )); then
+    echo "test_release_linux_archive.sh: $failures failure(s)" >&2
+    exit 1
+fi
+echo "test_release_linux_archive.sh: all assertions passed"
