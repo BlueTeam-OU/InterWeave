@@ -50,9 +50,10 @@ use interweave_transport_api::{
 };
 use serde::Serialize;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufRead, AsyncBufReadExt as _, AsyncWrite, AsyncWriteExt as _};
+use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt as _};
 use tokio::time::Instant;
 
+use crate::host_input::{HostLine, HostLines, MAX_HOST_LINE_BYTES};
 use crate::mcp::{
     INVALID_PARAMS, Incoming, error_line, notification_line, parse_line, protocol_answer,
     tool_result_line,
@@ -283,7 +284,7 @@ where
         health: None,
         pull: None,
     };
-    let mut lines = input.lines();
+    let mut lines = HostLines::new(input);
     loop {
         let connected = bridge.session.is_some();
         // The pause lifted with joins or leaves of unknown outcome: they
@@ -296,9 +297,21 @@ where
         }
         tokio::select! {
             line = lines.next_line() => {
-                let Some(line) = line? else { return Ok(()) };
-                if let Some(answer) = bridge.host_line(&line, &mut output).await? {
-                    write_line(&mut output, &answer).await?;
+                match line? {
+                    None => return Ok(()),
+                    Some(HostLine::Text(line)) => {
+                        if let Some(answer) = bridge.host_line(&line, &mut output).await? {
+                            write_line(&mut output, &answer).await?;
+                        }
+                    }
+                    // Answered as a line that is not JSON is: with
+                    // nothing, as no id can be trusted from it.
+                    Some(HostLine::NotUtf8) => {}
+                    // No id is read from it either: one written after
+                    // its params sits in the bytes refused unread.
+                    Some(HostLine::TooLong) => eprintln!(
+                        "claude-channel: a host line over {MAX_HOST_LINE_BYTES} bytes was dropped"
+                    ),
                 }
             }
             // Paused (pull mode, the queue full): the session is not
