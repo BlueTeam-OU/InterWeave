@@ -11,6 +11,7 @@ checked against it.
 |---|---|---|
 | SDK platforms | API 30 (the test device), API 36 (Google Play's target from 2026-08-31) | `/opt/android-sdk/platforms/` |
 | build-tools | 30.0.3, 36.0.0 (AGP 9.4's default) | `/opt/android-sdk/build-tools/` |
+| for gzapp's Flutter apps (AGP 8.11), host only | build-tools 35.0.0, platforms 34, 35 and 37 (`android-37.0`, also linked as `android-37`), CMake 3.22.1 | `/opt/android-sdk/` |
 | NDK | 28.2.13676358 (r28c, AGP 9.4's default) | `/opt/android-sdk/ndk/` |
 | platform-tools, cmdline-tools | 37.0.1, 23.0 | `/opt/android-sdk/` |
 | JDK | Temurin 17.0.20.1+1 (AGP 9.4 needs 17) | `/opt/android-sdk/jdk` |
@@ -34,6 +35,13 @@ default, and a Gradle build names the pinned one, for example with
 `gradle.properties`. The SDK's `adb` is not put on `PATH` either, since
 two adb servers of different versions fight over the device. Use
 `$ANDROID_HOME/platform-tools/adb` explicitly if you need the pinned one.
+
+A Flutter build finds the SDK through `ANDROID_HOME`, but its JDK through
+its own setting, never the profile. Each Flutter account says it once:
+
+```sh
+flutter config --jdk-dir "$ANDROID_JDK_HOME"
+```
 
 A Gradle wrapper pins `distributionUrl=…/gradle-9.6.0-bin.zip` with
 `distributionSha256Sum=` the `GRADLE_DIST_SHA256` in the pins file.
@@ -107,8 +115,14 @@ difference. This is what to run on every host after a pin changes.
 ## Raising a version
 
 Edit `android-toolchain.pins` (for an SDK package, the `PKG_<n>` path and
-revision; Google's repository is
+revision, or `HOST_PKG_<n>` for one only the host's SDK needs, which CI
+then never installs; Google's repository is
 `https://dl.google.com/android/repository/repository2-3.xml`), then stage
 and install again on every host. Until a host is re-installed, its
 `--check` fails, naming the package. `--stage` fails if Google has moved a
 package away from its pin, rather than staging something else.
+
+A `LINK_<n>` gives a pinned package a second name, as a relative symlink
+beside it. `LINK_1` exists because Google publishes API 37 only as
+`platforms;android-37.0`, and an AGP 8 build with `compileSdk = 37` looks
+for `android-37`. It can go once no project on the host builds with AGP 8.

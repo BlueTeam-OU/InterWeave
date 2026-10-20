@@ -6,8 +6,10 @@
 //! [`ProfileConfig::parse_yaml`] turns text into the model -- every
 //! section the schema declares, unknown keys refused at every level --
 //! and judges nothing else. [`ProfileConfig::load`] is what a daemon or
-//! the admin tool calls: it reads the profile's `config.yaml` under a
-//! size ceiling, parses it, refuses a document whose `profile.name` is
+//! the admin tool calls: it refuses a profile whose state directory's
+//! profile-format marker names a format above this build's
+//! ([`crate::profile_format`]), reads the profile's `config.yaml` under
+//! a size ceiling, parses it, refuses a document whose `profile.name` is
 //! not the profile it is being loaded as, refuses one that fails
 //! `validate()`, and refuses one whose `identity.key_file` resolves inside
 //! the human client's directory.
@@ -93,6 +95,12 @@ pub enum LoadError {
         /// Which rule it broke, with its owner uid and mode.
         detail: String,
     },
+    /// The state directory's profile-format marker names a format above
+    /// this build's, or cannot be trusted or read (ADR-0028 A
+    /// 2026-10-20). Judged before `config.yaml` is read: a newer build's
+    /// document may not parse here, and the format is what a person can
+    /// act on.
+    ProfileFormat(crate::profile_format::ProfileFormatError),
 }
 
 /// Open `config.yaml` without following a final link and accept the
@@ -245,6 +253,7 @@ impl core::fmt::Display for LoadError {
                 f,
                 "the profile's configuration directory can be changed by another account: {e}"
             ),
+            Self::ProfileFormat(e) => e.fmt(f),
             Self::Invalid(errors) => {
                 write!(f, "the profile breaks {} rule(s):", errors.len())?;
                 for e in errors {
@@ -261,6 +270,7 @@ impl core::error::Error for LoadError {
         match self {
             Self::Read(e) | Self::KeyFileUnresolved { source: e, .. } => Some(e),
             Self::ConfigDirUnguarded(e) => Some(e),
+            Self::ProfileFormat(e) => Some(e),
             _ => None,
         }
     }
@@ -275,14 +285,21 @@ impl ProfileConfig {
         serde_norway::from_str(text).map_err(|e| LoadError::Parse(e.to_string()))
     }
 
-    /// Load `paths`' profile document: read it (at most
+    /// Load `paths`' profile document: refuse it when a newer build
+    /// wrote the profile, read it (at most
     /// [`MAX_PROFILE_BYTES`]), parse it, require `profile.name` to be the
     /// profile `paths` resolves, and validate it.
     ///
     /// # Errors
-    /// [`LoadError`], naming which step refused: read, size, parse, name,
-    /// validation, or a key file inside the human client's directory.
+    /// [`LoadError`], naming which step refused: the profile-format
+    /// marker, read, size, parse, name, validation, or a key file inside
+    /// the human client's directory.
     pub fn load(paths: &ProfilePaths) -> Result<Self, LoadError> {
+        // FIRST, so every loader refuses a profile a newer build wrote
+        // before it takes the lock, rewrites an overlay or creates a
+        // directory -- and a `transportctl identity init` whose
+        // `config.yaml` is absent is refused too (ADR-0028 A 2026-10-20).
+        crate::profile_format::require_supported(paths).map_err(LoadError::ProfileFormat)?;
         // The directory judged for who can change it, and the file read
         // under it as resolved (ADR-0028 A 2026-10-08): an absent one is
         // still a read failure.

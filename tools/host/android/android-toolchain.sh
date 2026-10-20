@@ -10,8 +10,9 @@
 #
 #   --stage [--dest DIR]  in an AppVM (has network): download and verify,
 #                         install the SDK packages into a staging tree with
-#                         sdkmanager, check every revision, write the
-#                         manifest, pack one archive + its .sha256
+#                         sdkmanager, make each LINK_<n>, check every
+#                         revision and link, write the manifest, pack one
+#                         archive + its .sha256
 #   --install ARCHIVE     as root: verify the archive and its manifest
 #                         against the pins, install SDK_DIR read-only for
 #                         every account, write /etc/profile.d
@@ -81,7 +82,9 @@ valid_pin() {
         *_URL)    [[ "$v" =~ ^https://[A-Za-z0-9._~:/?\&=+%@-]+$ ]] ;;
         *_SHA1)   [[ "$v" =~ ^[0-9a-f]{40}$ ]] ;;
         *_SHA256) [[ "$v" =~ ^[0-9a-f]{64}$ ]] ;;
-        PKG_*)    [[ "$v" =~ ^[A-Za-z0-9._-]+(\;[A-Za-z0-9._-]+)*@[0-9]+(\.[0-9]+)*$ ]] ;;
+        PKG_*|HOST_PKG_*) [[ "$v" =~ ^[A-Za-z0-9._-]+(\;[A-Za-z0-9._-]+)*@[0-9]+(\.[0-9]+)*$ ]] ;;
+        # One level under SDK_DIR, pointing at a sibling: never `.` or `..`.
+        LINK_*)   [[ "$v" =~ ^[a-z-]+/[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$ && ! "/$v@" =~ [/@]\.\.?[/@] ]] ;;
         *)        [[ "$v" =~ ^[A-Za-z0-9._+-]+$ ]] ;;
     esac
 }
@@ -94,6 +97,12 @@ read_pins() {
         [[ "$line" =~ ^([A-Z][A-Z0-9_]*)=(.+)$ ]] || die "$1:$n is not KEY=VALUE: $line"
         # Taken before valid_pin, whose own matches overwrite BASH_REMATCH.
         key="${BASH_REMATCH[1]}" value="${BASH_REMATCH[2]}"
+        # A family key is <FAMILY>_<n>, nothing else: `family` reads only
+        # those, so any other suffix would be recorded in the manifest and
+        # never installed, linked or checked.
+        if [[ "$key" =~ ^(HOST_PKG|PKG|LINK)_ && ! "$key" =~ ^(HOST_PKG|PKG|LINK)_[0-9]+$ ]]; then
+            die "$1:$n: $key is not of the form PKG_<n>, HOST_PKG_<n> or LINK_<n>"
+        fi
         valid_pin "$key" "$value" || die "$1:$n: the value of $key is not of its form"
         PIN["$key"]="$value"
     done < "$1"
@@ -101,9 +110,28 @@ read_pins() {
     for k in SDK_DIR CMDLINE_TOOLS_URL CMDLINE_TOOLS_SHA1 CMDLINE_TOOLS_REVISION JDK_VERSION JDK_URL JDK_SHA256 PKG_1; do
         [[ -n "${PIN[$k]:-}" ]] || die "$1 has no $k"
     done
+    local spec paths
+    paths="$(pkgs | sed 's/@[^@]*$//')"
+    while IFS= read -r spec; do
+        grep -qxF "$(link_target_pkg "$spec")" <<< "$paths" \
+            || die "$1: LINK $spec points at no pinned package"
+        # A link named like a package would be made inside its directory.
+        ! grep -qxF "$(link_name_pkg "$spec")" <<< "$paths" \
+            || die "$1: LINK $spec takes the name of a pinned package"
+    done < <(links)
 }
-# The PKG_<n> entries in order: "<sdkmanager path>@<revision>".
-pkgs() { local k; for k in $(printf '%s\n' "${!PIN[@]}" | grep -E '^PKG_[0-9]+$' | LC_ALL=C sort -t_ -k2 -n); do printf '%s\n' "${PIN[$k]}"; done; }
+# The values of the <family>_<n> pins, in the order of n.
+family() { local k; for k in $(printf '%s\n' "${!PIN[@]}" | grep -E "^$1_[0-9]+\$" | sed "s/^$1_//" | LC_ALL=C sort -n); do printf '%s\n' "${PIN[$1_$k]}"; done; }
+# Every SDK package a host installs, "<sdkmanager path>@<revision>": the
+# PKG_<n> CI installs too (tools/ci/android_ci_toolchain.sh), then the
+# HOST_PKG_<n> only the host's SDK carries, for other projects' builds.
+pkgs() { family PKG; family HOST_PKG; }
+# The LINK_<n> entries in order: "<dir>/<name>@<sibling>".
+links() { family LINK; }
+# The sdkmanager path of the package a link points at: platforms/x@y -> platforms;y.
+link_target_pkg() { local spec="$1"; printf '%s;%s\n' "${spec%%/*}" "${spec##*@}"; }
+# The sdkmanager path the link's own name would be: platforms/x@y -> platforms;x.
+link_name_pkg() { local spec="${1%@*}"; printf '%s;%s\n' "${spec%%/*}" "${spec#*/}"; }
 # The pins as the manifest records them: every KEY=VALUE line, sorted
 # bytewise. Never the locale's order: the AppVM that stages and the
 # host that installs need not share a locale, and a different order
@@ -148,8 +176,9 @@ PY
 jdk_version() { sed -n 's/^IMPLEMENTOR_VERSION="Temurin-\(.*\)"$/\1/p' "$1/release" 2>/dev/null; }
 
 # Everything --check and --install hold a tree to: the manifest equals the
-# pins, every package and the cmdline-tools at their pinned revision, the
-# JDK at its version. Returns the number of problems in PROBLEMS.
+# pins, every package and the cmdline-tools at their pinned revision, each
+# LINK_<n> pointing at its pinned sibling, the JDK at its version. Returns
+# the number of problems in PROBLEMS.
 verify_tree() {
     local root="$1" spec path want dir got
     if [[ ! -r "$root/$MANIFEST_NAME" ]]; then
@@ -166,6 +195,14 @@ verify_tree() {
         if [[ "$got" == "$want" ]]; then ok "$path $got"
         else bad "$path: ${got:-not installed}, pinned $want"; fi
     done < <(pkgs)
+    while IFS= read -r spec; do
+        path="${spec%@*}" want="${spec##*@}"
+        got="$(readlink "$root/$path" 2>/dev/null)"
+        if [[ -L "$root/$path" && "$got" == "$want" && -d "$root/$path" ]]; then ok "$path -> $got"
+        elif [[ "$got" == "$want" ]]; then bad "$path -> $got: the target is not installed"
+        elif [[ -n "$got" ]]; then bad "$path: a link to $got, pinned a link to $want"
+        else bad "$path: no link, pinned a link to $want"; fi
+    done < <(links)
     got="$(sed -n 's/^Pkg.Revision=//p' "$root/cmdline-tools/latest/source.properties" 2>/dev/null | tr -d '[:space:]')"
     if [[ "$got" == "${PIN[CMDLINE_TOOLS_REVISION]}" ]]; then ok "cmdline-tools $got"
     else bad "cmdline-tools: ${got:-not installed}, pinned ${PIN[CMDLINE_TOOLS_REVISION]}"; fi
@@ -234,6 +271,11 @@ if [[ "$MODE" == stage ]]; then
     mapfile -t paths < <(pkgs | sed 's/@[^@]*$//')
     "${sdkm[@]}" --install "${paths[@]}" > "$STAGE_DIR/sdkmanager.log" 2>&1 \
         || { tail -5 "$STAGE_DIR/sdkmanager.log" >&2; die "sdkmanager failed (log: $STAGE_DIR/sdkmanager.log)"; }
+    while IFS= read -r spec; do
+        # Never into a directory sdkmanager made: ln would link inside it.
+        [[ ! -e "$root/${spec%@*}" || -L "$root/${spec%@*}" ]] || die "${spec%@*} exists and is not a link"
+        ln -sfn -- "${spec##*@}" "$root/${spec%@*}" || die "cannot make the link ${spec%@*}"
+    done < <(links)
 
     pins_canonical > "$root/$MANIFEST_NAME"
     verify_tree "$root"

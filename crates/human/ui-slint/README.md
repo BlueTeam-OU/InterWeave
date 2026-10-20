@@ -12,7 +12,7 @@ The surface was agreed with the client's role, which owns this crate from Stage 
 - winit, with the software renderer and the platform accessibility adapter;
 - `unstable-winit-030`, the only public way to read the window's focus.
 
-The desktop app turns `desktop` on. `i-slint-backend-testing` is pinned to the same exact version and used for tests only. The pins are exact because the `i-slint-*` crates make no semver promise. `deny.toml` admits the Royalty-free licence for the Slint crates alone, by the owner's decisions of 2026-10-01 and 2026-10-04. Its attribution is the badge on the download page at Stage 19, not a screen (architect-cto's ruling).
+The desktop app turns `desktop` on. `i-slint-backend-testing` is pinned to the same exact version and used for tests only. The pins are exact because the `i-slint-*` crates make no semver promise. `deny.toml` admits the Royalty-free licence for the Slint crates alone, by the owner's decisions of 2026-10-01 and 2026-10-04. Its attribution is the badge on the download page, not a screen (architect-cto's ruling): the release page's template, `apps/human-android/release/release-page.md.in`, one page for every platform, whose `tests/release_page.rs` holds it.
 
 **Event loop (desktop).** The app cannot name Slint, so the loop's pieces are here:
 - `View::handle()` runs the loop;
