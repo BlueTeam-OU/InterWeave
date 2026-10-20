@@ -502,9 +502,9 @@ fn profile_files(roots: &[&Path]) -> BTreeSet<PathBuf> {
 /// no socket -- and every profile file kept, so a reinstall serves the
 /// same `PeerId`. The daemon is started and never enabled while its
 /// client is enabled, so both ways uninstall finds an instance -- loaded,
-/// and enabled -- are needed; a third instance is a persistent wants link
-/// the manager has never loaded, whose stop fails and whose `disable`
-/// cannot find its unit, and which must go too. It runs from a shell with
+/// and enabled -- are needed; then, run again over a wants link whose
+/// template is gone, it removes that link too. The first run is from a
+/// shell with
 /// neither the session's `XDG_RUNTIME_DIR` nor its bus address, as `sudo
 /// -u` or cron gives, and must find the manager anyway. The control for
 /// "nothing running" is the same instances running just before.
@@ -527,24 +527,6 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
     installed.restarted(&installed.client, "0").await;
     let pid = show(&daemon, "MainPID");
     assert_ne!(pid, "0", "the control: a daemon runs");
-    let ghost = format!("interweave-daemon@ghost-{}.service", std::process::id());
-    let ghost_link = installed
-        .installed_units()
-        .join("default.target.wants")
-        .join(&ghost);
-    std::fs::create_dir_all(ghost_link.parent().expect("a wants dir")).expect("a wants dir");
-    std::os::unix::fs::symlink(
-        installed
-            .installed_units()
-            .join("interweave-daemon@.service"),
-        &ghost_link,
-    )
-    .expect("the ghost's link");
-    assert_eq!(
-        show(&ghost, "LoadState"),
-        "not-found",
-        "the control: never loaded"
-    );
     let roots = &installed.home.roots;
     let profile_roots = [
         roots.config_home.as_path(),
@@ -571,8 +553,7 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
     })
     .collect();
 
-    let out = installed.script_in("uninstall.sh", &[], false);
-    let said = String::from_utf8_lossy(&out.stdout);
+    installed.script_in("uninstall.sh", &[], false);
 
     for unit in [&daemon, &installed.client] {
         assert_eq!(show(unit, "ActiveState"), "inactive", "{unit} stopped");
@@ -586,11 +567,6 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
     // `is_symlink`, not `exists`: a link left behind dangles once the
     // template is gone, and `exists` follows it.
     assert!(!client_wanted.is_symlink(), "the client disabled");
-    assert!(
-        !ghost_link.is_symlink()
-            && said.contains(&format!("removed the link {}", ghost_link.display())),
-        "the never-loaded instance's link removed:\n{said}"
-    );
     let files_after = profile_files(&profile_roots);
     let lost: Vec<_> = files_before.difference(&files_after).collect();
     assert!(lost.is_empty(), "no profile file removed: {lost:?}");
@@ -614,6 +590,35 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
             path.display()
         );
     }
+
+    // What a partial uninstall used to leave: an instance still enabled
+    // whose template is gone, which the manager cannot load -- its stop
+    // fails and its `disable` cannot find it. Run again, uninstall removes
+    // the link and says so.
+    let ghost = format!("interweave-daemon@ghost-{}.service", std::process::id());
+    let ghost_link = installed
+        .installed_units()
+        .join("default.target.wants")
+        .join(&ghost);
+    std::fs::create_dir_all(ghost_link.parent().expect("a wants dir")).expect("a wants dir");
+    std::os::unix::fs::symlink(
+        installed
+            .installed_units()
+            .join("interweave-daemon@.service"),
+        &ghost_link,
+    )
+    .expect("the ghost's link");
+    assert_eq!(
+        show(&ghost, "LoadState"),
+        "not-found",
+        "the control: its template is gone"
+    );
+    let said = String::from_utf8_lossy(&installed.script("uninstall.sh", &[]).stdout).into_owned();
+    assert!(
+        !ghost_link.is_symlink()
+            && said.contains(&format!("removed the link {}", ghost_link.display())),
+        "the template-less instance's link removed:\n{said}"
+    );
 
     // Reinstalled, the kept key is the same PeerId.
     installed.install();
