@@ -3,10 +3,12 @@
 
 The evidence for plan §22's Validate rows **service/autostart lifecycle**
 and **uninstall semantics** on Linux, and for the SIGHUP carry's "the
-unit row shows the restart". It is recorded here because CI has no user
-manager yet: until devex-tooling's job runs `user_units.rs`, the row
-carries the `limit` "no user manager in CI" (architect-cto's ruling of
-2026-10-20).
+unit row shows the restart". It was recorded here because CI had no
+user manager then, and the row carried the `limit` "no user manager in
+CI" (architect-cto's ruling of 2026-10-20) until devex-tooling's steps
+in the `rust` job (4f1ca850, folded into #324) ran `user_units.rs`
+under the hosted runner's lingering user manager: from then CI is the
+record, and this run is the first.
 
 - Commit: `d7f05382500642e8eeba542afd2b6e533ed9b517`
 - Host: Fedora, `systemd 258 (258.11-1.fc43)`, the account's own user

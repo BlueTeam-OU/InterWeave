@@ -6,9 +6,10 @@
 //! run by the account's own manager.
 //!
 //! Every case that needs the account's manager is `#[ignore]`: a plain
-//! `cargo test` may have no user manager, and CI has none yet (the row's
-//! `limit` until its job exists). Run them with `--ignored --test-threads
-//! 1` as an account whose manager is up (`systemctl --user
+//! `cargo test` may have no user manager. CI's `rust` job runs them, with
+//! `--run-ignored only`, under the hosted runner's lingering one. Run them
+//! by hand with `--ignored --test-threads 1` as an account whose manager
+//! is up (`systemctl --user
 //! show-environment` answers) and that runs no `interweave-*@` instance of
 //! its own -- uninstall stops every one, so a case refuses to start beside
 //! one. The two cases of uninstall.sh WITHOUT a reachable manager run
