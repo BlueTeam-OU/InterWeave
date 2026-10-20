@@ -158,7 +158,17 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
     // R -> D over the circuit and back; C -> D over D's address and back.
     // Each Android side asserts, in its own process, the path its route
     // to D began on.
-    let log = |side: &dyn Device| format!("{}\n{}", d.log(), side.log());
+    // The relay's record with both logs: a circuit that came up and
+    // closed reads in D's log only as a connection gone, and the relay
+    // alone says it carried the circuit and why it ended.
+    let log = |side: &dyn Device| {
+        format!(
+            "{}\n--- the relay ---\n{:?}\n{}",
+            d.log(),
+            relay.seen_now(),
+            side.log()
+        )
+    };
     let run = r.run_case(cases::PATHS, &args(&d_peer, PeerPath::Relayed, 1));
     desktop_answers(&d_session, &mut d_told, &r_peer, 1, || log(&r)).await;
     // The baseline for R's death is taken HERE, while R is known alive:

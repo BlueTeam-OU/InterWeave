@@ -72,7 +72,7 @@ pub mod keys {
     /// under (`trust_boundary`).
     pub const ROOT: &str = "runtime_root";
     /// The private directories found, each `<path> <octal mode>`
-    /// (`trust_boundary`).
+    /// (`trust_boundary`): a JSON array, as TEXT, as [`SENT`] is.
     pub const PRIVATE_DIRS: &str = "private_dirs";
     /// Why a directory under the platform's `files/` was refused
     /// (`trust_boundary`).
@@ -174,14 +174,32 @@ pub fn run<B: DataSessionBinding + AdminBinding>(
     ctx: CaseCtx<B>,
 ) -> String {
     let outcome = catch_unwind(AssertUnwindSafe(|| dispatch(case, args_json, ctx)));
+    answer(
+        case,
+        outcome.unwrap_or_else(|panic| Err(panic_text(panic.as_ref()))),
+    )
+}
+
+/// A case's outcome as the result JSON both runners hand back. Every value
+/// is text: the instrumentation's status carries strings alone, so a
+/// structured value would reach the host as text from a phone and as
+/// structure from the stand-in, and a host reader written against one
+/// would break on the other. A case that answers one fails here, on
+/// either runner, naming the key.
+fn answer(case: &str, outcome: Result<Map<String, Value>, String>) -> String {
     let mut out = match outcome {
-        Ok(Ok(fields)) => {
-            let mut fields = fields;
-            fields.insert(keys::RESULT.to_owned(), keys::PASS.into());
-            fields
+        Ok(fields) => {
+            if let Some((key, value)) = fields.iter().find(|(_, value)| !value.is_string()) {
+                failed(&format!(
+                    "{key} is not text ({value}): every value crosses the instrumentation's status as a string"
+                ))
+            } else {
+                let mut fields = fields;
+                fields.insert(keys::RESULT.to_owned(), keys::PASS.into());
+                fields
+            }
         }
-        Ok(Err(detail)) => failed(&detail),
-        Err(panic) => failed(&panic_text(panic.as_ref())),
+        Err(detail) => failed(&detail),
     };
     out.insert(keys::CASE.to_owned(), case.into());
     Value::Object(out).to_string()
@@ -418,7 +436,10 @@ fn trust_boundary(app_data_dir: &Path, profile: &str) -> Result<Map<String, Valu
         refused_under_files(app_data_dir, &walk_alone, paths.boundary())?;
     let mut out = Map::new();
     out.insert(keys::ROOT.to_owned(), root.display().to_string().into());
-    out.insert(keys::PRIVATE_DIRS.to_owned(), found.into());
+    out.insert(
+        keys::PRIVATE_DIRS.to_owned(),
+        Value::from(found).to_string().into(),
+    );
     out.insert(keys::REFUSED.to_owned(), refused.into());
     out.insert(keys::FILES_WALK_ALONE.to_owned(), files_walk_alone.into());
     Ok(out)
@@ -841,8 +862,19 @@ mod tests {
             .take_message(&session, &peer(), &text, Duration::from_secs(5))
             .await
             .expect("the Android side's message");
-        // The Android side has sent, so its session holds the route the
-        // notice is owed on.
+        // Holding the message does not mean the Android side holds its
+        // route: that is recorded once its send returns, and a change
+        // before then is the path the route begins on, with no previous
+        // (the fake's `routed_sessions`). Without this wait the
+        // previous-path test passed by timing (#294's queue build).
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        while android.routed_sessions(&other_peer()) == 0 {
+            assert!(
+                std::time::Instant::now() < until,
+                "the Android side's route"
+            );
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
         match told {
             Notice::Connected(path) => android.connected(&other_peer(), path),
             Notice::WithPrevious(previous, current) => {
@@ -1004,7 +1036,9 @@ mod tests {
             out[keys::ROOT],
             canonical.join("interweave").display().to_string()
         );
-        let dirs = out[keys::PRIVATE_DIRS].as_array().expect("dirs");
+        let dirs: Vec<Value> =
+            serde_json::from_str(out[keys::PRIVATE_DIRS].as_str().expect("dirs, as text"))
+                .expect("a JSON array");
         assert!(dirs.len() >= 3, "the root, config and state: {dirs:?}");
         assert!(
             dirs.iter()
@@ -1314,6 +1348,35 @@ mod tests {
         ));
         assert_eq!(out[keys::RESULT], keys::FAIL);
         assert_eq!(out[keys::DETAIL], "a check inside the case failed");
+    }
+
+    #[test]
+    fn a_structured_value_fails_its_case_on_either_runner_and_text_passes() {
+        let fields = |value: Value| {
+            let mut out = Map::new();
+            out.insert(keys::ROOT.to_owned(), "/data/user/0/app/interweave".into());
+            out.insert(keys::PRIVATE_DIRS.to_owned(), value);
+            Ok(out)
+        };
+        // The control: the same fields, every one text, pass.
+        let out = result(&answer(
+            cases::TRUST_BOUNDARY,
+            fields(r#"["/a 700"]"#.into()),
+        ));
+        assert_eq!(out[keys::RESULT], keys::PASS, "{out:?}");
+        for value in [
+            serde_json::json!(["/a 700"]),
+            serde_json::json!({"a": 1}),
+            7.into(),
+            true.into(),
+            Value::Null,
+        ] {
+            let out = result(&answer(cases::TRUST_BOUNDARY, fields(value.clone())));
+            assert_eq!(out[keys::RESULT], keys::FAIL, "{value}");
+            assert_eq!(out[keys::CASE], cases::TRUST_BOUNDARY);
+            let detail = out[keys::DETAIL].as_str().expect("a detail");
+            assert!(detail.starts_with(keys::PRIVATE_DIRS), "{detail}");
+        }
     }
 
     #[test]
