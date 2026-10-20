@@ -25,6 +25,7 @@ mod endpoints;
 mod harness;
 mod kept_disable;
 mod lifecycle;
+mod package;
 mod reading;
 mod retention;
 mod storage;
