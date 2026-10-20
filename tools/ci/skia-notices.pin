@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+# The licence texts the APK's native Skia library owes on the release
+# page, each pinned by SHA-256 (ADR-0057 decisions 3 and 4; the
+# component list is apps/human-android/STORE-CHECK.md's "The native Skia
+# library", and the template's {freetype_credit} and
+# {third_party_notice_texts} are what tools/ci/skia_notices.py fills).
+#
+# Every source is the component's own file at the commit Skia's DEPS pins
+# for rust-skia/skia tag m153-0.101.2, the build skia-binaries.pin names,
+# except cpu_features, which the build compiles from the NDK that
+# apps/human-android/android/app/build.gradle.kts names. A source is
+#   https://...          a file, as fetched
+#   gitiles:https://...  a googlesource file, served base64 (?format=TEXT)
+#   ndk:<version>/<path> a file of that NDK, under ANDROID_NDK_HOME's
+#                        parent or $ANDROID_HOME/ndk; only its first
+#                        comment, its licence header, is printed
+# The SHA-256 is of the whole file. Renewed with skia-binaries.pin, by
+# reading the new DEPS: a changed text fails the run until it is.
+#
+# component | file | source | sha256
+Skia and skcms | LICENSE | https://raw.githubusercontent.com/rust-skia/skia/m153-0.101.2/LICENSE | 5f787c1dee3c56547f09ccc2906ab5f5293c4d8dd6c8654e573216c38e908dbd
+libjpeg-turbo | LICENSE.md | gitiles:https://chromium.googlesource.com/chromium/deps/libjpeg_turbo.git/+/e14cbfaa85529d47f9f55b0f104a579c1061f9ad/LICENSE.md | 96f5b328adbb78eeaaec6980d73fd558cb1e4d62560ed615646bc3cf5e532430
+libjpeg-turbo | README.ijg | gitiles:https://chromium.googlesource.com/chromium/deps/libjpeg_turbo.git/+/e14cbfaa85529d47f9f55b0f104a579c1061f9ad/README.ijg | 75815e3bf6484201a3c3d17a1bbf10f2e8e3237f84df10a2357ea896db2a81d6
+FreeType | LICENSE.TXT | gitiles:https://chromium.googlesource.com/chromium/src/third_party/freetype2.git/+/264b5fbf5b912b39f98d038bf75d39be0a73f21b/LICENSE.TXT | bd36c8b474855fa294c2ec5c184544478ef3720aad37d65a6296a4f264fd2d3b
+FreeType | docs/FTL.TXT | gitiles:https://chromium.googlesource.com/chromium/src/third_party/freetype2.git/+/264b5fbf5b912b39f98d038bf75d39be0a73f21b/docs/FTL.TXT | 5a5ee54c5001bbad1cdc1a57cc3dd4c42199b2da09d39c7ee41fab002d02967f
+libpng | LICENSE | gitiles:https://skia.googlesource.com/third_party/libpng.git/+/d5515b5b8be3901aac04e5bd8bd5c89f287bcd33/LICENSE | bdb0a645ea18c60507d0368379b1ac5474b92255fcc2d115e07486a7672ba526
+zlib | LICENSE | gitiles:https://chromium.googlesource.com/chromium/src/third_party/zlib/+/646b7f569718921d7d4b5b8e22572ff6c76f2596/LICENSE | e1cfcc55c325b3f78cf55df9664abaa066e2271dffe8213347d9fccdfbac8f2c
+Expat | expat/COPYING | gitiles:https://chromium.googlesource.com/external/github.com/libexpat/libexpat.git/+/6154446fccefbf3ca644894f598969113b0c7bcd/expat/COPYING | 31b15de82aa19a845156169a17a5488bf597e561b2c318d159ed583139b25e87
+Wuffs | LICENSE | gitiles:https://skia.googlesource.com/external/github.com/google/wuffs-mirror-release-c.git/+/e3f919ccfe3ef542cfc983a82146070258fb57f8/LICENSE | cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+Vulkan Memory Allocator | LICENSE.txt | gitiles:https://chromium.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/+/eb744ea7a2b17040121b4bbb4d6f9e8a77e3cae7/LICENSE.txt | 52df2c03d6cfc9ffec13c9d3626c530fc9ce0cbe41d5ea3d10cd46edeb1aeb38
+cpu_features | cpu-features.c (its licence header) | ndk:28.2.13676358/sources/android/cpufeatures/cpu-features.c | 1b8a88eb7d3a5437d17e12475539398d3e1c5eef13d85941679841254af0a8f5
+#
+# The credit FreeType's FTL asks for, its <year> the value of the version
+# built (2.14.2 at the commit above, copyright 1996-2026).
+credit | Portions of this software are copyright © 2026 The FreeType Project (https://freetype.org).  All rights reserved.
