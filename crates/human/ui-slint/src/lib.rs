@@ -185,10 +185,12 @@ pub fn platform_check() -> Result<(), PlatformProblem> {
 /// is. Empty -- the default font -- when it names none, or without a
 /// window.
 ///
-/// On Android too: the backend lays text out with the same font stack,
-/// which reads the platform's fonts.xml, and there too "monospace" is a
-/// generic, not a family name -- given by name, every `PeerId` and code
-/// line drew in the body font on the phone (#304 F4, round 2).
+/// On Android the generic resolves to nothing: fontique 0.11.1's Android
+/// backend maps monospace to a family NAMED "monospace", looked up among
+/// the scanned font files before fonts.xml's aliases are read, and no
+/// file carries that name -- so 62fad28a's question still gave the body
+/// font on the phone (#304 F4, round 2 on 35c71169). The families
+/// Android ships its monospace in are asked for by name after it.
 #[cfg(any(feature = "desktop", feature = "android"))]
 fn code_font() -> SharedString {
     use i_slint_common::sharedfontique::fontique::{Collection, CollectionOptions, GenericFamily};
@@ -196,11 +198,27 @@ fn code_font() -> SharedString {
         shared: false,
         system_fonts: true,
     });
-    let family = fonts.generic_families(GenericFamily::Monospace).next();
+    let generic = fonts.generic_families(GenericFamily::Monospace).next();
+    let family = generic.or_else(|| {
+        MONOSPACE_FAMILIES
+            .iter()
+            .find_map(|name| fonts.family_id(name))
+    });
     family
         .and_then(|id| fonts.family_name(id))
         .map_or_else(SharedString::new, SharedString::from)
 }
+
+/// Android's monospaced families, by the names its font files carry,
+/// most likely first: AOSP's DroidSansMono.ttf and CutiveMono.ttf, and
+/// the Noto and Roboto monospace faces some builds add.
+#[cfg(any(feature = "desktop", feature = "android"))]
+const MONOSPACE_FAMILIES: [&str; 4] = [
+    "Droid Sans Mono",
+    "Roboto Mono",
+    "Noto Sans Mono",
+    "Cutive Mono",
+];
 
 #[cfg(not(any(feature = "desktop", feature = "android")))]
 fn code_font() -> SharedString {
