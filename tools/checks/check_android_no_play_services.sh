@@ -39,8 +39,14 @@
 # included. The other way round (a list of "application" configurations)
 # lets the next classpath through unnamed. The exempt shapes:
 #   lint:  androidLintTool, lintChecks, lintPublish, *LintChecksClasspath
-#   test:  *UnitTest*, *AndroidTest*, androidTest*,
-#          unified-test-platform-*
+#   test:  *UnitTest*, *AndroidTest*, androidTest*, testFixtures*,
+#          *TestFixtures*, unified-test-platform-*
+# Test fixtures are test tooling: architect-cto's ruling of 2026-10-19
+# (DECISION 01a15473), with no change to the decision's text, since
+# "test tooling" already covers them -- fixtures are compiled for tests
+# and never enter the application's runtime classpath. A fixtures
+# artifact that reached an application configuration is on that
+# configuration in the lock, and fails there.
 # The build's own plugin classpath (`classpath` in
 # buildscript-gradle.lockfile) and the Kotlin compiler's are NOT exempt:
 # the decision names lint and test tooling only, and nothing there needs
@@ -71,8 +77,8 @@
 #
 # AND THE DECLARATIONS: the same files may not name a banned group
 # (a plugins { } id, a dependency coordinate, a catalog entry), except
-# on a dependency line of a test or lint configuration (one statement,
-# no ;). A subproject's
+# on a dependency line of a test, test-fixtures or lint configuration
+# (one statement, no ;). A subproject's
 # own plugin classpath is in no lockfile, so this is what refuses the
 # Google services plugin applied there.
 #
@@ -229,14 +235,14 @@ LOOSEN='LENIENT|ignoredDependencies|unlockAllConfigurations|deactivateDependency
 # name one, as decision 2 allows; the catalog cannot say where an entry
 # is used, so it may not.
 BANNED='(com\.google\.android\.gms|com\.google\.firebase|com\.google\.android\.play|com\.android\.billingclient|com\.google\.gms)([.:"'"'"'/[:space:]]|$)'
-# A dependency call on a test or lint configuration, by its whole name,
-# a build type or flavour between allowed (testDebugImplementation). The
-# infix is any capitalised words; test fixtures are taken back out
-# below, because the lockfile check treats their classpaths as the
-# application and the two halves must answer the same (round 5). A
-# bare prefix once exempted `testing { ... }` (round 3), and suffix-only
+# A dependency call on a test, test-fixtures or lint configuration, by
+# its whole name, a build type or flavour between allowed
+# (testDebugImplementation, debugTestFixturesImplementation). The infix
+# is any capitalised words. The two halves answer the same: the
+# lockfile check exempts the fixtures classpaths too (round 5 refused
+# them in both, until the ruling above). A bare prefix once exempted `testing { ... }` (round 3), and suffix-only
 # once refused testDebugImplementation and androidTestUtil (round 4).
-TOOLING_LINE='^[0-9]+:[[:space:]]*"?((test|androidTest|[a-z]+UnitTest|[a-z]+AndroidTest)([A-Z][a-z0-9]+)*(Implementation|Api|CompileOnly|RuntimeOnly|AnnotationProcessor)|androidTestUtil|lintChecks|lintPublish)"?[[:space:](]'
+TOOLING_LINE='^[0-9]+:[[:space:]]*"?((test|androidTest|[a-z]+UnitTest|[a-z]+AndroidTest|[a-z]+TestFixtures)([A-Z][a-z0-9]+)*(Implementation|Api|CompileOnly|RuntimeOnly|AnnotationProcessor)|androidTestUtil|lintChecks|lintPublish)"?[[:space:](]'
 
 sources=0
 while IFS= read -r src; do
@@ -252,8 +258,7 @@ while IFS= read -r src; do
     # second one after the test call (review of #307 round 3, finding 2).
     case "$src" in
         *.toml) ;;
-        *) hits="$(grep -vE "${TOOLING_LINE}[^;]*$" <<<"$hits" || true)
-$(grep -E "${TOOLING_LINE}[^;]*$" <<<"$hits" | grep -E '^[0-9]+:[[:space:]]*"?[A-Za-z]*[Tt]estFixtures' || true)" ;;
+        *) hits="$(grep -vE "${TOOLING_LINE}[^;]*$" <<<"$hits" || true)" ;;
     esac
     while IFS= read -r h; do
         [ -n "$h" ] && fail "$rel: declares a banned group (line ${h%%:*}) -- ${h#*:}"
@@ -302,6 +307,7 @@ while IFS= read -r lock; do
             return c == "androidLintTool" || c == "lintChecks" || c == "lintPublish" \
                 || c ~ /LintChecksClasspath$/ \
                 || c ~ /UnitTest/ || c ~ /AndroidTest/ || c ~ /^androidTest/ \
+                || c ~ /^testFixtures/ || c ~ /TestFixtures/ \
                 || c ~ /^unified-test-platform-/
         }
         /^[[:space:]]*#/ || /^[[:space:]]*$/ || /^empty=/ { next }
