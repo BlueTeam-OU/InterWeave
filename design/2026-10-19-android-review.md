@@ -642,10 +642,13 @@ New, rank 1:
   touch swipe, each read back with `dumpsys input_method`
   (`mInputShown=false`). The composer looks exactly as it does where
   it works. Control: in …kX45pbRP, minutes later, the same tap opens
-  the keyboard. Not verified: why. This conversation's PeerId
-  (…dix6gY6Eri, from its Details) is not in Trust's list on this
-  build, so a composer disabled for an untrusted peer is the likely
-  cause. The same conversation took the keyboard in round 1. Against:
+  the keyboard. Not verified: why. Ruled out: trust (nothing in
+  the code ties the composer to it, rust-ui-dev-01) and Android's
+  clipboard preview (at 19:18, after a relaunch and with no copy in
+  that app session, the tap still fails). At the failing tap, `dumpsys
+  input` shows InterWeave's window focused and nothing above it at the
+  composer's height, so the touch reaches the app. The same
+  conversation took the keyboard in round 1. Against:
   task 3 (reply) fails with no explanation; S4 (visibility of status,
   help users recognise and recover). The rule (architect-cto-01,
   REPLY 01a159de-729d): trust gates the send, never the composer; the
