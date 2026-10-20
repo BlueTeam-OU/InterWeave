@@ -26,10 +26,10 @@ Kademlia driver, and — Stage 11 — AutoNAT v2, Circuit Relay v2 and
 DCUtR), `crates/discovery/*` (static, cache, mDNS, Kademlia; one shared
 conformance suite, itself checked against a misbehaving provider),
 `profile-config`, the `tests/` between real peers, `spikes/` (the
-evidence harnesses; a new `spikes/spike-001/runs/` directory for a
-bridge measurement is rust-services-dev's to add), `third_party/`
-(the vendored AutoNAT client and its one patch, ADR-0051, with the
-guard that cargo-deny cannot see it),
+evidence harnesses; a run directory under `spikes/spike-001/runs/`
+for a bridge measurement is rust-services-dev's to add and keep),
+`third_party/` (the vendored AutoNAT client and its one patch,
+ADR-0051, with the guard that cargo-deny cannot see it),
 `tools/`, `xtask/`, the manifests, and the *use* of the toolchain and
 lint pins (`deny.toml`, `clippy.toml`, `rust-toolchain.toml` — what is
 pinned changes with devex-tooling). The native human client is

@@ -34,10 +34,10 @@ meta, behaviour under load, the 2026-07-28 revision, non-interactive
 delivery and the untried `-p` timings — each recorded in `SPIKES.md`.
 Which holder takes which is architect-cto's to assign. They reuse
 SPIKE-001's drivers and record their evidence under
-`spikes/spike-001/runs/`, as plan §19 step 5 does: a new run directory
-there for a bridge measurement is yours to add, the one exception to
-`spikes/` being p2p-network-dev's; a change to the drivers or to an
-earlier run is asked of their holder as a supply.
+`spikes/spike-001/runs/`, as plan §19 step 5 does: a run directory there
+for a bridge measurement is yours to add and keep, the one exception to
+`spikes/` being p2p-network-dev's; a change to the drivers or to a run
+you did not add is asked of their holder as a supply.
 
 **Where it meets the others.** The daemon, the substrate and the IPC v2
 code stay p2p-network-dev's (`crates/`, `apps/transport-daemon`,
