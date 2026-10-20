@@ -3696,3 +3696,196 @@ export component AppWindow inherits Window {
         init => { self.focus(); }
     }
 }
+
+// The desktop's start-up refusal screen (plan section 18 clause (4), as
+// decided 2026-10-20): its own small window, shown instead of the app's
+// when the profile, its lock or its store refuses at start. It holds no
+// session and no lease and writes nothing; it says why, names the file,
+// and offers Close always and Try again where trying again can change
+// the answer. Every string arrives from Rust, from ui-model's table.
+export component RefusalWindow inherits Window {
+    in property <string> window-title;
+    in property <string> heading;
+    in property <string> reason;
+    // The file or folder the refusal is about, whole and selectable to
+    // copy; empty when the refusal names none.
+    in property <string> path;
+    in property <string> path-label;
+    in property <string> close-label;
+    in property <string> retry-label;
+    in property <bool> can-retry;
+    in property <string> code-font;
+    // The live region (as AppWindow's): two slots taking turns, so the
+    // same status after a second Try again is still a change a screen
+    // reader hears.
+    in property <string> status-a;
+    in property <string> status-b;
+    // As AppWindow's: the focused element reports itself, for the tests.
+    in-out property <string> focus-id;
+    callback retry();
+    callback close-screen();
+    // Called by Rust when the screen opens or changes: focus goes to the
+    // action a person most likely wants, Try again where it is offered.
+    // Try again is conditional, so it is out of the layout when not
+    // offered (hidden, it kept its space and pushed Close off the edge,
+    // seen in the window); it takes focus through this sequence.
+    property <int> retry-focus-seq;
+    public function focus-primary() {
+        if (root.can-retry) {
+            root.retry-focus-seq += 1;
+        } else {
+            close-button.focus();
+        }
+    }
+    title: root.window-title;
+    icon: @image-url("assets/interweave-icon-256.png");
+    background: Palette.surface;
+    preferred-width: 520px;
+    // Stated, not taken from the text: a window sizes itself before its
+    // wrapped lines are measured at its width, so it opened shorter than
+    // its content and cut off the actions (seen in the window). What does
+    // not fit scrolls above the actions, which stay in view.
+    preferred-height: 420px;
+    min-width: 320px;
+    min-height: 200px;
+    // Escape closes, as the window's own close does: Close is never
+    // further away than one key. A key the focused control rejects
+    // reaches this scope; Tab never stops on it, as it does nothing.
+    FocusScope {
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.close-screen();
+                return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            Flickable {
+                vertical-stretch: 1;
+                content-height: body.preferred-height;
+                body := VerticalLayout {
+                    width: parent.width;
+                    spacing: 16px;
+                    Text {
+                        text: root.heading;
+                        font-size: Type.title-large;
+                        font-weight: 700;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    Text {
+                        text: root.reason;
+                        font-size: Type.body-large;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    if root.path != "": VerticalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: root.path-label;
+                            font-size: Type.body-small;
+                            font-weight: 700;
+                            color: Palette.on-surface-variant;
+                            accessible-role: none;
+                        }
+                        // Sized by a wrapping Text under the field: a read-only
+                        // field's height does not follow its wrapped lines, so a
+                        // long path overran the box and the window cut off its
+                        // buttons (seen in the window). The Text is transparent
+                        // and out of the tree; the field over it is what is read,
+                        // selected and copied.
+                        path-box := Rectangle {
+                            vertical-stretch: 0;
+                            VerticalLayout {
+                                Text {
+                                    text: root.path;
+                                    wrap: char-wrap;
+                                    font-family: root.code-font;
+                                    font-size: Type.body-medium;
+                                    color: transparent;
+                                    accessible-role: none;
+                                }
+                            }
+                            path-input := TextInput {
+                                x: 0;
+                                y: 0;
+                                width: parent.width;
+                                height: parent.height;
+                                text: root.path;
+                                read-only: true;
+                                // Whole over as many lines as it needs, never cut:
+                                // a path has no spaces to wrap at.
+                                single-line: false;
+                                wrap: char-wrap;
+                                font-family: root.code-font;
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface;
+                                accessible-label: root.path-label;
+                                accessible-value: self.text;
+                                changed has-focus => {
+                                    if (self.has-focus) { root.focus-id = "path"; }
+                                }
+                            }
+                            FocusRing {
+                                x: -5px;
+                                y: -5px;
+                                width: path-box.width + 10px;
+                                height: path-box.height + 10px;
+                                shown: path-input.has-focus;
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        Text {
+                            text: root.status-a;
+                            font-size: Type.body-medium;
+                            color: Palette.on-surface-variant;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                            accessible-live-region: polite;
+                        }
+                        Text {
+                            text: root.status-b;
+                            font-size: Type.body-medium;
+                            color: Palette.on-surface-variant;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                            accessible-live-region: polite;
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 12px;
+                close-button := ActionButton {
+                    text: root.close-label;
+                    focus-key: "close";
+                    target: 40px;
+                    text-button: true;
+                    pressed => { root.close-screen(); }
+                    focused(key) => { root.focus-id = key; }
+                }
+                if root.can-retry: ActionButton {
+                    text: root.retry-label;
+                    focus-key: "retry";
+                    target: 40px;
+                    filled: true;
+                    focus-seq: root.retry-focus-seq;
+                    focus-wanted: true;
+                    pressed => { root.retry(); }
+                    focused(key) => { root.focus-id = key; }
+                }
+            }
+        }
+    }
+}
