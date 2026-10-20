@@ -415,6 +415,23 @@ fn a_marker_in_a_state_directory_others_can_read_is_still_judged() {
         other => panic!("refused as the file's: {other:?}"),
     }
 
+    // A marker present and unopenable: the file's error, never read as 0,
+    // though the directory is one the lock refuses. (Skipped where the
+    // mode refuses nothing, as for root.)
+    std::fs::write(&path, marker(u64::from(PROFILE_FORMAT) + 1)).expect("planted");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+    if std::fs::read(&path).is_err() {
+        let loaded = ProfileConfig::load(&paths);
+        assert!(
+            matches!(
+                loaded,
+                Err(LoadError::ProfileFormat(ProfileFormatError::Read(_)))
+            ),
+            "the file's error, never 0: {loaded:?}"
+        );
+    }
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+
     // The control for the load: this build's marker passes.
     std::fs::write(&path, marker(u64::from(PROFILE_FORMAT))).expect("planted");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
@@ -489,6 +506,21 @@ fn a_state_directory_the_load_cannot_search_is_left_to_the_lock() {
         assert!(locked.is_err(), "the lock refuses it");
     } else {
         eprintln!("the mode blocked nothing here (root?): not reached");
+    }
+
+    // A state directory this uid can list and not search (0600): the
+    // same -- the lookup is refused on the path, not by the file.
+    std::fs::set_permissions(paths.state_dir(), std::fs::Permissions::from_mode(0o600))
+        .expect("chmod");
+    let blocked = std::fs::symlink_metadata(&path).is_err();
+    let loaded = ProfileConfig::load(&paths);
+    std::fs::set_permissions(paths.state_dir(), std::fs::Permissions::from_mode(0o700))
+        .expect("chmod");
+    if blocked {
+        assert!(
+            matches!(loaded, Err(LoadError::KeyFileUnresolved { .. })),
+            "refused by the older rule, not the marker's: {loaded:?}"
+        );
     }
 
     // THE CONTROL: a marker of this uid's it cannot open, in a private

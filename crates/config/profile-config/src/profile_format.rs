@@ -155,20 +155,20 @@ pub fn read_within(path: &Path, boundary: &TrustBoundary) -> Result<u32, Profile
 
 /// The format the marker at `path` names, the FILE judged -- this uid's,
 /// owner-only, not a link, a regular file, its one shape -- and its
-/// directory left to the profile lock: 0 when it is absent, its state
-/// directory included, and when it cannot be opened in a directory
-/// `boundary`'s judgement refuses. What [`require_supported`] reads, so a
-/// load refuses a newer build's marker wherever it can read one, and a
-/// state directory any other account can read, or this uid cannot
-/// search, is refused by the lock that follows, as before the marker,
-/// rather than reported as a marker error.
+/// directory left to the profile lock: 0 when it is absent, and when the
+/// path to it refuses the lookup (a directory this uid cannot search, a
+/// file where a directory should be). What [`require_supported`] reads,
+/// so a load refuses a newer build's marker wherever it lies, a present
+/// marker it cannot trust or open is refused as the file's, and a state
+/// directory any other account can read, or this uid cannot search, is
+/// refused by the lock that follows, as before the marker, rather than
+/// reported as a marker error.
 ///
 /// # Errors
 /// Every [`ProfileFormatError`] but `Newer` and `Write`.
-pub fn read_file(path: &Path, boundary: &TrustBoundary) -> Result<u32, ProfileFormatError> {
+pub fn read_file(path: &Path) -> Result<u32, ProfileFormatError> {
     parse(private_read::read_private_file(
         path,
-        boundary,
         MAX_PROFILE_FORMAT_BYTES,
     )?)
 }
@@ -243,7 +243,7 @@ pub fn raise_within(
 /// [`ProfileFormatError::Newer`], and every error of [`read_file`].
 pub fn require_supported(paths: &ProfilePaths) -> Result<u32, ProfileFormatError> {
     let path = path_for(paths);
-    at_most(&path, read_file(&path, paths.boundary())?, PROFILE_FORMAT)
+    at_most(&path, read_file(&path)?, PROFILE_FORMAT)
 }
 
 /// Raise `paths`' marker to [`PROFILE_FORMAT`]: the state writer's step,
