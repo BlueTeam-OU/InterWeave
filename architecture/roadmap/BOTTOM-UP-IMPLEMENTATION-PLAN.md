@@ -4598,7 +4598,10 @@ itself: this record counted it as delivered, while the shipped root
 stderr line and no window, so a client started from a launcher shows
 nothing; the same holds for the profile a newer build marked (78,
 ADR-0028 A 2026-10-20), the window already open (75), the state
-directory not private (77) and the platform unsupported (74). Decided
+directory not private (77) and the lock or the store that cannot be
+opened now (74, `EX_IOERR`); an unsupported platform (69,
+`EX_UNAVAILABLE`) gets no screen, since a person cannot act on it
+(rust-ui-dev-02's correction of the record, 2026-10-20). Decided
 2026-10-20 (architect-cto, DECISION 01a15a5f, on rust-ui-dev-02's
 question): one screen for every start-up refusal a person can act on —
 the reason as a person can act on it, the path, Close always, Retry on
