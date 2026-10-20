@@ -805,6 +805,16 @@ not when you decide you are done. Arm while more commits are coming and the
 PR can merge before your next commit exists. Arming late costs nothing, so
 there is no trade to make.
 
+**A push after the arming takes it off** (`.github/workflows/disarm-on-push.yml`,
+agent-fabric ADR-019 §5 rule 5). GitHub keeps auto-merge across a push from
+anyone with write access and the ruleset asks for no approval, so without it
+a fold, a conflict merge or a late fix would reach the queue unreviewed. The
+job takes off an arming, and a queue entry, older than the push and says so
+on the PR; its `disarm` context is not a required one. A push therefore
+always means: review the new range, then `fabric-pr arm` again. A lost push
+webhook means the job never ran, so check `autoMergeRequest` yourself after
+a push to an armed PR.
+
 #### A security-boundary change waits for its review
 
 **Do not arm `--auto` on a change to a security boundary until the

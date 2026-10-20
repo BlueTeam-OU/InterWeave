@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# A pull request is armed on a head the review class reviewed (agent-fabric
+# ADR-019 §5 rules 4-6), pinned by --match-head-commit at the arming only.
+# The `main protection` ruleset asks for no approval, so nothing else holds
+# the reviewed head: fabric-pr arm arms a PR whose checks are still
+# running, the arming waits as auto-merge until they are green, and GitHub
+# keeps auto-merge across a push from anyone with write access. A push
+# after the arming (a fold, a conflict merge, a late fix) would then enter
+# the queue and land unreviewed. This job takes the arming off, and takes
+# the PR out of the queue should it be in it, and says why; the arming is
+# done again on the new head, through fabric-pr arm, once it is reviewed.
+# agent-fabric runs the same job since its #134 (2026-10-09), gzapp since
+# its #1135 (2026-10-19).
+#
+# No Dependabot exemption, unlike gzapp's copy: nothing here arms a
+# Dependabot PR on green alone (.github/dependabot.yml), so a Dependabot
+# rebase after a hand arming is a new head like any other.
+#
+# pull_request_target, not pull_request: the job must run the base
+# branch's copy of itself. Under pull_request GitHub runs the pushed head's
+# copy, so a push that edits or deletes this file would keep its own
+# arming. The usual danger of the trigger is a write token running PR
+# code; this job checks nothing out and runs none, and event data reaches
+# the script only through env.
+on:  # zizmor: ignore[dangerous-triggers] nothing of the PR is checked out or run
+  pull_request_target:
+    types: [synchronize]
+
+# Auto-merge is a write to the pull request's merge, so the token needs
+# contents: write as well: with pull-requests: write alone GitHub refuses
+# disablePullRequestAutoMerge ("Resource not accessible by integration",
+# agent-fabric #139, 2026-10-09). The job writes nothing else: two mutations
+# at most and one comment.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: disarm-on-push-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  disarm:
+    # A fork's pull request is skipped: GitHub itself takes auto-merge off
+    # when someone without write access pushes to its head.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Take the arming off a pull request whose head moved
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          PUSHED_AT: ${{ github.event.pull_request.updated_at }}
+        run: |
+          set -euo pipefail
+          # Read now, not from the event, and compared with the push: an
+          # arming or a queue entry made after the push is one of the new
+          # head and stays. All times are GitHub's UTC "…Z" form, so they
+          # order as strings.
+          state() {
+            gh api graphql \
+              -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){id autoMergeRequest{enabledAt} mergeQueueEntry{enqueuedAt}}}}' \
+              -f o="${GH_REPO%/*}" -f r="${GH_REPO#*/}" -F n="$PR" \
+              --jq '.data.repository.pullRequest | "\(.id) \(.autoMergeRequest.enabledAt // "-") \(.mergeQueueEntry.enqueuedAt // "-")"'
+          }
+          older() { [[ "$1" != "-" && "$1" < "$PUSHED_AT" ]]; }
+          read -r node armed_on queued_on < <(state)
+          if ! older "$armed_on" && ! older "$queued_on"; then
+            echo "#$PR: armed $armed_on, queued $queued_on, push at $PUSHED_AT — nothing armed before the push, nothing to take off"
+            exit 0
+          fi
+          # The dequeue first, then the disarm, each attempted whatever the
+          # other did. What was taken off is then read back from the pull
+          # request, never from a mutation's exit status: a mutation can
+          # fail on a field the other already cleared (a dequeue may drop the
+          # arming with it), or succeed and change nothing.
+          if older "$queued_on"; then
+            gh api graphql -f query='mutation($id:ID!){dequeuePullRequest(input:{id:$id}){clientMutationId}}' \
+              -f id="$node" >/dev/null || echo "dequeuePullRequest failed; reading the pull request back"
+          fi
+          if older "$armed_on"; then
+            gh api graphql -f query='mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}' \
+              -f id="$node" >/dev/null || echo "disablePullRequestAutoMerge failed; reading the pull request back"
+          fi
+          read -r _ armed_now queued_now < <(state)
+          taken="" left=""
+          if older "$queued_on"; then
+            if older "$queued_now"; then left="still in the merge queue (queued $queued_on)"
+            else taken="taken out of the merge queue (queued $queued_on)"; fi
+          fi
+          if older "$armed_on"; then
+            if older "$armed_now"; then left="${left:+$left; }auto-merge still on (armed $armed_on)"
+            else taken="${taken:+$taken; }auto-merge taken off (armed $armed_on)"; fi
+          fi
+          moved="the head moved from ${BEFORE:0:8} to ${AFTER:0:8} after the arming"
+          if [[ -z "$left" ]]; then
+            body="Arming taken off: $moved — $taken. A pull request is armed on a reviewed head (agent-fabric ADR-019); review the new range, then arm again with fabric-pr arm."
+          else
+            body="Arming NOT fully taken off: $moved, and this workflow could not take it all off — $left${taken:+; done: $taken}. Take off by hand what is left (gh pr merge --disable-auto, or a dequeue), then review the new range and arm again with fabric-pr arm (agent-fabric ADR-019)."
+          fi
+          gh api "repos/$GH_REPO/issues/$PR/comments" -f body="$body" >/dev/null
+          echo "$body"
+          [[ -z "$left" ]]
