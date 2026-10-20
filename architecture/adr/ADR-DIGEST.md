@@ -356,6 +356,7 @@ The owner's word of 2026-10-19: no store for now, the project's own release page
 - Keywords: android distribution, release page, no store, apk signing, manual update, no google play services, no firebase, slint royalty-free, skia prebuilt
 
 ## Cluster 7 — Identity and key material
+- Amendment 2026-10-20 (the Skia build): the release run uses the Skia bindings' prebuilt archive, pinned by a SHA-256 committed in the tree and read by CI's android check job too; the bindings' silent fallback to a source build is a failed run; a source build is the revisit.
 
 ### 0033 — Recover software PeerId with an optional 24-word mnemonic (Accepted)
 - Rules: Ed25519 software identities; optional format `interweave-ed25519-bip39-entropy-v1` encoding the **exact 32-byte secret seed** as 256-bit BIP-39 entropy (English wordlist/checksum, exactly 24 words); **no PBKDF2 mnemonic-to-seed derivation and no BIP-39 passphrase**; backups pair the words with public `expected_peer_id` and format labels because the checksum is only 8 bits; export/restore are offline operations under identity-lock exclusivity and recovery material **never** crosses IPC, MCP, Channel, or the network; recovery must reproduce the expected PeerId exactly and fails closed on mismatch; SLIP-0039 splitting is future, not v1; hardware-backed identities may have no export at all.
