@@ -286,7 +286,7 @@ the unlock policy. Back → Settings.
 **S2, Your 24 words.** The same two pages as C2: the words, then the
 PeerId on a page of its own. On the words page the primary action is
 "Next" (`IdNext`, → the PeerId page), and Back is the same as Done.
-The PeerId page shows the PeerId with `IdPeerIdLabelShown` (the person
+The PeerId page shows the PeerId with `IdPeerIdNoteShown` (the person
 has written it before); its primary action is Done, and its Back
 returns to the words. Done drops the words, restarts the service and
 returns to Settings. "S2's Done" below is that Done, and the time "on
@@ -472,11 +472,12 @@ names are suggestions; rust-ui-dev names them.
 | `IdStorageUnknown` (new) | The app could not tell whether your identity was saved. Try again to check. | §6's notice when the read-back fails, two lines, with `TryAgain`. It never says that nothing changed. "To check" is true, because Try again reads back before it writes |
 | `IdRestoreOther` (new) | Your identity was not restored. This phone has another identity, with the PeerId below. | §6's another-identity-on-record row, at a restore (a record that names a PeerId other than the one restored), two lines, the PeerId in full below it. "With the PeerId below" ties the PeerId to the other identity, so it is not read as the person's own |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
-| `IdPeerIdLabel` | Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share. | The PeerId's label (§5) on C2's PeerId page, where the person writes |
+| `IdPeerIdLabel` (new value) | Write it on the same paper as your words. It is not a password, and it is safe to share. | The note under the PeerId (§5) on C2's PeerId page, where the person writes. It no longer starts with "Your PeerId": the page's title says that just above it (language-culture-en, REPLY 01a1589d-e769). The page's title is the PeerId's accessible name; this note is its description |
+| `IdPeerIdNoteShown` (new) | It is the one on your paper. It is not a password, and it is safe to share. | The note under the PeerId on S2's PeerId page, whose title already says "Your PeerId"; the title is the PeerId's accessible name |
 | `IdPeerIdTitle` (new) | Your PeerId | The title of C2's and S2's PeerId page |
 | `IdPeerIdWritten` (new) | I wrote down the PeerId | The primary of C2's PeerId page (→ C3) |
 | `IdNext` (new) | Next | The primary of S2's words page (→ its PeerId page) |
-| `IdPeerIdLabelShown` (new) | Your PeerId. It is the one on your paper. It is not a password, and it is safe to share. | The PeerId's label on C4, R4 and S2's PeerId page, where the person has already written it. One label cannot be true on both kinds of screen |
+| `IdPeerIdLabelShown` (new) | Your PeerId. It is the one on your paper. It is not a password, and it is safe to share. | The PeerId's label on C4 and R4, where the person has already written it and no title above names it. One label cannot be true on both kinds of screen |
 | `IdWrittenDown` (new value) | I wrote down the words | The primary of C2's words page; the PeerId has its own page now |
 | `IdCheckTitle` | Check your words | C3's title |
 | `IdCheckBody` | Enter two words from your paper. | C3's body, one line |
