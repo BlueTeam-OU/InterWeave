@@ -581,3 +581,55 @@ directory is refused" — false under this reading.
 implications; this note; the log row; the digest entry; the threat
 row's residual column keeps its text (the boundary, not the group,
 is its subject).
+
+### Amendment 2026-10-20 — A profile-format marker in the state directory refuses a build whose profile format is older than the profile's
+
+**Trigger.** rust-ui-dev-02's measurement for Stage 19's rollback row
+(GZCoord OBSERVATION 01a15837): the Stage 13 build on the previous-build
+axis (tools/ci/previous-builds.txt, 45ba3928), started on the tree this
+build leaves, starts and serves the same PeerId with every file
+byte-identical — and ignores the trust overlay and the endpoint overlay,
+which it has never heard of: the endpoint this build disabled reads
+enabled, the peer this build revoked is allowed again, nothing on
+screen. A strict format refuses a newer version of a file it knows; it
+cannot refuse a file it does not know. human-client-packaging.md §7
+ruled this out only for the PeerId.
+
+**Decision.** A profile-format marker in the state directory, with what
+a build writes (config.yaml is the person's and never written by a
+build, so no field of it can carry this): `<state>/profile-format.json`,
+`{"profile_format": N}`, owner-only 0600, atomic like the overlays and
+refused like them when it is another account's, a link or not that
+shape. Every loader through profile-config refuses to start when N is
+above its own, naming the file, both format numbers and that a newer
+build wrote it — the file holds no build identity, so it cannot name the
+build — and writing nothing, the check running before the lock, the
+overlays' normalisation rewrite and any directory creation;
+claude-channel, which writes nothing, reports the refusal in its status
+as it reports a profile error today. The profile's state writer raises N
+to its own before it serves: the daemon, and on Android the embedded
+host (there is no daemon there, and the Android profile holds the
+availability and endpoint overlays an older build would ignore); an
+absent file reads as 0; a build never lowers N; the marker is backed up
+with the profile and never deleted to reset, since deleting it removes
+the protection. An older build with the same N starts as before: the
+rule fires on the format number, not on build age. N starts at 1 with
+the marker's build; a change that adds an artefact an older build would
+silently ignore bumps it in the same change, and that change's review
+checks the bump. The store's user_version refusal stays. Builds before
+the marker are unprotected and named. Refused: accepting the gap and
+recording it (a page sentence does not hold a trust failure that shows
+nothing on screen); per-artefact tricks that depend on every author
+knowing the rule (the marker is that rule in one field). The code is
+p2p-network-dev's (profile-config, the daemon), supplied onto
+rust-ui-dev's Stage 19 branch; the rows are rust-ui-dev's (release.rs:
+the old axis build on a marked tree, recorded as unprotected; this build
+refusing a marker above its own with nothing written).
+
+**Propagation.** The Decision paragraph; this note; the log row; the
+digest entry; human-client-packaging.md §7 gains the downgrade rule
+beside its PeerId sentence; the release page's downgrade sentence
+(language-culture-en) follows from §7. Follow-up, with the implementing
+change: configuration.md's state-class table gains the marker's row
+(back up: yes; safe to delete: no — reads 0) and its owner-only list
+names it.
