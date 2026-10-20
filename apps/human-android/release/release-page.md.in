@@ -92,7 +92,7 @@ the archive. Delete it and download it again from this page.
   it runs.
 - `transportctl`: a command-line tool for your identity, for the peers
   that you trust, and for recovery.
-- Two systemd user units, which start the service for you.
+- systemd user units. One of them starts the service for you.
 - A README with the installation steps, and the licence notices for
   the programs.
 
@@ -123,10 +123,6 @@ the steps in the newer archive's README. Your identity, your profile,
 the peers that you trust, your other settings and your messages stay.
 InterWeave does not check for updates, so it cannot tell you that a
 new release exists.
-
-After a newer release has run, an older release does not start. It
-stops with a message and changes nothing. To use InterWeave again,
-install the newer release.
 
 ## Made with Slint
 
