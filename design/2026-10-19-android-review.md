@@ -613,6 +613,58 @@ inset or a remnant of the list pane.
 Owed for the close: F3's handle, F4's monospace and F9's anchoring,
 then round 2 on the build that carries them.
 
+Round 2, 2026-10-20 (18:56-19:08 phone time, the owner's Pixel window),
+on #313 at 35c71169 (rust-ui-dev-01's, origin/main folded in), debug
+build, APK sha256 beginning 2faa357a (read from the phone; installed
+16:03 phone time with the app's data kept), after rust-ui-dev-01's and
+p2p-network-dev-02's runs. Same phone and method; dark theme, font 1.0.
+Before it, a partial run on 2026-10-19 on ebeccf2c (APK 8a3e871e)
+stopped when a person took the phone; what it saw is folded in below
+where this build shows the same.
+
+| finding | result |
+|---|---|
+| F3 | Pass as ranked: the composer is one line high at rest and above the keyboard, with no inner pill. The handle after Back is the toolkit's (Slint 1.18.1's Android backend hides it only on an input-method update): not met, carried by name to the owner's release gate (architect-cto-01, 01a15914-65f3); its acceptance is unchanged. Seen again: a focused Trust field keeps its handle with the keyboard down. |
+| F4 | Not met. Trust's PeerIds (this profile's and every trusted peer's) and the Details dialog's PeerId are still in the proportional body font: lines of the same width hold 30, 31 and 32 characters, with narrow i, l and 1. #313's 62fad28a does not reach the phone's drawing. |
+| F7 | Pass. Chats shows "Online, limited" under "Conversations" with a cloud icon; a conversation's app bar shows the name alone. |
+| F9 | Not checked in landscape: the keyboard could not be opened in the conversation the run used (new F16 below), and the window closed. In portrait with the keyboard up (…kX45pbRP), the composer is one line above the keyboard and the newest message's end is in view. |
+| F11 | Pass. ⋮ → Details is a dialog: the conversation's title, "PeerId" and the whole PeerId, "Route named by the peer, not verified: "human"", Close and Copy PeerId. Copy closes it, and Android's own clipboard preview shows the exact PeerId with no spaces (API 37, no app snackbar). Not checked: pasting it into Trust's field; neither an injected paste key nor the keyboard's Paste button put text into the Slint field from a script. A person's check. |
+| F12 | Pass. Chats ends with ⋮; its menu holds "Trust", which opens Trust. No shield. Focus with a keyboard not checked (no hardware keyboard on the phone). |
+| F14 | Pass. "Show recovery phrase" is a borderless text button. |
+| F5 | Pass for what was seen: no ring after a tap on ⋮, the menu item, the composer or Trust's button. The Chats row a person came back from still takes the selected conversation's fill and bar on a phone-wide window, where look spec §5 gives that fill to the side-by-side layout only (rank 3). |
+| acceptance 22 (look spec) | Pass. A pending message's status wraps inside the bubble and its time ("01:14") stays whole. |
+
+New, rank 1:
+- **F16. In one conversation the composer cannot be focused, and
+  nothing says so.** In …x6gY6Eri (the conversation with the two
+  pending messages), a tap on the composer opens no keyboard and
+  draws no cursor: one tap, two taps, a 150 ms held touch and a short
+  touch swipe, each read back with `dumpsys input_method`
+  (`mInputShown=false`). The composer looks exactly as it does where
+  it works. Control: in …kX45pbRP, minutes later, the same tap opens
+  the keyboard. Not verified: why. This conversation's PeerId
+  (…dix6gY6Eri, from its Details) is not in Trust's list on this
+  build, so a composer disabled for an untrusted peer is the likely
+  cause. The same conversation took the keyboard in round 1. Against:
+  task 3 (reply) fails with no explanation; S4 (visibility of status,
+  help users recognise and recover). What has to change: if the
+  person cannot write to this peer, the composer says so and why, in
+  its place, with the way to change it (Trust) or the reason it is
+  not theirs to change; it never looks enabled when it is not. Whether
+  an untrusted peer's conversation may be written to at all is
+  architect-cto's rule (`human-client-ui.md` §8).
+
+Not walked again: tasks 9 and 10. The seeded review conversation
+(…DEoNJsP) was no longer on the phone in this window, so K8 was not
+kept either. F10's new waiting status was not seen: both pending
+messages read "May have reached the peer, send again or cancel" with
+their written time, which is the may-have-reached state, not a retry
+under way. Show recovery phrase and its Recents thumbnail need the
+phone's own unlock and were left for a person.
+
+Owed for the close: F4's monospace on the phone, F16, and F9 in
+landscape (a person's check or the next window).
+
 ## 8. The swipe spec's acceptance on the same build
 
 `design/2026-10-16-message-swipe.md` §11, walked on the same build and
