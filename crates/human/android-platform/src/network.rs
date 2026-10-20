@@ -74,11 +74,12 @@ impl Links {
     /// The snapshot: every address of every network, sorted, a duplicate
     /// once, and the default network's DNS facts. Its resolvers are
     /// UNOBSERVED (`None`, the runtime keeps the resolver it has) while no
-    /// default is named, or the default has not reported a link with
-    /// addresses -- not yet, or lost; a default with addresses gives its
-    /// list, and an empty one is UNAVAILABLE, which the runtime acts on
-    /// (`CONNECTIVITY.md` section 14, A 2026-10-20). `None` while no
-    /// callback is registered.
+    /// default is named or its link is not reported -- not yet, or lost,
+    /// which takes it out of the map. A reported default link gives its
+    /// list as reported, with an address or not, and an empty one is
+    /// UNAVAILABLE, which the runtime acts on (`CONNECTIVITY.md` section
+    /// 14, A 2026-10-20 and 016ff7c5). `None` while no callback is
+    /// registered.
     #[must_use]
     pub fn view(&self) -> Option<NetworkView> {
         let links = self.links.as_ref()?;
@@ -91,7 +92,7 @@ impl Links {
         let active = self.default.and_then(|network| links.get(&network));
         let view = NetworkView::new(addresses)
             .with_private_dns(active.and_then(|l| l.private_dns.clone()));
-        Some(match active.filter(|l| !l.addresses.is_empty()) {
+        Some(match active {
             Some(observed) => view.with_dns_servers(observed.dns_servers.clone()),
             None => view,
         })
@@ -418,8 +419,9 @@ mod tests {
 
     /// `CONNECTIVITY.md` section 14 (A 2026-10-20): an empty DNS view is
     /// either unobserved or unavailable, and the aggregator says which.
-    /// Unobserved with no default named and with the default lost;
-    /// unavailable for a default with addresses that names no resolver.
+    /// Unobserved with no default named, with its link not yet reported
+    /// and with it lost; a reported default's resolvers as reported, with
+    /// an address or not; unavailable for one that names none.
     #[test]
     fn dns_is_unobserved_without_a_default_and_unavailable_for_a_default_naming_none() {
         let (mut slot, heard) = attached();
@@ -433,15 +435,15 @@ mod tests {
         let view = heard.0.borrow_mut().pop().expect("a view");
         assert_eq!(view.dns_servers, None, "a default not reported: unobserved");
 
-        // Its link reported with no address yet: still unobserved, though
-        // it names a resolver.
+        // Its link reported with resolvers and no address yet: observed as
+        // reported (016ff7c5).
         let _ = slot.report(with_dns(2, &[], &["10.115.0.1"], None));
-        if let Some(view) = heard.0.borrow_mut().pop() {
-            assert_eq!(
-                view.dns_servers, None,
-                "a default with no address: unobserved"
-            );
-        }
+        let view = heard.0.borrow_mut().pop().expect("a view");
+        assert_eq!(
+            view.dns_servers,
+            Some(vec![ip("10.115.0.1")]),
+            "a reported default with no address: its resolvers"
+        );
 
         assert_eq!(
             slot.report(link(2, &["10.115.0.9"])),
@@ -450,7 +452,7 @@ mod tests {
                 dns_servers: Some(0),
                 strict_private_dns: false
             }),
-            "a default with addresses and no resolver: unavailable"
+            "a reported default with nothing else: unavailable"
         );
         let view = heard.0.borrow_mut().pop().expect("a view");
         assert_eq!(view.dns_servers, Some(Vec::new()));
