@@ -83,9 +83,9 @@ mkdir -p "$out_dir"
 apk_name="interweave-$version-arm64-v8a.apk"
 outputs=("$apk_name" "$apk_name.sha256" android-values.json)
 # Everything is made in a work directory on the out-dir's filesystem and
-# moved out together at the end; a failure at any step removes what was
-# moved, and a previous run's files of the same names go first, so a run
-# that fails leaves no APK, hash or values file behind.
+# moved out together at the end; a failure at any step removes every one
+# of the outputs' names from the out-dir, what this run moved and what an
+# earlier run left, so a run that fails leaves no APK, hash or values file.
 work="$(mktemp -d "$out_dir/.release.XXXXXX")"
 finish() {
     local status=$? f
@@ -95,7 +95,6 @@ finish() {
     fi
 }
 trap finish EXIT
-for f in "${outputs[@]}"; do rm -f -- "$out_dir/$f"; done
 
 for var in INTERWEAVE_RELEASE_KEYSTORE INTERWEAVE_RELEASE_KEY_ALIAS INTERWEAVE_RELEASE_KEYSTORE_PASS; do
     [[ -n "${!var-}" ]] || { echo "release_android_apk: $var is not set" >&2; exit 2; }

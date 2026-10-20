@@ -195,18 +195,27 @@ refused() {
     elif ! grep -qF -- "$needle" "$SANDBOX/err"; then fail "$what: refused without saying $needle" "$(cat "$SANDBOX/err")"
     else pass "$what: refused, no archive"; fi
 }
-# A step after every check fails: the values file's name is taken by a
-# directory. None of the three outputs is left -- nor a previous run's.
+# The last write fails, after the archive and its hash are moved: an
+# `mv` on PATH that refuses the values file. Nothing of the run is left.
+STUB="$SANDBOX/stub"
+mkdir -p "$STUB"
+cat > "$STUB/mv" <<EOF
+#!/bin/sh
+for last; do :; done
+case "\$last" in *-values.json) echo "mv: refused by the test" >&2; exit 1 ;; esac
+exec $(command -v mv) "\$@"
+EOF
+chmod +x "$STUB/mv"
 rm -rf "$OUT"
-mkdir -p "$OUT/linux-values.json/held"
-printf 'a previous run\n' > "$A"
-if SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" \
+if PATH="$STUB:$PATH" SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" \
     bash "$UNDER_TEST" --bin-dir "$BIN" 0.3.0 "$OUT" >/dev/null 2>"$SANDBOX/err"; then
-    fail "a run whose values file cannot be written succeeded"
+    fail "a run whose values file cannot be moved succeeded"
+elif ! grep -q 'refused by the test' "$SANDBOX/err"; then
+    fail "the stub was not reached at the last move" "$(cat "$SANDBOX/err")"
 elif [[ -e "$A" || -e "$A.sha256" ]]; then
-    fail "a run that failed at its last write left an archive or its hash" "$(ls -A "$OUT")"
+    fail "a run that failed at its last move left an archive or its hash" "$(ls -A "$OUT")"
 else
-    pass "a run that fails at its last write leaves no archive and no hash"
+    pass "a run that fails at its last move leaves no archive and no hash"
 fi
 rm -rf "$OUT"
 mkdir -p "$OUT"

@@ -34,9 +34,9 @@
 # REFUSED when <version> is not MAJOR.MINOR.PATCH, or a program, a unit
 # or a script is missing. On any failure once <version> is checked, a
 # refusal or a step after the checks, none of the three outputs is left
-# in <out-dir>, a previous
-# run's of the same names included: all three are written in scratch and
-# moved together at the end, and a failure removes what was moved.
+# in <out-dir>: all three are written in scratch and moved together at
+# the end, and a failure removes every one of their names from <out-dir>,
+# what this run moved and what an earlier run left.
 #
 # Exit codes:
 #   0  written; the archive's SHA-256 is printed
@@ -85,7 +85,6 @@ finish() {
 }
 trap finish EXIT
 mkdir -p "$out_dir"
-for f in "${outputs[@]}"; do rm -f -- "$out_dir/$f"; done
 
 if [[ -z "$bin_dir" ]]; then
     build_args=(build --release --locked --target "$target")

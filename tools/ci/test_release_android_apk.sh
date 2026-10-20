@@ -200,26 +200,29 @@ refused "no native code" "not arm64-v8a alone" 0.4.1 "$SANDBOX/none.apk" "$OUT"
 CERT=ABC refused "an expected fingerprint that is not lowercase hex" "64 lowercase hex" \
     0.4.1 "$SANDBOX/good.apk" "$OUT"
 
-# A step after every check fails: the values file's name is taken by a
-# directory. Nothing of the run is left -- and a refused run removes a
-# previous run's APK of the same version too.
-stale_then() {
-    rm -rf "$OUT"
-    mkdir -p "$OUT"
-    printf 'a previous run\n' > "$SIGNED"
-    printf 'x  y\n' > "$SIGNED.sha256"
-    "$@"
-}
-mkdir_values() { mkdir -p "$OUT/android-values.json/held"; }
-if stale_then mkdir_values && ANDROID_BUILD_TOOLS="$TOOLS" \
+# The last write fails, after the APK and its hash are moved: an `mv` on
+# PATH that refuses the values file. Nothing of the run is left.
+STUB="$SANDBOX/stub"
+mkdir -p "$STUB"
+cat > "$STUB/mv" <<EOF
+#!/bin/sh
+for last; do :; done
+case "\$last" in *-values.json) echo "mv: refused by the test" >&2; exit 1 ;; esac
+exec $(command -v mv) "\$@"
+EOF
+chmod +x "$STUB/mv"
+rm -rf "$OUT"
+if PATH="$STUB:$PATH" ANDROID_BUILD_TOOLS="$TOOLS" \
     INTERWEAVE_RELEASE_KEYSTORE="$SANDBOX/rel.p12" INTERWEAVE_RELEASE_KEY_ALIAS=rel \
     INTERWEAVE_RELEASE_KEYSTORE_PASS="$PASS" INTERWEAVE_RELEASE_CERT_SHA256="$REL_CERT" \
     bash "$UNDER_TEST" 0.4.1 "$SANDBOX/good.apk" "$OUT" >/dev/null 2>"$SANDBOX/err"; then
-    fail "a run whose values file cannot be written succeeded"
+    fail "a run whose values file cannot be moved succeeded"
+elif ! grep -q 'refused by the test' "$SANDBOX/err"; then
+    fail "the stub was not reached at the last move" "$(cat "$SANDBOX/err")"
 elif [[ -e "$SIGNED" || -e "$SIGNED.sha256" ]] || ls -A "$OUT" | grep -q '^\.release'; then
-    fail "a run that failed at its last write left an APK, a hash or its work" "$(ls -A "$OUT")"
+    fail "a run that failed at its last move left an APK, a hash or its work" "$(ls -A "$OUT")"
 else
-    pass "a run that fails at its last write leaves no APK, no hash, no work directory"
+    pass "a run that fails at its last move leaves no APK, no hash, no work directory"
 fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
