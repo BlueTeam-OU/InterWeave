@@ -545,6 +545,47 @@ ui_texts! {
     IdKeyClear => "Clear this word",
     /// ANDROID, identity screens: The grid's button at large font (§4).
     IdReviewWords => "Show all my words",
+    /// DESKTOP, start-up refusal screen: its heading, over every reason.
+    RefusalHeading => "InterWeave could not start",
+    /// DESKTOP, start-up refusal screen: the label of the file or folder
+    /// a refusal is about, shown whole below the reason.
+    RefusalPath => "File or folder",
+    /// Close a screen that offers nothing else to do.
+    Close => "Close",
+    /// DESKTOP, start-up refusal screen: said after Try again, when the
+    /// answer is still a refusal.
+    RefusalStillRefused => "Tried again. It still cannot start.",
+    /// DESKTOP, start-up refusal screen: the profile's format marker
+    /// names a newer build's format (ADR-0028 A 2026-10-20). The path is
+    /// the marker file.
+    RefusalProfileNewer => "A newer version of InterWeave has used this profile, and this version cannot open it. Nothing was changed. Start the newer version instead.",
+    /// DESKTOP, start-up refusal screen: the profile's configuration, or
+    /// its format marker, could not be read or used. The path is the
+    /// file.
+    RefusalProfileSettings => "This profile's settings could not be used. Check the file, then start InterWeave again.",
+    /// DESKTOP, start-up refusal screen: the profile's folders could not
+    /// be worked out, or two of them are one. No path.
+    RefusalProfileFolders => "This profile's folders could not be set up. Check where its files are kept, then start InterWeave again.",
+    /// DESKTOP, start-up refusal screen: another window holds this
+    /// profile. No path.
+    RefusalAlreadyOpen => "InterWeave is already open for this profile. Use the window that is open.",
+    /// DESKTOP, start-up refusal screen: a file or folder the app keeps
+    /// private, found reachable by others, before the store (the lock).
+    /// Nothing offers Try again.
+    RefusalNotPrivate => "Other accounts on this computer can change a file or folder InterWeave keeps private. Nothing was changed. Make it private to you, then start InterWeave again.",
+    /// DESKTOP, start-up refusal screen: as `RefusalNotPrivate`, for the
+    /// message store, where Try again is offered.
+    RefusalStoreNotPrivate => "Other accounts on this computer can change the file that keeps your messages, or its folder. Nothing was changed. Make them private to you, then try again.",
+    /// DESKTOP, start-up refusal screen: a file the app needs before the
+    /// store (the lock) could not be opened. Nothing offers Try again.
+    RefusalUnavailable => "InterWeave could not open a file it needs. Check that there is free space, then start InterWeave again.",
+    /// DESKTOP, start-up refusal screen: the message store could not be
+    /// opened now; Try again is offered.
+    RefusalStoreUnavailable => "The file that keeps your messages could not be opened just now. Check that there is free space and that the file and its folder can be written, then try again.",
+    /// DESKTOP, start-up refusal screen: the message store needs
+    /// recovery -- corrupt, written by a newer version, or its migration
+    /// failed. Try again is offered.
+    RefusalStoreRecovery => "This version of InterWeave cannot read the file that keeps your messages. The file was not changed, moved or deleted. Put back a copy this version can read, or use the version that wrote it, then try again.",
 }
 
 /// Where the transport runtime runs, which decides how a text that names
