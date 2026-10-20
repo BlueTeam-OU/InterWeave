@@ -427,6 +427,9 @@ access.
   enabled key.
 - After an error banner appears, focus goes to the banner.
 - After a dialog closes, focus returns to what opened it.
+- Between the two pages of C2 or S2: going forward, focus goes to the
+  PeerId page's title, so the reading starts at the top; Back to the
+  words page returns focus to the primary action that left it.
 - Every disabled key keeps its place in the focus order and is marked
   disabled, not skipped, so moving through the keypad stays
   predictable.
