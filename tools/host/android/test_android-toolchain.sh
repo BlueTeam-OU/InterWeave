@@ -6,8 +6,10 @@
 # Self-test for android-toolchain.sh, on a synthetic toolchain: no network,
 # no real SDK. A fake tree carries what the script reads (package.xml
 # revisions, cmdline-tools source.properties, the JDK's release file, the
-# manifest); curl and sdkmanager are stubs. Covers the strict pins reader,
-# --check on a matching, drifted and absent install, every --install
+# manifest); curl and sdkmanager are stubs. Covers the strict pins reader
+# (the HOST_PKG_<n> and LINK_<n> families included), --check on a
+# matching, drifted and absent install (a LINK missing, elsewhere or
+# dangling included), every --install
 # refusal before anything is written, a hostile archive (a device node, a
 # hard link, a symlink out of the tree, a setuid file), a failed install
 # leaving the previous one, the recovery of an interrupted swap, the
@@ -119,6 +121,7 @@ import sys, zipfile
 sdkm = r'''#!/usr/bin/env bash
 root=""; for a in "$@"; do case "$a" in --sdk_root=*) root="${a#--sdk_root=}" ;; esac; done
 [[ " $* " == *" --licenses "* ]] && exit 0
+[[ -n "${FAKE_EXTRA_DIR:-}" ]] && mkdir -p "$root/$FAKE_EXTRA_DIR"   # a package nobody pinned
 for a in "$@"; do
   case "$a" in --sdk_root=*|--install) ;; *)
     rev="$(grep -F "$a@" "$REVS" | head -1 | sed 's/.*@//')"
@@ -155,7 +158,7 @@ expect "a line that is not KEY=VALUE is refused" 2 "is not KEY=VALUE"
 grep -v '^JDK_SHA256=' "$SANDBOX/pins.good" > "$PINS"
 run bash "$UNDER_TEST" --check
 expect "a missing required pin is refused" 2 "has no JDK_SHA256"
-for v in 'platforms/..@android-30' 'platforms/android-37@..' '../etc@passwd' 'platforms/a/b@android-30'; do
+for v in 'platforms/..@android-30' 'platforms/.@android-30' 'platforms/android-37@..' '../etc@passwd' 'platforms/a/b@android-30'; do
     sed "s|^LINK_1=.*|LINK_1=$v|" "$SANDBOX/pins.good" > "$PINS"
     run bash "$UNDER_TEST" --check
     expect "a LINK out of its directory ($v) is refused" 2 "the value of LINK_1 is not of its form"
@@ -163,6 +166,15 @@ done
 sed 's|^LINK_1=.*|LINK_1=platforms/android-37@android-37.1|' "$SANDBOX/pins.good" > "$PINS"
 run bash "$UNDER_TEST" --check
 expect "a LINK to no pinned package is refused" 2 "points at no pinned package"
+sed 's|^LINK_1=.*|LINK_1=platforms/android-30@android-37.0|' "$SANDBOX/pins.good" > "$PINS"
+run bash "$UNDER_TEST" --check
+expect "a LINK named like a pinned package is refused" 2 "takes the name of a pinned package"
+# Each value is of its family's form, so only the key can be refused.
+for kv in 'PKG_6A=platforms;android-30@3' 'HOST_PKG_5A=platforms;android-30@3' 'LINK_1A=platforms/android-37@android-37.0' 'PKG_=platforms;android-30@3'; do
+    cp "$SANDBOX/pins.good" "$PINS"; printf '%s\n' "$kv" >> "$PINS"
+    run bash "$UNDER_TEST" --check
+    expect "a family key with a suffix that is not a number (${kv%%=*}) is refused" 2 "${kv%%=*} is not of the form PKG_<n>"
+done
 cp "$SANDBOX/pins.good" "$PINS"
 
 echo "android-toolchain --check"
@@ -451,6 +463,8 @@ arc="$(ls "$SANDBOX"/st/android-toolchain-*.tar.gz 2>/dev/null | head -1)"
 [[ "$out" == *"--install $arc"* ]] && pass "  and the install line is printed" || fail "the next step is missing" "$out"
 [[ -n "$arc" ]] && tar -tvzf "$arc" | grep -qE '^l.* \./platforms/android-37 -> android-37\.0$' \
     && pass "  the archive carries the link, relative" || fail "the staged archive has no relative platforms/android-37 link" "$(tar -tvzf "$arc" 2>&1 | grep android-37)"
+FAKE_EXTRA_DIR=platforms/android-37 run bash "$UNDER_TEST" --stage --dest "$SANDBOX/st"
+expect "a directory where a link goes fails the stage, named" 2 "platforms/android-37 exists and is not a link"
 sed -i 's/^platforms;android-30@3$/platforms;android-30@4/' "$REVS"
 run bash "$UNDER_TEST" --stage --dest "$SANDBOX/st"
 expect "a package that moved upstream fails the stage" 2 "a package moved upstream"
