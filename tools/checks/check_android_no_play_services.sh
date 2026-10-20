@@ -43,10 +43,11 @@
 #          *TestFixtures*, unified-test-platform-*
 # Test fixtures are test tooling: architect-cto's ruling of 2026-10-19
 # (DECISION 01a15473), with no change to the decision's text, since
-# "test tooling" already covers them -- fixtures are compiled for tests
-# and never enter the application's runtime classpath. A fixtures
-# artifact that reached an application configuration is on that
-# configuration in the lock, and fails there.
+# "test tooling" already covers them. What is exempt is the fixtures'
+# own classpaths, by configuration name; nothing stops a build putting
+# a fixtures artifact on the application (implementation(testFixtures(
+# ...))), and one that does is on that application configuration in
+# the lock, and fails there.
 # The build's own plugin classpath (`classpath` in
 # buildscript-gradle.lockfile) and the Kotlin compiler's are NOT exempt:
 # the decision names lint and test tooling only, and nothing there needs
