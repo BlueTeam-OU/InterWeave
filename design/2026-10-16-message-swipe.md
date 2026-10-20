@@ -91,13 +91,20 @@ Edge rules:
   its own touch with this rule and the system slop (ruled 2026-10-16
   on rust-ui-dev-01's question).
 - Only one row tracks at a time.
-- A press that stays within the slop on a link, or on an item of an
-  open menu, is that control's tap. A drag that starts on one passes the
-  slop and is the row's swipe, and that control does not fire.
+- A press on a link that is released within the slop before the
+  long-press time is the link's tap. A drag that starts on a link
+  passes the slop and is the row's swipe, and the link does not open.
 - A press that stays within the slop for the platform's long-press
   time (`ViewConfiguration.getLongPressTimeout`) opens the row's menu
-  (§7). A press that passes the slop first is a swipe or a scroll and
-  never opens it.
+  (§7), on a link as anywhere else in the bubble; the link then does
+  not open. A press that passes the slop first is a swipe or a scroll
+  and never opens it.
+- While the row's menu is open, touches on it never reach the row: a
+  drag that starts on a menu item moves nothing under the menu and
+  never tracks or commits a swipe. A press released on the item it
+  started on chooses it; one released elsewhere chooses nothing, and
+  the menu stays open. A touch outside the menu closes it and is not
+  passed to the row (§7).
 - A swipe that starts inside the system's gesture inset
   (`WindowInsets.systemGestures`, the back-gesture zone at each edge) is
   the system's and does not track.
@@ -207,7 +214,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   link in the message's text is never the first control. A row's
   **first remaining control** is the same bubble, which never goes
   while the row is in the list. Choosing a menu item closes the menu
-  before any rule below applies. Whenever a rule below moves
+  before any rule below applies, and focus on an item of a row's menu
+  counts as focus inside that row. Whenever a rule below moves
   focus, the control that takes it is scrolled into view. When focus
   stays where it was, nothing scrolls.
   - After Dismiss or Cancel removes a row, focus moves only if it was
@@ -237,6 +245,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     control.
   - After Retry by swipe, focus stays where it was; after Retry from
     the menu, it goes to that row's first control.
+  - After Show source from the menu, the menu closes and focus goes to
+    that row's first control. When the source closes, focus is on that
+    row's first control too.
   - **When a row's status changes its actions** without the person
     acting (a pending row accepted by the remote or the local transport
     offers neither Retry nor Cancel) while its menu is open, the menu
@@ -260,8 +271,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     keyboard and TalkBack focus and reads its text. Nothing happens when
     it is activated.
   - **Every focus target here draws a visible focus indicator** when it
-    holds keyboard focus: every button, every link in a message's
-    text, each conversation row, and the two headings. Today a conversation row and the headings draw nothing
+    holds keyboard focus: every bubble, every item of a row's menu,
+    every button, every link in a message's text, each conversation
+    row, and the two headings. Today a conversation row and the headings draw nothing
     for focus, and a button only thickens its border by 1 px in the same
     colour, so a person cannot see where focus is (seen on the Pixel 9a,
     2026-10-16). The indicator is a ring with a contrast of at least 3:1
@@ -443,8 +455,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   The row stays read and not kept, and it no longer offers Keep: the
   message can no longer be kept. No snackbar is shown, and the refusal
   is announced.
-  If focus was on its Keep, focus goes to the row's first remaining
-  control; otherwise it stays where it was.
+  If Keep was chosen from that row's menu, focus goes to the row's
+  first remaining control; otherwise it stays where it was.
 - **Keep is refused because storage is degraded.** The row stays kind
   A, no snackbar is shown, the existing storage notice and refusal
   announcement apply, and focus stays where it was.
@@ -709,6 +721,7 @@ passed.
     | Keep or Unkeep by a touch swipe, focus elsewhere | stays where it was | keyboard |
     | Retry by swipe | stays where it was | keyboard |
     | Retry from the menu | that row's first control | keyboard |
+    | Show source from the menu, and when the source closes | that row's first control | keyboard, TalkBack |
     | the menu opened, then closed by Escape, Back or a tap outside | that row's first control | keyboard, TalkBack |
     | a pending row becomes accepted while its menu is open | the menu closes; that row's first remaining control (its bubble) | tests |
     | Undo of Keep or Unkeep | that row's first control | keyboard, TalkBack |
@@ -747,3 +760,21 @@ passed.
     the Chats list (each row, the "Conversations" heading): every stop
     draws the ring of §7, and the ring measures 3:1 or more against what
     it sits on, from a screenshot, in the dark and the light scheme.
+23. **The row's menu** (§7), on the Pixel 9a, and the desktop where
+    named:
+    - at rest, nothing shows under any bubble of any row kind: no
+      button, no action label;
+    - a long-press held within the slop opens the menu with one haptic
+      tick, and the bubble shows its pressed state layer while it is
+      open; a press that passes the slop before the long-press time
+      opens nothing, and a long-press on a link opens the menu and not
+      the link;
+    - with a hardware keyboard, Enter, the Menu key and Shift+F10 on a
+      focused bubble each open it, with focus on its first item;
+    - its items are, in order: kind A Keep, Dismiss; kind B Unkeep;
+      kind C Retry, Cancel; and Show source last on every kind;
+    - a drag that starts on an open menu's item moves no row and
+      commits nothing; a tap outside closes the menu and does nothing
+      to the row under it;
+    - on the desktop, a secondary click on a bubble opens the same
+      menu.
