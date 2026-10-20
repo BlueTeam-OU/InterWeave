@@ -99,6 +99,11 @@ Edge rules:
   (§7), on a link as anywhere else in the bubble; the link then does
   not open. A press that passes the slop first is a swipe or a scroll
   and never opens it.
+- Once a long-press opens the menu, the rest of that press belongs to
+  the menu, never to the row: lifting it chooses nothing and the menu
+  stays open; sliding it onto an item and lifting there chooses that
+  item (Android's press-drag-release); sliding it sideways tracks no
+  swipe and commits nothing.
 - While the row's menu is open, touches on it never reach the row: a
   drag that starts on a menu item moves nothing under the menu and
   never tracks or commits a swipe. A press released on the item it
