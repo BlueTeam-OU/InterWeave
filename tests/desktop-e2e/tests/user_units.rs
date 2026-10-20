@@ -192,7 +192,12 @@ impl Installed {
         command
             .args(args)
             .env("HOME", &self.user_home)
-            .env("XDG_CONFIG_HOME", &self.home.roots.config_home);
+            // The person's XDG roots, as their shell has them: a script
+            // that reached into a profile would reach this one.
+            .env("XDG_CONFIG_HOME", &self.home.roots.config_home)
+            .env("XDG_DATA_HOME", &self.home.roots.data_home)
+            .env("XDG_STATE_HOME", &self.home.roots.state_home)
+            .env("XDG_CACHE_HOME", &self.home.roots.cache_home);
         if !session {
             command
                 .env_remove("XDG_RUNTIME_DIR")
@@ -504,9 +509,8 @@ fn profile_files(roots: &[&Path]) -> BTreeSet<PathBuf> {
 /// client is enabled, so both ways uninstall finds an instance -- loaded,
 /// and enabled -- are needed; then, run again over a wants link whose
 /// template is gone, it removes that link too. The first run is from a
-/// shell with
-/// neither the session's `XDG_RUNTIME_DIR` nor its bus address, as `sudo
-/// -u` or cron gives, and must find the manager anyway. The control for
+/// shell with neither the session's `XDG_RUNTIME_DIR` nor its bus
+/// address, as `sudo -u` or cron gives, and must find the manager anyway. The control for
 /// "nothing running" is the same instances running just before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a systemd user manager"]
