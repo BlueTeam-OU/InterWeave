@@ -12,7 +12,7 @@ InterWeave is currently an **accepted architecture plus implementation/test skel
 - `assets/` holds the project's images: the InterWeave icon, the script that generates every size of it, and `assets/README.md`, the register of every image in the repository and where each is used. A new image is added to that register in the same change; a generated file is never edited by hand. It is not a code landing zone.
 - `tools/` is repository tooling — PR/review scripts (`gh/`), tree checks (`checks/`) and the session wrappers CI jobs run under (`ci/`) — not an implementation landing zone. It is live now and not gated by stage discipline. Each script has a self-test beside it (`test_*.sh`) that must stay green, run through `tools/checks/run_suite.sh` (bare, a call to an undefined helper passes silently).
 - `.claude/` is committed shared agent configuration: `settings.json` (§9), plus `skills/` — task-scoped procedures loaded on demand, see §10. Only `settings.local.json` and `CLAUDE.local.md` are per-developer and gitignored.
-- Stages 0-16 are **complete** and **Stage 17 is open**; **Stage 20 (plan §28, ADR-0055: automated clients as first-party consumers, the fleet's agents the first deployment) ran beside it by record from the landing of that record and closed the same day, 2026-10-19, on the owner's word: #305 landed the five steps and ADR-0055's acceptance, the plan's §28 closing record names the ten conformance cases, the measured figures and what was carried**, the status value staying the lowest open stage
+- Stages 0-16 are **complete** and **Stage 17 is open**; **Stage 20 (plan §28, ADR-0055: automated clients as first-party consumers, the fleet's agents the first deployment) ran beside it by record from the landing of that record and closed the same day, 2026-10-19, on the owner's word: #305 landed the five steps and ADR-0055's acceptance, the plan's §28 closing record names the ten conformance cases, the measured figures and what was carried**, **Stage 19 (plan §22, packaging, migration and release) runs beside Stage 17 and Stage 18 from the landing of the §22 record (the owner's word of 2026-10-20)**, the status value staying the lowest open stage
   (`stage-17-android-human-client`: the Android human client, plan
   §20, whose prerequisites SPIKE-008 and SPIKE-009 are its first work;
   no §20 package before they close and its record lands). **Stage 16
@@ -774,7 +774,7 @@ read `.claude/settings.json`.
 
 >  **CI exists and gates `main`** — `.github/workflows/ci.yml` runs fmt, clippy, the workspace tests, every tree check, and every self-test on `pull_request`, `merge_group`, and pushes to `main`. It reports four required contexts, which are the job `name:` values verbatim: **`rust`**, **`tree checks`**, **`tool self-tests`**, and **`android check (aarch64-linux-android)`** (`cargo check` of the phone's crates for their target with the NDK the host pins, `tools/ci/check_android_target.sh`; Stage 17 §20 step 1 cites it as its build record). All four are in the ruleset's `required_status_checks`, so the queue gates correctness and not merely ordering. `tools/checks/check_required_contexts.sh` keeps this paragraph and the workflow in agreement; the ruleset itself needs admin API access and is checked by hand. The policy is **non-strict**: a branch need not be up to date with `main` to merge, which is why folding `origin/main` in and re-testing locally (Phase 3) is still on you rather than on the platform.
 >
-> A job can instead be an **advisory context the ruleset does not require**, named in a sentence of that wording here, while its subject is not yet on `main`; `check_required_contexts.sh` holds every job to exactly one of the two lists. One is, while the Gradle build is not on `main`: **`android apk (assembleDebug)`**, the APK with the native library cargo-ndk builds into it. It moves to the required list, and the ruleset, by hand once that build is on `main`.
+> A job can instead be an **advisory context the ruleset does not require**, named in a sentence of that wording here, while its subject is not yet on `main`; `check_required_contexts.sh` holds every job to exactly one of the two lists. One is, until the ruleset gains it: **`android apk (assembleDebug)`**, the APK with the native library cargo-ndk builds into it, with `lintDebug` and `testDebugUnitTest` after it (#311). The Gradle build has been on `main` since Stage 17's first package, so what the job waits for is no longer its subject but the ruleset, which needs admin access: it moves to the required list here and into the ruleset by hand in one change, devex-tooling's on the owner's word.
 >
 > A job's `name:` *is* its required-check context, so renaming a job silently un-gates `main` — the ruleset goes on requiring a context nothing reports, and the queue waits forever. Rename a job only together with the ruleset.
 >
@@ -804,6 +804,18 @@ consent: it lands the PR at the FIRST moment every required check is green,
 not when you decide you are done. Arm while more commits are coming and the
 PR can merge before your next commit exists. Arming late costs nothing, so
 there is no trade to make.
+
+**A push after the arming takes it off** (`.github/workflows/disarm-on-push.yml`,
+agent-fabric ADR-019 §5 rule 5). GitHub keeps auto-merge across a push from
+anyone with write access and the ruleset asks for no approval, so without it
+a fold, a conflict merge or a late fix would reach the queue unreviewed. The
+job takes off an arming older than the push and any queue entry older
+than the push or made by such an arming (even after it); once it has
+found one, it takes off everything present while it runs, a fresh arming
+included, and says so on the PR. Its `disarm` context is not a required one. A push therefore always means: review the
+new range, then `fabric-pr arm` again. A lost push webhook means the job
+never ran, so after a push to an armed PR read both `autoMergeRequest` and
+`mergeQueueEntry` yourself: GitHub clears the first once the PR is queued.
 
 #### A security-boundary change waits for its review
 

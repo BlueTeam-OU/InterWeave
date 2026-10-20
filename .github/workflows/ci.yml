@@ -304,6 +304,24 @@ jobs:
       - name: The root funnel's measurement tests are compiled and not ignored (plan §15)
         run: bash tools/checks/check_root_funnel_precondition.sh --compiled
 
+      # The human client's rollback row (plan §22): #[ignore]d, and failing
+      # with the variable unset, for the upgrade matrix's reason (above).
+      # After Tests and with Tests' own selection, so nextest reuses the
+      # human_app binary and the daemon Tests built instead of resolving a
+      # `-p` graph of its own. The `=` filter names the one case: the
+      # binary's other #[ignore]d case writes a tree, make-tree.sh's, and
+      # panics without its variables. A filter matching nothing FAILS
+      # (--no-tests=fail), where `cargo test -- --exact` passes on a
+      # renamed test. No display: the row runs the daemon and transportctl.
+      - name: The human client's rollback row against the previous production builds
+        timeout-minutes: 5
+        env:
+          INTERWEAVE_PREVIOUS_BUILDS: ${{ runner.temp }}/previous-builds
+        run: >-
+          cargo nextest run --workspace --all-targets --locked --profile ci
+          --run-ignored only --no-tests=fail
+          -E 'binary_id(interweave-desktop-e2e-tests::human_app) & test(=release::a_rollback_to_each_previous_build_keeps_the_peer_id_and_is_recorded)'
+
       - name: The lockfile is the one that was committed
         # Belt and braces to `--locked`: if any step did rewrite it, say
         # so here rather than letting a green run attest to a graph the
@@ -394,8 +412,9 @@ jobs:
     # advisory sentence): the APK the Gradle build packages, with the native
     # library cargo-ndk builds into it, then the debug variant's lint and
     # JVM unit tests (the name keeps the context the advisory sentence
-    # names). It joins the ruleset by hand once the Gradle project is on
-    # main and a run time is measured.
+    # names). Advisory until the ruleset gains it (devex-tooling, by hand,
+    # on the owner's word): the Gradle project is on main and the run time
+    # is measured below, so nothing else is waited for.
     name: android apk (assembleDebug)
     runs-on: ubuntu-latest
     # 5m27s on main with no cargo cache (400b42b6, 2026-10-17): 69 s of

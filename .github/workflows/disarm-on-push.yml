@@ -1,0 +1,130 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# A pull request is armed on a head the review class reviewed (agent-fabric
+# ADR-019 §5 rules 4-6), pinned by --match-head-commit at the arming only.
+# The `main protection` ruleset asks for no approval, so nothing else holds
+# the reviewed head: fabric-pr arm arms a PR whose checks are still
+# running, the arming waits as auto-merge until they are green, and GitHub
+# keeps auto-merge across a push from anyone with write access. A push
+# after the arming (a fold, a conflict merge, a late fix) would then enter
+# the queue and land unreviewed. This job takes the arming off, and takes
+# the PR out of the queue should it be in it, and says why; the arming is
+# done again on the new head, through fabric-pr arm, once it is reviewed.
+# agent-fabric runs the same job since its #134 (2026-10-09), gzapp since
+# its #1135 (2026-10-19).
+#
+# No Dependabot exemption, unlike gzapp's copy: nothing here arms a
+# Dependabot PR on green alone (.github/dependabot.yml), so a Dependabot
+# rebase after a hand arming is a new head like any other.
+#
+# pull_request_target, not pull_request: the job must run the base
+# branch's copy of itself. Under pull_request GitHub runs the pushed head's
+# copy, so a push that edits or deletes this file would keep its own
+# arming. The usual danger of the trigger is a write token running PR
+# code; this job checks nothing out and runs none, and event data reaches
+# the script only through env.
+on:  # zizmor: ignore[dangerous-triggers] nothing of the PR is checked out or run
+  pull_request_target:
+    types: [synchronize]
+
+# Auto-merge is a write to the pull request's merge, so the token needs
+# contents: write as well: with pull-requests: write alone GitHub refuses
+# disablePullRequestAutoMerge ("Resource not accessible by integration",
+# agent-fabric #139, 2026-10-09). The job writes nothing else: a dequeue and
+# a disable per pass, three passes at most, and one comment.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: disarm-on-push-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  disarm:
+    # No fork skip: GitHub takes auto-merge off only when someone WITHOUT
+    # write access pushes to the head, so a maintainer's push to a fork's
+    # branch would keep it. Running on a fork's pull request is safe for
+    # the reason above: nothing of the PR is checked out or run.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Take the arming off a pull request whose head moved
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          PUSHED_AT: ${{ github.event.pull_request.updated_at }}
+        run: |
+          set -euo pipefail
+          # Read now, not from the event, and compared with the push: if
+          # nothing here is older than the push, the arming is the new head's
+          # and stays. Once anything is, everything present during the job is
+          # taken off, a fresh arming included (below).
+          # All times are GitHub's UTC "…Z" form, so they order as strings.
+          #
+          # The arming's time comes from the timeline too, because GitHub
+          # clears autoMergeRequest when auto-merge puts the PR in the queue
+          # (measured on #311: enabled 15:13:50Z, queued 15:34:01Z, null
+          # while queued, no disable event between). Should this job start
+          # only after the new head went green, the pre-push arming has
+          # already queued it: enabledAt is gone and enqueuedAt is after the
+          # push, and only the timeline still says the arming is older.
+          state() {
+            gh api graphql \
+              -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){id autoMergeRequest{enabledAt} mergeQueueEntry{enqueuedAt} timelineItems(last:1,itemTypes:[AUTO_MERGE_ENABLED_EVENT]){nodes{... on AutoMergeEnabledEvent{createdAt}}}}}}' \
+              -f o="${GH_REPO%/*}" -f r="${GH_REPO#*/}" -F n="$PR" \
+              --jq '.data.repository.pullRequest | "\(.id) \(.autoMergeRequest.enabledAt // "-") \(.mergeQueueEntry.enqueuedAt // "-") \(.timelineItems.nodes[0].createdAt // "-")"'
+          }
+          older() { [[ "$1" != "-" && "$1" < "$PUSHED_AT" ]]; }
+          read -r node armed_on queued_on last_armed < <(state)
+          # A queue entry is as old as the arming that made it, so one made
+          # after the push by a pre-push arming is stale too. A direct
+          # enqueue of the new head that beats a late-running job is taken
+          # out with it: failing closed costs one more fabric-pr arm.
+          if ! older "$armed_on" && ! older "$queued_on" \
+             && ! { older "$last_armed" && [[ "$queued_on" != "-" ]]; }; then
+            echo "#$PR: armed $armed_on (last arming $last_armed), queued $queued_on, push at $PUSHED_AT — nothing armed before the push, nothing to take off"
+            exit 0
+          fi
+          # From here whatever is present is taken as the stale arming's,
+          # an arming or enqueue made meanwhile included, whenever it
+          # appears: the new head can go green during this job, and the
+          # still-on arming then queues it between two reads. So take off
+          # what is there, read again, and repeat, a bounded number of times.
+          # What was taken off is read back from the pull request, never
+          # from a mutation's exit status: a mutation can fail on a field the
+          # other already cleared, or succeed and change nothing.
+          saw_queue="" saw_arm=""
+          for _ in 1 2 3; do
+            read -r _ armed_now queued_now _ < <(state)
+            [[ "$armed_now" == "-" && "$queued_now" == "-" ]] && break
+            if [[ "$queued_now" != "-" ]]; then
+              saw_queue="${saw_queue:-$queued_now}"
+              gh api graphql -f query='mutation($id:ID!){dequeuePullRequest(input:{id:$id}){clientMutationId}}' \
+                -f id="$node" >/dev/null || echo "dequeuePullRequest failed; reading the pull request back"
+            fi
+            if [[ "$armed_now" != "-" ]]; then
+              saw_arm="${saw_arm:-$armed_now}"
+              gh api graphql -f query='mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}' \
+                -f id="$node" >/dev/null || echo "disablePullRequestAutoMerge failed; reading the pull request back"
+            fi
+          done
+          read -r _ armed_now queued_now _ < <(state)
+          taken="" left=""
+          if [[ "$queued_now" != "-" ]]; then left="still in the merge queue (queued $queued_now)"
+          elif [[ -n "$saw_queue" ]]; then taken="taken out of the merge queue (queued $saw_queue)"; fi
+          if [[ "$armed_now" != "-" ]]; then left="${left:+$left; }auto-merge still on (armed $armed_now)"
+          elif [[ -n "$saw_arm" ]]; then taken="${taken:+$taken; }auto-merge taken off (armed $saw_arm)"; fi
+          moved="the head moved from ${BEFORE:0:8} to ${AFTER:0:8} after the arming"
+          if [[ -z "$left" ]]; then
+            body="Arming taken off: $moved — ${taken:-nothing was left to take off by the time this ran}. A pull request is armed on a reviewed head (agent-fabric ADR-019); review the new range, then arm again with fabric-pr arm."
+          else
+            body="Arming NOT fully taken off: $moved, and this workflow could not take it all off — $left${taken:+; done: $taken}. Take off by hand what is left (gh pr merge --disable-auto, or a dequeue), then review the new range and arm again with fabric-pr arm (agent-fabric ADR-019)."
+          fi
+          gh api "repos/$GH_REPO/issues/$PR/comments" -f body="$body" >/dev/null
+          echo "$body"
+          [[ -z "$left" ]]

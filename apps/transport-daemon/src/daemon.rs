@@ -27,6 +27,7 @@ use interweave_ipc_server::{
     bind_replacing_stale, serve,
 };
 use interweave_profile_config::lock::{DAEMON_LOCK_WAIT, ProfileLock};
+use interweave_profile_config::profile_format;
 use interweave_profile_config::runtime::Deployment;
 use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{ProfileConfig, ProfilePaths, XdgRoots};
@@ -104,6 +105,11 @@ pub(crate) async fn run(args: Args) -> Result<Stopped, Refused> {
 
     let lock = ProfileLock::acquire(&paths, DAEMON_LOCK_WAIT)
         .map_err(|e| refused("the profile lock (is a daemon already running?)")(&e))?;
+    // The marker read again under the lock (ADR-0028 A 2026-10-20): a
+    // newer build that held the lock while `load` ran may have raised it
+    // since, and the runtime's start below writes the profile.
+    profile_format::require_supported(&paths)
+        .map_err(|e| refused("the profile, read again under the lock")(&e))?;
     let identity = identity(&profile.identity.key_file_in(&paths), args.create_identity)?;
     let peer = identity
         .transport_identity()
@@ -132,6 +138,22 @@ pub(crate) async fn run(args: Args) -> Result<Stopped, Refused> {
             return Err(refused("the runtime")(&e));
         }
     };
+    // The profile-format marker raised to this build's (ADR-0028 A
+    // 2026-10-20) under the lock, once the runtime has started and before
+    // anything is served: a start refused anywhere before here -- the key,
+    // the sockets, a newer build's overlay the runtime will not read --
+    // writes nothing (`a_runtime_that_fails_to_start_leaves_no_socket`).
+    // What the start may write before it -- an overlay's normalisation
+    // rewrite, the peer cache's flush -- keeps each file's shape at this
+    // format; a change that bumps the format and changes what the start
+    // writes moves this, and its review checks it. A marker above this
+    // build's was refused by `load` and again under the lock above.
+    if let Err(e) = profile_format::raise(&paths) {
+        let _ = runtime.stop().await;
+        drop(listeners);
+        unlink(&sockets);
+        return Err(refused("the profile-format marker")(&e));
+    }
     if let Some(e) = listeners.admin_error() {
         // ADR-0037: the admin socket failing does not take data down.
         tracing::warn!(error = %e, "the admin socket is unavailable; serving data only");
