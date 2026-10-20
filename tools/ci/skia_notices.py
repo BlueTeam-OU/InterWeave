@@ -14,8 +14,13 @@
 # the two placeholders release_page.py fills from it. Every text named in
 # tools/ci/skia-notices.pin is fetched and REFUSED, with nothing written,
 # when its SHA-256 is not the pin's: a text that changed upstream is read
-# again and the pin renewed by hand, never published unread. The pin
-# must also hold exactly one credit line.
+# again and the pin renewed by hand, never published unread.
+#
+# The credit is FreeType's own sentence, taken from the FTL.TXT the pin
+# names (the text FreeType asks a distributor to show, between its """
+# marks), with <year> replaced by the pin's one `credit-year` line, the
+# year of the FreeType version built. It is read from the hashed file,
+# not copied into this repository.
 #
 # Environment: SKIA_NOTICES_PIN (the pin; default beside this script);
 # SKIA_NOTICES_SOURCE, a directory in which a source's text is the file
@@ -52,23 +57,23 @@ def help_text() -> str:
 
 
 def parse(pin: str) -> tuple:
-    entries, credits = [], []
+    entries, years = [], []
     for number, raw in enumerate(pin.splitlines(), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         fields = [f.strip() for f in line.split(" | ")]
-        if fields[0] == "credit" and len(fields) == 2 and fields[1]:
-            credits.append(fields[1])
+        if fields[0] == "credit-year" and len(fields) == 2 and re.fullmatch(r"[0-9]{4}", fields[1]):
+            years.append(fields[1])
         elif len(fields) == 4 and all(fields) and re.fullmatch(r"[0-9a-f]{64}", fields[3]):
             entries.append(tuple(fields))
         else:
-            raise Malformed(f"pin line {number} is not 'component | file | source | sha256' or 'credit | text'")
-    if len(credits) != 1:
-        raise Malformed(f"the pin holds {len(credits)} credit lines, not one")
+            raise Malformed(f"pin line {number} is not 'component | file | source | sha256' or 'credit-year | YYYY'")
+    if len(years) != 1:
+        raise Malformed(f"the pin holds {len(years)} credit-year lines, not one")
     if not entries:
         raise Malformed("the pin names no text")
-    return entries, credits[0]
+    return entries, years[0]
 
 
 def ndk_path(source: str) -> Path:
@@ -104,8 +109,19 @@ def header(text: str) -> str:
     return "\n".join(lines).strip("\n")
 
 
-def build(entries: list) -> str:
-    out, current = [], None
+CREDIT = re.compile(r'"""\s*(Portions of this software.*?)\s*"""', re.DOTALL)
+
+
+def credit_from(ftl: str, year: str) -> str:
+    """FreeType's credit sentence from its FTL.TXT, the year filled."""
+    found = CREDIT.findall(ftl)
+    if len(found) != 1 or found[0].count("<year>") != 1:
+        raise ValueError("FTL.TXT holds no single credit sentence with one <year> in it")
+    return " ".join(line.strip() for line in found[0].splitlines()).replace("<year>", year)
+
+
+def build(entries: list, year: str) -> tuple:
+    out, current, credit = [], None, None
     for component, name, source, sha in entries:
         data = read(source)
         got = hashlib.sha256(data).hexdigest()
@@ -114,11 +130,15 @@ def build(entries: list) -> str:
         text = data.decode("utf-8", errors="replace")
         if source.startswith("ndk:"):
             text = header(text)
+        if name.endswith("FTL.TXT"):
+            credit = credit_from(text, year)
         if component != current:
             out += [f"### {component}", ""]
             current = component
         out += [f"From `{name}`:", "", "```text", text.strip("\n"), "```", ""]
-    return "\n".join(out).rstrip("\n")
+    if credit is None:
+        raise ValueError("the pin names no FTL.TXT to take FreeType's credit from")
+    return "\n".join(out).rstrip("\n"), credit
 
 
 def main(argv: list) -> int:
@@ -130,12 +150,12 @@ def main(argv: list) -> int:
         return 2
     pin = Path(os.environ.get("SKIA_NOTICES_PIN", HERE / "skia-notices.pin"))
     try:
-        entries, credit = parse(pin.read_text())
+        entries, year = parse(pin.read_text())
     except (OSError, Malformed) as err:
         sys.stderr.write(f"skia_notices: {err}\n")
         return 2
     try:
-        texts = build(entries)
+        texts, credit = build(entries, year)
     except (OSError, ValueError) as err:
         sys.stderr.write(f"skia_notices: {err}\n")
         return 1

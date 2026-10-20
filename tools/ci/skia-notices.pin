@@ -33,6 +33,7 @@ Wuffs | LICENSE | gitiles:https://skia.googlesource.com/external/github.com/goog
 Vulkan Memory Allocator | LICENSE.txt | gitiles:https://chromium.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/+/eb744ea7a2b17040121b4bbb4d6f9e8a77e3cae7/LICENSE.txt | 52df2c03d6cfc9ffec13c9d3626c530fc9ce0cbe41d5ea3d10cd46edeb1aeb38
 cpu_features | cpu-features.c (its licence header) | ndk:28.2.13676358/sources/android/cpufeatures/cpu-features.c | 1b8a88eb7d3a5437d17e12475539398d3e1c5eef13d85941679841254af0a8f5
 #
-# The credit FreeType's FTL asks for, its <year> the value of the version
-# built (2.14.2 at the commit above, copyright 1996-2026).
-credit | Portions of this software are copyright © 2026 The FreeType Project (https://freetype.org).  All rights reserved.
+# The year for the credit FreeType's FTL.TXT asks for, whose sentence
+# skia_notices.py takes from that file: the value of the version built
+# (2.14.2 at the commit above, copyright 1996-2026).
+credit-year | 2026
