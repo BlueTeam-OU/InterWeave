@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use interweave_local_client_api::{AdminBinding, AdminCapability, AdminPort};
 use interweave_profile_config::endpoint_overlay::EndpointOverlay;
+use interweave_profile_config::profile_format::{self, PROFILE_FORMAT};
 use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::trust_overlay::TrustOverlay;
 use interweave_profile_config::{ProfilePaths, TrustBoundary, create_private_dir_within};
@@ -380,6 +381,82 @@ fn each_refusal_names_its_cause() {
         .expect("stops");
 }
 
+/// The profile-format marker (ADR-0028 A 2026-10-20): the host raises it
+/// to this build's format, owner-only, before its runtime starts; a
+/// marker above it refuses the start as `ProfileInvalid`, naming the file
+/// and both formats, with nothing written -- no lock, the marker as it
+/// was; put back, the same profile starts.
+#[test]
+fn the_host_raises_the_marker_and_a_newer_one_refuses_it() {
+    let app = app();
+    let paths = provision(&app.dir, &document("embedded-android", false));
+    let marker = profile_format::path_for(&paths);
+    assert!(!marker.exists(), "a fresh install has none");
+
+    let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
+    assert_eq!(
+        profile_format::read_within(&marker, paths.boundary()).expect("reads"),
+        PROFILE_FORMAT
+    );
+    assert_eq!(
+        std::fs::metadata(&marker)
+            .expect("present")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    host.stop(Duration::from_secs(1)).expect("stops");
+
+    // A newer app's marker: refused, and nothing written.
+    let newer = format!("{{\"profile_format\":{}}}", PROFILE_FORMAT + 1);
+    std::fs::write(&marker, &newer).expect("planted");
+    let lock = paths.state_dir().join("profile.lock");
+    let lock_before = std::fs::metadata(&lock)
+        .expect("the first start's lock")
+        .modified()
+        .expect("mtime");
+    let listing = |dir: &Path| {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .expect("readdir")
+            .map(|e| e.expect("entry").file_name())
+            .collect();
+        names.sort();
+        names
+    };
+    let state_before = listing(paths.state_dir());
+    match EmbeddedHost::start(launch(&app.dir)) {
+        Err(EmbeddedRefused::ProfileInvalid(detail)) => {
+            for part in [
+                marker.display().to_string(),
+                format!("format {}", PROFILE_FORMAT + 1),
+                format!("this build's {PROFILE_FORMAT}"),
+            ] {
+                assert!(detail.contains(&part), "names {part:?}: {detail}");
+            }
+        }
+        Err(other) => panic!("refused as a newer profile: {other:?}"),
+        Ok(_) => panic!("a newer profile is refused"),
+    }
+    assert_eq!(std::fs::read_to_string(&marker).expect("read"), newer);
+    assert_eq!(listing(paths.state_dir()), state_before, "nothing created");
+    assert_eq!(
+        std::fs::metadata(&lock)
+            .expect("lock")
+            .modified()
+            .expect("mtime"),
+        lock_before,
+        "the lock untouched"
+    );
+
+    // THE CONTROL: this build's format starts.
+    std::fs::write(&marker, format!("{{\"profile_format\":{PROFILE_FORMAT}}}")).expect("put back");
+    EmbeddedHost::start(launch(&app.dir))
+        .expect("the control starts")
+        .stop(Duration::from_secs(1))
+        .expect("stops");
+}
+
 /// A listener the platform refuses a socket is `NetworkDenied`, a cause
 /// distinct from every other start refusal: on this host a wildcard
 /// listener on port 80 without the privilege, refused with EACCES as an
@@ -389,7 +466,7 @@ fn each_refusal_names_its_cause() {
 #[test]
 fn a_listener_the_platform_refuses_is_network_denied() {
     let app = app();
-    provision(
+    let paths = provision(
         &app.dir,
         &document("embedded-android", false).replacen("/tcp/0", "/tcp/80", 1),
     );
@@ -403,6 +480,12 @@ fn a_listener_the_platform_refuses_is_network_denied() {
         Err(other) => panic!("a refused listener is NetworkDenied: {other:?}"),
         Ok(_) => panic!("port 80 bound: this test needs an unprivileged runner"),
     }
+    // No profile-format marker (ADR-0028 A 2026-10-20): it is raised
+    // only once the runtime has started, so a refused start writes none.
+    assert!(
+        !profile_format::path_for(&paths).exists(),
+        "a refused start writes no marker"
+    );
     provision(&app.dir, &document("embedded-android", false));
     EmbeddedHost::start(launch(&app.dir))
         .expect("the control starts")

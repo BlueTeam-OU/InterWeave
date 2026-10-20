@@ -30,6 +30,7 @@ use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort 
 pub use interweave_profile_config::availability_overlay::StayReachable;
 use interweave_profile_config::availability_overlay::{self, AvailabilityError};
 use interweave_profile_config::endpoint_overlay::EndpointOverlayError;
+use interweave_profile_config::profile_format::{self, ProfileFormatError};
 pub use interweave_profile_config::runtime::AvailabilityMode;
 use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::trust_overlay::OverlayError;
@@ -166,7 +167,25 @@ impl From<LoadError> for EmbeddedRefused {
             LoadError::ConfigDirUnguarded(_) | LoadError::ConfigFileUnguarded { .. } => {
                 Self::DirectoryRefused(e.to_string())
             }
+            LoadError::ProfileFormat(e) => Self::from(e),
             _ => Self::ProfileInvalid(e.to_string()),
+        }
+    }
+}
+
+impl From<ProfileFormatError> for EmbeddedRefused {
+    fn from(e: ProfileFormatError) -> Self {
+        match e {
+            // A file the person cannot have written is the directory's
+            // fault, as an overlay's is.
+            ProfileFormatError::NotPrivate { .. } => Self::DirectoryRefused(e.to_string()),
+            ProfileFormatError::Read(io) => Self::from(PersistError::Io(io)),
+            ProfileFormatError::Write(persist) => Self::from(persist),
+            // A newer app's profile: the message names the file and both
+            // formats, and the person's remedy is that newer app.
+            ProfileFormatError::Newer { .. }
+            | ProfileFormatError::TooLarge
+            | ProfileFormatError::Parse(_) => Self::ProfileInvalid(e.to_string()),
         }
     }
 }
@@ -303,6 +322,10 @@ impl EmbeddedHost {
             return Err(EmbeddedRefused::NotEmbedded);
         }
         let lock = ProfileLock::acquire(&paths, LOCK_WAIT)?;
+        // The marker read again under the lock (ADR-0028 A 2026-10-20): a
+        // newer app that held the lock while `load` ran may have raised it
+        // since, and the runtime's start below writes the profile.
+        profile_format::require_supported(&paths)?;
         // Read under the lock, so no other host is writing it. A present
         // overlay that cannot be trusted refuses the start, as the trust
         // overlay's does: read as absent, it would turn the person's
@@ -326,6 +349,18 @@ impl EmbeddedHost {
             &config,
             CompositionOptions::from_profile(&config, &paths),
         ))?;
+        // The profile-format marker raised to this build's (ADR-0028 A
+        // 2026-10-20): the embedded host is the profile's state writer on
+        // Android. Under the lock, once the runtime has started and before
+        // the binding is handed out, as the daemon raises it: a start
+        // refused before here writes nothing
+        // (`a_listener_the_platform_refuses_is_network_denied`). A marker
+        // above this build's was refused by `load` and again under the
+        // lock.
+        if let Err(e) = profile_format::raise(&paths) {
+            let _ = executor.block_on(composed.stop());
+            return Err(e.into());
+        }
         Ok(Self {
             sessions: composed.sessions(),
             composed: Some(composed),

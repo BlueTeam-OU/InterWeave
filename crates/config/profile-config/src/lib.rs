@@ -44,6 +44,7 @@ pub mod lock;
 pub mod paths;
 pub mod persist;
 mod private_read;
+pub mod profile_format;
 pub mod provision;
 pub mod runtime;
 pub mod sections;
