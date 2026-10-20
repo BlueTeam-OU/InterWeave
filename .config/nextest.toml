@@ -42,7 +42,8 @@
 # the lock, because every case that can call display::exclusive is in it
 # (display.rs is its module), and a new one is then in the group without
 # anyone adding it here. The other desktop-e2e binaries and android-e2e
-# run beside everything else since #316.
+# run beside everything else: #316's claim files made free_port's answers
+# unique across processes, and #311 took them out of the group.
 end-to-end = { max-threads = 1 }
 
 [[profile.default.overrides]]
