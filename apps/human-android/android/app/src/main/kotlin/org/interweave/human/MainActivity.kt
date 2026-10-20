@@ -94,6 +94,7 @@ class MainActivity : NativeActivity() {
         }
         super.onStart()
         shown = true
+        started += 1
         Thread({ relayAsks() }, "interweave-network-ask").start()
         Thread({ relayHaptics() }, "interweave-haptic").start()
         Thread({ relayLeave() }, "interweave-leave").start()
@@ -129,6 +130,30 @@ class MainActivity : NativeActivity() {
         if (identity != Native.IDENTITY_READY) return
         identityReady = true
         if (!phraseShown) connect()
+    }
+
+    /**
+     * Stop the service for Show my phrase, and tell the flow whether it
+     * stopped. No binding is not no service: under Stay reachable the
+     * service is started and runs unbound, holding the profile's lock, so
+     * it is bound and stopped through its binding. Only before the
+     * identity is ready was none started.
+     */
+    private fun goOffline() {
+        local?.let { service ->
+            service.offline { Native.offline(it) }
+            return
+        }
+        if (!identityReady) {
+            Native.offline(true)
+            return
+        }
+        offlineOnConnect = true
+        if (!bound) bind()
+        if (!bound) {
+            offlineOnConnect = false
+            Native.offline(false)
+        }
     }
 
     /** Bind the network service, asking for access first where needed. */
@@ -177,8 +202,14 @@ class MainActivity : NativeActivity() {
         watchSettings(false)
         // A recreation for a configuration change keeps the binding: the
         // next instance finds it held, and foreground-only mode's runtime
-        // and lease survive it (review F2). Any other stop lets go.
-        if (bound && !isChangingConfigurations) {
+        // and lease survive it (review F2). Otherwise the last started
+        // instance lets go: the binding is the application's, and a Back
+        // that closes one instance over another stops the closing one
+        // after the other has started -- its stop let go of the binding
+        // the other relied on, and nothing bound again (2026-10-20, the
+        // Pixel: Show recovery phrase then refused as Busy).
+        started -= 1
+        if (bound && started == 0 && !isChangingConfigurations) {
             applicationContext.unbindService(connection)
             bound = false
             local = null
@@ -403,14 +434,13 @@ class MainActivity : NativeActivity() {
                     runOnUiThread { connect() }
                 }
                 Ask.FINISH -> runOnUiThread { finish() }
-                // Show my phrase: with no service bound, none runs.
                 Ask.OFFLINE -> {
                     phraseShown = true
                     // The flag first, on the main thread: S2's words are
                     // drawn only after Native.offline, which runs after it.
                     runOnUiThread {
                         secure(true)
-                        local?.offline { Native.offline(it) } ?: Native.offline(true)
+                        goOffline()
                     }
                 }
                 Ask.ONLINE -> {
@@ -530,10 +560,22 @@ class MainActivity : NativeActivity() {
         // service may be bound. The process's, as the binding is.
         @Volatile private var identityReady = false
         @Volatile private var local: NetworkService.Local? = null
+
+        // The instances between onStart and onStop: the last to stop lets
+        // the binding go. The main thread's.
+        private var started = 0
+
+        // Show my phrase asked while the service was not bound yet: it is
+        // stopped as soon as the binding arrives. The main thread's.
+        private var offlineOnConnect = false
         private val connection =
             object : ServiceConnection {
                 override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
                     local = service as? NetworkService.Local
+                    if (offlineOnConnect) {
+                        offlineOnConnect = false
+                        local?.offline { Native.offline(it) } ?: Native.offline(false)
+                    }
                 }
 
                 override fun onServiceDisconnected(name: ComponentName?) {
