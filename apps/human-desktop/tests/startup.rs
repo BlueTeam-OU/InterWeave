@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 //! The shipped binary's start-up, run as a process: each refusal exits
-//! with its sysexits(3) code and a message, before any window. A build
-//! with no windowing backend gets as far as the window and says so, with
-//! the store created and nothing left held.
+//! with its sysexits(3) code and a message. Run with no display, as here,
+//! the refusal screen cannot be shown and the stderr line is the whole
+//! answer; the screen itself is the desktop end-to-end suite's
+//! (`human_app/refusal.rs`). A build with no windowing backend gets as far
+//! as the window and says so, with the store created and nothing left
+//! held.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
