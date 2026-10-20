@@ -458,16 +458,24 @@ async fn the_installed_daemon_unit_starts_restarts_on_sighup_and_stops() {
 /// Uninstall (plan §22, ruled 2026-10-20): every instance stopped and
 /// disabled, the units and executables gone, nothing loaded, no daemon,
 /// no socket -- and every profile's configuration, key and state kept, so
-/// a reinstall serves the same `PeerId`. The control for "nothing
-/// running" is the same instance serving, and enabled, just before.
+/// a reinstall serves the same `PeerId`. The daemon is started and never
+/// enabled while its client is enabled, so both ways uninstall finds an
+/// instance -- loaded, and enabled -- are needed. The control for
+/// "nothing running" is the same instances running just before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a systemd user manager"]
 async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profile() {
     let installed = Installed::new(&stranger());
     let key = installed.home.write_key();
     let daemon = installed.daemon.clone();
-    systemctl_ok(&["enable", "--runtime", &daemon]);
     systemctl_ok(&["enable", "--runtime", &installed.client]);
+    let client_wanted = runtime_units()
+        .join(format!("{daemon}.wants"))
+        .join(&installed.client);
+    assert!(
+        client_wanted.is_symlink(),
+        "the control: the client enabled"
+    );
     systemctl_ok(&["start", &daemon]);
     assert_eq!(installed.serving().await, key, "serving before");
     installed.restarted(&installed.client, "0").await;
@@ -495,13 +503,7 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
         "the daemon process {pid} is gone"
     );
     assert!(installed.sockets_gone(), "no socket in the runtime dir");
-    assert!(
-        !runtime_units()
-            .join("default.target.wants")
-            .join(&daemon)
-            .exists(),
-        "disabled"
-    );
+    assert!(!client_wanted.exists(), "the client disabled");
     for exe in ["transport-daemon", "transportctl", "human-desktop"] {
         assert!(
             !installed.installed_bin().join(exe).exists(),
