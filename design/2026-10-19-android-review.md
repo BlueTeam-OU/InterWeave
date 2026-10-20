@@ -318,8 +318,10 @@ but does not re-rank these.
     1. if the window shows the list beside the conversation, and the
        conversation pane would leave the messages less than *M*, the
        list steps aside and the conversation takes the whole width;
-    2. if *H* − *C* − *B* is still less than *M*, the network notice
-       steps aside, then the app bar;
+    2. with *N* the network notice's height (0 when none shows): if
+       *H* − *C* − *B* − *N* is still less than *M*, the network notice
+       steps aside; if *H* − *C* − *B* is then still less than *M*,
+       the app bar steps aside too;
     3. the composer is never covered by the keyboard, and the typed
        text is always in view;
     4. when the keyboard closes, everything that stepped aside comes
@@ -389,14 +391,14 @@ but does not re-rank these.
       wait and go when it is back. It closes by itself when the state
       leaves offline; it has no dismiss control, so it cannot hide a
       state that still holds. "Unknown" shows nothing there, never as
-      offline (§7);
+      offline (`human-client-ui.md` §7);
     - in the side-by-side layout the Chats subtitle is the only place,
       with the banner over the conversation pane when offline;
     - deliberately left out: the route indicator (`direct` or
-      `relayed`, §7's option), which waits on a decision of what a
+      `relayed`, `human-client-ui.md` §7's option), which waits on a decision of what a
       person does with it.
-    The words are language-culture's; the state names above are §7's,
-    not labels.
+    The words are language-culture's; the state names above are
+    `human-client-ui.md` §7's, not labels.
 - **F10. A pending message's status alternates for hours and its time
   never moves.**
   - Seen: two messages sent at 01:14 read "Sending" and "Not
