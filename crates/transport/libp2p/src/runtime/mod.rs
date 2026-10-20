@@ -850,15 +850,17 @@ fn host_resolver_conf() -> Result<(libp2p::dns::ResolverConfig, libp2p::dns::Res
 
 /// The platform view's DNS facts, applied: a resolver installed through
 /// `switch` and the event that says so, or nothing (`CONNECTIVITY.md`
-/// §14, A 2026-10-14).
+/// §14, A 2026-10-14 and A 2026-10-20).
 ///
-/// Nothing when the view names no nameserver and no strict mode (unknown:
-/// the resolver in use is kept), or when its facts are the ones last
-/// applied -- so a view that changes only addresses builds nothing, and
-/// the event comes once per build. Strict Private DNS installs the empty
-/// resolver and reports `ResolverUnavailable` with the ruling's
-/// diagnostic. The event carries a count or a fixed text, never a
-/// nameserver or the Private DNS host.
+/// Nothing when the view carries no DNS facts and no strict mode
+/// (unobserved: the resolver in use is kept), or when its facts are the
+/// ones last applied -- so a view that changes only addresses builds
+/// nothing, and the event comes once per build. Strict Private DNS, and
+/// an active network naming no resolver (unavailable), install the empty
+/// resolver and report `ResolverUnavailable`, each with its own fixed
+/// diagnostic: a resolver the previous network named is never kept for
+/// a network that names none. The event carries a count or a fixed text,
+/// never a nameserver or the Private DNS host.
 fn apply_platform_dns(
     view: &NetworkView,
     port: u16,
@@ -867,12 +869,12 @@ fn apply_platform_dns(
     source: &mut ResolverSource,
 ) -> Option<SwarmEvent> {
     use crate::live_dns::PlatformDns;
-    let dns = PlatformDns::from_view(&view.dns_servers, view.private_dns.as_deref());
+    let dns = PlatformDns::from_view(view.dns_servers.as_deref(), view.private_dns.as_deref());
     if applied.as_ref() == Some(&dns) {
         return None;
     }
     let (next, event) = match &dns {
-        PlatformDns::Unknown => return None,
+        PlatformDns::Unobserved => return None,
         PlatformDns::Plain(servers) => (
             ResolverSource::Platform,
             SwarmEvent::ResolverConfigured {
@@ -883,6 +885,12 @@ fn apply_platform_dns(
             ResolverSource::PrivateDnsStrict,
             SwarmEvent::ResolverUnavailable {
                 detail: PRIVATE_DNS_STRICT.to_owned(),
+            },
+        ),
+        PlatformDns::Unavailable => (
+            ResolverSource::None,
+            SwarmEvent::ResolverUnavailable {
+                detail: NETWORK_NAMES_NO_RESOLVER.to_owned(),
             },
         ),
     };
@@ -896,6 +904,10 @@ fn apply_platform_dns(
 /// What strict Private DNS reports, in architect-cto's words (`GZCoord`
 /// 01a13bb7): the cause, and that the name was not resolved.
 const PRIVATE_DNS_STRICT: &str = "private DNS strict mode: plain DNS refused; name not resolved";
+
+/// What an active network naming no resolver reports: the lack, and that
+/// the name was not resolved (`CONNECTIVITY.md` §14, A 2026-10-20).
+const NETWORK_NAMES_NO_RESOLVER: &str = "the active network names no resolver; name not resolved";
 
 /// The host resolver configuration, or an empty one and the reason.
 ///
@@ -3733,8 +3745,8 @@ mod live_dns_tests {
     use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
 
     use super::{
-        DialFailureClass, NetworkView, PRIVATE_DNS_STRICT, ResolverSource, SubstrateConfig,
-        SwarmEvent, SwarmRuntime,
+        DialFailureClass, NETWORK_NAMES_NO_RESOLVER, NetworkView, PRIVATE_DNS_STRICT,
+        ResolverSource, SubstrateConfig, SwarmEvent, SwarmRuntime,
     };
 
     const PATIENCE: Duration = Duration::from_secs(20);
@@ -4015,6 +4027,153 @@ mod live_dns_tests {
             class,
             DialFailureClass::DialFailed,
             "the name did not resolve, rather than resolving to a peer that answered: {detail}"
+        );
+
+        dialer.shutdown().await.expect("clean shutdown");
+        listener.shutdown().await.expect("clean shutdown");
+    }
+
+    /// UNOBSERVED KEEPS, UNAVAILABLE REPLACES (`CONNECTIVITY.md` §14, A
+    /// 2026-10-20). After a plain view, a view carrying no DNS facts (no
+    /// default network named, or its link not yet reported) keeps the
+    /// resolver in use: no event, and a name still resolves and connects. A
+    /// view whose active network names no resolver installs the empty one
+    /// and says so, and the name the responder WOULD answer -- never asked
+    /// before, so no cache explains the silence -- reaches it no more. The
+    /// same unavailable view again reports nothing, and an unobserved view
+    /// after it keeps the empty resolver as it kept the plain one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_unobserved_view_keeps_the_resolver_and_an_unavailable_one_replaces_it() {
+        let (dns_port, queries) = responder().await;
+        let target_id = ProfileIdentity::generate();
+        let target = target_id.transport_identity().expect("peer id");
+        let after = ProfileIdentity::generate()
+            .transport_identity()
+            .expect("peer id");
+        let dialer_id = ProfileIdentity::generate();
+        let dialer_peer = dialer_id.transport_identity().expect("peer id");
+
+        let listener = SwarmRuntime::start(
+            &target_id,
+            SubstrateConfig::default(),
+            trusting(&[&dialer_peer]),
+        )
+        .expect("the target starts");
+        let bound = listener
+            .listen("/ip4/127.0.0.1/tcp/0".parse().expect("loopback"))
+            .await
+            .expect("listen");
+        let port = bound
+            .iter()
+            .find_map(|p| match p {
+                libp2p::multiaddr::Protocol::Tcp(port) => Some(port),
+                _ => None,
+            })
+            .expect("a tcp port");
+
+        let mut dialer = SwarmRuntime::start_with_seams::<&str>(
+            &dialer_id,
+            SubstrateConfig::default(),
+            trusting(&[&target, &after]),
+            Err("no host resolver configuration is read here"),
+            dns_port,
+        )
+        .expect("a node with no resolver starts");
+        wait_for(&mut dialer, "the start's ResolverUnavailable", |e| {
+            matches!(e, SwarmEvent::ResolverUnavailable { .. })
+        })
+        .await;
+
+        // Only the DNS facts move between views.
+        let addresses: Vec<IpAddr> = vec![Ipv4Addr::LOCALHOST.into()];
+        dialer.network_changed(
+            NetworkView::new(addresses.clone()).with_dns_servers(vec![Ipv4Addr::LOCALHOST.into()]),
+        );
+        wait_for(&mut dialer, "the resolver to be configured", |e| {
+            matches!(e, SwarmEvent::ResolverConfigured { .. })
+        })
+        .await;
+        until_resolver(&dialer, ResolverSource::Platform).await;
+
+        // UNOBSERVED: nothing is built, nothing is said, and the plain
+        // resolver still resolves.
+        let unobserved = NetworkView::new(addresses.clone());
+        dialer.network_changed(unobserved.clone());
+        let quiet = quiet_for(&mut dialer, Duration::from_millis(500)).await;
+        assert!(
+            !quiet.iter().any(|e| matches!(
+                e,
+                SwarmEvent::ResolverConfigured { .. } | SwarmEvent::ResolverUnavailable { .. }
+            )),
+            "an unobserved view reports nothing: {quiet:?}"
+        );
+        assert_eq!(
+            dialer.status(None).await.expect("status").resolver,
+            ResolverSource::Platform,
+            "an unobserved view keeps the resolver"
+        );
+        dialer
+            .dial(target.clone(), named(NAME, port, &target))
+            .await
+            .expect("command delivered")
+            .expect("admitted");
+        wait_for(
+            &mut dialer,
+            "the named target to connect through the kept resolver",
+            |e| matches!(e, SwarmEvent::Connected { peer, .. } if *peer == target),
+        )
+        .await;
+        let asked = queries.load(Ordering::SeqCst);
+        assert!(asked > 0, "the kept resolver asked the responder");
+
+        // UNAVAILABLE: the active network names no resolver.
+        let unavailable = NetworkView::new(addresses).with_dns_servers(Vec::new());
+        dialer.network_changed(unavailable.clone());
+        let said = wait_for(&mut dialer, "the lack to be reported", |e| {
+            matches!(
+                e,
+                SwarmEvent::ResolverUnavailable { .. } | SwarmEvent::ResolverConfigured { .. }
+            )
+        })
+        .await;
+        assert_eq!(
+            said,
+            SwarmEvent::ResolverUnavailable {
+                detail: NETWORK_NAMES_NO_RESOLVER.to_owned()
+            }
+        );
+        assert_eq!(
+            dialer.status(None).await.expect("status").resolver,
+            ResolverSource::None
+        );
+        let (class, detail) =
+            dial_fails(&mut dialer, &after, named(STRICT_NAME, port, &after)).await;
+        assert_eq!(
+            queries.load(Ordering::SeqCst),
+            asked,
+            "the previous network's resolver is asked nothing"
+        );
+        assert_eq!(
+            class,
+            DialFailureClass::DialFailed,
+            "the name did not resolve, rather than resolving to a peer that answered: {detail}"
+        );
+
+        // The same lack again, then an unobserved view: nothing either time.
+        dialer.network_changed(unavailable);
+        dialer.network_changed(unobserved);
+        let quiet = quiet_for(&mut dialer, Duration::from_millis(500)).await;
+        assert!(
+            !quiet.iter().any(|e| matches!(
+                e,
+                SwarmEvent::ResolverConfigured { .. } | SwarmEvent::ResolverUnavailable { .. }
+            )),
+            "neither view reports anything: {quiet:?}"
+        );
+        assert_eq!(
+            dialer.status(None).await.expect("status").resolver,
+            ResolverSource::None,
+            "an unobserved view keeps the empty resolver too"
         );
 
         dialer.shutdown().await.expect("clean shutdown");

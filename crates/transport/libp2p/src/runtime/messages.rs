@@ -373,9 +373,14 @@ pub struct NetworkView {
     /// Every usable address, in any order; duplicates are one.
     pub addresses: Vec<std::net::IpAddr>,
     /// The active network's resolvers, by IP, in the platform's order
-    /// (`LinkProperties.getDnsServers`). Empty means UNKNOWN, not "no
-    /// DNS": the resolver in use is kept.
-    pub dns_servers: Vec<std::net::IpAddr>,
+    /// (`LinkProperties.getDnsServers`), or `None` while the platform has
+    /// not said: no default network is named, or its link is not yet
+    /// reported. `None` is UNOBSERVED and keeps the resolver in use;
+    /// `Some` of an empty list is UNAVAILABLE -- the active network names
+    /// no resolver -- and installs the empty one (`CONNECTIVITY.md` §14,
+    /// A 2026-10-20), so a resolver never outlives the network that named
+    /// it.
+    pub dns_servers: Option<Vec<std::net::IpAddr>>,
     /// The Private DNS host name when the platform's Private DNS is in
     /// strict mode, else `None`. Set, it fails name resolution closed:
     /// this build has no DNS-over-TLS, and plain DNS is what the user's
@@ -384,7 +389,7 @@ pub struct NetworkView {
 }
 
 impl NetworkView {
-    /// A view of these addresses, with no DNS facts (unknown).
+    /// A view of these addresses, with no DNS facts (unobserved).
     #[must_use]
     pub fn new(addresses: Vec<std::net::IpAddr>) -> Self {
         Self {
@@ -393,10 +398,12 @@ impl NetworkView {
         }
     }
 
-    /// The active network's resolvers.
+    /// The active network's resolvers, observed: an empty list says the
+    /// network names none (unavailable), which is not leaving them unset
+    /// (unobserved).
     #[must_use]
     pub fn with_dns_servers(mut self, dns_servers: Vec<std::net::IpAddr>) -> Self {
-        self.dns_servers = dns_servers;
+        self.dns_servers = Some(dns_servers);
         self
     }
 
@@ -964,7 +971,8 @@ pub enum SwarmEvent {
     /// The node resolves no name: at start, because the host has no
     /// resolver configuration this process can read; or later, because
     /// the platform's view put its Private DNS in strict mode, which this
-    /// build cannot honour (`CONNECTIVITY.md` §14, A 2026-10-14).
+    /// build cannot honour (`CONNECTIVITY.md` §14, A 2026-10-14), or
+    /// named an active network that names no resolver (A 2026-10-20).
     ///
     /// DEGRADED, NOT FATAL. The DNS transport is built for every profile,
     /// and refusing to start without a resolver made a profile that
@@ -980,12 +988,15 @@ pub enum SwarmEvent {
     /// `start`'s resolver seam. What no test arranges is a host that
     /// really lacks a configuration: `start` passes the system read
     /// through that seam and nothing else. And by `apply_platform_dns`
-    /// for strict Private DNS, once per resolver build, which
-    /// `a_platform_view_installs_a_resolver_on_a_running_swarm` pins on a
-    /// running Swarm, with no plain query sent.
+    /// for strict Private DNS and for a network naming no resolver, once
+    /// per resolver build, which
+    /// `a_platform_view_installs_a_resolver_on_a_running_swarm` and
+    /// `an_unobserved_view_keeps_the_resolver_and_an_unavailable_one_replaces_it`
+    /// pin on a running Swarm, with no query sent to the replaced
+    /// resolver.
     ResolverUnavailable {
-        /// The resolver's own message at start; strict mode's fixed
-        /// diagnostic later, naming neither the nameservers nor the
+        /// The resolver's own message at start; strict mode's or an
+        /// unavailable network's fixed diagnostic later, naming neither the nameservers nor the
         /// Private DNS host.
         detail: String,
     },
