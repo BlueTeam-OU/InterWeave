@@ -12,7 +12,8 @@ channel: a person installs and updates the APK by hand, from the page.
 ## The release run
 
 A release is a tag `v<MAJOR>.<MINOR>.<PATCH>` on `main`. The workflow
-that runs on it is devex-tooling's (`.github/`); every step it runs is
+that runs on it is devex-tooling's `.github/workflows/release.yml`;
+every step it runs is
 a script in `tools/ci/` with a self-test beside it, so the workflow
 holds no release logic of its own. In order:
 
@@ -59,13 +60,15 @@ holds no release logic of its own. In order:
 ## The signing key
 
 The owner's, never in the repository, a CI log or an artifact
-(`CLAUDE.md` §6, `RELEASE.md` "Signing"). The run reads it from its
-secrets as environment variables and hands the passwords to
-`apksigner` as `env:` references, never on a command line:
+(`CLAUDE.md` §6, `RELEASE.md` "Signing"). It lives in the `release`
+environment of `.github/workflows/release.yml`, whose `sign` job alone
+reads it and builds nothing. The script reads it as environment
+variables and hands the passwords to `apksigner` as `env:` references,
+never on a command line:
 
 | variable | holds |
 |---|---|
-| `INTERWEAVE_RELEASE_KEYSTORE` | the path of the keystore, written by the run from its secret |
+| `INTERWEAVE_RELEASE_KEYSTORE` | the path of the keystore: the workflow writes the secret `INTERWEAVE_RELEASE_KEYSTORE_BASE64` (the keystore file, base64) to a file only that job reads, removed after it, and sets this to its path |
 | `INTERWEAVE_RELEASE_KEY_ALIAS` | the key's alias |
 | `INTERWEAVE_RELEASE_KEYSTORE_PASS` | the keystore's password |
 | `INTERWEAVE_RELEASE_KEY_PASS` | the key's password, if it differs |
@@ -73,9 +76,13 @@ secrets as environment variables and hands the passwords to
 
 The first release runs step 5 with `--first-release` and no
 `INTERWEAVE_RELEASE_CERT_SHA256` (the two together are refused), which
-prints the fingerprint instead of checking it; the owner records it as
-`INTERWEAVE_RELEASE_CERT_SHA256`, and every later run that signs with
-any other key fails.
+prints the fingerprint instead of checking it -- in the workflow, the
+environment variable `INTERWEAVE_RELEASE_FIRST=true`, set for that run
+only. The owner records the fingerprint as the
+`INTERWEAVE_RELEASE_CERT_SHA256` secret, and every later run that signs
+with any other key fails. The workflow's tag check runs from the tagged
+commit's own copy, so the environment's protection -- only `v*` tags,
+and a required reviewer -- is what an edited copy cannot get past.
 
 ## What this does not prove
 
