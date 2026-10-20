@@ -53,7 +53,7 @@ fn profile(name: &str) -> Result<(ProfilePaths, PathBuf), Failure> {
 /// names it, or, while the profile has no configuration yet, the
 /// profile's default identity file (`ProfilePaths::identity_file`), which
 /// is where a configuration that names no `key_file` keeps it. That is the
-/// fleet's order (ADR-0055 decision 7): the key is minted first, its
+/// fleet's order (ADR-0055 decision 4): the key is minted first, its
 /// `PeerId` goes into the roster, and the configuration is rendered from
 /// the roster after. A configuration that is THERE but does not load is
 /// refused, never read around: it may name another key file.
@@ -75,7 +75,7 @@ fn profile_for_init(name: &str) -> Result<(ProfilePaths, PathBuf), Failure> {
 }
 
 /// Mint the profile's key and print its `PeerId`, the key's only public
-/// part (ADR-0055 decision 7). Under the lock, so never while its daemon
+/// part (ADR-0055 decision 4). Under the lock, so never while its daemon
 /// runs; never over an existing key -- the exclusive create refuses one,
 /// so two inits racing past the lock still cannot both write. The key
 /// written is loaded back before its `PeerId` is printed, as a restore's.

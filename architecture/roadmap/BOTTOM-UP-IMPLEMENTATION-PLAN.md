@@ -5585,10 +5585,10 @@ agents that build InterWeave use it as their transport) and bounded by
 the owner's line of the same day: InterWeave stays a general-purpose
 transport, for human-to-human communication as for anything else, and
 the agents' coordination protocol does not enter this repository —
-"different things, different layer". The stage runs **beside** Stage
-17 and Stage 18 as §19's Stage 16 ran beside Stage 15: the status value
-stays the lowest open stage, and this section is the authorisation for
-its packages (§3 of `CLAUDE.md`). The decision is ADR-0055; this
+"different things, different layer". The stage ran **beside** Stage
+17 and Stage 18 as §19's Stage 16 ran beside Stage 15, and closed the
+same day (Met, below): the status value stays the lowest open stage,
+and this section was the authorisation for its packages (§3 of `CLAUDE.md`). The decision is ADR-0055; this
 section is the construction order, the gate and the record. It is
 numbered after §27 so that no citation of §23–§27 moves.
 
@@ -5629,8 +5629,9 @@ appears in any of the four.
    (ADR-0055 decision 4): offline, under the profile lock, printing the
    PeerId and nothing secret; refused while a daemon holds the lock;
    `init` refuses an existing key; tests beside the other identity
-   verbs. (Built on p2p-network-dev's branch at 8dddbbcf, 24 tests,
-   before this record landed.)
+   verbs. (Built on p2p-network-dev's branch at 8dddbbcf, five tests
+   beside the file's nineteen for the earlier verbs, before this record
+   landed.)
 2. `tests/automated-client` (root suite, test-support only): two
    daemons on loopback with static bootstrap and mutual trust as a
    deployment renders them, and a generic test client that claims a
@@ -5697,3 +5698,94 @@ no deployment's protocol is this stage's.
 
 The owner's word closes it, as every stage. The `Met.` block names the
 cases, the measured figures of decision 2 and what was carried.
+
+**Met (2026-10-19; the closing record).** Stage 20 closed on the owner's
+word of 2026-10-19 — given on the arming of the pull request that lands
+this record, which is its approval on record, as Stage 16's was — the
+day it opened beside Stage 17 by record (#305, bcfd515d, merged
+4a607b2e; the same merge is ADR-0055's acceptance by the arming rule of
+2026-09-27, the owner's word "Arm #305" of 2026-10-19), on the steps
+above in order, all of them in that one pull request —
+p2p-network-dev's lane, with ADR-0055, this section, the review-fix
+text and `AUTOMATED-CLIENT.md` supplied by architect-cto on the way:
+step 1 (`apps/transportctl/tests/identity.rs`, five cases of its 24:
+`init_mints_a_key_and_show_prints_its_peer_id`,
+`init_refuses_an_existing_key`,
+`init_without_a_configuration_writes_the_default_key_file`,
+`init_and_show_under_a_held_lock_are_refused` and
+`show_without_a_key_is_refused_and_mints_none`; the other nineteen are
+the earlier verbs'); step 2 (`tests/automated-client/tests/automated_client.rs`,
+ten cases: `a_direct_message_lands_over_a_static_loopback_entry`,
+`a_broadcast_on_the_channel_reaches_the_other_client`,
+`an_application_receipt_reaches_the_sender_after_the_receiver_kept_it`,
+`a_withheld_lease_is_retried_under_one_id_and_lands_once`,
+`a_fan_out_under_one_id_lands_once_at_each_receiver`,
+`a_daemon_gone_under_a_live_client_is_reopened_either_way`,
+`a_burst_of_200_broadcasts_is_bounded_by_the_ingress_bucket`,
+`the_same_burst_as_direct_sends_lands_whole_through_overloaded_retries`,
+`two_daemons_of_one_account_share_a_port` and
+`a_port_held_without_reuseport_refuses_the_start`); step 3
+(`architecture/clients/automated/AUTOMATED-CLIENT.md`, every row of its
+§2 naming its case or its contract); step 4 (`packaging/linux`: the two
+user units and their README); step 5 (the mDNS clause of `CLAUDE.md`
+§1). The exit gate: (a) steps 1–4 are on `main` with CI green at the
+merge (4a607b2e) and at the next (c9766159), and each fact of decision
+2 is held by a named case or by the contract that states it, as the
+document's §2 records row by row — in this suite where the suite
+reaches it, elsewhere in the tree where an earlier stage already held
+it, and by contract alone where no case asserts it (the 256 itself,
+LOCAL-IPC.md; no durable broadcast, ADR-0020) — admission not delivery by the withheld-lease
+case (a retry inside the window is accepted again and not delivered
+again) with the receipt case showing what delivery takes; `no_route`
+coarse by `tests/security`'s
+`the_four_no_route_causes_are_byte_identical_on_the_wire`; no durable
+broadcast by contract, with the broadcast-burst case showing only that
+a dropped publish did not arrive within its three-second watch; the
+256-event queue's refusal by the runtime's
+`a_full_queue_refuses_rather_than_accepting_falsely`, a broadcast
+dropping the oldest by the runtime's
+`a_full_queue_drops_for_that_session_and_nobody_else`, the wedged
+close by `ipc-server`'s
+`a_silent_client_that_stopped_reading_is_closed_and_frees_its_slot` and
+the lease lost with the keepalive-miss close by its
+`unanswered_probes_close_the_connection_and_release_its_lease`;
+the 48 KiB ceiling by `ipc-protocol`'s
+`a_payload_past_the_ceiling_is_payload_too_large`; dedup inside the
+window and the second delivery across a restart by the withheld-lease
+case, the ingress bucket and the
+silent drop by the broadcast-burst case, the whole landing of the same
+burst as direct sends by the direct-burst case, `ShuttingDown` then
+`BackendUnavailable` both re-opened by the daemon-gone case, the port rule of decision 5 by the two port cases, and the figures: 34–41 of 200 broadcasts
+delivered over thirteen runs, each inside the bound the bucket's
+constants give over the run's elapsed time (a later run 50 within
+31–56 over 11.9 s); 200 of 200 direct sends landed, each once, through
+632–686 `Overloaded` refusals over the thirteen runs and 568 in a later
+one, about 84 s a run; broadcast order lost in one run of thirteen;
+(b) the document cites each (its §2 table, a row per promise); (c) no
+external deployment had run by the close, so none is cited — the first
+is evidence under its own record when it runs, never a condition. The
+status value does not move: Stage 17 stays the lowest open stage, and
+the human client is untouched by this stage. ADR-0055 moves from
+Proposed to Accepted in the series that lands this record, by the
+merge named above.
+
+**Measured, and carried as limits.** Every case ran on one host's
+loopback under one uid. Carried by name, from `AUTOMATED-CLIENT.md` §5
+and decision 2: the cross-account port refusal rests on the kernel's
+documented `SO_REUSEPORT` rule and is not measured (one uid in the
+suite, as decision 5 says, until CI has a second account); a second
+host is ADR-0034 §7's and SPIKE-004's limit; the second delivery of a
+retry after the dedup WINDOW is by decision (ADR-0019) and measured
+here only across the receiving daemon's restart; ordering across
+senders is promised nowhere and measured nowhere; Byzantine resistance
+among profiles and protection from same-uid code are outside the
+transport's threat model as stated there. Step 4's figures — a clean
+stop in 0.19 s with the client stopping with it, both units back 5 s
+after a SIGKILL, a taken port retried under the start limit — were
+measured on the host's user manager by hand (f68b7b56's record) and no
+CI case holds them: a unit is proved by a deployment's own run, and the
+first deployment's record is where that lands. The refusal counts and
+the durations of the two burst cases are samples that depend on the
+client's retry step and the bucket's refill, not promises, as decision
+2 says; the cases assert the delivered counts and the bound, nothing of
+the timing.

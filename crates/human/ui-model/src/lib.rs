@@ -14,11 +14,17 @@
 
 #![forbid(unsafe_code)]
 
+mod identity_flow;
 mod labels;
 mod look;
 mod model;
+mod picker;
+mod presence;
 mod trust;
 
+pub use identity_flow::{
+    Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, Words,
+};
 pub use labels::{
     ErrorClass, HostText, LabelKey, RuntimeHost, UiText, fill, outbound_label, placeholder_en,
     send_error_class, send_problem_class, session_problem_class, short_peer, visible_destination,
@@ -31,4 +37,6 @@ pub use model::{
     RowAction, SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table, Trust, UiModel,
     UndoClosed, ViewEvent,
 };
+pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
+pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};
 pub use trust::{EntryProblem, TrustChange, TrustInput, TrustOutcome, TrustSettings};

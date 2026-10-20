@@ -671,12 +671,25 @@ fn a_channels_bubbles_name_their_author_and_a_direct_ones_do_not() {
     let _ = view.take_events(&model);
     view.render(&model);
     let short = interweave_human_ui_model::short_peer(ALICE);
-    let author = labelled(&view, &short);
+    // The author line: a text of the short PeerId described by the full
+    // one. The list's row and the app bar's heading title a direct
+    // conversation with the same short PeerId (human-client-ui.md §4).
+    let not_a_row = |e: &ElementHandle| {
+        e.type_name().as_deref() == Some("Text")
+            && e.accessible_description().as_deref() == Some(ALICE)
+    };
+    let author: Vec<_> = labelled(&view, &short)
+        .into_iter()
+        .filter(not_a_row)
+        .collect();
     assert_eq!(author.len(), 1, "the author line");
     assert_eq!(author[0].accessible_description().as_deref(), Some(ALICE));
 
     let view = opened(&model, false);
-    assert!(labelled(&view, &short).is_empty(), "no author line");
+    assert!(
+        !labelled(&view, &short).into_iter().any(|e| not_a_row(&e)),
+        "no author line"
+    );
 }
 
 /// Section 11 item 10: each status shows its words and its icon, and an
@@ -730,13 +743,25 @@ fn each_status_has_its_words_and_its_icon() {
     }
 }
 
+/// The view's monotonic clock, stepped by [`step`] instead of slept
+/// through: a leave is 170 ms of it.
+fn stepped(view: &mut View) -> std::rc::Rc<std::cell::Cell<std::time::Duration>> {
+    let start = std::time::Instant::now();
+    let offset = std::rc::Rc::new(std::cell::Cell::new(std::time::Duration::ZERO));
+    let read = std::rc::Rc::clone(&offset);
+    view.set_monotonic(move || start + read.get());
+    offset
+}
+
+fn step(clock: &std::cell::Cell<std::time::Duration>, ms: u64) {
+    clock.set(clock.get() + std::time::Duration::from_millis(ms));
+}
+
 /// Section 8, a very long message: the bubble wraps and holds every line
-/// of it, its status included, and the chips under it keep their 48 px.
-/// A stretched chip row once took the room the wrapped text needed, so
-/// the bubble's last line and its status ran past the fill, and its
-/// Show source chip grew to 86 px (seen in the rendered window).
+/// of it, its status under the text, and nothing shows under it at rest:
+/// its actions are in its menu (section 6, revised for #304 F2).
 #[test]
-fn a_wrapped_bubble_holds_its_status_above_its_chips() {
+fn a_wrapped_bubble_holds_its_status_and_nothing_under_it() {
     let mut model = UiModel::new();
     let long =
         "A long message with no link at all that goes past the width of the row for sure and wraps";
@@ -752,15 +777,15 @@ fn a_wrapped_bubble_holds_its_status_above_its_chips() {
     let (status_y, status_h, _) = one(placeholder_en::label(
         interweave_human_ui_model::LabelKey::Unread,
     ));
-    let (chip_y, chip_h, _) = one(placeholder_en::text(UiText::ShowSource));
     assert!(text_h > 2.0 * status_h, "the text wrapped: {text_h}");
     assert!(text_w <= 390.0 * 0.8, "inside 80 % of the width: {text_w}");
     assert!(status_y >= text_y + text_h, "the status under the text");
-    assert!(chip_y >= status_y + status_h, "the chips under the bubble");
-    assert!(
-        (chip_h - 48.0).abs() < 0.5,
-        "the chip keeps its 48 px: {chip_h}"
-    );
+    for action in [UiText::ShowSource, UiText::Keep, UiText::Dismiss] {
+        assert!(
+            labelled(&view, placeholder_en::text(action)).is_empty(),
+            "no {action:?} at rest"
+        );
+    }
 }
 
 /// Review F1 on #295: the midnight wake is one timer, however many
@@ -1056,6 +1081,17 @@ fn a_press_ripples_unless_animations_are_off() {
             reduced_motion: reduced,
             ..TouchSettings::default()
         });
+        // A menu item's press, the row's menu opened as a screen reader
+        // opens it.
+        let row = view.window().get_messages().row_data(0).expect("a row");
+        all(&view)
+            .into_iter()
+            .find(|e| {
+                e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::ListItem)
+                    && e.accessible_label().as_deref() == Some(row.label.as_str())
+            })
+            .expect("the row's item")
+            .invoke_accessible_default_action();
         let chip = labelled(&view, text(UiText::Keep));
         assert_eq!(chip.len(), 1);
         let (p, z) = (chip[0].absolute_position(), chip[0].size());
@@ -1088,7 +1124,7 @@ fn a_press_ripples_unless_animations_are_off() {
 }
 
 /// Section 6: a message's swipe fill spans the list's width in the
-/// bubble's height -- over its text and status, never its chips.
+/// bubble's height -- over its text and status.
 #[test]
 fn a_bubbles_swipe_fill_takes_the_bubbles_height() {
     let text = placeholder_en::text;
@@ -1118,15 +1154,11 @@ fn a_bubbles_swipe_fill_takes_the_bubbles_height() {
         &view,
         placeholder_en::label(interweave_human_ui_model::LabelKey::ReadNotKept),
     );
-    let chip = labelled(&view, text(UiText::Keep));
+    let _ = text;
     assert!(top <= body[0].absolute_position().y, "over the text");
     assert!(
         bottom >= status[0].absolute_position().y + status[0].size().height,
         "over the status"
-    );
-    assert!(
-        bottom <= chip[0].absolute_position().y,
-        "not over the chips"
     );
     assert!(fill[0].size().width >= 390.0 - 40.0, "the list's width");
 }
@@ -1311,6 +1343,7 @@ fn two_leaving_messages_hand_their_days_separator_on_as_one() {
         model.read(RowId::from_stored(row));
     }
     let mut view = opened(&model, false);
+    let monotonic = stepped(&mut view);
     let y = |view: &View| labelled(view, "last")[0].absolute_position().y;
     let drawn = |view: &View| {
         view.window()
@@ -1325,10 +1358,11 @@ fn two_leaving_messages_hand_their_days_separator_on_as_one() {
     view.render(&model);
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(16));
     // The second goes 60 ms later, while the first is still leaving (a
-    // leave is 170 ms of real time, which the mock clock does not move):
+    // leave is 170 ms of the view's monotonic clock, stepped here: real
+    // sleeps under load outlasted the leave, and the two never overlapped):
     // the two leaves end 60 ms apart, and the renders below, every 5 ms,
     // fall between the two ends.
-    std::thread::sleep(std::time::Duration::from_millis(60));
+    step(&monotonic, 60);
     model.hide(keys[1]);
     view.render(&model);
     // Rendering through both leaves in real time, the day keeps exactly one
@@ -1345,7 +1379,7 @@ fn two_leaving_messages_hand_their_days_separator_on_as_one() {
             "one separator at every render of the leave"
         );
         assert_eq!(labelled(&view, thursday).len(), 1, "and it is read");
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        step(&monotonic, 5);
     }
     let mut seen = vec![before];
     for frame in 0..30 {
@@ -1396,10 +1430,11 @@ fn a_leaving_run_across_a_day_hands_over_its_last_days_separator() {
         model.read(RowId::from_stored(row));
     }
     let mut view = opened(&model, false);
+    let monotonic = stepped(&mut view);
     let keys: Vec<_> = model.messages(&direct()).iter().map(|m| m.key).collect();
     model.hide(keys[0]);
     view.render(&model);
-    std::thread::sleep(std::time::Duration::from_millis(60));
+    step(&monotonic, 60);
     model.hide(keys[1]);
     view.render(&model);
     let started = std::time::Instant::now();
@@ -1412,11 +1447,245 @@ fn a_leaving_run_across_a_day_hands_over_its_last_days_separator() {
             1,
             "Thursday's separator is read"
         );
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        step(&monotonic, 5);
     }
     assert_eq!(
         labelled(&view, thursday).len(),
         1,
         "and ends on the row below"
+    );
+}
+
+/// Section 6 and #304 F3: the composer is one line high whatever the free
+/// space under the messages. In a tall window holding one message it had
+/// swollen to fill the space the list left.
+#[test]
+fn the_composer_keeps_its_height_whatever_the_free_space() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    let view = opened(&model, false);
+    let field = labelled(&view, text(UiText::Composer));
+    assert_eq!(field.len(), 1, "the field");
+    let height = field[0].size().height;
+    assert!(
+        height <= 56.0,
+        "one line inside the 48 dp box, not the free space: {height}"
+    );
+    // Centred on Send's line, which is the row's 48.
+    let send = labelled(&view, text(UiText::Send));
+    let middle = |e: &ElementHandle| e.absolute_position().y + e.size().height / 2.0;
+    assert!(
+        (middle(&field[0]) - middle(&send[0])).abs() <= 1.0,
+        "the field sits on Send's line"
+    );
+}
+
+/// #304 F9: a landscape phone with the keyboard up. The list beside the
+/// conversation, the network notice and the app bar step aside in that
+/// order, as far as the space above the keyboard needs, leaving the
+/// composer whole above it and the newest message in view; with the
+/// keyboard closed every part is back. The keyboard is stood in for by
+/// the height it covers, which the testing backend cannot raise.
+#[test]
+fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() {
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "the newest", NOW));
+    let view = opened(&model, false);
+    let window = view.window();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(915.0, 411.0));
+    slint::platform::update_timers_and_animations();
+    let field_left = |view: &View| {
+        labelled(view, text(UiText::Composer))[0]
+            .absolute_position()
+            .x
+    };
+    let bar = |view: &View| labelled(view, text(UiText::MoreOptions)).len();
+    assert!(field_left(&view) > 281.0, "control: the list beside it");
+    assert_eq!(bar(&view), 1, "control: the app bar");
+    assert!(window.get_has_notice(), "control: a network notice");
+
+    for (covered, list, notice, app_bar) in [
+        // H = 300: the list and the notice step aside, the bar stays.
+        (111.0, false, false, true),
+        // H = 191: the app bar too.
+        (220.0, false, false, false),
+        // Closed: everything is back.
+        (0.0, true, true, true),
+    ] {
+        window.set_keyboard_overlap(covered);
+        slint::platform::update_timers_and_animations();
+        assert_eq!(
+            field_left(&view) > 281.0,
+            list,
+            "covered {covered}: the list"
+        );
+        assert_eq!(
+            !window.get_notice_aside(),
+            notice,
+            "covered {covered}: the notice"
+        );
+        assert_eq!(bar(&view) == 1, app_bar, "covered {covered}: the app bar");
+        let field = &labelled(&view, text(UiText::Composer))[0];
+        let above = 411.0 - covered;
+        assert!(
+            field.absolute_position().y + field.size().height <= above,
+            "covered {covered}: the composer above the keyboard"
+        );
+        let newest: Vec<_> = all(&view)
+            .into_iter()
+            .filter(|e| {
+                e.accessible_label()
+                    .is_some_and(|l| l.contains("the newest"))
+            })
+            .collect();
+        assert!(!newest.is_empty(), "the message is in the tree");
+        // Anchored at its newest message: its end is in view above the
+        // keyboard, however little of it the space can hold (step 5).
+        assert!(
+            newest.iter().any(|e| {
+                let end = e.absolute_position().y + e.size().height;
+                end > 0.0 && end <= above + 0.5
+            }),
+            "covered {covered}: the newest message in view"
+        );
+    }
+}
+
+/// #304 F3, round 1: a touch user who closes the keyboard leaves the
+/// composer, whose insertion handle otherwise stayed drawn on the empty
+/// field. Typed while the keyboard is up, a letter reaches the draft;
+/// after it closes, none does: the field let focus go.
+#[test]
+fn closing_the_keyboard_after_a_tap_lets_the_composer_go() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    let view = opened(&model, false);
+    let window = view.window();
+    let field = labelled(&view, text(UiText::Composer));
+    let (p, z) = (field[0].absolute_position(), field[0].size());
+    let position = slint::LogicalPosition::new(p.x + z.width / 2.0, p.y + z.height / 2.0);
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    let typed = |letter: &str| {
+        let key: slint::SharedString = letter.into();
+        window
+            .window()
+            .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+        window
+            .window()
+            .dispatch_event(WindowEvent::KeyReleased { text: key });
+        slint::platform::update_timers_and_animations();
+    };
+    window.set_keyboard_overlap(300.0);
+    slint::platform::update_timers_and_animations();
+    typed("a");
+    assert_eq!(
+        window.get_draft().as_str(),
+        "a",
+        "control: the tapped field types"
+    );
+    window.set_keyboard_overlap(0.0);
+    slint::platform::update_timers_and_animations();
+    typed("b");
+    assert_eq!(window.get_draft().as_str(), "a", "the field let focus go");
+}
+
+/// #304 F9 step 5: with the keyboard up in landscape, a conversation
+/// longer than the space left shows its newest message, not its top.
+#[test]
+fn with_the_keyboard_up_a_long_conversation_shows_its_newest_message() {
+    let mut model = UiModel::new();
+    for n in 1..=14_u64 {
+        let row = i64::try_from(n).expect("small");
+        model.received(received(
+            row,
+            &format!("message number {n}"),
+            NOW - 60_000 * (20 - n),
+        ));
+    }
+    let view = opened(&model, false);
+    let window = view.window();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(915.0, 411.0));
+    window.set_keyboard_overlap(200.0);
+    // The list settles at its newest message within a few turns: its
+    // content's height lags the change by one.
+    for _ in 0..4 {
+        slint::platform::update_timers_and_animations();
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(5));
+    }
+    let above = 411.0 - 200.0;
+    // In view: its end is above the keyboard and below the list's top.
+    let shown = |label: &str| {
+        all(&view).into_iter().any(|e| {
+            e.accessible_label().is_some_and(|l| l.contains(label)) && {
+                let end = e.absolute_position().y + e.size().height;
+                end > 0.0 && end <= above + 0.5
+            }
+        })
+    };
+    assert!(shown("message number 14"), "the newest message in view");
+    assert!(!shown("message number 1."), "control: not the top");
+}
+
+/// #304 round 2 (ux-designer-01, REPLY 01a153b5): a long status, as a
+/// pending message that may have reached the peer has, wraps inside the
+/// bubble, and its time stays whole and inside it, on a phone-wide
+/// window.
+#[test]
+fn a_long_status_wraps_and_its_time_stays_whole_inside_the_bubble() {
+    use interweave_human_client_api::{ClientEvent, OutboundStatus, OutboundUpdate, SendProblem};
+    use interweave_human_core::AppMessageId;
+    let mut model = UiModel::new();
+    send(&mut model, 1, "w1", NOW);
+    model.client_event(ClientEvent::Outbound(OutboundUpdate {
+        row: RowId::from_stored(1),
+        app_message_id: AppMessageId::parse(format!("{:032x}", 1)).expect("an id"),
+        status: OutboundStatus::NeedsAttention {
+            problem: SendProblem::NoNetworkPath,
+            may_have_reached: true,
+        },
+        last_code: None,
+    }));
+    let view = opened(&model, false);
+    let row = view.window().get_messages().row_data(0).expect("a row");
+    assert_eq!(
+        row.status.as_str(),
+        placeholder_en::label(
+            interweave_human_ui_model::LabelKey::NeedsAttentionMayHaveBeenReceived
+        ),
+        "control: the long status"
+    );
+    let time = labelled(&view, row.time.as_str());
+    assert_eq!(time.len(), 1, "the time is drawn once");
+    let (at, size) = (time[0].absolute_position(), time[0].size());
+    let status = labelled(&view, row.status.as_str());
+    let words = status
+        .iter()
+        .map(|s| s.size().width)
+        .fold(0.0_f32, f32::max);
+    assert!(
+        at.x + size.width <= 390.0 - 12.0,
+        "the time inside the bubble: {at:?} {size:?}"
+    );
+    assert!(size.width >= 20.0, "the time is whole: {size:?}");
+    assert!(
+        words <= 390.0 * 0.8,
+        "the status wraps inside the bubble: {words}"
     );
 }

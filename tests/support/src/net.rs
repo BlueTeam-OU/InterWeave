@@ -29,8 +29,10 @@
 //! crate's root states for every harness. The hosted CI runners have a
 //! private address.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
+use std::fs::{File, OpenOptions, TryLockError};
 use std::net::{IpAddr, Ipv4Addr, TcpListener, UdpSocket};
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 /// This host's private-range (RFC 1918) IPv4 address, or a panic that
@@ -65,8 +67,9 @@ fn private_interface_v4() -> Option<Ipv4Addr> {
     }
 }
 
-/// Every port [`free_port`] has answered in this process.
-static HANDED_OUT: Mutex<BTreeSet<u16>> = Mutex::new(BTreeSet::new());
+/// Every port [`free_port`] has answered in this process, each with the
+/// claim that keeps another process from being answered it.
+static HANDED_OUT: Mutex<BTreeMap<u16, File>> = Mutex::new(BTreeMap::new());
 
 /// A port nothing listens on at the moment of asking, and never one this
 /// process was answered before
@@ -83,11 +86,24 @@ static HANDED_OUT: Mutex<BTreeSet<u16>> = Mutex::new(BTreeSet::new());
 /// bound while the next port is asked, so the kernel cannot answer it
 /// again.
 ///
-/// What this does not close: another process may bind the port between
-/// this answer and the daemon's bind, which fails that daemon's start.
+/// NOR TWICE ACROSS PROCESSES on this host's temporary directory: a test
+/// runner that gives every test a process of its own (nextest) runs
+/// tests of different binaries at once, and a set kept in one process
+/// cannot see another's. Each answer holds an advisory lock on a file
+/// named by the port ([`claim`]) for the rest of the process, so another
+/// process skips a port held there, and the kernel releases the lock
+/// when the process ends however it ends: nothing is left to go stale
+/// (`a_port_another_process_claims_is_refused_until_it_ends`,
+/// `free_port_holds_the_claim_on_what_it_answers`).
+///
+/// What this does not close: a process that is not a `free_port` caller,
+/// or one of ANOTHER ACCOUNT -- the claims are per account
+/// ([`claims_dir`]) -- may bind the port between this answer and the
+/// daemon's bind, which fails that daemon's start.
 ///
 /// # Panics
-/// When the host will not bind `ip`.
+/// When the host will not bind `ip`, or this account's claims directory
+/// cannot be made or written.
 #[must_use]
 pub fn free_port(ip: Ipv4Addr) -> u16 {
     let mut handed_out = HANDED_OUT.lock().unwrap_or_else(PoisonError::into_inner);
@@ -95,16 +111,81 @@ pub fn free_port(ip: Ipv4Addr) -> u16 {
     loop {
         let listener = TcpListener::bind((ip, 0)).expect("a port");
         let port = listener.local_addr().expect("an address").port();
-        if handed_out.insert(port) {
+        if !handed_out.contains_key(&port)
+            && let Some(held) = claim(port)
+        {
+            handed_out.insert(port, held);
             return port;
         }
         repeats.push(listener);
     }
 }
 
+/// Where the claims are: under the temporary directory, which every
+/// process of one test run shares, in a directory of this account's own.
+///
+/// PER ACCOUNT, because with `TMPDIR` unset two accounts share `/tmp`:
+/// a directory one made with its umask is one the other cannot create
+/// a claim in, and `fs.protected_regular` refuses an open with `O_CREAT`
+/// of another's file in a sticky world-writable one. Either way every
+/// `free_port` of the second account panicked
+/// (`another_accounts_claims_directory_is_not_this_ones`). The uid is
+/// read from `/proc/self/status`, as `profile-config`'s `effective_uid`
+/// reads it; without `/proc` the name carries none, and the temporary
+/// directory is the account's own on such a host (macOS's per-user
+/// `TMPDIR`).
+fn claims_dir() -> PathBuf {
+    claims_dir_in(&std::env::temp_dir())
+}
+
+fn claims_dir_in(base: &Path) -> PathBuf {
+    base.join(effective_uid().map_or_else(
+        || "interweave-free-port".to_owned(),
+        |uid| format!("interweave-free-port-{uid}"),
+    ))
+}
+
+/// This process's effective uid, if `/proc/self/status` says it.
+fn effective_uid() -> Option<u32> {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))
+        .and_then(|ids| ids.split_whitespace().nth(1))
+        .and_then(|id| id.parse().ok())
+}
+
+/// `port`'s claim, if no other holder has it: an exclusive advisory lock
+/// on its file, held while the returned file is open. The lock belongs
+/// to the open file, not the process, so a second open in this process
+/// is refused as another process's would be.
+///
+/// # Panics
+/// When the claims directory or a claim file cannot be made or locked.
+fn claim(port: u16) -> Option<File> {
+    claim_in(&claims_dir(), port)
+}
+
+fn claim_in(dir: &Path, port: u16) -> Option<File> {
+    std::fs::create_dir_all(dir)
+        .unwrap_or_else(|e| panic!("the port claims at {}: {e}", dir.display()));
+    let path = dir.join(port.to_string());
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .unwrap_or_else(|e| panic!("the port claim {}: {e}", path.display()));
+    match file.try_lock() {
+        Ok(()) => Some(file),
+        Err(TryLockError::WouldBlock) => None,
+        Err(TryLockError::Error(e)) => panic!("locking {}: {e}", path.display()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::free_port;
+    use super::{claim, claim_in, claims_dir_in, free_port};
     use std::collections::BTreeSet;
     use std::net::Ipv4Addr;
 
@@ -119,5 +200,82 @@ mod tests {
             let port = free_port(Ipv4Addr::LOCALHOST);
             assert!(seen.insert(port), "port {port} answered twice");
         }
+    }
+
+    /// A port held by ANOTHER PROCESS is refused, and claimable once that
+    /// process ends: `flock(1)` holds the claim file as a second test
+    /// process would, by the same `flock(2)` lock. The control is the
+    /// claim after the holder is gone, which succeeds.
+    #[test]
+    fn a_port_another_process_claims_is_refused_until_it_ends() {
+        // A port no claim of this process's covers: free_port's answers
+        // all are, and a fresh one from the kernel need not be.
+        let port = loop {
+            let port = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+                .and_then(|l| l.local_addr())
+                .expect("a port")
+                .port();
+            if let Some(probe) = claim(port) {
+                drop(probe);
+                break port;
+            }
+        };
+        let file = super::claims_dir().join(port.to_string());
+        let mut holder = std::process::Command::new("flock")
+            .arg("--no-fork")
+            .arg(&file)
+            .args(["sleep", "30"])
+            .spawn()
+            .expect("flock(1): util-linux");
+        // The holder has the lock once our claim is refused; bounded, so
+        // a holder that never locks fails here rather than hanging.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while let Some(probe) = claim(port) {
+            drop(probe);
+            assert!(
+                std::time::Instant::now() < deadline,
+                "flock never held {}",
+                file.display()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        holder.kill().expect("the holder ends");
+        holder.wait().expect("reaped");
+        assert!(
+            claim(port).is_some(),
+            "port {port} still held after its holder ended"
+        );
+    }
+
+    /// What `free_port` answers is held: a fresh claim on it is refused.
+    #[test]
+    fn free_port_holds_the_claim_on_what_it_answers() {
+        let port = free_port(Ipv4Addr::LOCALHOST);
+        assert!(claim(port).is_none(), "port {port} answered unclaimed");
+    }
+
+    /// A claims directory left by ANOTHER ACCOUNT under the old shared
+    /// name -- one this account cannot write, made so here by its mode --
+    /// does not stop this account's claims. The control is that the
+    /// same unwritable directory, were it this account's, refuses them.
+    #[test]
+    fn another_accounts_claims_directory_is_not_this_ones() {
+        use std::os::unix::fs::PermissionsExt;
+        let base =
+            std::env::temp_dir().join(format!("interweave-free-port-test-{}", std::process::id()));
+        let theirs = base.join("interweave-free-port");
+        std::fs::create_dir_all(&theirs).expect("their directory");
+        let read_only = std::fs::Permissions::from_mode(0o555);
+        std::fs::set_permissions(&theirs, read_only).expect("read-only");
+        let port = 1;
+        let ours = claims_dir_in(&base);
+        let claimed = std::panic::catch_unwind(|| claim_in(&ours, port).is_some());
+        let control = std::panic::catch_unwind(|| claim_in(&theirs, port).is_some());
+        std::fs::set_permissions(&theirs, std::fs::Permissions::from_mode(0o755))
+            .expect("writable again");
+        std::fs::remove_dir_all(&base).expect("cleaned");
+        assert_ne!(ours, theirs, "this account's claims share the old name");
+        assert!(matches!(claimed, Ok(true)), "this account cannot claim");
+        assert!(control.is_err(), "an unwritable directory did not refuse");
     }
 }

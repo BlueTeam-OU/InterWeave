@@ -74,6 +74,34 @@ pub(crate) static NETWORK_ASK: Ask = Ask::new();
 /// the JVM.
 pub(crate) static HAPTIC: Ask = Ask::new();
 
+/// Back reached a screen with no way back: the Activity finishes, as the
+/// platform would (`Native.waitLeave`).
+pub(crate) static LEAVE: Ask = Ask::new();
+
+thread_local! {
+    // The window, for Back, whether the chats or the identity screens
+    // show.
+    static VIEW: RefCell<Option<Rc<RefCell<View>>>> = const { RefCell::new(None) };
+}
+
+/// `Native.back`: the platform's Back, given to the window; when no screen
+/// takes it, the Activity is asked to finish.
+pub(crate) fn back() {
+    invoke_on_window(|| {
+        let handled = VIEW.with(|view| {
+            view.borrow()
+                .as_ref()
+                .and_then(|view| view.try_borrow().ok().map(|view| view.back()))
+        });
+        match handled {
+            Some(true) => defer(turn),
+            Some(false) => LEAVE.raise(),
+            // The view is busy: try again once it is free.
+            None => defer(back),
+        }
+    });
+}
+
 /// The platform's touch values as the Activity last read them
 /// (`Native.touch`): kept for a window that starts after they were read.
 static TOUCH: Mutex<Option<TouchSettings>> = Mutex::new(None);
@@ -262,7 +290,31 @@ fn android_main(app: AndroidApp) {
     view.set_wake(|| defer(turn));
     view.on_haptic(|| HAPTIC.raise());
     let view = Rc::new(RefCell::new(view));
-    ROOT.with(|root| *root.borrow_mut() = Some(Root::attach(view)));
+    VIEW.with(|slot| *slot.borrow_mut() = Some(Rc::clone(&view)));
+    // No identity yet, or one the phone lost: the identity screens first,
+    // and the chats attach once the flow hands over (onboard.rs).
+    let attach = {
+        let view = Rc::clone(&view);
+        move || {
+            // Weak: the window holds the callback, and a strong view in it
+            // would keep the window alive past the Activity.
+            let weak = Rc::downgrade(&view);
+            view.borrow().offer_show_phrase(move || {
+                let weak = weak.clone();
+                defer(move || {
+                    if let Some(view) = weak.upgrade() {
+                        crate::onboard::show_phrase(&view);
+                    }
+                });
+            });
+            let view = Rc::clone(&view);
+            ROOT.with(|root| *root.borrow_mut() = Some(Root::attach(view)));
+            defer(turn);
+        }
+    };
+    if !crate::onboard::start(&view, attach.clone()) {
+        attach();
+    }
     // Values the Activity read before this window existed.
     defer(apply_touch);
     defer(turn);
@@ -272,5 +324,6 @@ fn android_main(app: AndroidApp) {
     // The Activity is gone: its link goes with it, and the hub detaches
     // it on its next send. The session stays the Service's.
     ROOT.with(|root| root.borrow_mut().take());
+    VIEW.with(|slot| slot.borrow_mut().take());
     log("android_main: the Activity's views end");
 }

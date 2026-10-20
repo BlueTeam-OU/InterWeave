@@ -72,8 +72,12 @@ desktop = [
 # "accessibility tree contains meaningful labels/actions" is unmet on
 # Android (architect-cto, 2026-10-16: recorded, not waived) until an
 # adapter is built for it.
+# `i-slint-common/shared-fontique` is the font stack this backend lays text
+# out with; the backend enables it already, and naming it here lets the
+# views ask it which family "monospace" is, as the desktop does (#304 F4).
 android = [
     "slint/backend-android-activity-06",
+    "i-slint-common/shared-fontique",
 ]
 
 [build-dependencies]

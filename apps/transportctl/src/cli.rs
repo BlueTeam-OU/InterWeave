@@ -83,7 +83,7 @@ pub(crate) enum Admin {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Identity {
     /// Mint the profile's key, which must not exist, and print its
-    /// `PeerId` (ADR-0055 decision 7).
+    /// `PeerId` (ADR-0055 decision 4).
     Init {
         /// The profile the key is minted for.
         profile: String,

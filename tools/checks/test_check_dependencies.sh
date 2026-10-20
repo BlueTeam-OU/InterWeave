@@ -87,15 +87,49 @@ mkdir -p "$TMP/nocargo"
 expect "absent tool is an environment answer" 2 \
   env PATH="/usr/bin:/bin" CARGO_HOME="$TMP/nocargo" bash "$GUARD"
 
-echo "check_dependencies: the policy names a licence the graph actually uses"
-# Guards against an allow-list that drifted into aspiration: every entry
-# should correspond to something present, or the list has stopped
-# describing this project.
-if (cd "$ROOT" && cargo deny check licenses 2>&1) | grep -q "license-not-encountered"; then
-  bad "deny.toml allows a licence nothing in the graph uses"
-else
-  ok "every allowed licence is one the graph resolves to"
-fi
+# A policy entry that matches nothing must FAIL the check. cargo-deny's
+# default is a warning beside "licenses ok", so without deny.toml's
+# `unused-allowed-license` and `unused-license-exception` an allow-list
+# drifted into aspiration, or a target dropped from `[graph] targets`
+# (which leaves the Android exceptions matching nothing and the phone's
+# graph unjudged), passes green (#314). Each case plants one edit into a
+# copy of the real deny.toml; "deny.toml passes" above is the control.
+# plant <name> <diagnostic> <from> <to>: the first <from> becomes <to>.
+plant() {
+  local name="$1" diag="$2" out
+  if ! python3 - "$ROOT/deny.toml" "$TMP/planted.toml" "$3" "$4" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+if sys.argv[3] not in s:
+    sys.exit("the planted edit's anchor is not in deny.toml")
+open(sys.argv[2], "w").write(s.replace(sys.argv[3], sys.argv[4], 1))
+PY
+  then
+    bad "$name (could not plant the edit)"
+    return
+  fi
+  out="$(bash "$GUARD" --config "$TMP/planted.toml" 2>&1)"
+  local got=$?
+  if [ "$got" -ne 1 ]; then
+    bad "$name (exit $got, wanted 1)"
+  # A here-string, not a pipe: under pipefail `grep -q` leaves at its
+  # first match and printf, still writing the rest, dies of SIGPIPE.
+  elif ! grep -qF "error[$diag]" <<<"$out"; then
+    bad "$name (failed, but not with error[$diag])"
+  else
+    ok "$name"
+  fi
+}
+
+echo "check_dependencies: a policy entry that matches nothing is a violation"
+plant "the Android target dropped leaves its exceptions unmatched" \
+  license-exception-not-encountered \
+  'targets = ["x86_64-unknown-linux-gnu", "aarch64-linux-android"]' \
+  'targets = ["x86_64-unknown-linux-gnu"]'
+plant "an allowed licence nothing in the graph uses" \
+  license-not-encountered \
+  'allow = [' \
+  'allow = [ "NCSA",'
 
 if [ "$fails" -gt 0 ]; then
   printf '\ntest_check_dependencies: %d assertion(s) failed.\n' "$fails" >&2
