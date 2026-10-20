@@ -452,12 +452,13 @@ but does not re-rank these.
       conversation has an endpoint, a second line with it, marked as
       named by the peer and not verified (`human-client-ui.md` §3,
       "remote-advertised routing labels");
-    - two text buttons at the end: "Copy" and "Close". Copy puts the
+    - two text buttons at the end: "Copy PeerId" ("Copy channel ID"
+      for a channel) and "Close". The copy puts the
       exact PeerId on the clipboard, closes the dialog and returns
       focus to ⋮. On Android 13 and later the platform shows its own
       clipboard confirmation, so the app shows none (Android's copy
       and paste guidance: no duplicate confirmation); below 13 a
-      "Copied" snackbar, without Undo. The desktop has no platform
+      "PeerId copied" snackbar, without Undo. The desktop has no platform
       confirmation, so it shows the same snackbar there (S4,
       visibility of status). Close, Back and a tap outside
       close it with nothing copied, focus to ⋮;
@@ -613,7 +614,9 @@ inset or a remnant of the list pane.
 Owed for the close: F3's handle, F4's monospace and F9's anchoring,
 then round 2 on the build that carries them.
 
-Round 2, 2026-10-20 (18:56-19:08 phone time, the owner's Pixel window),
+Round 2, 2026-10-20 (18:56-19:18 phone time, the owner's Pixel window;
+the F9 landscape row and F16's isolation came after
+p2p-network-dev-02's run, from 19:13),
 on #313 at 35c71169 (rust-ui-dev-01's, origin/main folded in), debug
 build, APK sha256 beginning 2faa357a (read from the phone; installed
 16:03 phone time with the app's data kept), after rust-ui-dev-01's and
@@ -631,7 +634,7 @@ where this build shows the same.
 | F11 | Pass. ⋮ → Details is a dialog: the conversation's title, "PeerId" and the whole PeerId, "Route named by the peer, not verified: "human"", Close and Copy PeerId. Copy closes it, and Android's own clipboard preview shows the exact PeerId with no spaces (API 37, no app snackbar). Not checked: pasting it into Trust's field; neither an injected paste key nor the keyboard's Paste button put text into the Slint field from a script. A person's check. |
 | F12 | Pass. Chats ends with ⋮; its menu holds "Trust", which opens Trust. No shield. Focus with a keyboard not checked (no hardware keyboard on the phone). |
 | F14 | Pass. "Show recovery phrase" is a borderless text button. |
-| F5 | Pass for what was seen: no ring after a tap on ⋮, the menu item, the composer or Trust's button. The Chats row a person came back from still takes the selected conversation's fill and bar on a phone-wide window, where look spec §5 gives that fill to the side-by-side layout only (rank 3). |
+| F5 | Pass for what was seen: no ring after a tap on ⋮, the menu item, the composer or Trust's button. The Chats row a person came back from still takes the selected conversation's fill and bar on a phone-wide window, where look spec §5 gives that fill to the side-by-side layout only: filed as F17 below. |
 | acceptance 22 (look spec) | Pass. A pending message's status wraps inside the bubble and its time ("01:14") stays whole. |
 
 New, rank 1:
@@ -654,13 +657,28 @@ New, rank 1:
   REPLY 01a159de-729d): trust gates the send, never the composer; the
   composer is disabled only while the platform withholds network
   access. So F16 is a defect whatever its cause. What has to change:
-  the composer takes focus in every conversation; an untrusted peer's
-  send is refused in its place with the reason, the draft kept (look
-  spec §6, Composer).
+  the composer takes focus in every conversation; a send to an
+  untrusted peer becomes a pending row, as `RETENTION.md` §2 orders
+  every send, and that row shows the not-trusted reason (look spec §6,
+  Composer, and acceptance 23).
+
+New, rank 3:
+- **F17. On a phone-wide window, the Chats row a person came back
+  from keeps the selected conversation's fill and bar.** Seen after
+  Back from …x6gY6Eri and from …kX45pbRP. Against: look spec §5,
+  which gives the fill and bar to the side-by-side layout, where a
+  conversation is open beside the list; on a phone nothing is open.
+  What has to change: on a phone-wide window no row is drawn as
+  selected.
+
+There is no F15: the clipped time first seen in the partial run of
+2026-10-19 became look spec acceptance 22 (edge case "a message's
+status line longer than the bubble"), and is judged there.
 
 Not walked again: tasks 9 and 10. The seeded review conversation
-(…DEoNJsP) was no longer on the phone in this window, so K8 was not
-kept either. F10's new waiting status was not seen: both pending
+(…DEoNJsP) was no longer on the phone in this window, so its "K8"
+message (the kept message rust-ui-dev-01 seeded for task 10, in place
+of the T3 row lost on 2026-10-19, §8) was not kept either. F10's new waiting status was not seen: both pending
 messages read "May have reached the peer, send again or cancel" with
 their written time, which is the may-have-reached state, not a retry
 under way. Show recovery phrase and its Recents thumbnail need the
