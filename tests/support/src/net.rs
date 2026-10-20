@@ -31,6 +31,8 @@
 
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions, TryLockError};
+use std::hash::{BuildHasher, RandomState};
+use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
@@ -71,20 +73,19 @@ fn private_interface_v4() -> Option<Ipv4Addr> {
 /// claim that keeps another process from being answered it.
 static HANDED_OUT: Mutex<BTreeMap<u16, File>> = Mutex::new(BTreeMap::new());
 
-/// A port nothing listens on at the moment of asking, and never one this
+/// A port nothing listens on at the moment of asking, never one this
 /// process was answered before
-/// (`free_port_never_answers_the_same_port_twice`).
+/// (`free_port_never_answers_the_same_port_twice`), and never one a
+/// port-0 bind can land on (`free_port_answers_below_the_port_0_range`).
 ///
 /// NEVER TWICE, because two asked in a row are two profiles' listen
-/// addresses, written before either daemon starts. The kernel may hand a
-/// port just released straight back; libp2p-tcp listens with
-/// `SO_REUSEPORT`, so both daemons then bind it, and each one's route to
-/// the other is its own listen address, which libp2p-swarm strips from a
-/// dial: `NoAddresses`, the route dropped from the book, and no
-/// connection either way (desktop-e2e's `human_app`, PR run 38523588747
-/// of #276; reproduced by giving both daemons one port). A repeat is held
-/// bound while the next port is asked, so the kernel cannot answer it
-/// again.
+/// addresses, written before either daemon starts. Were both one port,
+/// both daemons would bind it -- libp2p-tcp listens with `SO_REUSEPORT`
+/// -- and each one's route to the other would be its own listen address,
+/// which libp2p-swarm strips from a dial: `NoAddresses`, the route
+/// dropped from the book, and no connection either way (desktop-e2e's
+/// `human_app`, PR run 38523588747 of #276; reproduced by giving both
+/// daemons one port).
 ///
 /// NOR TWICE ACROSS PROCESSES on this host's temporary directory: a test
 /// runner that gives every test a process of its own (nextest) runs
@@ -96,29 +97,73 @@ static HANDED_OUT: Mutex<BTreeMap<u16, File>> = Mutex::new(BTreeMap::new());
 /// (`a_port_another_process_claims_is_refused_until_it_ends`,
 /// `free_port_holds_the_claim_on_what_it_answers`).
 ///
-/// What this does not close: a process that is not a `free_port` caller,
-/// or one of ANOTHER ACCOUNT -- the claims are per account
-/// ([`claims_dir`]) -- may bind the port between this answer and the
-/// daemon's bind, which fails that daemon's start.
+/// BELOW THE KERNEL'S PORT-0 RANGE, because a daemon told to listen on
+/// port 0 is not a `free_port` caller and takes no claim, and with
+/// `SO_REUSEPORT` the kernel may land its listener on a port answered
+/// here and not yet bound: the two then share it silently, the #276
+/// shape again. The kernel picks a port-0 bind, and an outbound
+/// connection's source, only inside `ip_local_port_range`
+/// ([`port_0_range`]), so a port below its low bound is one none of those
+/// can take. The search starts at a random place in the window, so two
+/// accounts' runs, whose claims do not see each other, rarely meet.
+///
+/// What this does not close: a process of ANOTHER ACCOUNT -- the claims
+/// are per account ([`claims_dir`]) -- or one binding a fixed port may
+/// take the port between this answer and the daemon's bind. Another
+/// account's socket cannot share it with `SO_REUSEPORT` (the kernel
+/// requires one uid), so that daemon's start fails with the bind error.
 ///
 /// # Panics
-/// When the host will not bind `ip`, or this account's claims directory
-/// cannot be made or written.
+/// When the host will not bind `ip`, when no port below the port-0 range
+/// is free, or when this account's claims directory cannot be made or
+/// written.
 #[must_use]
 pub fn free_port(ip: Ipv4Addr) -> u16 {
     let mut handed_out = HANDED_OUT.lock().unwrap_or_else(PoisonError::into_inner);
-    let mut repeats = Vec::new();
-    loop {
-        let listener = TcpListener::bind((ip, 0)).expect("a port");
-        let port = listener.local_addr().expect("an address").port();
-        if !handed_out.contains_key(&port)
-            && let Some(held) = claim(port)
-        {
+    let window = FIRST_UNPRIVILEGED..port_0_range().0;
+    let size = window.len();
+    assert!(
+        size > 0,
+        "ip_local_port_range starts at {}: no port below it to answer",
+        window.end
+    );
+    let start =
+        usize::try_from(RandomState::new().hash_one(()) % size as u64).expect("in the window");
+    for offset in 0..size {
+        let port = window.start + u16::try_from((start + offset) % size).expect("in the window");
+        if handed_out.contains_key(&port) {
+            continue;
+        }
+        match TcpListener::bind((ip, port)) {
+            Ok(_) => {}
+            Err(e) if matches!(e.kind(), ErrorKind::AddrInUse | ErrorKind::PermissionDenied) => {
+                continue;
+            }
+            Err(e) => panic!("binding {ip}:{port}: {e}"),
+        }
+        if let Some(held) = claim(port) {
             handed_out.insert(port, held);
             return port;
         }
-        repeats.push(listener);
     }
+    panic!("no free port in {window:?} on {ip}");
+}
+
+/// The lowest port an unprivileged process may bind on a stock kernel.
+const FIRST_UNPRIVILEGED: u16 = 1024;
+
+/// The range the kernel picks a port-0 bind's port from, as
+/// `/proc/sys/net/ipv4/ip_local_port_range` says it (it governs IPv6
+/// too). Without `/proc`, Linux's default, which is also below every
+/// other kernel's (IANA's dynamic range starts at 49152).
+fn port_0_range() -> (u16, u16) {
+    std::fs::read_to_string("/proc/sys/net/ipv4/ip_local_port_range")
+        .ok()
+        .and_then(|range| {
+            let mut bounds = range.split_whitespace().map(str::parse);
+            Some((bounds.next()?.ok()?, bounds.next()?.ok()?))
+        })
+        .unwrap_or((32_768, 60_999))
 }
 
 /// Where the claims are: under the temporary directory, which every
@@ -185,7 +230,7 @@ fn claim_in(dir: &Path, port: u16) -> Option<File> {
 
 #[cfg(test)]
 mod tests {
-    use super::{claim, claim_in, claims_dir_in, free_port};
+    use super::{FIRST_UNPRIVILEGED, claim, claim_in, claims_dir_in, free_port, port_0_range};
     use std::collections::BTreeSet;
     use std::net::Ipv4Addr;
 
@@ -200,6 +245,30 @@ mod tests {
             let port = free_port(Ipv4Addr::LOCALHOST);
             assert!(seen.insert(port), "port {port} answered twice");
         }
+    }
+
+    /// Every answer is below the range a port-0 bind lands in, so a
+    /// port-0 listener never shares one. The control is the kernel's own
+    /// port-0 answer, which lands inside the range read: the read is the
+    /// one the kernel uses, not a number that happens to pass.
+    #[test]
+    fn free_port_answers_below_the_port_0_range() {
+        let (low, high) = port_0_range();
+        for _ in 0..200 {
+            let port = free_port(Ipv4Addr::LOCALHOST);
+            assert!(
+                (FIRST_UNPRIVILEGED..low).contains(&port),
+                "port {port} answered, outside {FIRST_UNPRIVILEGED}..{low}"
+            );
+        }
+        let kernels = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .and_then(|l| l.local_addr())
+            .expect("a port")
+            .port();
+        assert!(
+            (low..=high).contains(&kernels),
+            "the kernel's port-0 answer {kernels} is outside {low}..={high}"
+        );
     }
 
     /// A port held by ANOTHER PROCESS is refused, and claimable once that
