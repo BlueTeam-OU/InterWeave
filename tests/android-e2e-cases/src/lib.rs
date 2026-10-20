@@ -599,15 +599,13 @@ pub fn closing(serial: u8) -> (MessageId, String) {
 ///
 /// Its own outcome is returned and not relied on: the Android side may
 /// end as soon as it reads the close, so "outcome unknown" is expected.
-/// A caller prints it beside the Android side's answer, read by
-/// `TRANSPORT.md`'s classes: a not-dispatched one (`PeerUnknown`,
-/// `CancelledBeforeDispatch`, the endpoint and capability refusals) is a
-/// close that was not sent; a dispatched-and-refused one, a close not
-/// delivered; an outcome-unknown one (`PeerUnreachable`,
-/// `Timeout`, `CancellationRaced`, `BackendUnavailable`,
-/// `ProtocolViolation`, `Internal`) cannot tell a close the Android side
-/// read from one it did not -- and `PeerUnreachable` also stands for a
-/// dial failure until that code is split.
+/// A caller prints it beside the Android side's answer, to be read by
+/// the three classes of `TRANSPORT.md`'s error model (not dispatched;
+/// dispatched and refused; outcome unknown), which say which code is
+/// which: only the first is a close that was not sent, and an
+/// outcome-unknown one cannot tell a close the Android side read from
+/// one it did not. The codes are not restated here, so they cannot drift
+/// from the contract.
 ///
 /// # Errors
 /// The send's own outcome, a class with no identity in it.
