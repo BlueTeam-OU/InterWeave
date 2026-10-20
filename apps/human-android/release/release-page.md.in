@@ -48,7 +48,8 @@ These words can be different on some phones.
 To update, download a newer release from its page and install it in
 the same way. Android updates the app you have, and your messages and
 your identity stay on the phone. The app does not check for updates,
-so it cannot tell you that a new release exists.
+so it cannot tell you that a new release exists. Android does not
+install an older release over a newer one.
 
 Do not uninstall the app to update it. If you uninstall it, Android
 deletes all of its data from the phone. This includes your messages
@@ -123,6 +124,14 @@ the steps in the newer archive's README. Your identity, your profile,
 the peers that you trust, your other settings and your messages stay.
 InterWeave does not check for updates, so it cannot tell you that a
 new release exists.
+
+### Going back to an older release on Linux
+
+Do not install a release that is older than the newest release you
+have used. Some older releases cannot use everything that a newer
+release saved. Such a release does not start. It shows which file
+stopped it, and it changes nothing. To use InterWeave again, install
+the newest release you have used, or a newer one.
 
 ## Made with Slint
 
