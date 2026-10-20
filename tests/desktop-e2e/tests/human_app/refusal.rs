@@ -13,7 +13,9 @@
 //! built: no channel to it exists), and anything a sighted person judges
 //! of the screen's look, which is the design review's.
 
+use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 
 use interweave_human_store::SCHEMA_VERSION;
@@ -53,6 +55,29 @@ fn set_store_version(path: &Path, version: i64) {
         .expect("checkpointed");
     conn.pragma_update(None, "user_version", version)
         .expect("the header");
+}
+
+/// The store's folder as a name -> (bytes, mode) map: what a write,
+/// a new companion file or a changed mode would show.
+fn folder(store: &Path) -> BTreeMap<String, (Vec<u8>, u32)> {
+    let dir = store.parent().expect("the store's folder");
+    std::fs::read_dir(dir)
+        .expect("the folder reads")
+        .map(|entry| {
+            let entry = entry.expect("an entry");
+            let path = entry.path();
+            let mode = entry.metadata().expect("its metadata").permissions().mode();
+            let bytes = if path.is_file() {
+                std::fs::read(&path).expect("its bytes")
+            } else {
+                Vec::new()
+            };
+            (
+                entry.file_name().to_string_lossy().into_owned(),
+                (bytes, mode),
+            )
+        })
+        .collect()
 }
 
 /// A second window for a profile whose window is open: the screen says
@@ -108,8 +133,10 @@ async fn a_second_window_is_refused_on_a_screen_that_only_closes() {
 
 /// A store this build cannot read: the screen names it and offers Try
 /// again; trying while it is still unreadable says so to the screen
-/// reader and takes nothing; once the file is put right, Try again opens
-/// the app in the same process, which takes the endpoint.
+/// reader, takes nothing and writes nothing in the store's folder, and a
+/// second window started meanwhile is refused as already open; once the
+/// file is put right, Try again opens the app in the same process, which
+/// takes the endpoint.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn try_again_opens_the_app_once_the_store_is_put_right() {
     let _focus = display::exclusive().await;
@@ -149,6 +176,7 @@ async fn try_again_opens_the_app_once_the_store_is_put_right() {
         .await;
     assert!(human_lease(&home.binding()).await.is_none());
 
+    let before = folder(&store);
     let mut heard = screen.announcements().await;
     screen.activate(&retry, "click").await;
     heard
@@ -166,6 +194,31 @@ async fn try_again_opens_the_app_once_the_store_is_put_right() {
         2,
         "each refusal is a stderr line: {}",
         client.log()
+    );
+    assert_eq!(
+        folder(&store),
+        before,
+        "a Try again refused for the store's header writes nothing in its folder"
+    );
+
+    // The lock is held through the screen (run.rs): a second window
+    // started now is refused as already open, not let at the store.
+    let mut second = app::start(&home);
+    let other = bus.window_of(second.child.id(), || second.log()).await;
+    let close = other
+        .until("Close", button(text(UiText::Close)), || second.log())
+        .await;
+    other
+        .until("why", named(text(UiText::RefusalAlreadyOpen)), || {
+            second.log()
+        })
+        .await;
+    other.activate(&close, "click").await;
+    assert_eq!(
+        second.exit_within(PATIENCE).code(),
+        Some(75),
+        "EX_TEMPFAIL while the first sits on its screen: {}",
+        second.log()
     );
 
     set_store_version(&store, SCHEMA_VERSION);
