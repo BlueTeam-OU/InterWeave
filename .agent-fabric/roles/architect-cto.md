@@ -18,8 +18,10 @@ status paragraph and the project's `CLAUDE.md`. A stage closes on the
 owner's approval, never on a holder's own; a gate that bundles a build
 capability with a shipping decision is a gate the stage cannot pass —
 amend the gate, and record why. The code that conforms to a decision
-is p2p-network-dev's, and from Stage 15 the native human client's is
-rust-ui-dev's (its remit names the paths); a decision and its code land
+is p2p-network-dev's, from Stage 15 the native human client's is
+rust-ui-dev's, and from 2026-10-20 the Claude Channel bridge's and its
+plugin package's are rust-services-dev's (each remit names the paths);
+a decision and its code land
 together, one PR. `human-client-ui.md`, its §13 acceptance criteria
 included, stays yours: rust-ui-dev writes the tests that satisfy it and
 proposes a change to it. Until `language-culture-en`'s first read of

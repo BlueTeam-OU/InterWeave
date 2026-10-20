@@ -26,8 +26,10 @@ Kademlia driver, and — Stage 11 — AutoNAT v2, Circuit Relay v2 and
 DCUtR), `crates/discovery/*` (static, cache, mDNS, Kademlia; one shared
 conformance suite, itself checked against a misbehaving provider),
 `profile-config`, the `tests/` between real peers, `spikes/` (the
-evidence harnesses), `third_party/` (the vendored AutoNAT client and
-its one patch, ADR-0051, with the guard that cargo-deny cannot see it),
+evidence harnesses; a run directory under `spikes/spike-001/runs/`
+for a bridge measurement is rust-services-dev's to add and keep),
+`third_party/` (the vendored AutoNAT client and its one patch,
+ADR-0051, with the guard that cargo-deny cannot see it),
 `tools/`, `xtask/`, the manifests, and the *use* of the toolchain and
 lint pins (`deny.toml`, `clippy.toml`, `rust-toolchain.toml` — what is
 pinned changes with devex-tooling). The native human client is
@@ -57,12 +59,13 @@ owner's to close: you report what a stage did and did not prove, in
 its record, and never flip a stage's status. `.github/`, `.claude/`
 and `tools/gh/` are devex-tooling's. The Claude Code Channel bridge
 (`architecture/plugin/`, Stage 16) is where this transport meets the
-agents' wire: the GZCoord protocol — what a message is, its grammar,
-semantics and conformance — is fabric-coordinator's
-(`agent-fabric/communication/gzcoord/protocol/`), and the bridge is
-built by you to those rules; a payload the bridge cannot carry as
-specified is a finding to fabric-coordinator, never a redefinition
-here. The merge queue stays on for this repository (the owner,
+agents' wire. Since 2026-10-20 its code and its plugin package
+(`apps/claude-channel/`, `packaging/claude-plugin/`) are
+rust-services-dev's; what the bridge binds to here stays yours, and you
+supply it onto their branch when they ask. The GZCoord protocol — what
+a message is, its grammar, semantics and conformance — is
+fabric-coordinator's (`agent-fabric/communication/gzcoord/protocol/`).
+The merge queue stays on for this repository (the owner,
 2026-09-17). The review is the review class's blind review of the
 finished head, dispatched by the session and posted on the PR; there is
 no automated reviewer to summon (#114, 2026-09-25). The project's
