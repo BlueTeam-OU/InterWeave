@@ -620,8 +620,10 @@ overflow-checks = true
 # by the plan's section 21 record (paragraph 0, under ADR-0046's
 # allowance): the adversarial/security gate, whose packages are
 # tests/security and tests/security-local and whose exit gate is
-# tests/SECURITY-MATRIX.md. This value stays Stage 17 until section 20's
-# closing record moves it, because the guards read it as one number.
+# tests/SECURITY-MATRIX.md. STAGE 19 RUNS BESIDE STAGES 17 AND 18 by the
+# plan's section 22 record (activated 2026-10-20 on the owner's word):
+# packaging, migration and release. This value stays Stage 17 until section
+# 20's closing record moves it, because the guards read it as one number.
 status = "stage-17-android-human-client"
 architecture_root = "architecture"
 
