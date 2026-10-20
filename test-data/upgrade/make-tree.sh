@@ -21,7 +21,14 @@ if [ -n "$(git status --porcelain)" ]; then
     echo "make-tree.sh: the checkout is not clean; a tree names the commit that made it" >&2
     exit 2
 fi
-commit=$(git rev-parse --short=8 HEAD)
+# A tree is the commit's own build's: with a package named, the generator
+# would run the package's executables under this commit's name.
+if [ -n "${INTERWEAVE_PACKAGE_BIN:-}" ]; then
+    echo "make-tree.sh: INTERWEAVE_PACKAGE_BIN is set; unset it, a tree is made by this checkout's build" >&2
+    exit 2
+fi
+# Exactly eight: --short=8 prints more when the prefix is ambiguous.
+commit=$(git rev-parse HEAD | cut -c1-8)
 out="$root/test-data/upgrade/$commit"
 if [ -e "$out" ]; then
     echo "make-tree.sh: $out exists" >&2
