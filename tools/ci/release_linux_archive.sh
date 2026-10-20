@@ -24,8 +24,10 @@
 # Without --bin-dir the three programs are built here, `cargo build
 # --release --locked` for x86_64-unknown-linux-gnu; with it, DIR holds
 # them already built (the self-test's stand-ins). THIRD-PARTY-NOTICES.md
-# is release_notices.py over `cargo metadata --locked` for that target,
-# or over the file RELEASE_METADATA_JSON names.
+# is release_notices.py over `cargo tree --locked -e normal` of the three
+# packages for that target (which crates) and `cargo metadata --locked`
+# (what each is), or over the files RELEASE_COMPILED_LIST and
+# RELEASE_METADATA_JSON name.
 #
 # The archive is byte-for-byte reproducible from the same inputs: names
 # sorted, owner and group 0, modes fixed whatever the umask, every mtime
@@ -119,7 +121,14 @@ if [[ -z "$metadata" ]]; then
     (cd "$root" && cargo metadata --locked --format-version 1 --filter-platform "$target") > "$metadata" \
         || die "cargo metadata failed"
 fi
-python3 "$here/release_notices.py" "$metadata" "$stage/THIRD-PARTY-NOTICES.md" "${packages[@]}" >&2 \
+compiled="${RELEASE_COMPILED_LIST-}"
+if [[ -z "$compiled" ]]; then
+    compiled="$scratch/compiled.txt"
+    tree_args=(tree --locked -e normal --target "$target" --prefix none -f '{p}')
+    for p in "${packages[@]}"; do tree_args+=(-p "$p"); done
+    (cd "$root" && cargo "${tree_args[@]}") > "$compiled" || die "cargo tree failed"
+fi
+python3 "$here/release_notices.py" "$metadata" "$compiled" "$stage/THIRD-PARTY-NOTICES.md" "${packages[@]}" >&2 \
     || die "the third-party notices could not be written"
 chmod 0644 "$stage/THIRD-PARTY-NOTICES.md"
 

@@ -9,17 +9,22 @@
 # programs: every crate compiled into them, with its licence and the
 # licence texts the crate itself publishes.
 #
-#   tools/ci/release_notices.py <metadata.json> <out.md> <package>...
+#   tools/ci/release_notices.py <metadata.json> <compiled.txt> <out.md> <package>...
 #
-# <metadata.json> is `cargo metadata --locked --format-version 1
-# --filter-platform <target>` for the target the programs are built for;
-# <package>... are the workspace packages whose programs ship. A crate is
-# included when it is reached from them by NORMAL dependencies: a
-# build-dependency runs at build time and is not in the program, and a
-# dev-dependency is not built at all. A proc macro is a normal dependency
-# and is listed, since its expansion is compiled in. Workspace members
-# are this repository's own and are covered by its LICENSE; a vendored
-# crate under third_party/ is NOT a member and is listed like any other.
+# <compiled.txt> says WHICH crates: `cargo tree --locked -e normal
+# --target <target> -p <package>... --prefix none -f '{p}'`, the crates
+# the shipped build compiles for those packages, one `name vVERSION` per
+# line. <metadata.json> (`cargo metadata --locked --format-version 1
+# --filter-platform <target>`) says only WHAT each is -- its licence and
+# its files -- because its resolve unifies features across every
+# workspace member, the Android app's included, and so reaches crates
+# these programs do not contain (Skia's bindings among them). Normal
+# dependencies: a build-dependency runs at build time and is not in the
+# program, and a dev-dependency is not built at all; a proc macro is a
+# normal dependency and is listed, since its expansion is compiled in.
+# Workspace members are this repository's own and are covered by its
+# LICENSE; a vendored crate under third_party/ is NOT a member and is
+# listed like any other.
 #
 # The texts are each crate's own files whose names begin LICENSE, LICENCE,
 # COPYING, NOTICE, COPYRIGHT or UNLICENSE (and the files of a directory so
@@ -28,8 +33,10 @@
 # publishes no licence file is listed with its licence expression and
 # marked so, never given a text it does not carry.
 #
-# REFUSED, writing nothing, when a named package is not a workspace member
-# or a crate carries no licence expression and no licence file.
+# REFUSED, writing nothing, when a named package is not a workspace member,
+# a compiled crate is not one the metadata's normal walk from the
+# packages reaches (the two disagree about the build), or a crate carries
+# no licence expression and no licence file.
 #
 # Exit codes:
 #   0  written; the counts are printed
@@ -53,8 +60,21 @@ def help_text() -> str:
     return "\n".join(line[2:] for line in lines[start:end]) + "\n"
 
 
-def shipped(metadata: dict, roots: list) -> tuple:
-    """(the third-party packages reached by normal dependencies, sorted)."""
+def compiled_set(text: str) -> set:
+    """The (name, version) pairs of `cargo tree --prefix none -f '{p}'`."""
+    pairs = set()
+    for line in text.splitlines():
+        words = line.split()
+        if not words:
+            continue
+        if len(words) < 2 or not words[1].startswith("v"):
+            raise ValueError(f"not a cargo tree line: {line!r}")
+        pairs.add((words[0], words[1][1:]))
+    return pairs
+
+
+def shipped(metadata: dict, roots: list, compiled: set) -> list:
+    """The third-party packages the build compiles, sorted."""
     packages = {p["id"]: p for p in metadata["packages"]}
     members = set(metadata["workspace_members"])
     nodes = {n["id"]: n for n in metadata["resolve"]["nodes"]}
@@ -71,7 +91,14 @@ def shipped(metadata: dict, roots: list) -> tuple:
         for dep in nodes[node]["deps"]:
             if any(kind["kind"] is None for kind in dep["dep_kinds"]):
                 stack.append(dep["pkg"])
-    third = [packages[i] for i in seen if i not in members]
+    walked = {(packages[i]["name"], packages[i]["version"]): i for i in seen}
+    stray = sorted(compiled - set(walked))
+    if stray:
+        raise ValueError(
+            "compiled but not reached from the packages in the metadata: "
+            + ", ".join(f"{n} {v}" for n, v in stray)
+        )
+    third = [packages[walked[pair]] for pair in compiled if walked[pair] not in members]
     return sorted(third, key=lambda p: (p["name"], p["version"]))
 
 
@@ -140,17 +167,18 @@ def main(argv: list) -> int:
     if len(argv) == 2 and argv[1] in ("-h", "--help"):
         sys.stdout.write(help_text())
         return 0
-    if len(argv) < 4:
-        sys.stderr.write("usage: release_notices.py <metadata.json> <out.md> <package>...\n")
+    if len(argv) < 5:
+        sys.stderr.write("usage: release_notices.py <metadata.json> <compiled.txt> <out.md> <package>...\n")
         return 2
     try:
         metadata = json.loads(Path(argv[1]).read_text())
-        third = shipped(metadata, argv[3:])
+        compiled = compiled_set(Path(argv[2]).read_text())
+        third = shipped(metadata, argv[4:], compiled)
         page, distinct, bare = render(third)
     except (OSError, ValueError, KeyError) as err:
         sys.stderr.write(f"release_notices: {err}\n")
         return 1
-    Path(argv[2]).write_text(page)
+    Path(argv[3]).write_text(page)
     print(f"{len(third)} crates, {distinct} distinct licence texts, {bare} crates with no licence file")
     return 0
 

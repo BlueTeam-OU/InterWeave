@@ -22,6 +22,12 @@ devex-tooling's tagged workflow, and has not run.
 linux_sha256  af0885b5f64319b90f5b3f5d6572f9fa92cf42d4d2eb8889203fd56fb1a7f7fb
 ```
 
+The 598 crates were the metadata's unified graph, the Android app's
+features included (Skia's bindings among them), not what these programs
+compile; the review of #324 found it (B F1), and since then the notices
+list the crates `cargo tree -e normal` gives for the three packages: 460
+over the same graph, 42 of them with no licence file, none of Skia's.
+
 The archive, 70 686 957 bytes, as `tar -tzv` lists it (mode, size, name):
 
 ```text
@@ -61,7 +67,8 @@ archive does not strip them.
 
 - The units under a user manager: that is
   `2026-10-20-user-units.md`, against the workspace binaries.
-- 55 crates publish no licence file in their crate; THIRD-PARTY-NOTICES.md
-  lists each with its licence expression and source repository, and
-  prints no text for it. Their texts are upstream's, not reproduced here.
+- Crates that publish no licence file in their crate (55 in this run's
+  list, 42 in the corrected one) are listed with their licence
+  expression and source repository, with no text printed. Their texts
+  are upstream's, not reproduced here.
 - A build by the pinned 1.98.1 toolchain, or on the release runner.

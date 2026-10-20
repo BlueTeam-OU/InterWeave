@@ -61,6 +61,7 @@ crate macro LICENSES/MIT.txt
 crate bare
 crate buildonly LICENSE
 crate devonly LICENSE
+crate unified LICENSE
 
 M="$SANDBOX/metadata.json"
 python3 - "$SANDBOX" > "$M" <<'PY'
@@ -80,6 +81,7 @@ packages = [
     pkg("bare", "bare", "MIT", "https://example.invalid/bare"),
     pkg("buildonly", "buildonly", "MIT"),
     pkg("devonly", "devonly", "MIT"),
+    pkg("unified", "unified", "MIT"),
 ]
 normal = [{"kind": None, "target": None}]
 def dep(name, kinds=normal):
@@ -87,11 +89,27 @@ def dep(name, kinds=normal):
 nodes = [
     {"id": "interweave-transport-daemon-id", "deps": [dep("libfoo"), dep("buildonly", [{"kind": "build", "target": None}])]},
     {"id": "interweave-transportctl-id", "deps": [dep("libbar"), dep("devonly", [{"kind": "dev", "target": None}])]},
-    {"id": "interweave-human-desktop-id", "deps": [dep("a-macro"), dep("bare")]},
-] + [{"id": f"{n}-id", "deps": []} for n in ("libfoo", "libbar", "a-macro", "bare", "buildonly", "devonly")]
+    # unified: reached in the metadata's unified resolve, compiled by no
+    # build of these three (as the Android app's features reach Skia).
+    {"id": "interweave-human-desktop-id", "deps": [dep("a-macro"), dep("bare"), dep("unified")]},
+] + [{"id": f"{n}-id", "deps": []} for n in ("libfoo", "libbar", "a-macro", "bare", "buildonly", "devonly", "unified")]
 print(json.dumps({"packages": packages, "workspace_members": [p["id"] for p in packages[:3]],
                   "resolve": {"nodes": nodes}}))
 PY
+
+# What `cargo tree -e normal -p <the three>` prints: the roots, the
+# crates their build compiles, a repeat marked (*).
+C="$SANDBOX/compiled.txt"
+cat > "$C" <<'EOF'
+interweave-transport-daemon v1.0.0 (/somewhere/apps/transport-daemon)
+libfoo v1.0.0
+interweave-transportctl v1.0.0 (/somewhere/apps/transportctl)
+libbar v1.0.0
+interweave-human-desktop v1.0.0 (/somewhere/apps/human-desktop)
+a-macro v1.0.0
+bare v1.0.0
+libfoo v1.0.0 (*)
+EOF
 
 cat > "$BIN/systemctl" <<'EOF'
 #!/bin/sh
@@ -102,7 +120,7 @@ chmod +x "$BIN/systemctl"
 OUT="$SANDBOX/out"
 build() {
     rm -rf "$OUT"
-    SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" \
+    SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" \
         bash "$UNDER_TEST" --bin-dir "$BIN" "$@" >"$SANDBOX/stdout" 2>"$SANDBOX/err"
 }
 
@@ -172,10 +190,10 @@ EOF
         grep -qF -- "$line" "$N" || { fail "the notices lack: $line"; lacking=1; }
     done
     [[ -n "${lacking-}" ]] || pass "the notices list every crate reached by a normal dependency, a proc macro included"
-    if grep -qE 'buildonly|devonly|interweave-' "$N"; then
-        fail "the notices list a build-only, dev-only or workspace crate" "$(grep -E 'buildonly|devonly|interweave-' "$N")"
+    if grep -qE 'buildonly|devonly|unified|interweave-' "$N"; then
+        fail "the notices list a build-only, dev-only, uncompiled or workspace crate" "$(grep -E 'buildonly|devonly|unified|interweave-' "$N")"
     else
-        pass "a build-dependency, a dev-dependency and the workspace's own crates are not listed"
+        pass "a build-dependency, a dev-dependency, a crate the build does not compile and the workspace's own crates are not listed"
     fi
     shared="$(grep -c '^the text of LICENSE-MIT$' "$N")"
     [[ "$shared" == 1 ]] && grep -qF 'Used by libbar 1.0.0 (LICENSE-MIT); libfoo 1.0.0 (LICENSE-MIT).' "$N" \
@@ -207,7 +225,7 @@ exec $(command -v mv) "\$@"
 EOF
 chmod +x "$STUB/mv"
 rm -rf "$OUT"
-if PATH="$STUB:$PATH" SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" \
+if PATH="$STUB:$PATH" SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" \
     bash "$UNDER_TEST" --bin-dir "$BIN" 0.3.0 "$OUT" >/dev/null 2>"$SANDBOX/err"; then
     fail "a run whose values file cannot be moved succeeded"
 elif ! grep -q 'refused by the test' "$SANDBOX/err"; then
@@ -221,7 +239,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 printf 'a previous run\n' > "$A"
 mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
-SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" \
+SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" \
     bash "$UNDER_TEST" --bin-dir "$BIN" 0.3.0 "$OUT" >/dev/null 2>&1
 mv "$BIN/human-desktop.gone" "$BIN/human-desktop"
 [[ ! -e "$A" ]] && pass "a refused run leaves no previous run's archive of the same name" \
@@ -240,7 +258,15 @@ PY
 refused "a crate with no licence expression and no licence file" "libbar 1.0.0 has no licence" 0.3.0 "$OUT"
 
 echo "release_notices.py:"
-python3 "$NOTICES" "$M" "$SANDBOX/n.md" no-such-member >/dev/null 2>"$SANDBOX/err"
+cp "$C" "$SANDBOX/c2.txt"
+echo "buildonly v1.0.0" >> "$SANDBOX/c2.txt"
+python3 "$NOTICES" "$M" "$SANDBOX/c2.txt" "$SANDBOX/n.md" interweave-transport-daemon \
+    interweave-transportctl interweave-human-desktop >/dev/null 2>"$SANDBOX/err"
+[[ $? -eq 1 ]] && grep -qF 'compiled but not reached from the packages in the metadata: buildonly 1.0.0' "$SANDBOX/err" \
+    && [[ ! -e "$SANDBOX/n.md" ]] \
+    && pass "a compiled crate the metadata's normal walk does not reach is refused" \
+    || fail "a compiled crate outside the walk was not refused" "$(cat "$SANDBOX/err")"
+python3 "$NOTICES" "$M" "$C" "$SANDBOX/n.md" no-such-member >/dev/null 2>"$SANDBOX/err"
 [[ $? -eq 1 ]] && grep -qF 'not a workspace member: no-such-member' "$SANDBOX/err" && [[ ! -e "$SANDBOX/n.md" ]] \
     && pass "a package that is not a workspace member is refused" \
     || fail "an unknown package was not refused" "$(cat "$SANDBOX/err")"
