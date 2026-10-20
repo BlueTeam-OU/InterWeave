@@ -340,17 +340,22 @@ impl EmbeddedHost {
             .enable_all()
             .build()
             .map_err(|e| EmbeddedRefused::Internal(e.to_string()))?;
-        // The profile-format marker raised to this build's (ADR-0028 A
-        // 2026-10-20): the embedded host is the profile's state writer on
-        // Android, and the runtime's start is the first step that may
-        // write the profile -- an overlay's normalisation rewrite. Under
-        // the lock; a marker above this build's was refused by `load`.
-        profile_format::raise(&paths)?;
         let composed = executor.block_on(ComposedRuntime::start(
             &identity,
             &config,
             CompositionOptions::from_profile(&config, &paths),
         ))?;
+        // The profile-format marker raised to this build's (ADR-0028 A
+        // 2026-10-20): the embedded host is the profile's state writer on
+        // Android. Under the lock, once the runtime has started and before
+        // the binding is handed out, as the daemon raises it: a start
+        // refused before here writes nothing
+        // (`a_listener_the_platform_refuses_is_network_denied`). A marker
+        // above this build's was refused by `load`.
+        if let Err(e) = profile_format::raise(&paths) {
+            let _ = executor.block_on(composed.stop());
+            return Err(e.into());
+        }
         Ok(Self {
             sessions: composed.sessions(),
             composed: Some(composed),

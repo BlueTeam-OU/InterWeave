@@ -480,14 +480,11 @@ fn a_listener_the_platform_refuses_is_network_denied() {
         Err(other) => panic!("a refused listener is NetworkDenied: {other:?}"),
         Ok(_) => panic!("port 80 bound: this test needs an unprivileged runner"),
     }
-    // The profile-format marker is raised BEFORE the runtime's start
-    // (ADR-0028 A 2026-10-20), the first step that may write the profile:
-    // a start refused there has already marked it.
-    assert_eq!(
-        profile_format::read_within(&profile_format::path_for(&paths), paths.boundary())
-            .expect("reads"),
-        PROFILE_FORMAT,
-        "raised before the runtime's start"
+    // No profile-format marker (ADR-0028 A 2026-10-20): it is raised
+    // only once the runtime has started, so a refused start writes none.
+    assert!(
+        !profile_format::path_for(&paths).exists(),
+        "a refused start writes no marker"
     );
     provision(&app.dir, &document("embedded-android", false));
     EmbeddedHost::start(launch(&app.dir))
