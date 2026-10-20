@@ -394,8 +394,9 @@ jobs:
     # advisory sentence): the APK the Gradle build packages, with the native
     # library cargo-ndk builds into it, then the debug variant's lint and
     # JVM unit tests (the name keeps the context the advisory sentence
-    # names). It joins the ruleset by hand once the Gradle project is on
-    # main and a run time is measured.
+    # names). Advisory until the ruleset gains it (devex-tooling, by hand,
+    # on the owner's word): the Gradle project is on main and the run time
+    # is measured below, so nothing else is waited for.
     name: android apk (assembleDebug)
     runs-on: ubuntu-latest
     # 5m27s on main with no cargo cache (400b42b6, 2026-10-17): 69 s of
