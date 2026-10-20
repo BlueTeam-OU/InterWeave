@@ -8,8 +8,7 @@
 # A sandbox pin names stand-in texts read from a sandbox directory
 # (SKIA_NOTICES_SOURCE); the happy path, a C source whose licence header
 # is taken, is the positive control for the refusals. The repository's
-# own pin is parsed with the same parser, and the NDK it names must be
-# the one the Gradle build compiles with.
+# own pin is parsed with the same parser.
 #
 # Exit codes:
 #   0  all assertions passed
@@ -18,7 +17,6 @@
 set -uo pipefail
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
-ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 UNDER_TEST="$SCRIPT_DIR/skia_notices.py"
 [[ -f "$UNDER_TEST" ]] || { echo "test: $UNDER_TEST not found" >&2; exit 1; }
 
@@ -116,20 +114,15 @@ import importlib.util, sys
 spec = importlib.util.spec_from_file_location("n", sys.argv[1]); n = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(n)
 entries, credit = n.parse(open(sys.argv[2]).read())
-ndk = sorted({s[len("ndk:"):].split("/")[0] for _, _, s, _ in entries if s.startswith("ndk:")})
-print(len(entries), "|".join(ndk), "FreeType" in credit)
+print(len(entries), "FreeType" in credit)
 EOF
 )"
-read -r count ndks has_ft <<<"$summary"
-gradle_ndk="$(sed -n 's/^ *ndkVersion = "\(.*\)"$/\1/p' "$ROOT/apps/human-android/android/app/build.gradle.kts")"
+read -r count has_ft <<<"$summary"
 if [[ "${count:-0}" -gt 0 && "$has_ft" == True ]]; then
     pass "tools/ci/skia-notices.pin parses: $count texts and FreeType's credit"
 else
     fail "tools/ci/skia-notices.pin does not parse as expected" "$summary"
 fi
-[[ -n "$gradle_ndk" && "$ndks" == "$gradle_ndk" ]] \
-    && pass "the pin's NDK is the one the Gradle build uses ($gradle_ndk)" \
-    || fail "the pin names NDK '$ndks', the Gradle build '$gradle_ndk'"
 
 if (( failures )); then
     echo "test_skia_notices.sh: $failures failure(s)" >&2

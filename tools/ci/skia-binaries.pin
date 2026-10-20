@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # The one prebuilt Skia archive the Android build may link (ADR-0057
-# decision 4, A 2026-10-20), read by tools/ci/skia_prebuilt.sh for the
-# release run and for the android check job alike.
+# decision 4, A 2026-10-20), read by tools/ci/skia_prebuilt.sh in the
+# release run; the android check job is to read it too once its workflow
+# calls the script (devex-tooling's j182).
 #
 # One line: <skia-bindings version> <archive file name> <SHA-256>. The
 # archive is the asset of that name on rust-skia/skia-binaries' release

@@ -7,8 +7,11 @@
 #
 # Every source is the component's own file at the commit Skia's DEPS pins
 # for rust-skia/skia tag m153-0.101.2, the build skia-binaries.pin names,
-# except cpu_features, which the build compiles from the NDK that
-# apps/human-android/android/app/build.gradle.kts names. A source is
+# except cpu_features. Its object is in the prebuilt libskia.a, compiled
+# by rust-skia's CI from the NDK that CI used, which this pin cannot name;
+# this repository's NDK compiles none of it. The text is the licence
+# header of NDK 28.2.13676358's copy, read 2026-10-20 as the
+# representative one; it is not shown to be the linked copy's. A source is
 #   https://...          a file, as fetched
 #   gitiles:https://...  a googlesource file, served base64 (?format=TEXT)
 #   ndk:<version>/<path> a file of that NDK, under ANDROID_NDK_HOME's
