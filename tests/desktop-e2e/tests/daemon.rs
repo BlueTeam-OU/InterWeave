@@ -144,8 +144,10 @@ async fn sighup_stops_as_sigterm_does_and_exits_with_the_units_restart_status() 
         lines[from..]
             .iter()
             .position(|l| l.contains(needle))
-            .map(|i| from + i)
-            .unwrap_or_else(|| panic!("{needle:?} after line {from}:\n{log}"))
+            .map_or_else(
+                || panic!("{needle:?} after line {from}:\n{log}"),
+                |i| from + i,
+            )
     };
     let hup = at(0, "SIGHUP: stopping for a restart");
     let stopping = at(hup + 1, "stopping grace_ms=");
