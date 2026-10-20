@@ -579,7 +579,7 @@ ui_texts! {
     RefusalStoreNotPrivate => "Other accounts on this computer can read or change the file or folder below, where InterWeave keeps your messages. InterWeave needs it to be private to you. Nothing was changed. Make it private to you, then try again.",
     /// DESKTOP, start-up refusal screen: a file the app needs before the
     /// store (the lock) could not be opened. Nothing offers Try again.
-    RefusalUnavailable => "InterWeave could not open a file that it needs. Check that the computer has free disk space, and that you can write to the folder of that file. Then start InterWeave again.",
+    RefusalUnavailable => "InterWeave could not open a file that it needs. Check that the computer has free disk space, and that you can write to the folder below. Then start InterWeave again.",
     /// DESKTOP, start-up refusal screen: the message store could not be
     /// opened now; Try again is offered.
     RefusalStoreUnavailable => "InterWeave could not open the file that keeps your messages. Check that the computer has free disk space, and that you can write to the file and its folder. Then try again.",
