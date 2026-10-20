@@ -599,11 +599,15 @@ pub fn closing(serial: u8) -> (MessageId, String) {
 ///
 /// Its own outcome is returned and not relied on: the Android side may
 /// end as soon as it reads the close, so "outcome unknown" is expected.
-/// A caller prints it beside the Android side's answer. A refusal of a
-/// pre-dispatch class (`EndpointNotRegistered`, `Overloaded`, ...) is
-/// told apart from a close the Android side never read; `PeerUnreachable`
-/// is not, since `TRANSPORT.md` reports a dial failure and a connection
-/// closed after the write under it until that code is split.
+/// A caller prints it beside the Android side's answer, read by
+/// `TRANSPORT.md`'s classes: a not-dispatched one (`PeerUnknown`,
+/// `CancelledBeforeDispatch`, the endpoint and capability refusals) is a
+/// close that was not sent; a dispatched-and-refused one, a close the
+/// Android side did not take; an outcome-unknown one (`PeerUnreachable`,
+/// `Timeout`, `CancellationRaced`, `BackendUnavailable`,
+/// `ProtocolViolation`, `Internal`) cannot tell a close the Android side
+/// read from one it did not -- and `PeerUnreachable` also stands for a
+/// dial failure until that code is split.
 ///
 /// # Errors
 /// The send's own outcome, a class with no identity in it.
