@@ -282,7 +282,10 @@ async fn a_live_socket_in_the_daemons_place_is_refused_and_left() {
 
 /// The sockets are bound before the runtime starts, so a runtime that
 /// then fails to start -- here, a listen address the host refuses --
-/// leaves no socket behind.
+/// leaves no socket behind. And the profile-format marker is raised
+/// BEFORE that start (ADR-0028 A 2026-10-20): the start is the first step
+/// that may write the profile, so a start that fails there has already
+/// marked it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_runtime_that_fails_to_start_leaves_no_socket() {
     let home = Home::new("e2e");
@@ -294,6 +297,11 @@ async fn a_runtime_that_fails_to_start_leaves_no_socket() {
     assert_eq!(daemon.exit().await.code(), Some(1), "{}", daemon.log());
     assert!(daemon.log().contains("runtime"), "{}", daemon.log());
     assert!(!home.data_socket().exists() && !home.admin_socket().exists());
+    assert_eq!(
+        marker_format(&home),
+        Some(PROFILE_FORMAT),
+        "raised before the runtime's start"
+    );
 }
 
 /// The ORDER (lifecycle.md steps 4 then 5): given a socket's place that
