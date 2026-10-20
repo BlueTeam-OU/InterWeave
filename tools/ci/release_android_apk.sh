@@ -25,7 +25,8 @@
 # verified; the signing certificate's SHA-256 must equal
 # INTERWEAVE_RELEASE_CERT_SHA256 -- the same on every release, so a run
 # signing with any other key fails -- unless --first-release, which
-# prints the fingerprint for the owner to record instead.
+# prints the fingerprint for the owner to record instead, and is refused
+# when a fingerprint is given too.
 #
 # Writes into <out-dir>:
 #   interweave-<version>-arm64-v8a.apk          the signed APK
@@ -101,6 +102,13 @@ for var in INTERWEAVE_RELEASE_KEYSTORE INTERWEAVE_RELEASE_KEY_ALIAS INTERWEAVE_R
 done
 [[ -f "$INTERWEAVE_RELEASE_KEYSTORE" ]] || die "no keystore at INTERWEAVE_RELEASE_KEYSTORE"
 expected_cert=""
+if (( first_release )) && [[ -n "${INTERWEAVE_RELEASE_CERT_SHA256-}" ]]; then
+    # A run given the release key's fingerprint is not the first release:
+    # --first-release would sign with whatever key it holds and publish
+    # that key's fingerprint as the release key's.
+    echo "release_android_apk: --first-release with INTERWEAVE_RELEASE_CERT_SHA256 set: give one or the other" >&2
+    exit 2
+fi
 if (( ! first_release )); then
     expected_cert="${INTERWEAVE_RELEASE_CERT_SHA256-}"
     [[ -n "$expected_cert" ]] || {

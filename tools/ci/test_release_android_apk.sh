@@ -234,6 +234,16 @@ ANDROID_BUILD_TOOLS="$TOOLS" INTERWEAVE_RELEASE_KEYSTORE="$SANDBOX/other.p12" \
 [[ ! -e "$SIGNED" ]] && pass "a refused run leaves no previous run's APK of the same name" \
     || fail "a refused run left a previous run's APK"
 
+# --first-release with a fingerprint given, signing with another key:
+# refused before anything is signed, whatever the key.
+KEY=other sign --first-release 0.4.1 "$SANDBOX/good.apk" "$OUT"
+rc=$?
+if [[ $rc -eq 2 ]] && grep -qF "give one or the other" "$SANDBOX/err" && [[ ! -e "$SIGNED" && ! -e "$OUT/android-values.json" ]]; then
+    pass "--first-release with a fingerprint given is a usage error (2), nothing signed"
+else
+    fail "--first-release with a fingerprint given exited $rc" "$(cat "$SANDBOX/err")"
+fi
+
 CERT="" sign 0.4.1 "$SANDBOX/good.apk" "$OUT"
 rc=$?
 if [[ $rc -eq 2 ]] && grep -qF "INTERWEAVE_RELEASE_CERT_SHA256 is not set" "$SANDBOX/err"; then

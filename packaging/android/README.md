@@ -71,8 +71,9 @@ secrets as environment variables and hands the passwords to
 | `INTERWEAVE_RELEASE_KEY_PASS` | the key's password, if it differs |
 | `INTERWEAVE_RELEASE_CERT_SHA256` | the certificate's SHA-256, lowercase hex: the same on every release |
 
-The first release runs step 5 with `--first-release`, which prints the
-fingerprint instead of checking it; the owner records it as
+The first release runs step 5 with `--first-release` and no
+`INTERWEAVE_RELEASE_CERT_SHA256` (the two together are refused), which
+prints the fingerprint instead of checking it; the owner records it as
 `INTERWEAVE_RELEASE_CERT_SHA256`, and every later run that signs with
 any other key fails.
 
