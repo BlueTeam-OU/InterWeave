@@ -44,7 +44,7 @@ legal on that row now. For Keep, Unkeep, Retry and Cancel that means
 one whose Keep is still on its way to the store (§8). That includes a
 row whose session copy is gone (`UiModel::copy_gone`). There
 `actions` is empty, so Keep is not offered, but dismissing needs no copy:
-such a row offers the left swipe and the Dismiss button, and no right
+such a row offers the left swipe and the Dismiss menu item, and no right
 swipe.
 The swipe never decides legality itself. When the model's answer
 changes, the swipe changes with it.
@@ -91,11 +91,20 @@ Edge rules:
   its own touch with this rule and the system slop (ruled 2026-10-16
   on rust-ui-dev-01's question).
 - Only one row tracks at a time.
-- A press that stays within the slop on a link, or on one of the row's
-  buttons, is that control's tap. A drag that starts on one passes the
-  slop and is the row's swipe, and that control does not fire.
-- Long-press and text selection inside the row are not changed by this
-  spec.
+- A press on a link that is released within the slop before the
+  long-press time is the link's tap. A drag that starts on a link
+  passes the slop and is the row's swipe, and the link does not open.
+- A press that stays within the slop for the platform's long-press
+  time (`ViewConfiguration.getLongPressTimeout`) opens the row's menu
+  (§7), on a link as anywhere else in the bubble; the link then does
+  not open. A press that passes the slop first is a swipe or a scroll
+  and never opens it.
+- While the row's menu is open, touches on it never reach the row: a
+  drag that starts on a menu item moves nothing under the menu and
+  never tracks or commits a swipe. A press released on the item it
+  started on chooses it; one released elsewhere chooses nothing, and
+  the menu stays open. A touch outside the menu closes it and is not
+  passed to the row (§7).
 - A swipe that starts inside the system's gesture inset
   (`WindowInsets.systemGestures`, the back-gesture zone at each edge) is
   the system's and does not track.
@@ -110,7 +119,7 @@ committed swipe except Retry shows the snackbar (§6).
 | A right, Keep | `Intent::Keep { item, from }` as `actions` offers it | slides back to rest. Its status reads Kept and it becomes kind B | "Kept" | the Unkeep of that kept row |
 | A left, Dismiss | removes the row from this session's list (new; §8) | slides out, then the space closes (150 ms) | "Dismissed" | puts the row back in the same place |
 | B left, Unkeep | `Intent::Unkeep(row)`, at once | slides back to rest. Its status reads "Read, not kept", and it becomes kind A | "No longer kept" | the Keep `actions` now offers on it (`from` is the kept row the Unkeep released, whose content this session holds). The row reads Kept again |
-| C right, Retry now | `Intent::Retry(row)` | slides back to rest. Its status is what the facade reports: Sending, or "Not confirmed, trying again" for a row an earlier attempt may have reached (`may_have_reached`), as after the Retry button | none (nothing to undo) | — |
+| C right, Retry now | `Intent::Retry(row)` | slides back to rest. Its status is what the facade reports: Sending, or "Not confirmed, trying again" for a row an earlier attempt may have reached (`may_have_reached`), as after Retry from the menu | none (nothing to undo) | — |
 | C left, Cancel send | `Intent::Cancel(row)`, at once | slides out, then the space closes | "Sending canceled", or §8's may-have-reached text when `may_have_reached` is true | restores the cancelled pending record itself: everything §8 lists unchanged (both ids, destination, media type, stored payload bytes, attempt count), never a re-serialised copy. It is shown in its old place and sent as a retry of that record (§8) |
 
 **The rule: after any interruption, the state is what the person last
@@ -163,34 +172,50 @@ happened.
 
 Every swipe is a shortcut. Nothing is reachable only by a gesture.
 
-- **Row buttons.** Each row keeps its action buttons, which are the
-  primary control: kind A shows Keep and **Dismiss** (new). Kind B shows
-  Unkeep. Kind C shows Retry and Cancel. A button press gives the same
-  result, the same snackbar and the same Undo as the swipe.
-- **Touch targets.** Every row button and the snackbar's Undo have a
+- **The row's menu.** (Revised 2026-10-19 by the Android review's F2,
+  `design/2026-10-19-android-review.md`; until then each row showed its
+  actions as buttons at rest.) A row at rest shows its bubble and status
+  only. Its actions are in a Material menu anchored to the bubble: kind
+  A offers Keep and **Dismiss**, kind B Unkeep, kind C Retry and Cancel,
+  in that order, and every row Show source last. Choosing an item gives
+  the same result, the same snackbar and the same Undo as the swipe.
+  The menu opens by:
+  - a long-press on the bubble (§4's edge rules), with one haptic tick
+    (`HapticFeedbackConstants.LONG_PRESS`) as it opens;
+  - Enter, the Menu key or Shift+F10 on the focused bubble;
+  - a secondary click on the bubble, on the desktop;
+  - the bubble's accessible default action (TalkBack's double-tap, a
+    desktop screen reader's activate).
+  It opens with focus on its first item. It closes on Escape, Back or a
+  tap outside it, with nothing done and focus back on the bubble. A
+  link in a bubble stays a direct tap, and stays its own focus stop
+  after the bubble's. The desktop and Android share this one
+  interaction; neither keeps buttons at rest.
+- **Touch targets.** Every menu item and the snackbar's Undo have a
   target of at least 48 × 48 dp (Android's accessibility guidance;
   stricter than WCAG 2.5.8, whose minimum is 24 × 24).
-  Today `ActionButton` has a minimum height of 24 px, which fails this.
-  This spec raises it on message rows.
 - **TalkBack.** A one-finger swipe with TalkBack on is TalkBack's
   navigation and never reaches the row, which is correct. The person
-  uses the buttons. Each button's label names the action. Its
-  description names the message, its author and time, as the row's
-  existing labels do. If the toolkit later offers custom accessibility
-  actions, Keep, Dismiss, Unkeep, Retry and Cancel go on the row as
-  well. That is optional, not required for acceptance.
-- **Announcement.** Every result in §5, by swipe or button, and every
+  opens the menu with the bubble's default action. Each item's label
+  names the action. The bubble's description names the message, its
+  author and time, as the row's existing labels do, and its role tells
+  that it can be activated. If the toolkit later offers custom
+  accessibility actions, Keep, Dismiss, Unkeep, Retry and Cancel go on
+  the bubble as well. That is optional, not required for acceptance.
+- **Announcement.** Every result in §5, by swipe or menu, and every
   Undo, is announced through the existing polite live region, with the
   same words as the snackbar ("Kept", "Dismissed", "No longer kept",
   "Sending canceled" or §8's may-have-reached text, and "Action undone"
   for an Undo; §9).
 - **Focus.** Every case below, and those in §8 and §10, is listed with
   its check in §11 item 21, the one focus table. A row's **first
-  control** is its first action button (Keep, Unkeep, Retry or Dismiss
-  as the row offers), else its Show source button. A link in the
-  message's text is never the first control. A row's **first remaining control** is
-  the same, counted after the row's buttons changed. Every message row
-  keeps Show source, so one always exists. Whenever a rule below moves
+  control** is its bubble, the row's one focus stop besides its links
+  (revised 2026-10-19, F2; before, it was the first action button). A
+  link in the message's text is never the first control. A row's
+  **first remaining control** is the same bubble, which never goes
+  while the row is in the list. Choosing a menu item closes the menu
+  before any rule below applies, and focus on an item of a row's menu
+  counts as focus inside that row. Whenever a rule below moves
   focus, the control that takes it is scrolled into view. When focus
   stays where it was, nothing scrolls.
   - After Dismiss or Cancel removes a row, focus moves only if it was
@@ -213,18 +238,21 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     Dismiss's Undo writes nothing, so it cannot be refused.
     A refused Undo of Unkeep goes to that row's first control, since
     the row is still in place.
-  - After Keep or Unkeep by its button, the row's buttons change (a
-    kept row offers Unkeep, an unkept one Keep), so the pressed button
-    is gone. Focus goes to that row's first control. After Keep or
+  - After Keep or Unkeep from the menu, the menu closes and focus goes
+    to that row's first control. After Keep or
     Unkeep by a touch swipe, focus stays where it was, unless it was
     inside the swiped row. Then it also goes to that row's first
     control.
-  - After Retry, by swipe or button, focus stays where it was: the row
-    still offers Retry and Cancel, so its buttons stay.
-  - **When a row's status changes its buttons** without the person
+  - After Retry by swipe, focus stays where it was; after Retry from
+    the menu, it goes to that row's first control.
+  - After Show source from the menu, the menu closes and focus goes to
+    that row's first control. When the source closes, focus is on that
+    row's first control too.
+  - **When a row's status changes its actions** without the person
     acting (a pending row accepted by the remote or the local transport
-    offers neither Retry nor Cancel), and focus was on a button that
-    went, focus goes to that row's first remaining control (above).
+    offers neither Retry nor Cancel) while its menu is open, the menu
+    closes and focus goes to that row's first remaining control
+    (above).
   - **When the snackbar closes while its Undo holds focus**, the focused
     control is gone, whatever closed it: the timeout, a swipe-away, a
     newer snackbar, an arrival (§8, §10), or the app going to the
@@ -243,8 +271,9 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
     keyboard and TalkBack focus and reads its text. Nothing happens when
     it is activated.
   - **Every focus target here draws a visible focus indicator** when it
-    holds keyboard focus: every button, every link in a message's
-    text, each conversation row, and the two headings. Today a conversation row and the headings draw nothing
+    holds keyboard focus: every bubble, every item of a row's menu,
+    every button, every link in a message's text, each conversation
+    row, and the two headings. Today a conversation row and the headings draw nothing
     for focus, and a button only thickens its border by 1 px in the same
     colour, so a person cannot see where focus is (seen on the Pixel 9a,
     2026-10-16). The indicator is a ring with a contrast of at least 3:1
@@ -294,7 +323,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   legal, the row springs back and nothing happens. There is no
   snackbar and no announcement of its own: the row's status label
   already shows what changed, and is announced as any status change
-  is. A button whose action is no longer legal is gone from the row, so
+  is. A menu item whose action is no longer legal is gone from the menu, so
   a TalkBack user cannot reach this case.
 - **Cancel of an attempt already in flight.** The client cannot know
   whether that attempt reached the receiver. The facade reports a
@@ -359,7 +388,7 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   Keep is not offered after the Unkeep, so there is nothing for an Undo
   to restore. The snackbar then shows "No longer kept" with **no** Undo,
   never an Undo that fails. A missing Undo is honest. A failing one
-  breaks the promise the button makes (ruled 2026-10-16 on
+  breaks the promise the Undo button makes (ruled 2026-10-16 on
   rust-ui-dev-01's question).
 - **Cancel refused by the store** (storage degraded or full;
   `TransportClient::cancel` answers `StorageUnavailable`, and the row
@@ -426,8 +455,8 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   The row stays read and not kept, and it no longer offers Keep: the
   message can no longer be kept. No snackbar is shown, and the refusal
   is announced.
-  If focus was on its Keep, focus goes to the row's first remaining
-  control; otherwise it stays where it was.
+  If Keep was chosen from that row's menu, focus goes to the row's
+  first remaining control; otherwise it stays where it was.
 - **Keep is refused because storage is degraded.** The row stays kind
   A, no snackbar is shown, the existing storage notice and refusal
   announcement apply, and focus stays where it was.
@@ -443,16 +472,17 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
   separate product question, and architect-cto answered on 2026-10-16:
   - **Reactions** are not in the product now. They would need their
     own record, as an explicit message the person sends, never a
-    receipt sent on read. Until that record exists, no swipe or button
+    receipt sent on read. Until that record exists, no swipe or menu item
     sends one.
   - **Contact requests** are refused. A remote message may never ask
     for a trust change (`human-client-ui.md` §4, §8, §10).
-- **Desktop.** The Dismiss button and the snackbar live in the shared views
-  and will appear on desktop. This spec is reviewed on Android only.
+- **Desktop.** The row's menu (§7) and the snackbar live in the shared
+  views and appear on desktop, where the menu opens by keyboard or a
+  secondary click. This spec is reviewed on Android only.
 - **The words.** language-culture finalised them (below).
   The keys below were added to `labels.rs` (rust-ui-dev's file) in
   InterWeave#289; those marked "existed" were there before. A swipe's
-  revealed label is its button's text, so one key serves both. Two action names in this
+  revealed label is its menu item's text, so one key serves both. Two action names in this
   file are not the words the person sees: Retry reads "Send again"
   and Unkeep reads "Stop keeping". A message's action reads
   "Dismiss", because the message does not come back once its Undo
@@ -463,12 +493,12 @@ Every swipe is a shortcut. Nothing is reachable only by a gesture.
 
   | where it is shown | text | `UiText` key |
   |---|---|---|
-  | Keep button and swipe label | Keep | `Keep` (existed) |
-  | message row: Dismiss button and swipe label | Dismiss | `Dismiss` |
+  | Keep menu item and swipe label | Keep | `Keep` (existed) |
+  | message row: Dismiss menu item and swipe label | Dismiss | `Dismiss` |
   | conversation row: swipe label (§10) | Hide | `HideShort` |
-  | Unkeep button and swipe label | Stop keeping | `Unkeep` (existed) |
-  | Retry button and swipe label | Send again | `Retry` (existed) |
-  | Cancel button and swipe label | Cancel | `Cancel` (existed) |
+  | Unkeep menu item and swipe label | Stop keeping | `Unkeep` (existed) |
+  | Retry menu item and swipe label | Send again | `Retry` (existed) |
+  | Cancel menu item and swipe label | Cancel | `Cancel` (existed) |
   | the conversation header's control (§10) | Hide conversation | `HideConversation` |
   | the snackbar's button | Undo | `Undo` |
   | snackbar and announcement after Keep | Kept | `ConfirmKept` |
@@ -580,7 +610,7 @@ passed.
      the facade reports: Sending, or "Not confirmed, trying again" for a
      row an earlier attempt may have reached (`may_have_reached`, §5:
      for example after a timeout, or after the peer was unreachable),
-     the same as after the Retry button. Within one app session, a row
+     the same as after Retry from the menu. Within one app session, a row
      whose only failures leave that false (an unknown peer, for
      example) reads Sending. After a restart, a row with any earlier
      attempt reads "Not confirmed, trying again", since the outcome of
@@ -603,11 +633,12 @@ passed.
     a drag 55–60° off horizontal, which Slint's own swipe handler
     would take.
 12. With TalkBack on (under the precondition above):
-    - every action in 1–9 can be done with the row's buttons alone;
+    - every action in 1–9 can be done from the row's menu alone,
+      opened by the bubble's default action;
     - each result is announced;
     - every focus case in item 21 marked "TalkBack" lands where the
       table says.
-13. Every row button and the snackbar's Undo measure at least 48 × 48 dp
+13. Every menu item and the snackbar's Undo measure at least 48 × 48 dp
     (the Accessibility Scanner). It reads the accessibility tree, so this
     item is under the precondition above. Layout Inspector cannot
     measure the targets: it reads the View hierarchy, and the Slint
@@ -678,21 +709,24 @@ passed.
 
     | case | focus goes to | checked by |
     |---|---|---|
-    | Dismiss or Cancel by its button, focus in the row | next row's first control | keyboard, TalkBack |
+    | Dismiss or Cancel from the menu, focus in the row | next row's first control | keyboard, TalkBack |
     | the same, and the row was the last in the list | previous row's first control | keyboard, TalkBack |
     | the same, and it was the conversation's only row | the conversation's header title; the keyboard does not open | keyboard, TalkBack |
     | a touch swipe Dismiss or Cancel, TalkBack off, focus elsewhere | stays where it was; the list does not scroll | keyboard (focus a control in another row first) |
-    | a touch swipe on the row that holds keyboard focus | as the three button rows above | keyboard |
-    | a swipe with TalkBack on | cannot occur: TalkBack takes one-finger swipes, so the person uses the buttons | — |
+    | a touch swipe on the row that holds keyboard focus | as the three menu rows above | keyboard |
+    | a swipe with TalkBack on | cannot occur: TalkBack takes one-finger swipes, so the person uses the menu | — |
     | Undo of Dismiss or Cancel | the restored row's first control | keyboard, TalkBack |
-    | Keep or Unkeep by its button | that row's first control | keyboard, TalkBack |
+    | Keep or Unkeep from the menu | that row's first control | keyboard, TalkBack |
     | Keep or Unkeep by a touch swipe, focus inside that row | that row's first control | keyboard |
     | Keep or Unkeep by a touch swipe, focus elsewhere | stays where it was | keyboard |
-    | Retry, by swipe or button | stays where it was | keyboard |
-    | a pending row becomes accepted while its Retry or Cancel holds focus | that row's first remaining control (Show source) | tests |
+    | Retry by swipe | stays where it was | keyboard |
+    | Retry from the menu | that row's first control | keyboard |
+    | Show source from the menu, and when the source closes | that row's first control | keyboard, TalkBack |
+    | the menu opened, then closed by Escape, Back or a tap outside | that row's first control | keyboard, TalkBack |
+    | a pending row becomes accepted while its menu is open | the menu closes; that row's first remaining control (its bubble) | tests |
     | Undo of Keep or Unkeep | that row's first control | keyboard, TalkBack |
     | Keep refused (storage degraded) | stays where it was | tests |
-    | Keep refused because the copy is gone (`CopyGone`), focus on that row's Keep | that row's first remaining control | tests |
+    | Keep refused because the copy is gone (`CopyGone`), Keep chosen from that row's menu | that row's first remaining control | tests |
     | the same, focus elsewhere | stays where it was | tests |
     | Cancel refused, focus had moved off the row | back to the row's first control | tests |
     | Cancel refused, focus had not moved | stays where it was | tests |
@@ -726,3 +760,21 @@ passed.
     the Chats list (each row, the "Conversations" heading): every stop
     draws the ring of §7, and the ring measures 3:1 or more against what
     it sits on, from a screenshot, in the dark and the light scheme.
+23. **The row's menu** (§7), on the Pixel 9a, and the desktop where
+    named:
+    - at rest, nothing shows under any bubble of any row kind: no
+      button, no action label;
+    - a long-press held within the slop opens the menu with one haptic
+      tick, and the bubble shows its pressed state layer while it is
+      open; a press that passes the slop before the long-press time
+      opens nothing, and a long-press on a link opens the menu and not
+      the link;
+    - with a hardware keyboard, Enter, the Menu key and Shift+F10 on a
+      focused bubble each open it, with focus on its first item;
+    - its items are, in order: kind A Keep, Dismiss; kind B Unkeep;
+      kind C Retry, Cancel; and Show source last on every kind;
+    - a drag that starts on an open menu's item moves no row and
+      commits nothing; a tap outside closes the menu and does nothing
+      to the row under it;
+    - on the desktop, a secondary click on a bubble opens the same
+      menu.

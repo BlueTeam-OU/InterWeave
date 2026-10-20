@@ -776,6 +776,120 @@ async fn a_route_begun_while_disconnected_is_announced_as_its_begin_at_the_conne
     );
 }
 
+/// A sender's route begins when the far end has accepted its send, as
+/// the runtime's (`sent_to` after the acceptance): a path change seen
+/// once the far end holds the message -- the instant it is woken, inside
+/// the delivery -- comes before the route, so the route begins on the
+/// changed path; the same change once the send has returned is owed as a
+/// change from where it began. A test that drives a change it means to
+/// be owed waits on `routed_sessions` first: android-e2e-cases'
+/// previous-path test did not, and passed by timing in #294's queue
+/// build. The waker fires inside the delivery, so the window is hit on
+/// every run.
+#[tokio::test]
+async fn a_change_while_the_far_end_takes_delivery_is_where_the_route_begins() {
+    use interweave_local_client_api::{
+        DataSessionBinding as _, DataSessionPort as _, LocalSessionEvent, ROUTE_ESTABLISHED,
+        SessionEvent,
+    };
+    use interweave_transport_api::{DirectDestination, MessageId, PeerPath};
+    use std::sync::{Arc, Mutex};
+    use std::task::{Context, Wake, Waker};
+
+    /// The far end's wake: the sender's runtime sees its path to the far
+    /// end change, once, and records whether the sender held a route.
+    struct Change {
+        drive: Mutex<Option<(FakeNode, TransportIdentity)>>,
+        routed_then: Mutex<Option<usize>>,
+    }
+    impl Wake for Change {
+        fn wake(self: Arc<Self>) {
+            if let Some((node, far)) = self.drive.lock().expect("unpoisoned").take() {
+                *self.routed_then.lock().expect("unpoisoned") = Some(node.routed_sessions(&far));
+                node.path_changed(
+                    &far,
+                    PeerPath::Direct,
+                    PeerPath::Relayed,
+                    ROUTE_ESTABLISHED,
+                    0,
+                );
+            }
+        }
+    }
+
+    let paths = |events: Vec<SessionEvent>| -> Vec<(Option<PeerPath>, PeerPath)> {
+        events
+            .into_iter()
+            .filter_map(|e| match e {
+                SessionEvent::Local(LocalSessionEvent::PeerPathChanged {
+                    previous,
+                    current,
+                    ..
+                }) => Some((previous, current)),
+                _ => None,
+            })
+            .collect()
+    };
+    for during_delivery in [true, false] {
+        let p = pair();
+        let from = p.a.open(suite::full(Some(&agent()))).await.expect("leases");
+        let to = p.b.open(suite::full(Some(&human()))).await.expect("leases");
+        to.events(usize::MAX).await.expect("the open-time state");
+        // The route begins unannounced, so only a change can name its
+        // path before a connection.
+        p.a.disconnected(&p.b_peer);
+        from.events(usize::MAX).await.expect("the disconnect");
+        assert_eq!(
+            p.a.routed_sessions(&p.b_peer),
+            0,
+            "no route before the send"
+        );
+        let change = Arc::new(Change {
+            drive: Mutex::new(Some((p.a.clone(), p.b_peer.clone()))),
+            routed_then: Mutex::new(None),
+        });
+        if during_delivery {
+            let waker = Waker::from(Arc::clone(&change));
+            let ready = std::pin::pin!(to.ready());
+            assert!(
+                ready.poll(&mut Context::from_waker(&waker)).is_pending(),
+                "the far end waits on nothing yet"
+            );
+        }
+        from.send_direct(
+            DirectDestination {
+                peer: p.b_peer.clone(),
+                endpoint: Some(human()),
+            },
+            MessageId::from_bytes([1; 16]),
+            suite::text("a route"),
+        )
+        .await
+        .expect("accepted");
+        assert_eq!(p.a.routed_sessions(&p.b_peer), 1, "the send's route");
+        if during_delivery {
+            assert_eq!(
+                *change.routed_then.lock().expect("unpoisoned"),
+                Some(0),
+                "the delivery woke the far end before the sender held its route"
+            );
+            assert_eq!(
+                paths(from.events(usize::MAX).await.expect("events")),
+                [(None, PeerPath::Relayed)],
+                "the route begins on the changed path"
+            );
+        } else {
+            // The control: the same change once the route is held.
+            Arc::clone(&change).wake();
+            assert_eq!(
+                paths(from.events(usize::MAX).await.expect("events")),
+                [(Some(PeerPath::Direct), PeerPath::Relayed)],
+                "a change from where the route began"
+            );
+        }
+    }
+}
+
 /// A session opened before the fake's restart belonged to the runtime
 /// before it, and ends with it, as a real runtime's does: its `events`
 /// and `close` answer `BackendUnavailable` (#215 review P3) -- before,
