@@ -262,7 +262,8 @@ From the top:
   - an overflow menu (⋮, "More options") holding "Hide conversation"
     when the conversation is offered for hiding (swipe spec §10), and
     "Details". "Details" opens a dialog with the full peer id, or a
-    channel's id, with Copy and Close (Android review F11); Copy gives
+    channel's id, with "Copy PeerId" (or "Copy channel ID") and Close
+    (Android review F11); the copy gives
     its exact canonical form (`human-client-ui.md` §11).
   The peer id is no longer shown on the conversation screen itself.
 - **Messages as bubbles.**
@@ -355,17 +356,22 @@ From the top:
   - The field always takes focus and the keyboard on a tap, in every
     conversation the person can open, the untrusted peer's included:
     trust gates the send, never the composer (architect-cto-01,
-    REPLY 01a159de-729d). A send to a peer this profile does not
-    trust is refused and shown in the composer's place, in one line
-    over the field, saying the peer is not trusted for this profile
-    (`human-client-ui.md` §12) and that Trust is where that changes;
-    the draft is kept. The line goes when the draft changes or the
-    conversation is left.
-  - The composer is disabled for one cause only, the platform
-    withholding network access; it then looks disabled (38 % opacity,
-    no cursor), says why in the notice above it, and takes no focus.
-    It never looks enabled while it takes no input (Android review
-    F16).
+    REPLY 01a159de-729d). Send always commits the message as a
+    pending row first (`RETENTION.md` §2); a peer this profile does
+    not trust is learned at the first attempt. The row then shows
+    the needs-attention status, "Not sent, send again or cancel",
+    with the reason `PeerNotTrusted` ("This peer is not trusted for
+    this profile."), and its menu offers Send again and Cancel as
+    swipe spec §7 gives them. Trust is changed only from Trust
+    (`human-client-ui.md` §8); nothing in the conversation changes it.
+  - The composer is disabled for one cause only: the app's network
+    access is withheld (the `NetworkDenied` notice shows, `network
+    denied` in the model). It then looks disabled (38 % opacity, no
+    cursor), takes no focus, and the `NetworkDenied` notice above it
+    says why. If the field held focus when access was withheld,
+    focus goes to that notice. Offline, by contrast, the composer
+    stays enabled: what is written waits (F7's banner). It never
+    looks enabled while it takes no input (Android review F16).
 - **The storage notice** and the other notices keep
   `notice-background`, as a full-width banner with 12 dp corners under
   the app bar.
@@ -466,6 +472,8 @@ that exist.
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the conversation's overflow button's label, Android's own words for it. Chats' overflow has `AppOptions` |
 | `AppOptions` (new) | App options | the Chats app bar's overflow button's label (Android review F12). It must say the menu is the app's, not a conversation's, since both buttons show side by side on a wide screen. A proposal; the words are language-culture's |
+| `NetworkDenied` (exists) | Network access is off for this app. You can read your messages, but you cannot send or receive messages until you allow network access. | the notice above a disabled composer (§6), and the target of focus if the field held it |
+| `PeerNotTrusted` (exists, `ErrorClass`) | This peer is not trusted for this profile. | the reason on a pending row whose send was refused for trust (§6, Composer) |
 | `TrustHeading` (exists) | Trust | the Chats overflow menu's entry that opens Trust (Android review F12); the shield's label `TrustSettings` has no use left on Chats |
 | `StateShortDirect`, `StateShortRelayed`, `StateShortPartial`, `StateShortOffline`, `StateShortUnknown` (#313, not yet on main) | Online, direct · Online, relayed · Online, limited · Offline · Status not known | Chats' connectivity subtitle, one per `human-client-ui.md` §7 state; the full state text is the subtitle's accessible description (Android review F7) |
 | `OfflineBanner` (#313, not yet on main) | language-culture's | the notice banner under a conversation's app bar while the device is offline (F7) |
@@ -580,8 +588,8 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
    subtitle. Offline, a notice banner under it says so; online or
    unknown, none shows. The overflow button is labelled "More options"
    and holds Details, and Hide conversation exactly when it is
-   offered. Details is a dialog with the peer id, Copy and Close, and
-   Copy gives the exact canonical id.
+   offered. Details is a dialog with the peer id, "Copy PeerId" and
+   Close, and the copy gives the exact canonical id.
 8. Received messages are on the start side and sent on the end side,
    with §6's fills, corners and width (at most 80 %). In an RTL locale
    the sides swap. Same-side messages within a minute sit 2 dp apart,
@@ -626,3 +634,11 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
     cutout's inset, with the keyboard up and down.
 22. A pending message in a phone-wide portrait window shows its whole
     time inside the bubble, at 100 % and 200 %.
+23. **The composer** (§6), in every conversation on the phone, the one
+    with a peer Trust does not list included: a tap on the field opens
+    the keyboard and shows the cursor (`dumpsys input_method`
+    `mInputShown=true`). Sending there to an untrusted peer leaves a
+    pending row whose status reads "Not sent, send again or cancel"
+    with the not-trusted reason. With the app's network access
+    withheld, the field is drawn at 38 % with no cursor, a tap opens
+    no keyboard, and the `NetworkDenied` notice shows above it.
