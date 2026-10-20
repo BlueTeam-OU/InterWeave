@@ -31,8 +31,8 @@ on:  # zizmor: ignore[dangerous-triggers] nothing of the PR is checked out or ru
 # Auto-merge is a write to the pull request's merge, so the token needs
 # contents: write as well: with pull-requests: write alone GitHub refuses
 # disablePullRequestAutoMerge ("Resource not accessible by integration",
-# agent-fabric #139, 2026-10-09). The job writes nothing else: two mutations
-# at most and one comment.
+# agent-fabric #139, 2026-10-09). The job writes nothing else: a dequeue and
+# a disable per pass, three passes at most, and one comment.
 permissions:
   contents: write
   pull-requests: write
@@ -60,8 +60,10 @@ jobs:
           PUSHED_AT: ${{ github.event.pull_request.updated_at }}
         run: |
           set -euo pipefail
-          # Read now, not from the event, and compared with the push: an
-          # arming made after the push is one of the new head and stays.
+          # Read now, not from the event, and compared with the push: if
+          # nothing here is older than the push, the arming is the new head's
+          # and stays. Once anything is, everything present during the job is
+          # taken off, a fresh arming included (below).
           # All times are GitHub's UTC "…Z" form, so they order as strings.
           #
           # The arming's time comes from the timeline too, because GitHub
@@ -88,7 +90,8 @@ jobs:
             echo "#$PR: armed $armed_on (last arming $last_armed), queued $queued_on, push at $PUSHED_AT — nothing armed before the push, nothing to take off"
             exit 0
           fi
-          # From here whatever is present is the stale arming's, whenever it
+          # From here whatever is present is taken as the stale arming's,
+          # an arming or enqueue made meanwhile included, whenever it
           # appears: the new head can go green during this job, and the
           # still-on arming then queues it between two reads. So take off
           # what is there, read again, and repeat, a bounded number of times.
