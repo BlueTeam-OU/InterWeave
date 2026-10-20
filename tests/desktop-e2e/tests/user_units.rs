@@ -503,7 +503,9 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
         "the daemon process {pid} is gone"
     );
     assert!(installed.sockets_gone(), "no socket in the runtime dir");
-    assert!(!client_wanted.exists(), "the client disabled");
+    // `is_symlink`, not `exists`: a link left behind dangles once the
+    // template is gone, and `exists` follows it.
+    assert!(!client_wanted.is_symlink(), "the client disabled");
     for exe in ["transport-daemon", "transportctl", "human-desktop"] {
         assert!(
             !installed.installed_bin().join(exe).exists(),

@@ -54,11 +54,12 @@ instances() {
 
 if systemctl --user show-environment >/dev/null 2>&1; then
     for unit in $(instances); do
-        systemctl --user disable --now "$unit" >/dev/null 2>&1 || true
-        systemctl --user disable --runtime "$unit" >/dev/null 2>&1 || true
-        # `disable --now` stops what it disables; a loaded instance that
-        # was never enabled is stopped here.
+        # Stopped whether or not it was enabled, then its wants links
+        # removed, persistent and runtime: a link left behind would name
+        # a template this script is about to remove.
         systemctl --user stop "$unit"
+        systemctl --user disable "$unit" >/dev/null 2>&1 || true
+        systemctl --user disable --runtime "$unit" >/dev/null 2>&1 || true
         echo "stopped and disabled $unit"
     done
     manager=yes
