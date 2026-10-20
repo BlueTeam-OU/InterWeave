@@ -137,10 +137,19 @@ async fn sighup_stops_as_sigterm_does_and_exits_with_the_units_restart_status() 
     let status = daemon.exit().await;
     let log = daemon.log();
     assert_eq!(status.code(), Some(restart), "{status}\n{log}");
-    assert!(
-        log.contains("SIGHUP") && log.contains("stopping") && log.contains("stopped"),
-        "the orderly stop's lines:\n{log}"
-    );
+    // The orderly stop's own lines, after the SIGHUP's and in order: the
+    // SIGHUP line says "stopping" too, so each is found by its fields.
+    let lines: Vec<&str> = log.lines().collect();
+    let at = |from: usize, needle: &str| {
+        lines[from..]
+            .iter()
+            .position(|l| l.contains(needle))
+            .map(|i| from + i)
+            .unwrap_or_else(|| panic!("{needle:?} after line {from}:\n{log}"))
+    };
+    let hup = at(0, "SIGHUP: stopping for a restart");
+    let stopping = at(hup + 1, "stopping grace_ms=");
+    at(stopping + 1, "stopped events_dropped=");
     assert!(!home.data_socket().exists() && !home.admin_socket().exists());
     assert!(
         home.paths.state_dir().join("profile.lock").exists(),
