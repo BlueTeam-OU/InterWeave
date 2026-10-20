@@ -392,8 +392,11 @@ jobs:
   android-apk:
     # CONTEXT NAME: `android apk (assembleDebug)`. ADVISORY (CLAUDE.md §9's
     # advisory sentence): the APK the Gradle build packages, with the native
-    # library cargo-ndk builds into it. It joins the ruleset by hand once
-    # the Gradle project is on main and a run time is measured.
+    # library cargo-ndk builds into it, then the debug variant's lint and
+    # JVM unit tests (the name keeps the context the advisory sentence
+    # names). Advisory until the ruleset gains it (devex-tooling, by hand,
+    # on the owner's word): the Gradle project is on main and the run time
+    # is measured below, so nothing else is waited for.
     name: android apk (assembleDebug)
     runs-on: ubuntu-latest
     # 5m27s on main with no cargo cache (400b42b6, 2026-10-17): 69 s of
@@ -457,7 +460,14 @@ jobs:
           path: |
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
-          key: gradle-${{ runner.os }}-${{ hashFiles('apps/human-android/android/**/*.gradle.kts', 'apps/human-android/android/gradle/libs.versions.toml', 'apps/human-android/android/gradle/wrapper/gradle-wrapper.properties') }}
+          # The key covers what decides what this job resolves: the build's
+          # own files, and this workflow, which names the tasks run. With
+          # the build files alone, adding lintDebug left the key as main
+          # had saved it without lint's tooling, and a save runs only on a
+          # miss, so that tooling would be downloaded on every run (review of
+          # #311). A workflow change costs one restore by prefix and one
+          # fuller save on main.
+          key: gradle-${{ runner.os }}-${{ hashFiles('apps/human-android/android/**/*.gradle.kts', 'apps/human-android/android/gradle/libs.versions.toml', 'apps/human-android/android/gradle/wrapper/gradle-wrapper.properties', '.github/workflows/ci.yml') }}
           restore-keys: |
             gradle-${{ runner.os }}-
 
@@ -466,6 +476,21 @@ jobs:
       # arm64-v8a before packaging.
       - name: ./gradlew assembleDebug
         run: ./gradlew --no-daemon --stacktrace assembleDebug
+
+      # Lint is a task of its own: assembleDebug runs none of it, so a
+      # lint error once sat on a branch unseen (rust-ui-dev-01's
+      # feat/j111-android-recovery, from 4159658e until 9d2e7432). AGP
+      # fails the task on a lint error (its log names the report); a
+      # warning passes. Measured on #311 (1aac52d8, 2026-10-20), after
+      # assembleDebug: lintDebug 26 s with its tooling downloaded, under
+      # STRICT locking; testDebugUnitTest 8 s.
+      - name: ./gradlew lintDebug
+        run: ./gradlew --no-daemon --stacktrace lintDebug
+
+      # app/src/test does not exist yet, so this runs nothing (NO-SOURCE)
+      # until the first JVM unit test lands, which it then gates.
+      - name: ./gradlew testDebugUnitTest
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
 
       - name: What was built
         run: |

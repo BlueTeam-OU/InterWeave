@@ -185,7 +185,13 @@ gh api graphql -f query='mutation{dequeuePullRequest(input:{id:"<pr node id>"}){
 ```
 
 `gh pr merge --disable-auto` clears the standing consent but does **not**
-dequeue.
+dequeue. Confirm `mergeQueueEntry` reads null afterwards, push the fix,
+have the new range reviewed, then `fabric-pr arm` again. Pushing to an armed
+or queued PR does both for you: `disarm-on-push.yml` takes off an arming
+older than the push and any queue entry older than the push or made by
+such an arming, then everything present while it runs, and comments on the PR (CLAUDE.md
+§9, "Never race your own CI"). Arm again only once the pushed range is
+reviewed.
 
 ## Concurrent sessions and worktrees
 

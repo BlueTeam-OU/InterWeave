@@ -45,7 +45,7 @@
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used, clippy::panic)]
 
-use interweave_android_e2e_cases::{PathsArgs, Told, cases, keys};
+use interweave_android_e2e_cases::{PathsArgs, Told, cases, close_exchange, keys};
 use interweave_android_e2e_tests::adb::AdbDevice;
 use interweave_android_e2e_tests::{
     Desktop, Device, HostStandIn, PATIENCE, Relay, desktop_answers, free_port, lease_request,
@@ -170,23 +170,27 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         )
     };
     let run = r.run_case(cases::PATHS, &args(&d_peer, PeerPath::Relayed, 1));
-    desktop_answers(&d_session, &mut d_told, &r_peer, 1, || log(&r)).await;
+    desktop_answers(&d_session, &mut d_told, &r_peer, 1, &run, || log(&r)).await;
     // The baseline for R's death is taken HERE, while R is known alive:
-    // D's answer was just accepted on R's route, and R's case has not
-    // returned. On a device R's process ends with its case
+    // D's answer was just accepted on R's route, and R's case waits for
+    // D's close, sent below. On a device R's process ends with its case
     // (`src/adb.rs`), so a baseline taken any later could already hold
     // that death, and the check below would look for a second one.
     let gone_before = d_told.gone.len();
     let circuits_before = relay.seen().await.circuits.len();
-    let out = run.passed(|| log(&r));
+    // The close after the baseline; on a stand-in, whose runtime outlives
+    // its case, no test sees this order (`close_exchange`).
+    let closed = close_exchange(&d_session, &r_peer, 1).await;
+    let out = run.passed(|| format!("{}\n--- D's close ---\n{closed:?}", log(&r)));
     assert_eq!(
         out[keys::PATH],
         PeerPath::Relayed.label(),
         "R of D: relayed"
     );
     let run = c.run_case(cases::PATHS, &args(&d_peer, PeerPath::Direct, 2));
-    desktop_answers(&d_session, &mut d_told, &c_peer, 2, || log(&c)).await;
-    let out = run.passed(|| log(&c));
+    desktop_answers(&d_session, &mut d_told, &c_peer, 2, &run, || log(&c)).await;
+    let closed = close_exchange(&d_session, &c_peer, 2).await;
+    let out = run.passed(|| format!("{}\n--- D's close ---\n{closed:?}", log(&c)));
     assert_eq!(
         out[keys::PATH],
         PeerPath::Direct.label(),
@@ -241,9 +245,10 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
     r.kill();
     r.restart();
     let run = r.run_case(cases::PATHS, &args(&d_peer, PeerPath::Relayed, 3));
-    desktop_answers(&d_session, &mut d_told, &r_peer, 3, || log(&r)).await;
+    desktop_answers(&d_session, &mut d_told, &r_peer, 3, &run, || log(&r)).await;
+    let closed = close_exchange(&d_session, &r_peer, 3).await;
     assert_eq!(
-        run.passed(|| log(&r))[keys::PATH],
+        run.passed(|| format!("{}\n--- D's close ---\n{closed:?}", log(&r)))[keys::PATH],
         PeerPath::Relayed.label(),
         "R of D after R's restart: relayed again"
     );

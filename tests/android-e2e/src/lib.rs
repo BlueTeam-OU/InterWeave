@@ -203,7 +203,9 @@ pub trait Device {
 /// for its result.
 pub struct CaseRun {
     case: String,
-    result: std::thread::JoinHandle<String>,
+    /// The runner, until its answer is taken into `answer`.
+    runner: std::sync::Mutex<Option<std::thread::JoinHandle<String>>>,
+    answer: std::sync::OnceLock<String>,
 }
 
 impl CaseRun {
@@ -212,7 +214,8 @@ impl CaseRun {
     pub fn on_thread(case: &str, result: impl FnOnce() -> String + Send + 'static) -> Self {
         Self {
             case: case.to_owned(),
-            result: std::thread::spawn(result),
+            runner: std::sync::Mutex::new(Some(std::thread::spawn(result))),
+            answer: std::sync::OnceLock::new(),
         }
     }
 
@@ -220,7 +223,40 @@ impl CaseRun {
     /// half.
     #[must_use]
     pub fn is_finished(&self) -> bool {
-        self.result.is_finished()
+        self.answer.get().is_some()
+            || self
+                .runner()
+                .as_ref()
+                .is_some_and(std::thread::JoinHandle::is_finished)
+    }
+
+    /// What the case has answered so far, without waiting: for a failure
+    /// of the desktop's half, which otherwise panics before
+    /// [`passed`](Self::passed) could show why the Android side ended
+    /// (`a_finished_case_is_shown_before_it_is_waited_for`).
+    #[must_use]
+    pub fn so_far(&self) -> String {
+        let mut runner = self.runner();
+        if runner
+            .as_ref()
+            .is_some_and(std::thread::JoinHandle::is_finished)
+            && let Some(done) = runner.take()
+        {
+            let answer = done
+                .join()
+                .unwrap_or_else(|_| "(its runner panicked)".to_owned());
+            let _ = self.answer.set(answer);
+        }
+        self.answer.get().map_or_else(
+            || format!("{}: still running", self.case),
+            |answer| format!("{}: {answer}", self.case),
+        )
+    }
+
+    fn runner(&self) -> std::sync::MutexGuard<'_, Option<std::thread::JoinHandle<String>>> {
+        self.runner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// The case's result JSON, whatever it says.
@@ -229,7 +265,14 @@ impl CaseRun {
     /// If the runner died, or answered something that is not a result.
     #[must_use]
     pub fn result(self) -> Map<String, Value> {
-        let json = self.result.join().expect("the runner");
+        let runner = self
+            .runner
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let json = match runner {
+            Some(runner) => runner.join().expect("the runner"),
+            None => self.answer.into_inner().expect("an answer taken"),
+        };
         match serde_json::from_str(&json) {
             Ok(Value::Object(out)) => out,
             _ => panic!("{}: not a result: {json}", self.case),
@@ -255,25 +298,37 @@ impl CaseRun {
     }
 }
 
-/// The desktop's half of exchange `serial` with the Android side `from`:
-/// take what it sent, and answer, each within `PATIENCE`.
+/// The desktop's half of exchange `serial` with the Android side `from`,
+/// whose half is `run`: take what it sent, and answer, each within
+/// `PATIENCE`.
+///
+/// The Android half is still waiting then: it ends on the caller's
+/// `close_exchange`, sent once the caller no longer needs it alive.
 ///
 /// # Panics
-/// If either does not happen, with `log`.
+/// If either does not happen, with what `run` answered by then and `log`.
 pub async fn desktop_answers(
     session: &impl DataSessionPort,
     told: &mut Told,
     from: &TransportIdentity,
     serial: u8,
+    run: &CaseRun,
     log: impl Fn() -> String,
 ) {
+    let fail = |e: String| -> ! {
+        panic!(
+            "exchange {serial}: {e}\n--- the Android side's case ---\n{}\n{}",
+            run.so_far(),
+            log()
+        )
+    };
     let (_, text) = to_desktop(serial);
     if let Err(e) = told.take_message(session, from, &text, PATIENCE).await {
-        panic!("{e}\n{}", log());
+        fail(e);
     }
     let (id, answer) = to_android(serial);
     if let Err(e) = send_until_routed(session, from, id, &answer, PATIENCE).await {
-        panic!("{e}\n{}", log());
+        fail(e);
     }
 }
 
@@ -540,5 +595,37 @@ impl Desktop {
 impl Default for Desktop {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CaseRun;
+    use std::time::{Duration, Instant};
+
+    /// A case that has answered is shown by `so_far` without waiting,
+    /// and `result` still reads the same answer afterwards; one that has
+    /// not is shown as still running, and is waited for by `result`.
+    #[test]
+    fn a_finished_case_is_shown_before_it_is_waited_for() {
+        let answered = r#"{"result":"fail","detail":"the route began as Some(Direct)"}"#;
+        let run = CaseRun::on_thread("paths", move || answered.to_owned());
+        let until = Instant::now() + Duration::from_secs(10);
+        while !run.is_finished() {
+            assert!(Instant::now() < until, "the case never answered");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(run.so_far(), format!("paths: {answered}"));
+        assert!(run.is_finished(), "an answer taken is still finished");
+        assert_eq!(run.result()["detail"], "the route began as Some(Direct)");
+
+        let (go, wait) = std::sync::mpsc::channel::<()>();
+        let run = CaseRun::on_thread("paths", move || {
+            wait.recv().expect("released");
+            r#"{"result":"pass"}"#.to_owned()
+        });
+        assert_eq!(run.so_far(), "paths: still running");
+        go.send(()).expect("the runner waits");
+        assert_eq!(run.result()["result"], "pass");
     }
 }

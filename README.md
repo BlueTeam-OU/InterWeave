@@ -4,7 +4,7 @@
 
 **InterWeave** is a peer-to-peer transport for agent harnesses that speak MCP and for first-party human clients: the agent bridge delivers by Claude Code's channel extension, or to any MCP host through a `receive` tool. One configured profile owns one persistent peer identity; many local applications share it through configured endpoints. On the wire it combines signed GossipSub broadcast, a dedicated directed-message protocol, an endpoint directory, replaceable discovery, Kademlia peer routing, and mandatory Internet reachability through AutoNAT v2, Circuit Relay v2 and DCUtR. The design is under [`architecture/`](./architecture/); the code is built one stage at a time in the order that design fixes.
 
-> **Repository status: Stage 17 open** (`stage-17-android-human-client`). Stages 0–16 are complete, and Stage 20 (automated clients and the one-host deployment, plan §28, ADR-0055) ran beside Stage 17 and closed 2026-10-19. Stage 17's prerequisites, SPIKE-008 and SPIKE-009, are its first work; the Android human client follows them.
+> **Repository status: Stage 17 open** (`stage-17-android-human-client`). Stages 0–16 are complete, and Stage 20 (automated clients and the one-host deployment, plan §28, ADR-0055) ran beside Stage 17 and closed 2026-10-19; Stage 18 (the adversarial and security gate, plan §21) and Stage 19 (packaging, migration and release, plan §22) run beside Stage 17 by their records, the status value naming the lowest open stage. Stage 17's prerequisites, SPIKE-008 and SPIKE-009, are its first work; the Android human client follows them.
 
 ## Where the work stands
 
@@ -105,7 +105,7 @@ The root [`Cargo.toml`](./Cargo.toml) is a virtual workspace, and `[workspace].m
 
 ## Building and testing
 
-The workspace builds with the Rust toolchain pinned in [`rust-toolchain.toml`](./rust-toolchain.toml). The tree checks and the suites run through `xtask`:
+The workspace builds with the Rust toolchain pinned in [`rust-toolchain.toml`](./rust-toolchain.toml), which only rustup honours: a distribution's `cargo` is whatever version its package is at, and a system update moves it off the pin with no commit here. Install rustup, with its `cargo` ahead of the system one on `PATH` (on a fleet host, `fabric-tools --install rustup` from a working copy). `tools/checks/check_rustc_pin.sh`, the first tree check, says which compiler, clippy and rustfmt are in use when they are not the pin's. The tree checks and the suites run through `xtask`:
 
 ```text
 cargo xtask checks       # the tree checks under tools/checks/
