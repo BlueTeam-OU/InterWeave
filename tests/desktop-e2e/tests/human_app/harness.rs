@@ -13,11 +13,13 @@ use interweave_local_client_api::{
     AdminBinding as _, AdminCapability, AdminPort as _, LeaseRecord,
 };
 
-use crate::common::{Home, PATIENCE, human, workspace_binary};
+use crate::common::{Home, PATIENCE, human};
 
-/// The workspace's own `human-desktop`, beside this test's build.
+/// The `human-desktop` these cases run: an installed package's when
+/// `package::PACKAGE_BIN` names one, else the workspace's own, beside
+/// this test's build.
 pub(crate) fn app_binary() -> PathBuf {
-    workspace_binary("human-desktop", "interweave-human-desktop")
+    crate::package::client_binary()
 }
 
 /// The display a window opens on. Required, not skipped: a test that

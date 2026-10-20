@@ -46,20 +46,33 @@ Stage 19's.
 ## The release page
 
 `release/release-page.md.in` is the template the release run fills,
-one page per release. It carries what ADR-0057 decision 1 names:
+one page per release, and the one page serves EVERY platform the release
+ships: the APK and the Linux archive are downloaded from it, each in its
+own section (architect-cto's ruling of 2026-10-20 on Stage 19). For the
+APK it carries what ADR-0057 decision 1 names:
 
 - the APK and its SHA-256, and the signing certificate's fingerprint;
 - the release notes;
 - the manual-install and manual-update note: the app has no update
   channel and never checks for updates itself;
 - the Slint attribution the Royalty-free licence owes, as the badge on
-  the page the binaries are downloaded from (ADR-0057 decision 3);
+  the page the binaries are downloaded from (ADR-0057 decision 3), once
+  for the APK and the desktop binaries alike; `tests/release_page.rs`
+  fails a template without it, or with a badge from a Slint release
+  other than the one `Cargo.lock` builds;
 - the third-party notices the APK's native library owes
   (`STORE-CHECK.md`, "The native Skia library"), FreeType's credit line
   among them, which the release run fills from the licence files of the
   sources it built: the template carries none of those texts itself.
 
-The page's English is final (language-culture-en, 2026-10-19); the
+For the Linux archive it carries the file, its SHA-256 (the archive is
+not signed), what it contains, and the install and update notes; the
+archive's name and contents are packaging/linux's, a proposal until that
+lands, and the run fills `{linux_archive}`, `{linux_archive_url}` and
+`{linux_sha256}`.
+
+The page's English is final (language-culture-en, 2026-10-19 for the
+Android text, 2026-10-20 for the shared page and the Linux section); the
 facts in it are this file's. Where a person finds the next release has
 no stable address yet: the release run names it (Stage 19), and the
 page then says to come back there.

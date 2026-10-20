@@ -3364,6 +3364,7 @@ dependencies = [
  "interweave-ipc-protocol",
  "interweave-local-client-api",
  "interweave-local-client-conformance-tests",
+ "interweave-profile-config",
  "interweave-test-support",
  "interweave-transport-api",
  "jsonschema",

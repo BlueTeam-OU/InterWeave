@@ -8,8 +8,9 @@
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
 
-use std::os::unix::fs::MetadataExt as _;
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use interweave_ipc_protocol::{DecodedFrame, Frame, FrameError, decode_frame, encode_frame};
@@ -17,6 +18,7 @@ use interweave_local_client_api::{
     AdminBinding as _, AdminCapability, AdminPort as _, DataSessionBinding as _,
     DataSessionPort as _, SessionEvent,
 };
+use interweave_profile_config::profile_format::{self, PROFILE_FORMAT};
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, MediaType, MessageId, Payload,
     TransportError, TransportIdentity,
@@ -280,7 +282,9 @@ async fn a_live_socket_in_the_daemons_place_is_refused_and_left() {
 
 /// The sockets are bound before the runtime starts, so a runtime that
 /// then fails to start -- here, a listen address the host refuses --
-/// leaves no socket behind.
+/// leaves no socket behind. And no profile-format marker (ADR-0028 A
+/// 2026-10-20): it is raised only once the runtime has started, so a
+/// refused start writes nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_runtime_that_fails_to_start_leaves_no_socket() {
     let home = Home::new("e2e");
@@ -292,6 +296,11 @@ async fn a_runtime_that_fails_to_start_leaves_no_socket() {
     assert_eq!(daemon.exit().await.code(), Some(1), "{}", daemon.log());
     assert!(daemon.log().contains("runtime"), "{}", daemon.log());
     assert!(!home.data_socket().exists() && !home.admin_socket().exists());
+    assert_eq!(
+        marker_format(&home),
+        None,
+        "a refused start writes no marker"
+    );
 }
 
 /// The ORDER (lifecycle.md steps 4 then 5): given a socket's place that
@@ -466,6 +475,187 @@ async fn a_restart_issues_fresh_epochs_and_stale_reply_routes_fail() {
     );
     drop((stale, fresh));
     assert!(second.terminate().await.success());
+}
+
+/// Every file under the home's XDG roots with its bytes, mode and
+/// modification time -- the daemon's log, beside them, excluded: what
+/// "nothing written" is checked against.
+fn xdg_snapshot(home: &Home) -> BTreeMap<PathBuf, (Vec<u8>, u32, i64, i64)> {
+    let mut seen = BTreeMap::new();
+    let roots = &home.roots;
+    let mut stack: Vec<PathBuf> = [
+        &roots.config_home,
+        &roots.data_home,
+        &roots.state_home,
+        &roots.cache_home,
+    ]
+    .into_iter()
+    .cloned()
+    .chain(roots.runtime_dir.clone())
+    .filter(|p| p.exists())
+    .collect();
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("readdir") {
+            let path = entry.expect("entry").path();
+            let meta = std::fs::symlink_metadata(&path).expect("metadata");
+            let bytes = if meta.is_file() {
+                std::fs::read(&path).expect("read")
+            } else {
+                Vec::new()
+            };
+            if meta.is_dir() {
+                stack.push(path.clone());
+            }
+            seen.insert(path, (bytes, meta.mode(), meta.mtime(), meta.mtime_nsec()));
+        }
+    }
+    seen
+}
+
+/// The marker's format as the daemon left it: `None` when it wrote none.
+fn marker_format(home: &Home) -> Option<u32> {
+    let path = profile_format::path_for(&home.paths);
+    path.exists().then(|| {
+        profile_format::read_within(&path, home.paths.boundary()).expect("the marker reads")
+    })
+}
+
+/// `{"profile_format": n}` where the marker lives, owner-only, as a build
+/// that wrote it would leave it.
+fn plant_marker(home: &Home, n: u32) {
+    let path = profile_format::path_for(&home.paths);
+    private_dir(home.paths.state_dir());
+    std::fs::write(&path, format!("{{\"profile_format\":{n}}}")).expect("planted");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+}
+
+/// The profile-format marker (ADR-0028 A 2026-10-20): a fresh profile's
+/// first start writes this build's format, owner-only, before anything is
+/// served; a marker below it is raised; one at it is left as it is.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_daemon_raises_the_profile_format_marker_before_it_serves() {
+    let home = Home::new("e2e");
+    home.write_key();
+    home.write_config(&profile("e2e", &stranger(), ""));
+    assert_eq!(marker_format(&home), None, "a fresh profile has none");
+
+    let mut daemon = home.start(&[]);
+    daemon.serving(&home).await;
+    // Answered by the server, which runs only after the raise: the
+    // sockets are bound before it, so a connect alone would prove less.
+    status_peer(&home).await;
+    assert_eq!(marker_format(&home), Some(PROFILE_FORMAT));
+    assert_eq!(
+        mode(&profile_format::path_for(&home.paths)),
+        0o600,
+        "owner-only"
+    );
+    assert!(daemon.terminate().await.success(), "{}", daemon.log());
+
+    // At its own format: left as it is, the same file.
+    let inode = std::fs::metadata(profile_format::path_for(&home.paths))
+        .expect("present")
+        .ino();
+    let mut again = home.start(&[]);
+    again.serving(&home).await;
+    status_peer(&home).await;
+    assert_eq!(
+        std::fs::metadata(profile_format::path_for(&home.paths))
+            .expect("present")
+            .ino(),
+        inode,
+        "not rewritten"
+    );
+    assert!(again.terminate().await.success(), "{}", again.log());
+
+    // Below it -- the format before the marker existed, written by hand:
+    // raised.
+    plant_marker(&home, 0);
+    let mut raised = home.start(&[]);
+    raised.serving(&home).await;
+    status_peer(&home).await;
+    assert_eq!(marker_format(&home), Some(PROFILE_FORMAT));
+    assert!(raised.terminate().await.success(), "{}", raised.log());
+}
+
+/// A profile a newer build wrote: the daemon refuses to start, says which
+/// file and both formats, and writes nothing -- no lock, no socket, no
+/// directory, the marker untouched. Put back to this build's format, the
+/// same profile starts with the same `PeerId`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_marker_above_this_build_refuses_the_daemon_and_nothing_is_written() {
+    let home = Home::new("e2e");
+    let peer = home.write_key();
+    home.write_config(&profile("e2e", &stranger(), ""));
+    plant_marker(&home, PROFILE_FORMAT + 1);
+    let before = xdg_snapshot(&home);
+
+    let mut refused = home.start(&[]);
+    assert_eq!(refused.exit().await.code(), Some(1), "{}", refused.log());
+    let log = refused.log();
+    for part in [
+        profile_format::path_for(&home.paths).display().to_string(),
+        format!("format {}", PROFILE_FORMAT + 1),
+        format!("this build's {PROFILE_FORMAT}"),
+        "a newer build".to_owned(),
+    ] {
+        assert!(log.contains(&part), "names {part:?}:\n{log}");
+    }
+    assert_eq!(xdg_snapshot(&home), before, "nothing written");
+    assert!(
+        !home.paths.state_dir().join("profile.lock").exists(),
+        "refused before the lock"
+    );
+
+    // THE CONTROL: the same home with the marker at this build's format
+    // starts, and is the same peer.
+    plant_marker(&home, PROFILE_FORMAT);
+    let mut started = home.start(&[]);
+    started.serving(&home).await;
+    assert_eq!(status_peer(&home).await, peer, "the same PeerId");
+    assert!(started.terminate().await.success(), "{}", started.log());
+    assert_eq!(marker_format(&home), Some(PROFILE_FORMAT), "never lowered");
+}
+
+/// A newer build's marker written while this daemon waited for the lock
+/// -- `load` saw none, the newer build held the lock and raised it --
+/// refuses the start at the lock, before the runtime writes anything:
+/// the message is the read under the lock's -- not load's, which would
+/// mean the daemon had not loaded yet and the case was not reached, nor
+/// the raise's -- and nothing under the XDG roots changes but the lock's
+/// own record.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_marker_raised_while_the_daemon_waits_for_the_lock_refuses_it_there() {
+    let home = Home::new("e2e");
+    home.write_key();
+    home.write_config(&profile("e2e", &stranger(), ""));
+    let held = interweave_profile_config::ProfileLock::acquire(&home.paths, Duration::ZERO)
+        .expect("the newer build's lock");
+    let mut daemon = home.start(&[]);
+    // Inside DAEMON_LOCK_WAIT: the daemon has loaded and waits on the
+    // lock; the newer build raises the marker and lets go.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    plant_marker(&home, PROFILE_FORMAT + 1);
+    let lock_file = home.paths.state_dir().join("profile.lock");
+    let before: BTreeMap<_, _> = xdg_snapshot(&home)
+        .into_iter()
+        .filter(|(p, _)| p != &lock_file)
+        .collect();
+    drop(held);
+    assert_eq!(daemon.exit().await.code(), Some(1), "{}", daemon.log());
+    let log = daemon.log();
+    assert!(
+        log.contains(&format!(
+            "the profile, read again under the lock: {}",
+            profile_format::path_for(&home.paths).display()
+        )),
+        "refused under the lock, not by the raise after the start:\n{log}"
+    );
+    let after: BTreeMap<_, _> = xdg_snapshot(&home)
+        .into_iter()
+        .filter(|(p, _)| p != &lock_file)
+        .collect();
+    assert_eq!(after, before, "nothing written");
 }
 
 /// An `embedded-android` profile runs inside the app, never as a daemon:

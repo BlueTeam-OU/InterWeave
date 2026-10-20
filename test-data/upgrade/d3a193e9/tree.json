@@ -1,0 +1,15 @@
+{
+  "added": "12D3KooWFysXMbCJnKDVi4HUC1R7P2cpqn9Jxz87XdDR3mDNYEP8",
+  "configured": [
+    "12D3KooWEkXsR62hEdyVAmDo2fdsHPUG2uZfBumoT1SMkd7DPytu",
+    "12D3KooWGU96x2wi32RXK19FD12Brz368XR44AXTTMZ9LhCTucGf"
+  ],
+  "disabled_endpoint": "claude",
+  "kept": "00000000000000000000000000000053",
+  "made_by": "d3a193e9",
+  "peer": "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+  "pending": "00000000000000000000000000000051",
+  "revoked": "12D3KooWGU96x2wi32RXK19FD12Brz368XR44AXTTMZ9LhCTucGf",
+  "store_schema": 7,
+  "unread": "00000000000000000000000000000052"
+}

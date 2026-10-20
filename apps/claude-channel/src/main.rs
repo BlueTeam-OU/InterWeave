@@ -35,6 +35,7 @@ mod unix {
     use interweave_claude_channel::serve::{CLIENT_KIND, Config, Env, serve};
     use interweave_claude_channel_core::Delivery;
     use interweave_ipc_client::{IpcBinding, SocketPaths};
+    use interweave_profile_config::profile_format::ProfileFormatError;
     use interweave_profile_config::{LoadError, ProfileConfig, ProfilePaths, XdgRoots};
     use interweave_transport_api::EndpointId;
     use tokio::io::BufReader;
@@ -139,7 +140,11 @@ mod unix {
     }
 
     /// The class of a profile load's failure, which `status` reports in
-    /// place of the desired channels.
+    /// place of the desired channels. A profile a newer build wrote
+    /// (ADR-0028 A 2026-10-20) has a class of its own: the bridge writes
+    /// nothing, so it reports the refusal here rather than refusing to
+    /// start, and its remedy -- the newer build -- is not a damaged
+    /// marker's.
     fn load_error_class(error: &LoadError) -> &'static str {
         match error {
             LoadError::Read(_) => "Read",
@@ -151,6 +156,8 @@ mod unix {
             LoadError::KeyFileUnresolved { .. } => "KeyFileUnresolved",
             LoadError::ConfigDirUnguarded(_) => "ConfigDirUnguarded",
             LoadError::ConfigFileUnguarded { .. } => "ConfigFileUnguarded",
+            LoadError::ProfileFormat(ProfileFormatError::Newer { .. }) => "ProfileFormatNewer",
+            LoadError::ProfileFormat(_) => "ProfileFormat",
         }
     }
 
@@ -181,6 +188,22 @@ mod unix {
 
         fn args(list: &[&str]) -> Result<(String, EndpointId, Delivery), String> {
             arguments(list.iter().map(|s| (*s).to_owned()))
+        }
+
+        /// A profile a newer build wrote is its own class in `status`; a
+        /// marker that cannot be trusted is the marker's.
+        #[test]
+        fn a_newer_profile_format_has_a_class_of_its_own() {
+            let newer = LoadError::ProfileFormat(ProfileFormatError::Newer {
+                path: "/s/profile-format.json".into(),
+                found: 2,
+                own: 1,
+            });
+            assert_eq!(load_error_class(&newer), "ProfileFormatNewer");
+            let untrusted = LoadError::ProfileFormat(ProfileFormatError::NotPrivate {
+                detail: "a link".to_owned(),
+            });
+            assert_eq!(load_error_class(&untrusted), "ProfileFormat");
         }
 
         /// A profile, an endpoint and a delivery mode, in any order and
