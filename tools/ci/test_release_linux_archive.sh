@@ -137,7 +137,7 @@ EOF
     else
         fail "the .sha256 file does not check"
     fi
-    want_json="{\"linux_archive\": \"$NAME.tar.gz\", \"linux_sha256\": \"$(sha256sum "$A" | cut -d' ' -f1)\"}"
+    want_json="{\"linux_archive\": \"$NAME.tar.gz\", \"linux_sha256\": \"$(sha256sum "$A" | cut -d' ' -f1)\", \"check:linux_version\": \"0.3.0\"}"
     [[ "$(cat "$OUT/linux-values.json")" == "$want_json" ]] \
         && pass "linux-values.json names the archive and its hash" \
         || fail "linux-values.json is not the expected one" "$(cat "$OUT/linux-values.json")"

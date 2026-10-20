@@ -31,8 +31,9 @@
 # Writes into <out-dir>:
 #   interweave-<version>-arm64-v8a.apk          the signed APK
 #   interweave-<version>-arm64-v8a.apk.sha256   in sha256sum's format
-#   android-values.json                         {apk_sha256, cert_sha256}
-#                                               for release_page.py
+#   android-values.json                         {apk_sha256, cert_sha256,
+#                                               check:apk_version} for
+#                                               release_page.py
 # all three or none: once <version> and the APK are found, a run that
 # fails at any step, a refusal or a write, leaves none of them, a
 # previous run's of the same names included.
@@ -185,7 +186,8 @@ fi
 
 (cd "$work" && sha256sum -- "$apk_name" > "$apk_name.sha256")
 apk_sha="$(cut -d' ' -f1 "$work/$apk_name.sha256")"
-printf '{"apk_sha256": "%s", "cert_sha256": "%s"}\n' "$apk_sha" "$cert" > "$work/android-values.json"
+printf '{"apk_sha256": "%s", "cert_sha256": "%s", "check:apk_version": "%s"}\n' \
+    "$apk_sha" "$cert" "$version" > "$work/android-values.json"
 for f in "${outputs[@]}"; do mv -fT -- "$work/$f" "$out_dir/$f"; done
 
 echo "signed $out_dir/$apk_name (versionCode $code)"

@@ -47,7 +47,7 @@ EOF
 echo "release_page.py:"
 
 cat > "$SANDBOX/v.json" <<'EOF'
-{"version": "1.2.3", "apk_sha256": "ab12", "notices": "a text with {braces} of its own"}
+{"version": "1.2.3", "apk_sha256": "ab12", "check:apk_version": "1.2.3", "notices": "a text with {braces} of its own"}
 EOF
 if run "$T" "$SANDBOX/out.md" "$SANDBOX/v.json"; then
     want=$'# InterWeave 1.2.3\n\nSHA-256: `ab12`\n\na text with {braces} of its own'
@@ -85,6 +85,12 @@ refused "a value that is not a string" \
     '{"version": "1.2.3", "apk_sha256": 12, "notices": "n"}' 'apk_sha256'
 refused "a version that is not MAJOR.MINOR.PATCH" \
     '{"version": "v1.2", "apk_sha256": "ab", "notices": "n"}' "'v1.2'"
+refused "a hash with no check binding it to a release" \
+    '{"version": "1.2.3", "apk_sha256": "ab", "notices": "n"}' 'apk_sha256 comes with no check:apk_version'
+refused "a hash made for another release" \
+    '{"version": "1.2.3", "apk_sha256": "ab", "check:apk_version": "1.2.2", "notices": "n"}' "made for '1.2.2'"
+refused "an unknown check" \
+    '{"version": "1.2.3", "apk_sha256": "ab", "check:apk_version": "1.2.3", "check:apk_versoin": "1.2.3", "notices": "n"}' 'unknown check check:apk_versoin'
 refused "a version with a leading zero" \
     '{"version": "1.02.3", "apk_sha256": "ab", "notices": "n"}' "'1.02.3'"
 
@@ -98,7 +104,7 @@ fi
 # The release run's values come in several files: merged, and a key
 # two of them give is refused.
 printf '{"version": "1.2.3"}' > "$SANDBOX/v1.json"
-printf '{"apk_sha256": "ab12", "notices": "n"}' > "$SANDBOX/v2.json"
+printf '{"apk_sha256": "ab12", "check:apk_version": "1.2.3", "notices": "n"}' > "$SANDBOX/v2.json"
 if run "$T" "$SANDBOX/out.md" "$SANDBOX/v1.json" "$SANDBOX/v2.json" && grep -qx '# InterWeave 1.2.3' "$SANDBOX/out.md"; then
     pass "values from several files are merged"
 else
@@ -142,7 +148,7 @@ EOF
                 if [[ "$n" == version ]]; then printf '"version":"0.1.0"'
                 else printf '"%s":"value-of-%s"' "$n" "$n"; fi
             done
-            printf '}'
+            printf ',"check:apk_version":"0.1.0","check:linux_version":"0.1.0"}'
         }
         all_values "" > "$SANDBOX/v.json"
         if run "$REAL" "$SANDBOX/out.md" "$SANDBOX/v.json" \

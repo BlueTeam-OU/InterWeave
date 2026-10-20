@@ -12,7 +12,8 @@
 # writes into <out-dir>
 #   interweave-<version>-x86_64-unknown-linux-gnu.tar.gz
 #   interweave-<version>-x86_64-unknown-linux-gnu.tar.gz.sha256  (sha256sum's format)
-#   linux-values.json   {linux_archive, linux_sha256} for release_page.py
+#   linux-values.json   {linux_archive, linux_sha256, check:linux_version}
+#                       for release_page.py
 #
 # The archive holds one directory of that name, laid out as
 # packaging/linux/install.sh expects to find itself:
@@ -128,7 +129,8 @@ tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" --format=g
     -C "$scratch" -cf - "$name" | gzip -n -9 > "$scratch/$archive" || die "tar failed"
 (cd "$scratch" && sha256sum -- "$archive" > "$archive.sha256")
 sha="$(cut -d' ' -f1 "$scratch/$archive.sha256")"
-printf '{"linux_archive": "%s", "linux_sha256": "%s"}\n' "$archive" "$sha" > "$scratch/linux-values.json"
+printf '{"linux_archive": "%s", "linux_sha256": "%s", "check:linux_version": "%s"}\n' \
+    "$archive" "$sha" "$version" > "$scratch/linux-values.json"
 for f in "${outputs[@]}"; do mv -fT -- "$scratch/$f" "$out_dir/$f"; done
 echo "linux_archive $out_dir/$archive"
 echo "linux_sha256  $sha"

@@ -134,7 +134,7 @@ if sign 0.4.1 "$SANDBOX/good.apk" "$OUT"; then
     else
         fail "the .sha256 file does not check"
     fi
-    want="{\"apk_sha256\": \"$(sha256sum "$SIGNED" | cut -d' ' -f1)\", \"cert_sha256\": \"$REL_CERT\"}"
+    want="{\"apk_sha256\": \"$(sha256sum "$SIGNED" | cut -d' ' -f1)\", \"cert_sha256\": \"$REL_CERT\", \"check:apk_version\": \"0.4.1\"}"
     if [[ "$(cat "$OUT/android-values.json")" == "$want" ]]; then
         pass "android-values.json carries the file's hash and the key's fingerprint"
     else

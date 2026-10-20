@@ -23,7 +23,14 @@
 #     catches only the half of a typo that is in the template);
 #   - an empty value, or a value that is not a string;
 #   - a `version` that is not MAJOR.MINOR.PATCH, the form RELEASE.md
-#     gives the version name and the archive and APK names carry.
+#     gives the version name and the archive and APK names carry;
+#   - a hash that is not bound to this release: release_android_apk.sh
+#     writes `check:apk_version` beside apk_sha256 and cert_sha256, and
+#     release_linux_archive.sh `check:linux_version` beside linux_sha256,
+#     each the version it built. A hash on the page whose check is
+#     missing, or names another version, is refused, so a values file
+#     left from another release cannot put its hash under this
+#     release's file name. A `check:` key is not a placeholder.
 #
 # The template's HTML comments are its notes to the release run, not
 # text for a reader, and are dropped before the fill, the SPDX line
@@ -44,6 +51,12 @@ from pathlib import Path
 PLACEHOLDER = re.compile(r"\{([a-z0-9_]+)\}")
 COMMENT = re.compile(r"<!--.*?-->\n?", re.DOTALL)
 VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+# Which check binds which hash to the version it was made for.
+BOUND = {
+    "apk_sha256": "check:apk_version",
+    "cert_sha256": "check:apk_version",
+    "linux_sha256": "check:linux_version",
+}
 
 
 def help_text() -> str:
@@ -57,6 +70,8 @@ def fill(template: str, values: dict) -> str:
     """The page, or ValueError naming the first refusal."""
     body = COMMENT.sub("", template).lstrip("\n")
     names = set(PLACEHOLDER.findall(body))
+    checks = {k: v for k, v in values.items() if k.startswith("check:")}
+    values = {k: v for k, v in values.items() if not k.startswith("check:")}
     missing = sorted(names - values.keys())
     if missing:
         raise ValueError("no value for " + ", ".join("{%s}" % n for n in missing))
@@ -68,6 +83,18 @@ def fill(template: str, values: dict) -> str:
             raise ValueError(f"the value of {name} is empty or not a string")
     if "version" in values and not VERSION.fullmatch(values["version"]):
         raise ValueError(f"version {values['version']!r} is not MAJOR.MINOR.PATCH")
+    for name, check in sorted(BOUND.items()):
+        if name not in values:
+            continue
+        if check not in checks:
+            raise ValueError(f"{name} comes with no {check}: it is not bound to a release")
+        if checks[check] != values.get("version"):
+            raise ValueError(
+                f"{name} was made for {checks[check]!r}, not this release's {values.get('version')!r}"
+            )
+    unused = sorted(set(checks) - set(BOUND.values()))
+    if unused:
+        raise ValueError("unknown check " + ", ".join(unused))
     return PLACEHOLDER.sub(lambda m: values[m.group(1)], body)
 
 
