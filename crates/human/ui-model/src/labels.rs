@@ -571,9 +571,10 @@ ui_texts! {
     /// profile. No path.
     RefusalAlreadyOpen => "InterWeave is already open for this profile. Use that window. It may be behind other windows.",
     /// DESKTOP, start-up refusal screen: a file or folder the app keeps
-    /// private, found reachable by others before the store is opened --
-    /// the lock's folder, the configuration or its folder, or one of the
-    /// profile's folders. The path shows which. Nothing offers Try again.
+    /// private, found reachable by others before the store is opened. It
+    /// can be a file (the lock file, the configuration) or a folder (the
+    /// state or profile folders); the path below shows which. Nothing
+    /// offers Try again.
     RefusalNotPrivate => "Other accounts on this computer can read or change the file or folder below. InterWeave needs it to be private to you. Nothing was changed. Make it private to you, then start InterWeave again.",
     /// DESKTOP, start-up refusal screen: as `RefusalNotPrivate`, for the
     /// message store, where Try again is offered.
