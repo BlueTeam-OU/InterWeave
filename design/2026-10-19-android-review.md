@@ -655,8 +655,9 @@ New, rank 1:
   task 3 (reply) fails with no explanation; S4 (visibility of status,
   help users recognise and recover). The rule (architect-cto-01,
   REPLY 01a159de-729d): trust gates the send, never the composer; the
-  composer is disabled only while the platform withholds network
-  access. So F16 is a defect whatever its cause. What has to change:
+  composer is withheld only while the platform withholds network
+  access, and then it is not drawn at all (`human-client-android.md`:
+  "no send controls"). So F16 is a defect whatever its cause. What has to change:
   the composer takes focus in every conversation; a send to an
   untrusted peer becomes a pending row, as `RETENTION.md` §2 orders
   every send, and that row shows the not-trusted reason (look spec §6,

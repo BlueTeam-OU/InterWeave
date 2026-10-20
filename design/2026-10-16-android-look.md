@@ -364,14 +364,16 @@ From the top:
     this profile."), and its menu offers Send again and Cancel as
     swipe spec §7 gives them. Trust is changed only from Trust
     (`human-client-ui.md` §8); nothing in the conversation changes it.
-  - The composer is disabled for one cause only: the app's network
-    access is withheld (the `NetworkDenied` notice shows, `network
-    denied` in the model). It then looks disabled (38 % opacity, no
-    cursor), takes no focus, and the `NetworkDenied` notice above it
-    says why. If the field held focus when access was withheld,
-    focus goes to that notice. Offline, by contrast, the composer
-    stays enabled: what is written waits (F7's banner). It never
-    looks enabled while it takes no input (Android review F16).
+  - The composer is absent in one state only: the app's network
+    access is withheld (`network_denied`, `human-client-android.md`,
+    "Runtime permissions and the network-denied state": "no send
+    controls"). The conversation then shows the `NetworkDenied`
+    notice with its action where the composer was, and no field or
+    Send. On Android a revoke ends the process, so no focused field
+    can disappear there; where one could (the desktop), focus goes to
+    the notice. Offline, by contrast, the composer stays: what is
+    written waits (F7's banner). A composer is never drawn while it
+    takes no input (Android review F16).
 - **The storage notice** and the other notices keep
   `notice-background`, as a full-width banner with 12 dp corners under
   the app bar.
@@ -472,7 +474,7 @@ that exist.
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the conversation's overflow button's label, Android's own words for it. Chats' overflow has `AppOptions` |
 | `AppOptions` (new) | App options | the Chats app bar's overflow button's label (Android review F12). It must say the menu is the app's, not a conversation's, since both buttons show side by side on a wide screen. A proposal; the words are language-culture's |
-| `NetworkDenied` (exists) | Network access is off for this app. You can read your messages, but you cannot send or receive messages until you allow network access. | the notice above a disabled composer (§6), and the target of focus if the field held it |
+| `NetworkDenied` (exists) | Network access is off for this app. You can read your messages, but you cannot send or receive messages until you allow network access. | the notice shown in the composer's place while network access is withheld (§6), and where focus goes if a focused field could disappear |
 | `PeerNotTrusted` (exists, `ErrorClass`) | This peer is not trusted for this profile. | the reason on a pending row whose send was refused for trust (§6, Composer) |
 | `TrustHeading` (exists) | Trust | the Chats overflow menu's entry that opens Trust (Android review F12); the shield's label `TrustSettings` has no use left on Chats |
 | `StateShortDirect`, `StateShortRelayed`, `StateShortPartial`, `StateShortOffline`, `StateShortUnknown` (#313, not yet on main) | Online, direct · Online, relayed · Online, limited · Offline · Status not known | Chats' connectivity subtitle, one per `human-client-ui.md` §7 state; the full state text is the subtitle's accessible description (Android review F7) |
@@ -640,5 +642,5 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
     `mInputShown=true`). Sending there to an untrusted peer leaves a
     pending row whose status reads "Not sent, send again or cancel"
     with the not-trusted reason. With the app's network access
-    withheld, the field is drawn at 38 % with no cursor, a tap opens
-    no keyboard, and the `NetworkDenied` notice shows above it.
+    withheld, no composer and no Send are drawn, and the
+    `NetworkDenied` notice shows with its action in their place.
