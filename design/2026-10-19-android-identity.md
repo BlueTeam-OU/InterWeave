@@ -369,7 +369,9 @@ keypad stay left-to-right: they are English words in Latin letters.
   string on the clipboard, with no spaces. On Android 13 and later the
   platform confirms the copy; below 13 a `PeerIdCopied` snackbar
   without Undo does. Focus stays on the button. A copy is never of a
-  word: the button is on no screen that shows words.
+  word: the button is on no screen that shows words: the PeerIds in R2's
+  banners (another identity, `IdRestoreOther`) are shown in full for
+  comparing by eye and have no copy button.
 - It wraps by groups, never mid-group.
 - What is shown with it says what it is for: it is not a password,
   and it is safe to write down and share. On C2's and S2's PeerId
@@ -386,7 +388,7 @@ comparison a matter of groups, not of single characters.
 |---|---|---|---|
 | Checksum fails (a wrong word or a wrong order) | R2 | A banner above the grid (`IdChecksumFailed`): the words are not a valid phrase; check each word and its order against the paper. Every word stays. | Edit any position, then check again |
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
-| Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), the read-back after a refused write and each Try again of it, and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen when the operation is refused, never by the service; the operation is retried after a success. The app keeps no clock of the window: the refusal is its only reading of it (ADR-0042, A 2026-10-20). The person sees the same either way: the prompt comes before anything happens. Cancelled or denied: no error dialog and no error text. C4 and the restores stay on their screen with the words kept, and nothing is committed. A rotation or a return to that screen retries nothing: it stays as it was until the person uses its primary action again. Once the identity is committed, a cancelled start after C4's or R4's continue ends like S2's Done below: Chats, offline, with the locked notice and Unlock. S2's Done drops the words and returns to Settings offline; connectivity reads offline, and the locked notice (`AuthenticationNeeded`) with its Unlock action (`Authenticate`) says why and how back (`android-key-custody.md`, Unlock policies). At a launch past the window the start is refused and the prompt answers it before the service runs; its cancel ends the same way. Unlock raises the prompt again (titled `UnlockPromptTitle`), and success starts the service | The primary action again, or Back |
+| Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), the read-back after a refused write and each Try again of it, and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen when the operation is refused, never by the service; the operation is retried after a success. The app keeps no clock of the window: the refusal is its only reading of it (ADR-0042, A 2026-10-20). The person sees the same either way: the prompt comes before anything happens. Cancelled or denied: no error dialog and no error text. C4 and the restores stay on their screen with the words kept, and nothing is committed. A rotation or a return to that screen retries nothing: it stays as it was until the person uses its primary action again. Once the identity is committed, a cancelled start after C4's or R4's continue ends like S2's Done below: Chats, offline, with the locked notice and Unlock, and focus on the notice. S2's Done drops the words and returns to Settings offline; connectivity reads offline, and the locked notice (`AuthenticationNeeded`) with its Unlock action (`Authenticate`) says why and how back (`android-key-custody.md`, Unlock policies). At a launch past the window the start is refused and the prompt answers it before the service runs; its cancel ends the same way. Unlock raises the prompt again (titled `UnlockPromptTitle`), and success starts the service | The primary action again, or Back |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
 | Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
@@ -625,9 +627,10 @@ landscape:
       to Settings offline, with the words gone. The same profile's C4
       and restore raise the prompt outside the window, and a cancel
       there commits nothing.
-    - After a cancel of the unlock prompt at S2's Done or at a launch
-      (not C4's or a restore's, which stay on their screen as §6
-      says), connectivity reads offline and the locked notice
+    - After a cancel of the unlock prompt at S2's Done, at a launch, or
+      at the start after C4's or R4's continue (not at C4's seal or a
+      restore's seal, which stay on their screen as §6 says), the app
+      shows Chats with focus on the locked notice, connectivity reads offline and the locked notice
       (`AuthenticationNeeded`) shows with its Unlock action
       (`Authenticate`); nothing raises the prompt again by itself. A return to
       the same Activity (Home or Recents, then back) raises no prompt:
@@ -639,6 +642,10 @@ landscape:
       QUESTION 01a155b3-448f; the person who declined is not asked
       again each time they switch in: the Android review's S4, user
       control and freedom).
+    - On a `user-presence` profile past the window, a C4 whose seal
+      succeeds and whose start's prompt is cancelled ends on Chats,
+      offline, with the locked notice and focus on it; the identity
+      exists (a relaunch does not show W).
 11. Leaving R2 with words entered (Home) and returning shows every
     word still entered. After the process is killed (`adb shell am
     kill` while in the background), the next launch starts at the
