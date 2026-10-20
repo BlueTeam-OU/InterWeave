@@ -78,8 +78,9 @@
 #     no lockfile, so this guard would never read it; STRICT fails that
 #     build instead;
 #   - any line naming the lock mode (lockMode, LockMode, getLockMode,
-#     setLockMode) other than those two exact `lockMode.set(LockMode.STRICT)`
-#     lines of the root build.gradle.kts -- an allow-list, because a
+#     setLockMode) other than an exact `lockMode.set(LockMode.STRICT)`
+#     line of the root build.gradle.kts (the check above requires one in
+#     each of its two blocks) -- an allow-list, because a
 #     subproject's own dependencyLocking overrides the root's and a mode
 #     can be spelt any number of ways (LockMode.valueOf of a property,
 #     a star import, an argument on the next line); read raw, so a
@@ -277,7 +278,7 @@ while IFS= read -r src; do
     hits="$(grep -nE "$LOCK_MODE" "$src" || true)"
     [ "$src" = "$root_build" ] && hits="$(grep -vE "$STRICT_LINE" <<<"$hits" || true)"
     while IFS= read -r h; do
-        [ -n "$h" ] && fail "$rel: sets or names the lock mode (line ${h%%:*}) -- only the root's two lockMode.set(LockMode.STRICT) lines may: ${h#*:}"
+        [ -n "$h" ] && fail "$rel: sets or names the lock mode (line ${h%%:*}) -- only an exact lockMode.set(LockMode.STRICT) line of the root build may: ${h#*:}"
     done <<<"$hits"
     hits="$(grep -nE "$BANNED" "$src" || true)"
     # The exemption is per statement: a line holding a ; can carry a

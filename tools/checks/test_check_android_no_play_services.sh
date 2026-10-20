@@ -290,7 +290,7 @@ R="$(tree)"; sed -i "$(strict_lines "$R" | sed -n 2p)s#^#// #" "$R/$ROOT_BUILD"
 expect_fail "$R" "STRICT in allprojects commented out" "no lockMode.set(LockMode.STRICT) in allprojects"
 R="$(tree)"; sed -i "$(strict_lines "$R" | sed -n 2p)d" "$R/$ROOT_BUILD"; printf '\ndependencyLocking { lockMode.set(LockMode.STRICT) }\n' >> "$R/$ROOT_BUILD"
 expect_fail "$R" "STRICT after the allprojects block has closed" "no lockMode.set(LockMode.STRICT) in allprojects"
-echo "the lock mode is set by the root's two STRICT lines and nowhere else (review of #311, findings 1-2)"
+echo "the lock mode is set by the root's exact STRICT lines and nowhere else (review of #311, findings 1-2)"
 for mode in \
     'dependencyLocking { lockMode.set(LockMode.DEFAULT) }' \
     'dependencyLocking { lockMode.set(DEFAULT) }' \
@@ -299,6 +299,13 @@ for mode in \
     'dependencyLocking { lockMode.set(LockMode.valueOf(providers.gradleProperty("m").get())) }' \
     'dependencyLocking { getLockMode().set(m) }' \
     'dependencyLocking { lockMode.set(LockMode.STRICT) }'; do
+    R="$(tree)"; printf '\n%s\n' "$mode" >> "$R/$APP_BUILD"
+    expect_fail "$R" "$mode in app/build.gradle.kts" "app/build.gradle.kts: sets or names the lock mode"
+done
+# One case per alternative of LOCK_MODE that only it catches (review of
+# #311 round 2): a word at the start of the line (^), and setLockMode
+# (set). getLockMode above pins get; every other case pins [^A-Za-z].
+for mode in 'lockMode.set(m)' 'dependencyLocking { setLockMode(m) }'; do
     R="$(tree)"; printf '\n%s\n' "$mode" >> "$R/$APP_BUILD"
     expect_fail "$R" "$mode in app/build.gradle.kts" "app/build.gradle.kts: sets or names the lock mode"
 done
