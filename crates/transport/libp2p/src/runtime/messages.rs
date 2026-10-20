@@ -378,8 +378,9 @@ pub struct NetworkView {
     /// reported. `None` is UNOBSERVED and keeps the resolver in use;
     /// `Some` of an empty list is UNAVAILABLE -- the active network names
     /// no resolver -- and installs the empty one (`CONNECTIVITY.md` §14,
-    /// A 2026-10-20), so a resolver never outlives the network that named
-    /// it.
+    /// A 2026-10-20). So a departed network's resolver is kept only while
+    /// the platform has said nothing -- a lost default included -- and is
+    /// replaced as soon as a reported default link names another or none.
     pub dns_servers: Option<Vec<std::net::IpAddr>>,
     /// The Private DNS host name when the platform's Private DNS is in
     /// strict mode, else `None`. Set, it fails name resolution closed:

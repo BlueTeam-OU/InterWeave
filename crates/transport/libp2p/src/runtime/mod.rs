@@ -4160,16 +4160,23 @@ mod live_dns_tests {
         );
 
         // The same lack again, then an unobserved view: nothing either time.
-        dialer.network_changed(unavailable);
-        dialer.network_changed(unobserved);
-        let quiet = quiet_for(&mut dialer, Duration::from_millis(500)).await;
-        assert!(
-            !quiet.iter().any(|e| matches!(
-                e,
-                SwarmEvent::ResolverConfigured { .. } | SwarmEvent::ResolverUnavailable { .. }
-            )),
-            "neither view reports anything: {quiet:?}"
-        );
+        // Each view is waited on before the next is sent: the monitor is a
+        // watch slot, so a view sent before the loop reads the previous one
+        // replaces it and the repeat would never be asked about.
+        for (view, what) in [
+            (unavailable, "the same lack"),
+            (unobserved, "an unobserved view"),
+        ] {
+            dialer.network_changed(view);
+            let quiet = quiet_for(&mut dialer, Duration::from_millis(500)).await;
+            assert!(
+                !quiet.iter().any(|e| matches!(
+                    e,
+                    SwarmEvent::ResolverConfigured { .. } | SwarmEvent::ResolverUnavailable { .. }
+                )),
+                "{what} reports nothing: {quiet:?}"
+            );
+        }
         assert_eq!(
             dialer.status(None).await.expect("status").resolver,
             ResolverSource::None,
