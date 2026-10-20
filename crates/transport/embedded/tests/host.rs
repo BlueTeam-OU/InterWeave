@@ -382,7 +382,8 @@ fn each_refusal_names_its_cause() {
 }
 
 /// The profile-format marker (ADR-0028 A 2026-10-20): the host raises it
-/// to this build's format, owner-only, before its runtime starts; a
+/// to this build's format, owner-only, once its runtime has started and
+/// before the binding is handed out; a
 /// marker above it refuses the start as `ProfileInvalid`, naming the file
 /// and both formats, with nothing written -- no lock, the marker as it
 /// was; put back, the same profile starts.

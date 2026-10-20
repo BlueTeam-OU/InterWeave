@@ -322,9 +322,18 @@ impl EmbeddedHost {
             return Err(EmbeddedRefused::NotEmbedded);
         }
         let lock = ProfileLock::acquire(&paths, LOCK_WAIT)?;
-        // The marker read again under the lock (ADR-0028 A 2026-10-20): a
-        // newer app that held the lock while `load` ran may have raised it
-        // since, and the runtime's start below writes the profile.
+        // The marker read again under the lock (ADR-0028 A 2026-10-20),
+        // since the runtime's start below writes the profile. What it
+        // catches is narrower here than in the daemon: LOCK_WAIT is zero,
+        // so a newer build holding the lock refuses this start `LockHeld`
+        // (`a_second_start_is_refused_while_the_first_serves`), and only
+        // one that raised the marker and let go between `load`'s
+        // read and the acquire above reaches this line. No test reaches
+        // that window (the daemon's lock wait is what lets its
+        // `a_marker_raised_while_the_daemon_waits_for_the_lock_refuses_it_there`
+        // reach its own), and on Android no second build runs against the
+        // app's private profile at once; it is kept as the ruling's
+        // under-lock read, not as a tested path.
         profile_format::require_supported(&paths)?;
         // Read under the lock, so no other host is writing it. A present
         // overlay that cannot be trusted refuses the start, as the trust
