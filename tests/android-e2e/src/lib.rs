@@ -317,7 +317,7 @@ pub async fn desktop_answers(
 ) {
     let fail = |e: String| -> ! {
         panic!(
-            "{e}\n--- the Android side's case ---\n{}\n{}",
+            "exchange {serial}: {e}\n--- the Android side's case ---\n{}\n{}",
             run.so_far(),
             log()
         )

@@ -35,7 +35,8 @@ use interweave_local_client_api::{
 };
 use interweave_profile_config::{ProfilePaths, TrustBoundary, resolve_private_dir_within};
 use interweave_transport_api::{
-    DirectDestination, EndpointId, MediaType, MessageId, Payload, PeerPath, TransportIdentity,
+    DirectDestination, EndpointId, MediaType, MessageId, Payload, PeerPath, TransportError,
+    TransportIdentity,
 };
 use serde_json::{Map, Value};
 
@@ -591,23 +592,40 @@ pub fn closing(serial: u8) -> (MessageId, String) {
 /// desktop's half cannot tell from no route. The 2026-10-20 Pixel run
 /// failed exactly so, the phone's case passed
 /// (`tests/android-e2e/runs/2026-10-20-pixel-9a-api37.md`). The close is
-/// sent only after the answer is accepted, so the Android side outlives
-/// that acceptance. Its own outcome is not relied on, for the same
-/// reason: the Android side may end as soon as it reads it.
-pub async fn close_exchange(from: &impl DataSessionPort, android: &TransportIdentity, serial: u8) {
+/// for the caller to send once the answer is accepted, so the Android
+/// side outlives that acceptance. No host test sees that order: a
+/// stand-in's runtime outlives its case, so a close sent early passes
+/// there, and only a device run tells.
+///
+/// Its own outcome is returned and not relied on: the Android side may
+/// end as soon as it reads the close, so "outcome unknown" is expected.
+/// A caller prints it beside the Android side's answer, so a close
+/// refused before it was sent is told apart from one the Android side
+/// never read.
+///
+/// # Errors
+/// The send's own outcome, a class with no identity in it.
+///
+/// # Panics
+/// Never: the closing text is a valid payload.
+pub async fn close_exchange(
+    from: &impl DataSessionPort,
+    android: &TransportIdentity,
+    serial: u8,
+) -> Result<(), TransportError> {
     let (id, text) = closing(serial);
-    if let Ok(payload) = payload(&text) {
-        let _ = from
-            .send_direct(
-                DirectDestination {
-                    peer: android.clone(),
-                    endpoint: Some(human()),
-                },
-                id,
-                payload,
-            )
-            .await;
-    }
+    #[allow(clippy::expect_used, reason = "a fixed text, far under the ceiling")]
+    let payload = payload(&text).expect("the closing text is a payload");
+    from.send_direct(
+        DirectDestination {
+            peer: android.clone(),
+            endpoint: Some(human()),
+        },
+        id,
+        payload,
+    )
+    .await
+    .map(|_| ())
 }
 
 /// The Android half of a path case: send to the desktop until a route
@@ -958,7 +976,10 @@ mod tests {
             .await
             .expect("D answers");
         if closes {
-            close_exchange(&session, &peer(), 3).await;
+            // The fake's Android side reads it and stays up: accepted.
+            close_exchange(&session, &peer(), 3)
+                .await
+                .expect("D closes");
         }
     }
 
