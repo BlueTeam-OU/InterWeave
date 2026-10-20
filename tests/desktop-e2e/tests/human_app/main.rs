@@ -27,6 +27,7 @@ mod kept_disable;
 mod lifecycle;
 mod package;
 mod reading;
+mod release;
 mod retention;
 mod storage;
 mod trust;
