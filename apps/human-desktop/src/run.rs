@@ -2,7 +2,8 @@
 // Copyright 2026 Andrea Benetton
 //! Start-up, in the order that keeps a refusal cheap and the store safe:
 //! the command line, the platform, the profile, the single-instance lock,
-//! the store -- and only then a window.
+//! the store -- and only then the app's window. A refusal a person can
+//! act on is shown on the refusal screen as well as said on stderr.
 //!
 //! Exit codes are sysexits(3)'s, so a launcher or a test can tell why.
 
@@ -12,7 +13,8 @@ use std::time::Duration;
 use interweave_human_ui_slint::{PlatformProblem, platform_check};
 use interweave_profile_config::{HumanClientLock, PersistError, XdgRoots};
 
-use crate::startup::{Blocked, Opened, StartError, open_store, parse_args, resolve};
+use crate::refusal::{self, Refusal, Retry};
+use crate::startup::{Opened, StartError, open_store, parse_args, resolve};
 use crate::window;
 
 /// The command line was wrong.
@@ -39,6 +41,14 @@ pub fn run(args: impl IntoIterator<Item = String>) -> ExitCode {
         eprintln!("human-desktop: {what}");
         ExitCode::from(code)
     };
+    // A refusal a person can act on: the stderr line, then the screen
+    // where a window can be shown, then the exit class.
+    let refused = |refusal: Refusal| {
+        eprintln!("human-desktop: {refusal}");
+        // Without Try again the screen can only close, with this class.
+        let _ = refusal::show::<()>(&refusal, None);
+        ExitCode::from(refusal.code())
+    };
 
     let launch = match parse_args(args) {
         Ok(launch) => launch,
@@ -56,34 +66,38 @@ pub fn run(args: impl IntoIterator<Item = String>) -> ExitCode {
         .and_then(|roots| resolve(&launch, &roots))
     {
         Ok(profile) => profile,
-        Err(e) => return refuse(EX_CONFIG, &e),
+        Err(e) => return refused(Refusal::Profile(e)),
     };
     // Before the store: two windows on one store would fight over the
-    // endpoint lease and the rows. Held until the process ends.
+    // endpoint lease and the rows. Held until the process ends, through
+    // the refusal screen too, so a Try again opens the store under it
+    // (desktop-e2e `refusal::try_again_opens_the_app_once_the_store_is_put_right`
+    // starts a second window then).
     let _instance = match HumanClientLock::acquire(&profile.paths, Duration::ZERO) {
         Ok(lock) => lock,
-        // What, not why: the lock's path and holder are nothing a person
-        // can act on (human-client-ui.md section 12, as EndpointInUse).
-        Err(PersistError::InstanceLocked { .. }) => {
-            return refuse(EX_TEMPFAIL, &"this profile's window is already open");
-        }
-        Err(
-            e @ (PersistError::DirectoryNotPrivate { .. } | PersistError::FileNotPrivate { .. }),
-        ) => {
-            return refuse(EX_NOPERM, &e);
-        }
+        Err(PersistError::InstanceLocked { .. }) => return refused(Refusal::AlreadyOpen),
         Err(e @ PersistError::UnsupportedPlatform) => return refuse(EX_UNAVAILABLE, &e),
-        Err(e) => return refuse(EX_IOERR, &e),
+        Err(error) => {
+            return refused(Refusal::Lock {
+                error,
+                folder: profile.paths.human_dir(),
+            });
+        }
     };
     let store = match open_store(&profile, launch.store_options()) {
         Opened::Ready(store) => store,
         Opened::Blocked(blocked) => {
-            let code = match blocked {
-                Blocked::Recovery { .. } => EX_DATAERR,
-                Blocked::NotPrivate { .. } => EX_NOPERM,
-                Blocked::Unavailable { .. } => EX_IOERR,
-            };
-            return refuse(code, &blocked);
+            let refusal = Refusal::Store(blocked);
+            eprintln!("human-desktop: {refusal}");
+            let (profile, options) = (profile.clone(), launch.store_options());
+            let retry: Retry<_> = Box::new(move || match open_store(&profile, options) {
+                Opened::Ready(store) => Ok(store),
+                Opened::Blocked(blocked) => Err(Refusal::Store(blocked)),
+            });
+            match refusal::show(&refusal, Some(retry)) {
+                Ok(store) => store,
+                Err(code) => return ExitCode::from(code),
+            }
         }
     };
     match window::run(&profile, store) {
