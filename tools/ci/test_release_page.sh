@@ -49,7 +49,7 @@ echo "release_page.py:"
 cat > "$SANDBOX/v.json" <<'EOF'
 {"version": "1.2.3", "apk_sha256": "ab12", "notices": "a text with {braces} of its own"}
 EOF
-if run "$T" "$SANDBOX/v.json" "$SANDBOX/out.md"; then
+if run "$T" "$SANDBOX/out.md" "$SANDBOX/v.json"; then
     want=$'# InterWeave 1.2.3\n\nSHA-256: `ab12`\n\na text with {braces} of its own'
     if [[ "$(cat "$SANDBOX/out.md")" == "$want" ]]; then
         pass "fills every placeholder, drops the comments, leaves a value's braces"
@@ -64,7 +64,7 @@ refused() {
     local what="$1" json="$2" needle="$3"
     rm -f "$SANDBOX/out.md"
     printf '%s\n' "$json" > "$SANDBOX/v.json"
-    if run "$T" "$SANDBOX/v.json" "$SANDBOX/out.md"; then
+    if run "$T" "$SANDBOX/out.md" "$SANDBOX/v.json"; then
         fail "$what: accepted"
     elif [[ -e "$SANDBOX/out.md" ]]; then
         fail "$what: refused but wrote a page"
@@ -89,13 +89,32 @@ refused "a version with a leading zero" \
     '{"version": "1.02.3", "apk_sha256": "ab", "notices": "n"}' "'1.02.3'"
 
 printf '[]' > "$SANDBOX/v.json"
-if run "$T" "$SANDBOX/v.json" "$SANDBOX/out.md"; then
+if run "$T" "$SANDBOX/out.md" "$SANDBOX/v.json"; then
     fail "a JSON array was accepted as the values"
 else
     pass "values that are not one JSON object are refused"
 fi
 
-run "$T" "$SANDBOX/v.json" >/dev/null
+# The release run's values come in several files: merged, and a key
+# two of them give is refused.
+printf '{"version": "1.2.3"}' > "$SANDBOX/v1.json"
+printf '{"apk_sha256": "ab12", "notices": "n"}' > "$SANDBOX/v2.json"
+if run "$T" "$SANDBOX/out.md" "$SANDBOX/v1.json" "$SANDBOX/v2.json" && grep -qx '# InterWeave 1.2.3' "$SANDBOX/out.md"; then
+    pass "values from several files are merged"
+else
+    fail "values in several files were not merged" "$(cat "$SANDBOX/err")"
+fi
+printf '{"version": "1.2.4"}' > "$SANDBOX/v3.json"
+rm -f "$SANDBOX/out.md"
+if run "$T" "$SANDBOX/out.md" "$SANDBOX/v1.json" "$SANDBOX/v2.json" "$SANDBOX/v3.json"; then
+    fail "a key two files give was accepted"
+elif [[ ! -e "$SANDBOX/out.md" ]] && grep -qF 'version is given by both' "$SANDBOX/err"; then
+    pass "a key two files give is refused, nothing written"
+else
+    fail "a key two files give was refused without saying so, or wrote a page" "$(cat "$SANDBOX/err")"
+fi
+
+run "$T" "$SANDBOX/out.md" >/dev/null
 [[ $? -eq 2 ]] && pass "a missing argument is a usage error (2)" \
     || fail "a missing argument did not exit 2"
 
@@ -126,7 +145,7 @@ EOF
             printf '}'
         }
         all_values "" > "$SANDBOX/v.json"
-        if run "$REAL" "$SANDBOX/v.json" "$SANDBOX/out.md" \
+        if run "$REAL" "$SANDBOX/out.md" "$SANDBOX/v.json" \
             && ! grep -qE '\{[a-z0-9_]+\}|<!--' "$SANDBOX/out.md"; then
             pass "the repository's template fills completely ($(wc -w <<<"$names") placeholders)"
         else
@@ -134,7 +153,7 @@ EOF
         fi
         for n in $names; do
             all_values "$n" > "$SANDBOX/v.json"
-            if run "$REAL" "$SANDBOX/v.json" "$SANDBOX/out.md"; then
+            if run "$REAL" "$SANDBOX/out.md" "$SANDBOX/v.json"; then
                 fail "the repository's template filled without {$n}"
             fi
         done

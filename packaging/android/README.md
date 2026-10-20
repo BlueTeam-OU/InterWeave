@@ -47,10 +47,12 @@ holds no release logic of its own. In order:
    licence text the APK's native Skia library owes, each checked
    against `tools/ci/skia-notices.pin`, with FreeType's credit line.
 8. **The page.** `tools/ci/release_page.py
-   apps/human-android/release/release-page.md.in <values.json>
-   <page.md>`, the values being the version, the release notes, the two
-   download URLs and the JSON steps 5–7 wrote, merged. It refuses a
-   placeholder left unfilled and a value with no placeholder.
+   apps/human-android/release/release-page.md.in <page.md>
+   <run.json> android-values.json linux-values.json <notices.json>`,
+   `<run.json>` holding the version, the release notes and the two
+   download URLs, the rest the files steps 5–7 wrote. It refuses a
+   placeholder left unfilled, a value with no placeholder, and a value
+   two files give.
 9. **Publishing**: the page, the APK, the archive and their `.sha256`
    files, as the release of the tag.
 

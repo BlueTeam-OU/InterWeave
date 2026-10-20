@@ -9,10 +9,13 @@
 # ADR-0057 decision 1): every {placeholder} the template names gets the
 # value given for it, and the page is written out.
 #
-#   tools/ci/release_page.py <template> <values.json> <out.md>
+#   tools/ci/release_page.py <template> <out.md> <values.json>...
 #
-# <values.json> is one JSON object of strings, one per placeholder. The
-# fill REFUSES, writing nothing:
+# Each <values.json> is one JSON object of strings, and together they
+# give one value per placeholder (the release run's own, and the files
+# release_android_apk.sh, release_linux_archive.sh and skia_notices.py
+# write). The fill REFUSES, writing nothing:
+#   - a placeholder given a value by two of the files;
 #   - a placeholder of the template with no value (a page with a literal
 #     {apk_sha256} on it would read as published and check nothing);
 #   - a value the template has no placeholder for (a misspelt key would
@@ -72,18 +75,26 @@ def main(argv: list) -> int:
     if len(argv) == 2 and argv[1] in ("-h", "--help"):
         sys.stdout.write(help_text())
         return 0
-    if len(argv) != 4:
-        sys.stderr.write("usage: release_page.py <template> <values.json> <out.md>\n")
+    if len(argv) < 4:
+        sys.stderr.write("usage: release_page.py <template> <out.md> <values.json>...\n")
         return 2
-    template_path, values_path, out_path = (Path(a) for a in argv[1:])
-    try:
-        values = json.loads(values_path.read_text())
-    except (OSError, ValueError) as err:
-        sys.stderr.write(f"release_page: cannot read {values_path}: {err}\n")
-        return 1
-    if not isinstance(values, dict):
-        sys.stderr.write(f"release_page: {values_path} is not one JSON object\n")
-        return 1
+    template_path, out_path = Path(argv[1]), Path(argv[2])
+    values, source = {}, {}
+    for values_path in (Path(a) for a in argv[3:]):
+        try:
+            part = json.loads(values_path.read_text())
+        except (OSError, ValueError) as err:
+            sys.stderr.write(f"release_page: cannot read {values_path}: {err}\n")
+            return 1
+        if not isinstance(part, dict):
+            sys.stderr.write(f"release_page: {values_path} is not one JSON object\n")
+            return 1
+        for name in part:
+            if name in values:
+                sys.stderr.write(f"release_page: {name} is given by both {source[name]} and {values_path}\n")
+                return 1
+            source[name] = values_path
+        values.update(part)
     try:
         page = fill(template_path.read_text(), values)
     except OSError as err:
