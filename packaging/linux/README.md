@@ -85,6 +85,18 @@ excludes a second host only when the server grants locks; a home mounted
 `nolock` or `local_lock=flock` makes the lock host-local, and two hosts
 would both serve one PeerId.
 
+## The release archive
+
+A release ships these files as
+`interweave-<version>-x86_64-unknown-linux-gnu.tar.gz`, built by
+`tools/ci/release_linux_archive.sh`: one directory holding `bin/` (the
+three programs), `systemd/` (the two templates), `install.sh`,
+`uninstall.sh`, this README, `LICENSE` and `THIRD-PARTY-NOTICES.md`, the
+licence of every crate compiled into the programs. The archive has no
+signature; its SHA-256 is on the release page and in the `.sha256` file
+beside it, and the same sources and `SOURCE_DATE_EPOCH` give the same
+bytes. The first build of it is `evidence/2026-10-20-release-archive.md`.
+
 A deployment of many profiles renders each profile's `config.yaml` from its
 own record of who is who and installs the units with its own tooling
 instead (ADR-0055 decisions 4 and 5); nothing here has to be done by hand.
