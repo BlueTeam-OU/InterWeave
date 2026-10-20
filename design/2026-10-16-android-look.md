@@ -385,7 +385,8 @@ From the top:
 - **The snackbar** becomes Material's: `inverse-surface`, 4 dp corners,
   at least 48 dp tall, 12 dp from the screen's sides, above the
   composer in a conversation and 12 dp above the bottom of the screen's
-  safe area on the Chats list. The text is in `inverse-on-surface` and Undo is a text
+  safe area on the Chats list, and in a conversation without a
+  composer (§6, network access withheld). The text is in `inverse-on-surface` and Undo is a text
   button in `inverse-primary`, with a 48 × 48 dp target. Its behaviour
   follows swipe spec §6.
 - **Focus.** Every focusable control draws a 3 dp ring 2 dp outside its
