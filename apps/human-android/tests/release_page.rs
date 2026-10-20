@@ -12,6 +12,8 @@
 //! run's, and until the first release is published the carry stays open
 //! as a `limit` ("not yet published").
 
+#![allow(clippy::expect_used)]
+
 use std::path::{Path, PathBuf};
 
 fn root() -> PathBuf {

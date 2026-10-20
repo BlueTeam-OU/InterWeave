@@ -2,7 +2,7 @@
 // Copyright 2026 Andrea Benetton
 //! Stage 19's Validate rows a person's install depends on (plan section
 //! 22): fresh install, upgrade, rollback, profile/config migration,
-//! PeerId preservation and the recovery drill, each run by the package's
+//! `PeerId` preservation and the recovery drill, each run by the package's
 //! own executables (`package.rs` names the seam).
 //!
 //! The previous build is a TREE, not a binary (architect-cto's ruling on
@@ -13,7 +13,7 @@
 //! `tree.json` saying what it holds and the README how it was made
 //! ([`write_the_previous_build_tree`]). Upgrade is this build reading that
 //! tree; rollback is this build meeting a NEWER format of each artefact
-//! and refusing it with nothing written and the PeerId kept, which is
+//! and refusing it with nothing written and the `PeerId` kept, which is
 //! what an older build owes a tree a newer one wrote (ADR-0044's fail
 //! safe; `human-client-packaging.md` section 7).
 //!
@@ -70,7 +70,7 @@ struct Manifest {
     made_by: String,
     /// The store's schema version that build wrote.
     store_schema: i64,
-    /// The profile's PeerId.
+    /// The profile's `PeerId`.
     peer: String,
     /// `config.yaml`'s allowlist.
     configured: Vec<String>,
@@ -295,7 +295,7 @@ async fn endpoint_enabled(home: &Home, endpoint: &str) -> bool {
 
 /// Fresh install: an empty tree, the package's `transportctl identity
 /// init`, the shipped desktop profile, then the daemon and the window.
-/// The PeerId `init` printed is the one the daemon serves, before and
+/// The `PeerId` `init` printed is the one the daemon serves, before and
 /// after a restart, and the window's first run creates the store at this
 /// build's schema.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -335,7 +335,7 @@ async fn a_fresh_install_keeps_the_peer_id_init_printed() {
 }
 
 /// Upgrade: this build over the previous build's tree reads every
-/// artefact it kept -- the key (same PeerId), the profile, the trust
+/// artefact it kept -- the key (same `PeerId`), the profile, the trust
 /// overlay (the added peer allowed, the revoked one not), the endpoint
 /// overlay (the disabled endpoint still disabled), the store with all
 /// three retention sets, migrated to this build's schema -- and rewrites
@@ -378,9 +378,18 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
     until_lease(&home.binding(), true, &client).await;
     assert!(client.terminate().success(), "{}", client.log());
     assert_eq!(store_version(&home), SCHEMA_VERSION);
-    assert_eq!(ids(&home, "pending_outbound"), [manifest.pending.clone()]);
-    assert_eq!(ids(&home, "unread_inbound"), [manifest.unread.clone()]);
-    assert_eq!(ids(&home, "kept_inbound"), [manifest.kept.clone()]);
+    assert_eq!(
+        ids(&home, "pending_outbound"),
+        std::slice::from_ref(&manifest.pending)
+    );
+    assert_eq!(
+        ids(&home, "unread_inbound"),
+        std::slice::from_ref(&manifest.unread)
+    );
+    assert_eq!(
+        ids(&home, "kept_inbound"),
+        std::slice::from_ref(&manifest.kept)
+    );
     assert!(daemon.terminate().success(), "{}", daemon.log());
 
     let after = snapshot(&home);
@@ -396,7 +405,7 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
 
 /// Rollback, the client's half: a store whose header says a newer build
 /// wrote it stops the window before it takes the endpoint, says why, and
-/// leaves every file as it was; the daemon's PeerId is untouched.
+/// leaves every file as it was; the daemon's `PeerId` is untouched.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
     let home = install(&previous_tree());
@@ -412,7 +421,7 @@ async fn a_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
 
     let mut client = app::start(&home);
     let status = client.exit_within(PATIENCE);
-    // EX_DATAERR: the file needs recovery (run.rs).
+    // `EX_DATAERR`: the file needs recovery (run.rs).
     assert_eq!(status.code(), Some(65), "{}", client.log());
     assert!(
         client.log().contains("cannot be read by this version"),
@@ -434,7 +443,7 @@ async fn a_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
 /// build could write in a format this build does not know -- the trust
 /// overlay, the endpoint overlay, `config.yaml` -- stops the daemon
 /// before it serves, writes nothing, and once the artefact is put back
-/// the same PeerId is served.
+/// the same `PeerId` is served.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_overlay_or_profile_from_a_newer_build_stops_the_daemon_and_is_left_as_it_was() {
     let home = install(&previous_tree());
@@ -448,7 +457,7 @@ async fn an_overlay_or_profile_from_a_newer_build_stops_the_daemon_and_is_left_a
         serde_json::to_vec(&value).expect("json")
     };
     // (what, its file, its newer form, what the daemon's refusal names)
-    let cases: [(&str, PathBuf, &dyn Fn(&Path) -> Vec<u8>, &str); 3] = [
+    let cases: [(&str, PathBuf, &NewerForm, &str); 3] = [
         (
             "trust overlay",
             home.paths.state_dir().join("trust-overlay.json"),
@@ -512,9 +521,12 @@ async fn an_overlay_or_profile_from_a_newer_build_stops_the_daemon_and_is_left_a
     }
 }
 
+/// An artefact's bytes rewritten in a format a newer build would write.
+type NewerForm = dyn Fn(&Path) -> Vec<u8>;
+
 /// The recovery drill on an upgraded install: a backup, the key lost,
 /// the daemon refusing to start rather than mint a new identity, and the
-/// backup restoring the same PeerId with the trust the overlay kept.
+/// backup restoring the same `PeerId` with the trust the overlay kept.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_recovery_drill_restores_the_same_peer_id_and_never_mints_one() {
     let tree = previous_tree();
@@ -700,7 +712,12 @@ fn copy_tree(from: &Path, to: &Path) {
         let target = to.join(name);
         if entry.file_type().expect("a type").is_dir() {
             copy_tree(&entry.path(), &target);
-        } else if !name.ends_with(".lock") && !name.ends_with("-shm") && !name.ends_with("-wal") {
+        } else if !(Path::new(name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("lock"))
+            || name.ends_with("-shm")
+            || name.ends_with("-wal"))
+        {
             std::fs::copy(entry.path(), &target).expect("copied");
         }
     }
