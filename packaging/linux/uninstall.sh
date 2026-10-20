@@ -79,15 +79,17 @@ remove_links() {
 }
 
 # This account's own runtime directory, whatever the shell inherited: an
-# XDG_RUNTIME_DIR and a bus address kept from another account (`su -c`,
-# `sudo -E`) or stale point at a manager that is not this account's.
+# XDG_RUNTIME_DIR kept from another account (`su -c`, `sudo -E`) or stale
+# points at a manager that is not this account's. An inherited bus
+# address does not matter once it is set: `systemctl --user` reaches the
+# manager through $XDG_RUNTIME_DIR/systemd/private (the uninstall case
+# runs with a foreign one).
 own="/run/user/$(id -u)"
 inherited="${XDG_RUNTIME_DIR-}"
 if ! systemctl --user show-environment >/dev/null 2>&1 \
     && [ "$inherited" != "$own" ] && [ -d "$own" ]; then
     XDG_RUNTIME_DIR="$own"
     export XDG_RUNTIME_DIR
-    unset DBUS_SESSION_BUS_ADDRESS
 fi
 if systemctl --user show-environment >/dev/null 2>&1; then
     manager=yes
