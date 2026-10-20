@@ -5390,6 +5390,27 @@ open Stage 17 if it closes first.
 
 ## 22. Stage 19 — packaging, migration, and release
 
+**Activated 2026-10-20** on the owner's word ("activate Stage 19", relayed by
+fabric-coordinator in message 01a157d9-5e4d-78c8-8586-02e8f074d339, answering
+architect-cto's recommendation of the same day). The stage runs **beside**
+Stage 17 (§20) and Stage 18 (§21), as §19's Stage 16 ran beside Stage 15: the
+status value stays the lowest open stage, `stage-17-android-human-client`, and
+this record is the authorisation for the stage's packages (`CLAUDE.md` §3) —
+the packaging roots under Activate below, each added to `[workspace].members`
+in the change that creates it where it is a crate. The split, by lane:
+p2p-network-dev takes packaging/linux with the supervision units, the Stage 13
+carry (hot reload on SIGHUP and which leases survive it; flock on NFS homes)
+and the Android release run of ADR-0057 (the tagged release run, the signed
+APK, its SHA-256 on the release page); rust-ui-dev takes the Validate rows
+upgrade, rollback, profile/config migration and PeerId preservation as host
+tests against a packaged build, and the Stage 15 carry (the Slint attribution
+on the public download page). packaging/macos and packaging/windows (with the
+Stage 18 Windows carry below) wait on a lane and a host and open on their own
+record line here. Nothing in this stage invents trust, network or application
+semantics (the rule below). The stage closes on the owner's word, as every
+stage, once every Validate row has a green test on `main` or a `limit` naming
+its reason, and the closing record lands here.
+
 ### Activate
 
 ```text
