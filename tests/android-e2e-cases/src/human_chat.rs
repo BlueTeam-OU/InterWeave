@@ -224,6 +224,21 @@ pub struct HumanChatArgs {
 }
 
 impl HumanChatArgs {
+    /// The serial of the desktop's closing message: sent once its two
+    /// answers are accepted, the Android side ending only when it shows.
+    /// On a device the Android side's runtime stops when its case ends,
+    /// and an answer it has shown can still be unconfirmed at the
+    /// desktop -- the acceptance travels back after the remote admitted
+    /// it, and a connection closed in between is "outcome unknown"
+    /// (`TRANSPORT.md`). The paths case met it on the Pixel on
+    /// 2026-10-20 ([`crate::close_exchange`]). A chat message rather than
+    /// that close's plain payload, because this side reads only what the
+    /// app's facade decodes. Apart from every send and answer serial.
+    #[must_use]
+    pub const fn close_serial(&self) -> u8 {
+        self.answers[1] | 0x40
+    }
+
     /// The JSON a host passes.
     #[must_use]
     pub fn to_json(&self) -> Value {
@@ -489,6 +504,21 @@ pub(crate) fn human_chat(
             args.path
         ));
     }
+    let close = chat_text(args.close_serial(), "D", false);
+    step_until(
+        client,
+        &mut side,
+        &mut seen,
+        until,
+        "the desktop's close",
+        |model, _| {
+            model.messages(&key).iter().any(|i| {
+                i.direction == Direction::Inbound
+                    && i.source == close
+                    && i.author.as_ref() == Some(&args.desktop)
+            })
+        },
+    )?;
 
     let payloads = write_payloads(app_data_dir, &args.side, &client.handed())?;
     let mut out = Map::new();

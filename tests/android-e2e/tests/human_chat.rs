@@ -444,18 +444,15 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         ),
     ] {
         let log = || format!("D:\n{}\n{name}:\n{}", d.log(), device.log());
-        let run = device.run_case(
-            cases::HUMAN_CHAT,
-            &HumanChatArgs {
-                desktop: d_peer.clone(),
-                path,
-                side: name.to_owned(),
-                sends,
-                answers,
-                deadline: PATIENCE,
-            }
-            .to_json(),
-        );
+        let args = HumanChatArgs {
+            desktop: d_peer.clone(),
+            path,
+            side: name.to_owned(),
+            sends,
+            answers,
+            deadline: PATIENCE,
+        };
+        let run = device.run_case(cases::HUMAN_CHAT, &args.to_json());
         let texts = [
             chat_text(sends[0], name, false),
             chat_text(sends[1], name, true),
@@ -490,10 +487,23 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         for reply in &replies {
             side.send(peer, reply).await;
         }
-        // D keeps its half going until the Android side has seen what it
-        // waits for and answered.
-        // The case's answer first, so a failing one reports its own
-        // detail; only then must D's replies have been accepted.
+        // D's replies accepted while the Android side still runs: its case
+        // ends only on D's close, sent after, so the acceptances cannot be
+        // lost on a closing connection (HumanChatArgs::close_serial). A
+        // case that ends first has failed, and reports its own detail.
+        side.until(
+            clock,
+            &log,
+            &format!("D's replies accepted at {name}"),
+            |s| replies.iter().all(|m| s.accepted(&m.app_message_id)) || run.is_finished(),
+        )
+        .await;
+        if !replies.iter().all(|m| side.accepted(&m.app_message_id)) {
+            let out = run.passed(log);
+            panic!("{name}'s case ended before D's replies were accepted: {out:?}");
+        }
+        let close = desktop_envelope(args.close_serial(), false);
+        side.send(peer, &close).await;
         side.until(clock, &log, &format!("{name}'s case answering"), |_| {
             run.is_finished()
         })
@@ -504,13 +514,6 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         for (key, value) in &out {
             assert!(value.is_string(), "{name}'s {key} is not text: {value}");
         }
-        side.until(
-            clock,
-            &log,
-            &format!("D's replies accepted at {name}"),
-            |s| replies.iter().all(|m| s.accepted(&m.app_message_id)),
-        )
-        .await;
 
         // What D was handed is what the Android side's facade composed.
         let sent: Vec<Value> =
