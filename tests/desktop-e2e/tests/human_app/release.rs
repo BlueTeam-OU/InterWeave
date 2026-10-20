@@ -43,6 +43,7 @@ use interweave_human_store::{
     SCHEMA_VERSION, StoreOptions,
 };
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+use interweave_profile_config::profile_format::{self, PROFILE_FORMAT};
 use interweave_transport_api::{
     DirectDestination, MAX_PAYLOAD_BYTES, MediaType, MessageId, TransportIdentity,
 };
@@ -265,10 +266,14 @@ fn checkpoint(path: &Path) {
         .expect("checkpointed");
 }
 
-/// The daemon of `home`, serving, from the package.
+/// The daemon of `home`, from the package, ANSWERING: a socket accepts
+/// a connection once it is bound, before the daemon raises the
+/// profile-format marker and starts serving, so a snapshot taken on
+/// accept alone races the marker's write.
 async fn serving(home: &Home) -> Running {
     let mut daemon = package::start_daemon(home);
     daemon.serving(home).await;
+    package::status_peer(home).await;
     daemon
 }
 
@@ -402,6 +407,24 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
     let rewritten: Vec<_> = changed(&before, &after)
         .into_iter()
         .filter(|name| !name.contains("/human/") && !name.ends_with("/peers.json"))
+        .collect();
+    // The tree predates the profile-format marker (ADR-0028 A
+    // 2026-10-20), so an upgrade is the marker's first write: this
+    // build's format, and nothing else beside the store and the cache.
+    let marker = profile_format::path_for(&home.paths);
+    let marker_name = marker
+        .strip_prefix(home.root.path())
+        .expect("inside")
+        .display()
+        .to_string();
+    assert_eq!(
+        profile_format::read_file(&marker).expect("the marker"),
+        PROFILE_FORMAT,
+        "the upgrade raised the marker to this build's format"
+    );
+    let rewritten: Vec<_> = rewritten
+        .into_iter()
+        .filter(|name| *name != marker_name)
         .collect();
     assert!(
         rewritten.is_empty(),
@@ -584,6 +607,65 @@ async fn the_recovery_drill_restores_the_same_peer_id_and_never_mints_one() {
     assert!(daemon.terminate().success(), "{}", daemon.log());
 }
 
+/// `home`'s profile-format marker set to `n`, owner-only, as a build of
+/// that format would leave it.
+fn plant_marker(home: &Home, n: u32) {
+    let path = profile_format::path_for(&home.paths);
+    std::fs::write(&path, format!("{{\"profile_format\":{n}}}")).expect("planted");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+}
+
+/// Rollback past the marker (ADR-0028 A 2026-10-20): a profile a newer
+/// build marked stops every program of this one -- the window,
+/// `transportctl` and the daemon -- before any of them writes, each
+/// naming the marker's file; once it is put back to this build's format,
+/// the same `PeerId` is served and the window takes the endpoint.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_profile_a_newer_build_marked_stops_every_program_and_is_left_as_it_was() {
+    let home = install(&previous_tree());
+    let mut daemon = serving(&home).await;
+    assert!(daemon.terminate().success(), "{}", daemon.log());
+    plant_marker(&home, PROFILE_FORMAT + 1);
+    let before = snapshot(&home);
+
+    let mut client = app::start(&home);
+    let status = client.exit_within(PATIENCE);
+    assert!(!status.success(), "the window refuses: {}", client.log());
+    assert!(
+        client.log().contains(profile_format::PROFILE_FORMAT_FILE),
+        "the window says which file stopped it: {}",
+        client.log()
+    );
+    let ctl = package::transportctl(&home, &["identity", "show"], "");
+    let said = String::from_utf8_lossy(&ctl.stderr);
+    assert!(!ctl.status.success(), "transportctl refuses: {said}");
+    assert!(said.contains(profile_format::PROFILE_FORMAT_FILE), "{said}");
+    let mut daemon = package::start_daemon(&home);
+    assert!(
+        !daemon.exit().success(),
+        "the daemon refuses: {}",
+        daemon.log()
+    );
+    assert!(
+        daemon.log().contains(profile_format::PROFILE_FORMAT_FILE),
+        "{}",
+        daemon.log()
+    );
+    assert_eq!(
+        changed(&before, &snapshot(&home)),
+        Vec::<String>::new(),
+        "nothing written by a refused program"
+    );
+
+    plant_marker(&home, PROFILE_FORMAT);
+    let mut daemon = serving(&home).await;
+    assert_eq!(package::status_peer(&home).await.as_str(), GOLDEN_PEER);
+    let mut client = app::start(&home);
+    until_lease(&home.binding(), true, &client).await;
+    assert!(client.terminate().success(), "{}", client.log());
+    assert!(daemon.terminate().success(), "{}", daemon.log());
+}
+
 /// The previous-build axis (`tools/ci/previous-builds.txt`, built by
 /// `tools/ci/build_previous_builds.sh` into the directory
 /// `INTERWEAVE_PREVIOUS_BUILDS` names): each entry's `transport-daemon`
@@ -685,8 +767,16 @@ async fn a_rollback_to_each_previous_build_keeps_the_peer_id_and_is_recorded() {
         );
         assert!(daemon.terminate().success(), "{}", daemon.log());
 
-        // new -> old, on the tree this build leaves.
+        // new -> old, on the tree this build leaves: run here first, so
+        // the old build meets the profile-format marker this build wrote.
         let home = install(&previous_tree());
+        let mut daemon = serving(&home).await;
+        assert!(daemon.terminate().success(), "{}", daemon.log());
+        let marker = profile_format::path_for(&home.paths);
+        assert_eq!(
+            profile_format::read_file(&marker).expect("marked"),
+            PROFILE_FORMAT
+        );
         let before = snapshot(&home);
         let mut daemon = package::start_daemon_of(&old_daemon, &home);
         daemon.serving(&home).await;
@@ -697,9 +787,10 @@ async fn a_rollback_to_each_previous_build_keeps_the_peer_id_and_is_recorded() {
         );
         assert!(
             endpoint_enabled(&home, &manifest.disabled_endpoint).await,
-            "RECORDED: {label} predates the endpoint overlay and does not read it; \
-             if it now reads {} disabled, the axis gained a build that does, and this \
-             row changes with it",
+            "RECORDED: {label} predates the endpoint overlay and the profile-format \
+             marker, so it starts on a marked tree and does not read the overlay; if it \
+             now reads {} disabled, the axis gained a build that does, and this row \
+             changes with it",
             manifest.disabled_endpoint
         );
         assert!(daemon.terminate().success(), "{label}: {}", daemon.log());
