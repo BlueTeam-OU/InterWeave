@@ -103,6 +103,9 @@ with zipfile.ZipFile(sys.argv[1], "a") as z:
 PY
 }
 
+# entries <dir> <glob>: whether the directory holds a name the glob matches.
+entries() { compgen -G "$1/$2" >/dev/null; }
+
 OUT="$SANDBOX/out"
 sign() {
     rm -rf "$OUT"
@@ -145,7 +148,7 @@ if sign 0.4.1 "$SANDBOX/good.apk" "$OUT"; then
     else
         fail "the signed APK is not aligned"
     fi
-    if ls -A "$OUT" | grep -q '^\.'; then
+    if entries "$OUT" '.[!.]*' || entries "$OUT" '..?*'; then
         fail "a temporary file is left in the output directory" "$(ls -A "$OUT")"
     else
         pass "no temporary file is left behind"
@@ -261,7 +264,7 @@ if PATH="$STUB:$PATH" ANDROID_BUILD_TOOLS="$TOOLS" \
     fail "a run whose values file cannot be moved succeeded"
 elif ! grep -q 'refused by the test' "$SANDBOX/err"; then
     fail "the stub was not reached at the last move" "$(cat "$SANDBOX/err")"
-elif [[ -e "$SIGNED" || -e "$SIGNED.sha256" ]] || ls -A "$OUT" | grep -q '^\.release'; then
+elif [[ -e "$SIGNED" || -e "$SIGNED.sha256" ]] || entries "$OUT" '.release*'; then
     fail "a run that failed at its last move left an APK, a hash or its work" "$(ls -A "$OUT")"
 else
     pass "a run that fails at its last move leaves no APK, no hash, no work directory"
