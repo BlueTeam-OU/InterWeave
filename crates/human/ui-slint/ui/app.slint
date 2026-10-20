@@ -3505,3 +3505,161 @@ export component AppWindow inherits Window {
         init => { self.focus(); }
     }
 }
+
+// The desktop's start-up refusal screen (plan section 18 clause (4), as
+// decided 2026-10-20): its own small window, shown instead of the app's
+// when the profile, its lock or its store refuses at start. It holds no
+// session and no lease and writes nothing; it says why, names the file,
+// and offers Close always and Try again where trying again can change
+// the answer. Every string arrives from Rust, from ui-model's table.
+export component RefusalWindow inherits Window {
+    in property <string> window-title;
+    in property <string> heading;
+    in property <string> reason;
+    // The file or folder the refusal is about, whole and selectable to
+    // copy; empty when the refusal names none.
+    in property <string> path;
+    in property <string> path-label;
+    in property <string> close-label;
+    in property <string> retry-label;
+    in property <bool> can-retry;
+    in property <string> code-font;
+    // The live region (as AppWindow's): two slots taking turns, so the
+    // same status after a second Try again is still a change a screen
+    // reader hears.
+    in property <string> status-a;
+    in property <string> status-b;
+    // As AppWindow's: the focused element reports itself, for the tests.
+    in-out property <string> focus-id;
+    callback retry();
+    callback close-screen();
+    // Called by Rust when the screen opens or changes: focus goes to the
+    // action a person most likely wants, Try again where it is offered.
+    public function focus-primary() {
+        if (root.can-retry) {
+            retry-button.focus();
+        } else {
+            close-button.focus();
+        }
+    }
+    title: root.window-title;
+    icon: @image-url("assets/interweave-icon-256.png");
+    background: Palette.surface;
+    preferred-width: 520px;
+    min-width: 320px;
+    // Escape closes, as the window's own close does: Close is never
+    // further away than one key. A key the focused control rejects
+    // reaches this scope; Tab never stops on it, as it does nothing.
+    FocusScope {
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.close-screen();
+                return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+            Text {
+                text: root.heading;
+                font-size: Type.title-large;
+                font-weight: 700;
+                color: Palette.on-surface;
+                wrap: word-wrap;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            Text {
+                text: root.reason;
+                font-size: Type.body-large;
+                color: Palette.on-surface;
+                wrap: word-wrap;
+                accessible-role: text;
+                accessible-label: self.text;
+            }
+            if root.path != "": VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: root.path-label;
+                    font-size: Type.body-small;
+                    font-weight: 700;
+                    color: Palette.on-surface-variant;
+                    accessible-role: none;
+                }
+                path-box := Rectangle {
+                    // Its field's height: a box in a layout stretches
+                    // without one (as AppWindow's own-id).
+                    height: path-input.preferred-height;
+                    path-input := TextInput {
+                        text: root.path;
+                        read-only: true;
+                        // Whole over as many lines as it needs, never cut:
+                        // a path has no spaces to wrap at.
+                        single-line: false;
+                        wrap: char-wrap;
+                        font-family: root.code-font;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface;
+                        accessible-label: root.path-label;
+                        accessible-value: self.text;
+                        changed has-focus => {
+                            if (self.has-focus) { root.focus-id = "path"; }
+                        }
+                    }
+                    FocusRing {
+                        x: -5px;
+                        y: -5px;
+                        width: path-box.width + 10px;
+                        height: path-box.height + 10px;
+                        shown: path-input.has-focus;
+                    }
+                }
+            }
+            VerticalLayout {
+                Text {
+                    text: root.status-a;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface-variant;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                    accessible-live-region: polite;
+                }
+                Text {
+                    text: root.status-b;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface-variant;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                    accessible-live-region: polite;
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 12px;
+                close-button := ActionButton {
+                    text: root.close-label;
+                    focus-key: "close";
+                    target: 40px;
+                    text-button: true;
+                    pressed => { root.close-screen(); }
+                    focused(key) => { root.focus-id = key; }
+                }
+                // Not conditional, so `focus-primary` can name it; hidden,
+                // it is out of the focus chain and the tree.
+                retry-button := ActionButton {
+                    visible: root.can-retry;
+                    text: root.retry-label;
+                    focus-key: "retry";
+                    target: 40px;
+                    filled: true;
+                    pressed => { root.retry(); }
+                    focused(key) => { root.focus-id = key; }
+                }
+            }
+        }
+    }
+}
