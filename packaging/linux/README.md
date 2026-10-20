@@ -64,10 +64,11 @@ with until it is restarted.
 `./uninstall.sh` stops and disables every `interweave-daemon@` and
 `interweave-client@` instance of the account, then removes the two
 templates and the three executables. Run it from the account's own
-session: from a shell without the session's variables (`sudo -u`,
-`su -c`, cron) it finds the manager under `/run/user/<uid>`, and if a
-running manager still cannot be reached it removes nothing and fails,
-since it could not stop what runs. **It never removes a profile**:
+session: from a shell without the session's variables, or with another
+account's (`sudo -u`, `su -c`, `sudo -E`, cron), it finds the manager
+under the account's own `/run/user/<uid>`, and if a running manager
+still cannot be reached it removes nothing and fails, since it could not
+stop what runs. **It never removes a profile**:
 every profile's `config.yaml`, identity key, state, human store, logs
 and peer cache stay where they are, and a reinstall serves the same PeerId from the kept
 key. A removed key is a lost PeerId, recoverable only from its recovery

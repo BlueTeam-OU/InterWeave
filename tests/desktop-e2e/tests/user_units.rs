@@ -117,6 +117,18 @@ fn template_seconds(key: &str) -> Duration {
     Duration::from_secs(value.trim().parse().expect("whole seconds"))
 }
 
+/// The shell a script runs from.
+enum Shell {
+    /// The session's own `XDG_RUNTIME_DIR` and bus address.
+    Session,
+    /// Neither, as `sudo -u`, `su -c` from root and cron give.
+    Bare,
+    /// Another account's, as `su -c` from a user's session or `sudo -E`
+    /// keeps: a runtime directory and a bus address that are not this
+    /// account's manager.
+    Foreign(PathBuf),
+}
+
 /// One case's world: a scratch home, the package installed into it, and
 /// the account's manager told where to find it. Dropped, it stops its
 /// instances and removes every runtime file it made, whatever failed.
@@ -182,13 +194,11 @@ impl Installed {
     /// Run a shipped script in the scratch home, the session's manager
     /// still reachable through the real `XDG_RUNTIME_DIR`.
     fn script(&self, script: &str, args: &[&Path]) -> Output {
-        self.script_in(script, args, true)
+        self.script_in(script, args, &Shell::Session)
     }
 
-    /// Run a shipped script, from a shell that keeps the session's
-    /// `XDG_RUNTIME_DIR` and bus address or, as `sudo -u`, `su -c` and
-    /// cron do, has neither.
-    fn script_in(&self, script: &str, args: &[&Path], session: bool) -> Output {
+    /// Run a shipped script from the shell `shell` describes.
+    fn script_in(&self, script: &str, args: &[&Path], shell: &Shell) -> Output {
         let mut command = Command::new(packaging().join(script));
         command
             .args(args)
@@ -199,10 +209,19 @@ impl Installed {
             .env("XDG_DATA_HOME", &self.home.roots.data_home)
             .env("XDG_STATE_HOME", &self.home.roots.state_home)
             .env("XDG_CACHE_HOME", &self.home.roots.cache_home);
-        if !session {
-            command
-                .env_remove("XDG_RUNTIME_DIR")
-                .env_remove("DBUS_SESSION_BUS_ADDRESS");
+        match shell {
+            Shell::Session => {}
+            Shell::Bare => {
+                command
+                    .env_remove("XDG_RUNTIME_DIR")
+                    .env_remove("DBUS_SESSION_BUS_ADDRESS");
+            }
+            Shell::Foreign(runtime) => {
+                command.env("XDG_RUNTIME_DIR", runtime).env(
+                    "DBUS_SESSION_BUS_ADDRESS",
+                    format!("unix:path={}/bus", runtime.display()),
+                );
+            }
         }
         let out = command.output().expect("the script runs");
         assert!(
@@ -565,7 +584,7 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
     })
     .collect();
 
-    installed.script_in("uninstall.sh", &[], false);
+    installed.script_in("uninstall.sh", &[], &Shell::Bare);
 
     for unit in [&daemon, &installed.client] {
         assert_eq!(show(unit, "ActiveState"), "inactive", "{unit} stopped");
@@ -625,11 +644,24 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
         "not-found",
         "the control: its template is gone"
     );
-    let said = String::from_utf8_lossy(&installed.script("uninstall.sh", &[]).stdout).into_owned();
+    // This run from a shell that inherited another account's runtime
+    // directory and bus: the script must reach this account's manager
+    // anyway, so the ghost is stopped and disabled through it -- not
+    // treated as an account with no manager.
+    let foreign = installed.home.root.path().join("foreign-run");
+    common::private_dir(&foreign);
+    let said = String::from_utf8_lossy(
+        &installed
+            .script_in("uninstall.sh", &[], &Shell::Foreign(foreign))
+            .stdout,
+    )
+    .into_owned();
     assert!(
         !ghost_link.is_symlink()
-            && said.contains(&format!("removed the link {}", ghost_link.display())),
-        "the template-less instance's link removed:\n{said}"
+            && said.contains(&format!("removed the link {}", ghost_link.display()))
+            && said.contains(&format!("stopped and disabled {ghost}")),
+        "the template-less instance stopped, disabled and its link removed through \
+         this account's manager:\n{said}"
     );
 
     // Reinstalled, the kept key is the same PeerId.
@@ -647,6 +679,9 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
 /// own, so `systemctl --user` there reaches nothing.
 struct Unmanaged {
     _root: Home,
+    /// An `id` answering a uid with no `/run/user` directory, so the
+    /// script's own-runtime fallback cannot reach this account's manager.
+    stub: PathBuf,
     home: PathBuf,
     config: PathBuf,
     runtime: PathBuf,
@@ -658,15 +693,34 @@ impl Unmanaged {
         let root = Home::new(name);
         let base = root.root.path().to_path_buf();
         let this = Self {
+            stub: base.join("stub"),
             home: base.join("home"),
             config: base.join("config"),
             runtime: base.join("run"),
             bins: base.join("bins"),
             _root: root,
         };
-        for dir in [&this.home, &this.config, &this.runtime, &this.bins] {
+        for dir in [
+            &this.home,
+            &this.config,
+            &this.runtime,
+            &this.bins,
+            &this.stub,
+        ] {
             common::private_dir(dir);
         }
+        let id = this.stub.join("id");
+        std::fs::write(
+            &id,
+            "#!/bin/sh\n[ \"$1\" = -u ] && { echo 2147480000; exit 0; }\nexec /usr/bin/id \"$@\"\n",
+        )
+        .expect("an id stand-in");
+        std::fs::set_permissions(&id, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .expect("executable");
+        assert!(
+            !Path::new("/run/user/2147480000").exists(),
+            "the stand-in uid has a runtime directory on this host"
+        );
         for exe in ["transport-daemon", "transportctl", "human-desktop"] {
             let path = this.bins.join(exe);
             std::fs::write(&path, "#!/bin/sh\nexit 0\n").expect("a stand-in");
@@ -689,6 +743,14 @@ impl Unmanaged {
             .env("XDG_CONFIG_HOME", &self.config)
             .env("XDG_RUNTIME_DIR", &self.runtime)
             .env_remove("DBUS_SESSION_BUS_ADDRESS")
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    self.stub.display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
             .output()
             .expect("the script runs")
     }

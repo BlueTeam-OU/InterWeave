@@ -12,21 +12,24 @@
 # key is a lost PeerId, recoverable only from its mnemonic, so deleting one
 # is the person's own act, by hand (README.md names the directories). A
 # reinstall serves the same PeerId from the kept key. Held by
-# tests/desktop-e2e/tests/user_units.rs's uninstall cases, which compare
-# every profile file before and after.
+# tests/desktop-e2e/tests/user_units.rs's uninstall case under a user
+# manager, which compares every profile file and directory before and
+# after.
 #
 # A shell that cannot reach the account's user manager (sudo -u, su -c,
-# cron) has the manager's runtime directory looked up in /run/user/<uid>;
-# if a manager is running and still cannot be reached, nothing is removed
-# and the script fails, since it could not stop what runs. With no manager
-# running at all, the instances' wants links are removed by hand.
+# sudo -E, cron) -- no XDG_RUNTIME_DIR, or another account's -- has the
+# manager looked up in this account's own /run/user/<uid>; if a manager
+# is running there or under the inherited directory and still cannot be
+# reached, nothing is removed and the script fails, since it could not
+# stop what runs. With no manager running at all, the instances' wants
+# links are removed by hand.
 #
 # Usage: uninstall.sh
 set -eu
 
 case "${1-}" in
 -h | --help)
-    sed -n '5,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '5,27p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
 "") ;;
@@ -75,15 +78,21 @@ remove_links() {
     done
 }
 
-uid=$(id -u)
+# This account's own runtime directory, whatever the shell inherited: an
+# XDG_RUNTIME_DIR and a bus address kept from another account (`su -c`,
+# `sudo -E`) or stale point at a manager that is not this account's.
+own="/run/user/$(id -u)"
+inherited="${XDG_RUNTIME_DIR-}"
 if ! systemctl --user show-environment >/dev/null 2>&1 \
-    && [ -z "${XDG_RUNTIME_DIR-}" ] && [ -d "/run/user/$uid" ]; then
-    XDG_RUNTIME_DIR="/run/user/$uid"
+    && [ "$inherited" != "$own" ] && [ -d "$own" ]; then
+    XDG_RUNTIME_DIR="$own"
     export XDG_RUNTIME_DIR
+    unset DBUS_SESSION_BUS_ADDRESS
 fi
 if systemctl --user show-environment >/dev/null 2>&1; then
     manager=yes
-elif [ -S "${XDG_RUNTIME_DIR:-/run/user/$uid}/systemd/private" ]; then
+elif [ -S "$own/systemd/private" ] \
+    || { [ -n "$inherited" ] && [ -S "$inherited/systemd/private" ]; }; then
     echo "uninstall.sh: this account's systemd user manager is running, but this shell cannot reach it, so no instance could be stopped; nothing was removed. Run uninstall.sh from the account's own login session." >&2
     exit 1
 else
