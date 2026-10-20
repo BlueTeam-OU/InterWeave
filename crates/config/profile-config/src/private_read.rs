@@ -140,44 +140,7 @@ fn owner_uid(read: Result<u32, PersistError>) -> Result<u32, PrivateReadError> {
 fn open_private(path: &Path) -> Result<std::fs::File, PrivateReadError> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
-        use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
-        // O_NONBLOCK so a FIFO in its place opens at once and is refused
-        // below as not a regular file, rather than holding start until a
-        // writer appears; it changes nothing for a regular file
-        // (`an_overlay_that_is_a_fifo_is_refused_without_waiting`).
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(path)
-            .map_err(|e| {
-                // ELOOP is O_NOFOLLOW meeting a link.
-                if e.raw_os_error() == Some(libc::ELOOP) {
-                    PrivateReadError::NotPrivate {
-                        detail: "it is a symbolic link".to_owned(),
-                    }
-                } else {
-                    PrivateReadError::Read(e)
-                }
-            })?;
-        let meta = file.metadata().map_err(PrivateReadError::Read)?;
-        let uid = owner_uid(persist::effective_uid())?;
-        if !meta.file_type().is_file() {
-            return Err(PrivateReadError::NotPrivate {
-                detail: "it is not a regular file".to_owned(),
-            });
-        }
-        if meta.uid() != uid {
-            return Err(PrivateReadError::NotPrivate {
-                detail: format!("owned by uid {}, not {uid}", meta.uid()),
-            });
-        }
-        let mode = meta.mode() & 0o777;
-        if mode & 0o077 != 0 {
-            return Err(PrivateReadError::NotPrivate {
-                detail: format!("mode is {mode:04o}, wider than 0600"),
-            });
-        }
-        Ok(file)
+        open_private_as(path, owner_uid(persist::effective_uid())?)
     }
     // Elsewhere ownership and mode cannot be checked here, so a present
     // overlay is refused -- but an absent one is still the empty overlay,
@@ -193,9 +156,53 @@ fn open_private(path: &Path) -> Result<std::fs::File, PrivateReadError> {
     }
 }
 
+/// [`open_private`] for the account `uid`: apart so a test can judge a
+/// file of this process's for another account, which no unprivileged
+/// test can create (`a_file_owned_by_another_account_is_refused`).
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn open_private_as(path: &Path, uid: u32) -> Result<std::fs::File, PrivateReadError> {
+    use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
+    // O_NONBLOCK so a FIFO in its place opens at once and is refused
+    // below as not a regular file, rather than holding start until a
+    // writer appears; it changes nothing for a regular file
+    // (`an_overlay_that_is_a_fifo_is_refused_without_waiting`).
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|e| {
+            // ELOOP is O_NOFOLLOW meeting a link.
+            if e.raw_os_error() == Some(libc::ELOOP) {
+                PrivateReadError::NotPrivate {
+                    detail: "it is a symbolic link".to_owned(),
+                }
+            } else {
+                PrivateReadError::Read(e)
+            }
+        })?;
+    let meta = file.metadata().map_err(PrivateReadError::Read)?;
+    if !meta.file_type().is_file() {
+        return Err(PrivateReadError::NotPrivate {
+            detail: "it is not a regular file".to_owned(),
+        });
+    }
+    if meta.uid() != uid {
+        return Err(PrivateReadError::NotPrivate {
+            detail: format!("owned by uid {}, not {uid}", meta.uid()),
+        });
+    }
+    let mode = meta.mode() & 0o777;
+    if mode & 0o077 != 0 {
+        return Err(PrivateReadError::NotPrivate {
+            detail: format!("mode is {mode:04o}, wider than 0600"),
+        });
+    }
+    Ok(file)
+}
+
 #[cfg(all(test, any(target_os = "linux", target_os = "android")))]
 mod tests {
-    use super::{PersistError, PrivateReadError, owner_uid};
+    use super::{PersistError, PrivateReadError, open_private_as, owner_uid};
 
     #[test]
     fn an_unreadable_uid_refuses_the_file_on_read() {
@@ -205,5 +212,28 @@ mod tests {
         ));
         // The control: a uid read is the owner checked against.
         assert_eq!(owner_uid(Ok(1000)).ok(), Some(1000));
+    }
+
+    #[test]
+    fn a_file_owned_by_another_account_is_refused() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("private.json");
+        std::fs::write(&path, b"{}").expect("write");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+        let ours = crate::persist::effective_uid().expect("this uid");
+        // THE CONTROL: judged for its owner, the owner-only file opens.
+        assert!(open_private_as(&path, ours).is_ok());
+        let other = ours.wrapping_add(1);
+        match open_private_as(&path, other) {
+            Err(PrivateReadError::NotPrivate { detail }) => {
+                assert!(
+                    detail.contains(&format!("owned by uid {ours}, not {other}")),
+                    "{detail}"
+                );
+            }
+            Err(e) => panic!("refused as another account's: {e:?}"),
+            Ok(_) => panic!("refused as another account's"),
+        }
     }
 }
