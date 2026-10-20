@@ -15,16 +15,14 @@
 #   tests/desktop-e2e/tests/human_app/display.rs  FOCUS, a lock on the X
 #       display's one input focus. Across processes it locks nothing.
 #   tests/support/src/net.rs  HANDED_OUT, free_port never answering one
-#       port twice in a process. Across processes two tests can be handed
-#       one port, and since libp2p-tcp listens with SO_REUSEPORT both
-#       daemons bind it and the tests share it SILENTLY (the #276 failure,
-#       net.rs says how). Under cargo test, the tests running at once were
-#       one binary's and shared the set. Every free_port caller CI runs is
-#       in desktop-e2e or android-e2e (whose stand-in cases, paths.rs and
-#       human_chat.rs, are not #[ignore]d; the upgrade matrix runs in a
-#       step of its own, one process), so those two packages are the group
-#       below. A free_port caller added in another package needs adding
-#       here, until free_port answers uniquely across processes.
+#       port twice in a process. No group: since #316 each answer also
+#       holds a lock on a claim file for the rest of the process, so
+#       another process is not answered it either (net.rs says how, and
+#       names the tests that hold it). Before that, two tests in two
+#       processes could be handed one port, and since libp2p-tcp listens
+#       with SO_REUSEPORT both daemons bound it and shared it SILENTLY
+#       (the #276 failure); #288 serialised every free_port caller CI
+#       runs, the desktop-e2e and android-e2e packages, for it.
 #   OnceLock registries, log sinks and counters (transport-contract's
 #       schema_round_trip and negative_conformance, ipc-v2's wire,
 #       ipc-protocol's schema_agreement, composition's trust_overlay and
@@ -39,14 +37,16 @@
 # and nextest would report it as a pass.
 
 [test-groups]
-# The desktop and Android end-to-end suites, one test at a time: the X
-# display's one input focus (FOCUS) and free_port's per-process set
-# (HANDED_OUT), above. About 86 s in all, measured on #288, beside the
-# rest of the run.
+# desktop-e2e's human_app cases, one at a time: the X display's one input
+# focus (FOCUS, above). The whole binary rather than the cases that take
+# the lock, because every case that can call display::exclusive is in it
+# (display.rs is its module), and a new one is then in the group without
+# anyone adding it here. The other desktop-e2e binaries and android-e2e
+# run beside everything else since #316.
 end-to-end = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = 'package(interweave-desktop-e2e-tests) | package(interweave-android-e2e-tests)'
+filter = 'binary_id(interweave-desktop-e2e-tests::human_app)'
 test-group = 'end-to-end'
 
 [profile.ci]
