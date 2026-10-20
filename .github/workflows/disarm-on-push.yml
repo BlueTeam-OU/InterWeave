@@ -43,9 +43,10 @@ concurrency:
 
 jobs:
   disarm:
-    # A fork's pull request is skipped: GitHub itself takes auto-merge off
-    # when someone without write access pushes to its head.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # No fork skip: GitHub takes auto-merge off only when someone WITHOUT
+    # write access pushes to the head, so a maintainer's push to a fork's
+    # branch would keep it. Running on a fork's pull request is safe for
+    # the reason above: nothing of the PR is checked out or run.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -60,43 +61,65 @@ jobs:
         run: |
           set -euo pipefail
           # Read now, not from the event, and compared with the push: an
-          # arming or a queue entry made after the push is one of the new
-          # head and stays. All times are GitHub's UTC "…Z" form, so they
-          # order as strings.
+          # arming made after the push is one of the new head and stays.
+          # All times are GitHub's UTC "…Z" form, so they order as strings.
+          #
+          # The arming's time comes from the timeline too, because GitHub
+          # clears autoMergeRequest when auto-merge puts the PR in the queue
+          # (measured on #311: enabled 15:13:50Z, queued 15:34:01Z, null
+          # while queued, no disable event between). Should this job start
+          # only after the new head went green, the pre-push arming has
+          # already queued it: enabledAt is gone and enqueuedAt is after the
+          # push, and only the timeline still says the arming is older.
           state() {
             gh api graphql \
-              -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){id autoMergeRequest{enabledAt} mergeQueueEntry{enqueuedAt}}}}' \
+              -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){id autoMergeRequest{enabledAt} mergeQueueEntry{enqueuedAt} timelineItems(last:1,itemTypes:[AUTO_MERGE_ENABLED_EVENT]){nodes{... on AutoMergeEnabledEvent{createdAt}}}}}}' \
               -f o="${GH_REPO%/*}" -f r="${GH_REPO#*/}" -F n="$PR" \
-              --jq '.data.repository.pullRequest | "\(.id) \(.autoMergeRequest.enabledAt // "-") \(.mergeQueueEntry.enqueuedAt // "-")"'
+              --jq '.data.repository.pullRequest | "\(.id) \(.autoMergeRequest.enabledAt // "-") \(.mergeQueueEntry.enqueuedAt // "-") \(.timelineItems.nodes[0].createdAt // "-")"'
           }
           older() { [[ "$1" != "-" && "$1" < "$PUSHED_AT" ]]; }
-          read -r node armed_on queued_on < <(state)
-          if ! older "$armed_on" && ! older "$queued_on"; then
-            echo "#$PR: armed $armed_on, queued $queued_on, push at $PUSHED_AT — nothing armed before the push, nothing to take off"
+          read -r node armed_on queued_on last_armed < <(state)
+          # A queue entry is as old as the arming that made it, so one made
+          # after the push by a pre-push arming is taken out too. A direct
+          # enqueue of the new head after a late-running job is taken out
+          # with it: failing closed costs one more fabric-pr arm.
+          stale_queue=""
+          if [[ "$queued_on" != "-" ]] && { older "$queued_on" || older "$last_armed"; }; then
+            stale_queue=1
+          fi
+          if [[ -z "$stale_queue" ]] && ! older "$armed_on"; then
+            echo "#$PR: armed $armed_on (last arming $last_armed), queued $queued_on, push at $PUSHED_AT — nothing armed before the push, nothing to take off"
             exit 0
           fi
-          # The dequeue first, then the disarm, each attempted whatever the
-          # other did. What was taken off is then read back from the pull
-          # request, never from a mutation's exit status: a mutation can
-          # fail on a field the other already cleared (a dequeue may drop the
-          # arming with it), or succeed and change nothing.
-          if older "$queued_on"; then
+          # The dequeue first, then the disarm of whatever arming is left
+          # once it is out, each attempted whatever the other did. What was
+          # taken off is then read back from the pull request, never from a
+          # mutation's exit status: a mutation can fail on a field the other
+          # already cleared, or succeed and change nothing.
+          if [[ -n "$stale_queue" ]]; then
             gh api graphql -f query='mutation($id:ID!){dequeuePullRequest(input:{id:$id}){clientMutationId}}' \
               -f id="$node" >/dev/null || echo "dequeuePullRequest failed; reading the pull request back"
           fi
-          if older "$armed_on"; then
+          read -r _ armed_mid _ _ < <(state)
+          # Out of a stale queue entry, any arming present is the stale one.
+          stale_arming=""
+          if older "$armed_on" || older "$armed_mid" || [[ -n "$stale_queue" && "$armed_mid" != "-" ]]; then
+            stale_arming=1
+          fi
+          if older "$armed_mid" || [[ -n "$stale_queue" && "$armed_mid" != "-" ]]; then
             gh api graphql -f query='mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}' \
               -f id="$node" >/dev/null || echo "disablePullRequestAutoMerge failed; reading the pull request back"
           fi
-          read -r _ armed_now queued_now < <(state)
+          read -r _ armed_now queued_now _ < <(state)
           taken="" left=""
-          if older "$queued_on"; then
-            if older "$queued_now"; then left="still in the merge queue (queued $queued_on)"
+          if [[ -n "$stale_queue" ]]; then
+            if [[ "$queued_now" != "-" ]]; then left="still in the merge queue (queued $queued_now)"
             else taken="taken out of the merge queue (queued $queued_on)"; fi
           fi
-          if older "$armed_on"; then
-            if older "$armed_now"; then left="${left:+$left; }auto-merge still on (armed $armed_on)"
-            else taken="${taken:+$taken; }auto-merge taken off (armed $armed_on)"; fi
+          if [[ -n "$stale_arming" ]]; then
+            if older "$armed_now" || [[ -n "$stale_queue" && "$armed_now" != "-" ]]; then
+              left="${left:+$left; }auto-merge still on (armed $armed_now)"
+            else taken="${taken:+$taken; }auto-merge taken off (armed ${last_armed})"; fi
           fi
           moved="the head moved from ${BEFORE:0:8} to ${AFTER:0:8} after the arming"
           if [[ -z "$left" ]]; then
