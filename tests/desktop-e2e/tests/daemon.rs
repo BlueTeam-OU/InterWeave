@@ -620,8 +620,10 @@ async fn a_marker_above_this_build_refuses_the_daemon_and_nothing_is_written() {
 /// A newer build's marker written while this daemon waited for the lock
 /// -- `load` saw none, the newer build held the lock and raised it --
 /// refuses the start at the lock, before the runtime writes anything:
-/// the message is the profile's, not the raise's, and nothing under the
-/// XDG roots changes but the lock's own record.
+/// the message is the read under the lock's -- not load's, which would
+/// mean the daemon had not loaded yet and the case was not reached, nor
+/// the raise's -- and nothing under the XDG roots changes but the lock's
+/// own record.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_marker_raised_while_the_daemon_waits_for_the_lock_refuses_it_there() {
     let home = Home::new("e2e");
@@ -644,7 +646,7 @@ async fn a_marker_raised_while_the_daemon_waits_for_the_lock_refuses_it_there() 
     let log = daemon.log();
     assert!(
         log.contains(&format!(
-            "the profile: {}",
+            "the profile, read again under the lock: {}",
             profile_format::path_for(&home.paths).display()
         )),
         "refused under the lock, not by the raise after the start:\n{log}"

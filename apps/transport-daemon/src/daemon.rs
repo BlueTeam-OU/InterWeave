@@ -82,7 +82,8 @@ pub(crate) async fn run(args: Args) -> Result<(), Refused> {
     // The marker read again under the lock (ADR-0028 A 2026-10-20): a
     // newer build that held the lock while `load` ran may have raised it
     // since, and the runtime's start below writes the profile.
-    profile_format::require_supported(&paths).map_err(|e| refused("the profile")(&e))?;
+    profile_format::require_supported(&paths)
+        .map_err(|e| refused("the profile, read again under the lock")(&e))?;
     let identity = identity(&profile.identity.key_file_in(&paths), args.create_identity)?;
     let peer = identity
         .transport_identity()
