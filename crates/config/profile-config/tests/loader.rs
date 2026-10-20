@@ -356,6 +356,7 @@ fn a_key_file_reached_through_a_link_into_the_human_dir_is_refused() {
     let dir = private_tempdir().expect("tempdir");
     let p = paths(dir.path(), "work");
     let vault = p.human_dir().join("vault");
+    private_state_dir(&p);
     std::fs::create_dir_all(&vault).expect("vault");
     let external = dir.path().join("external");
     std::fs::create_dir_all(external.join("real")).expect("external");
@@ -393,7 +394,7 @@ fn a_key_file_reached_through_a_link_into_the_human_dir_is_refused() {
     std::fs::create_dir_all(&elsewhere).expect("elsewhere");
     let key = elsewhere.join("work.key");
     key_at(&q, &key).expect("the control: no human dir yet, the key elsewhere loads");
-    std::fs::create_dir_all(q.human_dir().parent().expect("state dir")).expect("state dir");
+    private_state_dir(&q);
     symlink(&elsewhere, q.human_dir()).expect("human link");
     assert!(
         matches!(key_at(&q, &key), Err(LoadError::KeyFileInHumanDir { .. })),
@@ -405,7 +406,7 @@ fn a_key_file_reached_through_a_link_into_the_human_dir_is_refused() {
     let third = private_tempdir().expect("tempdir");
     let r = paths(third.path(), "work");
     let ordinary = third.path().join("keys").join("work.key");
-    std::fs::create_dir_all(r.human_dir().parent().expect("state dir")).expect("state dir");
+    private_state_dir(&r);
     symlink(third.path().join("gone"), r.human_dir()).expect("human link");
     match key_at(&r, &ordinary) {
         Err(LoadError::KeyFileUnresolved { path, .. }) => assert_eq!(path, r.human_dir()),
@@ -463,6 +464,14 @@ fn a_key_file_under_an_uninspectable_directory_is_refused() {
         Err(LoadError::KeyFileUnresolved { path, .. }) => assert_eq!(path, key),
         other => panic!("refused as unresolved: {other:?}"),
     }
+}
+
+/// `p`'s state directory, owner-only as the profile lock makes it: the
+/// load judges it, since the profile-format marker is read there
+/// (ADR-0028 A 2026-10-20), and refuses one any other account can read.
+fn private_state_dir(p: &ProfilePaths) {
+    interweave_profile_config::persist::create_private_dir_within(p.state_dir(), p.boundary())
+        .expect("state dir");
 }
 
 /// A temporary directory made `0700` at creation, whatever the umask: the

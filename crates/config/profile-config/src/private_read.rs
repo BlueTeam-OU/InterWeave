@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! Reading a private state file: the one reader the trust overlay and
-//! the availability overlay share, so the rules a file is judged by --
+//! Reading a private state file: the one reader the trust overlay, the
+//! availability overlay and the profile-format marker share, so the rules a file is judged by --
 //! its directory private under the boundary, the file regular, not a
 //! link, this uid's, readable by nobody else, bounded in size -- are
 //! written once.
