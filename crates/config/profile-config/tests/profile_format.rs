@@ -434,3 +434,78 @@ fn a_marker_in_a_state_directory_others_can_read_is_still_judged() {
         "left as found"
     );
 }
+
+/// A state directory this uid cannot search, or a file where it should
+/// be, is not the marker's to report: the marker check reads no marker,
+/// the load refuses it by its older rule and the lock refuses it. THE
+/// CONTROL beside it: a marker this uid cannot open, in a directory it
+/// can, is the file's error, never read as absent.
+#[test]
+fn a_state_directory_the_load_cannot_search_is_left_to_the_lock() {
+    let (_root, paths) = profile();
+    let path = path_for(&paths);
+
+    // A regular file where the state directory should be: the open fails
+    // (ENOTDIR) and the directory is refused, so the marker check reads
+    // no marker -- the load refuses it by its own older rule (the human
+    // directory under it cannot be resolved), never as a marker error,
+    // and the lock refuses it too.
+    persist::create_private_dir_within(
+        paths.state_dir().parent().expect("a parent"),
+        paths.boundary(),
+    )
+    .expect("the state directory's parent");
+    std::fs::write(paths.state_dir(), b"").expect("a file in its place");
+    let loaded = ProfileConfig::load(&paths);
+    assert!(
+        matches!(loaded, Err(LoadError::KeyFileUnresolved { .. })),
+        "refused by the older rule, not the marker's: {loaded:?}"
+    );
+    assert!(
+        ProfileLock::acquire(&paths, std::time::Duration::ZERO).is_err(),
+        "the lock refuses it"
+    );
+    std::fs::remove_file(paths.state_dir()).expect("rm");
+
+    // A state directory this uid cannot search: the same. (Skipped where
+    // the mode refuses nothing, as for root.)
+    persist::create_private_dir_within(paths.state_dir(), paths.boundary()).expect("state dir");
+    std::fs::write(&path, marker(u64::from(PROFILE_FORMAT) + 1)).expect("planted");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+    std::fs::set_permissions(paths.state_dir(), std::fs::Permissions::from_mode(0o000))
+        .expect("chmod");
+    let blocked = std::fs::metadata(&path).is_err();
+    let loaded = ProfileConfig::load(&paths);
+    let locked = ProfileLock::acquire(&paths, std::time::Duration::ZERO).map(drop);
+    std::fs::set_permissions(paths.state_dir(), std::fs::Permissions::from_mode(0o700))
+        .expect("chmod");
+    if blocked {
+        // Not the marker's error though a newer marker lies there: the
+        // older rule refuses it as above, and so does the lock.
+        assert!(
+            matches!(loaded, Err(LoadError::KeyFileUnresolved { .. })),
+            "refused by the older rule, not the marker's: {loaded:?}"
+        );
+        assert!(locked.is_err(), "the lock refuses it");
+    } else {
+        eprintln!("the mode blocked nothing here (root?): not reached");
+    }
+
+    // THE CONTROL: a marker of this uid's it cannot open, in a private
+    // directory, is refused as the file's, never read as absent.
+    std::fs::write(&path, marker(u64::from(PROFILE_FORMAT))).expect("planted");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+    let unreadable = std::fs::read(&path).is_err();
+    let loaded = ProfileConfig::load(&paths);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+    if unreadable {
+        assert!(
+            matches!(
+                loaded,
+                Err(LoadError::ProfileFormat(ProfileFormatError::Read(_)))
+            ),
+            "the file's error: {loaded:?}"
+        );
+    }
+    ProfileConfig::load(&paths).expect("readable again, it loads");
+}

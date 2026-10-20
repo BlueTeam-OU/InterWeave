@@ -58,23 +58,45 @@ pub(crate) fn read_private_within(
 }
 
 /// The text of the private file at `path`, the FILE judged and its
-/// directory not: `None` when the file or its directory is absent.
+/// directory left to the profile lock: `None` when the file is absent,
+/// and when it cannot be opened and its directory is one the lock would
+/// refuse ([`directory_refused`]).
 ///
 /// For a reader whose answer a writable directory cannot turn into a
 /// grant -- the profile-format marker's check at load. Only this uid can
-/// own a file the judgement accepts, so another account that can write
-/// the directory can remove the file (which reads as absent, as deleting
-/// it would) or put a file of its own there (refused as another
-/// account's), and nothing else. Leaving the directory to the profile
-/// lock keeps its refusal the lock's, in the class each binary has
-/// always given it, and keeps a load that takes no lock from failing on
-/// a directory it never writes
-/// (`a_marker_in_a_state_directory_others_can_read_is_still_judged`).
+/// own a file the judgement accepts, so another account that can change
+/// the directory or a link on its path can make the read find no file
+/// (as deleting it would) or a file of its own (refused as another
+/// account's), or one of this uid's from elsewhere: each a refusal or an
+/// absence, never a grant. Leaving the directory to the profile lock
+/// keeps its refusal the lock's, in the class each binary has always
+/// given it, and keeps a load that takes no lock from failing on a
+/// directory it never writes
+/// (`a_marker_in_a_state_directory_others_can_read_is_still_judged`,
+/// `a_state_directory_the_load_cannot_search_is_left_to_the_lock`). A
+/// file that cannot be opened in a directory the judgement accepts is
+/// the file's error, never an absence.
 pub(crate) fn read_private_file(
     path: &Path,
+    boundary: &TrustBoundary,
     max_bytes: u64,
 ) -> Result<Option<String>, PrivateReadError> {
-    read_bounded(path, max_bytes)
+    match read_bounded(path, max_bytes) {
+        Err(PrivateReadError::Read(_))
+            if directory_refused(persist::parent_dir(path), boundary) =>
+        {
+            Ok(None)
+        }
+        other => other,
+    }
+}
+
+/// Whether `dir` is a directory the profile lock would refuse: one the
+/// judgement under `boundary` refuses (another account's, open to
+/// others, a file in its place), or one this uid cannot list -- private
+/// by mode and still closed to its owner.
+fn directory_refused(dir: &Path, boundary: &TrustBoundary) -> bool {
+    persist::resolve_private_dir_within(dir, boundary).is_err() || std::fs::read_dir(dir).is_err()
 }
 
 /// `path` opened by [`open_private`] and read to at most `max_bytes`:
