@@ -233,6 +233,15 @@ for shape in old new; do
         fail "apksigner's $shape certificate lines were not read" "$(cat "$SANDBOX/err")"
     fi
 done
+# One certificate printed on two lines, as apksigner prints it once per
+# scheme it verified, is still one signer's.
+export REWRITE='s/^((Signer #1|V[0-9.]+ Signer:) certificate SHA-256 digest: [0-9a-f]{64})$/\1\n\1/'
+if BT="$RW" sign 0.4.1 "$SANDBOX/good.apk" "$OUT" \
+    && grep -qF "\"cert_sha256\": \"$REL_CERT\"" "$OUT/android-values.json"; then
+    pass "one certificate on two lines is the release key's fingerprint once"
+else
+    fail "one certificate on two lines was not read as one" "$(cat "$SANDBOX/err")"
+fi
 REWRITE='s/^Number of signers: 1$/Number of signers: 2/' BT="$RW" \
     refused "apksigner reporting two signers" "2 signers, not one" 0.4.1 "$SANDBOX/good.apk" "$OUT"
 REWRITE='/^Number of signers:/d' BT="$RW" \

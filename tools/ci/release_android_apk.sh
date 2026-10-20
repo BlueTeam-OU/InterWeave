@@ -181,6 +181,8 @@ done
 # apksigner: up to 36.1 a certificate line is "Signer #1 certificate ...",
 # from 37.0 "V3.0 Signer: certificate ...", and both print "Number of
 # signers". A line in neither shape gives no certificate, which is refused.
+# A version may print the certificate once per scheme it verified, so the
+# lines are taken as a set: one certificate however often it is printed.
 signers="$(sed -n 's/^Number of signers: //p' <<<"$verify")"
 [[ "$signers" == 1 ]] || die "${signers:-no} signers, not one"
 cert="$(sed -En 's/^(Signer #[0-9]+|V[0-9.]+ Signer:) certificate SHA-256 digest: ([0-9a-f]{64})$/\2/p' <<<"$verify" | sort -u)"
