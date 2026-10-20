@@ -99,6 +99,11 @@ Edge rules:
   (§7), on a link as anywhere else in the bubble; the link then does
   not open. A press that passes the slop first is a swipe or a scroll
   and never opens it.
+- Once a long-press opens the menu, the rest of that press belongs to
+  the menu, never to the row: lifting it chooses nothing and the menu
+  stays open; sliding it onto an item and lifting there chooses that
+  item (Android's press-drag-release); sliding it sideways tracks no
+  swipe and commits nothing.
 - While the row's menu is open, touches on it never reach the row: a
   drag that starts on a menu item moves nothing under the menu and
   never tracks or commits a swipe. A press released on the item it
@@ -145,7 +150,9 @@ happened.
 ## 6. The snackbar
 
 - At the bottom of the conversation, above the composer, never
-  covering the composer. One at a time. A new swipe's snackbar replaces
+  covering the composer. While network access is withheld no
+  composer is drawn (look spec §6), and the snackbar sits at the
+  bottom edge in its place. One at a time. A new swipe's snackbar replaces
   the old one, and the old one's Undo goes with it. A Cancel's snackbar
   waits for the facade's answer (§8), and until then the old snackbar
   stays, with its Undo. The old snackbar is replaced only when the
@@ -776,5 +783,9 @@ passed.
     - a drag that starts on an open menu's item moves no row and
       commits nothing; a tap outside closes the menu and does nothing
       to the row under it;
+    - after a long-press opens the menu, lifting the same finger
+      chooses nothing and the menu stays open; sliding it onto an
+      item and lifting there chooses that item; sliding it sideways
+      past the swipe threshold moves no row and commits nothing;
     - on the desktop, a secondary click on a bubble opens the same
       menu.
