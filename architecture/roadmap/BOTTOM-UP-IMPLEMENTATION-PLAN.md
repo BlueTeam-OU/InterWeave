@@ -5470,10 +5470,10 @@ and fresh epochs, the SIGHUP restart following `RestartSec=`; no lease
 survives, by design. Per-endpoint changes go through the admin path (§16 (5));
 a reload of any other field is a later ADR on a shown need. The carry is met
 when a test shows SIGHUP producing SIGTERM's stop sequence and exiting with
-the status it reads from the unit file's `RestartForceExitStatus=` (so the
-daemon and the unit cannot drift apart), and the unit row shows the restart;
-until then it is open, not decided-as-met. Supervision units; flock on NFS
-homes.
+the status it reads from the unit file, asserting that `SuccessExitStatus=`
+and `RestartForceExitStatus=` both name it (so the daemon and the unit cannot
+drift apart), and the service/autostart lifecycle row shows the restart; until
+then it is open, not decided-as-met. Supervision units; flock on NFS homes.
 
 Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
