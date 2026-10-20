@@ -79,6 +79,14 @@ Before activating an update:
 
 Rollback must never silently generate a new PeerId.
 
+Rollback must never silently drop an artefact a newer build wrote: a
+build whose profile format is older than the profile's refuses to start,
+naming the file, both format numbers and that a newer build wrote it —
+the profile-format marker of ADR-0028 (Amendment 2026-10-20); an older
+build with the same format starts as before; the person rolls forward,
+never back past the build that wrote the profile. Builds before the
+marker are unprotected, by name.
+
 ## 8. Crash and recovery behavior
 
 Desktop GUI crash -> daemon may remain online, human EndpointId lease is released when IPC death is detected.

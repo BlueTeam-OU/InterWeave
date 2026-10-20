@@ -101,32 +101,69 @@ impl AdbDevice {
 }
 
 /// How many of the app's own log lines a failure carries.
-const APP_LOG_LINES: &str = "1000";
+const APP_LOG_LINES: usize = 1000;
 
 /// How many of the platform's lines about the app a failure carries.
 const PLATFORM_LINES: usize = 50;
 
 /// The device's log since the last clear, as a failure needs it: the
-/// app's and its instrumentation's own lines, by uid, then
-/// `ActivityManager`'s lines naming the app -- why its process started or
-/// died. Not the device's last lines: a phone writes thousands a minute,
-/// and a run on a Pixel 9a carried none of the app's in its last 300.
+/// lines of the app's processes, then `ActivityManager`'s lines naming
+/// the app -- why its process started or died. Not the device's last
+/// lines: a phone writes thousands a minute, and a run on a Pixel 9a
+/// carried none of the app's in its last 300.
+///
+/// BY PROCESS, from `ActivityManager`'s `Start proc` lines, and filtered
+/// here: on the 2026-10-20 Pixel run `logcat --uid` answered nothing
+/// while the app's processes were logging
+/// (`tests/android-e2e/runs/2026-10-20-pixel-9a-api37.md`, finding 1),
+/// and logcat documents the option as of use to the root, log and system
+/// users, which adb's shell is not.
 fn logcat() -> String {
-    let app = match text(&["shell", "pm", "list", "packages", "-U", PACKAGE]) {
-        Err(why) => why,
-        Ok(packages) => {
-            let uids = app_uids(&packages);
-            if uids.is_empty() {
-                format!("(no uid for the app: pm listed no {PACKAGE})")
+    let manager = text(&["logcat", "-d", "-b", "system", "-s", "ActivityManager"]);
+    let app = match &manager {
+        Err(why) => why.clone(),
+        Ok(manager) => {
+            let pids = app_pids(manager);
+            if pids.is_empty() {
+                format!("(no process of {PACKAGE} started since the log was cleared)")
             } else {
-                let uid = format!("--uid={}", uids.join(","));
-                text(&["logcat", "-d", &uid, "-t", APP_LOG_LINES]).unwrap_or_else(|why| why)
+                text(&["logcat", "-d", "-v", "threadtime"])
+                    .map_or_else(|why| why, |log| lines_of(&pids, &log))
             }
         }
     };
-    let platform = text(&["logcat", "-d", "-b", "system", "-s", "ActivityManager"])
-        .map_or_else(|why| why, |log| about_the_app(&log));
+    let platform = manager.map_or_else(|why| why, |log| about_the_app(&log));
     format!("--- the app's log ---\n{app}\n--- ActivityManager on the app ---\n{platform}")
+}
+
+/// The pids of the app's processes, from `ActivityManager`'s lines
+/// `Start proc <pid>:<PACKAGE>/<user>` (an instrumentation runs in the
+/// app's own process, so this is its pid too).
+fn app_pids(manager: &str) -> Vec<String> {
+    let process = format!(":{PACKAGE}/");
+    manager
+        .lines()
+        .filter_map(|line| {
+            let (pid, rest) = line.split_once("Start proc ")?.1.split_once(':')?;
+            rest.starts_with(&process[1..])
+                .then(|| pid.trim().to_owned())
+                .filter(|pid| pid.bytes().all(|b| b.is_ascii_digit()) && !pid.is_empty())
+        })
+        .collect()
+}
+
+/// The last [`APP_LOG_LINES`] of a `threadtime` log whose pid, the third
+/// field, is one of `pids`.
+fn lines_of(pids: &[String], log: &str) -> String {
+    let lines: Vec<&str> = log
+        .lines()
+        .filter(|line| {
+            line.split_whitespace()
+                .nth(2)
+                .is_some_and(|pid| pids.iter().any(|p| p == pid))
+        })
+        .collect();
+    lines[lines.len().saturating_sub(APP_LOG_LINES)..].join("\n")
 }
 
 /// `adb args`'s stdout, or why there is none: a failure report that
@@ -149,21 +186,6 @@ fn read_text(args: &[&str], run: std::io::Result<Output>) -> Result<String, Stri
         )),
         Ok(out) => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
     }
-}
-
-/// The uids of the app and of its instrumentation's package, from
-/// `pm list packages -U <PACKAGE>`, which matches by substring: each line
-/// `package:<name> uid:<uid>[,<uid>...]`, a uid per user profile.
-fn app_uids(pm: &str) -> Vec<String> {
-    let test = format!("{PACKAGE}.test");
-    pm.lines()
-        .filter_map(|line| {
-            let (name, uids) = line.trim().strip_prefix("package:")?.split_once(" uid:")?;
-            (name == PACKAGE || name == test).then_some(uids)
-        })
-        .flat_map(|uids| uids.split(','))
-        .map(str::to_owned)
-        .collect()
 }
 
 /// The last of `ActivityManager`'s lines that name the app.
@@ -405,17 +427,44 @@ mod tests {
         );
     }
 
+    /// The app's lines are found by its processes' pids, as
+    /// `ActivityManager` names them, and only its: another app's process,
+    /// a package whose name merely starts with the app's, and a line of
+    /// another pid that contains the app's pid elsewhere are left out.
     #[test]
-    fn the_log_is_read_by_the_app_and_its_instrumentations_uids_alone() {
-        let pm = "package:org.interweave.human.test uid:10274,1010274\n\
-                  package:org.interweave.humane uid:10999\n\
-                  package:org.interweave.human uid:10271,1010271\n";
-        assert_eq!(
-            app_uids(pm),
-            ["10274", "1010274", "10271", "1010271"],
-            "a package the substring filter also matched is not the app's"
+    fn the_app_log_is_the_lines_of_the_processes_started_for_it() {
+        let manager = format!(
+            "10-20 18:05:36.4  1492  1548 I ActivityManager: Start proc 30252:{PACKAGE}/u0a271 for added application {PACKAGE}\n\
+             10-20 18:05:36.5  1492  1548 I ActivityManager: Start proc 777:com.other/u0a1 for service\n\
+             10-20 18:05:36.6  1492  1548 I ActivityManager: Start proc 778:{PACKAGE}e/u0a9 for service\n\
+             10-20 18:05:43.0  1492  1548 I ActivityManager: Start proc 30361:{PACKAGE}/u0a271 for added application {PACKAGE}\n"
         );
-        assert!(app_uids("").is_empty());
+        let pids = app_pids(&manager);
+        assert_eq!(pids, ["30252", "30361"]);
+        let log = "10-20 18:05:43.388 30361 30378 D interweave: peer connected path=relayed\n\
+                   10-20 18:05:43.390   777   780 I other: pid 30361 is not mine\n\
+                   10-20 18:05:43.391   778   781 I humane: a look-alike\n\
+                   10-20 18:05:36.900 30252 30252 D interweave: started\n";
+        let kept = lines_of(&pids, log);
+        assert_eq!(
+            kept.lines().collect::<Vec<_>>(),
+            [
+                "10-20 18:05:43.388 30361 30378 D interweave: peer connected path=relayed",
+                "10-20 18:05:36.900 30252 30252 D interweave: started"
+            ]
+        );
+        assert!(app_pids("").is_empty());
+    }
+
+    #[test]
+    fn the_app_log_keeps_its_last_lines() {
+        let pids = ["1".to_owned()];
+        let log: Vec<String> = (0..APP_LOG_LINES + 3)
+            .map(|n| format!("10-20 00:00:00.0 1 1 D interweave: line {n}"))
+            .collect();
+        let kept = lines_of(&pids, &log.join("\n"));
+        assert_eq!(kept.lines().count(), APP_LOG_LINES);
+        assert!(kept.ends_with(&log[APP_LOG_LINES + 2]), "{kept}");
     }
 
     #[test]

@@ -4764,7 +4764,9 @@ Each is met by a test or check that records it, in the shape §15 set.
 5. the host run: the bridge as a plugin against the installed Claude
    Code, interactive with the development flag, SPIKE-001's drivers
    reused — the build recorded, the tag read back, the plugin-loaded
-   tool names of fact 16 seen again (p2p-network-dev; evidence as
+   tool names of fact 16 seen again (p2p-network-dev, the stage's lane
+   then; from 2026-10-20 the bridge, its package and the carried
+   measurements are rust-services-dev's — remit #320, §22; evidence as
    `spikes/spike-001/runs/s16-<run>/evidence.md`, the spike's own
    `extract.py` shape, named by run in the closing record);
 6. the close: ledger audit, the closing record (architect-cto). No
@@ -5390,6 +5392,53 @@ open Stage 17 if it closes first.
 
 ## 22. Stage 19 — packaging, migration, and release
 
+**Activated 2026-10-20** on the owner's word ("activate Stage 19", relayed by
+fabric-coordinator in message 01a157d9-5e4d-78c8-8586-02e8f074d339, answering
+architect-cto's recommendation of the same day), running from the landing of
+this record. The stage runs **beside** Stage 17 (§20) and Stage 18 (§21), as
+§19's Stage 16 ran beside Stage 15, under ADR-0046's allowance for parallel
+workstreams, with the two constraints that precedent states: no
+`Proof::Stage(19)` deferral and no `stage-19` deadline is written while 19
+runs beside the open stage (the guards expire a deferral only once the status
+passes it), and the Cargo.toml status comment names Stage 19 beside Stages 17
+and 18 (done in this change). The status value stays the lowest open stage,
+`stage-17-android-human-client`, and this record is the authorisation for the
+stage's packages (`CLAUDE.md` §3) — the packaging roots under Activate below,
+each added to `[workspace].members` in the change that creates it where it is
+a crate. The split, by lane: p2p-network-dev takes packaging/linux beyond §28
+step 4's user units (the Stage 13 supervision-units carry is met by those two
+units, `interweave-daemon@.service` and `interweave-client@.service`; what
+remains of it is their CI cover, which §28 left open and p2p-network-dev
+holds here) with the Validate rows
+service/autostart lifecycle and uninstall semantics, the Stage 13 carry (hot
+reload on SIGHUP and which leases survive it, decided below; flock on NFS
+homes), and the Android release run of ADR-0057 — the tagged release run, the
+signed APK, its SHA-256 and the Slint attribution on the release page — with
+the Validate row Android update/reinstall behavior (S12's device evidence,
+§21, feeds it) — packaging/android is p2p-network-dev's by that run;
+rust-ui-dev takes the Validate rows fresh install, upgrade,
+rollback, profile/config migration, PeerId preservation and the recovery drill
+as host tests against a packaged build, and the Stage 15 carry (the Slint
+attribution on the public download page). The Skia choice ADR-0057 leaves to
+this stage (from source or the prebuilt archive pinned by checksum) is
+architect-cto's, on p2p-network-dev's question with the costs. The Stage 16
+carry (marketplace distribution and `--channels` with a published plugin) was
+unassigned, by name, until rust-services-dev took it on 2026-10-20 (the remit
+of #320; measured on their branch, the §22 line following their verdict). packaging/macos and
+packaging/windows (with the Stage 18 Windows carry below) wait on a lane and a
+host and open on their own record line here: the macOS runtime-directory rule
+is architect-cto's; the macOS runner, the Windows binding and its BSL-1.0
+decision have no building lane until a lane and a host exist, and until then
+architect-cto holds them as carries, by name — the two Activate roots
+`packaging/macos` and `packaging/windows` included — so that no row of this
+stage is nobody's; macOS stays in the v1 matrix and the closing record says what
+became of it. Nothing in
+this stage invents trust, network or application semantics (the rule below).
+The stage closes on the owner's word, as every stage, once every Validate row
+has a green test on `main` or a `limit` naming its reason, every item carried
+here is met or re-carried by name in the closing record, and that record lands
+here.
+
 ### Activate
 
 ```text
@@ -5415,11 +5464,34 @@ Android update/reinstall behavior
 
 The packaging layer must not invent new trust/network/application semantics.
 
-Carried here from Stage 13 (§16): hot reload (SIGHUP) and which leases survive it; supervision units; flock on NFS homes.
+Carried here from Stage 13 (§16): hot reload (SIGHUP) and which leases survive
+it — decided 2026-10-20 (architect-cto, on p2p-network-dev's question,
+DECISION 01a157e2-08b8 as amended by the round-2 review of #317), to be built
+by p2p-network-dev in this stage: the daemon's `Signals` gains a hangup arm,
+and SIGHUP runs the same orderly stop as SIGTERM (grace, settle, unlink) but
+exits with a distinct status (not 0–3; added to §16 (11)'s exit-code list,
+main.rs's doc and the unit's comment in the change that builds it) that
+`interweave-daemon@.service` names in both `SuccessExitStatus=` and
+`RestartForceExitStatus=`, so the unit restarts the daemon after `RestartSec=`
+without logging a failure — `Restart=on-failure` alone never restarts a clean
+exit — and every lease gets a fresh epoch as §16 (7) rules; no `ExecReload`; a
+profile change is `systemctl --user restart` or a SIGHUP, both an orderly stop
+and fresh epochs, the SIGHUP restart following `RestartSec=`; no lease
+survives, by design. Per-endpoint changes go through the admin path (§16 (5));
+a reload of any other field is a later ADR on a shown need. The carry is met
+when a test shows SIGHUP producing SIGTERM's stop sequence and exiting with
+the status it reads from the unit file, asserting that `SuccessExitStatus=`
+and `RestartForceExitStatus=` both name it (so the daemon and the unit cannot
+drift apart), and the service/autostart lifecycle row shows the restart; until
+then it is open, not decided-as-met. Supervision units: met by §28 step 4's
+two user units, their CI cover p2p-network-dev's (the split above). flock on
+NFS homes: p2p-network-dev's (the split above).
 
-Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
+Carried here from Stage 15 (§18): client autostart of the daemon (§18 (9),
+the owner's with packaging — the service/autostart lifecycle row,
+p2p-network-dev's in the split above, is where it is met or re-carried); the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
-Android's release is the project's own (ADR-0057): the tagged release run, the signed APK, its SHA-256 and the Slint attribution on the project's release page, updates by hand; no store listing exists and none is planned; whether the release run builds Skia from source or pins the bindings' prebuilt archive by checksum is decided here before the first release. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release.
+Android's release is the project's own (ADR-0057): the tagged release run, the signed APK, its SHA-256 and the Slint attribution on the project's release page, updates by hand; no store listing exists and none is planned; whether the release run builds Skia from source or pins the bindings' prebuilt archive by checksum is decided here before the first release. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release — rust-services-dev's since 2026-10-20 (remit #320), the bridge, its package and SPIKE-001's carried measurements with it.
 
 Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both. macOS is IN that matrix and owes this stage two things before it ships, neither decided yet: a macOS runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a macOS runner, the v1 build claim being Linux until both exist. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows rows are conditional on the carry above.
 
@@ -5461,7 +5533,7 @@ Android platform binding
 MCP host bridge: pull delivery mode
 ```
 
-**MCP host bridge: pull delivery mode (A 2026-10-07; the owner's decision on p2p-network-dev's question from #221).** ADR-0001's top layer is an MCP host and the Channel push is one delivery mode; ADR-0002 adds the pull mode — one `receive(max)` tool over `events(max)` through one bounded pull queue that drops nothing (full, the drain pauses and the daemon's bounds decide), `--delivery push|pull` required, one mode per process, content and meta shared; ADR-0023 gains the eighth tool for pull mode (`CHANNEL-EVENT.md` §Delivery, `TOOL-SURFACE.md`, `LIFECYCLE.md`). Owner: p2p-network-dev (the tool in `channel-core`, the mode switch in `apps/claude-channel`, a scripted plain-MCP client in `tests/`); the contract text architect-cto's. Lands as one PR, #221, not on Stage 17's path.
+**MCP host bridge: pull delivery mode (A 2026-10-07; the owner's decision on p2p-network-dev's question from #221).** ADR-0001's top layer is an MCP host and the Channel push is one delivery mode; ADR-0002 adds the pull mode — one `receive(max)` tool over `events(max)` through one bounded pull queue that drops nothing (full, the drain pauses and the daemon's bounds decide), `--delivery push|pull` required, one mode per process, content and meta shared; ADR-0023 gains the eighth tool for pull mode (`CHANNEL-EVENT.md` §Delivery, `TOOL-SURFACE.md`, `LIFECYCLE.md`). Owner: p2p-network-dev (the tool in `channel-core`, the mode switch in `apps/claude-channel`, a scripted plain-MCP client in `tests/`; landed in #221 — from 2026-10-20 the `apps/claude-channel` half is rust-services-dev's, remit #320); the contract text architect-cto's. Lands as one PR, #221, not on Stage 17's path.
 
 The tracks converge at the frozen `TransportRuntime` and `LocalDataSession` boundaries.
 

@@ -30,4 +30,6 @@ ANDROID_SERIAL=<serial> INTERWEAVE_ANDROID_INSTRUMENTATION=org.interweave.human.
 
 A run against the stand-in is evidence about the embedded composition, never about a phone. A run on a device is evidence about the phone's runtime over adb's tunnel, not over a radio network.
 
+`runs/` holds the committed device runs, one file per run. Each records the device, the app build, the host commit, every case's result, and what the run did not show.
+
 See [`architecture/docs/architecture/testing.md`](../../architecture/docs/architecture/testing.md) for normative scenarios and exit criteria.
