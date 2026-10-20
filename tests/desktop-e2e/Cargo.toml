@@ -34,6 +34,9 @@ interweave-ipc-client = { path = "../../crates/local/ipc-client" }
 interweave-ipc-protocol = { path = "../../crates/api/ipc-protocol" }
 interweave-local-client-api = { path = "../../crates/api/local-client-api" }
 interweave-local-client-conformance-tests = { path = "../local-client-conformance" }
+# daemon.rs: the profile-format marker's file and this build's format, as
+# the daemon writes and checks them.
+interweave-profile-config = { path = "../../crates/config/profile-config" }
 # The shared desktop harness (`e2e`: `tests/common` re-exports it) and the
 # silent peer.
 interweave-test-support = { path = "../support", features = ["e2e", "silent-peer"] }

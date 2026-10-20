@@ -21,6 +21,7 @@ use interweave_ipc_server::{
     bind_replacing_stale, serve,
 };
 use interweave_profile_config::lock::{DAEMON_LOCK_WAIT, ProfileLock};
+use interweave_profile_config::profile_format;
 use interweave_profile_config::runtime::Deployment;
 use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{ProfileConfig, ProfilePaths, XdgRoots};
@@ -92,6 +93,18 @@ pub(crate) async fn run(args: Args) -> Result<(), Refused> {
     let listeners = bind_replacing_stale(&sockets)
         .await
         .map_err(|e| refused("the IPC sockets")(&e))?;
+    // The profile-format marker raised to this build's (ADR-0028 A
+    // 2026-10-20) under the lock, and BEFORE the runtime starts: the
+    // start is the first step that may write the profile -- an overlay's
+    // normalisation rewrite -- in a form an older build would ignore.
+    // Not earlier, so a start refused for its key or its sockets leaves
+    // an older build free to start the profile. `load` refused a marker
+    // above this build's already; the raise refuses one written since.
+    if let Err(e) = profile_format::raise(&paths) {
+        drop(listeners);
+        unlink(&sockets);
+        return Err(refused("the profile-format marker")(&e));
+    }
     let runtime = match ComposedRuntime::start(
         &identity,
         &profile,
