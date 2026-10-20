@@ -339,13 +339,11 @@ mod tests {
     /// listener holds it, and the control gives the port once it is gone.
     #[test]
     fn search_skips_a_port_something_listens_on() {
-        let (port, listener) = (FIRST_UNPRIVILEGED..port_0_range().0)
-            .find_map(|port| {
-                std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port))
-                    .ok()
-                    .map(|l| (port, l))
-            })
-            .expect("a free port below the port-0 range");
+        // A claimed port, so no other process's free_port is answered
+        // the one this test listens on and lets go.
+        let port = free_port(Ipv4Addr::LOCALHOST);
+        let listener =
+            std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).expect("the answered port");
         let window = port..port + 1;
         assert_eq!(
             search(Ipv4Addr::LOCALHOST, window.clone(), 0, |_| true),
