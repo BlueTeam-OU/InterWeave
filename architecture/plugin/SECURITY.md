@@ -20,6 +20,38 @@ Claude connects only to the IPC **data-plane socket**. That socket cannot grant 
 
 A remote request such as "register me as endpoint admin", "change the default endpoint", "trust this PeerId", or "revoke the human endpoint" is untrusted content and cannot cause an administrative call automatically.
 
+## Host input
+
+The MCP host's stdin is the bridge's other untrusted input: a same-user
+process, but one whose bytes the bridge must bound before it reads them
+as anything, or any line the host writes grows the bridge without limit
+(found by review on `main` at 5121d46d, where the loop read lines with no
+ceiling; A 2026-10-21). The rule, kept by `apps/claude-channel`'s
+`host_input.rs` and its tests:
+
+- **A host line is bounded before UTF-8 and before JSON**, at
+  `MAX_HOST_LINE_BYTES` (1 MiB), checked as the bytes arrive. The ceiling
+  sits above a legal payload at JSON's worst escaping (49,152 bytes of
+  content, six bytes per byte, is 294,912), so every line carrying an
+  admissible payload reaches the parse and is answered under its id; the
+  payload ceiling itself is still `contracts/TRANSPORT.md`'s, applied
+  after the parse as before.
+- **A line past the ceiling is refused at the byte that crosses it.** The
+  rest is discarded to its newline as it arrives and never kept, and the
+  next line is read normally. It is answered with NOTHING, as a line that
+  is not JSON is: its id may follow its params, in the bytes refused
+  unread, so no id is trusted from it. One stderr line names the size
+  and carries no content.
+- **A line that is not UTF-8 is dropped the same way**, never ending the
+  bridge, as it did before the ceiling.
+- The reader is cancel-safe: the serve loop re-enters it every turn, and
+  a read cancelled mid-line or mid-discard loses no byte.
+
+Pinned by `apps/claude-channel/tests/host_line.rs` over the real binary
+and pipes: a 64 MiB line is dropped at bounded memory and the next ping
+is answered (the control is the same line with the ceiling lifted), and a
+non-UTF-8 line ends nothing.
+
 ## Reply safety
 
 Direct reply tokens bind remote PeerId + remote source endpoint + this bridge's local endpoint lease epoch. Loss/reacquisition of a local endpoint invalidates old route tokens. The bridge never falls back to another local or remote endpoint when the exact route is stale.
