@@ -13,8 +13,11 @@
 //! show-environment` answers) and that runs no `interweave-*@` instance of
 //! its own -- uninstall stops every one, so a case refuses to start beside
 //! one. The two cases of uninstall.sh WITHOUT a reachable manager run
-//! everywhere: they point `XDG_RUNTIME_DIR` at a scratch directory, so the
-//! account's manager, if any, is never asked.
+//! everywhere: they point `XDG_RUNTIME_DIR` at a scratch directory AND put
+//! an `id` stand-in first on `PATH`, answering a uid with no `/run/user`
+//! directory. The stand-in is what keeps the account's manager out: with
+//! the scratch directory alone, the script's fallback to its own
+//! `/run/user/<uid>` would reach that manager and stop its instances.
 //!
 //! The install goes into a scratch `HOME` and `XDG_CONFIG_HOME`, which the
 //! account's manager does not search, so each case LINKS the installed
