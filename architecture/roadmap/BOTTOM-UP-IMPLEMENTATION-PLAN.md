@@ -5459,16 +5459,21 @@ it — decided 2026-10-20 (architect-cto, on p2p-network-dev's question,
 DECISION 01a157e2-08b8 as amended by the round-2 review of #317), to be built
 by p2p-network-dev in this stage: the daemon's `Signals` gains a hangup arm,
 and SIGHUP runs the same orderly stop as SIGTERM (grace, settle, unlink) but
-exits with a distinct status that `interweave-daemon@.service` names in
-`RestartForceExitStatus=`, so the unit restarts the daemon —
-`Restart=on-failure` alone never restarts a clean exit — and every lease gets
-a fresh epoch as §16 (7) rules; no `ExecReload`; a profile change is
-`systemctl --user restart` or a SIGHUP, the same thing; no lease survives, by
-design. Per-endpoint changes go through the admin path (§16 (5)); a reload of
-any other field is a later ADR on a shown need. The carry is met when a test
-shows SIGHUP producing SIGTERM's stop sequence and the exit status the unit
-restarts on; until then it is open, not decided-as-met. Supervision units;
-flock on NFS homes.
+exits with a distinct status (not 0–3; added to §16 (11)'s exit-code list,
+main.rs's doc and the unit's comment in the change that builds it) that
+`interweave-daemon@.service` names in both `SuccessExitStatus=` and
+`RestartForceExitStatus=`, so the unit restarts the daemon after `RestartSec=`
+without logging a failure — `Restart=on-failure` alone never restarts a clean
+exit — and every lease gets a fresh epoch as §16 (7) rules; no `ExecReload`; a
+profile change is `systemctl --user restart` or a SIGHUP, both an orderly stop
+and fresh epochs, the SIGHUP restart following `RestartSec=`; no lease
+survives, by design. Per-endpoint changes go through the admin path (§16 (5));
+a reload of any other field is a later ADR on a shown need. The carry is met
+when a test shows SIGHUP producing SIGTERM's stop sequence and exiting with
+the status it reads from the unit file's `RestartForceExitStatus=` (so the
+daemon and the unit cannot drift apart), and the unit row shows the restart;
+until then it is open, not decided-as-met. Supervision units; flock on NFS
+homes.
 
 Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
