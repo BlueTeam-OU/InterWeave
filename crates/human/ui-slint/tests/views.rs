@@ -2169,6 +2169,106 @@ fn a_long_conversation_brings_the_focused_message_into_view() {
     );
 }
 
+/// Let the window run its change handlers and animations, as its event
+/// loop does between frames.
+fn settle() {
+    slint::platform::update_timers_and_animations();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    slint::platform::update_timers_and_animations();
+}
+
+/// The spec's S3 with keyboard focus: a conversation opens at its end,
+/// and once Tab has brought an older message into view, a new message
+/// leaves the list there, the focused message still shown (#313 review
+/// round 6, finding 1: the toolkit's own scroll into view fires no
+/// `flicked`).
+#[test]
+fn a_message_arriving_leaves_the_list_on_the_focused_older_message() {
+    const MANY: usize = 40;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 0..MANY {
+        model.received(received(i64::try_from(n).expect("small") + 1, &alice, "hi"));
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    settle();
+    assert!(
+        item_in_view(&view, false, MANY - 1, MANY),
+        "it opens at its end"
+    );
+    assert!(
+        !item_in_view(&view, false, 0, MANY),
+        "control: the first message is outside the window"
+    );
+    let mut focused = String::new();
+    for _ in 0..40 {
+        focused = tab(&view);
+        if focused.starts_with("item:") {
+            break;
+        }
+    }
+    settle();
+    assert!(focused.starts_with("item:"), "Tab reached a message");
+    assert!(
+        item_in_view(&view, false, 0, MANY),
+        "the focused first message is brought into view"
+    );
+    model.received(received(
+        i64::try_from(MANY).expect("small") + 1,
+        &alice,
+        "new",
+    ));
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        focused,
+        "focus stays"
+    );
+    assert!(
+        item_in_view(&view, false, 0, MANY + 1),
+        "the arrival leaves the focused message in view"
+    );
+}
+
+/// The pane's list is shared by every conversation: one scrolled away
+/// from its end does not carry that offset to the next one opened, which
+/// opens at its end (#313 review round 6, finding 2).
+#[test]
+fn a_conversation_opened_after_scrolling_another_opens_at_its_end() {
+    use slint::platform::WindowEvent;
+    const MANY: usize = 40;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    for n in 0..MANY {
+        let row = i64::try_from(n).expect("small");
+        model.received(received(2 * row + 1, &alice, "hi"));
+        model.received(received(2 * row + 2, &bob, "hi"));
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    settle();
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::PointerScrolled {
+            position: slint::LogicalPosition::new(700.0, 300.0),
+            delta_x: 0.0,
+            delta_y: 600.0,
+        });
+    settle();
+    assert!(
+        !item_in_view(&view, false, MANY - 1, MANY),
+        "control: alice's conversation is scrolled away from its end"
+    );
+    open(&mut view, &mut model, &direct(&bob));
+    settle();
+    assert!(
+        item_in_view(&view, false, MANY - 1, MANY),
+        "bob's conversation opens at its end"
+    );
+}
+
 /// The window's two announcement slots' texts, as a screen reader is
 /// handed them, each checked to be a polite live region.
 fn slots(view: &View) -> [String; 2] {

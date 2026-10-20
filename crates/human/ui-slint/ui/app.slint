@@ -1030,10 +1030,6 @@ component UnreadBadge inherits Rectangle {
     }
 }
 
-// The identity screens' page. FLAG_SECURE, the no-clipboard rule and the
-// IME-free entry are kept by what is NOT here: no TextInput, so no
-// system keyboard and no copy of a word; the window's secure flag is the
-// platform's (human-android).
 /// A session notice: about the whole client, not one conversation, with
 /// the one action that answers it, if any. Shown wherever the person is:
 /// in the conversation pane, and on a phone's Chats as well, where a
@@ -1068,6 +1064,10 @@ component NoticeCard inherits Rectangle {
     }
 }
 
+// The identity screens' page. FLAG_SECURE, the no-clipboard rule and the
+// IME-free entry are kept by what is NOT here: no TextInput, so no
+// system keyboard and no copy of a word; the window's secure flag is the
+// platform's (human-android).
 component IdentityScreen inherits FocusScope {
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
@@ -2627,15 +2627,24 @@ export component AppWindow inherits Window {
                 function to-newest() {
                     self.content-y = min(0px, self.height - self.content-height);
                 }
-                // Pinned to its end until the person scrolls away from it:
-                // a conversation opens at its end and stays there as its
-                // space or its messages change (the spec's S3); scrolled
-                // back to the end, it is pinned again. The list is made
-                // again, pinned, when the list beside it steps aside or
-                // comes back, with no change to tell it.
+                // Pinned to its end while it shows its end: a conversation
+                // opens at its end and stays there as its space or its
+                // messages change (the spec's S3). Whatever moves it away
+                // -- a scroll, a drag, or the toolkit bringing a focused
+                // message into view, which fires no `flicked` -- unpins it,
+                // and a new message then leaves it where it is; back at its
+                // end it is pinned again. A clamp after a resize lands at
+                // the end, so it keeps the pin. The pane's list is shared
+                // by every conversation, so a change of conversation pins
+                // it again.
                 property <bool> pinned: true;
-                flicked => {
+                changed content-y => {
                     self.pinned = self.content-y <= self.height - self.content-height + 1px;
+                }
+                property <string> shown: root.header-id;
+                changed shown => {
+                    self.pinned = true;
+                    self.to-newest();
                 }
                 property <bool> anchored: root.typing || self.pinned;
                 init => { self.to-newest(); }

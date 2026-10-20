@@ -554,7 +554,15 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         "the relay carried R's circuit to D: {seen:?}"
     );
 
-    // Each Android side was handed D's two, and D the four from them.
+    // Each Android side was handed D's two answers and its close, and D
+    // the four from them.
+    for (name, android) in &handed {
+        assert_eq!(
+            android.len(),
+            3,
+            "{name} was handed D's two answers and its close"
+        );
+    }
     let d_handed = side.tap.lock().expect("the tap").clone();
     assert_eq!(d_handed.len(), 4, "D was handed R's two and C's two");
     handed.push(("D", d_handed));
