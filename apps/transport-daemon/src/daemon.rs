@@ -93,18 +93,6 @@ pub(crate) async fn run(args: Args) -> Result<(), Refused> {
     let listeners = bind_replacing_stale(&sockets)
         .await
         .map_err(|e| refused("the IPC sockets")(&e))?;
-    // The profile-format marker raised to this build's (ADR-0028 A
-    // 2026-10-20) under the lock, and BEFORE the runtime starts: the
-    // start is the first step that may write the profile -- an overlay's
-    // normalisation rewrite -- in a form an older build would ignore.
-    // Not earlier, so a start refused for its key or its sockets leaves
-    // an older build free to start the profile. `load` refused a marker
-    // above this build's already; the raise refuses one written since.
-    if let Err(e) = profile_format::raise(&paths) {
-        drop(listeners);
-        unlink(&sockets);
-        return Err(refused("the profile-format marker")(&e));
-    }
     let runtime = match ComposedRuntime::start(
         &identity,
         &profile,
@@ -119,6 +107,22 @@ pub(crate) async fn run(args: Args) -> Result<(), Refused> {
             return Err(refused("the runtime")(&e));
         }
     };
+    // The profile-format marker raised to this build's (ADR-0028 A
+    // 2026-10-20) under the lock, once the runtime has started and before
+    // anything is served: a start refused anywhere before here -- the key,
+    // the sockets, a newer build's overlay the runtime will not read --
+    // writes nothing (`a_runtime_that_fails_to_start_leaves_no_socket`).
+    // What the start may write before it, an overlay's normalisation
+    // rewrite, keeps the file's shape at this format; a change that bumps
+    // the format and changes what the start writes moves this, and its
+    // review checks it. `load` refused a marker above this build's
+    // already; the raise refuses one written since.
+    if let Err(e) = profile_format::raise(&paths) {
+        let _ = runtime.stop().await;
+        drop(listeners);
+        unlink(&sockets);
+        return Err(refused("the profile-format marker")(&e));
+    }
     if let Some(e) = listeners.admin_error() {
         // ADR-0037: the admin socket failing does not take data down.
         tracing::warn!(error = %e, "the admin socket is unavailable; serving data only");
