@@ -102,6 +102,16 @@ add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.firebase:b:1
 add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.android.play:c:1.0=unified-test-platform-gradle-work-action"
 expect_pass "$R" "lint, unit-test, instrumented-test and test-platform configurations"
 
+echo "test fixtures are test tooling (architect-cto, DECISION 01a15473)"
+R="$(tree)"
+add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.firebase:f:1.0=testFixturesCompileClasspath,testFixturesRuntimeClasspath,debugTestFixturesRuntimeClasspath"
+expect_pass "$R" "the fixtures classpaths, plain and build-typed"
+R="$(tree)"
+add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.firebase:f:1.0=testFixturesRuntimeClasspath,releaseRuntimeClasspath"
+out="$(run "$R")"
+expect_fail "$R" "a fixtures artifact that also reached the shipped classpath" "com.google.firebase:f:1.0 on releaseRuntimeClasspath"
+case "$out" in *"testFixturesRuntimeClasspath"*) bad "  should not report the fixtures half: $out" ;; *) ok "  and leaves the fixtures half out" ;; esac
+
 echo "a line shared by lint and the application names the application half only"
 R="$(tree)"
 add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.android.gms:d:1.0=androidLintTool,releaseCompileClasspath"
@@ -225,8 +235,10 @@ R="$(tree)"; printf '\ntesting { plugins { id("com.google.gms.google-services") 
 expect_fail "$R" "a line that only starts with test" "declares a banned group"
 R="$(tree)"; printf '\ndependencies {\n    testDebugImplementation("com.google.firebase:x:1.0")\n    androidTestUtil("com.google.android.gms:y:1.0")\n    androidTestReleaseImplementation("com.google.android.play:z:1.0")\n}\n' >> "$R/$APP_BUILD"
 expect_pass "$R" "test configurations with a build type, and androidTestUtil (round 4)"
-R="$(tree)"; printf '\ndependencies {\n    testFixturesImplementation("com.google.firebase:x:1.0")\n}\n' >> "$R/$APP_BUILD"
-expect_fail "$R" "test fixtures, which the lockfile check counts as the application (round 5)" "declares a banned group"
+R="$(tree)"; printf '\ndependencies {\n    testFixturesImplementation("com.google.firebase:x:1.0")\n    testFixturesApi("com.google.android.gms:y:1.0")\n    debugTestFixturesImplementation("com.google.android.play:z:1.0")\n}\n' >> "$R/$APP_BUILD"
+expect_pass "$R" "test-fixtures dependency lines, as the lockfile half exempts their classpaths"
+R="$(tree)"; printf '\ndependencies {\n    testFixturesish("com.google.firebase:x:1.0")\n}\n' >> "$R/$APP_BUILD"
+expect_fail "$R" "a call that only starts with testFixtures" "declares a banned group"
 R="$(tree)"; printf '\ndependencies {\n    testingImplementation("com.google.firebase:x:1.0")\n}\n' >> "$R/$APP_BUILD"
 expect_fail "$R" "a configuration that only starts with test (testingImplementation)" "declares a banned group"
 
@@ -266,13 +278,53 @@ expect_fail "$R" "buildscript locking switched off" "the buildscript classpath i
 R="$(tree)"; rm "$R/apps/human-android/android/buildscript-gradle.lockfile"
 expect_fail "$R" "no buildscript-gradle.lockfile" "buildscript-gradle.lockfile: missing"
 
+echo "both locks are STRICT, or a configuration with no lock state resolves unseen"
+# The real file sets it twice; each case removes one by its line number.
+strict_lines() { grep -n 'lockMode.set(LockMode.STRICT)' "$1/$ROOT_BUILD" | cut -d: -f1; }
+R="$(tree)"; [ "$(strict_lines "$R" | wc -l)" = 2 ] && ok "  the real root build sets STRICT twice" || bad "  the real root build should set STRICT twice"
+R="$(tree)"; sed -i "$(strict_lines "$R" | sed -n 1p)d" "$R/$ROOT_BUILD"
+expect_fail "$R" "STRICT gone from buildscript" "no lockMode.set(LockMode.STRICT) in buildscript"
+R="$(tree)"; sed -i "$(strict_lines "$R" | sed -n 2p)d" "$R/$ROOT_BUILD"
+expect_fail "$R" "STRICT gone from allprojects" "no lockMode.set(LockMode.STRICT) in allprojects"
+R="$(tree)"; sed -i "$(strict_lines "$R" | sed -n 2p)s#^#// #" "$R/$ROOT_BUILD"
+expect_fail "$R" "STRICT in allprojects commented out" "no lockMode.set(LockMode.STRICT) in allprojects"
+R="$(tree)"; sed -i "$(strict_lines "$R" | sed -n 2p)d" "$R/$ROOT_BUILD"; printf '\ndependencyLocking { lockMode.set(LockMode.STRICT) }\n' >> "$R/$ROOT_BUILD"
+expect_fail "$R" "STRICT after the allprojects block has closed" "no lockMode.set(LockMode.STRICT) in allprojects"
+echo "the lock mode is set by the root's exact STRICT lines and nowhere else (review of #311, findings 1-2)"
+for mode in \
+    'dependencyLocking { lockMode.set(LockMode.DEFAULT) }' \
+    'dependencyLocking { lockMode.set(DEFAULT) }' \
+    "dependencyLocking { lockMode = 'DEFAULT' }" \
+    'val m = LockMode.DEFAULT' \
+    'dependencyLocking { lockMode.set(LockMode.valueOf(providers.gradleProperty("m").get())) }' \
+    'dependencyLocking { getLockMode().set(m) }' \
+    'dependencyLocking { lockMode.set(LockMode.STRICT) }'; do
+    R="$(tree)"; printf '\n%s\n' "$mode" >> "$R/$APP_BUILD"
+    expect_fail "$R" "$mode in app/build.gradle.kts" "app/build.gradle.kts: sets or names the lock mode"
+done
+# One case per alternative of LOCK_MODE that only it catches (review of
+# #311 round 2): a word at the start of the line (^), and setLockMode
+# (set). getLockMode above pins get; every other case pins [^A-Za-z].
+for mode in 'lockMode.set(m)' 'dependencyLocking { setLockMode(m) }'; do
+    R="$(tree)"; printf '\n%s\n' "$mode" >> "$R/$APP_BUILD"
+    expect_fail "$R" "$mode in app/build.gradle.kts" "app/build.gradle.kts: sets or names the lock mode"
+done
+R="$(tree)"; printf '\nimport org.gradle.api.artifacts.dsl.LockMode.*\ndependencyLocking {\n    lockMode.set(\n        DEFAULT)\n}\n' >> "$R/$APP_BUILD"
+expect_fail "$R" "a mode argument on the line after lockMode.set(" "app/build.gradle.kts: sets or names the lock mode (line"
+R="$(tree)"; printf '\nlockMode.set(LockMode.STRICT)\n' >> "$R/apps/human-android/android/settings.gradle.kts"
+expect_fail "$R" "the exact STRICT line outside the root build" "settings.gradle.kts: sets or names the lock mode"
+R="$(tree)"; sed -i 's/^allprojects {/\/\/ the lockMode is STRICT below\nallprojects {/' "$R/$ROOT_BUILD"
+expect_fail "$R" "a comment naming it in the root build" "build.gradle.kts: sets or names the lock mode"
+R="$(tree)"; printf '\nval mode = "DEFAULT"\nval spec = KeyGenParameterSpec.Builder("k", 0).setBlockModes("GCM")\n' >> "$R/$APP_BUILD"
+expect_pass "$R" "DEFAULT on a line that names no lock mode, and setBlockModes"
+
 echo "the real repository passes its own guard"
 if [ "$(run_code "$REPO")" = "0" ]; then ok "this repository"; else bad "this repository fails: $(run "$REPO")"; fi
 
 echo "--help quotes the decision, its amendment and the five groups"
 help="$(bash "$GUARD" --help 2>&1)"; code=$?
 [ "$code" = 0 ] && ok "--help exits 0" || bad "--help exit $code"
-for s in 'ADR-0056 decision 2' 'com.google.android.gms' 'com.google.firebase' 'com.google.android.play' 'com.android.billingclient' 'com.google.gms`' 'Amendment 2026-10-19' 'Lint and'; do
+for s in 'ADR-0056 decision 2' 'com.google.android.gms' 'com.google.firebase' 'com.google.android.play' 'com.android.billingclient' 'com.google.gms`' 'Amendment 2026-10-19' 'Lint and' 'Test fixtures are test tooling'; do
     case "$help" in *"$s"*) ok "  says $s" ;; *) bad "  --help lacks '$s'" ;; esac
 done
 
