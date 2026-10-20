@@ -24,6 +24,8 @@ UNDER_TEST="$SCRIPT_DIR/release_linux_archive.sh"
 NOTICES="$SCRIPT_DIR/release_notices.py"
 [[ -f "$UNDER_TEST" && -f "$NOTICES" ]] || { echo "test: scripts not found" >&2; exit 1; }
 
+# The first build's umask, so the second's (077) is another one.
+umask 022
 failures=0
 SANDBOX="$(realpath -- "$(mktemp -d)")"
 trap 'rm -rf "$SANDBOX"' EXIT
@@ -145,10 +147,11 @@ EOF
         || fail "the entries' mtimes are $stamps, not SOURCE_DATE_EPOCH alone"
     first="$(sha256sum "$A" | cut -d' ' -f1)"
     touch "$BIN/transportctl"
-    build 0.3.0 "$OUT"
+    # The second build under another umask: the builder's is not an input.
+    (umask 077 && build 0.3.0 "$OUT")
     [[ "$(sha256sum "$A" | cut -d' ' -f1)" == "$first" ]] \
-        && pass "two builds from the same inputs are the same bytes" \
-        || fail "a second build of the same inputs differs"
+        && pass "two builds from the same inputs, under umasks 022 and 077, are the same bytes" \
+        || fail "a second build of the same inputs, under umask 077, differs" "$(tar -tzvf "$A" | head -4)"
 
     X="$SANDBOX/x"
     mkdir -p "$X" "$SANDBOX/home"

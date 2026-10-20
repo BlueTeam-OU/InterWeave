@@ -27,8 +27,9 @@
 # or over the file RELEASE_METADATA_JSON names.
 #
 # The archive is byte-for-byte reproducible from the same inputs: names
-# sorted, owner and group 0, every mtime SOURCE_DATE_EPOCH (default: the
-# commit time of HEAD), gzip without a name or time.
+# sorted, owner and group 0, modes fixed whatever the umask, every mtime
+# SOURCE_DATE_EPOCH (default: the commit time of HEAD), gzip without a
+# name or time.
 #
 # REFUSED when <version> is not MAJOR.MINOR.PATCH, or a program, a unit
 # or a script is missing; nothing is left in <out-dir> then.
@@ -86,6 +87,9 @@ scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 stage="$scratch/$name"
 mkdir -p "$stage/bin" "$stage/systemd"
+# Their modes are the archive's, not the builder's umask: 077 would make
+# the same inputs give other bytes.
+chmod 0755 "$stage" "$stage/bin" "$stage/systemd"
 for p in "${programs[@]}"; do install -m 0755 "$bin_dir/$p" "$stage/bin/$p"; done
 for u in "${units[@]}"; do install -m 0644 "$root/packaging/linux/systemd/$u" "$stage/systemd/$u"; done
 install -m 0755 "$root/packaging/linux/install.sh" "$stage/install.sh"
