@@ -257,7 +257,12 @@ but does not re-rank these.
        as many lines as it needs, never cut or ellipsized, and stays
        selectable to copy. Monospace, so that characters a person
        compares line up. No spaces or grouping are inserted: the
-       copied text is the canonical form.
+       copied text is the canonical form. This differs from the
+       identity flow's groups of four (identity design §5) on
+       purpose: there the PeerId is display-only text with a copy of
+       its own, so the spacing never reaches the clipboard; here the
+       person copies by selecting the text itself, and any spacing
+       would be copied with it.
     3. The field is a Material outlined text field labelled "PeerId to
        trust", with its error ("not a PeerId") under it, not beside
        it. "Trust this peer" is a filled button beside the field when
