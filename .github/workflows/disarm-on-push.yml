@@ -80,50 +80,45 @@ jobs:
           older() { [[ "$1" != "-" && "$1" < "$PUSHED_AT" ]]; }
           read -r node armed_on queued_on last_armed < <(state)
           # A queue entry is as old as the arming that made it, so one made
-          # after the push by a pre-push arming is taken out too. A direct
-          # enqueue of the new head after a late-running job is taken out
-          # with it: failing closed costs one more fabric-pr arm.
-          stale_queue=""
-          if [[ "$queued_on" != "-" ]] && { older "$queued_on" || older "$last_armed"; }; then
-            stale_queue=1
-          fi
-          if [[ -z "$stale_queue" ]] && ! older "$armed_on"; then
+          # after the push by a pre-push arming is stale too. A direct
+          # enqueue of the new head that beats a late-running job is taken
+          # out with it: failing closed costs one more fabric-pr arm.
+          if ! older "$armed_on" && ! older "$queued_on" \
+             && ! { older "$last_armed" && [[ "$queued_on" != "-" ]]; }; then
             echo "#$PR: armed $armed_on (last arming $last_armed), queued $queued_on, push at $PUSHED_AT — nothing armed before the push, nothing to take off"
             exit 0
           fi
-          # The dequeue first, then the disarm of whatever arming is left
-          # once it is out, each attempted whatever the other did. What was
-          # taken off is then read back from the pull request, never from a
-          # mutation's exit status: a mutation can fail on a field the other
-          # already cleared, or succeed and change nothing.
-          if [[ -n "$stale_queue" ]]; then
-            gh api graphql -f query='mutation($id:ID!){dequeuePullRequest(input:{id:$id}){clientMutationId}}' \
-              -f id="$node" >/dev/null || echo "dequeuePullRequest failed; reading the pull request back"
-          fi
-          read -r _ armed_mid _ _ < <(state)
-          # Out of a stale queue entry, any arming present is the stale one.
-          stale_arming=""
-          if older "$armed_on" || older "$armed_mid" || [[ -n "$stale_queue" && "$armed_mid" != "-" ]]; then
-            stale_arming=1
-          fi
-          if older "$armed_mid" || [[ -n "$stale_queue" && "$armed_mid" != "-" ]]; then
-            gh api graphql -f query='mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}' \
-              -f id="$node" >/dev/null || echo "disablePullRequestAutoMerge failed; reading the pull request back"
-          fi
+          # From here whatever is present is the stale arming's, whenever it
+          # appears: the new head can go green during this job, and the
+          # still-on arming then queues it between two reads. So take off
+          # what is there, read again, and repeat, a bounded number of times.
+          # What was taken off is read back from the pull request, never
+          # from a mutation's exit status: a mutation can fail on a field the
+          # other already cleared, or succeed and change nothing.
+          saw_queue="" saw_arm=""
+          for _ in 1 2 3; do
+            read -r _ armed_now queued_now _ < <(state)
+            [[ "$armed_now" == "-" && "$queued_now" == "-" ]] && break
+            if [[ "$queued_now" != "-" ]]; then
+              saw_queue="${saw_queue:-$queued_now}"
+              gh api graphql -f query='mutation($id:ID!){dequeuePullRequest(input:{id:$id}){clientMutationId}}' \
+                -f id="$node" >/dev/null || echo "dequeuePullRequest failed; reading the pull request back"
+            fi
+            if [[ "$armed_now" != "-" ]]; then
+              saw_arm="${saw_arm:-$armed_now}"
+              gh api graphql -f query='mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}' \
+                -f id="$node" >/dev/null || echo "disablePullRequestAutoMerge failed; reading the pull request back"
+            fi
+          done
           read -r _ armed_now queued_now _ < <(state)
           taken="" left=""
-          if [[ -n "$stale_queue" ]]; then
-            if [[ "$queued_now" != "-" ]]; then left="still in the merge queue (queued $queued_now)"
-            else taken="taken out of the merge queue (queued $queued_on)"; fi
-          fi
-          if [[ -n "$stale_arming" ]]; then
-            if older "$armed_now" || [[ -n "$stale_queue" && "$armed_now" != "-" ]]; then
-              left="${left:+$left; }auto-merge still on (armed $armed_now)"
-            else taken="${taken:+$taken; }auto-merge taken off (armed ${last_armed})"; fi
-          fi
+          if [[ "$queued_now" != "-" ]]; then left="still in the merge queue (queued $queued_now)"
+          elif [[ -n "$saw_queue" ]]; then taken="taken out of the merge queue (queued $saw_queue)"; fi
+          if [[ "$armed_now" != "-" ]]; then left="${left:+$left; }auto-merge still on (armed $armed_now)"
+          elif [[ -n "$saw_arm" ]]; then taken="${taken:+$taken; }auto-merge taken off (armed $saw_arm)"; fi
           moved="the head moved from ${BEFORE:0:8} to ${AFTER:0:8} after the arming"
           if [[ -z "$left" ]]; then
-            body="Arming taken off: $moved — $taken. A pull request is armed on a reviewed head (agent-fabric ADR-019); review the new range, then arm again with fabric-pr arm."
+            body="Arming taken off: $moved — ${taken:-nothing was left to take off by the time this ran}. A pull request is armed on a reviewed head (agent-fabric ADR-019); review the new range, then arm again with fabric-pr arm."
           else
             body="Arming NOT fully taken off: $moved, and this workflow could not take it all off — $left${taken:+; done: $taken}. Take off by hand what is left (gh pr merge --disable-auto, or a dequeue), then review the new range and arm again with fabric-pr arm (agent-fabric ADR-019)."
           fi

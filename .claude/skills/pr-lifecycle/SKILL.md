@@ -188,7 +188,8 @@ gh api graphql -f query='mutation{dequeuePullRequest(input:{id:"<pr node id>"}){
 dequeue. Confirm `mergeQueueEntry` reads null afterwards, push the fix,
 have the new range reviewed, then `fabric-pr arm` again. Pushing to an armed
 or queued PR does both for you: `disarm-on-push.yml` takes off an arming
-older than the push and a queue entry it made, and comments on the PR (CLAUDE.md
+older than the push and any queue entry older than the push or made by
+such an arming, and comments on the PR (CLAUDE.md
 §9, "Never race your own CI"). Arm again only once the pushed range is
 reviewed.
 

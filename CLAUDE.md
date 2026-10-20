@@ -809,9 +809,9 @@ there is no trade to make.
 agent-fabric ADR-019 §5 rule 5). GitHub keeps auto-merge across a push from
 anyone with write access and the ruleset asks for no approval, so without it
 a fold, a conflict merge or a late fix would reach the queue unreviewed. The
-job takes off an arming older than the push, and a queue entry such an
-arming made (even after the push), and says so on the PR; its `disarm`
-context is not a required one. A push therefore always means: review the
+job takes off an arming older than the push and any queue entry older
+than the push or made by such an arming (even after it), and says so on
+the PR; its `disarm` context is not a required one. A push therefore always means: review the
 new range, then `fabric-pr arm` again. A lost push webhook means the job
 never ran, so after a push to an armed PR read both `autoMergeRequest` and
 `mergeQueueEntry` yourself: GitHub clears the first once the PR is queued.
