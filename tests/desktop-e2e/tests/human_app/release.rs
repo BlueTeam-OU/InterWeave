@@ -48,7 +48,11 @@ use interweave_transport_api::{
     DirectDestination, MAX_PAYLOAD_BYTES, MediaType, MessageId, TransportIdentity,
 };
 
+use interweave_human_ui_model::{UiText, placeholder_en};
+
+use crate::a11y::Bus;
 use crate::common::{Home, PATIENCE, example, human, stranger};
+use crate::display;
 use crate::harness::{self as app, human_lease, until_lease};
 use crate::package::{self, Running};
 use crate::world::{app_store, envelope, wall_ms};
@@ -448,7 +452,27 @@ async fn a_store_from_a_newer_build_stops_the_client_and_is_left_as_it_was() {
     let mut daemon = serving(&home).await;
     let before = snapshot(&home);
 
+    let _focus = display::exclusive().await;
+    let bus = Bus::connect().await;
     let mut client = app::start(&home);
+    // Shown, not only said: the refusal screen names the store.
+    let screen = bus.window_of(client.child.id(), || client.log()).await;
+    screen
+        .until(
+            "why",
+            |e| e.name == placeholder_en::text(UiText::RefusalStoreRecovery),
+            || client.log(),
+        )
+        .await;
+    let close = screen
+        .until(
+            "Close",
+            |e| e.role == "button" && e.name == placeholder_en::text(UiText::Close),
+            || client.log(),
+        )
+        .await;
+    assert!(human_lease(&home.binding()).await.is_none());
+    screen.activate(&close, "click").await;
     let status = client.exit_within(PATIENCE);
     // `EX_DATAERR`: the file needs recovery (run.rs).
     assert_eq!(status.code(), Some(65), "{}", client.log());
@@ -628,12 +652,51 @@ async fn a_profile_a_newer_build_marked_stops_every_program_and_is_left_as_it_wa
     plant_marker(&home, PROFILE_FORMAT + 1);
     let before = snapshot(&home);
 
+    let _focus = display::exclusive().await;
+    let bus = Bus::connect().await;
     let mut client = app::start(&home);
+    // The release page's "it shows which file stopped it": the screen
+    // says why and names the marker, whole.
+    let screen = bus.window_of(client.child.id(), || client.log()).await;
+    screen
+        .until(
+            "why",
+            |e| e.name == placeholder_en::text(UiText::RefusalProfileNewer),
+            || client.log(),
+        )
+        .await;
+    let marker = profile_format::path_for(&home.paths).display().to_string();
+    let path = screen
+        .until(
+            "the marker's path",
+            |e| e.name == placeholder_en::text(UiText::RefusalPath),
+            || client.log(),
+        )
+        .await;
+    assert_eq!(
+        screen.text_of(&path).await,
+        marker,
+        "the file that stopped it, whole"
+    );
+    let close = screen
+        .until(
+            "Close",
+            |e| e.role == "button" && e.name == placeholder_en::text(UiText::Close),
+            || client.log(),
+        )
+        .await;
+    screen.activate(&close, "click").await;
     let status = client.exit_within(PATIENCE);
-    assert!(!status.success(), "the window refuses: {}", client.log());
+    // `EX_CONFIG`, as before the screen (run.rs).
+    assert_eq!(
+        status.code(),
+        Some(78),
+        "the window refuses: {}",
+        client.log()
+    );
     assert!(
         client.log().contains(profile_format::PROFILE_FORMAT_FILE),
-        "the window says which file stopped it: {}",
+        "the stderr line says which file stopped it: {}",
         client.log()
     );
     let ctl = package::transportctl(&home, &["identity", "show"], "");
