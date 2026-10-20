@@ -143,10 +143,13 @@ fn profile_reason(error: &StartError) -> (UiText, Option<PathBuf>) {
         StartError::NoHumanEndpoint { paths } => {
             (UiText::RefusalProfileSettings, Some(paths.config_file()))
         }
-        // The folder, where the error names one: "check where this
-        // profile keeps its files" is nothing to act on without it.
+        // An error that names a path is a privacy refusal, and reads as
+        // one with the folder shown; the rest name no folder to show.
         StartError::Directories(e) | StartError::Paths(e) | StartError::Sockets(e) => {
-            (UiText::RefusalProfileFolders, persist_path(e))
+            match persist_path(e) {
+                Some(path) => (UiText::RefusalNotPrivate, Some(path)),
+                None => (UiText::RefusalProfileFolders, None),
+            }
         }
         StartError::RolesOverlap => (UiText::RefusalProfileFolders, None),
     }
@@ -398,11 +401,11 @@ mod tests {
                 }
             ))),
             (
-                UiText::RefusalProfileFolders,
+                UiText::RefusalNotPrivate,
                 Some("/x/state".to_owned()),
                 false
             ),
-            "the folder, where the error names one"
+            "a profile folder others can reach reads as not private, with the folder"
         );
     }
 
