@@ -112,23 +112,43 @@ const PLATFORM_LINES: usize = 50;
 /// died. Not the device's last lines: a phone writes thousands a minute,
 /// and a run on a Pixel 9a carried none of the app's in its last 300.
 fn logcat() -> String {
-    let uids = adb(&["shell", "pm", "list", "packages", "-U", PACKAGE])
-        .map(|o| app_uids(&String::from_utf8_lossy(&o.stdout)))
-        .unwrap_or_default();
-    let app = if uids.is_empty() {
-        "(no uid for the app: is it installed?)".to_owned()
-    } else {
-        let uid = format!("--uid={}", uids.join(","));
-        adb(&["logcat", "-d", &uid, "-t", APP_LOG_LINES]).map_or_else(
-            |e| format!("(no logcat: {e})"),
-            |o| String::from_utf8_lossy(&o.stdout).into_owned(),
-        )
+    let app = match text(&["shell", "pm", "list", "packages", "-U", PACKAGE]) {
+        Err(why) => why,
+        Ok(packages) => {
+            let uids = app_uids(&packages);
+            if uids.is_empty() {
+                format!("(no uid for the app: pm listed no {PACKAGE})")
+            } else {
+                let uid = format!("--uid={}", uids.join(","));
+                text(&["logcat", "-d", &uid, "-t", APP_LOG_LINES]).unwrap_or_else(|why| why)
+            }
+        }
     };
-    let platform = adb(&["logcat", "-d", "-b", "system", "-s", "ActivityManager"]).map_or_else(
-        |e| format!("(no logcat: {e})"),
-        |o| about_the_app(&String::from_utf8_lossy(&o.stdout)),
-    );
+    let platform = text(&["logcat", "-d", "-b", "system", "-s", "ActivityManager"])
+        .map_or_else(|why| why, |log| about_the_app(&log));
     format!("--- the app's log ---\n{app}\n--- ActivityManager on the app ---\n{platform}")
+}
+
+/// `adb args`'s stdout, or why there is none: a failure report that
+/// cannot read the log says why, never an empty section or a guess.
+fn text(args: &[&str]) -> Result<String, String> {
+    read_text(args, adb(args))
+}
+
+/// [`text`] over an `adb` run's result: adb exits nonzero for an
+/// unauthorized or absent device and a refused option, with the reason
+/// on stderr (`a_failed_read_says_why`).
+fn read_text(args: &[&str], run: std::io::Result<Output>) -> Result<String, String> {
+    match run {
+        Err(e) => Err(format!("(adb {}: {e})", args.join(" "))),
+        Ok(out) if !out.status.success() => Err(format!(
+            "(adb {} ended with {}: {})",
+            args.join(" "),
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim_end()
+        )),
+        Ok(out) => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+    }
 }
 
 /// The uids of the app and of its instrumentation's package, from
@@ -362,6 +382,28 @@ pub fn base64(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A nonzero exit is the reason, stderr included; the control, a
+    /// success, is its stdout.
+    #[test]
+    fn a_failed_read_says_why() {
+        use std::os::unix::process::ExitStatusExt;
+        let run = |code: i32, stdout: &str, stderr: &str| {
+            Ok(Output {
+                status: std::process::ExitStatus::from_raw(code << 8),
+                stdout: stdout.into(),
+                stderr: stderr.into(),
+            })
+        };
+        let why = read_text(&["logcat", "-d"], run(1, "", "error: device unauthorized"))
+            .expect_err("a nonzero exit is no log");
+        assert!(why.contains("adb logcat -d"), "{why}");
+        assert!(why.contains("device unauthorized"), "{why}");
+        assert_eq!(
+            read_text(&["logcat"], run(0, "the log", "")),
+            Ok("the log".to_owned())
+        );
+    }
 
     #[test]
     fn the_log_is_read_by_the_app_and_its_instrumentations_uids_alone() {
