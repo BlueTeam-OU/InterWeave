@@ -79,6 +79,94 @@ async fn a_daemon_serves_owner_only_sockets_and_stops_cleanly_on_sigterm() {
     );
 }
 
+/// The status the daemon unit restarts on, read from the unit itself so
+/// the daemon and the unit cannot disagree unnoticed: the one number named
+/// by BOTH `RestartForceExitStatus=` (restarted although the unit is
+/// `Restart=on-failure`) and `SuccessExitStatus=` (logged as a success).
+fn units_restart_status() -> i32 {
+    let unit = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packaging/linux/systemd/interweave-daemon@.service");
+    let text = std::fs::read_to_string(&unit).expect("the daemon unit");
+    let named = |key: &str| -> Vec<i32> {
+        text.lines()
+            .filter_map(|line| line.strip_prefix(key))
+            .flat_map(str::split_whitespace)
+            .map(|n| n.parse().expect("a numeric status"))
+            .collect()
+    };
+    let force = named("RestartForceExitStatus=");
+    let success = named("SuccessExitStatus=");
+    assert_eq!(force.len(), 1, "one restart status: {force:?}");
+    assert_eq!(force, success, "restarted and logged as a success");
+    assert!(
+        ![0, 1, 2, 3].contains(&force[0]),
+        "not a status plan §16 (11) already gives"
+    );
+    force[0]
+}
+
+/// SIGHUP is a restart, not a reload (plan §22, the Stage 13 carry): the
+/// daemon stops exactly as on SIGTERM -- every lease released, both
+/// sockets unlinked, the lock released and kept -- and exits with the
+/// status its unit restarts on; started again, as the unit does, it keeps
+/// its `PeerId` and issues a fresh epoch, so no lease survives. The control
+/// beside it is the SIGTERM case above, which exits 0.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sighup_stops_as_sigterm_does_and_exits_with_the_units_restart_status() {
+    let restart = units_restart_status();
+    let home = Home::new("e2e");
+    let peer = home.write_key();
+    home.write_config(&profile("e2e", &stranger(), ""));
+    let mut daemon = home.start(&[]);
+    daemon.serving(&home).await;
+    let held = home.binding().open(lease_request()).await.expect("leases");
+    let held_epoch = held
+        .session()
+        .endpoint_lease()
+        .expect("a lease")
+        .epoch
+        .clone();
+
+    let sent = std::process::Command::new("kill")
+        .args(["-HUP", &daemon.child.id().to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(sent.success(), "SIGHUP sent");
+    let status = daemon.exit().await;
+    let log = daemon.log();
+    assert_eq!(status.code(), Some(restart), "{status}\n{log}");
+    assert!(
+        log.contains("SIGHUP") && log.contains("stopping") && log.contains("stopped"),
+        "the orderly stop's lines:\n{log}"
+    );
+    assert!(!home.data_socket().exists() && !home.admin_socket().exists());
+    assert!(
+        home.paths.state_dir().join("profile.lock").exists(),
+        "the lock is released, never unlinked"
+    );
+
+    let mut again = home.start(&[]);
+    again.serving(&home).await;
+    let fresh = home.binding().open(lease_request()).await.expect("leases");
+    let fresh_epoch = fresh
+        .session()
+        .endpoint_lease()
+        .expect("a lease")
+        .epoch
+        .clone();
+    assert_ne!(held_epoch, fresh_epoch, "no lease survives the restart");
+    let status = home
+        .binding()
+        .admin([AdminCapability::Status].into())
+        .await
+        .expect("a port")
+        .status()
+        .await
+        .expect("status");
+    assert_eq!(status.peer, peer, "the same PeerId");
+    assert!(again.terminate().await.success());
+}
+
 /// An admin port's `admin.shutdown` stops the daemon as a signal does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_admin_shutdown_stops_the_daemon() {

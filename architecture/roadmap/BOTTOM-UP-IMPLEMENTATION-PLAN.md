@@ -3314,7 +3314,9 @@ Not decided: SLIP-0039; `profile init`.
 foreground (supervision is Stage 19); no `clap` — a small tested
 `cli.rs` per app (the spikes' parsers are precedent, ADR-0045 rule 8);
 exit codes 0 ok / 1 refused, the error code printed / 2 usage / 3
-daemon unreachable; `--json` prints the method's result object, so CLI
+daemon unreachable / 75 the daemon's clean stop on SIGHUP, which its
+systemd unit restarts (Stage 19, §22: a restart, not a reload);
+`--json` prints the method's result object, so CLI
 output is schema-validatable.
 
 (12) **Daemon identity at startup.** Load the key; missing is fatal

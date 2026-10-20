@@ -9,7 +9,7 @@ ADR-0055 decision 6):
 
 | unit | runs | after a failure |
 |---|---|---|
-| `interweave-daemon@<profile>.service` | `~/.local/bin/transport-daemon --profile <profile>` | restarted 5 s later; exit 2 (a usage error) is not restarted |
+| `interweave-daemon@<profile>.service` | `~/.local/bin/transport-daemon --profile <profile>` | restarted 5 s later; exit 2 (a usage error) is not restarted; exit 75 (a stop asked by SIGHUP) is restarted 5 s later and logged as a success |
 | `interweave-client@<profile>.service` | `~/.local/libexec/interweave/client --profile <profile>` | restarted 5 s later |
 
 Both are **user** units: they run as the account that installs them, from
@@ -17,10 +17,15 @@ that account's own binaries, with nothing installed system-wide. A host
 with many profiles under many accounts runs one daemon unit per account.
 
 The daemon is stopped with `SIGTERM`, which it answers by stopping within
-its own shutdown grace. A daemon whose listen port another account holds
-fails its start and its unit retries it. Give each profile its own port:
-two daemons of one account on one port both start, because the TCP
-transport listens with `SO_REUSEPORT` (ADR-0055 decision 5).
+its own shutdown grace. `SIGHUP` is a restart, not a reload: the daemon
+stops exactly as on `SIGTERM` and its unit starts it again `RestartSec=`
+(5 s) later. Nothing survives a restart -- every client's endpoint lease
+ends and the new daemon issues fresh epochs -- and there is no
+`ExecReload=`: a changed `config.yaml` is applied by `systemctl --user
+restart interweave-daemon@<profile>`. A daemon whose listen port another
+account holds fails its start and its unit retries it. Give each profile
+its own port: two daemons of one account on one port both start, because
+the TCP transport listens with `SO_REUSEPORT` (ADR-0055 decision 5).
 
 The client unit starts after its daemon and is stopped whenever its daemon
 stops (`After=`, `BindsTo=`). Enabling it also makes it start whenever its
