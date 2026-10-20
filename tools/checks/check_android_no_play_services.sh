@@ -69,8 +69,16 @@
 #     inside `allprojects { dependencyLocking { } }`, or not locking the
 #     buildscript classpath (`activateDependencyLocking()`), or no
 #     buildscript-gradle.lockfile; comments do not count;
+#   - the root build.gradle.kts not setting `lockMode.set(LockMode.STRICT)`
+#     in both its `buildscript { dependencyLocking { } }` and its
+#     `allprojects { dependencyLocking { } }`: under Gradle's DEFAULT
+#     mode a locked configuration with NO lock state (a new build type's
+#     classpath before --write-locks) resolves unvalidated and appears in
+#     no lockfile, so this guard would never read it; STRICT fails that
+#     build instead;
 #   - any Gradle script, version catalog or buildSrc/build-logic Kotlin
-#     under the root naming LENIENT, ignoredDependencies,
+#     under the root naming LENIENT, DEFAULT as a lock mode,
+#     ignoredDependencies,
 #     unlockAllConfigurations, deactivateDependencyLocking, lockFile,
 #     startParameter, writeDependencyLocks or LockedDependenciesToUpdate
 #     -- read raw, so a comment naming one fails too.
@@ -81,13 +89,6 @@
 # (one statement, no ;). A subproject's
 # own plugin classpath is in no lockfile, so this is what refuses the
 # Google services plugin applied there.
-#
-# WHAT IT CANNOT SEE: under Gradle's DEFAULT lock mode a locked
-# configuration with NO lock state (a new build type's classpath before
-# --write-locks) resolves unvalidated and appears in no lockfile.
-# LockMode.STRICT closes that, and is the build's to set; the
-# releaseRuntimeClasspath control above covers the one configuration
-# that ships today.
 #
 # Exit codes:
 #   0  no banned group on an application configuration, lock intact
@@ -198,6 +199,13 @@ else
         || fail "apps/human-android/android/build.gradle.kts: no lockAllConfigurations() in allprojects { dependencyLocking { } } -- a configuration outside the lock is outside this guard"
     grep -Eq 'buildscript[[:space:]]*\{[^}]*activateDependencyLocking\(\)' <<<"$root_code" \
         || fail "apps/human-android/android/build.gradle.kts: the buildscript classpath is not locked -- buildscript-gradle.lockfile would not describe the plugins"
+    # STRICT in each block's dependencyLocking. The block may hold sibling
+    # blocks before it (buildscript's configurations.classpath { } does),
+    # one level deep; deeper nesting fails closed.
+    for block in buildscript allprojects; do
+        grep -Eq "$block"'[[:space:]]*\{([^{}]*\{[^{}]*\})*[^{}]*dependencyLocking[[:space:]]*\{[^}]*lockMode\.set\(LockMode\.STRICT\)' <<<"$root_code" \
+            || fail "apps/human-android/android/build.gradle.kts: no lockMode.set(LockMode.STRICT) in $block { dependencyLocking { } } -- a configuration with no lock state would resolve unseen"
+    done
 fi
 [ -f "$GRADLE/buildscript-gradle.lockfile" ] \
     || fail "apps/human-android/android/buildscript-gradle.lockfile: missing -- the plugin classpath is unread"
@@ -219,13 +227,15 @@ build_sources() {
 #   LENIENT                       resolves past the lock without failing
 #                                 (the bare word: a star import or a
 #                                 Groovy string names it without LockMode.)
+#   DEFAULT as a lock mode        undoes the root's STRICT for a project
+#                                 (LockMode.DEFAULT, or on a lockMode line)
 #   ignoredDependencies           neither written to the lock nor checked
 #   unlockAllConfigurations       undoes lockAllConfigurations()
 #   deactivateDependencyLocking   one configuration out of the lock
 #   lockFile                      the lock state read from another file
 #   startParameter                write-locks or update-locks on every build
 #   writeDependencyLocks / LockedDependenciesToUpdate  the same, by name
-LOOSEN='LENIENT|ignoredDependencies|unlockAllConfigurations|deactivateDependencyLocking|lockFile|startParameter|[Ww]riteDependencyLocks|[Ll]ockedDependenciesToUpdate'
+LOOSEN='LENIENT|LockMode\.DEFAULT|lockMode[^;]*DEFAULT|ignoredDependencies|unlockAllConfigurations|deactivateDependencyLocking|lockFile|startParameter|[Ww]riteDependencyLocks|[Ll]ockedDependenciesToUpdate'
 
 # A banned group named in the build's own text, whatever resolves: a
 # subproject's plugins { id(...) version ... } resolves into that

@@ -278,6 +278,25 @@ expect_fail "$R" "buildscript locking switched off" "the buildscript classpath i
 R="$(tree)"; rm "$R/apps/human-android/android/buildscript-gradle.lockfile"
 expect_fail "$R" "no buildscript-gradle.lockfile" "buildscript-gradle.lockfile: missing"
 
+echo "both locks are STRICT, or a configuration with no lock state resolves unseen"
+# The real file sets it twice; each case removes one by its line number.
+strict_lines() { grep -n 'lockMode.set(LockMode.STRICT)' "$1/$ROOT_BUILD" | cut -d: -f1; }
+R="$(tree)"; [ "$(strict_lines "$R" | wc -l)" = 2 ] && ok "  the real root build sets STRICT twice" || bad "  the real root build should set STRICT twice"
+R="$(tree)"; sed -i "$(strict_lines "$R" | sed -n 1p)d" "$R/$ROOT_BUILD"
+expect_fail "$R" "STRICT gone from buildscript" "no lockMode.set(LockMode.STRICT) in buildscript"
+R="$(tree)"; sed -i "$(strict_lines "$R" | sed -n 2p)d" "$R/$ROOT_BUILD"
+expect_fail "$R" "STRICT gone from allprojects" "no lockMode.set(LockMode.STRICT) in allprojects"
+R="$(tree)"; sed -i "$(strict_lines "$R" | sed -n 2p)s#^#// #" "$R/$ROOT_BUILD"
+expect_fail "$R" "STRICT in allprojects commented out" "no lockMode.set(LockMode.STRICT) in allprojects"
+R="$(tree)"; sed -i "$(strict_lines "$R" | sed -n 2p)d" "$R/$ROOT_BUILD"; printf '\ndependencyLocking { lockMode.set(LockMode.STRICT) }\n' >> "$R/$ROOT_BUILD"
+expect_fail "$R" "STRICT after the allprojects block has closed" "no lockMode.set(LockMode.STRICT) in allprojects"
+for dflt in 'lockMode.set(LockMode.DEFAULT)' 'lockMode.set(DEFAULT)' "lockMode = 'DEFAULT'"; do
+    R="$(tree)"; printf '\ndependencyLocking { %s }\n' "$dflt" >> "$R/$APP_BUILD"
+    expect_fail "$R" "$dflt in app/build.gradle.kts" "DEFAULT (line"
+done
+R="$(tree)"; printf '\nval mode = "DEFAULT"\n' >> "$R/$APP_BUILD"
+expect_pass "$R" "DEFAULT on a line that sets no lock mode"
+
 echo "the real repository passes its own guard"
 if [ "$(run_code "$REPO")" = "0" ]; then ok "this repository"; else bad "this repository fails: $(run "$REPO")"; fi
 
