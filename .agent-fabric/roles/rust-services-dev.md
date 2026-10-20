@@ -32,9 +32,10 @@ SPIKE-001", §22) carries for the bridge — marketplace distribution and
 organisation-policy gating, permission relay, size limits on content and
 meta, behaviour under load, the 2026-07-28 revision, non-interactive
 delivery and the untried `-p` timings — each recorded in `SPIKES.md`.
-Which holder takes which is architect-cto's to assign. A harness for
-them sits under `apps/claude-channel/`; `spikes/` stays
-p2p-network-dev's.
+Which holder takes which is architect-cto's to assign. They reuse
+SPIKE-001's drivers and record their evidence under
+`spikes/spike-001/runs/`, as plan §19 step 5 does; a change to those
+drivers, which are p2p-network-dev's, is asked of a holder as a supply.
 
 **Where it meets the others.** The daemon, the substrate and the IPC v2
 code stay p2p-network-dev's (`crates/`, `apps/transport-daemon`,
