@@ -21,16 +21,22 @@
 #       Cargo.lock builds (a bump without a new pin), or the file's
 #       SHA-256 is not the pin's.
 #
-#   tools/ci/skia_prebuilt.sh check <target-dir>
-#       After the Android build: read the newest skia-bindings build
-#       output under <target-dir>/aarch64-linux-android/ and REFUSE it
-#       unless the bindings asked for the pin's version and archive key
-#       (a feature change moves the key), took it from a file:// URL,
-#       and said DOWNLOAD AND INSTALL SUCCEEDED -- and never started a
-#       full build.
+#   tools/ci/skia_prebuilt.sh check <target-dir> [<profile>]
+#       After the Android build: read EVERY skia-bindings build output
+#       under <target-dir>/aarch64-linux-android/<profile>/ (default
+#       release, the release run's; a `cargo check` writes debug) and
+#       REFUSE unless each one asked for the pin's version and archive
+#       key (a feature change moves the key), read a file:// path whose
+#       file has the pin's SHA-256, and said DOWNLOAD AND INSTALL
+#       SUCCEEDED -- and none started a full build. Every output, not the
+#       newest: cargo does not rerun a build script whose inputs are
+#       unchanged, so an older output in a reused target may be the one
+#       the build linked; a stale one fails the run, and the release run
+#       builds in a clean target.
 #
-# The release run and the android check job both run fetch before the
-# build and check after it, so one pin line governs both.
+# The release run runs fetch before the build and check after it. The
+# android check job is to read the same pin once its workflow calls
+# this (devex-tooling's j182), so one pin line will govern both.
 #
 # Environment, for the self-test: SKIA_PIN_FILE (the pin),
 # SKIA_PIN_LOCK (Cargo.lock), SKIA_PIN_SOURCE (a directory holding the
@@ -50,7 +56,7 @@ lock_file="${SKIA_PIN_LOCK:-$here/../../Cargo.lock}"
 release_base="https://github.com/rust-skia/skia-binaries/releases/download"
 
 usage() {
-    echo "usage: skia_prebuilt.sh fetch <dir> | check <target-dir>" >&2
+    echo "usage: skia_prebuilt.sh fetch <dir> | check <target-dir> [<profile>]" >&2
     exit 2
 }
 die() { echo "skia_prebuilt: $*" >&2; exit 1; }
@@ -60,7 +66,8 @@ case "${1-}" in
     sed -n '/^# >>> help$/,/^# <<< help$/p' "$0" | sed '1d;$d;s/^# \{0,1\}//'
     exit 0
     ;;
-fetch | check) [[ $# -eq 2 ]] || usage ;;
+fetch) [[ $# -eq 2 ]] || usage ;;
+check) [[ $# -eq 2 || $# -eq 3 ]] || usage ;;
 *) usage ;;
 esac
 
@@ -106,22 +113,36 @@ fetch() {
     echo "SKIA_BINARIES_URL=file://$path"
 }
 
-check() {
-    local target="$1" output
-    [[ -d "$target/aarch64-linux-android" ]] || die "no aarch64-linux-android build under $target"
-    output="$(find "$target/aarch64-linux-android" -path '*/build/skia-bindings-*/output' -type f \
-        -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -n 1 | cut -d' ' -f2-)"
-    [[ -n "$output" ]] || die "no skia-bindings build output under $target/aarch64-linux-android"
+check_one() {
+    local output="$1" from read
     if grep -q '^STARTING A FULL BUILD' "$output"; then
         die "skia-bindings built Skia from source ($output): the pinned archive was not taken"
     fi
     grep -qxF "TRYING TO DOWNLOAD AND INSTALL SKIA BINARIES: $tag/$key" "$output" \
         || die "skia-bindings asked for $(sed -n 's/^TRYING TO DOWNLOAD AND INSTALL SKIA BINARIES: //p' "$output" | head -n 1), not the pin's $tag/$key ($output): renew the pin"
-    grep -q "^  FROM: file://.*/$archive\$" "$output" \
-        || die "skia-bindings did not read the pinned file ($output)"
+    from="$(sed -n 's/^  FROM: //p' "$output")"
+    [[ "$(wc -l <<<"$from")" == 1 && "$from" == file:///*/"$archive" ]] \
+        || die "skia-bindings did not read a local file named $archive ($output)"
+    # The file the bindings read is hashed here, whatever directory
+    # fetch used: a same-named file fetch never checked is refused.
+    read="${from#file://}"
+    [[ -f "$read" && "$(sha256sum "$read" | cut -d' ' -f1)" == "$sha" ]] \
+        || die "skia-bindings read $read, which is not the pin's archive by SHA-256 ($output)"
     grep -qx 'DOWNLOAD AND INSTALL SUCCEEDED' "$output" \
         || die "skia-bindings did not install the pinned archive ($output)"
-    echo "skia-bindings took the pinned archive $archive ($output)"
 }
 
-"$1" "$2"
+check() {
+    local target="$1" profile="${2:-release}" outputs output count=0
+    local dir="$target/aarch64-linux-android/$profile/build"
+    [[ -d "$dir" ]] || die "no aarch64-linux-android $profile build under $target"
+    outputs="$(find "$dir" -mindepth 2 -maxdepth 2 -path '*/skia-bindings-*/output' -type f | sort)"
+    [[ -n "$outputs" ]] || die "no skia-bindings build output under $dir"
+    while IFS= read -r output; do
+        check_one "$output"
+        count=$((count + 1))
+    done <<<"$outputs"
+    echo "skia-bindings took the pinned archive $archive ($count output(s) under $dir)"
+}
+
+"$1" "$2" "${3-}"

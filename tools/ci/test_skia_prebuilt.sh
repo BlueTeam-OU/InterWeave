@@ -114,48 +114,65 @@ run fetch "$SANDBOX/dl5"
 echo "skia_prebuilt.sh check:"
 pin "0.9.1 $ARCHIVE $SHA"
 T="$SANDBOX/target"
-# output <hash-dir> <TRYING key> <FROM url> <last line>
+# output <profile> <hash-dir> <TRYING key> <FROM url> <last line>
 output() {
-    local d="$T/aarch64-linux-android/release/build/skia-bindings-$1"
+    local d="$T/aarch64-linux-android/$1/build/skia-bindings-$2"
     mkdir -p "$d"
     cat > "$d/output" <<EOF
 cargo:rerun-if-env-changed=FORCE_SKIA_BUILD
-TRYING TO DOWNLOAD AND INSTALL SKIA BINARIES: $2
+TRYING TO DOWNLOAD AND INSTALL SKIA BINARIES: $3
 cargo:rerun-if-env-changed=SKIA_BINARIES_URL
-  FROM: $3
+  FROM: $4
 UNPACKING ARCHIVE INTO: $d/out/skia
-$4
+$5
 cargo:rustc-link-lib=static=skia
 EOF
-    touch -d "@$5" "$d/output"
 }
+# fetch's file, with the pin's bytes.
 good_from="file://$SANDBOX/dl/$ARCHIVE"
+cmp -s "$SANDBOX/dl/$ARCHIVE" "$SANDBOX/source/$ARCHIVE" || fail "the fetched file is not the stand-in"
 
-output aaaa "0.9.1/$KEY" "$good_from" "DOWNLOAD AND INSTALL SUCCEEDED" 1000
+output release aaaa "0.9.1/$KEY" "$good_from" "DOWNLOAD AND INSTALL SUCCEEDED"
 if run check "$T"; then pass "the build took the pinned archive"
 else fail "a build that took the pinned archive was refused" "$(cat "$SANDBOX/err")"; fi
 
-# checked <what> <needle>: the newest output (mtime 2000) is refused.
+# checked <what> <needle> [profile]: refused while a bad release output
+# sits beside the good one, which is removed after.
 checked() {
-    if run check "$T"; then fail "$1: accepted"
+    if run check "$T" ${3-}; then fail "$1: accepted"
     elif ! grep -qF -- "$2" "$SANDBOX/err"; then fail "$1: refused without saying $2" "$(cat "$SANDBOX/err")"
     else pass "$1: refused"; fi
     rm -rf "$T/aarch64-linux-android/release/build/skia-bindings-bbbb"
 }
-output bbbb "0.9.1/$KEY" "$good_from" "DOWNLOAD AND INSTALL FAILED: x" 2000
+output release bbbb "0.9.1/$KEY" "$good_from" "DOWNLOAD AND INSTALL FAILED: x"
 printf 'STARTING A FULL BUILD\n' >> "$T/aarch64-linux-android/release/build/skia-bindings-bbbb/output"
-touch -d @2000 "$T/aarch64-linux-android/release/build/skia-bindings-bbbb/output"
-checked "a build that fell back to a source build" "built Skia from source"
-output bbbb "0.9.1/${KEY}-vulkan" "file://$SANDBOX/dl/skia-binaries-$KEY-vulkan.tar.gz" "DOWNLOAD AND INSTALL SUCCEEDED" 2000
+checked "a build that fell back to a source build, beside a good one" "built Skia from source"
+output release bbbb "0.9.1/${KEY}-vulkan" "file://$SANDBOX/dl/skia-binaries-$KEY-vulkan.tar.gz" "DOWNLOAD AND INSTALL SUCCEEDED"
 checked "a build asking for another key (a feature change)" "not the pin's 0.9.1/$KEY"
-output bbbb "0.9.1/$KEY" "https://github.com/rust-skia/skia-binaries/releases/download/0.9.1/$ARCHIVE" \
-    "DOWNLOAD AND INSTALL SUCCEEDED" 2000
-checked "a build that downloaded instead of reading the pinned file" "did not read the pinned file"
-output bbbb "0.9.1/$KEY" "$good_from" "DOWNLOAD AND INSTALL FAILED: unpack" 2000
+output release bbbb "0.9.1/$KEY" "https://github.com/rust-skia/skia-binaries/releases/download/0.9.1/$ARCHIVE" \
+    "DOWNLOAD AND INSTALL SUCCEEDED"
+checked "a build that downloaded instead of reading a local file" "did not read a local file"
+mkdir -p "$SANDBOX/elsewhere"
+printf 'other bytes\n' > "$SANDBOX/elsewhere/$ARCHIVE"
+output release bbbb "0.9.1/$KEY" "file://$SANDBOX/elsewhere/$ARCHIVE" "DOWNLOAD AND INSTALL SUCCEEDED"
+checked "a same-named file fetch never checked" "not the pin's archive by SHA-256"
+output release bbbb "0.9.1/$KEY" "file://$SANDBOX/gone/$ARCHIVE" "DOWNLOAD AND INSTALL SUCCEEDED"
+checked "a file that is not there" "not the pin's archive by SHA-256"
+output release bbbb "0.9.1/$KEY" "$good_from" "DOWNLOAD AND INSTALL FAILED: unpack"
 checked "a build whose install of the archive failed" "did not install"
 
+# The profile is the release's: a good debug output, however new, does
+# not vouch for a release output that fell back.
 rm -rf "$T"
-mkdir -p "$T/aarch64-linux-android"
+output release aaaa "0.9.1/$KEY" "$good_from" "DOWNLOAD AND INSTALL FAILED: x"
+printf 'STARTING A FULL BUILD\n' >> "$T/aarch64-linux-android/release/build/skia-bindings-aaaa/output"
+output debug cccc "0.9.1/$KEY" "$good_from" "DOWNLOAD AND INSTALL SUCCEEDED"
+checked "a fallen-back release beside a good debug build" "built Skia from source"
+if run check "$T" debug; then pass "the debug profile, named, is checked on its own"
+else fail "a good debug output was refused under check <target> debug" "$(cat "$SANDBOX/err")"; fi
+
+rm -rf "$T"
+mkdir -p "$T/aarch64-linux-android/release/build"
 if run check "$T"; then fail "a target with no skia-bindings output was accepted"
 else pass "a target with no skia-bindings output is refused"; fi
 
