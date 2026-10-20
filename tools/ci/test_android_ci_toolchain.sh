@@ -33,6 +33,7 @@ cat > "$S/pins" <<P
 PKG_1=platform-tools@37.0.1
 PKG_2=platforms;android-30@3
 PKG_6=ndk;28.2.13676358@28.2.13676358
+HOST_PKG_1=cmake;3.22.1@3.22.1
 JDK_VERSION=17.0.20.1+1
 JDK_URL=https://example.invalid/good.tar.gz
 JDK_SHA256=$good_sum
@@ -109,7 +110,7 @@ echo "android_ci_toolchain: every SDK package at its pinned revision"
 out="$(run -- sdk)"; rc=$?
 [[ $rc -eq 0 && "$out" == *"3 SDK package(s) at their pinned revisions"* ]] && ok "all three installed and held: exit 0" || bad "rc $rc" "$out"
 [[ "$(cat "$S/sdkm.args" 2>/dev/null)" == "--install platform-tools platforms;android-30 ndk;28.2.13676358" ]] \
-    && ok "sdkmanager gets every pinned package, by name, in one call" || bad "sdkmanager argv" "$(cat "$S/sdkm.args" 2>/dev/null)"
+    && ok "sdkmanager gets every PKG_<n>, by name, in one call, and no HOST_PKG_<n>" || bad "sdkmanager argv" "$(cat "$S/sdkm.args" 2>/dev/null)"
 out="$(run FAKE_STALE_PKG='platforms;android-30' -- sdk)"; rc=$?
 [[ $rc -eq 1 && "$out" == *"platforms;android-30 is revision '0.0.1'"*"not the pinned 3"* ]] \
     && ok "a package sdkmanager installed at another revision: exit 1, named" || bad "rc $rc" "$out"

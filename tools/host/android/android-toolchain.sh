@@ -81,7 +81,9 @@ valid_pin() {
         *_URL)    [[ "$v" =~ ^https://[A-Za-z0-9._~:/?\&=+%@-]+$ ]] ;;
         *_SHA1)   [[ "$v" =~ ^[0-9a-f]{40}$ ]] ;;
         *_SHA256) [[ "$v" =~ ^[0-9a-f]{64}$ ]] ;;
-        PKG_*)    [[ "$v" =~ ^[A-Za-z0-9._-]+(\;[A-Za-z0-9._-]+)*@[0-9]+(\.[0-9]+)*$ ]] ;;
+        PKG_*|HOST_PKG_*) [[ "$v" =~ ^[A-Za-z0-9._-]+(\;[A-Za-z0-9._-]+)*@[0-9]+(\.[0-9]+)*$ ]] ;;
+        # One level under SDK_DIR, pointing at a sibling: never `.` or `..`.
+        LINK_*)   [[ "$v" =~ ^[a-z-]+/[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$ && ! "/$v@" =~ [/@]\.\.?[/@] ]] ;;
         *)        [[ "$v" =~ ^[A-Za-z0-9._+-]+$ ]] ;;
     esac
 }
@@ -101,9 +103,22 @@ read_pins() {
     for k in SDK_DIR CMDLINE_TOOLS_URL CMDLINE_TOOLS_SHA1 CMDLINE_TOOLS_REVISION JDK_VERSION JDK_URL JDK_SHA256 PKG_1; do
         [[ -n "${PIN[$k]:-}" ]] || die "$1 has no $k"
     done
+    local spec
+    while IFS= read -r spec; do
+        pkgs | sed 's/@[^@]*$//' | grep -qxF "$(link_target_pkg "$spec")" \
+            || die "$1: LINK $spec points at no pinned package"
+    done < <(links)
 }
-# The PKG_<n> entries in order: "<sdkmanager path>@<revision>".
-pkgs() { local k; for k in $(printf '%s\n' "${!PIN[@]}" | grep -E '^PKG_[0-9]+$' | LC_ALL=C sort -t_ -k2 -n); do printf '%s\n' "${PIN[$k]}"; done; }
+# The values of the <family>_<n> pins, in the order of n.
+family() { local k; for k in $(printf '%s\n' "${!PIN[@]}" | grep -E "^$1_[0-9]+\$" | sed "s/^$1_//" | LC_ALL=C sort -n); do printf '%s\n' "${PIN[$1_$k]}"; done; }
+# Every SDK package a host installs, "<sdkmanager path>@<revision>": the
+# PKG_<n> CI installs too (tools/ci/android_ci_toolchain.sh), then the
+# HOST_PKG_<n> only the host's SDK carries, for other projects' builds.
+pkgs() { family PKG; family HOST_PKG; }
+# The LINK_<n> entries in order: "<dir>/<name>@<sibling>".
+links() { family LINK; }
+# The sdkmanager path of the package a link points at: platforms/x@y -> platforms;y.
+link_target_pkg() { local spec="$1"; printf '%s;%s\n' "${spec%%/*}" "${spec##*@}"; }
 # The pins as the manifest records them: every KEY=VALUE line, sorted
 # bytewise. Never the locale's order: the AppVM that stages and the
 # host that installs need not share a locale, and a different order
@@ -166,6 +181,14 @@ verify_tree() {
         if [[ "$got" == "$want" ]]; then ok "$path $got"
         else bad "$path: ${got:-not installed}, pinned $want"; fi
     done < <(pkgs)
+    while IFS= read -r spec; do
+        path="${spec%@*}" want="${spec##*@}"
+        got="$(readlink "$root/$path" 2>/dev/null)"
+        if [[ -L "$root/$path" && "$got" == "$want" && -d "$root/$path" ]]; then ok "$path -> $got"
+        elif [[ "$got" == "$want" ]]; then bad "$path -> $got: the target is not installed"
+        elif [[ -n "$got" ]]; then bad "$path: a link to $got, pinned a link to $want"
+        else bad "$path: no link, pinned a link to $want"; fi
+    done < <(links)
     got="$(sed -n 's/^Pkg.Revision=//p' "$root/cmdline-tools/latest/source.properties" 2>/dev/null | tr -d '[:space:]')"
     if [[ "$got" == "${PIN[CMDLINE_TOOLS_REVISION]}" ]]; then ok "cmdline-tools $got"
     else bad "cmdline-tools: ${got:-not installed}, pinned ${PIN[CMDLINE_TOOLS_REVISION]}"; fi
@@ -234,6 +257,9 @@ if [[ "$MODE" == stage ]]; then
     mapfile -t paths < <(pkgs | sed 's/@[^@]*$//')
     "${sdkm[@]}" --install "${paths[@]}" > "$STAGE_DIR/sdkmanager.log" 2>&1 \
         || { tail -5 "$STAGE_DIR/sdkmanager.log" >&2; die "sdkmanager failed (log: $STAGE_DIR/sdkmanager.log)"; }
+    while IFS= read -r spec; do
+        ln -sfn "${spec##*@}" "$root/${spec%@*}" || die "cannot make the link ${spec%@*}"
+    done < <(links)
 
     pins_canonical > "$root/$MANIFEST_NAME"
     verify_tree "$root"
