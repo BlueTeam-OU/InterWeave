@@ -75,7 +75,12 @@ pub fn run(args: impl IntoIterator<Item = String>) -> ExitCode {
         Ok(lock) => lock,
         Err(PersistError::InstanceLocked { .. }) => return refused(Refusal::AlreadyOpen),
         Err(e @ PersistError::UnsupportedPlatform) => return refuse(EX_UNAVAILABLE, &e),
-        Err(e) => return refused(Refusal::Lock(e)),
+        Err(error) => {
+            return refused(Refusal::Lock {
+                error,
+                folder: profile.paths.human_dir(),
+            });
+        }
     };
     let store = match open_store(&profile, launch.store_options()) {
         Opened::Ready(store) => store,

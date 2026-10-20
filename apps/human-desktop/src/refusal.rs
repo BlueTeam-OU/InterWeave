@@ -28,7 +28,13 @@ pub enum Refusal {
     /// Another window holds this profile's store.
     AlreadyOpen,
     /// The single-instance lock could not be taken for another reason.
-    Lock(PersistError),
+    Lock {
+        /// Why.
+        error: PersistError,
+        /// The folder the lock lives in, which the screen names when the
+        /// error names no path of its own.
+        folder: PathBuf,
+    },
     /// The store cannot be used.
     Store(Blocked),
 }
@@ -40,13 +46,18 @@ impl Refusal {
         match self {
             Self::Profile(_) => EX_CONFIG,
             Self::AlreadyOpen => EX_TEMPFAIL,
-            Self::Lock(PersistError::UnsupportedPlatform) => EX_UNAVAILABLE,
+            Self::Lock {
+                error: PersistError::UnsupportedPlatform,
+                ..
+            } => EX_UNAVAILABLE,
             Self::Store(Blocked::Recovery { .. }) => EX_DATAERR,
-            Self::Lock(
-                PersistError::DirectoryNotPrivate { .. } | PersistError::FileNotPrivate { .. },
-            )
+            Self::Lock {
+                error:
+                    PersistError::DirectoryNotPrivate { .. } | PersistError::FileNotPrivate { .. },
+                ..
+            }
             | Self::Store(Blocked::NotPrivate { .. }) => EX_NOPERM,
-            Self::Lock(_) | Self::Store(Blocked::Unavailable { .. }) => EX_IOERR,
+            Self::Lock { .. } | Self::Store(Blocked::Unavailable { .. }) => EX_IOERR,
         }
     }
 
@@ -68,13 +79,19 @@ impl Refusal {
                 page(reason, path, false)
             }
             Self::AlreadyOpen => page(UiText::RefusalAlreadyOpen, None, false),
-            Self::Lock(PersistError::UnsupportedPlatform) => return None,
-            Self::Lock(error) => match persist_path(error) {
-                Some(path) if self.code() == EX_NOPERM => {
-                    page(UiText::RefusalNotPrivate, Some(path), false)
-                }
-                path => page(UiText::RefusalUnavailable, path, false),
-            },
+            Self::Lock {
+                error: PersistError::UnsupportedPlatform,
+                ..
+            } => return None,
+            Self::Lock { error, folder } => {
+                let path = persist_path(error).unwrap_or_else(|| folder.clone());
+                let reason = if self.code() == EX_NOPERM {
+                    UiText::RefusalNotPrivate
+                } else {
+                    UiText::RefusalUnavailable
+                };
+                page(reason, Some(path), false)
+            }
             Self::Store(Blocked::Recovery { path }) => {
                 page(UiText::RefusalStoreRecovery, Some(path.clone()), true)
             }
@@ -98,7 +115,7 @@ impl fmt::Display for Refusal {
             // person can act on (human-client-ui.md section 12, as
             // EndpointInUse).
             Self::AlreadyOpen => f.write_str("this profile's window is already open"),
-            Self::Lock(e) => e.fmt(f),
+            Self::Lock { error, .. } => error.fmt(f),
             Self::Store(b) => b.fmt(f),
         }
     }
@@ -126,10 +143,12 @@ fn profile_reason(error: &StartError) -> (UiText, Option<PathBuf>) {
         StartError::NoHumanEndpoint { paths } => {
             (UiText::RefusalProfileSettings, Some(paths.config_file()))
         }
-        StartError::Directories(_)
-        | StartError::Paths(_)
-        | StartError::RolesOverlap
-        | StartError::Sockets(_) => (UiText::RefusalProfileFolders, None),
+        // The folder, where the error names one: "check where this
+        // profile keeps its files" is nothing to act on without it.
+        StartError::Directories(e) | StartError::Paths(e) | StartError::Sockets(e) => {
+            (UiText::RefusalProfileFolders, persist_path(e))
+        }
+        StartError::RolesOverlap => (UiText::RefusalProfileFolders, None),
     }
 }
 
@@ -236,6 +255,13 @@ mod tests {
         })
     }
 
+    fn lock(error: PersistError) -> Refusal {
+        Refusal::Lock {
+            error,
+            folder: PathBuf::from("/x/state/human"),
+        }
+    }
+
     fn shown(refusal: &Refusal) -> (UiText, Option<String>, bool) {
         let page = refusal.page().expect("a screen");
         (page.reason, page.path, page.can_retry)
@@ -264,10 +290,7 @@ mod tests {
             ),
             (Refusal::Store(Blocked::Unavailable { path: store }), true),
             (Refusal::AlreadyOpen, false),
-            (
-                Refusal::Lock(PersistError::Io(std::io::Error::other("x"))),
-                false,
-            ),
+            (lock(PersistError::Io(std::io::Error::other("x"))), false),
             (config(LoadError::Parse("x".to_owned())), false),
             (Refusal::Profile(StartError::RolesOverlap), false),
         ];
@@ -302,15 +325,9 @@ mod tests {
                 EX_IOERR,
             ),
             (Refusal::AlreadyOpen, EX_TEMPFAIL),
-            (Refusal::Lock(not_private()), EX_NOPERM),
-            (
-                Refusal::Lock(PersistError::UnsupportedPlatform),
-                EX_UNAVAILABLE,
-            ),
-            (
-                Refusal::Lock(PersistError::Io(std::io::Error::other("x"))),
-                EX_IOERR,
-            ),
+            (lock(not_private()), EX_NOPERM),
+            (lock(PersistError::UnsupportedPlatform), EX_UNAVAILABLE),
+            (lock(PersistError::Io(std::io::Error::other("x"))), EX_IOERR),
             (config(LoadError::Parse("x".to_owned())), EX_CONFIG),
             (Refusal::Profile(StartError::RolesOverlap), EX_CONFIG),
         ];
@@ -373,12 +390,26 @@ mod tests {
             shown(&Refusal::Profile(StartError::RolesOverlap)),
             (UiText::RefusalProfileFolders, None, false)
         );
+        assert_eq!(
+            shown(&Refusal::Profile(StartError::Paths(
+                PersistError::DirectoryNotPrivate {
+                    path: "/x/state".into(),
+                    detail: String::new(),
+                }
+            ))),
+            (
+                UiText::RefusalProfileFolders,
+                Some("/x/state".to_owned()),
+                false
+            ),
+            "the folder, where the error names one"
+        );
     }
 
     #[test]
     fn a_lock_refusal_names_the_folder_and_an_unsupported_platform_gets_no_screen() {
         assert_eq!(
-            shown(&Refusal::Lock(PersistError::DirectoryNotPrivate {
+            shown(&lock(PersistError::DirectoryNotPrivate {
                 path: "/x/state".into(),
                 detail: String::new(),
             })),
@@ -389,17 +420,18 @@ mod tests {
             )
         );
         assert_eq!(
-            shown(&Refusal::Lock(PersistError::Io(std::io::Error::other("x")))),
-            (UiText::RefusalUnavailable, None, false)
+            shown(&lock(PersistError::Io(std::io::Error::other("x")))),
+            (
+                UiText::RefusalUnavailable,
+                Some("/x/state/human".to_owned()),
+                false
+            ),
+            "the lock's folder, when the error names no path"
         );
         assert_eq!(
             shown(&Refusal::AlreadyOpen),
             (UiText::RefusalAlreadyOpen, None, false)
         );
-        assert!(
-            Refusal::Lock(PersistError::UnsupportedPlatform)
-                .page()
-                .is_none()
-        );
+        assert!(lock(PersistError::UnsupportedPlatform).page().is_none());
     }
 }
