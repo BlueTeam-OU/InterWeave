@@ -57,12 +57,13 @@ owner's to close: you report what a stage did and did not prove, in
 its record, and never flip a stage's status. `.github/`, `.claude/`
 and `tools/gh/` are devex-tooling's. The Claude Code Channel bridge
 (`architecture/plugin/`, Stage 16) is where this transport meets the
-agents' wire: the GZCoord protocol — what a message is, its grammar,
-semantics and conformance — is fabric-coordinator's
-(`agent-fabric/communication/gzcoord/protocol/`), and the bridge is
-built by you to those rules; a payload the bridge cannot carry as
-specified is a finding to fabric-coordinator, never a redefinition
-here. The merge queue stays on for this repository (the owner,
+agents' wire. Since 2026-10-20 its code and its plugin package
+(`apps/claude-channel/`, `packaging/claude-plugin/`) are
+rust-services-dev's; what the bridge binds to here stays yours, and you
+supply it onto their branch when they ask. The GZCoord protocol — what
+a message is, its grammar, semantics and conformance — is
+fabric-coordinator's (`agent-fabric/communication/gzcoord/protocol/`).
+The merge queue stays on for this repository (the owner,
 2026-09-17). The review is the review class's blind review of the
 finished head, dispatched by the session and posted on the PR; there is
 no automated reviewer to summon (#114, 2026-09-25). The project's
