@@ -75,10 +75,10 @@ Propagated to `android-key-custody.md` §user-presence (its two
 gain the within-the-window exception), `RISKS.md` and the digest.
 Landing with the pull request rust-ui-dev's batch 2 opens.
 
-### Amendment 2026-10-20 — A refusal at a return to a live Activity is answered by the locked notice and its Unlock action, not by the prompt
+### Amendment 2026-10-20 — The start's unwrap retried at a live Activity's continuation after a cancelled or denied prompt is answered by the locked notice and its Unlock action
 
 **Trigger.** rust-ui-dev-01 asked ux-designer-01 whether a return to the
-same Activity from Home or Recents after a cancelled prompt is "a launch
+same Activity from Home or Recents after a cancelled or denied prompt is "a launch
 of the app's Activity by the person" (QUESTION 01a155b3-448f), the case
 the custody document's 2026-10-19 sentence made presence. ux-designer-01
 put it to architect-cto (QUESTION 01a158ad-de5e); the ruling went into
@@ -88,19 +88,21 @@ review (P2) read it as a change of this record's "the Activity answers
 the refusal with a … prompt": at a return outside the window the
 unwrap is refused and the Activity raises no prompt.
 
-**Ruled.** It is a narrowing, and this is its record. The
-operation-free prompt answers a refusal at a launch of the Activity —
-its creation: a cold start, a new instance, the creation that follows a
-process the system killed (which has no live Activity); not a
-resumption, and not a recreation the system performs for a
-configuration change — and on the locked notice's Unlock action. At any
-other continuation of a live Activity — a return from Home or Recents
-after a cancel, a recreation the system performs for a configuration
-change (the supplier review's P3: the first wording excluded it from a
-launch and assigned it nothing) — the refusal is answered by the locked
-notice and its Unlock action, which raises that prompt; the
-continuation binds without a prompt only where the window has opened
-meanwhile. Why: the custody requirement is that no
+**Ruled.** It is a narrowing, and this is its record. One refusal is
+answered otherwise: the start's unwrap retried when a live Activity
+continues after a cancelled or denied prompt — a return from Home or Recents, a
+recreation the system performs for a configuration change (the supplier
+review's P3: the first wording excluded it from a launch and assigned it
+nothing) — is answered by the locked notice and its Unlock action, which
+raises that prompt; the continuation binds without a prompt only where
+the window has opened meanwhile. Every other refusal is answered by the
+prompt itself: the start's unwrap at a launch of the Activity (its
+creation: a cold start, a new instance, the creation that follows a
+process the system killed, which has no live Activity), a provisioning
+or restore seal, a reseal, the start after the phrase screen's Done
+(#304's round 4 P2: a first wording said "any other continuation" and
+took those in-flow prompts with it, against identity §6 and acceptance
+10); Unlock raises the prompt first and attempts nothing before it. Why: the custody requirement is that no
 key operation succeeds outside the window and that an authentication is
 always offered, never that a person who declined is asked again each
 time they switch back in — a prompt at every return would be the
@@ -114,8 +116,12 @@ clock of the window — `USER_PRESENCE_WINDOW_S` is the Keystore
 adapter's constant and the Keystore's fact: the key operation's
 outcome — the unwrap at a start, the seal at a provisioning or a
 restore — is the Activity's only reading of whether the window is
-open, so every case starts with the operation and the cases differ
-only in how a refusal is answered. "Raises the prompt before it binds" in the custody
+open, so every refusal case starts with the operation (Unlock starts
+with the prompt) and the cases differ only in how a refusal is answered. A `UserNotAuthenticated` refusal has no
+side effect — no log line, no diagnostic count, no notification
+(`Unavailable` keeps its "returned to the caller for its log") — so the
+unwrap a rotation on the locked notice retries costs nothing; the
+launch-path test of plan §20 step 7 pins it once that path is built. "Raises the prompt before it binds" in the custody
 document reads so: the start's unwrap is refused, the prompt answers
 it, and the service is bound with the identity on the retry.
 
