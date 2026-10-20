@@ -72,9 +72,13 @@ pub struct Links {
 
 impl Links {
     /// The snapshot: every address of every network, sorted, a duplicate
-    /// once, and the default network's DNS facts -- unknown (empty, and
-    /// no Private DNS) while no default is named or it reported nothing.
-    /// `None` while no callback is registered.
+    /// once, and the default network's DNS facts. Its resolvers are
+    /// UNOBSERVED (`None`, the runtime keeps the resolver it has) while no
+    /// default is named, or the default has not reported a link with
+    /// addresses -- not yet, or lost; a default with addresses gives its
+    /// list, and an empty one is UNAVAILABLE, which the runtime acts on
+    /// (`CONNECTIVITY.md` section 14, A 2026-10-20). `None` while no
+    /// callback is registered.
     #[must_use]
     pub fn view(&self) -> Option<NetworkView> {
         let links = self.links.as_ref()?;
@@ -85,11 +89,12 @@ impl Links {
         addresses.sort_unstable();
         addresses.dedup();
         let active = self.default.and_then(|network| links.get(&network));
-        Some(
-            NetworkView::new(addresses)
-                .with_dns_servers(active.map(|l| l.dns_servers.clone()).unwrap_or_default())
-                .with_private_dns(active.and_then(|l| l.private_dns.clone())),
-        )
+        let view = NetworkView::new(addresses)
+            .with_private_dns(active.and_then(|l| l.private_dns.clone()));
+        Some(match active.filter(|l| !l.addresses.is_empty()) {
+            Some(observed) => view.with_dns_servers(observed.dns_servers.clone()),
+            None => view,
+        })
     }
 
     /// The callback was registered: no network is known yet, which is
@@ -180,8 +185,9 @@ impl<S> Default for NetworkSlot<S> {
 pub struct Told {
     /// How many addresses.
     pub addresses: usize,
-    /// How many resolvers; 0 is unknown.
-    pub dns_servers: usize,
+    /// How many resolvers: `None` when they are unobserved, and
+    /// `Some(0)` when the default network names none, which is unavailable.
+    pub dns_servers: Option<usize>,
     /// Whether a strict-mode Private DNS host was named.
     pub strict_private_dns: bool,
 }
@@ -190,7 +196,7 @@ impl Told {
     fn of(view: &NetworkView) -> Self {
         Self {
             addresses: view.addresses.len(),
-            dns_servers: view.dns_servers.len(),
+            dns_servers: view.dns_servers.as_ref().map(Vec::len),
             strict_private_dns: view.private_dns.is_some(),
         }
     }
@@ -335,7 +341,7 @@ mod tests {
     fn count(addresses: usize) -> Told {
         Told {
             addresses,
-            dns_servers: 0,
+            dns_servers: None,
             strict_private_dns: false,
         }
     }
@@ -364,7 +370,7 @@ mod tests {
         assert!(
             views
                 .iter()
-                .all(|v| v.dns_servers.is_empty() && v.private_dns.is_none()),
+                .all(|v| v.dns_servers.is_none() && v.private_dns.is_none()),
             "no default named: the DNS facts are unknown, {views:?}"
         );
 
@@ -381,7 +387,7 @@ mod tests {
         );
         assert_eq!(
             view.dns_servers,
-            vec![ip("10.115.0.1"), ip("10.115.0.2")],
+            Some(vec![ip("10.115.0.1"), ip("10.115.0.2")]),
             "the default's, in order"
         );
         assert_eq!(view.private_dns.as_deref(), Some("dns.example"));
@@ -392,7 +398,7 @@ mod tests {
             slot.report(with_dns(2, &["10.115.0.9"], &["10.115.0.3"], None)),
             Some(Told {
                 addresses: 2,
-                dns_servers: 1,
+                dns_servers: Some(1),
                 strict_private_dns: false
             })
         );
@@ -407,7 +413,51 @@ mod tests {
         let _ = slot.report(NetworkReport::Default { network: None });
         let view = heard.0.borrow_mut().pop().expect("a view");
         assert_eq!(view.addresses, vec![ip("10.0.0.5")]);
-        assert!(view.dns_servers.is_empty() && view.private_dns.is_none());
+        assert!(view.dns_servers.is_none() && view.private_dns.is_none());
+    }
+
+    /// `CONNECTIVITY.md` section 14 (A 2026-10-20): an empty DNS view is
+    /// either unobserved or unavailable, and the aggregator says which.
+    /// Unobserved with no default named and with the default lost;
+    /// unavailable for a default with addresses that names no resolver.
+    #[test]
+    fn dns_is_unobserved_without_a_default_and_unavailable_for_a_default_naming_none() {
+        let (mut slot, heard) = attached();
+        let _ = slot.report(NetworkReport::Watching);
+        let _ = slot.report(link(1, &["10.0.0.5"]));
+        let view = heard.0.borrow_mut().pop().expect("a view");
+        assert_eq!(view.dns_servers, None, "no default named: unobserved");
+
+        // A default named before its link is reported: still unobserved.
+        let _ = slot.report(default_is(2));
+        let view = heard.0.borrow_mut().pop().expect("a view");
+        assert_eq!(view.dns_servers, None, "a default not reported: unobserved");
+
+        // Its link reported with no address yet: still unobserved, though
+        // it names a resolver.
+        let _ = slot.report(with_dns(2, &[], &["10.115.0.1"], None));
+        if let Some(view) = heard.0.borrow_mut().pop() {
+            assert_eq!(
+                view.dns_servers, None,
+                "a default with no address: unobserved"
+            );
+        }
+
+        assert_eq!(
+            slot.report(link(2, &["10.115.0.9"])),
+            Some(Told {
+                addresses: 2,
+                dns_servers: Some(0),
+                strict_private_dns: false
+            }),
+            "a default with addresses and no resolver: unavailable"
+        );
+        let view = heard.0.borrow_mut().pop().expect("a view");
+        assert_eq!(view.dns_servers, Some(Vec::new()));
+
+        let _ = slot.report(NetworkReport::Lost { network: 2 });
+        let view = heard.0.borrow_mut().pop().expect("a view");
+        assert_eq!(view.dns_servers, None, "the default lost: unobserved");
     }
 
     #[test]
