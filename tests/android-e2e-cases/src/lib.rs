@@ -567,10 +567,55 @@ pub fn to_android(serial: u8) -> (MessageId, String) {
     )
 }
 
+/// What the desktop sends in exchange `serial` once its answer was
+/// accepted, and its id: the high bit marks it the desktop's, as
+/// [`to_android`]'s, and 0x40 keeps it apart from that answer (every
+/// serial is below 0x40).
+#[must_use]
+pub fn closing(serial: u8) -> (MessageId, String) {
+    (
+        MessageId::from_bytes([serial | 0xC0; 16]),
+        format!("desktop {serial} closes"),
+    )
+}
+
+/// The desktop's last step of exchange `serial` with `android`, once its
+/// answer was accepted: the closing message, sent once, the Android
+/// half waiting for it before it ends.
+///
+/// WHY A CLOSE. On a device the Android side's process ends with its
+/// case, and an answer the Android side has read can still be
+/// unconfirmed at its sender: the acceptance travels back after the
+/// remote admitted the message, and a connection closed in between is
+/// "outcome unknown" (`TRANSPORT.md`, "Outcome unknown"), which the
+/// desktop's half cannot tell from no route. The 2026-10-20 Pixel run
+/// failed exactly so, the phone's case passed
+/// (`tests/android-e2e/runs/2026-10-20-pixel-9a-api37.md`). The close is
+/// sent only after the answer is accepted, so the Android side outlives
+/// that acceptance. Its own outcome is not relied on, for the same
+/// reason: the Android side may end as soon as it reads it.
+pub async fn close_exchange(from: &impl DataSessionPort, android: &TransportIdentity, serial: u8) {
+    let (id, text) = closing(serial);
+    if let Ok(payload) = payload(&text) {
+        let _ = from
+            .send_direct(
+                DirectDestination {
+                    peer: android.clone(),
+                    endpoint: Some(human()),
+                },
+                id,
+                payload,
+            )
+            .await;
+    }
+}
+
 /// The Android half of a path case: send to the desktop until a route
 /// exists, take its answer, and read the path this side was told the
 /// route began on. Which path that must be is the case's to assert, and
-/// it is asserted here, on the side that was told it.
+/// it is asserted here, on the side that was told it. It ends only on the
+/// desktop's [`closing`] message, so its process outlives the desktop's
+/// acceptance of the answer ([`close_exchange`]).
 async fn paths(binding: &impl DataSessionBinding, args: &PathsArgs) -> Result<PeerPath, String> {
     // The refusal is not printed: it can carry a trusted peer's identity
     // (`send_until_routed`'s note), and what failing here means is said.
@@ -593,6 +638,9 @@ async fn paths(binding: &impl DataSessionBinding, args: &PathsArgs) -> Result<Pe
             args.path
         ));
     }
+    let (_, close) = closing(args.serial);
+    told.take_message(&session, &args.desktop, &close, args.deadline)
+        .await?;
     Ok(current)
 }
 
@@ -676,6 +724,10 @@ pub struct Told {
     pub paths: Vec<(TransportIdentity, Option<PeerPath>, PeerPath, String)>,
     /// Disconnects, by peer, each with how many path notices preceded it.
     pub gone: Vec<(TransportIdentity, usize)>,
+    /// Every direct message read, as (source, payload): one read while
+    /// waiting for something else is still there to take
+    /// (`a_message_read_while_waiting_for_a_notice_is_still_taken`).
+    pub direct: Vec<(TransportIdentity, Vec<u8>)>,
 }
 
 impl Told {
@@ -697,10 +749,10 @@ impl Told {
             .map_err(|_| "the session refused a read".to_owned())?;
         for event in events {
             match event {
-                SessionEvent::Direct(m)
-                    if &m.source_peer == source && m.payload.bytes() == text.as_bytes() =>
-                {
-                    found = true;
+                SessionEvent::Direct(m) => {
+                    found |= &m.source_peer == source && m.payload.bytes() == text.as_bytes();
+                    self.direct
+                        .push((m.source_peer.clone(), m.payload.bytes().to_vec()));
                 }
                 SessionEvent::Local(LocalSessionEvent::PeerPathChanged {
                     peer,
@@ -718,7 +770,8 @@ impl Told {
         Ok(found)
     }
 
-    /// Read until `text` from `source` arrives, within `deadline`.
+    /// Read until `text` from `source` has arrived, within `deadline`:
+    /// at once if an earlier read already held it.
     ///
     /// # Errors
     /// It did not arrive, or a read was refused.
@@ -730,11 +783,19 @@ impl Told {
         deadline: Duration,
     ) -> Result<(), String> {
         let until = tokio::time::Instant::now() + deadline;
-        while !self.read(session, source, text).await? {
+        let held = |told: &Self| {
+            told.direct
+                .iter()
+                .any(|(from, bytes)| from == source && bytes == text.as_bytes())
+        };
+        while !held(self) {
             if tokio::time::Instant::now() >= until {
                 return Err(format!("{text:?} from {} never arrived", source.as_str()));
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            self.read(session, source, text).await?;
+            if !held(self) {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
         }
         Ok(())
     }
@@ -824,6 +885,17 @@ mod tests {
     /// does, while this test is the desktop's half, answering and then
     /// reporting the route as `told` from the Android side's view.
     fn paths_told(want: PeerPath, told: Notice) -> Map<String, Value> {
+        paths_closing(want, told, true, Duration::from_secs(5))
+    }
+
+    /// [`paths_told`], the desktop closing the exchange or not, the case
+    /// given `deadline`.
+    fn paths_closing(
+        want: PeerPath,
+        told: Notice,
+        closes: bool,
+        deadline: Duration,
+    ) -> Map<String, Value> {
         let (android, desktop) = FakeNetwork::pair(config(peer()), config(other_peer()));
         // The pair starts connected directly, and a first route would be
         // announced on that path; with none, it waits for `connected`.
@@ -832,7 +904,7 @@ mod tests {
             desktop: other_peer(),
             path: want,
             serial: 3,
-            deadline: Duration::from_secs(5),
+            deadline,
         };
         let case = {
             let android = android.clone();
@@ -851,11 +923,11 @@ mod tests {
                 )
             })
         };
-        block_on(desktop_half(&android, &desktop, told)).expect("a runtime");
+        block_on(desktop_half(&android, &desktop, told, closes)).expect("a runtime");
         result(&case.join().expect("the case thread"))
     }
 
-    async fn desktop_half(android: &FakeNode, desktop: &FakeNode, told: Notice) {
+    async fn desktop_half(android: &FakeNode, desktop: &FakeNode, told: Notice, closes: bool) {
         let session = desktop.open(lease_request()).await.expect("D leases");
         let (_, text) = to_desktop(3);
         Told::default()
@@ -885,6 +957,63 @@ mod tests {
         send_until_routed(&session, &peer(), id, &answer, Duration::from_secs(5))
             .await
             .expect("D answers");
+        if closes {
+            close_exchange(&session, &peer(), 3).await;
+        }
+    }
+
+    /// The Android half ends only on the desktop's close: without it the
+    /// case fails, naming the close; the control is the same exchange
+    /// closed, which passes.
+    #[test]
+    fn the_android_half_waits_for_the_desktops_close() {
+        let open = paths_closing(
+            PeerPath::Relayed,
+            Notice::Connected(PeerPath::Relayed),
+            false,
+            Duration::from_millis(500),
+        );
+        assert_eq!(open[keys::RESULT], keys::FAIL, "{open:?}");
+        let detail = open[keys::DETAIL].as_str().expect("a detail");
+        assert!(detail.contains(&closing(3).1), "{detail}");
+        let closed = paths_closing(
+            PeerPath::Relayed,
+            Notice::Connected(PeerPath::Relayed),
+            true,
+            Duration::from_millis(500),
+        );
+        assert_eq!(closed[keys::RESULT], keys::PASS, "{closed:?}");
+    }
+
+    /// A direct message read while waiting for something else -- a path
+    /// notice reads with no text -- is still there to take afterwards;
+    /// the control is a text never sent, which is not.
+    #[test]
+    fn a_message_read_while_waiting_for_a_notice_is_still_taken() {
+        let (android, desktop) = FakeNetwork::pair(config(peer()), config(other_peer()));
+        block_on(async {
+            let mine = android.open(lease_request()).await.expect("A leases");
+            let theirs = desktop.open(lease_request()).await.expect("D leases");
+            let (id, text) = closing(1);
+            send_until_routed(&theirs, &peer(), id, &text, Duration::from_secs(5))
+                .await
+                .expect("D sends");
+            let mut told = Told::default();
+            let until = std::time::Instant::now() + Duration::from_secs(5);
+            while told.direct.is_empty() {
+                assert!(std::time::Instant::now() < until, "nothing was read");
+                told.read(&mine, &other_peer(), "").await.expect("A reads");
+            }
+            told.take_message(&mine, &other_peer(), &text, Duration::ZERO)
+                .await
+                .expect("held from the earlier read");
+            assert!(
+                told.take_message(&mine, &other_peer(), "never sent", Duration::ZERO)
+                    .await
+                    .is_err()
+            );
+        })
+        .expect("a runtime");
     }
 
     #[test]

@@ -302,6 +302,9 @@ impl CaseRun {
 /// whose half is `run`: take what it sent, and answer, each within
 /// `PATIENCE`.
 ///
+/// The Android half is still waiting then: it ends on the caller's
+/// `close_exchange`, sent once the caller no longer needs it alive.
+///
 /// # Panics
 /// If either does not happen, with what `run` answered by then and `log`.
 pub async fn desktop_answers(
