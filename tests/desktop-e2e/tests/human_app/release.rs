@@ -5,8 +5,9 @@
 //! `PeerId` preservation and the recovery drill, each run by the package's
 //! own executables (`package.rs` names the seam).
 //!
-//! The previous build is a TREE, not a binary (architect-cto's ruling on
-//! j30's Q1, 2026-10-20): `test-data/upgrade/<commit>/` is the XDG tree
+//! The previous build is two things (architect-cto's rulings on j30's
+//! Q1, 2026-10-20). A TREE, on every run: `test-data/upgrade/<commit>/`
+//! is the XDG tree
 //! the build of that commit left after a person's ordinary use -- a key,
 //! the shipped desktop profile, a trust and an endpoint overlay written
 //! by its daemon, a store holding all three retention sets -- with
@@ -15,11 +16,16 @@
 //! tree; rollback is this build meeting a NEWER format of each artefact
 //! and refusing it with nothing written and the `PeerId` kept, which is
 //! what an older build owes a tree a newer one wrote (ADR-0044's fail
-//! safe; `human-client-packaging.md` section 7).
+//! safe; `human-client-packaging.md` section 7). And the real older
+//! BINARIES of the previous-build axis (`tools/ci/previous-builds.txt`),
+//! daemon and `transportctl`, run old -> new -> old over that tree, with
+//! what the old build does on it RECORDED
+//! ([`a_rollback_to_each_previous_build_keeps_the_peer_id_and_is_recorded`]).
 //!
-//! What this does NOT prove, by name: a real older BINARY reading this
-//! build's tree -- the release-candidate row, run against the previous
-//! tag, which is a `limit` until a first release exists; a tree whose
+//! What this does NOT prove, by name: an older CLIENT on this build's
+//! tree, a `limit` while no older `human-desktop` is on the axis; that a
+//! build before the profile-format marker refuses a newer tree -- it
+//! cannot, and the axis row records what it does instead; a tree whose
 //! formats are older than this build's own (the committed tree is the
 //! first, and has today's formats -- the store's migrations from older
 //! versions are proved in isolation by `crates/human/store`'s cases); a
@@ -576,6 +582,142 @@ async fn the_recovery_drill_restores_the_same_peer_id_and_never_mints_one() {
     assert_eq!(package::status_peer(&home).await.as_str(), manifest.peer);
     assert!(allowed(&home).await.contains(&manifest.added));
     assert!(daemon.terminate().success(), "{}", daemon.log());
+}
+
+/// The previous-build axis (`tools/ci/previous-builds.txt`, built by
+/// `tools/ci/build_previous_builds.sh` into the directory
+/// `INTERWEAVE_PREVIOUS_BUILDS` names): each entry's `transport-daemon`
+/// and `transportctl`, as `<dir>/<label>/`. Unset, the rows that need it
+/// fail rather than skip.
+fn axis() -> Vec<(String, PathBuf)> {
+    let dir = PathBuf::from(
+        std::env::var_os("INTERWEAVE_PREVIOUS_BUILDS").unwrap_or_else(|| {
+            panic!("INTERWEAVE_PREVIOUS_BUILDS is unset: this row needs the previous builds")
+        }),
+    );
+    let list = interweave_test_support::repo_root().join("tools/ci/previous-builds.txt");
+    let entries: Vec<_> = std::fs::read_to_string(&list)
+        .expect("the previous-build list")
+        .lines()
+        .map(|l| l.split('#').next().unwrap_or_default().trim())
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let label = l.split_whitespace().next().expect("a label").to_owned();
+            let at = dir.join(&label);
+            for bin in ["transport-daemon", "transportctl"] {
+                assert!(
+                    at.join(bin).is_file(),
+                    "{label} has no {bin} in {}",
+                    dir.display()
+                );
+            }
+            (label, at)
+        })
+        .collect();
+    assert!(!entries.is_empty(), "the axis has an entry");
+    entries
+}
+
+/// Rollback with real binaries (architect-cto's re-ruling on j30's Q1,
+/// 2026-10-20): for each build on the previous-build axis, old -> new ->
+/// old -> new, the `PeerId` the same at every step.
+///
+/// - old -> new: the old `transportctl` restores the golden key into a
+///   fresh profile and the old daemon runs on it; this build's daemon
+///   then serves the same `PeerId` from what the old one left.
+/// - new -> old, RECORDED: on the tree this build leaves, the old daemon
+///   starts, serves the same `PeerId` and writes nothing -- and ignores
+///   the endpoint overlay, which postdates it: the endpoint this build
+///   disabled reads enabled under it. Every build before the profile-
+///   format marker is unprotected this way (ADR-0028's amendment, the
+///   ruling's B); when an entry from after the marker joins the axis,
+///   it must refuse the newer tree instead, and this row changes with
+///   it.
+/// - old -> new again: the trip through the old build lost nothing this
+///   build reads: the overlays are still in effect.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "needs INTERWEAVE_PREVIOUS_BUILDS; CI runs it beside the upgrade matrix"]
+async fn a_rollback_to_each_previous_build_keeps_the_peer_id_and_is_recorded() {
+    let manifest = Manifest::read(&previous_tree());
+    for (label, old) in axis() {
+        let (old_daemon, old_ctl) = (old.join("transport-daemon"), old.join("transportctl"));
+
+        // old -> new, on a profile the old build made.
+        let fresh = Home::new(PROFILE);
+        std::fs::create_dir_all(fresh.paths.config_file().parent().expect("a directory"))
+            .expect("a config directory");
+        fresh.write_config(
+            &std::fs::read_to_string(
+                previous_tree().join("config/interweave/profiles/human-desktop/config.yaml"),
+            )
+            .expect("the tree's profile"),
+        );
+        let restored = package::transportctl_of(
+            &old_ctl,
+            &fresh,
+            &[
+                "identity",
+                "restore",
+                "--new",
+                "--expected-peer-id",
+                GOLDEN_PEER,
+            ],
+            &format!("{GOLDEN_WORDS}\n"),
+        );
+        assert!(
+            restored.status.success(),
+            "{label}'s restore: {}",
+            String::from_utf8_lossy(&restored.stderr)
+        );
+        let mut daemon = package::start_daemon_of(&old_daemon, &fresh);
+        daemon.serving(&fresh).await;
+        assert_eq!(
+            package::status_peer(&fresh).await.as_str(),
+            GOLDEN_PEER,
+            "{label}"
+        );
+        assert!(daemon.terminate().success(), "{label}: {}", daemon.log());
+        let mut daemon = serving(&fresh).await;
+        assert_eq!(
+            package::status_peer(&fresh).await.as_str(),
+            GOLDEN_PEER,
+            "this build serves the PeerId {label} left"
+        );
+        assert!(daemon.terminate().success(), "{}", daemon.log());
+
+        // new -> old, on the tree this build leaves.
+        let home = install(&previous_tree());
+        let before = snapshot(&home);
+        let mut daemon = package::start_daemon_of(&old_daemon, &home);
+        daemon.serving(&home).await;
+        assert_eq!(
+            package::status_peer(&home).await.as_str(),
+            GOLDEN_PEER,
+            "{label}"
+        );
+        assert!(
+            endpoint_enabled(&home, &manifest.disabled_endpoint).await,
+            "RECORDED: {label} predates the endpoint overlay and does not read it; \
+             if it now reads {} disabled, the axis gained a build that does, and this \
+             row changes with it",
+            manifest.disabled_endpoint
+        );
+        assert!(daemon.terminate().success(), "{label}: {}", daemon.log());
+        assert_eq!(
+            changed(&before, &snapshot(&home)),
+            Vec::<String>::new(),
+            "{label} wrote nothing into this build's tree"
+        );
+
+        // old -> new again: nothing this build reads was lost.
+        let mut daemon = serving(&home).await;
+        assert_eq!(package::status_peer(&home).await.as_str(), GOLDEN_PEER);
+        assert!(!endpoint_enabled(&home, &manifest.disabled_endpoint).await);
+        let allowed = allowed(&home).await;
+        assert!(allowed.contains(&manifest.added), "{allowed:?}");
+        assert!(!allowed.contains(&manifest.revoked), "{allowed:?}");
+        assert!(daemon.terminate().success(), "{}", daemon.log());
+    }
 }
 
 /// Writes the previous build's tree: run with the build of the commit it

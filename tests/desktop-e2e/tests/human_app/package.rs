@@ -78,8 +78,14 @@ pub(crate) fn in_home(command: &mut Command, home: &Home) {
 
 /// The package's `transportctl` in `home`, `input` on stdin.
 pub(crate) fn transportctl(home: &Home, args: &[&str], input: &str) -> Output {
+    transportctl_of(&transportctl_binary(), home, args, input)
+}
+
+/// The `transportctl` at `bin` -- another build's -- in `home`, `input`
+/// on stdin.
+pub(crate) fn transportctl_of(bin: &Path, home: &Home, args: &[&str], input: &str) -> Output {
     use std::io::Write as _;
-    let mut command = Command::new(transportctl_binary());
+    let mut command = Command::new(bin);
     in_home(&mut command, home);
     let mut child = command
         .args(args)
@@ -171,9 +177,15 @@ impl Drop for Running {
 /// OUTSIDE the XDG tree, so a byte-for-byte comparison of the tree sees
 /// only what the daemon itself wrote there.
 pub(crate) fn start_daemon(home: &Home) -> Running {
+    start_daemon_of(&daemon_binary(), home)
+}
+
+/// [`start_daemon`] with the `transport-daemon` at `bin`, another
+/// build's.
+pub(crate) fn start_daemon_of(bin: &Path, home: &Home) -> Running {
     let log = home.root.path().join(format!("daemon-{}.log", stamp()));
     let stderr = std::fs::File::create(&log).expect("a log file");
-    let mut command = Command::new(daemon_binary());
+    let mut command = Command::new(bin);
     in_home(&mut command, home);
     let child = command
         .stdin(Stdio::null())

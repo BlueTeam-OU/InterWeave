@@ -16,9 +16,11 @@ commit wrote in ordinary use of the shipped desktop profile
   does not know, `schema_version: 3`), refuses it, writes nothing and
   keeps the PeerId — what an older build owes a tree a newer one wrote.
 
-A real older binary against a newer tree is the release-candidate row,
-not this one; until a first release exists it is a `limit` ("no prior
-release").
+The real older binaries are the previous-build axis
+(`tools/ci/previous-builds.txt`): `release.rs` runs each entry's daemon
+and `transportctl` old -> new -> old over this tree and records what the
+old build does on it. No older desktop client is on the axis, so the
+client's half of that is a `limit`.
 
 ## A tree
 
