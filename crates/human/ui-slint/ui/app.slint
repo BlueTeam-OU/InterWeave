@@ -1034,6 +1034,40 @@ component UnreadBadge inherits Rectangle {
 // IME-free entry are kept by what is NOT here: no TextInput, so no
 // system keyboard and no copy of a word; the window's secure flag is the
 // platform's (human-android).
+/// A session notice: about the whole client, not one conversation, with
+/// the one action that answers it, if any. Shown wherever the person is:
+/// in the conversation pane, and on a phone's Chats as well, where a
+/// fresh profile has no conversation to open.
+component NoticeCard inherits Rectangle {
+    in property <string> message;
+    in property <bool> has-action;
+    in property <string> action;
+    callback pressed();
+    callback focused(string);
+    background: Palette.notice-background;
+    border-radius: 12px;
+    HorizontalLayout {
+        padding: 12px;
+        spacing: 8px;
+        Text {
+            text: root.message;
+            color: Palette.notice-text;
+            wrap: word-wrap;
+            vertical-alignment: center;
+            accessible-role: text;
+            accessible-label: self.text;
+            accessible-live-region: polite;
+        }
+        if root.has-action: ActionButton {
+            text: root.action;
+            focus-key: "notice";
+            on-notice: true;
+            pressed => { root.pressed(); }
+            focused(k) => { root.focused(k); }
+        }
+    }
+}
+
 component IdentityScreen inherits FocusScope {
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
@@ -1512,6 +1546,10 @@ export component AppWindow inherits Window {
     in property <string> state-short;
     in property <Glyph> state-glyph;
     in property <bool> has-notice;
+    // A notice about the session itself, the conversation's offline
+    // banner excluded: the one a phone's Chats shows too, where the
+    // subtitle already says offline.
+    in property <bool> has-session-notice;
     in property <string> notice;
     in property <bool> has-notice-action;
     in property <string> notice-action;
@@ -1916,6 +1954,16 @@ export component AppWindow inherits Window {
                         focused(k) => { root.focus-id = k; }
                     }
                 }
+            }
+            // A phone shows Chats or a conversation, never both, so the
+            // session notice is here too; the desktop shows it beside, in
+            // the conversation pane.
+            if root.narrow && root.list-shown && root.has-session-notice: NoticeCard {
+                message: root.notice;
+                has-action: root.has-notice-action;
+                action: root.notice-action;
+                pressed => { root.notice-pressed(); }
+                focused(k) => { root.focus-id = k; }
             }
             // Any number of conversations: the list scrolls rather than
             // raising the window's minimum height past the screen. A row
@@ -2531,31 +2579,14 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            if root.has-notice && !root.notice-aside: Rectangle {
-                background: Palette.notice-background;
-                border-radius: 12px;
+            if root.has-notice && !root.notice-aside: NoticeCard {
+                message: root.notice;
+                has-action: root.has-notice-action;
+                action: root.notice-action;
                 init => { root.notice-height = self.height; }
                 changed height => { root.notice-height = self.height; }
-            HorizontalLayout {
-                padding: 12px;
-                spacing: 8px;
-                Text {
-                    text: root.notice;
-                    color: Palette.notice-text;
-                    wrap: word-wrap;
-                    vertical-alignment: center;
-                    accessible-role: text;
-                    accessible-label: self.text;
-                    accessible-live-region: polite;
-                }
-                if root.has-notice-action: ActionButton {
-                    text: root.notice-action;
-                    focus-key: "notice";
-                    on-notice: true;
-                    pressed => { root.notice-pressed(); }
-                    focused(k) => { root.focus-id = k; }
-                }
-            }
+                pressed => { root.notice-pressed(); }
+                focused(k) => { root.focus-id = k; }
             }
             // Not drawn: the bubbles show where the messages are. Kept as a
             // heading a screen reader can move to (section 6), clipped to

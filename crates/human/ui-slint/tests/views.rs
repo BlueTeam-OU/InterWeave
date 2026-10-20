@@ -487,6 +487,51 @@ fn the_notice_action_resolves_only_while_its_notice_is_shown() {
     );
 }
 
+/// A session notice is about the whole client, not one conversation, so
+/// a phone shows it on Chats too, where a fresh profile has nothing to
+/// open: the locked notice and its Unlock are the only way back online
+/// after a cancelled prompt (#313's device run on the Samsung A40).
+#[test]
+fn a_phone_shows_the_session_notice_and_its_action_on_chats() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    model.authentication_needed(true);
+    view.render(&model);
+    let notice = the(&view, text(UiText::AuthenticationNeeded));
+    assert!(notice.size().width > 0.0, "the notice is laid out");
+    let unlock = the(&view, text(UiText::Authenticate));
+    assert!(unlock.size().width > 0.0, "and so is its action");
+    unlock.invoke_accessible_default_action();
+    assert_eq!(intents(&mut view, &mut model), vec![Intent::Authenticate]);
+
+    model.authentication_needed(false);
+    model.client_event(ClientEvent::Session(SessionState::Refused {
+        problem: SessionProblem::EndpointInUse,
+    }));
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::AuthenticationNeeded)).is_empty(),
+        "one notice at a time"
+    );
+    the(&view, text(UiText::TryAgain));
+
+    model.client_event(ClientEvent::Session(SessionState::Ready {
+        endpoint: Some(human()),
+    }));
+    model.client_event(ClientEvent::Connectivity(Connectivity::Offline));
+    view.render(&model);
+    the(&view, text(UiText::StateShortOffline));
+    assert!(
+        labelled(
+            &view,
+            placeholder_en::host_text(RuntimeHost::Daemon, HostText::OfflineBanner)
+        )
+        .is_empty(),
+        "the offline banner is a conversation's: Chats' subtitle says it"
+    );
+}
+
 /// §13, the accessibility tree: message and connectivity controls carry
 /// meaningful labels, roles and descriptions; connectivity is a polite
 /// live region and an item's status is not; the full `PeerId` is on the

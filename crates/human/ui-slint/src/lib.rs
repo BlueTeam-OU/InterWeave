@@ -2320,6 +2320,7 @@ impl View {
         let offline = (notice.is_none() && connectivity == Connectivity::Offline)
             .then(|| placeholder_en::host_text(self.host, HostText::OfflineBanner).to_owned());
         window.set_has_notice(notice.is_some() || offline.is_some());
+        window.set_has_session_notice(notice.is_some());
         window.set_notice(
             notice
                 .map(|notice| notice_text(self.host, notice))
