@@ -76,9 +76,15 @@
 #     classpath before --write-locks) resolves unvalidated and appears in
 #     no lockfile, so this guard would never read it; STRICT fails that
 #     build instead;
+#   - any line naming the lock mode (lockMode, LockMode, getLockMode,
+#     setLockMode) other than those two exact `lockMode.set(LockMode.STRICT)`
+#     lines of the root build.gradle.kts -- an allow-list, because a
+#     subproject's own dependencyLocking overrides the root's and a mode
+#     can be spelt any number of ways (LockMode.valueOf of a property,
+#     a star import, an argument on the next line); read raw, so a
+#     comment naming it fails too;
 #   - any Gradle script, version catalog or buildSrc/build-logic Kotlin
-#     under the root naming LENIENT, DEFAULT as a lock mode,
-#     ignoredDependencies,
+#     under the root naming LENIENT, ignoredDependencies,
 #     unlockAllConfigurations, deactivateDependencyLocking, lockFile,
 #     startParameter, writeDependencyLocks or LockedDependenciesToUpdate
 #     -- read raw, so a comment naming one fails too.
@@ -227,15 +233,19 @@ build_sources() {
 #   LENIENT                       resolves past the lock without failing
 #                                 (the bare word: a star import or a
 #                                 Groovy string names it without LockMode.)
-#   DEFAULT as a lock mode        undoes the root's STRICT for a project
-#                                 (LockMode.DEFAULT, or on a lockMode line)
 #   ignoredDependencies           neither written to the lock nor checked
 #   unlockAllConfigurations       undoes lockAllConfigurations()
 #   deactivateDependencyLocking   one configuration out of the lock
 #   lockFile                      the lock state read from another file
 #   startParameter                write-locks or update-locks on every build
 #   writeDependencyLocks / LockedDependenciesToUpdate  the same, by name
-LOOSEN='LENIENT|LockMode\.DEFAULT|lockMode[^;]*DEFAULT|ignoredDependencies|unlockAllConfigurations|deactivateDependencyLocking|lockFile|startParameter|[Ww]riteDependencyLocks|[Ll]ockedDependenciesToUpdate'
+LOOSEN='LENIENT|ignoredDependencies|unlockAllConfigurations|deactivateDependencyLocking|lockFile|startParameter|[Ww]riteDependencyLocks|[Ll]ockedDependenciesToUpdate'
+
+# The lock mode, by allow-list: a word naming it, on any line but the
+# root's exact STRICT lines. The word is bounded on the left (a
+# non-letter, or get/set) so setBlockModes is not it.
+LOCK_MODE='(^|[^A-Za-z]|get|set)[Ll]ockMode'
+STRICT_LINE='^[0-9]+:[[:space:]]*lockMode\.set\(LockMode\.STRICT\)[[:space:]]*$'
 
 # A banned group named in the build's own text, whatever resolves: a
 # subproject's plugins { id(...) version ... } resolves into that
@@ -262,6 +272,11 @@ while IFS= read -r src; do
     hits="$(grep -noE "$LOOSEN" "$src" || true)"
     while IFS= read -r h; do
         [ -n "$h" ] && fail "$rel: ${h#*:} (line ${h%%:*}) -- the lockfile would no longer describe what resolves"
+    done <<<"$hits"
+    hits="$(grep -nE "$LOCK_MODE" "$src" || true)"
+    [ "$src" = "$root_build" ] && hits="$(grep -vE "$STRICT_LINE" <<<"$hits" || true)"
+    while IFS= read -r h; do
+        [ -n "$h" ] && fail "$rel: sets or names the lock mode (line ${h%%:*}) -- only the root's two lockMode.set(LockMode.STRICT) lines may: ${h#*:}"
     done <<<"$hits"
     hits="$(grep -nE "$BANNED" "$src" || true)"
     # The exemption is per statement: a line holding a ; can carry a
