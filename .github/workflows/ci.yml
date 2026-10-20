@@ -459,7 +459,14 @@ jobs:
           path: |
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
-          key: gradle-${{ runner.os }}-${{ hashFiles('apps/human-android/android/**/*.gradle.kts', 'apps/human-android/android/gradle/libs.versions.toml', 'apps/human-android/android/gradle/wrapper/gradle-wrapper.properties') }}
+          # The key covers what decides what this job resolves: the build's
+          # own files, and this workflow, which names the tasks run. With
+          # the build files alone, adding lintDebug left the key as main
+          # had saved it without lint's tooling, and a save runs only on a
+          # miss, so that tooling would be downloaded on every run (review of
+          # #311). A workflow change costs one restore by prefix and one
+          # fuller save on main.
+          key: gradle-${{ runner.os }}-${{ hashFiles('apps/human-android/android/**/*.gradle.kts', 'apps/human-android/android/gradle/libs.versions.toml', 'apps/human-android/android/gradle/wrapper/gradle-wrapper.properties', '.github/workflows/ci.yml') }}
           restore-keys: |
             gradle-${{ runner.os }}-
 
@@ -473,9 +480,9 @@ jobs:
       # lint error once sat on a branch unseen (rust-ui-dev-01's
       # feat/j111-android-recovery, from 4159658e until 9d2e7432). AGP
       # fails the task on a lint error (its log names the report); a
-      # warning passes.
-      # Neither task below needs the native library: cargo-ndk runs for
-      # merge*JniLibFolders only.
+      # warning passes. Measured on #311 (1aac52d8, 2026-10-20), after
+      # assembleDebug: lintDebug 26 s with its tooling downloaded, under
+      # STRICT locking; testDebugUnitTest 8 s.
       - name: ./gradlew lintDebug
         run: ./gradlew --no-daemon --stacktrace lintDebug
 
