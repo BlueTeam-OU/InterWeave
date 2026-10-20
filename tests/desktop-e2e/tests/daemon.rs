@@ -617,6 +617,45 @@ async fn a_marker_above_this_build_refuses_the_daemon_and_nothing_is_written() {
     assert_eq!(marker_format(&home), Some(PROFILE_FORMAT), "never lowered");
 }
 
+/// A newer build's marker written while this daemon waited for the lock
+/// -- `load` saw none, the newer build held the lock and raised it --
+/// refuses the start at the lock, before the runtime writes anything:
+/// the message is the profile's, not the raise's, and nothing under the
+/// XDG roots changes but the lock's own record.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_marker_raised_while_the_daemon_waits_for_the_lock_refuses_it_there() {
+    let home = Home::new("e2e");
+    home.write_key();
+    home.write_config(&profile("e2e", &stranger(), ""));
+    let held = interweave_profile_config::ProfileLock::acquire(&home.paths, Duration::ZERO)
+        .expect("the newer build's lock");
+    let mut daemon = home.start(&[]);
+    // Inside DAEMON_LOCK_WAIT: the daemon has loaded and waits on the
+    // lock; the newer build raises the marker and lets go.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    plant_marker(&home, PROFILE_FORMAT + 1);
+    let lock_file = home.paths.state_dir().join("profile.lock");
+    let before: BTreeMap<_, _> = xdg_snapshot(&home)
+        .into_iter()
+        .filter(|(p, _)| p != &lock_file)
+        .collect();
+    drop(held);
+    assert_eq!(daemon.exit().await.code(), Some(1), "{}", daemon.log());
+    let log = daemon.log();
+    assert!(
+        log.contains(&format!(
+            "the profile: {}",
+            profile_format::path_for(&home.paths).display()
+        )),
+        "refused under the lock, not by the raise after the start:\n{log}"
+    );
+    let after: BTreeMap<_, _> = xdg_snapshot(&home)
+        .into_iter()
+        .filter(|(p, _)| p != &lock_file)
+        .collect();
+    assert_eq!(after, before, "nothing written");
+}
+
 /// An `embedded-android` profile runs inside the app, never as a daemon:
 /// the shipped Android example is refused before anything is bound.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
