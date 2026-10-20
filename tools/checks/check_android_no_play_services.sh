@@ -39,8 +39,15 @@
 # included. The other way round (a list of "application" configurations)
 # lets the next classpath through unnamed. The exempt shapes:
 #   lint:  androidLintTool, lintChecks, lintPublish, *LintChecksClasspath
-#   test:  *UnitTest*, *AndroidTest*, androidTest*,
-#          unified-test-platform-*
+#   test:  *UnitTest*, *AndroidTest*, androidTest*, testFixtures*,
+#          *TestFixtures*, unified-test-platform-*
+# Test fixtures are test tooling: architect-cto's ruling of 2026-10-19
+# (DECISION 01a15473), with no change to the decision's text, since
+# "test tooling" already covers them. What is exempt is the fixtures'
+# own classpaths, by configuration name; nothing stops a build putting
+# a fixtures artifact on the application (implementation(testFixtures(
+# ...))), and one that does is on that application configuration in
+# the lock, and fails there.
 # The build's own plugin classpath (`classpath` in
 # buildscript-gradle.lockfile) and the Kotlin compiler's are NOT exempt:
 # the decision names lint and test tooling only, and nothing there needs
@@ -63,6 +70,21 @@
 #     inside `allprojects { dependencyLocking { } }`, or not locking the
 #     buildscript classpath (`activateDependencyLocking()`), or no
 #     buildscript-gradle.lockfile; comments do not count;
+#   - the root build.gradle.kts not setting `lockMode.set(LockMode.STRICT)`
+#     in both its `buildscript { dependencyLocking { } }` and its
+#     `allprojects { dependencyLocking { } }`: under Gradle's DEFAULT
+#     mode a locked configuration with NO lock state (a new build type's
+#     classpath before --write-locks) resolves unvalidated and appears in
+#     no lockfile, so this guard would never read it; STRICT fails that
+#     build instead;
+#   - any line naming the lock mode (lockMode, LockMode, getLockMode,
+#     setLockMode) other than an exact `lockMode.set(LockMode.STRICT)`
+#     line of the root build.gradle.kts (the check above requires one in
+#     each of its two blocks) -- an allow-list, because a
+#     subproject's own dependencyLocking overrides the root's and a mode
+#     can be spelt any number of ways (LockMode.valueOf of a property,
+#     a star import, an argument on the next line); read raw, so a
+#     comment naming it fails too;
 #   - any Gradle script, version catalog or buildSrc/build-logic Kotlin
 #     under the root naming LENIENT, ignoredDependencies,
 #     unlockAllConfigurations, deactivateDependencyLocking, lockFile,
@@ -71,17 +93,10 @@
 #
 # AND THE DECLARATIONS: the same files may not name a banned group
 # (a plugins { } id, a dependency coordinate, a catalog entry), except
-# on a dependency line of a test or lint configuration (one statement,
-# no ;). A subproject's
+# on a dependency line of a test, test-fixtures or lint configuration
+# (one statement, no ;). A subproject's
 # own plugin classpath is in no lockfile, so this is what refuses the
 # Google services plugin applied there.
-#
-# WHAT IT CANNOT SEE: under Gradle's DEFAULT lock mode a locked
-# configuration with NO lock state (a new build type's classpath before
-# --write-locks) resolves unvalidated and appears in no lockfile.
-# LockMode.STRICT closes that, and is the build's to set; the
-# releaseRuntimeClasspath control above covers the one configuration
-# that ships today.
 #
 # Exit codes:
 #   0  no banned group on an application configuration, lock intact
@@ -192,6 +207,13 @@ else
         || fail "apps/human-android/android/build.gradle.kts: no lockAllConfigurations() in allprojects { dependencyLocking { } } -- a configuration outside the lock is outside this guard"
     grep -Eq 'buildscript[[:space:]]*\{[^}]*activateDependencyLocking\(\)' <<<"$root_code" \
         || fail "apps/human-android/android/build.gradle.kts: the buildscript classpath is not locked -- buildscript-gradle.lockfile would not describe the plugins"
+    # STRICT in each block's dependencyLocking. The block may hold sibling
+    # blocks before it (buildscript's configurations.classpath { } does),
+    # one level deep; deeper nesting fails closed.
+    for block in buildscript allprojects; do
+        grep -Eq "$block"'[[:space:]]*\{([^{}]*\{[^{}]*\})*[^{}]*dependencyLocking[[:space:]]*\{[^}]*lockMode\.set\(LockMode\.STRICT\)' <<<"$root_code" \
+            || fail "apps/human-android/android/build.gradle.kts: no lockMode.set(LockMode.STRICT) in $block { dependencyLocking { } } -- a configuration with no lock state would resolve unseen"
+    done
 fi
 [ -f "$GRADLE/buildscript-gradle.lockfile" ] \
     || fail "apps/human-android/android/buildscript-gradle.lockfile: missing -- the plugin classpath is unread"
@@ -221,6 +243,12 @@ build_sources() {
 #   writeDependencyLocks / LockedDependenciesToUpdate  the same, by name
 LOOSEN='LENIENT|ignoredDependencies|unlockAllConfigurations|deactivateDependencyLocking|lockFile|startParameter|[Ww]riteDependencyLocks|[Ll]ockedDependenciesToUpdate'
 
+# The lock mode, by allow-list: a word naming it, on any line but the
+# root's exact STRICT lines. The word is bounded on the left (a
+# non-letter, or get/set) so setBlockModes is not it.
+LOCK_MODE='(^|[^A-Za-z]|get|set)[Ll]ockMode'
+STRICT_LINE='^[0-9]+:[[:space:]]*lockMode\.set\(LockMode\.STRICT\)[[:space:]]*$'
+
 # A banned group named in the build's own text, whatever resolves: a
 # subproject's plugins { id(...) version ... } resolves into that
 # project's buildscript classpath, which no lockfile here records
@@ -229,14 +257,14 @@ LOOSEN='LENIENT|ignoredDependencies|unlockAllConfigurations|deactivateDependency
 # name one, as decision 2 allows; the catalog cannot say where an entry
 # is used, so it may not.
 BANNED='(com\.google\.android\.gms|com\.google\.firebase|com\.google\.android\.play|com\.android\.billingclient|com\.google\.gms)([.:"'"'"'/[:space:]]|$)'
-# A dependency call on a test or lint configuration, by its whole name,
-# a build type or flavour between allowed (testDebugImplementation). The
-# infix is any capitalised words; test fixtures are taken back out
-# below, because the lockfile check treats their classpaths as the
-# application and the two halves must answer the same (round 5). A
-# bare prefix once exempted `testing { ... }` (round 3), and suffix-only
+# A dependency call on a test, test-fixtures or lint configuration, by
+# its whole name, a build type or flavour between allowed
+# (testDebugImplementation, debugTestFixturesImplementation). The infix
+# is any capitalised words. The two halves answer the same: the
+# lockfile check exempts the fixtures classpaths too (round 5 refused
+# them in both, until the ruling above). A bare prefix once exempted `testing { ... }` (round 3), and suffix-only
 # once refused testDebugImplementation and androidTestUtil (round 4).
-TOOLING_LINE='^[0-9]+:[[:space:]]*"?((test|androidTest|[a-z]+UnitTest|[a-z]+AndroidTest)([A-Z][a-z0-9]+)*(Implementation|Api|CompileOnly|RuntimeOnly|AnnotationProcessor)|androidTestUtil|lintChecks|lintPublish)"?[[:space:](]'
+TOOLING_LINE='^[0-9]+:[[:space:]]*"?((test|androidTest|[a-z]+UnitTest|[a-z]+AndroidTest|[a-z]+TestFixtures)([A-Z][a-z0-9]+)*(Implementation|Api|CompileOnly|RuntimeOnly|AnnotationProcessor)|androidTestUtil|lintChecks|lintPublish)"?[[:space:](]'
 
 sources=0
 while IFS= read -r src; do
@@ -247,13 +275,17 @@ while IFS= read -r src; do
     while IFS= read -r h; do
         [ -n "$h" ] && fail "$rel: ${h#*:} (line ${h%%:*}) -- the lockfile would no longer describe what resolves"
     done <<<"$hits"
+    hits="$(grep -nE "$LOCK_MODE" "$src" || true)"
+    [ "$src" = "$root_build" ] && hits="$(grep -vE "$STRICT_LINE" <<<"$hits" || true)"
+    while IFS= read -r h; do
+        [ -n "$h" ] && fail "$rel: sets or names the lock mode (line ${h%%:*}) -- only an exact lockMode.set(LockMode.STRICT) line of the root build may: ${h#*:}"
+    done <<<"$hits"
     hits="$(grep -nE "$BANNED" "$src" || true)"
     # The exemption is per statement: a line holding a ; can carry a
     # second one after the test call (review of #307 round 3, finding 2).
     case "$src" in
         *.toml) ;;
-        *) hits="$(grep -vE "${TOOLING_LINE}[^;]*$" <<<"$hits" || true)
-$(grep -E "${TOOLING_LINE}[^;]*$" <<<"$hits" | grep -E '^[0-9]+:[[:space:]]*"?[A-Za-z]*[Tt]estFixtures' || true)" ;;
+        *) hits="$(grep -vE "${TOOLING_LINE}[^;]*$" <<<"$hits" || true)" ;;
     esac
     while IFS= read -r h; do
         [ -n "$h" ] && fail "$rel: declares a banned group (line ${h%%:*}) -- ${h#*:}"
@@ -302,6 +334,7 @@ while IFS= read -r lock; do
             return c == "androidLintTool" || c == "lintChecks" || c == "lintPublish" \
                 || c ~ /LintChecksClasspath$/ \
                 || c ~ /UnitTest/ || c ~ /AndroidTest/ || c ~ /^androidTest/ \
+                || c ~ /^testFixtures/ || c ~ /TestFixtures/ \
                 || c ~ /^unified-test-platform-/
         }
         /^[[:space:]]*#/ || /^[[:space:]]*$/ || /^empty=/ { next }
