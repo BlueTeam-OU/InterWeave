@@ -133,13 +133,27 @@ Back → W.
   (`IdFormatLine`). `identity-recovery.md` (Backup UX) lists it among
   what the display must include. It is public, and not a word of the
   phrase. S2 shows both lines too.
-- Below the words comes the PeerId in full (§5). Its label says to
-  write it down with the words.
+- The PeerId is not on this page. It follows on a page of its own
+  (below), so the secret words and the public PeerId are never on one
+  screen. The owner read the PeerId beside the words as misleading
+  and asked for it to move to a following step (2026-10-20, relayed
+  by rust-ui-dev-01, REPLY 01a15899-4c7e).
 - The list scrolls if it must. The primary action stays fixed at the
-  bottom: "I wrote down the words and PeerId" (→ C3).
+  bottom: "I wrote down the words" (`IdWrittenDown`, → C2's PeerId
+  page).
 - Back → C1. The same words show again on return, because the identity
   is not committed until C4. Back from C1 to W discards the uncommitted
   identity, and W then shows `IdVoidPaper`.
+
+**C2's PeerId page, Your PeerId.** The second page of C2, after the
+words. Title `IdPeerIdTitle`.
+- The PeerId in full (§5), with `IdPeerIdLabel`: it is not a password,
+  it is safe to share, and it goes on the same paper as the words,
+  because a restore compares it (R3).
+- Nothing of the words shows here.
+- Primary, fixed at the bottom: "I wrote down the PeerId"
+  (`IdPeerIdWritten`, → C3).
+- Back → the words page, with the same words.
 
 **C3, Check two words.** Two positions are drawn at random (for
 example 7 and 19). The person enters each with the picker (§4), one
@@ -153,7 +167,7 @@ after the other. "Word 7 of 24" heads each entry.
   - show my words again (→ C2, with the same two positions on return).
 - There is no limit on tries, and no way past C3 without two right
   words.
-- Back → C2.
+- Back → C2's PeerId page.
 
 Why C3 exists: a confirmation the person only taps is tapped without
 writing. Wallet apps that hold a 24-word phrase spot-check for that
@@ -269,9 +283,14 @@ the unlock policy. Back → Settings.
 - The prompt succeeds: a progress state on S1 while the service stops
   (`IdGoingOffline`), then S2.
 
-**S2, Your 24 words.** The same layout as C2. The primary action is
-done, which drops the words, restarts the service and returns to
-Settings. Back does the same. Connectivity then shows as it always
+**S2, Your 24 words.** The same two pages as C2: the words, then the
+PeerId on a page of its own. On the words page the primary action is
+"Next" (`IdNext`, → the PeerId page), and Back is the same as Done.
+The PeerId page shows the PeerId with `IdPeerIdLabelShown` (the person
+has written it before); its primary action is Done, and its Back
+returns to the words. Done drops the words, restarts the service and
+returns to Settings. "S2's Done" below is that Done, and the time "on
+S2" counts both pages. Connectivity then shows as it always
 does (`human-client-ui.md` §7). This flow adds no "back online"
 message of its own.
 
@@ -450,9 +469,12 @@ names are suggestions; rust-ui-dev names them.
 | `IdStorageUnknown` (new) | The app could not tell whether your identity was saved. Try again to check. | §6's notice when the read-back fails, two lines, with `TryAgain`. It never says that nothing changed. "To check" is true, because Try again reads back before it writes |
 | `IdRestoreOther` (new) | Your identity was not restored. This phone has another identity, with the PeerId below. | §6's another-identity-on-record row, at a restore (a record that names a PeerId other than the one restored), two lines, the PeerId in full below it. "With the PeerId below" ties the PeerId to the other identity, so it is not read as the person's own |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
-| `IdPeerIdLabel` | Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share. | The PeerId's label (§5) on C2 and S2, where the person writes |
-| `IdPeerIdLabelShown` (new) | Your PeerId. It is the one on your paper. It is not a password, and it is safe to share. | The PeerId's label on C4 and R4, where the person has already written it. One label cannot be true on both kinds of screen |
-| `IdWrittenDown` | I wrote down the words and PeerId | C2's primary |
+| `IdPeerIdLabel` | Your PeerId. Write it on the same paper as your words. It is not a password, and it is safe to share. | The PeerId's label (§5) on C2's PeerId page, where the person writes |
+| `IdPeerIdTitle` (new) | Your PeerId | The title of C2's and S2's PeerId page |
+| `IdPeerIdWritten` (new) | I wrote down the PeerId | The primary of C2's PeerId page (→ C3) |
+| `IdNext` (new) | Next | The primary of S2's words page (→ its PeerId page) |
+| `IdPeerIdLabelShown` (new) | Your PeerId. It is the one on your paper. It is not a password, and it is safe to share. | The PeerId's label on C4, R4 and S2's PeerId page, where the person has already written it. One label cannot be true on both kinds of screen |
+| `IdWrittenDown` (new value) | I wrote down the words | The primary of C2's words page; the PeerId has its own page now |
 | `IdCheckTitle` | Check your words | C3's title |
 | `IdCheckBody` | Enter two words from your paper. | C3's body, one line |
 | `IdWordPosition` | Word {n} of 24 | The picker's position (§4), and C3's heading of each entry |
@@ -514,9 +536,12 @@ landscape:
 
 1. A first launch with no record shows W. Back leaves the app, and the
    next launch shows W again.
-2. Create: C1 → C2 shows 24 numbered words and the PeerId in full,
-   grouped by four. A screenshot (`adb exec-out screencap`) of C2, of
-   C3 and of R2 is black, and Recents shows no content for the flow.
+2. Create: C1 → C2 shows 24 numbered words and no PeerId. Its primary
+   leads to the PeerId page, which shows the PeerId in full, grouped
+   by four, and no word; Back there shows the same words. S2 has the
+   same two pages. A screenshot (`adb exec-out screencap`) of both C2
+   pages, of C3 and of R2 is black, and Recents shows no content for
+   the flow.
 3. Long-press on any word copies nothing, and nothing in the flow
    writes the clipboard. The PeerId copies in canonical form.
 4. C3 asks two positions. A wrong word shows `IdCheckWrong` and clears
