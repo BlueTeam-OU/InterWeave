@@ -1,6 +1,6 @@
 # Automated clients are first-party consumers above a general-purpose transport: durability, receipts, fan-out and framing live in the client, and the fleet's own agents are the first deployment
 
-**Status:** Proposed — awaiting the owner's acceptance, given by arming the pull request that lands this record (the ratification-by-merge rule of 2026-09-27)
+**Status:** Accepted (2026-10-19; the owner's word "Arm #305" of 2026-10-19, given by the arming of the pull request that landed this record, under the ratification-by-merge rule of 2026-09-27; the status flipped in the series that closes Stage 20, plan §28, which names the merge)
 
 ## Context
 
@@ -36,7 +36,7 @@ Two user units per profile on a host of many accounts; a port allocation held in
 
 ## Implementation implications
 
-In this repository, a stage that runs beside Stage 17 by record (plan §28): the two `transportctl` verbs (landed on p2p-network-dev's branch at 8dddbbcf, 24 tests), the Linux unit templates, `architecture/clients/automated/AUTOMATED-CLIENT.md` carrying decision 2 and 3 with the test or contract that holds each fact, and `tests/automated-client` proving them against two daemons on loopback with a generic test client. In the fabric, by its own records, everything the protocol needs above the socket.
+In this repository, a stage that ran beside Stage 17 by record and closed on it the same day (plan §28): the two `transportctl` verbs (landed on p2p-network-dev's branch at 8dddbbcf, five tests beside the file's nineteen for the earlier verbs), the Linux unit templates, `architecture/clients/automated/AUTOMATED-CLIENT.md` carrying decision 2 and 3 with the test or contract that holds each fact, and `tests/automated-client` proving them against two daemons on loopback with a generic test client. In the fabric, by its own records, everything the protocol needs above the socket.
 
 ## Revisit conditions
 

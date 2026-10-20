@@ -100,12 +100,76 @@ impl AdbDevice {
     }
 }
 
-/// The device's recent log.
+/// How many of the app's own log lines a failure carries.
+const APP_LOG_LINES: &str = "1000";
+
+/// How many of the platform's lines about the app a failure carries.
+const PLATFORM_LINES: usize = 50;
+
+/// The device's log since the last clear, as a failure needs it: the
+/// app's and its instrumentation's own lines, by uid, then
+/// `ActivityManager`'s lines naming the app -- why its process started or
+/// died. Not the device's last lines: a phone writes thousands a minute,
+/// and a run on a Pixel 9a carried none of the app's in its last 300.
 fn logcat() -> String {
-    adb(&["logcat", "-d", "-t", "300"]).map_or_else(
-        |e| format!("(no logcat: {e})"),
-        |o| String::from_utf8_lossy(&o.stdout).into_owned(),
-    )
+    let app = match text(&["shell", "pm", "list", "packages", "-U", PACKAGE]) {
+        Err(why) => why,
+        Ok(packages) => {
+            let uids = app_uids(&packages);
+            if uids.is_empty() {
+                format!("(no uid for the app: pm listed no {PACKAGE})")
+            } else {
+                let uid = format!("--uid={}", uids.join(","));
+                text(&["logcat", "-d", &uid, "-t", APP_LOG_LINES]).unwrap_or_else(|why| why)
+            }
+        }
+    };
+    let platform = text(&["logcat", "-d", "-b", "system", "-s", "ActivityManager"])
+        .map_or_else(|why| why, |log| about_the_app(&log));
+    format!("--- the app's log ---\n{app}\n--- ActivityManager on the app ---\n{platform}")
+}
+
+/// `adb args`'s stdout, or why there is none: a failure report that
+/// cannot read the log says why, never an empty section or a guess.
+fn text(args: &[&str]) -> Result<String, String> {
+    read_text(args, adb(args))
+}
+
+/// [`text`] over an `adb` run's result: adb exits nonzero for an
+/// unauthorized or absent device and a refused option, with the reason
+/// on stderr (`a_failed_read_says_why`).
+fn read_text(args: &[&str], run: std::io::Result<Output>) -> Result<String, String> {
+    match run {
+        Err(e) => Err(format!("(adb {}: {e})", args.join(" "))),
+        Ok(out) if !out.status.success() => Err(format!(
+            "(adb {} ended with {}: {})",
+            args.join(" "),
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim_end()
+        )),
+        Ok(out) => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+    }
+}
+
+/// The uids of the app and of its instrumentation's package, from
+/// `pm list packages -U <PACKAGE>`, which matches by substring: each line
+/// `package:<name> uid:<uid>[,<uid>...]`, a uid per user profile.
+fn app_uids(pm: &str) -> Vec<String> {
+    let test = format!("{PACKAGE}.test");
+    pm.lines()
+        .filter_map(|line| {
+            let (name, uids) = line.trim().strip_prefix("package:")?.split_once(" uid:")?;
+            (name == PACKAGE || name == test).then_some(uids)
+        })
+        .flat_map(|uids| uids.split(','))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The last of `ActivityManager`'s lines that name the app.
+fn about_the_app(log: &str) -> String {
+    let lines: Vec<&str> = log.lines().filter(|l| l.contains(PACKAGE)).collect();
+    lines[lines.len().saturating_sub(PLATFORM_LINES)..].join("\n")
 }
 
 impl Device for AdbDevice {
@@ -318,6 +382,56 @@ pub fn base64(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A nonzero exit is the reason, stderr included; the control, a
+    /// success, is its stdout.
+    #[test]
+    fn a_failed_read_says_why() {
+        use std::os::unix::process::ExitStatusExt;
+        let run = |code: i32, stdout: &str, stderr: &str| {
+            Ok(Output {
+                status: std::process::ExitStatus::from_raw(code << 8),
+                stdout: stdout.into(),
+                stderr: stderr.into(),
+            })
+        };
+        let why = read_text(&["logcat", "-d"], run(1, "", "error: device unauthorized"))
+            .expect_err("a nonzero exit is no log");
+        assert!(why.contains("adb logcat -d"), "{why}");
+        assert!(why.contains("device unauthorized"), "{why}");
+        assert_eq!(
+            read_text(&["logcat"], run(0, "the log", "")),
+            Ok("the log".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_log_is_read_by_the_app_and_its_instrumentations_uids_alone() {
+        let pm = "package:org.interweave.human.test uid:10274,1010274\n\
+                  package:org.interweave.humane uid:10999\n\
+                  package:org.interweave.human uid:10271,1010271\n";
+        assert_eq!(
+            app_uids(pm),
+            ["10274", "1010274", "10271", "1010271"],
+            "a package the substring filter also matched is not the app's"
+        );
+        assert!(app_uids("").is_empty());
+    }
+
+    #[test]
+    fn the_platform_lines_are_the_last_naming_the_app() {
+        let mut log: Vec<String> = (0..PLATFORM_LINES + 5)
+            .map(|n| format!("I ActivityManager: Start proc {n}:{PACKAGE}/u0a271"))
+            .collect();
+        log.insert(
+            3,
+            "I ActivityManager: Start proc 9:com.other/u0a1".to_owned(),
+        );
+        let kept = about_the_app(&log.join("\n"));
+        assert_eq!(kept.lines().count(), PLATFORM_LINES);
+        assert!(!kept.contains("com.other"));
+        assert!(kept.ends_with(&log[PLATFORM_LINES + 5]), "{kept}");
+    }
 
     #[test]
     fn base64_matches_rfc_4648s_vectors() {
