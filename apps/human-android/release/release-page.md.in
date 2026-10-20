@@ -5,9 +5,26 @@
      LICENSE.TXT asks for and {third_party_notice_texts} each bundled
      component's licence text, both read from the sources the build used;
      {cert_sha256} is printed as apksigner prints it, lowercase hex with
-     no colons, so a reader compares like with like. English final per
-     language-culture-en, REPLY 01a15425-8aed. -->
-# InterWeave for Android {version}
+     no colons, so a reader compares like with like. One page serves
+     every platform (architect-cto DECISION 01a157e6-b852); the
+     third-party notices are the APK's only, since the Linux archive
+     carries its own. English final per language-culture-en, REPLY
+     01a15425-8aed (Android) and the REPLY to 01a1581e-702e (the shared
+     page and the Linux section). -->
+# InterWeave {version}
+
+This release of InterWeave is for Android phones and for Linux
+computers. Each has its own file. Read the section for the device that
+you use.
+
+InterWeave is not in any app store. You install it and update it
+yourself, from its release pages.
+
+## What is new
+
+{release_notes}
+
+## Android
 
 Download [`interweave-{version}-arm64-v8a.apk`]({apk_url}).
 
@@ -20,14 +37,7 @@ Use these two values to check that the file is the one published here:
 - SHA-256 of the signing certificate, the same for every release:
   `{cert_sha256}`
 
-## What is new
-
-{release_notes}
-
-## Installing and updating
-
-InterWeave is not in any app store. You install it and update it
-yourself, from its release pages.
+### Installing and updating on Android
 
 To install it, open the downloaded file on your phone. If you
 downloaded it on a computer, copy it to the phone first. Android may
@@ -56,17 +66,78 @@ it:
 If either value is different, do not install the file. Delete it and
 download it again from this page.
 
+## Linux
+
+Download [`{linux_archive}`]({linux_archive_url}).
+
+It runs on Linux computers with a 64-bit x86 processor. On such a
+computer, the command `uname -m` shows `x86_64`. There is no archive
+for macOS, for Windows, or for Linux on an ARM processor.
+
+Use this value to check that the archive is the one published here:
+
+- SHA-256 of the archive: `{linux_sha256}`
+
+The Linux archive has no signature, so this value is the only check.
+In the folder that holds the archive, run `sha256sum {linux_archive}`.
+It must show the same value. If the value is different, do not install
+the archive. Delete it and download it again from this page.
+
+### What the archive contains
+
+- `human-desktop`: the InterWeave window, where you read and write
+  messages.
+- `transport-daemon`: the service that connects InterWeave to the
+  network. It runs in the background, and the window works only while
+  it runs.
+- `transportctl`: a command-line tool for your identity, for the peers
+  that you trust, and for recovery.
+- systemd user units. One of them starts the service for you.
+- A README with the installation steps, and the licence notices for
+  the programs.
+
+### Installing on Linux
+
+Unpack the archive with `tar -xzf {linux_archive}`. Then follow the
+steps in its README. You install InterWeave as your own user, in
+`~/.local/bin`. You do not need root access.
+
+In the README's steps, you choose a name for your profile. In the
+commands below, replace `<profile>` with that name.
+
+The first time, `transportctl --profile <profile> identity init`
+creates your identity. It also shows the identity's PeerId: the name
+by which other people's InterWeave knows you.
+
+Then make a recovery backup with
+`transportctl --profile <profile> identity backup`. The service must
+be stopped while you make it. Keep the backup private, because anyone
+who has it can use your identity. If you lose your identity and you
+have no backup, nobody can recover it.
+
+### Updating on Linux
+
+To update, download a newer release from its page, and check its
+SHA-256 as above. Then install its programs over the old ones, with
+the steps in the newer archive's README. Your identity, your profile,
+the peers that you trust, your other settings and your messages stay.
+InterWeave does not check for updates, so it cannot tell you that a
+new release exists.
+
 ## Made with Slint
 
 [![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/v1.18.1/logo/MadeWithSlint-logo-light.svg)](https://slint.dev)
 
-The InterWeave interface is made with [Slint](https://slint.dev).
-InterWeave uses Slint under the Slint Royalty-free License 2.0.
+The InterWeave interface is made with [Slint](https://slint.dev), on
+Android and on Linux. InterWeave uses Slint under the Slint
+Royalty-free License 2.0.
 
-## Third-party notices
+## Third-party notices for the Android app
 
-The app contains Skia, a graphics library, and the libraries that Skia
-includes. Each of them is under its own licence:
+The notices for the Linux programs are in the Linux archive.
+
+The Android app contains Skia, a graphics library, and the libraries
+that Skia includes. Each of them is under its own licence:
 
 - Skia and skcms: BSD-3-Clause
 - libjpeg-turbo: IJG License, BSD-3-Clause and zlib License
