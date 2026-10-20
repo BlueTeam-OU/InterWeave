@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+# A tree is compared byte for byte by the cases that read it: git never
+# rewrites a file of one (its SQLite store and key are binary besides).
+*/** -text -diff

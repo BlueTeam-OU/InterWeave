@@ -50,7 +50,7 @@ use crate::world::{app_store, envelope, wall_ms};
 const PROFILE: &str = "human-desktop";
 
 /// The tree the previous build left, under the repository root.
-const PREVIOUS_TREE: &str = "test-data/upgrade/074ba19d";
+const PREVIOUS_TREE: &str = "test-data/upgrade/d3a193e9";
 
 /// IDENTITY-RECOVERY.md's golden vector (`fixtures/identity/`), the
 /// tree's key: TEST-ONLY, the all-zero entropy, public, never a key.
