@@ -49,8 +49,12 @@ ceiling; A 2026-10-21). The rule, kept by `apps/claude-channel`'s
 
 Pinned by `apps/claude-channel/tests/host_line.rs` over the real binary
 and pipes: a 64 MiB line is dropped at bounded memory and the next ping
-is answered (the control is the same line with the ceiling lifted), and a
-non-UTF-8 line ends nothing.
+is answered, and a non-UTF-8 line ends nothing. The ceiling's margin over
+the payload ceiling is a compile-time assertion beside the constant. The
+control was a one-off measurement at the fix, not a test: the same line
+against the binary with the ceiling removed grew its peak memory by about
+200 MB, against about 1 MB with it (#330), and the binary has no knob to
+lift it.
 
 ## Reply safety
 
