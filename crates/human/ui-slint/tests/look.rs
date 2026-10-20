@@ -1654,12 +1654,11 @@ fn the_list_follows_its_end_until_the_person_scrolls_away() {
     );
 }
 
-/// #304 F3, round 1: a touch user who closes the keyboard leaves the
-/// composer, whose insertion handle otherwise stayed drawn on the empty
-/// field. Typed while the keyboard is up, a letter reaches the draft;
-/// after it closes, none does: the field let focus go.
+/// Closing the keyboard keeps the composer focused, as a platform field
+/// does: a letter typed after it closes still reaches the draft (#304
+/// F16; F3's residual handle is the toolkit's).
 #[test]
-fn closing_the_keyboard_after_a_tap_lets_the_composer_go() {
+fn closing_the_keyboard_after_a_tap_keeps_the_composer() {
     use slint::platform::{PointerEventButton, WindowEvent};
     let text = placeholder_en::text;
     let mut model = UiModel::new();
@@ -1700,7 +1699,107 @@ fn closing_the_keyboard_after_a_tap_lets_the_composer_go() {
     window.set_keyboard_overlap(0.0);
     slint::platform::update_timers_and_animations();
     typed("b");
-    assert_eq!(window.get_draft().as_str(), "a", "the field let focus go");
+    assert_eq!(window.get_draft().as_str(), "ab", "the field kept focus");
+}
+
+/// #304 F16: the field is its whole rounded box, as a Material text
+/// field is. A tap on the box above or below the one line of text --
+/// most of the box's 48 px -- focuses the field, as a tap on the line
+/// does.
+#[test]
+fn a_tap_anywhere_on_the_composer_box_focuses_the_field() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    let view = opened(&model, false);
+    let window = view.window();
+    let field = labelled(&view, text(UiText::Composer));
+    let (p, z) = (field[0].absolute_position(), field[0].size());
+    assert!(z.height < 40.0, "control: the line is shorter than the box");
+    // Inside the box, above the line of text.
+    let position = slint::LogicalPosition::new(p.x + z.width / 2.0, p.y - 8.0);
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    slint::platform::update_timers_and_animations();
+    let key: slint::SharedString = "a".into();
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text: key });
+    slint::platform::update_timers_and_animations();
+    assert_eq!(window.get_draft().as_str(), "a", "the tapped box types");
+}
+
+/// #304 F16: a conversation holding the person's own messages that need
+/// attention ("May have reached the peer, send again or cancel") still
+/// gives its composer focus on a tap, as one holding none does.
+#[test]
+fn a_tap_focuses_the_composer_beside_messages_needing_attention() {
+    use interweave_human_client_api::{ClientEvent, OutboundStatus, OutboundUpdate, SendProblem};
+    use interweave_human_core::AppMessageId;
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    for row in [2, 3] {
+        send(&mut model, row, "w", NOW);
+        model.client_event(ClientEvent::Outbound(OutboundUpdate {
+            row: RowId::from_stored(row),
+            app_message_id: AppMessageId::parse(format!("{row:032x}")).expect("an id"),
+            status: OutboundStatus::NeedsAttention {
+                problem: SendProblem::NoNetworkPath,
+                may_have_reached: true,
+            },
+            last_code: None,
+        }));
+    }
+    let view = opened(&model, false);
+    let window = view.window();
+    assert!(
+        window
+            .get_messages()
+            .iter()
+            .filter(|r| r.status.starts_with("May have reached the peer"))
+            .count()
+            == 2,
+        "control: two messages need attention"
+    );
+    let field = labelled(&view, text(UiText::Composer));
+    let (p, z) = (field[0].absolute_position(), field[0].size());
+    let position = slint::LogicalPosition::new(p.x + z.width / 2.0, p.y + z.height / 2.0);
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    slint::platform::update_timers_and_animations();
+    window.set_keyboard_overlap(300.0);
+    slint::platform::update_timers_and_animations();
+    let key: slint::SharedString = "a".into();
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text: key });
+    slint::platform::update_timers_and_animations();
+    assert_eq!(window.get_draft().as_str(), "a", "the tapped field types");
 }
 
 /// #304 F9 step 5: with the keyboard up in landscape, a conversation

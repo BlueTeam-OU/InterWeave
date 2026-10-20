@@ -3170,6 +3170,16 @@ export component AppWindow inherits Window {
                         min-height: 48px;
                         background: Palette.surface-container-high;
                         border-radius: self.height / 2;
+                        // The field is its whole box, as a Material text
+                        // field is: a tap above or below its line of text
+                        // focuses it too. Under the input, which keeps its
+                        // own taps for the cursor.
+                        TouchArea {
+                            clicked => {
+                                FocusMode.keyboard = false;
+                                input.focus();
+                            }
+                        }
                         FocusRing {
                             x: -5px;
                             y: -5px;
@@ -3203,17 +3213,14 @@ export component AppWindow inherits Window {
                             text <=> root.draft;
                             enabled: root.composer-enabled;
                             accessible-label: root.composer-label;
-                            // A touch user who closes the keyboard (Back, or
-                            // the keyboard's own key) is done typing: the field
-                            // lets focus go, and its insertion handle with it,
-                            // which stayed drawn on the empty field (#304 F3,
-                            // round 1). A keyboard user keeps focus.
-                            property <bool> keyboard-up: root.keyboard-overlap > 0;
-                            changed keyboard-up => {
-                                if (!self.keyboard-up && !FocusMode.keyboard && self.has-focus) {
-                                    self.clear-focus();
-                                }
-                            }
+                            // Closing the keyboard keeps the field focused, as
+                            // a platform field does. Letting focus go there
+                            // (b010afb9) never removed the insertion handle it
+                            // was for -- Slint 1.18.1's Android backend leaves
+                            // the handle drawn on any focus loss, a toolkit
+                            // limit carried as #304's F3 residual -- and is the
+                            // suspect in F16, a composer that took no focus on
+                            // a tap.
                             edited => { root.draft-edited(self.text); }
                             changed has-focus => {
                                 if (self.has-focus) { root.focus-id = "composer"; }
