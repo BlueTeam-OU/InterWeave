@@ -632,4 +632,9 @@ beside its PeerId sentence; the release page's downgrade sentence
 (language-culture-en) follows from §7. Follow-up, with the implementing
 change: configuration.md's state-class table gains the marker's row
 (back up: yes; safe to delete: no — reads 0) and its owner-only list
-names it.
+names it — done with that change (p2p-network-dev's supply
+0ab7ce1f..f5183386 onto rust-ui-dev's Stage 19 branch), which also
+fixed three facts the Decision paragraph now carries: the load-time
+check judges the file and leaves the directory to the lock; the raise
+is under the lock after the runtime's start, so a refused start writes
+nothing; the marker is re-read after the lock.

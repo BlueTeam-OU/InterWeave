@@ -50,6 +50,18 @@ previous-build axis up to the build that adds it. The rule for a person:
 a build whose profile format is older than the profile's refuses to
 start and says so; an older build with the same format number starts as
 before; roll forward, never back past the build that wrote the profile.
+Three facts of the implementing change bind the shape (p2p-network-dev,
+2026-10-20): the load-time check judges the marker FILE alone — a state
+directory others can read, or one this uid cannot search, is the
+profile lock's to refuse, so each binary's exit class for that case is
+unchanged; the raise happens under the lock AFTER the runtime has
+started and before it serves, so a start the runtime refuses writes
+nothing, and what the start writes first (the overlays' normalisation
+rewrite, the peer cache's flush) keeps its shape at the current format —
+a change that bumps N and changes what the start writes must move the
+raise, and that is the bump review's to check; and the marker is read
+again right after the lock is taken, which closes the window between
+load and lock in which a newer build could have raised it.
 
 ## Alternatives considered
 
