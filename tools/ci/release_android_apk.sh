@@ -32,6 +32,9 @@
 #   interweave-<version>-arm64-v8a.apk.sha256   in sha256sum's format
 #   android-values.json                         {apk_sha256, cert_sha256}
 #                                               for release_page.py
+# all three or none: once <version> and the APK are found, a run that
+# fails at any step, a refusal or a write, leaves none of them, a
+# previous run's of the same names included.
 #
 # The key is read from the environment and never from a file in the
 # tree, and its passwords reach apksigner as env: references, never on
@@ -76,6 +79,24 @@ version="$1" unsigned="$2" out_dir="$3"
     || die "version '$version' is not MAJOR.MINOR.PATCH"
 [[ -f "$unsigned" ]] || die "no APK at $unsigned"
 
+mkdir -p "$out_dir"
+apk_name="interweave-$version-arm64-v8a.apk"
+outputs=("$apk_name" "$apk_name.sha256" android-values.json)
+# Everything is made in a work directory on the out-dir's filesystem and
+# moved out together at the end; a failure at any step removes what was
+# moved, and a previous run's files of the same names go first, so a run
+# that fails leaves no APK, hash or values file behind.
+work="$(mktemp -d "$out_dir/.release.XXXXXX")"
+finish() {
+    local status=$? f
+    rm -rf "$work"
+    if (( status != 0 )); then
+        for f in "${outputs[@]}"; do rm -f -- "$out_dir/$f"; done
+    fi
+}
+trap finish EXIT
+for f in "${outputs[@]}"; do rm -f -- "$out_dir/$f"; done
+
 for var in INTERWEAVE_RELEASE_KEYSTORE INTERWEAVE_RELEASE_KEY_ALIAS INTERWEAVE_RELEASE_KEYSTORE_PASS; do
     [[ -n "${!var-}" ]] || { echo "release_android_apk: $var is not set" >&2; exit 2; }
 done
@@ -118,11 +139,8 @@ vname="$(sed -n "s/.* versionName='\([^']*\)'.*/\1/p" <<<"$package_line")"
 abis="$(sed -n "s/^native-code: //p" <<<"$badging")"
 [[ "$abis" == "'arm64-v8a'" ]] || die "native code is for [${abis:-none}], not arm64-v8a alone"
 
-mkdir -p "$out_dir"
-apk_name="interweave-$version-arm64-v8a.apk"
-signed="$out_dir/$apk_name"
-aligned="$out_dir/.$apk_name.aligned"
-trap 'rm -f "$aligned"' EXIT
+signed="$work/$apk_name"
+aligned="$work/aligned.apk"
 "$tools/zipalign" -f -P 16 4 "$unsigned" "$aligned" || die "zipalign failed"
 
 sign_args=(
@@ -137,33 +155,33 @@ else
 fi
 "$tools/apksigner" sign "${sign_args[@]}" \
     --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true \
-    --out "$signed" "$aligned" || { rm -f "$signed"; die "apksigner sign failed"; }
+    --out "$signed" "$aligned" || die "apksigner sign failed"
 rm -f "$signed.idsig"
 
 # The signed file as a person's phone will judge it.
-"$tools/zipalign" -c -P 16 4 "$signed" >/dev/null || { rm -f "$signed"; die "the signed APK is not aligned"; }
+"$tools/zipalign" -c -P 16 4 "$signed" >/dev/null || die "the signed APK is not aligned"
 # Verified as for API 24, the oldest that reads v2: at the APK's own
 # minimum (30) apksigner checks v3 alone and reports v2 false although
 # the block is there, so this is what proves both were written.
 verify="$("$tools/apksigner" verify -v --print-certs --min-sdk-version 24 "$signed")" \
-    || { rm -f "$signed"; die "apksigner verify failed"; }
+    || die "apksigner verify failed"
 for scheme in "v2 scheme (APK Signature Scheme v2): true" "v3 scheme (APK Signature Scheme v3): true" \
     "v1 scheme (JAR signing): false"; do
-    grep -qF "Verified using $scheme" <<<"$verify" || { rm -f "$signed"; die "not verified as: $scheme"; }
+    grep -qF "Verified using $scheme" <<<"$verify" || die "not verified as: $scheme"
 done
 signers="$(grep -c '^Signer #[0-9]* certificate SHA-256 digest: ' <<<"$verify" || true)"
-[[ "$signers" == 1 ]] || { rm -f "$signed"; die "$signers signers, not one"; }
+[[ "$signers" == 1 ]] || die "$signers signers, not one"
 cert="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<<"$verify")"
 if (( ! first_release )) && [[ "$cert" != "$expected_cert" ]]; then
-    rm -f "$signed"
     die "signed with certificate $cert, not the release key's $expected_cert"
 fi
 
-(cd "$out_dir" && sha256sum -- "$apk_name" > "$apk_name.sha256")
-apk_sha="$(cut -d' ' -f1 "$out_dir/$apk_name.sha256")"
-printf '{"apk_sha256": "%s", "cert_sha256": "%s"}\n' "$apk_sha" "$cert" > "$out_dir/android-values.json"
+(cd "$work" && sha256sum -- "$apk_name" > "$apk_name.sha256")
+apk_sha="$(cut -d' ' -f1 "$work/$apk_name.sha256")"
+printf '{"apk_sha256": "%s", "cert_sha256": "%s"}\n' "$apk_sha" "$cert" > "$work/android-values.json"
+for f in "${outputs[@]}"; do mv -fT -- "$work/$f" "$out_dir/$f"; done
 
-echo "signed $signed (versionCode $code)"
+echo "signed $out_dir/$apk_name (versionCode $code)"
 echo "apk_sha256  $apk_sha"
 echo "cert_sha256 $cert"
 if (( first_release )); then

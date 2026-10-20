@@ -32,7 +32,11 @@
 # name or time.
 #
 # REFUSED when <version> is not MAJOR.MINOR.PATCH, or a program, a unit
-# or a script is missing; nothing is left in <out-dir> then.
+# or a script is missing. On any failure once <version> is checked, a
+# refusal or a step after the checks, none of the three outputs is left
+# in <out-dir>, a previous
+# run's of the same names included: all three are written in scratch and
+# moved together at the end, and a failure removes what was moved.
 #
 # Exit codes:
 #   0  written; the archive's SHA-256 is printed
@@ -68,6 +72,21 @@ version="$1" out_dir="$2"
 [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
     || die "version '$version' is not MAJOR.MINOR.PATCH"
 
+name="interweave-$version-$target"
+archive="$name.tar.gz"
+outputs=("$archive" "$archive.sha256" linux-values.json)
+scratch="$(mktemp -d)"
+finish() {
+    local status=$? f
+    rm -rf "$scratch"
+    if (( status != 0 )); then
+        for f in "${outputs[@]}"; do rm -f -- "$out_dir/$f"; done
+    fi
+}
+trap finish EXIT
+mkdir -p "$out_dir"
+for f in "${outputs[@]}"; do rm -f -- "$out_dir/$f"; done
+
 if [[ -z "$bin_dir" ]]; then
     build_args=(build --release --locked --target "$target")
     for p in "${packages[@]}"; do build_args+=(-p "$p"); done
@@ -82,9 +101,6 @@ for f in packaging/linux/install.sh packaging/linux/uninstall.sh packaging/linux
     [[ -f "$root/$f" ]] || die "no $f"
 done
 
-name="interweave-$version-$target"
-scratch="$(mktemp -d)"
-trap 'rm -rf "$scratch"' EXIT
 stage="$scratch/$name"
 mkdir -p "$stage/bin" "$stage/systemd"
 # Their modes are the archive's, not the builder's umask: 077 would make
@@ -109,13 +125,11 @@ chmod 0644 "$stage/THIRD-PARTY-NOTICES.md"
 
 epoch="${SOURCE_DATE_EPOCH:-$(git -C "$root" log -1 --format=%ct)}"
 [[ "$epoch" =~ ^[0-9]+$ ]] || die "SOURCE_DATE_EPOCH '$epoch' is not a number of seconds"
-mkdir -p "$out_dir"
-archive="$name.tar.gz"
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" --format=gnu \
     -C "$scratch" -cf - "$name" | gzip -n -9 > "$scratch/$archive" || die "tar failed"
-mv -f "$scratch/$archive" "$out_dir/$archive"
-(cd "$out_dir" && sha256sum -- "$archive" > "$archive.sha256")
-sha="$(cut -d' ' -f1 "$out_dir/$archive.sha256")"
-printf '{"linux_archive": "%s", "linux_sha256": "%s"}\n' "$archive" "$sha" > "$out_dir/linux-values.json"
+(cd "$scratch" && sha256sum -- "$archive" > "$archive.sha256")
+sha="$(cut -d' ' -f1 "$scratch/$archive.sha256")"
+printf '{"linux_archive": "%s", "linux_sha256": "%s"}\n' "$archive" "$sha" > "$scratch/linux-values.json"
+for f in "${outputs[@]}"; do mv -fT -- "$scratch/$f" "$out_dir/$f"; done
 echo "linux_archive $out_dir/$archive"
 echo "linux_sha256  $sha"

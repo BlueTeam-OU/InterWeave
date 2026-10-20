@@ -200,6 +200,37 @@ refused "no native code" "not arm64-v8a alone" 0.4.1 "$SANDBOX/none.apk" "$OUT"
 CERT=ABC refused "an expected fingerprint that is not lowercase hex" "64 lowercase hex" \
     0.4.1 "$SANDBOX/good.apk" "$OUT"
 
+# A step after every check fails: the values file's name is taken by a
+# directory. Nothing of the run is left -- and a refused run removes a
+# previous run's APK of the same version too.
+stale_then() {
+    rm -rf "$OUT"
+    mkdir -p "$OUT"
+    printf 'a previous run\n' > "$SIGNED"
+    printf 'x  y\n' > "$SIGNED.sha256"
+    "$@"
+}
+mkdir_values() { mkdir -p "$OUT/android-values.json/held"; }
+if stale_then mkdir_values && ANDROID_BUILD_TOOLS="$TOOLS" \
+    INTERWEAVE_RELEASE_KEYSTORE="$SANDBOX/rel.p12" INTERWEAVE_RELEASE_KEY_ALIAS=rel \
+    INTERWEAVE_RELEASE_KEYSTORE_PASS="$PASS" INTERWEAVE_RELEASE_CERT_SHA256="$REL_CERT" \
+    bash "$UNDER_TEST" 0.4.1 "$SANDBOX/good.apk" "$OUT" >/dev/null 2>"$SANDBOX/err"; then
+    fail "a run whose values file cannot be written succeeded"
+elif [[ -e "$SIGNED" || -e "$SIGNED.sha256" ]] || ls -A "$OUT" | grep -q '^\.release'; then
+    fail "a run that failed at its last write left an APK, a hash or its work" "$(ls -A "$OUT")"
+else
+    pass "a run that fails at its last write leaves no APK, no hash, no work directory"
+fi
+rm -rf "$OUT"
+mkdir -p "$OUT"
+printf 'a previous run\n' > "$SIGNED"
+ANDROID_BUILD_TOOLS="$TOOLS" INTERWEAVE_RELEASE_KEYSTORE="$SANDBOX/other.p12" \
+    INTERWEAVE_RELEASE_KEY_ALIAS=other INTERWEAVE_RELEASE_KEYSTORE_PASS="$PASS" \
+    INTERWEAVE_RELEASE_CERT_SHA256="$REL_CERT" \
+    bash "$UNDER_TEST" 0.4.1 "$SANDBOX/good.apk" "$OUT" >/dev/null 2>&1
+[[ ! -e "$SIGNED" ]] && pass "a refused run leaves no previous run's APK of the same name" \
+    || fail "a refused run left a previous run's APK"
+
 CERT="" sign 0.4.1 "$SANDBOX/good.apk" "$OUT"
 rc=$?
 if [[ $rc -eq 2 ]] && grep -qF "INTERWEAVE_RELEASE_CERT_SHA256 is not set" "$SANDBOX/err"; then

@@ -195,6 +195,29 @@ refused() {
     elif ! grep -qF -- "$needle" "$SANDBOX/err"; then fail "$what: refused without saying $needle" "$(cat "$SANDBOX/err")"
     else pass "$what: refused, no archive"; fi
 }
+# A step after every check fails: the values file's name is taken by a
+# directory. None of the three outputs is left -- nor a previous run's.
+rm -rf "$OUT"
+mkdir -p "$OUT/linux-values.json/held"
+printf 'a previous run\n' > "$A"
+if SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" \
+    bash "$UNDER_TEST" --bin-dir "$BIN" 0.3.0 "$OUT" >/dev/null 2>"$SANDBOX/err"; then
+    fail "a run whose values file cannot be written succeeded"
+elif [[ -e "$A" || -e "$A.sha256" ]]; then
+    fail "a run that failed at its last write left an archive or its hash" "$(ls -A "$OUT")"
+else
+    pass "a run that fails at its last write leaves no archive and no hash"
+fi
+rm -rf "$OUT"
+mkdir -p "$OUT"
+printf 'a previous run\n' > "$A"
+mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
+SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" \
+    bash "$UNDER_TEST" --bin-dir "$BIN" 0.3.0 "$OUT" >/dev/null 2>&1
+mv "$BIN/human-desktop.gone" "$BIN/human-desktop"
+[[ ! -e "$A" ]] && pass "a refused run leaves no previous run's archive of the same name" \
+    || fail "a refused run left a previous run's archive"
+
 refused "a version that is not MAJOR.MINOR.PATCH" "not MAJOR.MINOR.PATCH" 0.3 "$OUT"
 mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
 refused "a missing program" "no executable $BIN/human-desktop" 0.3.0 "$OUT"
