@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 //! Reading a private state file: the one reader the trust overlay, the
-//! availability overlay and the profile-format marker share, so the rules a file is judged by --
-//! its directory private under the boundary, the file regular, not a
-//! link, this uid's, readable by nobody else, bounded in size -- are
-//! written once.
+//! availability overlay and the profile-format marker share, so the rules
+//! a file is judged by -- the file regular, not a link, this uid's,
+//! readable by nobody else, bounded in size, and for
+//! [`read_private_within`] its directory private under the boundary --
+//! are written once.
 
 use std::io::Read as _;
 use std::path::Path;
@@ -53,7 +54,33 @@ pub(crate) fn read_private_within(
     let resolved = dir.join(persist::file_name(path).map_err(|_| {
         PrivateReadError::Read(std::io::Error::from(std::io::ErrorKind::InvalidInput))
     })?);
-    let file = match open_private(&resolved) {
+    read_bounded(&resolved, max_bytes)
+}
+
+/// The text of the private file at `path`, the FILE judged and its
+/// directory not: `None` when the file or its directory is absent.
+///
+/// For a reader whose answer a writable directory cannot turn into a
+/// grant -- the profile-format marker's check at load. Only this uid can
+/// own a file the judgement accepts, so another account that can write
+/// the directory can remove the file (which reads as absent, as deleting
+/// it would) or put a file of its own there (refused as another
+/// account's), and nothing else. Leaving the directory to the profile
+/// lock keeps its refusal the lock's, in the class each binary has
+/// always given it, and keeps a load that takes no lock from failing on
+/// a directory it never writes
+/// (`a_marker_in_a_state_directory_others_can_read_is_still_judged`).
+pub(crate) fn read_private_file(
+    path: &Path,
+    max_bytes: u64,
+) -> Result<Option<String>, PrivateReadError> {
+    read_bounded(path, max_bytes)
+}
+
+/// `path` opened by [`open_private`] and read to at most `max_bytes`:
+/// `None` when it, or a directory on its way, is absent.
+fn read_bounded(path: &Path, max_bytes: u64) -> Result<Option<String>, PrivateReadError> {
+    let file = match open_private(path) {
         Ok(file) => file,
         Err(PrivateReadError::Read(e)) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(None);
@@ -107,8 +134,9 @@ fn owner_uid(read: Result<u32, PersistError>) -> Result<u32, PrivateReadError> {
 /// checked is the file read.
 ///
 /// Its DIRECTORY is judged and resolved by the caller
-/// ([`read_private_within`]), which
-/// hands this the path under the directory as resolved.
+/// ([`read_private_within`]), which hands this the path under the
+/// directory as resolved -- or left to the profile lock
+/// ([`read_private_file`]).
 fn open_private(path: &Path) -> Result<std::fs::File, PrivateReadError> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {

@@ -14,7 +14,8 @@
 //!   so every loader -- the daemon, `transportctl`, the desktop client,
 //!   the embedded host -- refuses a marker above [`PROFILE_FORMAT`]
 //!   before it takes the lock, rewrites an overlay or creates a
-//!   directory. It writes nothing.
+//!   directory. It writes nothing, and judges the file, not the state
+//!   directory, which stays the profile lock's to refuse ([`read_file`]).
 //! - [`raise`] is called by the profile's state writer, under the lock,
 //!   before it serves: the daemon, and on Android the embedded host. It
 //!   writes [`PROFILE_FORMAT`] when the marker is below it and never
@@ -24,7 +25,7 @@
 //!   protection; it is backed up with the profile and never deleted to
 //!   "reset".
 //!
-//! The file is judged as the overlays are -- this uid's, readable or
+//! The file is judged as the overlays' are -- this uid's, readable or
 //! writable by nobody else, not a link, a regular file, exactly the one
 //! shape -- and a present file that fails is refused, never read as 0:
 //! read as 0, a stranger's file or a damaged one would turn the
@@ -138,14 +139,39 @@ pub fn path_for(paths: &ProfilePaths) -> PathBuf {
     paths.state_dir().join(PROFILE_FORMAT_FILE)
 }
 
-/// The format the marker at `path` names: 0 when it is absent, its state
-/// directory included.
+/// The format the marker at `path` names, its state directory judged
+/// private under `boundary` as the overlays' is: 0 when it is absent,
+/// its state directory included.
 ///
 /// # Errors
 /// Every [`ProfileFormatError`] but `Newer` and `Write`.
 pub fn read_within(path: &Path, boundary: &TrustBoundary) -> Result<u32, ProfileFormatError> {
-    let Some(text) = private_read::read_private_within(path, boundary, MAX_PROFILE_FORMAT_BYTES)?
-    else {
+    parse(private_read::read_private_within(
+        path,
+        boundary,
+        MAX_PROFILE_FORMAT_BYTES,
+    )?)
+}
+
+/// The format the marker at `path` names, the FILE judged -- this uid's,
+/// owner-only, not a link, a regular file, its one shape -- and its
+/// directory left to the profile lock: 0 when it is absent, its state
+/// directory included. What [`require_supported`] reads, so a load
+/// refuses a newer build's marker wherever it lies, and a directory any
+/// other account can read is refused by the lock that follows, as before
+/// the marker, rather than reported as a marker error.
+///
+/// # Errors
+/// Every [`ProfileFormatError`] but `Newer` and `Write`.
+pub fn read_file(path: &Path) -> Result<u32, ProfileFormatError> {
+    parse(private_read::read_private_file(
+        path,
+        MAX_PROFILE_FORMAT_BYTES,
+    )?)
+}
+
+fn parse(text: Option<String>) -> Result<u32, ProfileFormatError> {
+    let Some(text) = text else {
         return Ok(0);
     };
     let OnDisk { profile_format } =
@@ -153,17 +179,9 @@ pub fn read_within(path: &Path, boundary: &TrustBoundary) -> Result<u32, Profile
     Ok(profile_format)
 }
 
-/// The format the marker at `path` names, refused when it is above
-/// `own`. Writes nothing.
-///
-/// # Errors
-/// [`ProfileFormatError::Newer`], and every error of [`read_within`].
-pub fn check_within(
-    path: &Path,
-    boundary: &TrustBoundary,
-    own: u32,
-) -> Result<u32, ProfileFormatError> {
-    let found = read_within(path, boundary)?;
+/// `found`, the marker at `path`'s format, refused when it is above
+/// `own`.
+fn at_most(path: &Path, found: u32, own: u32) -> Result<u32, ProfileFormatError> {
     if found > own {
         return Err(ProfileFormatError::Newer {
             path: path.to_owned(),
@@ -172,6 +190,20 @@ pub fn check_within(
         });
     }
     Ok(found)
+}
+
+/// The format the marker at `path` names, its directory judged as
+/// [`read_within`] judges it, refused when it is above `own`. Writes
+/// nothing.
+///
+/// # Errors
+/// [`ProfileFormatError::Newer`], and every error of [`read_within`].
+pub fn check_within(
+    path: &Path,
+    boundary: &TrustBoundary,
+    own: u32,
+) -> Result<u32, ProfileFormatError> {
+    at_most(path, read_within(path, boundary)?, own)
 }
 
 /// Raise the marker at `path` to `own`: written whole (a temporary file,
@@ -201,12 +233,14 @@ pub fn raise_within(
 }
 
 /// Refuse `paths`' profile when a newer build wrote it: the check every
-/// loader makes, through [`crate::ProfileConfig::load`].
+/// loader makes, through [`crate::ProfileConfig::load`]. The marker read
+/// by [`read_file`]: its directory is the profile lock's to judge.
 ///
 /// # Errors
-/// As [`check_within`] with [`PROFILE_FORMAT`].
+/// [`ProfileFormatError::Newer`], and every error of [`read_file`].
 pub fn require_supported(paths: &ProfilePaths) -> Result<u32, ProfileFormatError> {
-    check_within(&path_for(paths), paths.boundary(), PROFILE_FORMAT)
+    let path = path_for(paths);
+    at_most(&path, read_file(&path)?, PROFILE_FORMAT)
 }
 
 /// Raise `paths`' marker to [`PROFILE_FORMAT`]: the state writer's step,

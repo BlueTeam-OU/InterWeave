@@ -371,3 +371,66 @@ fn a_marker_that_is_not_private_or_is_a_link_is_refused() {
         "{read:?}"
     );
 }
+
+/// A state directory other accounts can read is the profile lock's to
+/// refuse, in the class it has always had, and not a marker error:
+/// absent, the load passes and the lock refuses the directory; a newer
+/// build's marker in it still refuses the load, and an untrusted marker
+/// is refused as the file's; the raise, which writes, judges the
+/// directory and refuses, writing nothing.
+#[test]
+fn a_marker_in_a_state_directory_others_can_read_is_still_judged() {
+    let (_root, paths) = profile();
+    let path = path_for(&paths);
+    persist::create_private_dir_within(paths.state_dir(), paths.boundary()).expect("state dir");
+    std::fs::set_permissions(paths.state_dir(), std::fs::Permissions::from_mode(0o755))
+        .expect("chmod");
+
+    // No marker: the load passes, and the lock refuses the directory as
+    // it did before the marker existed.
+    ProfileConfig::load(&paths).expect("no marker: the directory is not the load's to judge");
+    let locked = ProfileLock::acquire(&paths, std::time::Duration::ZERO);
+    assert!(
+        matches!(
+            locked,
+            Err(interweave_profile_config::PersistError::DirectoryNotPrivate { .. })
+        ),
+        "the lock refuses it: {locked:?}"
+    );
+
+    // A newer build's marker: refused wherever it lies.
+    std::fs::write(&path, marker(u64::from(PROFILE_FORMAT) + 1)).expect("planted");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+    assert!(matches!(
+        ProfileConfig::load(&paths),
+        Err(LoadError::ProfileFormat(ProfileFormatError::Newer { .. }))
+    ));
+
+    // An untrusted marker: refused as the file's, naming the file's mode.
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+    match ProfileConfig::load(&paths) {
+        Err(LoadError::ProfileFormat(ProfileFormatError::NotPrivate { detail })) => {
+            assert!(detail.contains("mode is 0644"), "{detail}");
+        }
+        other => panic!("refused as the file's: {other:?}"),
+    }
+
+    // The control for the load: this build's marker passes.
+    std::fs::write(&path, marker(u64::from(PROFILE_FORMAT))).expect("planted");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+    ProfileConfig::load(&paths).expect("this build's format loads");
+
+    // The raise judges the directory and writes nothing.
+    std::fs::write(&path, marker(0)).expect("planted");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+    let raised = raise(&paths);
+    assert!(
+        matches!(raised, Err(ProfileFormatError::NotPrivate { .. })),
+        "{raised:?}"
+    );
+    assert_eq!(
+        std::fs::read(&path).expect("read"),
+        marker(0),
+        "left as found"
+    );
+}
