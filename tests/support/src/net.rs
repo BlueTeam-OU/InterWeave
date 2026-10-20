@@ -93,7 +93,8 @@ static HANDED_OUT: Mutex<BTreeMap<u16, File>> = Mutex::new(BTreeMap::new());
 /// named by the port ([`claim`]) for the rest of the process, so another
 /// process skips a port held there, and the kernel releases the lock
 /// when the process ends however it ends: nothing is left to go stale
-/// (`a_claimed_port_is_refused_to_another_claim_until_released`).
+/// (`a_port_another_process_claims_is_refused_until_it_ends`,
+/// `free_port_holds_the_claim_on_what_it_answers`).
 ///
 /// What this does not close: a process that is not a `free_port` caller
 /// -- or one under another temporary directory, such as another account
