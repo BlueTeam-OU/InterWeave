@@ -5,12 +5,15 @@
 //! `uninstall.sh` as shipped, and the two unit templates they install,
 //! run by the account's own manager.
 //!
-//! Every case is `#[ignore]`: a plain `cargo test` may have no user
-//! manager, and CI has none yet (the row's `limit` until its job exists).
-//! Run them with `--ignored --test-threads 1` as an account whose manager
-//! is up (`systemctl --user show-environment` answers) and that runs no
-//! `interweave-*@` instance of its own -- uninstall stops every one, so a
-//! case refuses to start beside one.
+//! Every case that needs the account's manager is `#[ignore]`: a plain
+//! `cargo test` may have no user manager, and CI has none yet (the row's
+//! `limit` until its job exists). Run them with `--ignored --test-threads
+//! 1` as an account whose manager is up (`systemctl --user
+//! show-environment` answers) and that runs no `interweave-*@` instance of
+//! its own -- uninstall stops every one, so a case refuses to start beside
+//! one. The two cases of uninstall.sh WITHOUT a reachable manager run
+//! everywhere: they point `XDG_RUNTIME_DIR` at a scratch directory, so the
+//! account's manager, if any, is never asked.
 //!
 //! The install goes into a scratch `HOME` and `XDG_CONFIG_HOME`, which the
 //! account's manager does not search, so each case LINKS the installed
@@ -23,6 +26,7 @@
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used, clippy::panic)]
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::Mutex;
@@ -177,12 +181,24 @@ impl Installed {
     /// Run a shipped script in the scratch home, the session's manager
     /// still reachable through the real `XDG_RUNTIME_DIR`.
     fn script(&self, script: &str, args: &[&Path]) -> Output {
-        let out = Command::new(packaging().join(script))
+        self.script_in(script, args, true)
+    }
+
+    /// Run a shipped script, from a shell that keeps the session's
+    /// `XDG_RUNTIME_DIR` and bus address or, as `sudo -u`, `su -c` and
+    /// cron do, has neither.
+    fn script_in(&self, script: &str, args: &[&Path], session: bool) -> Output {
+        let mut command = Command::new(packaging().join(script));
+        command
             .args(args)
             .env("HOME", &self.user_home)
-            .env("XDG_CONFIG_HOME", &self.home.roots.config_home)
-            .output()
-            .expect("the script runs");
+            .env("XDG_CONFIG_HOME", &self.home.roots.config_home);
+        if !session {
+            command
+                .env_remove("XDG_RUNTIME_DIR")
+                .env_remove("DBUS_SESSION_BUS_ADDRESS");
+        }
+        let out = command.output().expect("the script runs");
         assert!(
             out.status.success(),
             "{script}: {}{}",
@@ -455,12 +471,42 @@ async fn the_installed_daemon_unit_starts_restarts_on_sighup_and_stops() {
     );
 }
 
+/// Every regular file under a profile's four XDG directories
+/// (`interweave/` under each root), whatever the profile.
+fn profile_files(roots: &[&Path]) -> BTreeSet<PathBuf> {
+    fn walk(dir: &Path, out: &mut BTreeSet<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries {
+            let path = entry.expect("an entry").path();
+            let kind = std::fs::symlink_metadata(&path)
+                .expect("metadata")
+                .file_type();
+            if kind.is_dir() {
+                walk(&path, out);
+            } else if kind.is_file() {
+                out.insert(path);
+            }
+        }
+    }
+    let mut out = BTreeSet::new();
+    for root in roots {
+        walk(&root.join("interweave"), &mut out);
+    }
+    out
+}
+
 /// Uninstall (plan §22, ruled 2026-10-20): every instance stopped and
 /// disabled, the units and executables gone, nothing loaded, no daemon,
-/// no socket -- and every profile's configuration, key and state kept, so
-/// a reinstall serves the same `PeerId`. The daemon is started and never
-/// enabled while its client is enabled, so both ways uninstall finds an
-/// instance -- loaded, and enabled -- are needed. The control for
+/// no socket -- and every profile file kept, so a reinstall serves the
+/// same `PeerId`. The daemon is started and never enabled while its
+/// client is enabled, so both ways uninstall finds an instance -- loaded,
+/// and enabled -- are needed; a third instance is a persistent wants link
+/// the manager has never loaded, whose stop fails and whose `disable`
+/// cannot find its unit, and which must go too. It runs from a shell with
+/// neither the session's `XDG_RUNTIME_DIR` nor its bus address, as `sudo
+/// -u` or cron gives, and must find the manager anyway. The control for
 /// "nothing running" is the same instances running just before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs a systemd user manager"]
@@ -481,6 +527,39 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
     installed.restarted(&installed.client, "0").await;
     let pid = show(&daemon, "MainPID");
     assert_ne!(pid, "0", "the control: a daemon runs");
+    let ghost = format!("interweave-daemon@ghost-{}.service", std::process::id());
+    let ghost_link = installed
+        .installed_units()
+        .join("default.target.wants")
+        .join(&ghost);
+    std::fs::create_dir_all(ghost_link.parent().expect("a wants dir")).expect("a wants dir");
+    std::os::unix::fs::symlink(
+        installed
+            .installed_units()
+            .join("interweave-daemon@.service"),
+        &ghost_link,
+    )
+    .expect("the ghost's link");
+    assert_eq!(
+        show(&ghost, "LoadState"),
+        "not-found",
+        "the control: never loaded"
+    );
+    let roots = &installed.home.roots;
+    let profile_roots = [
+        roots.config_home.as_path(),
+        roots.data_home.as_path(),
+        roots.state_home.as_path(),
+        roots.cache_home.as_path(),
+    ];
+    let files_before = profile_files(&profile_roots);
+    assert!(
+        files_before.contains(&installed.home.paths.identity_file())
+            && files_before
+                .iter()
+                .any(|f| f.starts_with(&roots.state_home)),
+        "the control: the profile has its key and its state: {files_before:?}"
+    );
     let kept: Vec<(PathBuf, Vec<u8>)> = [
         installed.home.paths.config_file(),
         installed.home.paths.identity_file(),
@@ -492,7 +571,8 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
     })
     .collect();
 
-    installed.script("uninstall.sh", &[]);
+    let out = installed.script_in("uninstall.sh", &[], false);
+    let said = String::from_utf8_lossy(&out.stdout);
 
     for unit in [&daemon, &installed.client] {
         assert_eq!(show(unit, "ActiveState"), "inactive", "{unit} stopped");
@@ -506,6 +586,14 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
     // `is_symlink`, not `exists`: a link left behind dangles once the
     // template is gone, and `exists` follows it.
     assert!(!client_wanted.is_symlink(), "the client disabled");
+    assert!(
+        !ghost_link.is_symlink()
+            && said.contains(&format!("removed the link {}", ghost_link.display())),
+        "the never-loaded instance's link removed:\n{said}"
+    );
+    let files_after = profile_files(&profile_roots);
+    let lost: Vec<_> = files_before.difference(&files_after).collect();
+    assert!(lost.is_empty(), "no profile file removed: {lost:?}");
     for exe in ["transport-daemon", "transportctl", "human-desktop"] {
         assert!(
             !installed.installed_bin().join(exe).exists(),
@@ -534,5 +622,149 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
         installed.serving().await,
         key,
         "the same PeerId after a reinstall"
+    );
+}
+
+/// A scratch account for the cases that never ask a manager: stand-in
+/// executables, a `HOME`, a config root and a runtime directory of its
+/// own, so `systemctl --user` there reaches nothing.
+struct Unmanaged {
+    _root: Home,
+    home: PathBuf,
+    config: PathBuf,
+    runtime: PathBuf,
+    bins: PathBuf,
+}
+
+impl Unmanaged {
+    fn new(name: &str) -> Self {
+        let root = Home::new(name);
+        let base = root.root.path().to_path_buf();
+        let this = Self {
+            home: base.join("home"),
+            config: base.join("config"),
+            runtime: base.join("run"),
+            bins: base.join("bins"),
+            _root: root,
+        };
+        for dir in [&this.home, &this.config, &this.runtime, &this.bins] {
+            common::private_dir(dir);
+        }
+        for exe in ["transport-daemon", "transportctl", "human-desktop"] {
+            let path = this.bins.join(exe);
+            std::fs::write(&path, "#!/bin/sh\nexit 0\n").expect("a stand-in");
+            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+                .expect("executable");
+        }
+        let out = this.script("install.sh", &[&this.bins]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        this
+    }
+
+    fn script(&self, script: &str, args: &[&Path]) -> Output {
+        Command::new(packaging().join(script))
+            .args(args)
+            .env("HOME", &self.home)
+            .env("XDG_CONFIG_HOME", &self.config)
+            .env("XDG_RUNTIME_DIR", &self.runtime)
+            .env_remove("DBUS_SESSION_BUS_ADDRESS")
+            .output()
+            .expect("the script runs")
+    }
+
+    fn units(&self) -> PathBuf {
+        self.config.join("systemd/user")
+    }
+
+    /// Enabled as `enable` would leave it with no manager to tell: the
+    /// daemon wanted by the default target, its client by the daemon.
+    fn enabled_links(&self, profile: &str) -> Vec<PathBuf> {
+        let units = self.units();
+        let links = [
+            (
+                units.join(format!(
+                    "default.target.wants/interweave-daemon@{profile}.service"
+                )),
+                units.join("interweave-daemon@.service"),
+            ),
+            (
+                units.join(format!(
+                    "interweave-daemon@{profile}.service.wants/interweave-client@{profile}.service"
+                )),
+                units.join("interweave-client@.service"),
+            ),
+        ];
+        for (link, target) in &links {
+            std::fs::create_dir_all(link.parent().expect("a wants dir")).expect("a wants dir");
+            std::os::unix::fs::symlink(target, link).expect("a link");
+        }
+        links.into_iter().map(|(link, _)| link).collect()
+    }
+
+    fn package_present(&self) -> bool {
+        ["interweave-daemon@.service", "interweave-client@.service"]
+            .iter()
+            .all(|u| self.units().join(u).exists())
+            && ["transport-daemon", "transportctl", "human-desktop"]
+                .iter()
+                .all(|e| self.home.join(".local/bin").join(e).exists())
+    }
+}
+
+/// With no user manager running for the account (a container, a host
+/// without systemd), nothing can run under one, and what is left of an
+/// `enable` is its wants links: uninstall removes them with the package,
+/// so a later install cannot enable anything again. The control is the
+/// links and the package present before.
+#[test]
+fn uninstall_with_no_manager_removes_the_wants_links_with_the_package() {
+    let account = Unmanaged::new("e2e-unmanaged");
+    let links = account.enabled_links("p");
+    assert!(
+        links.iter().all(|l| l.is_symlink()) && account.package_present(),
+        "the control: enabled and installed"
+    );
+    let out = account.script("uninstall.sh", &[]);
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "{said}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for link in &links {
+        assert!(!link.is_symlink(), "{} removed:\n{said}", link.display());
+    }
+    assert!(
+        !account.units().join("interweave-daemon@.service").exists()
+            && !account.home.join(".local/bin/transport-daemon").exists(),
+        "the package removed"
+    );
+}
+
+/// A user manager is running for the account but this shell cannot reach
+/// it -- its runtime directory holds the manager's socket, which refuses
+/// this shell -- so no instance could be stopped: uninstall removes
+/// nothing and fails, rather than deleting the files of a daemon still
+/// running. The control is the case above, the same account with no
+/// socket, uninstalled.
+#[test]
+fn uninstall_refuses_a_running_manager_it_cannot_reach() {
+    let account = Unmanaged::new("e2e-unreachable");
+    let links = account.enabled_links("p");
+    let private = account.runtime.join("systemd/private");
+    common::private_dir(private.parent().expect("systemd/"));
+    // Bound and closed: a socket file whose connect is refused at once.
+    drop(std::os::unix::net::UnixListener::bind(&private).expect("a socket"));
+    let out = account.script("uninstall.sh", &[]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "refused: {stderr}");
+    assert!(stderr.contains("cannot reach it"), "{stderr}");
+    assert!(
+        account.package_present() && links.iter().all(|l| l.is_symlink()),
+        "nothing removed"
     );
 }

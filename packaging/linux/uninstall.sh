@@ -8,17 +8,25 @@
 # See README.md (plan section 22, packaging/linux).
 #
 # IT NEVER REMOVES A PROFILE. Every profile's config.yaml, identity key,
-# state, human store and logs stay where they are: a removed key is a lost
-# PeerId, recoverable only from its mnemonic, so deleting one is the
-# person's own act, by hand (README.md names the directories). A reinstall
-# serves the same PeerId from the kept key.
+# state, human store, logs and peer cache stay where they are: a removed
+# key is a lost PeerId, recoverable only from its mnemonic, so deleting one
+# is the person's own act, by hand (README.md names the directories). A
+# reinstall serves the same PeerId from the kept key. Held by
+# tests/desktop-e2e/tests/user_units.rs's uninstall cases, which compare
+# every profile file before and after.
+#
+# A shell that cannot reach the account's user manager (sudo -u, su -c,
+# cron) has the manager's runtime directory looked up in /run/user/<uid>;
+# if a manager is running and still cannot be reached, nothing is removed
+# and the script fails, since it could not stop what runs. With no manager
+# running at all, the instances' wants links are removed by hand.
 #
 # Usage: uninstall.sh
 set -eu
 
 case "${1-}" in
 -h | --help)
-    sed -n '5,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '5,24p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
 "") ;;
@@ -31,7 +39,8 @@ esac
 bin_dest="$HOME/.local/bin"
 unit_dest="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
-# The instances: every one the manager has loaded, running or not, and
+# The instances: every one the manager has loaded, running or not (none
+# when no manager answers), and
 # every one enabled -- persistently or for this boot only -- that it has
 # not loaded, found by the wants links `enable` makes. Sorted, so every
 # client comes before every daemon and none is restarted by its daemon's
@@ -39,8 +48,8 @@ unit_dest="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 instances() {
     {
         systemctl --user list-units --all --plain --no-legend --full \
-            'interweave-client@*.service' 'interweave-daemon@*.service' |
-            awk '{ print $1 }'
+            'interweave-client@*.service' 'interweave-daemon@*.service' \
+            2>/dev/null | awk '{ print $1 }'
         for wants in "$unit_dest"/*.wants \
             "${XDG_RUNTIME_DIR:-/nonexistent}"/systemd/user/*.wants; do
             [ -d "$wants" ] || continue
@@ -52,20 +61,57 @@ instances() {
     } | sort -u
 }
 
+# Every wants link naming $1, persistent and runtime, removed. `disable`
+# leaves one whose template is already gone (it refuses a unit it cannot
+# find), and a link left behind would make a later install.sh enable the
+# instance again without anyone asking.
+remove_links() {
+    for link in "$unit_dest"/*.wants/"$1" \
+        "${XDG_RUNTIME_DIR:-/nonexistent}"/systemd/user/*.wants/"$1"; do
+        if [ -L "$link" ]; then
+            rm -f "$link"
+            echo "removed the link $link"
+        fi
+    done
+}
+
+uid=$(id -u)
+if ! systemctl --user show-environment >/dev/null 2>&1 \
+    && [ -z "${XDG_RUNTIME_DIR-}" ] && [ -d "/run/user/$uid" ]; then
+    XDG_RUNTIME_DIR="/run/user/$uid"
+    export XDG_RUNTIME_DIR
+fi
 if systemctl --user show-environment >/dev/null 2>&1; then
+    manager=yes
+elif [ -S "${XDG_RUNTIME_DIR:-/run/user/$uid}/systemd/private" ]; then
+    echo "uninstall.sh: this account's systemd user manager is running, but this shell cannot reach it, so no instance could be stopped; nothing was removed. Run uninstall.sh from the account's own login session." >&2
+    exit 1
+else
+    manager=no
+fi
+
+if [ "$manager" = yes ]; then
     for unit in $(instances); do
-        # Stopped whether or not it was enabled, then its wants links
-        # removed, persistent and runtime: a link left behind would name
-        # a template this script is about to remove.
-        systemctl --user stop "$unit"
+        # Stopped whether or not it was enabled -- a stop of an instance the
+        # manager has not loaded fails, and is judged by what is active
+        # after it -- then disabled, persistent and runtime.
+        systemctl --user stop "$unit" 2>/dev/null || true
+        if systemctl --user is-active --quiet "$unit"; then
+            echo "uninstall.sh: $unit could not be stopped; nothing more was removed" >&2
+            exit 1
+        fi
         systemctl --user disable "$unit" >/dev/null 2>&1 || true
         systemctl --user disable --runtime "$unit" >/dev/null 2>&1 || true
+        remove_links "$unit"
         echo "stopped and disabled $unit"
     done
-    manager=yes
 else
-    echo "uninstall.sh: no systemd user manager reachable; no instance can be running under it" >&2
-    manager=no
+    # No manager runs for this account, so no instance runs under one; what
+    # is left of an enable is its links.
+    echo "uninstall.sh: no systemd user manager is running for this account" >&2
+    for unit in $(instances); do
+        remove_links "$unit"
+    done
 fi
 
 for unit in interweave-daemon@.service interweave-client@.service; do
