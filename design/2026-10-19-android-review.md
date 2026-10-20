@@ -627,7 +627,7 @@ where this build shows the same.
 | F3 | Pass as ranked: the composer is one line high at rest and above the keyboard, with no inner pill. The handle after Back is the toolkit's (Slint 1.18.1's Android backend hides it only on an input-method update): not met, carried by name to the owner's release gate (architect-cto-01, 01a15914-65f3); its acceptance is unchanged. Seen again: a focused Trust field keeps its handle with the keyboard down. |
 | F4 | Not met. Trust's PeerIds (this profile's and every trusted peer's) and the Details dialog's PeerId are still in the proportional body font: lines of the same width hold 30, 31 and 32 characters, with narrow i, l and 1. #313's 62fad28a does not reach the phone's drawing. |
 | F7 | Pass. Chats shows "Online, limited" under "Conversations" with a cloud icon; a conversation's app bar shows the name alone. |
-| F9 | Not checked in landscape: the keyboard could not be opened in the conversation the run used (new F16 below), and the window closed. In portrait with the keyboard up (…kX45pbRP), the composer is one line above the keyboard and the newest message's end is in view. |
+| F9 | Partly (checked at 19:13-19:14 in …U1KnLSeN, after p2p-network-dev-02 released the phone). In landscape with the keyboard up, the list and the app bar step aside and the composer is wholly above the keyboard. Still seen: the strip left above the composer (about 50 dp) shows only the bottom edge of the newest bubble and empty space under it, not the newest message's end with its status and time (F9 step 5). Turning the phone with the keyboard up closes the keyboard and keeps the draft; a tap opens it again. In portrait with the keyboard up (…kX45pbRP), the newest message's end is in view. The strip left of the panes in landscape (the cutout's inset) still shows the window's own background, not the adjacent pane's surface (look spec acceptance 21, specified after this build's fixes). |
 | F11 | Pass. ⋮ → Details is a dialog: the conversation's title, "PeerId" and the whole PeerId, "Route named by the peer, not verified: "human"", Close and Copy PeerId. Copy closes it, and Android's own clipboard preview shows the exact PeerId with no spaces (API 37, no app snackbar). Not checked: pasting it into Trust's field; neither an injected paste key nor the keyboard's Paste button put text into the Slint field from a script. A person's check. |
 | F12 | Pass. Chats ends with ⋮; its menu holds "Trust", which opens Trust. No shield. Focus with a keyboard not checked (no hardware keyboard on the phone). |
 | F14 | Pass. "Show recovery phrase" is a borderless text button. |
@@ -662,8 +662,9 @@ their written time, which is the may-have-reached state, not a retry
 under way. Show recovery phrase and its Recents thumbnail need the
 phone's own unlock and were left for a person.
 
-Owed for the close: F4's monospace on the phone, F16, and F9 in
-landscape (a person's check or the next window).
+Owed for the close: F4's monospace on the phone, F16, and F9 step 5
+in landscape. The F9 rows were walked in a conversation whose
+composer works; F16's conversation could not be used for them.
 
 ## 8. The swipe spec's acceptance on the same build
 
