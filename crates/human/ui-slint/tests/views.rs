@@ -2269,6 +2269,31 @@ fn a_conversation_opened_after_scrolling_another_opens_at_its_end() {
     );
 }
 
+/// A shorter conversation then a longer one: the longer opens at its end
+/// although its content's height reaches the list a turn after the
+/// switch (#313 review round 7, risk 3).
+#[test]
+fn a_longer_conversation_opened_after_a_shorter_one_opens_at_its_end() {
+    const MANY: usize = 40;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    for n in 0..5 {
+        model.received(received(n + 1, &alice, "hi"));
+    }
+    for n in 0..MANY {
+        model.received(received(i64::try_from(n).expect("small") + 100, &bob, "hi"));
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    settle();
+    open(&mut view, &mut model, &direct(&bob));
+    settle();
+    assert!(
+        item_in_view(&view, false, MANY - 1, MANY),
+        "bob's longer conversation opens at its end"
+    );
+}
+
 /// The window's two announcement slots' texts, as a screen reader is
 /// handed them, each checked to be a polite live region.
 fn slots(view: &View) -> [String; 2] {

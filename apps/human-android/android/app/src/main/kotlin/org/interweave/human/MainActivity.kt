@@ -213,6 +213,14 @@ class MainActivity : NativeActivity() {
             applicationContext.unbindService(connection)
             bound = false
             local = null
+            // A Show my phrase still waiting for the binding is answered
+            // now, as not stopped: no binding will arrive to stop the
+            // service, and a later bind must not stop it unasked (#313
+            // review round 7, risk 1).
+            if (offlineOnConnect) {
+                offlineOnConnect = false
+                Native.offline(false)
+            }
         }
         super.onStop()
     }
