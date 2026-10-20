@@ -4764,7 +4764,9 @@ Each is met by a test or check that records it, in the shape §15 set.
 5. the host run: the bridge as a plugin against the installed Claude
    Code, interactive with the development flag, SPIKE-001's drivers
    reused — the build recorded, the tag read back, the plugin-loaded
-   tool names of fact 16 seen again (p2p-network-dev; evidence as
+   tool names of fact 16 seen again (p2p-network-dev, the stage's lane
+   then; from 2026-10-20 the bridge, its package and the carried
+   measurements are rust-services-dev's — remit #320, §22; evidence as
    `spikes/spike-001/runs/s16-<run>/evidence.md`, the spike's own
    `extract.py` shape, named by run in the closing record);
 6. the close: ledger audit, the closing record (architect-cto). No
@@ -5416,8 +5418,9 @@ as host tests against a packaged build, and the Stage 15 carry (the Slint
 attribution on the public download page). The Skia choice ADR-0057 leaves to
 this stage (from source or the prebuilt archive pinned by checksum) is
 architect-cto's, on p2p-network-dev's question with the costs. The Stage 16
-carry (marketplace distribution and `--channels` with a published plugin) is
-unassigned, by name, until a lane takes it. packaging/macos and
+carry (marketplace distribution and `--channels` with a published plugin) was
+unassigned, by name, until rust-services-dev took it on 2026-10-20 (the remit
+of #320; measured on their branch, the §22 line following their verdict). packaging/macos and
 packaging/windows (with the Stage 18 Windows carry below) wait on a lane and a
 host and open on their own record line here: the macOS runtime-directory rule
 is architect-cto's; the macOS runner, the Windows binding and its BSL-1.0
@@ -5477,7 +5480,7 @@ then it is open, not decided-as-met. Supervision units; flock on NFS homes.
 
 Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
-Android's release is the project's own (ADR-0057): the tagged release run, the signed APK, its SHA-256 and the Slint attribution on the project's release page, updates by hand; no store listing exists and none is planned; whether the release run builds Skia from source or pins the bindings' prebuilt archive by checksum is decided here before the first release. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release.
+Android's release is the project's own (ADR-0057): the tagged release run, the signed APK, its SHA-256 and the Slint attribution on the project's release page, updates by hand; no store listing exists and none is planned; whether the release run builds Skia from source or pins the bindings' prebuilt archive by checksum is decided here before the first release. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release — rust-services-dev's since 2026-10-20 (remit #320), the bridge, its package and SPIKE-001's carried measurements with it.
 
 Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both. macOS is IN that matrix and owes this stage two things before it ships, neither decided yet: a macOS runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a macOS runner, the v1 build claim being Linux until both exist. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows rows are conditional on the carry above.
 
