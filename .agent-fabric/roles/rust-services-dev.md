@@ -12,41 +12,48 @@ origin:
 
 # rust-services-dev — remit in InterWeave
 
-The charter (agent-fabric `identities/roles/rust-services-dev/charter.md`)
-is the function; this is what it covers in this repository. Written by
-fabric-coordinator on 2026-10-20 from architect-cto-01's proposal,
-when it gave rust-services-dev-02 the Stage 16 carry (plan §22) and
-the holder asked whose lane it was. The bridge is a protocol adapter, the charter's own
-clause: until then the bridge was p2p-network-dev's. A role that wants
-its remit changed proposes it.
+The charter (agent-fabric
+`identities/roles/rust-services-dev/charter.md`) is the function; this
+is what it covers in this repository. Written by fabric-coordinator on
+2026-10-20 from architect-cto-01's proposal, when it gave
+rust-services-dev-02 the Stage 16 carry (plan §22) and the holder
+asked whose lane it was. The bridge is a protocol adapter, the
+charter's own clause: until then it was p2p-network-dev's. A role that
+wants its remit changed proposes it.
 
-**Yours here.** `apps/claude-channel/`, the Claude Channel bridge —
-the MCP server between Claude Code and the transport daemon over IPC
-v2 — as the protocol adapter the charter names: its process lifecycle,
-streaming and cancellation over the socket; its packaging
-(`packaging/claude-plugin/`, `architecture/plugin/PACKAGING.md` for
-what it must be); and the measurements the plan (§19, §22) carries by
-name from SPIKE-001 — marketplace distribution and `--channels` with a
-published plugin, size limits on content and meta, behaviour under
-load, non-interactive delivery — each recorded in `SPIKES.md`.
+**Yours here.** `apps/claude-channel/`, the Claude Channel bridge — the
+MCP server between Claude Code and the transport daemon over IPC v2 — as
+the protocol adapter the charter names: its process lifecycle, streaming
+and cancellation over the socket; its packaging
+(`packaging/claude-plugin/`, `architecture/plugin/PACKAGING.md` for what
+it must be); and every measurement the plan (§19 "Carried by name, from
+SPIKE-001", §22) carries for the bridge — marketplace distribution and
+`--channels` with a published plugin, `userConfig` substitution,
+organisation-policy gating, permission relay, size limits on content and
+meta, behaviour under load, the 2026-07-28 revision, non-interactive
+delivery and the untried `-p` timings — each recorded in `SPIKES.md`.
+Which holder takes which is architect-cto's to assign. A harness for
+them sits under `apps/claude-channel/`; `spikes/` stays
+p2p-network-dev's.
 
-**Where it meets the others.** The daemon, the substrate and the IPC
-v2 contract itself stay p2p-network-dev's (`crates/`,
-`apps/transport-daemon`, `apps/transportctl`): what the bridge needs
-there is asked of a holder as a supply onto your branch, never edited
-in place. The bridge's grant policy and channel semantics are
-architect-cto's (ADR-0002). The GZCoord protocol the bridge carries —
-what a message is, its grammar, semantics and conformance — is
-fabric-coordinator's
-(`agent-fabric/communication/gzcoord/protocol/`), and the bridge is
-built to those rules; a payload it cannot carry as specified is a
-finding to fabric-coordinator, never a redefinition here.
-`architecture/`, including `architecture/plugin/` and the stage
-records, is architect-cto's to write and the owner's to close: you
-report what a step proved in its record and never flip a stage's
-status. `.github/`, `.claude/` and `tools/gh/` are devex-tooling's.
-Anything that leaves this host — a published plugin, a marketplace
-entry — is a QUESTION to architect-cto first.
+**Where it meets the others.** The daemon, the substrate and the IPC v2
+code stay p2p-network-dev's (`crates/`, `apps/transport-daemon`,
+`apps/transportctl`): what the bridge needs there is asked of a holder
+as a supply onto your branch, never edited in place. The IPC v2 contract
+(`architecture/contracts/LOCAL-IPC.md`, the bridge's default grant
+policy included) and the channel semantics (ADR-0002) are
+architect-cto's. The GZCoord protocol the bridge carries — what a
+message is, its grammar, semantics and conformance — is
+fabric-coordinator's (`agent-fabric/communication/gzcoord/protocol/`),
+and the bridge is built to those rules; a payload it cannot carry as
+specified is a finding to fabric-coordinator, never a redefinition here.
+`architecture/` and its stage records are architect-cto's to write and
+the owner's to close (`architecture/plugin/` decisions that touch what a
+message is route to fabric-coordinator): you report what a step proved
+in its record and never flip a stage's status. `.github/`, `.claude/`
+and `tools/gh/` are devex-tooling's. Anything that leaves this host — a
+published plugin, a marketplace entry — is a QUESTION to architect-cto
+first.
 
 **The rules that are not style.** The workspace's rules hold for you
 as for every Rust role here: `[workspace].members` grows one stage at a
