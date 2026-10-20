@@ -17,7 +17,7 @@ The owner, in their words (2026-10-16):
 
 Read as: the app should look and behave like an Android app a person
 already knows. That means Material 3 components (top app bar, list
-items, chips, a snackbar, a rounded text field), arranged the way
+items, menus, a snackbar, a rounded text field), arranged the way
 Android messengers arrange them, and a colour scheme instead of grey
 boxes with outlines. The words, the screens' content, and every action
 stay as they are, apart from the owner's three choices below.
@@ -62,8 +62,8 @@ picks one, as `Palette.dark` does today.
 | `surface-container-high` | a received bubble, the text field | `#232a47` | `#e6e9f5` |
 | `on-surface` | text on any surface | `#e3e6f3` | `#161b2e` |
 | `on-surface-variant` | secondary text: times, statuses, subtitles | `#b9bfd6` | `#4a5068` |
-| `outline` | chip and field borders | `#6b7396` | `#767c95` |
-| `primary` | Send, the focus ring, links, icons in chips | `#5fdccd` | `#006a61` |
+| `outline` | outlined field borders | `#6b7396` | `#767c95` |
+| `primary` | Send, the focus ring, links, icons in menu items | `#5fdccd` | `#006a61` |
 | `on-primary` | text and icons on `primary` | `#00201d` | `#ffffff` |
 | `primary-container` | a sent bubble, the selected conversation | `#004d46` | `#9ff2e5` |
 | `on-primary-container` | text on `primary-container` | `#b8fff4` | `#00201d` |
@@ -118,7 +118,7 @@ the storage notice must stand out from everything else on screen.
 | `inverse-on-surface` on `inverse-surface` | 4.5 | 10.3 | 11.3 |
 | `inverse-primary` on `inverse-surface` | 4.5 | 5.2 | 7.7 |
 | `error` on `surface` | 4.5 | 10.6 | 6.2 |
-| `outline` on `surface` (a chip's edge) | 3 | 3.9 | 3.9 |
+| `outline` on `surface` (an outlined field's edge) | 3 | 3.9 | 3.9 |
 | `swipe-neutral` on `surface` (swipe spec §7) | 3 | 7.0 | 4.7 |
 | `swipe-neutral` on `surface-container` | 3 | 6.6 | 4.4 |
 | `swipe-neutral` on `surface-container-high` (a received bubble) | 3 | 5.5 | 4.1 |
@@ -140,9 +140,9 @@ Sizes are in sp, so they follow the system's font size:
 | title medium | 16 / 24 | medium | a conversation's name in its app bar |
 | title small | 14 / 20 | medium | a channel message's author (§6) |
 | body large | 16 / 24 | regular | a conversation's name in the list; message text |
-| body medium | 14 / 20 | regular | the list's subtitle (last message) |
-| label large | 14 / 20 | medium | chips, buttons, the snackbar's Undo |
-| body small | 12 / 16 | regular | times, statuses, the app bar's subtitle |
+| body medium | 14 / 20 | regular | the list's subtitle (last message); Chats' connectivity subtitle (Android review F7) |
+| label large | 14 / 20 | medium | menu items, buttons, the snackbar's Undo |
+| body small | 12 / 16 | regular | times, statuses |
 | markdown heading, level 1 / 2 / 3 and below | 20 / 28, 18 / 24, 16 / 24 | bold | headings inside a message |
 | table header | as body large | bold | a table's header row inside a message |
 | code | 14 / 20 | regular, the code font | code lines inside a message |
@@ -162,7 +162,9 @@ From the top:
   labelled `AppOptions`, never "More options") whose menu holds
   "Trust" (Android review F12). It replaces today's full-width outlined
   button at the bottom of the list, and the shield of an earlier
-  revision.
+  revision. The menu opens with focus on its first item; Escape, Back
+  or a tap outside closes it with focus back on ⋮. "Trust" opens Trust
+  with focus on its title, and Back from Trust returns focus to ⋮.
 - **The list.** Each conversation is a Material list item, at least
   72 dp tall, with 16 dp side padding:
   - an **avatar**, 40 dp, at the start (§5.1);
@@ -450,6 +452,10 @@ that exist.
 | `Details` | Details | the conversation's overflow menu |
 | `MoreOptions` | More options | the conversation's overflow button's label, Android's own words for it. Chats' overflow has `AppOptions` |
 | `AppOptions` (new) | App options | the Chats app bar's overflow button's label (Android review F12). It must say the menu is the app's, not a conversation's, since both buttons show side by side on a wide screen. A proposal; the words are language-culture's |
+| `TrustHeading` (exists) | Trust | the Chats overflow menu's entry that opens Trust (Android review F12); the shield's label `TrustSettings` has no use left on Chats |
+| `StateShortDirect`, `StateShortRelayed`, `StateShortPartial`, `StateShortOffline`, `StateShortUnknown` (#313, not yet on main) | Online, direct · Online, relayed · Online, limited · Offline · Status not known | Chats' connectivity subtitle, one per `human-client-ui.md` §7 state; the full state text is the subtitle's accessible description (Android review F7) |
+| `OfflineBanner` (#313, not yet on main) | language-culture's | the notice banner under a conversation's app bar while the device is offline (F7) |
+| `DetailsPeerId`, `DetailsChannelId`, `DetailsRoute`, `CopyPeerId`, `CopyChannelId`, `Close`, `PeerIdCopied`, `ChannelIdCopied` (#313, not yet on main) | PeerId · Channel ID · Route named by the peer, not verified: "{route}" · Copy PeerId · Copy channel ID · Close · PeerId copied · Channel ID copied | the Details dialog and its copy confirmation (Android review F11); they replace `ConversationId`'s "Identifier, select to copy" |
 | `Today`, `Yesterday` | Today, Yesterday | day separators; `Yesterday` also in list times (for today the list shows the time of day) |
 | weekdays (seven keys, `Monday` to `Sunday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | day separators and list times within the last seven days |
 | months (twelve keys, `January` to `December`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |
@@ -530,8 +536,11 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 1. Every pair in §3's contrast table meets its need, measured from a
    screenshot, in both schemes. The avatar pairs (§5.1) hold 4.5:1.
 2. Chats: the app bar's title is "Conversations", with the device's
-   connectivity under it (an icon and a short text, read whole at
-   200 % on 320 dp). Its overflow button is labelled `AppOptions` and
+   connectivity under it (an icon, none when the state is unknown,
+   and a short text, read whole at 200 % on 320 dp). With a keyboard:
+   ⋮ opens its menu with focus on the first item, Escape returns focus
+   to ⋮, "Trust" opens Trust with focus on its title, and Back from
+   Trust returns focus to ⋮. Its overflow button is labelled `AppOptions` and
    its menu holds "Trust", which opens Trust; no shield shows. The
    bottom outlined button is gone.
 3. Chats: each row shows the avatar, the name, the last message, the
