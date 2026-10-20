@@ -70,7 +70,9 @@ pub fn run(args: impl IntoIterator<Item = String>) -> ExitCode {
     };
     // Before the store: two windows on one store would fight over the
     // endpoint lease and the rows. Held until the process ends, through
-    // the refusal screen too, so a Try again opens the store under it.
+    // the refusal screen too, so a Try again opens the store under it
+    // (desktop-e2e `refusal::try_again_opens_the_app_once_the_store_is_put_right`
+    // starts a second window then).
     let _instance = match HumanClientLock::acquire(&profile.paths, Duration::ZERO) {
         Ok(lock) => lock,
         Err(PersistError::InstanceLocked { .. }) => return refused(Refusal::AlreadyOpen),

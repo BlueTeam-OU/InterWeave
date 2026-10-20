@@ -163,7 +163,10 @@ fn persist_path(error: &PersistError) -> Option<PathBuf> {
     }
 }
 
-/// What Try again runs: the refused step again, writing nothing.
+/// What Try again runs: the refused step again. What it may write is
+/// that step's: the store's open writes nothing for a store refused for
+/// its header, and may checkpoint a WAL for one refused later
+/// (`HumanStore::open_within`'s NOT COVERED case).
 pub type Retry<T> = Box<dyn FnMut() -> Result<T, Refusal>>;
 
 /// Show `refusal` until the person closes the screen, running `retry`
@@ -203,17 +206,9 @@ pub fn show<T: 'static>(refusal: &Refusal, retry: Option<Retry<T>>) -> Result<T,
         let (weak, code, opened) = (Rc::downgrade(&view), Rc::clone(&code), Rc::clone(&opened));
         view.on_retry(move || {
             let Some(view) = weak.upgrade() else { return };
-            // A press arriving while one is answered would re-enter the
-            // open: it is dropped, the first one's answer being on its way.
-            let Ok(mut retry) = retry.try_borrow_mut() else {
-                return;
-            };
-            match retry() {
-                Ok(value) => {
-                    *opened.borrow_mut() = Some(value);
-                    view.close();
-                }
-                Err(again) => {
+            match press(&opened, &mut *retry.borrow_mut()) {
+                Pressed::Opened => view.close(),
+                Pressed::Refused(again) => {
                     eprintln!("human-desktop: {again}");
                     if let Some(page) = again.page() {
                         view.show_page(&page);
@@ -221,6 +216,7 @@ pub fn show<T: 'static>(refusal: &Refusal, retry: Option<Retry<T>>) -> Result<T,
                     view.tried_again();
                     code.set(again.code());
                 }
+                Pressed::AlreadyOpen => {}
             }
         });
     }
@@ -229,6 +225,35 @@ pub fn show<T: 'static>(refusal: &Refusal, retry: Option<Retry<T>>) -> Result<T,
     let _ = view.run();
     let value = opened.borrow_mut().take();
     value.ok_or_else(|| code.get())
+}
+
+/// What one press of Try again came to.
+enum Pressed {
+    /// The step succeeded; its value waits in `opened`.
+    Opened,
+    /// The step refused again.
+    Refused(Refusal),
+    /// An earlier press had already succeeded: nothing was run. A press
+    /// queued before the screen's close reaches the event loop arrives
+    /// after that success, and a second open would replace the store the
+    /// first one handed over (`a_press_after_success_runs_nothing`).
+    AlreadyOpen,
+}
+
+fn press<T>(
+    opened: &std::cell::RefCell<Option<T>>,
+    retry: &mut dyn FnMut() -> Result<T, Refusal>,
+) -> Pressed {
+    if opened.borrow().is_some() {
+        return Pressed::AlreadyOpen;
+    }
+    match retry() {
+        Ok(value) => {
+            *opened.borrow_mut() = Some(value);
+            Pressed::Opened
+        }
+        Err(again) => Pressed::Refused(again),
+    }
 }
 
 #[cfg(test)]
@@ -436,5 +461,23 @@ mod tests {
             (UiText::RefusalAlreadyOpen, None, false)
         );
         assert!(lock(PersistError::UnsupportedPlatform).page().is_none());
+    }
+    #[test]
+    fn a_press_after_success_runs_nothing() {
+        let opened = std::cell::RefCell::new(None);
+        let mut runs = 0;
+        let mut retry = || {
+            runs += 1;
+            if runs == 1 {
+                Err(Refusal::AlreadyOpen)
+            } else {
+                Ok(runs)
+            }
+        };
+        assert!(matches!(press(&opened, &mut retry), Pressed::Refused(_)));
+        assert!(matches!(press(&opened, &mut retry), Pressed::Opened));
+        assert!(matches!(press(&opened, &mut retry), Pressed::AlreadyOpen));
+        assert_eq!(runs, 2, "the third press ran nothing");
+        assert_eq!(*opened.borrow(), Some(2), "the first success is kept");
     }
 }
