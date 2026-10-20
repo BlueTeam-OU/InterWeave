@@ -222,3 +222,57 @@ fn a_long_path_wraps_inside_the_narrowest_window() {
         assert!(right <= 320.0, "{label:?} ends inside the window: {right}");
     }
 }
+
+/// Where the element labelled `label` is: top, bottom and right edge.
+fn edges(view: &RefusalView, label: &str) -> (f32, f32, f32) {
+    let at = the(view, label);
+    let (pos, size) = (at.absolute_position(), at.size());
+    (pos.y, pos.y + size.height, pos.x + size.width)
+}
+
+#[test]
+fn the_actions_stay_in_view_and_a_taller_window_keeps_the_path_under_its_reason() {
+    let view = screen(&RefusalPage {
+        path: Some(format!("/{}", "deep/".repeat(40))),
+        ..store_page()
+    });
+    let window = view.window().window();
+    let height = window.size().to_logical(window.scale_factor()).height;
+    let (_, bottom, _) = edges(&view, text(UiText::TryAgain));
+    assert!(
+        bottom <= height,
+        "Try again inside the window: {bottom} > {height}"
+    );
+    // The smallest window: the text scrolls, the actions stay in view.
+    window.set_size(slint::LogicalSize::new(320.0, 200.0));
+    slint::platform::update_timers_and_animations();
+    for label in [text(UiText::TryAgain), text(UiText::Close)] {
+        let (_, bottom, right) = edges(&view, label);
+        assert!(
+            bottom <= 200.0 && right <= 320.0,
+            "{label:?} in view at 320 x 200: {bottom}, {right}"
+        );
+    }
+
+    window.set_size(slint::LogicalSize::new(520.0, 1200.0));
+    slint::platform::update_timers_and_animations();
+    let path = the(&view, text(UiText::RefusalPath));
+    let reason = edges(&view, text(UiText::RefusalStoreRecovery));
+    let gap = path.absolute_position().y - reason.1;
+    assert!(
+        gap < 64.0,
+        "the spare height is not put between the reason and the path: {gap}"
+    );
+}
+
+#[test]
+fn close_alone_sits_at_the_edge_try_again_would_take() {
+    let with = screen(&store_page());
+    let (_, _, retry_right) = edges(&with, text(UiText::TryAgain));
+    let without = screen(&closed_page());
+    let (_, _, close_right) = edges(&without, text(UiText::Close));
+    assert!(
+        (close_right - retry_right).abs() < 1.0,
+        "Close takes the end of the row when alone: {close_right} vs {retry_right}"
+    );
+}
