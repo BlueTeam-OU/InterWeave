@@ -5429,8 +5429,9 @@ packaging/windows (with the Stage 18 Windows carry below) wait on a lane and a
 host and open on their own record line here: the macOS runtime-directory rule
 is architect-cto's; the macOS runner, the Windows binding and its BSL-1.0
 decision have no building lane until a lane and a host exist, and until then
-architect-cto holds them as carries, by name, so that no row of this stage is
-nobody's; macOS stays in the v1 matrix and the closing record says what
+architect-cto holds them as carries, by name — the two Activate roots
+`packaging/macos` and `packaging/windows` included — so that no row of this
+stage is nobody's; macOS stays in the v1 matrix and the closing record says what
 became of it. Nothing in
 this stage invents trust, network or application semantics (the rule below).
 The stage closes on the owner's word, as every stage, once every Validate row
