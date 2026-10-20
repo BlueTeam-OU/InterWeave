@@ -366,8 +366,11 @@ keypad stay left-to-right: they are English words in Latin letters.
   characters set apart by spacing. The spacing is display only: copying
   gives the canonical string, with no spaces.
 - It wraps by groups, never mid-group.
-- Its label says what it is for (`IdPeerIdLabel`): it is not a
-  password, and it is safe to write down and share.
+- What is shown with it says what it is for: it is not a password,
+  and it is safe to write down and share. On C2's and S2's PeerId
+  pages the page title names it and a note follows (`IdPeerIdLabel`,
+  `IdPeerIdNoteShown`); on C4 and R4 its label does both
+  (`IdPeerIdLabelShown`).
 
 A 52-character string is compared by chunks. Chunks of four make that
 comparison a matter of groups, not of single characters.
@@ -378,7 +381,7 @@ comparison a matter of groups, not of single characters.
 |---|---|---|---|
 | Checksum fails (a wrong word or a wrong order) | R2 | A banner above the grid (`IdChecksumFailed`): the words are not a valid phrase; check each word and its order against the paper. Every word stays. | Edit any position, then check again |
 | Another identity (with an expected PeerId) | R2 after K1 | A banner (`IdOtherIdentity`): these words belong to another identity, with the derived PeerId in full (§5) and the expected one under it, so the person can see which backup they used. Nothing is restored. | Edit and check again, or Back |
-| Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), the read-back after a refused write and each Try again of it, and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen before the operation, never by the service. Cancelled or denied: nothing shown and no error. C4 and the restores stay on their screen with the words kept, and nothing is committed. S2's Done drops the words and returns to Settings offline; connectivity and the profile's user-presence diagnostic say why (`android-key-custody.md`, Unlock policies) | The primary action again, or Back |
+| Authentication needed | S1, whatever the policy. Under `user-presence`, every key operation outside the 60 s window of the last authentication: C4's seal, a restore (R3's yes, R2's check after K1), the read-back after a refused write and each Try again of it, and the service start after S2's Done and R4's or C4's continue | The system prompt, raised by the screen before the operation, never by the service. Cancelled or denied: nothing shown and no error. C4 and the restores stay on their screen with the words kept, and nothing is committed. S2's Done drops the words and returns to Settings offline; connectivity reads offline, and the locked notice (`AuthenticationNeeded`) with its Unlock action (`Authenticate`) says why and how back (`android-key-custody.md`, Unlock policies). A launch past the window raises the prompt before anything binds; its cancel ends the same way. Unlock raises the prompt again (titled `UnlockPromptTitle`), and success starts the service | The primary action again, or Back |
 | Profile busy (`ProfileLocked`) | Any step that stops the service or writes | The progress state (`IdGoingOffline`) for up to 10 s. Then a notice (`IdBusy`) that the app could not take the identity offline, with Try again. Entered words stay. | Try again, or Back |
 | A refusal that may follow the write: read back | C4's continue (the seal), R3's yes, R2's check after K1 | Only two refusals can come after the record was written: `OldKeyRemains`, and `Storage` whose inner error is `Unsynced` (a directory sync after the publish, `persist.rs`). For these two only, the screen reads back with `unlock` before it shows anything: does the record now open to the PeerId just shown or confirmed? A name alone is not enough, because after K1 the old record already names that PeerId. Every other refusal wrote nothing and shows its own row in this table (another identity, authentication needed, profile busy, or any other refusal). The builder must see `Storage`'s inner error to tell the two apart | — |
 | Read-back: it opens to the PeerId just shown or confirmed | after those two refusals | Success: C4 and the restores go on as below. The app retries the retire at its next start (`reseal`), with one diagnostic line and never a word | Continue |
@@ -442,7 +445,9 @@ ever carries a word (§11 Q2).
 
 ## 9. Strings
 
-The text is final (language-culture, 2026-10-19). No string contains
+The text is final (language-culture, 2026-10-19; the keys added on
+2026-10-20 for the PeerId page, language-culture-en, REPLYs
+01a1589d-e769 and 01a1589f-7882). No string contains
 a word of a person's phrase, and no placeholder can hold one: `{n}`
 (a number, in digits) and `{peer_id}` are the only placeholders. The
 words are plain and calm. A person on K1 did nothing wrong, so no
@@ -513,7 +518,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdS1Title` | Show your recovery phrase | S1's title |
 | `IdS1Body` | You will be asked to unlock your phone first. The app goes offline while your words are shown. | S1's body, two lines |
 | `IdGoingOffline` | Going offline… | The progress state (§3.5, §6) |
-| `IdDone` | Done | S2's primary |
+| `IdDone` | Done | The primary of S2's PeerId page, its last page |
 | `IdChecksumFailed` | These words do not form a recovery phrase. A word may be wrong or in the wrong place. Check them against your paper. | §6's checksum banner |
 | `IdOtherIdentity` | These words open a different identity, so nothing on this phone was changed. Compare the two PeerIds below with your paper. | §6's other-identity banner, above the two labelled PeerIds |
 | `IdBusy` | The app could not go offline. Wait a moment, then try again. | §6's busy notice, with `TryAgain` |
@@ -529,7 +534,11 @@ Against the list the proposal gave: `IdC1Points` is six keys, one per
 point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestoredTitle`,
 `IdExpectedPeerId`, `IdDerivedPeerId`, `IdAlreadyCreated`,
 `IdQTitleNoPath`, `IdQReasonNoPath`, `IdQNoPath`, `IdNotWalletSeed`,
-`IdFormatLine`, `IdStorageUnknown` and `IdRestoreOther` are added. `IdTryAgain` and
+`IdFormatLine`, `IdStorageUnknown` and `IdRestoreOther` are added, and
+on 2026-10-20 `IdPeerIdTitle`, `IdPeerIdWritten`, `IdNext` and
+`IdPeerIdNoteShown`. The locked notice and its prompt
+(`AuthenticationNeeded`, `Authenticate`, `UnlockPromptTitle`) are the
+app's keys, not this flow's, in `labels.rs` (#313). `IdTryAgain` and
 `IdRetry` are both `TryAgain`. `IdKeepEntering` is
 `IdContinueEntering`.
 
@@ -544,8 +553,8 @@ landscape:
    leads to the PeerId page, which shows the PeerId in full, grouped
    by four, and no word; Back there shows the same words. S2 has the
    same two pages. A screenshot (`adb exec-out screencap`) of both C2
-   pages, of C3 and of R2 is black, and Recents shows no content for
-   the flow.
+   pages, of C3, of R2 (also when reached from K1) and of both S2
+   pages is black, and Recents shows no content for the flow.
 3. Long-press on any word copies nothing, and nothing in the flow
    writes the clipboard. The PeerId copies in canonical form.
 4. C3 asks two positions. A wrong word shows `IdCheckWrong` and clears
@@ -602,15 +611,19 @@ landscape:
       to Settings offline, with the words gone. The same profile's C4
       and restore raise the prompt outside the window, and a cancel
       there commits nothing.
-    - After a cancel, the person is offline with the locked notice and
-      Unlock; nothing raises the prompt again by itself. A return to
+    - After a cancel of the unlock prompt at S2's Done or at a launch
+      (not C4's or a restore's, which stay on their screen as §6
+      says), connectivity reads offline and the locked notice
+      (`AuthenticationNeeded`) shows with its Unlock action
+      (`Authenticate`); nothing raises the prompt again by itself. A return to
       the same Activity (Home or Recents, then back) raises no prompt:
       it binds silently if the window has opened meanwhile, and
       otherwise keeps the notice and Unlock. Leaving while the system
       prompt shows counts as a cancel. A cold launch past the window
       raises the prompt before anything binds (rust-ui-dev-01,
       QUESTION 01a155b3-448f; the person who declined is not asked
-      again each time they switch in: S4, user control and freedom).
+      again each time they switch in: the Android review's S4, user
+      control and freedom).
 11. Leaving R2 with words entered (Home) and returning shows every
     word still entered. After the process is killed (`adb shell am
     kill` while in the background), the next launch starts at the
