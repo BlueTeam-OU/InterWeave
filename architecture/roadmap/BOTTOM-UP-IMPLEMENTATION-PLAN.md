@@ -4591,7 +4591,26 @@ Carried here from Stage 13 (§16): the Windows named-pipe binding, its ACL model
 Carried here from Stage 14 (§17): the shipped binary re-running the two-daemon HumanChatV2 proof; the real process-kill restart case; the trust read and human-client-ui.md §13's trust-mutation bullet, with the trust administration above; the `server_state` surfacing as a `SessionEvent::Local` variant (a LOCAL-CLIENT.md amendment and the in-process binding) and the per-peer path event on the local-client surface (a LOCAL-IPC.md and LOCAL-CLIENT.md amendment); the reach of `ui-slint`'s accessibility-tree tests (they read Slint's own tree through the testing backend: a platform adapter exporting it, live-region announcement, contrast, scaling, reduced motion and PeerId copy are unproved — §17's closing record); the ipc-server fake's migration to `tests/local-client-fake`; a read-pair record for the after-restart duplicate — bounded, content-free (origin, `app_message_id`) pairs, which RETENTION.md §5 already allows "for bounded duplicate suppression", so that a late re-send of a message read and not kept does not reappear as unread after a restart (human-store schema work within the contract; raised on #168, A 2026-10-02); drawing the markdown subset with activation-only links (a body shows its source as literal text since #170); the Slint Royalty-free licence's attribution duty; the fontconfig startup check (fonts are opened at run time and a host without the library runs with none, silently); the `PeerUnreachable` split into a pre-dispatch code and an outcome-unknown one, and the local and remote halves of the shared refusal codes (TRANSPORT.md §Error model, Dispatch state, A 2026-10-02 — vocabulary changes on an active contract, p2p-network-dev's substrate); the root's drain contract — the composition root drains `ui-slint`'s event queue at each `take_events`, the 4 × cap + 3 bound holding only under it; human-client-ui.md §13 bullet 9's trust leg, which travels with the trust-mutation bullet above (no trust control exists to label until the trust administration does).
 
 Carried on from this record's decisions and from the two paragraphs
-above, by name: recovery mode's read-only open and export (4); the
+above, by name: recovery mode's read-only open and export (4), and —
+found on #318's review, 2026-10-20 — clause (4)'s blocking screen
+itself: this record counted it as delivered, while the shipped root
+(196352d7, batch 2) maps `Opened::Blocked` to an exit class with a
+stderr line and no window, so a client started from a launcher shows
+nothing; the same holds for the profile a newer build marked (78,
+ADR-0028 A 2026-10-20), the window already open (75), the state
+directory not private (77) and the platform unsupported (74). Decided
+2026-10-20 (architect-cto, DECISION 01a15a5f, on rust-ui-dev-02's
+question): one screen for every start-up refusal a person can act on —
+the reason as a person can act on it, the path, Close always, Retry on
+the recovery case (re-running the open, the file never touched); the
+already-open case raises the existing window where the platform lets a
+second process ask for it, else the same screen; exit classes and
+stderr lines stay for the terminal and the journal; no session, no
+lease, nothing written; keyboard and screen reader per
+human-client-ui.md §13, the words language-culture-en's. Built by
+rust-ui-dev-02 (j31) beside Stage 19, whose §22 rows cite it; the
+"delivered" of this record is corrected here rather than in §22
+because the debt is this stage's. The
 `PeerUnreachable` split and the local/remote halves of the shared
 refusal codes (TRANSPORT.md A 2026-10-02 — p2p-network-dev's substrate,
 outside this stage's batches, landed when its next transport PR comes);
@@ -5463,6 +5482,15 @@ Android update/reinstall behavior
 ```
 
 The packaging layer must not invent new trust/network/application semantics.
+
+Carried here from Stage 15 (§18 clause (4), the correction of 2026-10-20):
+the desktop client's start-up refusal screen, built by rust-ui-dev-02 (j31)
+in this stage. The recovery drill and rollback rows cite it: a drill or a
+rollback that ends in a refusal — a store needing recovery, a profile a
+newer build marked — is shown on that screen, not only in the journal, and
+the release page's sentence that an older release "shows which file
+stopped it" holds for a person once it lands; until then those rows carry
+the limit by name.
 
 Carried here from Stage 13 (§16): hot reload (SIGHUP) and which leases survive
 it — decided 2026-10-20 (architect-cto, on p2p-network-dev's question,
