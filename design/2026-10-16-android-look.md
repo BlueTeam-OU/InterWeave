@@ -352,6 +352,20 @@ From the top:
   round 48 dp Send button: the send icon in `on-primary` on `primary`,
   labelled "Send". It is dimmed (38 % opacity) and inactive while the
   field is empty.
+  - The field always takes focus and the keyboard on a tap, in every
+    conversation the person can open, the untrusted peer's included:
+    trust gates the send, never the composer (architect-cto-01,
+    REPLY 01a159de-729d). A send to a peer this profile does not
+    trust is refused and shown in the composer's place, in one line
+    over the field, saying the peer is not trusted for this profile
+    (`human-client-ui.md` §12) and that Trust is where that changes;
+    the draft is kept. The line goes when the draft changes or the
+    conversation is left.
+  - The composer is disabled for one cause only, the platform
+    withholding network access; it then looks disabled (38 % opacity,
+    no cursor), says why in the notice above it, and takes no focus.
+    It never looks enabled while it takes no input (Android review
+    F16).
 - **The storage notice** and the other notices keep
   `notice-background`, as a full-width banner with 12 dp corners under
   the app bar.

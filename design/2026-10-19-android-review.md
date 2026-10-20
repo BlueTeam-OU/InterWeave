@@ -647,12 +647,13 @@ New, rank 1:
   build, so a composer disabled for an untrusted peer is the likely
   cause. The same conversation took the keyboard in round 1. Against:
   task 3 (reply) fails with no explanation; S4 (visibility of status,
-  help users recognise and recover). What has to change: if the
-  person cannot write to this peer, the composer says so and why, in
-  its place, with the way to change it (Trust) or the reason it is
-  not theirs to change; it never looks enabled when it is not. Whether
-  an untrusted peer's conversation may be written to at all is
-  architect-cto's rule (`human-client-ui.md` §8).
+  help users recognise and recover). The rule (architect-cto-01,
+  REPLY 01a159de-729d): trust gates the send, never the composer; the
+  composer is disabled only while the platform withholds network
+  access. So F16 is a defect whatever its cause. What has to change:
+  the composer takes focus in every conversation; an untrusted peer's
+  send is refused in its place with the reason, the draft kept (look
+  spec §6, Composer).
 
 Not walked again: tasks 9 and 10. The seeded review conversation
 (…DEoNJsP) was no longer on the phone in this window, so K8 was not
