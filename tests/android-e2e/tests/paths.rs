@@ -170,7 +170,7 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         )
     };
     let run = r.run_case(cases::PATHS, &args(&d_peer, PeerPath::Relayed, 1));
-    desktop_answers(&d_session, &mut d_told, &r_peer, 1, || log(&r)).await;
+    desktop_answers(&d_session, &mut d_told, &r_peer, 1, &run, || log(&r)).await;
     // The baseline for R's death is taken HERE, while R is known alive:
     // D's answer was just accepted on R's route, and R's case has not
     // returned. On a device R's process ends with its case
@@ -185,7 +185,7 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
         "R of D: relayed"
     );
     let run = c.run_case(cases::PATHS, &args(&d_peer, PeerPath::Direct, 2));
-    desktop_answers(&d_session, &mut d_told, &c_peer, 2, || log(&c)).await;
+    desktop_answers(&d_session, &mut d_told, &c_peer, 2, &run, || log(&c)).await;
     let out = run.passed(|| log(&c));
     assert_eq!(
         out[keys::PATH],
@@ -241,7 +241,7 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
     r.kill();
     r.restart();
     let run = r.run_case(cases::PATHS, &args(&d_peer, PeerPath::Relayed, 3));
-    desktop_answers(&d_session, &mut d_told, &r_peer, 3, || log(&r)).await;
+    desktop_answers(&d_session, &mut d_told, &r_peer, 3, &run, || log(&r)).await;
     assert_eq!(
         run.passed(|| log(&r))[keys::PATH],
         PeerPath::Relayed.label(),
