@@ -5392,24 +5392,39 @@ open Stage 17 if it closes first.
 
 **Activated 2026-10-20** on the owner's word ("activate Stage 19", relayed by
 fabric-coordinator in message 01a157d9-5e4d-78c8-8586-02e8f074d339, answering
-architect-cto's recommendation of the same day). The stage runs **beside**
-Stage 17 (§20) and Stage 18 (§21), as §19's Stage 16 ran beside Stage 15: the
-status value stays the lowest open stage, `stage-17-android-human-client`, and
-this record is the authorisation for the stage's packages (`CLAUDE.md` §3) —
-the packaging roots under Activate below, each added to `[workspace].members`
-in the change that creates it where it is a crate. The split, by lane:
-p2p-network-dev takes packaging/linux with the supervision units, the Stage 13
-carry (hot reload on SIGHUP and which leases survive it; flock on NFS homes)
-and the Android release run of ADR-0057 (the tagged release run, the signed
-APK, its SHA-256 on the release page); rust-ui-dev takes the Validate rows
-upgrade, rollback, profile/config migration and PeerId preservation as host
-tests against a packaged build, and the Stage 15 carry (the Slint attribution
-on the public download page). packaging/macos and packaging/windows (with the
-Stage 18 Windows carry below) wait on a lane and a host and open on their own
-record line here. Nothing in this stage invents trust, network or application
-semantics (the rule below). The stage closes on the owner's word, as every
-stage, once every Validate row has a green test on `main` or a `limit` naming
-its reason, and the closing record lands here.
+architect-cto's recommendation of the same day), running from the landing of
+this record. The stage runs **beside** Stage 17 (§20) and Stage 18 (§21), as
+§19's Stage 16 ran beside Stage 15, under ADR-0046's allowance for parallel
+workstreams, with the two constraints that precedent states: no
+`Proof::Stage(19)` deferral and no `stage-19` deadline is written while 19
+runs beside the open stage (the guards expire a deferral only once the status
+passes it), and the Cargo.toml status comment names Stage 19 beside Stages 17
+and 18 (done in this change). The status value stays the lowest open stage,
+`stage-17-android-human-client`, and this record is the authorisation for the
+stage's packages (`CLAUDE.md` §3) — the packaging roots under Activate below,
+each added to `[workspace].members` in the change that creates it where it is
+a crate. The split, by lane: p2p-network-dev takes packaging/linux beyond §28
+step 4's user units (whose CI cover §28 left open) with the Validate rows
+service/autostart lifecycle and uninstall semantics, the Stage 13 carry (hot
+reload on SIGHUP and which leases survive it, decided below; flock on NFS
+homes), and the Android release run of ADR-0057 — the tagged release run, the
+signed APK, its SHA-256 and the Slint attribution on the release page — with
+the Validate row Android update/reinstall behavior (S12's device evidence,
+§21, feeds it); rust-ui-dev takes the Validate rows fresh install, upgrade,
+rollback, profile/config migration, PeerId preservation and the recovery drill
+as host tests against a packaged build, and the Stage 15 carry (the Slint
+attribution on the public download page). The Skia choice ADR-0057 leaves to
+this stage (from source or the prebuilt archive pinned by checksum) is
+architect-cto's, on p2p-network-dev's question with the costs. The Stage 16
+carry (marketplace distribution and `--channels` with a published plugin) is
+unassigned, by name, until a lane takes it. packaging/macos and
+packaging/windows (with the Stage 18 Windows carry below) wait on a lane and a
+host and open on their own record line here; macOS stays in the v1 matrix and
+the closing record says what became of it. Nothing in this stage invents
+trust, network or application semantics (the rule below). The stage closes on
+the owner's word, as every stage, once every Validate row has a green test on
+`main` or a `limit` naming its reason, every item carried here is met or
+re-carried by name in the closing record, and that record lands here.
 
 ### Activate
 
@@ -5436,7 +5451,7 @@ Android update/reinstall behavior
 
 The packaging layer must not invent new trust/network/application semantics.
 
-Carried here from Stage 13 (§16): hot reload (SIGHUP) and which leases survive it; supervision units; flock on NFS homes.
+Carried here from Stage 13 (§16): hot reload (SIGHUP) and which leases survive it — decided 2026-10-20 (architect-cto, on p2p-network-dev's question): SIGHUP is an orderly stop exactly as SIGTERM, the unit restarts the daemon and every lease gets a fresh epoch as §16 (7) rules; no `ExecReload`, a profile change is a restart, and no lease survives, by design; a narrow reload of §16 (5)'s runtime-mutable fields is a later ADR on a shown need, never a second mechanism for the same change; supervision units; flock on NFS homes.
 
 Carried here from Stage 15 (§18): the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
