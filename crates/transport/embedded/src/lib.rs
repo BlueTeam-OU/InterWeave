@@ -322,6 +322,10 @@ impl EmbeddedHost {
             return Err(EmbeddedRefused::NotEmbedded);
         }
         let lock = ProfileLock::acquire(&paths, LOCK_WAIT)?;
+        // The marker read again under the lock (ADR-0028 A 2026-10-20): a
+        // newer app that held the lock while `load` ran may have raised it
+        // since, and the runtime's start below writes the profile.
+        profile_format::require_supported(&paths)?;
         // Read under the lock, so no other host is writing it. A present
         // overlay that cannot be trusted refuses the start, as the trust
         // overlay's does: read as absent, it would turn the person's
@@ -351,7 +355,8 @@ impl EmbeddedHost {
         // the binding is handed out, as the daemon raises it: a start
         // refused before here writes nothing
         // (`a_listener_the_platform_refuses_is_network_denied`). A marker
-        // above this build's was refused by `load`.
+        // above this build's was refused by `load` and again under the
+        // lock.
         if let Err(e) = profile_format::raise(&paths) {
             let _ = executor.block_on(composed.stop());
             return Err(e.into());
