@@ -14,7 +14,10 @@
 //! What this does not prove:
 //! - the host itself (step 5: the bridge loaded as a plugin in the
 //!   installed Claude Code);
-//! - a network other than one host's private address.
+//! - a network other than one host's private address, except in one
+//!   case (`the_bridge_behind_its_own_nat_exchanges_with_the_facade_through_the_relay`),
+//!   where the bridge and the facade are each behind their own NAT and
+//!   talk through a relay (plan section 21, decided (7)).
 //!
 //! B's far end is a plain data session in most cases here. In one case
 //! (`the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed`)
@@ -71,6 +74,10 @@ fn general() -> ChannelId {
     ChannelId::parse("general").expect("channel")
 }
 
+fn bridge_binary() -> std::path::PathBuf {
+    workspace_binary("claude-channel", "interweave-claude-channel")
+}
+
 /// The shipped bridge, started in `home`'s environment.
 struct Bridge {
     child: Child,
@@ -93,34 +100,51 @@ impl Bridge {
     }
 
     fn start_in(home: &Home, delivery: &str) -> Self {
-        let env = |p: &Path| p.as_os_str().to_owned();
-        let mut child = tokio::process::Command::new(workspace_binary(
-            "claude-channel",
-            "interweave-claude-channel",
-        ))
-        .args([
-            "--profile",
-            home.paths.profile(),
-            "--endpoint",
-            "claude",
-            "--delivery",
+        Self::spawn(
+            home,
             delivery,
-        ])
-        .env_clear()
-        .env("XDG_CONFIG_HOME", env(&home.roots.config_home))
-        .env("XDG_DATA_HOME", env(&home.roots.data_home))
-        .env("XDG_STATE_HOME", env(&home.roots.state_home))
-        .env("XDG_CACHE_HOME", env(&home.roots.cache_home))
-        .env(
-            "XDG_RUNTIME_DIR",
-            env(home.roots.runtime_dir.as_deref().expect("a runtime dir")),
+            tokio::process::Command::new(bridge_binary()),
         )
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("the bridge starts");
+    }
+
+    /// The bridge in `net`'s namespace, beside its daemon there
+    /// (`Home::start_in`). By path: the environment is cleared.
+    #[cfg(target_os = "linux")]
+    fn start_in_net(home: &Home, net: common::netns::Net) -> Self {
+        let mut command = tokio::process::Command::new("/usr/bin/nsenter");
+        command
+            .arg(format!("--net={}", net.path().display()))
+            .arg("--")
+            .arg(bridge_binary());
+        Self::spawn(home, "push", command)
+    }
+
+    fn spawn(home: &Home, delivery: &str, mut command: tokio::process::Command) -> Self {
+        let env = |p: &Path| p.as_os_str().to_owned();
+        let mut child = command
+            .args([
+                "--profile",
+                home.paths.profile(),
+                "--endpoint",
+                "claude",
+                "--delivery",
+                delivery,
+            ])
+            .env_clear()
+            .env("XDG_CONFIG_HOME", env(&home.roots.config_home))
+            .env("XDG_DATA_HOME", env(&home.roots.data_home))
+            .env("XDG_STATE_HOME", env(&home.roots.state_home))
+            .env("XDG_CACHE_HOME", env(&home.roots.cache_home))
+            .env(
+                "XDG_RUNTIME_DIR",
+                env(home.roots.runtime_dir.as_deref().expect("a runtime dir")),
+            )
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("the bridge starts");
         let stdin = child.stdin.take().expect("stdin");
         let lines = BufReader::new(child.stdout.take().expect("stdout")).lines();
         Self {
@@ -917,17 +941,150 @@ fn chat(
 /// control that the facade is not taking whatever arrives.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed() {
-    use interweave_human_chat_protocol::{HumanChatV2, MAX_DECOMPRESSED_BYTES, MEDIA_TYPE_V2};
-    use interweave_human_transport_client::{Destination, Origin};
-
     let (a, a_daemon, a_peer, b, b_daemon, b_peer) = two_daemons().await;
     let daemons = [&a_daemon, &b_daemon];
     let mut bridge = Bridge::start(&a);
     bridge.wait_leased(&daemons).await;
     let mut facade = Facade::new(&b);
     facade.ready(&daemons).await;
+    exchange_with_the_facade(&mut bridge, &mut facade, &a_peer, &b_peer, &daemons).await;
+}
+
+/// How long a dial is given in the second network: a NAT that drops
+/// answers nothing, so a refused probe ends on this.
+#[cfg(target_os = "linux")]
+const DIAL: Duration = Duration::from_secs(3);
+
+#[cfg(target_os = "linux")]
+const SECOND_NETWORK: &str =
+    "the_bridge_behind_its_own_nat_exchanges_with_the_facade_through_the_relay";
+
+/// The bridge on a second network (plan section 21, decided (7); C-05's
+/// run R7, the bridge's side). The bridge and its daemon sit in B's
+/// namespace, behind NAT-B. The human client's facade and its daemon sit
+/// in A's, behind NAT-A, and the relay is on the core between them
+/// (`interweave_test_support::e2e::netns`). B reserves on the relay, and
+/// A's only route to B is a circuit. Neither daemon's listen address
+/// takes a dial from the other side. The control is that each takes one
+/// from its own namespace, so a refused dial is the NAT's and not a
+/// listener that is not up. Then the facade exchange of the one-host
+/// test runs over the circuit, and the relay reports carrying A's
+/// circuit to B.
+///
+/// What this does not prove: a NAT whose mapping depends on the
+/// destination, a hole punch, and a second host, as
+/// `second_network.rs` names them.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_bridge_behind_its_own_nat_exchanges_with_the_facade_through_the_relay() {
+    use std::net::SocketAddrV4;
+
+    use common::netns::{self, Net, NetRelay};
+    use common::relayed_example;
+
+    if !netns::in_second_network(SECOND_NETWORK) {
+        return;
+    }
+    let (a, b) = (Home::new("human-desktop"), Home::new("human-desktop"));
+    let (a_peer, b_peer) = (a.write_key(), b.write_key());
+    let relay = NetRelay::start(&[&a_peer, &b_peer]);
+    let a_port = netns::in_net(Net::A, || free_port(netns::A));
+    let b_port = netns::in_net(Net::B, || free_port(netns::B));
+    b.write_config(&relayed_example(
+        &[&a_peer],
+        &format!("/ip4/{}/tcp/{b_port}", netns::B),
+        relay.relay(),
+        None,
+    ));
+    a.write_config(&relayed_example(
+        &[&b_peer],
+        &format!("/ip4/{}/tcp/{a_port}", netns::A),
+        relay.relay(),
+        Some(&relay.relay().circuit_to(&b_peer)),
+    ));
+    let pid = |p: &TransportIdentity| -> libp2p::PeerId { p.as_str().parse().expect("a peer id") };
+
+    let mut b_daemon = b.start_in(Net::B, &[]);
+    b_daemon.serving(&b).await;
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while !relay
+        .relay()
+        .seen()
+        .await
+        .reservations
+        .contains(&pid(&b_peer))
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "B never reserved on the relay:\n{}",
+            b_daemon.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let mut a_daemon = a.start_in(Net::A, &[]);
+    a_daemon.serving(&a).await;
+
+    // A daemon serves its IPC sockets before its network listener binds,
+    // so each listener is waited for before any dial is judged.
+    let at = SocketAddrV4::new;
+    for (net, own) in [
+        (Net::A, at(netns::A, a_port)),
+        (Net::B, at(netns::B, b_port)),
+    ] {
+        let deadline = tokio::time::Instant::now() + PATIENCE;
+        while !netns::tcp_reaches(net, own, DIAL) {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "{net:?} never listened on {own}\n{}",
+                logs(&[&a_daemon, &b_daemon])
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+    assert!(
+        !netns::tcp_reaches(Net::A, at(netns::B, b_port), DIAL),
+        "the facade's side dialled the bridge's daemon directly"
+    );
+    assert!(
+        !netns::tcp_reaches(Net::B, at(netns::A, a_port), DIAL),
+        "the bridge's side dialled the facade's daemon directly"
+    );
+
+    {
+        let daemons = [&a_daemon, &b_daemon];
+        let mut bridge = Bridge::start_in_net(&b, Net::B);
+        bridge.wait_leased(&daemons).await;
+        let mut facade = Facade::new(&a);
+        facade.ready(&daemons).await;
+        exchange_with_the_facade(&mut bridge, &mut facade, &b_peer, &a_peer, &daemons).await;
+        let seen = relay.relay().seen().await;
+        assert!(
+            seen.circuits.contains(&(pid(&a_peer), pid(&b_peer))),
+            "the relay carried A's circuit to B: {seen:?}"
+        );
+    }
+
+    let a_stopped = a_daemon.terminate().await.success();
+    let b_stopped = b_daemon.terminate().await.success();
+    assert!(a_stopped && b_stopped, "{}", logs(&[&a_daemon, &b_daemon]));
+}
+
+/// The exchange both facade tests run, the bridge on `bridge_peer` and
+/// the facade on `facade_peer`, both already up: two envelopes to the
+/// bridge, plain and at the decoded ceiling, then two replies to the
+/// facade (`the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed`).
+async fn exchange_with_the_facade(
+    bridge: &mut Bridge,
+    facade: &mut Facade,
+    bridge_peer: &TransportIdentity,
+    facade_peer: &TransportIdentity,
+    daemons: &[&Daemon],
+) {
+    use interweave_human_chat_protocol::{HumanChatV2, MAX_DECOMPRESSED_BYTES, MEDIA_TYPE_V2};
+    use interweave_human_transport_client::{Destination, Origin};
+
     let to_claude = Destination::Direct {
-        peer: a_peer.clone(),
+        peer: bridge_peer.clone(),
         endpoint: Some(claude()),
     };
 
@@ -974,7 +1131,7 @@ async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed
                 tokio::time::Instant::now() < deadline,
                 "the bridge was never notified of {}\n{}",
                 envelope.app_message_id,
-                logs(&daemons)
+                logs(daemons)
             );
             tokio::time::sleep(Duration::from_millis(250)).await;
         };
@@ -986,7 +1143,7 @@ async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed
         );
         let meta = &n["meta"];
         assert_eq!(meta["delivery_mode"], json!("direct"));
-        assert_eq!(meta["source_peer"], json!(b_peer.as_str()));
+        assert_eq!(meta["source_peer"], json!(facade_peer.as_str()));
         assert_eq!(meta["source_endpoint"], json!("human"));
         assert_eq!(meta["destination_endpoint"], json!("claude"));
         assert_eq!(meta["payload_encoding"], json!("utf8"));
@@ -1006,7 +1163,7 @@ async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed
             }),
         )
         .await;
-    assert!(!error, "{answer}\n{}", logs(&daemons));
+    assert!(!error, "{answer}\n{}", logs(daemons));
     assert_eq!(answer, "remote transport accepted at endpoint human");
     let (answer, error) = bridge
         .tool(
@@ -1027,7 +1184,7 @@ async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed
             "the replies never both arrived ({} received, {:?})\n{}",
             facade.received.len(),
             facade.client.diagnostics(),
-            logs(&daemons)
+            logs(daemons)
         );
         facade.step().await;
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1042,7 +1199,7 @@ async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed
     assert_eq!(
         got.origin,
         Origin::Direct {
-            peer: a_peer.clone(),
+            peer: bridge_peer.clone(),
             endpoint: claude(),
         }
     );
