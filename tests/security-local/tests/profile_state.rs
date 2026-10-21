@@ -259,9 +259,11 @@ fn as_user(user: &str, args: &[&str]) -> String {
 }
 
 /// TM-49, the owner, with a REAL second uid: the state directory reached
-/// through a link another account made, in a directory it owns, stops
-/// the daemon naming that account's uid -- whatever the modes, which are
-/// that account's to change. The control is the link case above: our
+/// through a link another account made stops the daemon naming that
+/// account's uid -- whatever the link points at, which is that account's
+/// to change. The link sits in `/tmp`, root's and sticky, which the
+/// ancestor rule accepts, so the LINK's owner rule is the one that
+/// refuses, by its own words. The control is the link case above: our
 /// own link in our own directory is followed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs INTERWEAVE_FOREIGN_UID_USER, an account sudo -n -u reaches"]
@@ -275,18 +277,12 @@ async fn a_link_another_account_owns_on_the_path_stops_the_daemon() {
     let mut home = home(&stranger());
     let real = home.root.path().join("real-state");
     mkdir(&real, 0o700);
-    // The other account's directory, in the sticky /tmp it can write.
-    let theirs = PathBuf::from(as_user(&user, &["mktemp", "-d", "/tmp/iw-tm49-XXXXXXXX"]));
+    // Their link, directly in /tmp: only they may remove it there.
+    let link = PathBuf::from(as_user(&user, &["mktemp", "-u", "/tmp/iw-tm49-XXXXXXXX"]));
     let cleanup = Cleanup {
         user: user.clone(),
-        dir: theirs.clone(),
+        path: link.clone(),
     };
-    as_user(&user, &["chmod", "0755", theirs.to_str().expect("utf-8")]);
-    // The owner as this process sees it, which is what the daemon judges
-    // -- not `id -u` inside the switch, which a user namespace renames.
-    let foreign_uid = std::fs::metadata(&theirs).expect("their directory").uid();
-    assert_ne!(foreign_uid, own_uid, "sudo -u {user} switched the uid");
-    let link = theirs.join("state");
     as_user(
         &user,
         &[
@@ -296,11 +292,15 @@ async fn a_link_another_account_owns_on_the_path_stops_the_daemon() {
             link.to_str().expect("utf-8"),
         ],
     );
+    // The owner as this process sees it, which is what the daemon judges
+    // -- not `id -u` inside the switch, which a user namespace renames.
+    let foreign_uid = std::fs::symlink_metadata(&link).expect("their link").uid();
+    assert_ne!(foreign_uid, own_uid, "sudo -u {user} switched the uid");
     relocate_state(&mut home, link);
     refused(
         &home,
         &[
-            &format!("owned by uid {foreign_uid}"),
+            &format!("a symbolic link owned by uid {foreign_uid}"),
             &format!("owned by neither root nor uid {own_uid}"),
         ],
     )
@@ -313,17 +313,17 @@ async fn a_link_another_account_owns_on_the_path_stops_the_daemon() {
     drop(cleanup);
 }
 
-/// Removes the other account's directory however the test ends.
+/// Removes the other account's link however the test ends.
 struct Cleanup {
     user: String,
-    dir: PathBuf,
+    path: PathBuf,
 }
 
 impl Drop for Cleanup {
     fn drop(&mut self) {
         let _ = Command::new("sudo")
-            .args(["-n", "-u", &self.user, "--", "rm", "-rf"])
-            .arg(&self.dir)
+            .args(["-n", "-u", &self.user, "--", "rm", "-f"])
+            .arg(&self.path)
             .status();
     }
 }
@@ -332,8 +332,9 @@ impl Drop for Cleanup {
 
 /// TM-50: a revoke kept in `<state>/trust-overlay.json` holds across a
 /// restart (the control that the overlay is in force); the file
-/// tampered with -- garbage, readable by others, the peer in both lists --
-/// stops the start naming it, each time left as it was found, and
+/// tampered with -- garbage, readable by others, the peer in both lists,
+/// a list past the allowlist's bound -- stops the start naming the
+/// overlay and the rule broken, each time left as it was found, and
 /// the overlay put back starts with the revoke in force. Deleted, the
 /// revoked peer is allowed again: by design (threat-model.md's residual,
 /// the backup table's "never delete it to reset"), pinned so a change
@@ -363,14 +364,43 @@ async fn a_tampered_trust_overlay_stops_the_daemon_and_a_deleted_one_re_allows()
         r#"{{"added":["{p}"],"revoked":["{p}"]}}"#,
         p = peer.as_str()
     );
-    for (what, bytes, file_mode) in [
-        ("garbage", b"{ not json".to_vec(), 0o600),
-        ("readable by others", kept.clone(), 0o644),
-        ("a peer in both lists", both.into_bytes(), 0o600),
+    // One more peer than the allowlist holds, all added.
+    let past_the_bound = format!(
+        r#"{{"added":[{}],"revoked":[]}}"#,
+        (0..=4096)
+            .map(|_| format!("\"{}\"", stranger().as_str()))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    for (what, bytes, file_mode, rule) in [
+        (
+            "garbage",
+            b"{ not json".to_vec(),
+            0o600,
+            "the trust overlay does not parse",
+        ),
+        (
+            "readable by others",
+            kept.clone(),
+            0o644,
+            "the trust overlay is not private",
+        ),
+        (
+            "a peer in both lists",
+            both.into_bytes(),
+            0o600,
+            "as both added and revoked",
+        ),
+        (
+            "a list past the bound",
+            past_the_bound.into_bytes(),
+            0o600,
+            "a trust overlay list holds more than 4096 peers",
+        ),
     ] {
         std::fs::write(&overlay, &bytes).expect("tampered");
         chmod(&overlay, file_mode);
-        let log = refused(&home, &["the trust overlay"]).await;
+        let log = refused(&home, &[rule]).await;
         assert_eq!(
             (std::fs::read(&overlay).expect("left"), mode(&overlay)),
             (bytes, file_mode),
@@ -398,8 +428,11 @@ async fn a_tampered_trust_overlay_stops_the_daemon_and_a_deleted_one_re_allows()
 /// stays disabled across a restart (the control); the file tampered
 /// with -- garbage, readable by others, an entry the profile's
 /// validation refuses once composed (enabling an endpoint past
-/// `directory.max_advertised`) -- stops the start naming it, left as
-/// found, and the overlay put back starts with the disable in force.
+/// `directory.max_advertised`) -- stops the start naming the overlay and
+/// the rule broken, left as found; a SET that the next start would
+/// refuse in the same way is refused over the admin socket with nothing
+/// written (the control: the same enable, with room made first, is
+/// kept); and the overlay put back starts with the disable in force.
 /// Deleted, the endpoint is enabled again: by design, pinned.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_tampered_endpoint_overlay_stops_the_daemon_and_a_deleted_one_re_enables() {
@@ -437,14 +470,27 @@ async fn a_tampered_endpoint_overlay_stops_the_daemon_and_a_deleted_one_re_enabl
             "id: agent, enabled: true, advertise: false",
             "id: agent, enabled: false, advertise: true",
         );
-    for (what, bytes, file_mode, config) in [
-        ("garbage", b"{ not json".to_vec(), 0o600, None),
-        ("readable by others", kept.clone(), 0o644, None),
+    for (what, bytes, file_mode, config, rule) in [
+        (
+            "garbage",
+            b"{ not json".to_vec(),
+            0o600,
+            None,
+            "the endpoint overlay does not parse",
+        ),
+        (
+            "readable by others",
+            kept.clone(),
+            0o644,
+            None,
+            "the endpoint overlay is not private",
+        ),
         (
             "an enable past the advertised bound",
             br#"{"enabled":{"agent":true}}"#.to_vec(),
             0o600,
             Some(bounded.as_str()),
+            "not with the endpoint overlay composed over it",
         ),
     ] {
         if let Some(config) = config {
@@ -452,13 +498,39 @@ async fn a_tampered_endpoint_overlay_stops_the_daemon_and_a_deleted_one_re_enabl
         }
         std::fs::write(&overlay, &bytes).expect("tampered");
         chmod(&overlay, file_mode);
-        let log = refused(&home, &["the endpoint overlay"]).await;
+        let log = refused(&home, &[rule]).await;
         assert_eq!(
             (std::fs::read(&overlay).expect("left"), mode(&overlay)),
             (bytes, file_mode),
             "{what}: the file left as found:\n{log}"
         );
     }
+
+    // The same enable asked for as a set, under the bounded profile with
+    // no overlay: refused, nothing written, the running rows unchanged.
+    // The control: `human` disabled first makes room, and the enable is
+    // answered.
+    std::fs::remove_file(&overlay).expect("no overlay");
+    let (daemon, admin) = up(&home).await;
+    let past = admin.set_endpoint_enabled(agent(), true).await;
+    assert!(
+        matches!(past, Err(TransportError::InvalidArgument)),
+        "a set the next start would refuse: {past:?}"
+    );
+    assert!(!overlay.exists(), "nothing written");
+    assert_eq!(
+        endpoints(&admin).await,
+        vec![("agent".to_owned(), false), ("human".to_owned(), true)]
+    );
+    admin
+        .set_endpoint_enabled(EndpointId::parse("human").expect("an id"), false)
+        .await
+        .expect("room made");
+    admin
+        .set_endpoint_enabled(agent(), true)
+        .await
+        .expect("the control: the enable with room");
+    down(daemon, admin).await;
 
     home.write_config(&profile(&stranger()));
     std::fs::write(&overlay, &kept).expect("put back");
@@ -479,6 +551,23 @@ async fn a_tampered_endpoint_overlay_stops_the_daemon_and_a_deleted_one_re_enabl
 
 // ---------------------------------------------------------- write fault
 
+/// A directory made unwritable (`0500`) for as long as this lives, and
+/// `0700` again however the test ends, so its scratch can be removed.
+struct Unwritable(PathBuf);
+
+impl Unwritable {
+    fn new(dir: &Path) -> Self {
+        chmod(dir, 0o500);
+        Self(dir.to_path_buf())
+    }
+}
+
+impl Drop for Unwritable {
+    fn drop(&mut self) {
+        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
+    }
+}
+
 /// S10, profile state under a write fault (beside the store's
 /// `durable_write_fault.rs`): with the state directory unwritable, a
 /// revoke and a disable over the admin socket are each answered failed,
@@ -494,15 +583,16 @@ async fn a_set_whose_overlay_cannot_be_written_is_answered_failed_and_changes_no
     let state = home.paths.state_dir().to_path_buf();
     let mut daemon = home.start(&[]);
     daemon.serving(&home).await;
-    chmod(&state, 0o500);
+    // The port first: the fault is the overlay's write, nothing before it.
     let admin = home
         .binding()
         .admin([AdminCapability::Trust, AdminCapability::Endpoints].into())
         .await
         .expect("an admin port");
+    let unwritable = Unwritable::new(&state);
     let revoke = admin.set_trust(peer.clone(), false).await;
     let disable = admin.set_endpoint_enabled(agent(), false).await;
-    chmod(&state, 0o700);
+    drop(unwritable);
     assert_eq!(revoke, Err(TransportError::Internal), "{}", daemon.log());
     assert!(
         matches!(disable, Err(TransportError::Internal)),
