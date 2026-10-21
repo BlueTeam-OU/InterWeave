@@ -339,9 +339,21 @@ deleted from the overlay). Then **Cancel**
 (default focus) and **Remove** (`IdentityRemoveConfirm`, filled in
 `error`). Enter on the initial focus cancels; Escape and Back cancel.
 Remove has no Undo (ADR-0061 d. 7): the endpoint and every row under it
-go together. When the removed identity was in front,
-the default comes in front, by §5.7.3's switch, visibly. The list
-returns with focus on the next row, else the previous.
+go together. Where it lands, by what is left:
+
+- **Two or more identities remain**: the list returns, focus on the
+  next row, else the previous, and the snackbar `ConfirmIdentityRemoved`
+  ("{identity} removed", no Undo). When the removed identity was in
+  front, the default comes in front (§5.7.3's act 4) and the one
+  snackbar is `ConfirmIdentityRemovedSwitched`, naming both the removed
+  identity and the one now in use, in place of the switch's own, which
+  could offer Switch back to nothing; focus follows the list's rule,
+  not the switch's.
+- **One identity remains**: there is no list any more (§5.1), so the
+  app shows Chats of the remaining identity, without the switch or any
+  "As" line (§5.7), focus on Chats' title, and `ConfirmIdentityRemoved`
+  names the removed identity; nothing names the remaining one, since
+  with one identity it is shown only where asked for (ADR-0061 d. 3).
 
 **The photo.** Add a photo opens Android's Photo Picker (images only,
 one item) or the desktop's file dialog filtered to PNG and JPEG. The
@@ -762,9 +774,8 @@ Where that setting is kept is rust-ui-dev's (it holds no content).
 
 **When the identities change**: a second identity added shows the switch
 and the "as" lines, and switches nothing; going back to one removes
-them. Removing the identity in front (§5.2) brings the default in front
-by this section's switch, with its snackbar (without Switch back, since
-the previous identity is gone).
+them. Removing the identity in front (§5.2) brings the default in front,
+with Remove's own snackbar and focus (§5.2), not this section's.
 
 #### 5.7.4 Starting a conversation, and what never changes identity
 
@@ -1181,7 +1192,8 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | Add an identity at the bound | `IdentityLimit` | keyboard |
    | Make default, and its Undo | stays on the overflow button | keyboard |
    | Remove this identity: the dialog opens / is cancelled | Cancel / the overflow button | keyboard |
-   | an identity removed | the next row, else the previous | keyboard |
+   | an identity removed, two or more left (in front or not) | the next row, else the previous | keyboard |
+   | an identity removed, one left | Chats' title | keyboard |
    | the switch activated | the switcher's chosen row | keyboard |
    | the switcher closed with nothing changed | the switch | keyboard |
    | a switch, from the switcher or Switch back | the switch, naming the new identity | keyboard |
@@ -1315,8 +1327,11 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     The switch's badge counts the unread item, and names nothing.
 23. **Removing an identity** is confirmed by a dialog listing §5.2's
     losses with focus on Cancel, is not offered on the default or the
-    only identity, and, when it was in front, brings the default in
-    front with the switch's snackbar.
+    only identity, and lands by §5.2's cases: with two or more left,
+    the list and `ConfirmIdentityRemoved`, or
+    `ConfirmIdentityRemovedSwitched` naming the identity now in use when
+    the removed one was in front; with one left, Chats with no switch
+    and no "As" line, and `ConfirmIdentityRemoved`.
 24. **No directory lists an identity.** Every identity's endpoint, the
     `human` one included, has `advertise: false`, and a trusted peer's
     directory query lists none of the person's identities; no screen
@@ -1466,6 +1481,8 @@ and are for them to write.
 | `IdentityRemoveTitle` | Remove {identity}? | dialog title |
 | `IdentityRemoveLoses` | This deletes from this device: the conversations of {identity}, with their unread and kept messages and the messages waiting to be sent; the contacts of {identity}; the card of {identity}, with its name and photo. People who write to {identity} will no longer reach you. This cannot be undone. | dialog list, one item per line; must list exactly §5.2's items and say there is no undo |
 | `IdentityRemoveMayHaveReached` | One: 1 of the messages waiting to be sent may already have arrived. Deleting it does not take it back. Other: {n} of the messages waiting to be sent may already have arrived. Deleting them does not take them back. | Remove dialog, when pending rows were already tried (RETENTION.md `may_have_reached`); plural forms language-culture's; must say they may have arrived and that deleting does not recall them |
+| `ConfirmIdentityRemoved` | {identity} removed | snackbar after Remove, no Undo (new, proposal) |
+| `ConfirmIdentityRemovedSwitched` | {identity} removed. You are now using {front}. | snackbar after Remove of the identity in front with two or more left; must name both (new, proposal) |
 | `IdentityRemoveConfirm` | Remove | dialog primary, in `error` |
 | `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name |
 | `IdentityOthersUnread` | One other identity: 1 unread message in your other identity / {n} unread messages in your other identity. Two or more other identities: 1 unread message in your other identities / {n} unread messages in your other identities. | the switch's badge, accessible; plural rules language-culture's |
