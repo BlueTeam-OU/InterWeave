@@ -94,6 +94,7 @@ class MainActivity : NativeActivity() {
         }
         super.onStart()
         shown = true
+        front = this
         started += 1
         Thread({ relayAsks() }, "interweave-network-ask").start()
         Thread({ relayHaptics() }, "interweave-haptic").start()
@@ -195,6 +196,7 @@ class MainActivity : NativeActivity() {
 
     override fun onStop() {
         shown = false
+        if (front === this) front = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
         }
@@ -358,18 +360,18 @@ class MainActivity : NativeActivity() {
     /** A swipe armed: the platform's tick, once per crossing. */
     private fun relayHaptics() {
         while (shown) {
-            if (Native.waitHaptic(ASK_WAIT_MS) && shown) {
-                runOnUiThread {
-                    val tick =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                            HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
-                        } else {
-                            HapticFeedbackConstants.CONTEXT_CLICK
-                        }
-                    window.decorView.performHapticFeedback(tick)
-                }
-            }
+            if (Native.waitHaptic(ASK_WAIT_MS)) runOnUiThread { front?.tick() }
         }
+    }
+
+    private fun tick() {
+        val tick =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
+            } else {
+                HapticFeedbackConstants.CONTEXT_CLICK
+            }
+        window.decorView.performHapticFeedback(tick)
     }
 
     /**
@@ -408,7 +410,7 @@ class MainActivity : NativeActivity() {
     /** Back found no way back: leave, as the platform would. */
     private fun relayLeave() {
         while (shown) {
-            if (Native.waitLeave(ASK_WAIT_MS) && shown) runOnUiThread { finish() }
+            if (Native.waitLeave(ASK_WAIT_MS)) runOnUiThread { front?.finish() }
         }
     }
 
@@ -429,33 +431,39 @@ class MainActivity : NativeActivity() {
     /** What the identity screens ask, carried out on the main thread. */
     private fun relayIdentity() {
         while (shown) {
-            when (Native.waitIdentityAsk(ASK_WAIT_MS)) {
-                // FLAG_SECURE goes on before any word can be drawn (onStart,
-                // and OFFLINE below), and off only once the window drew a
-                // frame without the flow: no screenshot, no recording, no
-                // recents thumbnail (android-key-custody.md, #309 F3).
-                Ask.SECURE_OFF -> runOnUiThread { secure(false) }
-                Ask.PROMPT -> runOnUiThread { prompt(Text.PHRASE_PROMPT_TITLE) }
-                Ask.UNLOCK -> runOnUiThread { prompt(Text.UNLOCK_PROMPT_TITLE) }
-                Ask.BIND -> {
-                    identityReady = true
-                    runOnUiThread { connect() }
-                }
-                Ask.FINISH -> runOnUiThread { finish() }
-                Ask.OFFLINE -> {
-                    phraseShown = true
-                    // The flag first, on the main thread: S2's words are
-                    // drawn only after Native.offline, which runs after it.
-                    runOnUiThread {
-                        secure(true)
-                        goOffline()
-                    }
-                }
-                Ask.ONLINE -> {
-                    phraseShown = false
-                    // Unbound since (Home on S2): bind as a launch does.
-                    runOnUiThread { local?.online() ?: connect() }
-                }
+            val ask = Native.waitIdentityAsk(ASK_WAIT_MS)
+            // With no instance started, this one carries it out, as the
+            // last that was.
+            if (ask != 0) runOnUiThread { (front ?: this).identityAsk(ask) }
+        }
+    }
+
+    /** One of the identity screens' asks, on the main thread. */
+    private fun identityAsk(ask: Int) {
+        when (ask) {
+            // FLAG_SECURE goes on before any word can be drawn (onStart,
+            // and OFFLINE below), and off only once the window drew a
+            // frame without the flow: no screenshot, no recording, no
+            // recents thumbnail (android-key-custody.md, #309 F3).
+            Ask.SECURE_OFF -> secure(false)
+            Ask.PROMPT -> prompt(Text.PHRASE_PROMPT_TITLE)
+            Ask.UNLOCK -> prompt(Text.UNLOCK_PROMPT_TITLE)
+            Ask.BIND -> {
+                identityReady = true
+                connect()
+            }
+            Ask.FINISH -> finish()
+            Ask.OFFLINE -> {
+                phraseShown = true
+                // The flag first: S2's words are drawn only after
+                // Native.offline, which runs after it.
+                secure(true)
+                goOffline()
+            }
+            Ask.ONLINE -> {
+                phraseShown = false
+                // Unbound since (Home on S2): bind as a launch does.
+                local?.online() ?: connect()
             }
         }
     }
@@ -491,7 +499,7 @@ class MainActivity : NativeActivity() {
     /** The window's "Allow network access", carried out on the main thread. */
     private fun relayAsks() {
         while (shown) {
-            if (Native.waitNetworkAsk(ASK_WAIT_MS) && shown) runOnUiThread { ask() }
+            if (Native.waitNetworkAsk(ASK_WAIT_MS)) runOnUiThread { front?.ask() }
         }
     }
 
@@ -572,6 +580,17 @@ class MainActivity : NativeActivity() {
         // The instances between onStart and onStop: the last to stop lets
         // the binding go. The main thread's.
         private var started = 0
+
+        // The instance most recently started and not yet stopped: the one
+        // the window shows in, and the one each relay's ask is carried out
+        // on. One queue serves every instance, and a stopping instance's
+        // relay can take an ask for up to ASK_WAIT_MS after its onStop; a
+        // Back starts the instance below before the closing one stops. Run
+        // on the instance whose thread took it, a SECURE_OFF could clear the
+        // closing window's flag and leave the shown one's set, and an
+        // OFFLINE could set the flag on a window the words are not drawn
+        // in. The main thread's.
+        private var front: MainActivity? = null
 
         // Show my phrase asked while the service was not bound yet: it is
         // stopped as soon as the binding arrives. The main thread's.
