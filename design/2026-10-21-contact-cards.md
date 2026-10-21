@@ -390,9 +390,17 @@ same warning as "Anna".
 | **S** the route is under X and the card changes nothing | `CardSame`: "This card matches your contact {X}." | **Close** (`Close`) in place of Accept; Decline is not shown | removes the row from the session, as Decline does, without a snackbar |
 
 The cases are tested in this order: the route under X (S, E, U), then P,
-then D, then N. E applies per value (name, photo). So a card whose route
-or PeerId is already under X updates X and never warns of a name clash,
-since X is that peer. When routes of one PeerId sit under two contacts
+then D, then N. E applies per value (name, photo). A card whose route
+or PeerId is already under X updates X rather than creating a contact,
+since X is that peer; but X being that peer says nothing about whether
+it is naming itself as someone else. So **in cases U, E and P, whenever
+Accept would write a name to X** (the name changes and is not a local
+edit), and that name has the same key as a contact other than X,
+`CardSameName` is shown too, in `error`, above the case's own line,
+naming that other contact, with its Open your contact link (ADR-0059
+Security implications: a second contact with an existing name is shown
+as such before acceptance). The Accept label stays the case's. When
+routes of one PeerId sit under two contacts
 (after a Move, §6.3), P adds to the contact holding the route most
 recently active in a conversation (`conversation_index.last_activity`;
 a route with none counts as oldest, and among equals the contact created
@@ -800,7 +808,10 @@ on the desktop.
    U+00A0 between the words and no surname; "Ａnna" (fullwidth) +
    "Rossi" — each
    shows `CardSameName`. A card from a second endpoint of a contact's
-   PeerId is case P and leaves one contact holding both routes.
+   PeerId is case P and leaves one contact holding both routes. A card
+   naming itself "Anna Rossi" from a new route of contact "Carol"'s
+   PeerId (case P), and one from Carol's own route (case U), each show
+   `CardSameName` naming the other "Anna Rossi" before Accept.
 8. Accept then Undo leaves the store as before the Accept; Decline then
    restart leaves nothing of the card in the store; an unanswered,
    shown proposal is gone after a restart; an unshown one survives it.
