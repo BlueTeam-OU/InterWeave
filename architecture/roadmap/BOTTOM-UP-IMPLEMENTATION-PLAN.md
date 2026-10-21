@@ -6086,9 +6086,10 @@ authored `human` endpoint provisioned with `advertise: false`, every example pro
 `human` likewise, `human-client-model-b.md`'s directory example and
 suggested profile marked as superseded by ADR-0061 decision 5, and an
 existing profile's authored `human` turned off by the `advertise` delta
-the client writes once into the endpoint overlay at its first Stage 22
-open (ADR-0028 A 2026-10-21), `config.yaml` unrewritten and the upgrade
-test's expectation kept; an identity the person creates on either platform lands in the
+the client asserts at every open, before it takes the identity's lease,
+through `set_advertise` or the embedded host (ADR-0028 A 2026-10-21),
+`config.yaml` unrewritten and the desktop upgrade test's no-rewrite
+assertion widened in step 1 to allow exactly that delta; an identity the person creates on either platform lands in the
 endpoint overlay's `added` member, never in the authored file), the overlay's
 `added` and `advertise` members in the runtime's loader — their
 normalisation and the profile's configured-endpoint limit over authored
