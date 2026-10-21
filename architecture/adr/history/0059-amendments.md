@@ -68,5 +68,6 @@ EndpointId it is sent from. Decision 1's "no identifier field" becomes
 "no identifier a person chose": the key is the identity's cryptographic
 name, the connection's `source_peer` stays what the card is bound to,
 and a key that changes on a known route is a proposal the person
-decides. `contact_card` is not yet `active`, so the shape is corrected
-in place (ADR-0049).
+decides. The envelope schema is `active`, but no producer of a
+`contact_card` exists on `main` (plan §29 step 1 is unbuilt), so the
+card branch is tightened in place as a minor, 2.2.0 (ADR-0049).

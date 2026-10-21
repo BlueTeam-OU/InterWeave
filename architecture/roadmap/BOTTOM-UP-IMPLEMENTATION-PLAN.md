@@ -5962,9 +5962,11 @@ decision 6.
    and `signature` (ADR-0063), the canonical bytes, the three malformed
    cases and the frozen fixture vector with its test-only key pair.
 2. **The proposal and the acceptance** (rust-ui-dev): the identity key
-   pair generated with the identity and sealed under the seed's custody
-   (ADR-0063; `identity-keys/<EndpointId>.key`, the Android path through
-   the embedded host's custody seam); the person's own
+   pair generated with the identity and sealed as the store key is
+   (ADR-0063, ADR-0060 decision 3: its own IDK1 envelope and alias
+   namespace, `<state_dir>/identity-keys/<EndpointId>.key`, the Android
+   wrapping key reached through the embedded host as the store key's is,
+   never the seed's custody seam); the person's own
    card in settings — one per configured endpoint, the `human` endpoint's
    in this stage (ADR-0059 decision 2 as amended, ADR-0061) — signed by
    its key; `contact_routes.identity_key`; the key-change proposal and

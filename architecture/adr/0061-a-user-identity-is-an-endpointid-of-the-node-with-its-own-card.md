@@ -60,4 +60,4 @@ When per-endpoint authorship above transport is wanted (ADR-0030's revisit); whe
 
 | Date | Amendment | Effect |
 |---|---|---|
-| 2026-10-21 | An identity has a signing key of its own | Decision 1 with ADR-0063: each user identity has an Ed25519 key pair generated with it, under the seed's custody, carried and proved by its card; the node's phrase restores the node, not the identities; the key encrypts nothing until ADR-0064. |
+| 2026-10-21 | An identity has a signing key of its own | Decision 1 with ADR-0063: each user identity has an Ed25519 key pair generated with it, sealed as the store key is, carried and proved by its card; the node's phrase restores the node, not the identities; the key encrypts nothing until ADR-0064. |
