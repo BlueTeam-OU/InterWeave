@@ -33,7 +33,7 @@ The transport encrypts links between nodes and authenticates PeerIds (Noise, `tr
 
 ## Consequences
 
-If accepted: HUMAN-CHAT.md gains the `sealed` and `prekeys` kinds and the card's prekey bundle and device list; a new contract for the protocol's header and the sender-key messages; STATE.md gains sessions, prekeys, sender keys and device lists, all in the encrypted store; ADR-0043 is amended (one identity key on several PeerIds); ADR-0020 and ADR-0044 are amended for the opaque, chosen, bounded holder; ADR-0055 gains the agent's identity key; a stage of its own in the plan after Stage 22, with SPIKE-013 as its prerequisite. Until then nothing moves, and ADR-0063's key is the only prerequisite that ships early.
+If accepted: HUMAN-CHAT.md gains the `sealed` and `prekeys` kinds and the card's prekey bundle and device list; a new contract for the protocol's header and the sender-key messages; STATE.md gains sessions, prekeys, sender keys and device lists, all in the encrypted store; ADR-0043 is amended (one identity key on several PeerIds); ADR-0020 and ADR-0044 are amended for the opaque, chosen, bounded holder; ADR-0060 decision 8 is amended twice — a relay the person chose as a holder of sealed bytes, and the identity keys in the device-to-device transfer — and ADR-0063 decision 2 with it (no backup carries the key until then); ADR-0055 gains the agent's identity key; a stage of its own in the plan after Stage 22, with SPIKE-013 as its prerequisite. Until then nothing moves, and ADR-0063's key is the only prerequisite that ships early.
 
 ## Security implications
 

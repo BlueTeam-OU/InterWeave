@@ -1,6 +1,6 @@
 # ADR index
 
-All ADRs are **Accepted** architecture decisions unless later superseded.
+All ADRs are **Accepted** architecture decisions unless marked **Proposed** in their row (a review artifact that drives nothing until the owner accepts it) or later superseded.
 
 | ADR | Decision |
 |---|---|
