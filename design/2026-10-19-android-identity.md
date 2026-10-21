@@ -277,7 +277,8 @@ PeerId.
 **S1, Show your recovery phrase.** The network goes offline while the
 words are shown and comes back after. Primary: "Unlock and show my
 words" (`IdS1Unlock`), which names the prompt it raises, as S1's body
-and the locked notice's Unlock do (the owner's word on #313). This raises
+and the locked notice's Unlock do (the owner asked for Unlock on the
+device; the wording is language-culture-en's, §9). This raises
 the system's device-credential or strong-biometric prompt, whatever
 the unlock policy. Back → Settings.
 - The prompt is denied or cancelled: back on S1 with nothing shown and
@@ -456,7 +457,9 @@ ever carries a word (§11 Q2).
 
 The text is final (language-culture, 2026-10-19; the keys added on
 2026-10-20 for the PeerId page, language-culture-en, REPLYs
-01a1589d-e769 and 01a1589f-7882). No string contains
+01a1589d-e769 and 01a1589f-7882; `IdS1Unlock` on 2026-10-21,
+language-culture-en, REPLY 01a15d22-6abd, at the owner's asking for
+Unlock). No string contains
 a word of a person's phrase, and no placeholder can hold one: `{n}`
 (a number, in digits) and `{peer_id}` are the only placeholders. The
 words are plain and calm. A person on K1 did nothing wrong, so no
@@ -529,7 +532,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdDerivedPeerId` (new) | PeerId from your words | The label of the derived PeerId in `IdOtherIdentity`'s banner |
 | `IdShowPhraseItem` | Show recovery phrase | The Settings item (§3.5) |
 | `IdS1Title` | Show your recovery phrase | S1's title |
-| `IdS1Unlock` | Unlock and show my words | S1's primary; it raises the system prompt (language-culture-en's wording, #313) |
+| `IdS1Unlock` (new) | Unlock and show my words | S1's primary; it raises the system prompt |
 | `IdS1Body` | You will be asked to unlock your phone first. The app goes offline while your words are shown. | S1's body, two lines |
 | `IdGoingOffline` | Going offline… | The progress state (§3.5, §6) |
 | `IdDone` | Done | The primary of S2's PeerId page, its last page |
@@ -550,7 +553,7 @@ point in the order shown, so each wraps alone. `IdPeerIdLabelShown`, `IdRestored
 `IdQTitleNoPath`, `IdQReasonNoPath`, `IdQNoPath`, `IdNotWalletSeed`,
 `IdFormatLine`, `IdStorageUnknown` and `IdRestoreOther` are added, and
 on 2026-10-20 `IdPeerIdTitle`, `IdPeerIdWritten`, `IdNext` and
-`IdPeerIdNoteShown`. The locked notice and its prompt
+`IdPeerIdNoteShown`, and on 2026-10-21 `IdS1Unlock`. The locked notice and its prompt
 (`AuthenticationNeeded`, `Authenticate`, `UnlockPromptTitle`) are the
 app's keys, not this flow's, added to `labels.rs` by #313 and not yet
 on main; so are `CopyPeerId` and `PeerIdCopied` (§5). Their rows are
