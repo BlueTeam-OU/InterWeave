@@ -50,11 +50,5 @@ tempfile = { workspace = true }
 # list empties as the suite fills.
 [package.metadata.cargo-machete]
 ignored = [
-  "interweave-ipc-client",
-  "interweave-ipc-protocol",
-  "interweave-local-client-api",
-  "interweave-transport-api",
-  "interweave-profile-config",
   "interweave-human-store",
-  "interweave-test-support",
 ]

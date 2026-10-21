@@ -93,7 +93,7 @@ fn needles(seed: &[u8; 32]) -> Vec<(String, Vec<u8>)> {
         out.push((format!("raw bytes {at}.."), seed[at..at + 12].to_vec()));
     }
     for (half, bytes) in [("first", &seed[..16]), ("second", &seed[16..])] {
-        let lower: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let lower = hex(bytes);
         out.push((
             format!("lower hex, {half} half"),
             lower.clone().into_bytes(),
@@ -129,6 +129,15 @@ fn needles(seed: &[u8; 32]) -> Vec<(String, Vec<u8>)> {
     out
 }
 
+/// Lower-case hex of `bytes`.
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
+}
+
 fn contains(stream: &[u8], needle: &[u8]) -> bool {
     stream.windows(needle.len()).any(|w| w == needle)
 }
@@ -139,7 +148,7 @@ const URL_SAFE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx
 /// Unpadded base64 of `bytes`, whose length is a multiple of three. The
 /// crate carries no base64 dependency, and this is the whole of it.
 fn base64(bytes: &[u8], alphabet: &[u8; 64]) -> String {
-    assert_eq!(bytes.len() % 3, 0, "a whole number of groups");
+    assert!(bytes.len().is_multiple_of(3), "a whole number of groups");
     let mut out = String::new();
     for group in bytes.chunks(3) {
         let n = u32::from(group[0]) << 16 | u32::from(group[1]) << 8 | u32::from(group[2]);
@@ -193,7 +202,7 @@ mod tests {
             identity.save(&path).expect("saved");
             std::fs::read(&path).expect("read")
         };
-        let hex: String = seed.iter().map(|b| format!("{b:02x}")).collect();
+        let hex = hex(&seed);
         let cases: Vec<(&str, Vec<u8>)> = vec![
             ("the phrase as typed", secret.phrase().into_bytes()),
             (
@@ -256,7 +265,7 @@ mod tests {
     /// and the tail cut, as an encoder's last group differs only there.
     fn base64_padded_to_group(bytes: &[u8], alphabet: &[u8; 64]) -> String {
         let mut padded = bytes.to_vec();
-        while padded.len() % 3 != 0 {
+        while !padded.len().is_multiple_of(3) {
             padded.push(0);
         }
         base64(&padded, alphabet)
