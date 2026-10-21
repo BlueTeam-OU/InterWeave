@@ -281,3 +281,8 @@ method applies rule 2's special-use floor to every component before
 anything is stored, and the client refuses a DNS name that arrived by
 scan — the one named exception to the sentence; no other path feeds a
 peer-chosen address through the operator door.
+The same amendment reads rule 2's "whoever supplies them" as
+"whichever peer supplies them": rule 9 admits an operator-set address
+whatever its class, and the two sentences had read against each other
+(#340's review, rounds 4 and 5); the floor is the peer-supplied path's,
+and the person's add brings its own.
