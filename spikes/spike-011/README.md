@@ -211,8 +211,9 @@ decisions 3 and 6 with A 2026-10-21):
 - **A crash after each of the seven steps**, then the next start: every
   one ends with all 520 rows, `human.sqlite` alone in `human/`, and no
   file there holding content in clear; the start after it is a plain
-  open. The clean rewrite takes 180-220 ms at 500 kept, the resumed ones
-  less. Control: the seeded plaintext holds the content in clear.
+  open. At 500 kept the clean rewrite took 238 ms, the full rewrites
+  after a crash before the export 224-227 ms, the restarted export 204 ms,
+  and the resumed ones 41-50 ms. Control: the seeded plaintext holds the content in clear.
 - **The rollback** refuses the profile from the first step on: the
   shipping loader's own `check_within` says "profile format 2, newer than
   this build's 1". It is never the encrypted file's `NotADatabase` a
