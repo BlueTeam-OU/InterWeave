@@ -50,7 +50,10 @@ server=
 watcher=
 
 # others [with kill_them=1]: true while a process of our group other than
-# this script and the watcher is alive; with kill_them=1, SIGKILLs each.
+# this script, the watcher and the watcher's own children is alive; with
+# kill_them=1, SIGKILLs each, the watcher's children included. Those are
+# its sleeps, which inherit its ignored TERM: waited for, they would hold
+# every stop to the full deadline.
 # It reads /proc in this shell: a forked helper would be a member itself.
 others() {
   local f s pid found=1
@@ -61,6 +64,7 @@ others() {
     set -- ${s##*') '}
     [ "$3" = "$$" ] && [ "$1" != Z ] || continue
     [ "$pid" = "$$" ] || [ "$pid" = "$watcher" ] && continue
+    [ "$2" = "$watcher" ] && [ "${kill_them:-}" != 1 ] && continue
     found=0
     [ "${kill_them:-}" = 1 ] && kill -KILL "$pid" 2>/dev/null
   done
