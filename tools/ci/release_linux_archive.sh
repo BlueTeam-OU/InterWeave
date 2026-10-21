@@ -97,7 +97,15 @@ if [[ -z "$bin_dir" ]]; then
     build_args=(build --release --locked --target "$target")
     for p in "${packages[@]}"; do build_args+=(-p "$p"); done
     (cd "$root" && cargo "${build_args[@]}") || die "cargo build failed"
-    bin_dir="${CARGO_TARGET_DIR:-$root/target}/$target/release"
+    # Where cargo built is cargo's to say: CARGO_TARGET_DIR relative to the
+    # root it ran in, CARGO_BUILD_TARGET_DIR, or a config's build.target-dir.
+    # A path computed here from one of them would read another directory,
+    # and an older build's executables found there would be archived.
+    target_dir="$(cd "$root" && cargo metadata --locked --no-deps --format-version 1 \
+        | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')" \
+        || die "cargo metadata did not name the target directory"
+    [[ -n "$target_dir" ]] || die "cargo metadata did not name the target directory"
+    bin_dir="$target_dir/$target/release"
 fi
 for p in "${programs[@]}"; do
     [[ -f "$bin_dir/$p" && -x "$bin_dir/$p" ]] || die "no executable $bin_dir/$p"

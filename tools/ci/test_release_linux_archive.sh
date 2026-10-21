@@ -265,6 +265,54 @@ else
     pass "a run that cannot make its scratch directory leaves none of a previous run's outputs"
 fi
 
+# Without --bin-dir the script builds, and takes the executables from the
+# directory cargo reports, not one it computes. A cargo stand-in builds
+# fresh programs into a directory of its own and reports it; the run starts
+# from another directory holding decoys at <cwd>/target, where a relative
+# CARGO_TARGET_DIR=target read from the caller's side would look. The
+# archive must hold the fresh bytes. (That real cargo reports a relative
+# CARGO_TARGET_DIR or a config target-dir in `target_directory` is cargo's
+# behaviour, read on the host, not this stand-in's.)
+CARGO_STUB="$SANDBOX/cargo-stub"
+BUILT="$SANDBOX/cargo-built"
+CALLER="$SANDBOX/caller"
+mkdir -p "$CARGO_STUB" "$CALLER/target/x86_64-unknown-linux-gnu/release"
+cat > "$CARGO_STUB/cargo" <<EOF
+#!/bin/sh
+case "\$1" in
+build)
+    mkdir -p "$BUILT/x86_64-unknown-linux-gnu/release"
+    for p in transport-daemon transportctl human-desktop; do
+        printf '#!/bin/sh\n# fresh %s\n' "\$p" > "$BUILT/x86_64-unknown-linux-gnu/release/\$p"
+        chmod 0755 "$BUILT/x86_64-unknown-linux-gnu/release/\$p"
+    done ;;
+metadata) printf '{"target_directory": "%s"}\n' "$BUILT" ;;
+*) echo "cargo stand-in: \$*" >&2; exit 1 ;;
+esac
+EOF
+chmod +x "$CARGO_STUB/cargo"
+for p in transport-daemon transportctl human-desktop; do
+    printf '#!/bin/sh\n# decoy %s\n' "$p" > "$CALLER/target/x86_64-unknown-linux-gnu/release/$p"
+    chmod 0755 "$CALLER/target/x86_64-unknown-linux-gnu/release/$p"
+done
+rm -rf "$OUT"
+if ! (cd "$CALLER" && PATH="$CARGO_STUB:$PATH" CARGO_TARGET_DIR=target SOURCE_DATE_EPOCH=1760000000 \
+    RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" \
+    bash "$UNDER_TEST" 0.3.0 "$OUT" >/dev/null 2>"$SANDBOX/err"); then
+    fail "a build run from another directory failed" "$(cat "$SANDBOX/err")"
+else
+    Y="$SANDBOX/y"
+    rm -rf "$Y"
+    mkdir -p "$Y"
+    tar -xzf "$A" -C "$Y"
+    if grep -q '# fresh transport-daemon' "$Y/$NAME/bin/transport-daemon" \
+        && ! grep -rq '# decoy' "$Y/$NAME/bin"; then
+        pass "a build's executables are taken from the directory cargo reports, not one computed beside the caller"
+    else
+        fail "the archive's programs are not the ones this build made" "$(head -n 2 "$Y/$NAME"/bin/*)"
+    fi
+fi
+
 refused "a version that is not MAJOR.MINOR.PATCH" "not MAJOR.MINOR.PATCH" 0.3 "$OUT"
 mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
 refused "a missing program" "no executable $BIN/human-desktop" 0.3.0 "$OUT"
