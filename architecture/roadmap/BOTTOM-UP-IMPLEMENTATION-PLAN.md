@@ -5900,10 +5900,13 @@ the timing.
 Recorded 2026-10-21 on the owner's direction of that day; the decisions
 are ADR-0059 (a contact is built from a card the counterparty sends and
 the person accepts) and ADR-0060 (the human store is encrypted at rest
-under a key the platform seals). **This section opens nothing**: the
-stage opens on the owner's word, after Stage 17's close or beside it as
-§19's Stage 16 ran beside Stage 15, and the status value stays the
-lowest open stage. It is numbered after §28 so that no citation of
+under a key the platform seals). **This section opens nothing by
+itself; the owner's word of 2026-10-21 opens the stage when Stage 17
+closes** ("open stage 21 after 17 closes"): from the landing of Stage
+17's closing record (§20) the stage runs beside Stage 18 and Stage 19
+as §19's Stage 16 ran beside Stage 15, the closing record names it as
+opened, and the status value stays the lowest open stage, Stage 18's
+slug once Stage 17 has closed. It is numbered after §28 so that no citation of
 §23–§28 moves. It takes over Stage 15's carry 11 (§18: a new conversation
 by PeerId, the contacts UX and the owner's privacy review), whose
 privacy half ADR-0059 decisions 2, 3 and 6 answer for the card.
