@@ -223,11 +223,36 @@ impl Home {
 
     /// Start the daemon for this home's profile, its stderr to a file.
     pub fn start(&self, extra: &[&str]) -> Daemon {
+        let mut command = Command::new(daemon_binary());
+        command
+            .args(["--profile", self.paths.profile()])
+            .args(extra);
+        self.spawn(command)
+    }
+
+    /// [`start`](Self::start), with `preamble` run first by the shell that
+    /// then execs the daemon in its place: a hostile umask, a resource
+    /// limit -- process state the daemon inherits and `Command` cannot
+    /// set. The child is the daemon itself, so signals and the reap reach
+    /// it and not a shell.
+    pub fn start_after(&self, preamble: &str, extra: &[&str]) -> Daemon {
+        // By path: the environment is cleared, PATH with it.
+        let mut command = Command::new("/bin/sh");
+        command
+            .arg("-c")
+            .arg(format!("{preamble}\nexec \"$0\" \"$@\""))
+            .arg(daemon_binary())
+            .args(["--profile", self.paths.profile()])
+            .args(extra);
+        self.spawn(command)
+    }
+
+    /// `command` in this home's environment and nothing else, its stderr
+    /// to a fresh log.
+    fn spawn(&self, mut command: Command) -> Daemon {
         let (log, stderr) = new_daemon_log(self.root.path());
         let env = |p: &Path| p.as_os_str().to_owned();
-        let child = Command::new(daemon_binary())
-            .args(["--profile", self.paths.profile()])
-            .args(extra)
+        let child = command
             .env_clear()
             .env("XDG_CONFIG_HOME", env(&self.roots.config_home))
             .env("XDG_DATA_HOME", env(&self.roots.data_home))
