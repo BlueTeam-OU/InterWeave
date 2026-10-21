@@ -205,12 +205,13 @@ class MainActivity : NativeActivity() {
         // A recreation for a configuration change keeps the binding: the
         // next instance finds it held, and foreground-only mode's runtime
         // and lease survive it (review F2). Otherwise the last started
-        // instance lets go: the binding is the application's. singleTask
-        // (the manifest) keeps one instance, but a recreation, or a launch
-        // that forces another task, still overlaps two lifecycles; before
-        // singleTask a Back that closed one instance over another let go
-        // of the binding the other relied on, and nothing bound again
-        // (2026-10-20, the Pixel: Show recovery phrase refused as Busy).
+        // instance lets go: the binding is the application's. Under
+        // singleTask (the manifest) `started` is not expected above 1; the
+        // count stays as the guard for a launch that forces another task,
+        // which is not verified to reuse this one. Before singleTask a Back
+        // that closed one instance over another let go of the binding the
+        // other relied on, and nothing bound again (2026-10-20, the Pixel:
+        // Show recovery phrase refused as Busy).
         started -= 1
         if (bound && started == 0 && !isChangingConfigurations) {
             applicationContext.unbindService(connection)
