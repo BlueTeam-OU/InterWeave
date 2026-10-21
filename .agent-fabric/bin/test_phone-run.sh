@@ -49,8 +49,10 @@ check() {  # check <name> <condition...>
   local name=$1; shift
   if "$@"; then echo "ok   $name"; else echo "FAIL $name"; fail=1; fi
 }
-# Nothing of a case is left: the run carries $T in its arguments, the
-# server is adbd.py under $T, the lease stub lives in $T.
+# Nothing of a case is left: the run carries $T in its arguments (its
+# sleep renamed with exec -a, since bash execs a last command and the
+# plain sleep would carry nothing to find), the server is adbd.py under
+# $T, the lease stub lives in $T.
 nothing_left() {
   local end=$((SECONDS + 10))
   while pgrep -f "$T" >/dev/null && [ $SECONDS -lt $end ]; do sleep 0.2; done
@@ -84,7 +86,7 @@ check "normal exit leaves nothing" nothing_left
 
 # Two TERMs to the lease while the run ignores TERM: the stop is not cut
 # short, the run is KILLed at the 5 s deadline, and nothing is left.
-"$pr" bash -c "trap '' TERM; sleep 300 # $T" >/dev/null 2>&1 &
+"$pr" bash -c "trap '' TERM; exec -a $T/run sleep 300" >/dev/null 2>&1 &
 lease=$!
 sleep 1.5
 t0=${EPOCHREALTIME/[.,]/}
@@ -96,7 +98,7 @@ check "second TERM does not cut the stop short (${ms} ms >= 4500)" [ "$ms" -ge 4
 check "TERM leaves nothing" nothing_left
 
 # The lease SIGKILLed: the watcher ends the run and the server alone.
-"$pr" bash -c "trap '' TERM; sleep 300 # $T" >/dev/null 2>&1 &
+"$pr" bash -c "trap '' TERM; exec -a $T/run sleep 300" >/dev/null 2>&1 &
 lease=$!
 sleep 1.5
 kill -KILL "$lease"
