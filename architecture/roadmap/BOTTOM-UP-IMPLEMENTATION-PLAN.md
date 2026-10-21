@@ -5958,9 +5958,10 @@ decision 6.
    MalformedCard, never NotCard — and a Card carries the photo's
    decoded length as the parser measured it.
 2. **The proposal and the acceptance** (rust-ui-dev): the person's own
-   cards in settings (several, each under a local label); "Share a
-   card" on one conversation, choosing which, the last shared offered
-   first, never automatic; the received card held as inbound content under
+   card in settings — one per configured endpoint, the `human` endpoint's
+   in this stage (ADR-0059 decision 2 as amended, ADR-0061); "Share a
+   card" on one conversation sending the conversation's identity's card,
+   no chooser, never automatic; the received card held as inbound content under
    RETENTION.md, shown as a proposal with the PeerId beside it and the
    same-name note; Accept writing `contacts` and `contact_routes`,
    Decline discarding; the photo decoded only after Accept with a
@@ -6004,10 +6005,9 @@ accepted card never overwrites a locally edited name or photo, and the
 contact page says where each came from; a card accepted on a second
 route of a known PeerId creates a second contact and the proposal names
 the contact sharing its node, and a contact never holds two routes of one
-PeerId (ADR-0061 decision 4, A 2026-10-21 (ii)); the cards of two
-identities shared to two
-conversations, each counterparty holding only its own and nothing
-sent naming the other; a confirmed discard during a stalled rewrite
+PeerId (ADR-0061 decision 4, A 2026-10-21 (ii)); the card shared to two
+conversations is the conversation's identity's each time and nothing
+sent names another identity (the two-identity case is §30's gate); a confirmed discard during a stalled rewrite
 removing the plaintext and keeping the key and the complete copy,
 which the next open promotes, the screen listing the plaintext alone;
 the same discard with the copy unopenable (no key, an invalidated
@@ -6075,7 +6075,9 @@ No new crate. The work lands in `crates/human/app-core`,
 `crates/human/ui-model`, `crates/human/ui-slint`, `crates/human/store`
 (the §Logical tables review: `conversation_index.local_endpoint_id`,
 `own_cards` keyed by EndpointId, one contact per route), the two
-graphical clients and the command-line client under `apps/`, and — in
+graphical clients and the command-line client under `apps/`,
+`profile-config` (the Android profile's endpoints as a list, the one
+`runtime.android.endpoint` field becoming its first entry), and — in
 p2p-network-dev's lane, its own PR under ADR-0017's minor rule — the
 administrative method that adds a configured endpoint
 (`admin.endpoints.*`, LOCAL-IPC.md), with `ENDPOINTS.md`'s registration
@@ -6087,7 +6089,7 @@ sentence gaining the administrative path in the same change.
    (rust-ui-dev): an identity is an endpoint with its card; the client
    holds one data session and one lease per identity it presents; create,
    rename, set the card, set the default and remove through the admin
-   connection (editing the configuration until step 0's method lands);
+   connection (editing the desktop profile's configuration until p2p-network-dev's add-endpoint method under Activate lands; on Android no second identity exists until it does, ADR-0061 decision 2);
    the identity chooser on a new conversation and the identity shown on
    every conversation; the identity verbs of the command-line client
    (ADR-0061 decision 7).

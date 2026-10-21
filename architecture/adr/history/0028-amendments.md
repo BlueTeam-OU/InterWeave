@@ -638,3 +638,18 @@ fixed three facts the Decision paragraph now carries: the load-time
 check judges the file and leaves the directory to the lock; the raise
 is under the lock after the runtime's start, so a refused start writes
 nothing; the marker is re-read after the lock.
+
+### Amendment 2026-10-21 — The endpoint overlay carries the endpoints added through the administrative method
+
+ADR-0061 makes a user identity a configured EndpointId of the node with
+its own card, several on one phone, created through the administrative
+boundary. Registration stays configured-only (ENDPOINTS.md), and this
+record keeps `config.yaml` authored and unrewritten and pinned the
+endpoint overlay to `{enabled, default}` (A 2026-10-11), so an endpoint
+the person adds had no home: #335's blind review named it (F29). Ruled:
+the overlay gains an `added` member holding each added endpoint's
+definition — the fields a configured endpoint has in `config.yaml` —
+beside the enabled and default deltas, under the overlay's every rule
+(owner-only, atomic, trust boundary, normalised at load); added and
+authored endpoints together obey the 64 bound. The method itself is
+p2p-network-dev's, an IPC minor under ADR-0017.
