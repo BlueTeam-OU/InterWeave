@@ -937,6 +937,11 @@ subtitle while two or more are held, overflow with **Delete contact**
   one device can hold several identities, so these contacts may be one
   person; InterWeave never combines them (ADR-0061
   d. 4 and d. 5). Only the identity in front's contacts are named.
+- **Your side of it**, with two or more identities held, once on the
+  page under the routes: `ContactYourIdentitiesNote`, that this contact
+  sees the PeerId all of the person's identities share, so a contact
+  who knows another of them can tell both are on this device
+  (`human-client-ui.md` §4; ADR-0061 d. 5). It names no other identity.
 - **Move to another contact** on a route row (`MoveRoute`) when there
   are other contacts that hold no route of this route's PeerId. Move
   takes this one route (ADR-0061 d. 4, ADR-0059 d. 4 (ii)): a contact
@@ -1528,6 +1533,7 @@ and are for them to write.
 | `DetailsCardShared` | You shared your card here on {date}. | Details, from `card_shared_at` |
 | `ContactSharesDevice` | Same device as your contact {name} | contact page, under a route |
 | `ContactSharesDeviceNote` | One device can hold several identities, so these contacts may be one person. InterWeave does not combine them. | contact page |
+| `ContactYourIdentitiesNote` | This contact sees your PeerId, which all your identities share. If they know another of your identities, they can tell that both are on this device. | contact page with two or more identities; must say the PeerId is shared by all the person's identities and what a contact who knows two can tell; names no identity (new, proposal) |
 | `MoveRouteNoneSameDevice` | Contacts that already have a conversation with this conversation's device are not listed. A contact can have only one conversation with each device. | Move picker |
 | `StoreRecoveryTitle` | InterWeave cannot read its stored data | Android R heading |
 | `RefusalStoreRecovery` (revised) | InterWeave cannot read its stored data, which includes your messages and contacts. Nothing was changed. The data opens only with its key on this device, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. If a newer version of InterWeave wrote this data, install and start the newest version that you have used, or a newer one. Restoring this device's PeerId from its recovery phrase does not bring back this data. | desktop R body (Android R has its own, `StoreRecoveryBody`): its backup-copy sentence assumes a plaintext file a person can swap; the store is now encrypted and a copy opens only with its key. Must still say the file was not changed until the person chooses. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). **L1**: "Restoring your identity" means the recovery phrase's identity, the device's |
@@ -1551,7 +1557,7 @@ and are for them to write.
 
 Existing keys reused unchanged: `AppOptions` (look spec §9; the Chats
 ⋮), `MoreOptions` (the conversation's ⋮ only), `BackToConversations`,
-`Cancel`, `Close`, `Undo`, `TryAgain`, `Details`, `DirectTitle`,
+`Cancel`, `Close`, `Undo`, `TryAgain`, `Details`, `DirectTitle`, `OwnPeerId`,
 `ShortPeer`, `StorageDegraded`.
 
 ## 11. Deliberately left out
