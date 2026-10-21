@@ -6082,9 +6082,13 @@ graphical clients and the command-line client under `apps/`,
 the one `runtime.android.endpoint` field becoming its first entry, a
 disabled entry allowed while another is enabled and the composed-profile
 check asking for one enabled identity rather than the authored one; the
-authored `human` endpoint provisioned with `advertise: false`, the two
-example profiles likewise, and a migration setting it on existing
-profiles; an identity the person creates on either platform lands in the
+authored `human` endpoint provisioned with `advertise: false`, every example profile that declares
+`human` likewise, `human-client-model-b.md`'s directory example and
+suggested profile marked as superseded by ADR-0061 decision 5, and an
+existing profile's authored `human` turned off by the `advertise` delta
+the client writes once into the endpoint overlay at its first Stage 22
+open (ADR-0028 A 2026-10-21), `config.yaml` unrewritten and the upgrade
+test's expectation kept; an identity the person creates on either platform lands in the
 endpoint overlay's `added` member, never in the authored file), the overlay's
 `added` member in the runtime's loader — its normalisation and the 64
 bound over authored and added together (ADR-0028 A 2026-10-21) — and — in
@@ -6122,7 +6126,7 @@ sentence gaining the administrative path in the same change.
 ### Exit gate
 
 (a) Steps 1–4 landed with their tests green on `main`, and the
-administrative add-endpoint method on `main` with its contract row
+administrative add and remove methods on `main` with their contract rows
 (p2p-network-dev's PR); (b) the conformance cases, by name: a
 conversation cannot change identity, and every message and card it sends
 carries that identity's `source_endpoint` and no other, measured at the
@@ -6139,7 +6143,8 @@ advertise off, the authored `human` endpoint's advertise is off after
 provisioning and the migration, and the endpoint directory lists no
 identity to a trusted peer; Remove, after one confirmation listing what
 goes, deletes an added identity's endpoint and only disables an authored
-one saying so, removes its conversations, its pending outbound (attempted
+one saying so (on Android once another identity is enabled, the
+composed-profile check passing with the authored entry disabled), removes its conversations, its pending outbound (attempted
 no further, a may-have-reached row named), its contacts and its card, has
 no undo, and is absent on the only and the default identity; the lock
 screen's redacted notification names no identity and the switch follows

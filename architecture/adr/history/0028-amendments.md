@@ -639,7 +639,7 @@ check judges the file and leaves the directory to the lock; the raise
 is under the lock after the runtime's start, so a refused start writes
 nothing; the marker is re-read after the lock.
 
-### Amendment 2026-10-21 — The endpoint overlay carries the endpoints added through the administrative method
+### Amendment 2026-10-21 — The endpoint overlay carries the endpoints added through the administrative method, an authored endpoint's advertise delta, and the composed-profile check asks for one enabled identity
 
 ADR-0061 makes a user identity a configured EndpointId of the node with
 its own card, several on one phone, created through the administrative
@@ -660,3 +660,11 @@ undone at restart; an `added` id that `config.yaml` also authors fails
 the load by name; the no-`source` sentence and the two Android sentences
 say that an added endpoint is configured and that the embedded host
 writes `added` through the availability overlay's seam.
+Round 14 (F47, F51) added two more: an `advertise` delta for an
+authored endpoint — the one authored field the overlay may change,
+written once by the human client at its first Stage 22 open so that
+the authored `human` identity stops being advertised without
+`config.yaml` being rewritten — and the composed-profile check, which
+asked for the embedded runtime's lease endpoint to be enabled and now
+asks for one enabled identity, authored or added, so that an authored
+identity can be disabled once another is enabled (ADR-0061 decision 7).

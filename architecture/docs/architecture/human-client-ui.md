@@ -141,7 +141,7 @@ A notification names the identity it arrived on, except the redacted form a lock
 Notification content is generated only from messages already accepted into the human application/session.
 
 - notification previews are user-configurable;
-- sensitive previews may be hidden on lock screens;
+- sensitive previews may be hidden on lock screens; a lock screen shows only the redacted form, which names no identity (ADR-0061 decision 9), whatever preview setting applies after the unlock;
 - a notification tap opens local conversation context only;
 - notification action buttons, if added later, must not perform trust/admin/recovery operations;
 - a notification never proves the sender is a human merely because the route endpoint is named `human`.
@@ -196,7 +196,7 @@ Contacts, cards and the store's discard (A 2026-10-21, ADR-0059, ADR-0060; ruled
 - with two identities held, no screen in front of one shows the other's conversations, contacts or card, and no chooser suggests from them;
 - a direct message reaching identity B from a route only identity A holds as a contact is titled by the short PeerId, never by A's name; B's Accept of a card on that route creates B's own contact and leaves A's unchanged;
 - the lock screen's redacted notification names no identity; opening it switches to its identity visibly after the unlock;
-- Remove on an identity is always confirmed with the list of what goes — the endpoint (deleted if added; disabled, and said so, if authored), conversations and messages with pending outbound attempted no further and a may-have-reached row named, contacts, card — has no undo, is absent on the only identity and on the default until another is made default;
+- Remove on an identity is always confirmed with the list of what goes — the endpoint (deleted if added; disabled, and said so, if authored — on Android once another identity is enabled), conversations and messages with pending outbound attempted no further and a may-have-reached row named, contacts, card — has no undo, is absent on the only identity and on the default until another is made default;
 - every identity's endpoint, the authored one included, has advertise off and no control changes it; the identity settings say that any peer the node trusts can address the identity whose label it learns, and that no setting narrows it today;
 - every action of this section has a non-gesture control and an accessibility-tree label.
 
