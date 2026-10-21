@@ -244,11 +244,13 @@ async fn two_daemons_behind_their_own_nats_cannot_dial_each_other_and_talk_throu
             before
         );
     }
-    // And NAT-B maps no port to B: B's port on NAT-B's own address is
-    // NAT-B's to answer, which it refuses.
+    // And NAT-B holds no port forward for B's listen port: that port on
+    // NAT-B's own address is NAT-B's own to answer, and it refuses. This
+    // says nothing of which port NAT-B's masquerade gave B's outbound
+    // connections; the counted drops above carry the property.
     assert!(
         !netns::tcp_reaches(Net::A, at(netns::NAT_B, b_port), DIAL),
-        "NAT-B forwards B's port uninvited"
+        "NAT-B forwards B's listen port uninvited"
     );
 
     // A -> B, then B -> A, over the relay.

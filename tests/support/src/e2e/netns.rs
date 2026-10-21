@@ -50,6 +50,11 @@ use interweave_transport_api::TransportIdentity;
 
 use super::relay::Relay;
 
+/// How long the inner copy may run before it is killed, every process it
+/// started with it: its own waits are bounded by `PATIENCE` each, so
+/// this is reached only by a hang.
+const INNER_DEADLINE: Duration = Duration::from_secs(600);
+
 /// Set in the inner copy; its value is unused.
 pub const NETNS_ENV: &str = "INTERWEAVE_E2E_SECOND_NETWORK";
 
@@ -182,9 +187,16 @@ pub fn in_second_network(test: &str) -> bool {
         "{SETUP}\nexport {NETNS_ENV}=1 TMPDIR=/scratch\n\
          exec \"$IW_TEST_EXE\" --exact \"$IW_TEST_NAME\" --nocapture --test-threads 1"
     );
-    let output = Command::new("unshare")
+    // A pid namespace too, with `--kill-child`: when `unshare` dies --
+    // killed below on the deadline, or with this process -- every process
+    // the inner copy started dies with it, its daemons included, rather
+    // than running on until their own waits end.
+    let child = Command::new("unshare")
         .args([
             "-rnm",
+            "--pid",
+            "--fork",
+            "--kill-child",
             "--propagation",
             "private",
             "sh",
@@ -197,7 +209,9 @@ pub fn in_second_network(test: &str) -> bool {
         .arg(&target)
         .env("IW_TEST_EXE", &exe)
         .env("IW_TEST_NAME", test)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .unwrap_or_else(|e| {
             panic!(
                 "cannot run `unshare -rnm` ({e}): this test needs an unprivileged user \
@@ -205,6 +219,18 @@ pub fn in_second_network(test: &str) -> bool {
                  than skips where they are unavailable"
             )
         });
+    let pid = child.id();
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(child.wait_with_output());
+    });
+    let Ok(output) = finished.recv_timeout(INNER_DEADLINE) else {
+        let _ = Command::new("kill")
+            .args(["-KILL", &pid.to_string()])
+            .status();
+        panic!("the test inside the second network ran past {INNER_DEADLINE:?}: killed");
+    };
+    let output = output.expect("the inner copy's output");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(

@@ -2,7 +2,9 @@
 // Copyright 2026 Andrea Benetton
 //! The relay the relayed-path suites put between two daemons: the
 //! PRODUCTION relay server field (`relay_server_driver::build_behaviour`,
-//! `RELAY.md` §8's defaults) in a bare Swarm on loopback, told its own
+//! `RELAY.md` §8's defaults) in a bare Swarm -- on loopback ([`Relay::start`])
+//! or on an address of a namespace's ([`Relay::start_on`], which
+//! `super::netns::NetRelay` serves between two NATs) -- told its own
 //! listen address as its external address the way the AutoNAT adapter's
 //! `publish` tells the runtime's Swarm a verdict. The field itself is
 //! unchanged: its classifier admits only the peers it is given, as
@@ -18,7 +20,8 @@
 //! shut, as `tests/connectivity/tests/relay_server.rs` pins.
 //! `crates/transport/libp2p/tests/relay_hop_gate.rs` pins the gate this
 //! field carries; what this relay therefore does NOT prove is a daemon
-//! acting as the relay, or any NAT.
+//! acting as the relay -- nor, on loopback, any NAT, which only the
+//! second network's suites put between it and the daemons.
 
 // A harness helper panics when the case cannot be set up -- that is its
 // failure, by name -- and its value is always used by the case.
