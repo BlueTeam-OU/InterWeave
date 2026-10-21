@@ -240,7 +240,12 @@ jobs:
       - name: Install the pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
 
-      # Step 6.
+      # Step 6. The archive script also writes the archive's
+      # THIRD-PARTY-NOTICES.md: it runs tools/ci/release_notices.py over
+      # `cargo tree --locked` of the three shipped packages and `cargo
+      # metadata --locked`, and a failure there fails this step with no
+      # archive left behind. Not a step of its own: the notices are a file
+      # inside the archive, built from the archive's own scratch.
       - name: The Linux archive
         env:
           VERSION: ${{ needs.tag.outputs.version }}
