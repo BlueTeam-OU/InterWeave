@@ -205,11 +205,12 @@ class MainActivity : NativeActivity() {
         // A recreation for a configuration change keeps the binding: the
         // next instance finds it held, and foreground-only mode's runtime
         // and lease survive it (review F2). Otherwise the last started
-        // instance lets go: the binding is the application's, and a Back
-        // that closes one instance over another stops the closing one
-        // after the other has started -- its stop let go of the binding
-        // the other relied on, and nothing bound again (2026-10-20, the
-        // Pixel: Show recovery phrase then refused as Busy).
+        // instance lets go: the binding is the application's. singleTask
+        // (the manifest) keeps one instance, but a recreation, or a launch
+        // that forces another task, still overlaps two lifecycles; before
+        // singleTask a Back that closed one instance over another let go
+        // of the binding the other relied on, and nothing bound again
+        // (2026-10-20, the Pixel: Show recovery phrase refused as Busy).
         started -= 1
         if (bound && started == 0 && !isChangingConfigurations) {
             applicationContext.unbindService(connection)
@@ -584,12 +585,15 @@ class MainActivity : NativeActivity() {
         // The instance most recently started and not yet stopped: the one
         // the window shows in, and the one each relay's ask is carried out
         // on. One queue serves every instance, and a stopping instance's
-        // relay can take an ask for up to ASK_WAIT_MS after its onStop; a
-        // Back starts the instance below before the closing one stops. Run
-        // on the instance whose thread took it, a SECURE_OFF could clear the
-        // closing window's flag and leave the shown one's set, and an
-        // OFFLINE could set the flag on a window the words are not drawn
-        // in. The main thread's.
+        // relay can take an ask for up to ASK_WAIT_MS after its onStop:
+        // after a recreation, the old one's relay can take an ask meant
+        // for the new window. singleTask (the manifest) removed the stacked
+        // instances, where a Back started the one below before the closing
+        // one stopped; the overlap above remains. Run on the instance
+        // whose thread took it, a SECURE_OFF could clear the closing
+        // window's flag and leave the shown one's set, and an OFFLINE could
+        // set the flag on a window the words are not drawn in. The main
+        // thread's.
         private var front: MainActivity? = null
 
         // Show my phrase asked while the service was not bound yet: it is
