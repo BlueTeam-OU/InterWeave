@@ -356,6 +356,7 @@ The owner's word of 2026-10-19: no store for now, the project's own release page
 - Security: integrity rests on the project's signing key and the published hash; no store signature, no store update path; the Skia prebuilt archive is a build-time third-party download pinned by checksum (A 2026-10-20); a source build is the revisit if a store returns or the owner wants no third-party binary in the APK.
 - Keywords: android distribution, release page, no store, apk signing, manual update, no google play services, no firebase, slint royalty-free, skia prebuilt
 - Amendment 2026-10-20 (the Skia build): the release run uses the Skia bindings' prebuilt archive, pinned by a SHA-256 committed in the tree, which CI's android check job is to read too once its workflow calls the script; the bindings' silent fallback to a source build is a failed run; a source build is the revisit.
+- Amendment 2026-10-21 (crate notices): the release page carries, beside the native libraries' notices, the notices of every crate compiled into the native library for the Android target, under ADR-0058's rule and from the same tool as the Linux archive's.
 
 ### 0058 — Every release artifact ships the notice of every crate compiled into it, read from the crate's own publication (Proposed)
 Decided 2026-10-21 on the #324 review's finding: around forty crates compiled into the Linux programs publish a licence expression and no licence file, most MIT or BSD, and were listed by expression and URL alone.

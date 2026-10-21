@@ -13,3 +13,12 @@
 **Ruled.** The prebuilt archive, pinned: the release script fetches the one archive itself, checks it against a SHA-256 committed in the tree, points `SKIA_BINARIES_URL` at it as a `file://` path (the only non-URL form the bindings read), and asserts the bindings' "DOWNLOAD AND INSTALL SUCCEEDED" line in the build output, so the silent fallback is a red run. The android check job reads the same committed pin, so one line governs both builds and a stale pin after a bump or a feature change fails rather than passes. Refused for now: a source build, whose toolchain (python3, ninja, the NDK's clang, git, Skia's gn and git-sync-deps fetching DEPS by full commit hash from many hosts) is a runner image devex-tooling would have to keep and whose time is tens of minutes per target, unmeasured here — the revisit if a store returns (the ADR's revisit conditions) or the owner wants no third-party binary in the APK. Neither option makes the bytes reviewed; the native library's notices are owed either way (plan §20 step 10).
 
 **Propagation.** Decision 4; this note; the log row. The release script and its pin are p2p-network-dev's (the Android release run, §22); the check job's read of the pin is devex-tooling's (`.github/`). Plan §22's sentence that the choice is architect-cto's "on p2p-network-dev's question with the costs" is answered by this amendment and is reworded with the plan's next change.
+
+### Amendment 2026-10-21 — The release page carries the notices of every crate compiled into the native library, under ADR-0058
+
+**Trigger.** The review of #324 found that crates publishing a licence expression and no licence file were listed in the Linux archive's notices without the notice MIT and BSD put in every copy, and p2p-network-dev-01's OBSERVATION 01a15c55 asked, beside the Linux decision, whether the Android release owes the same crate notices; its page's `{third_party_notice_texts}` carried the native libraries' notices alone.
+
+**Ruled.** It does. ADR-0058 decides the source order and the reviewed list for every artifact; decision 5 names the crate notices for the Android target, produced by the same tool as the Linux archive's, beside the native libraries' notices already there.
+
+**Propagation.** Decision 5; this note; the log row; the digest line. The page template is rust-ui-dev's, the tool and the release run p2p-network-dev's (ADR-0058, Implementation implications).
+
