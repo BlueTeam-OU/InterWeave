@@ -5934,8 +5934,11 @@ when it lands (ADR-0060 decision 3).
 
 No new crate. The work lands in `crates/human/chat-protocol`,
 `crates/human/store`, `crates/human/app-core`, `crates/human/ui-model`
-and `crates/human/ui-slint`, the two clients under `apps/`, and
-`tools/checks/` for the manifest check of ADR-0059 decision 6.
+and `crates/human/ui-slint`, the two graphical clients under `apps/`, a
+command-line human client under `apps/` on the same crates (ADR-0059
+decision 9; the one new application of the stage, named by its
+implementer), and `tools/checks/` for the manifest check of ADR-0059
+decision 6.
 `spikes/spike-011/` is the spike's home, under SPIKES.md's regime.
 
 ### Implement in order
@@ -5967,8 +5970,9 @@ and `crates/human/ui-slint`, the two clients under `apps/`, and
    Discard and recreate on both clients' recovery screens (ADR-0060
    decision 6), RETENTION.md's deletion property measured on the
    encrypted file, and §22's upgrade and rollback rows learning the case.
-4. **Desktop and Android screens** (rust-ui-dev): the same `ui-model` on
-   both; `human-client-ui.md` §13 acceptance criteria for steps 2 and 3,
+4. **Desktop and Android screens, and the command-line client**
+   (rust-ui-dev): the same `ui-model` on both; every action of steps
+   2 and 3 as a command, with no display (ADR-0059 decision 9); `human-client-ui.md` §13 acceptance criteria for steps 2 and 3,
    proposed by rust-ui-dev and ruled by architect-cto.
 
 ### Exit gate
@@ -5979,7 +5983,9 @@ and names the conversation; a card from an unknown kind or over a bound
 is rejected locally with no network effect; a card over broadcast is
 ignored; a second card from the same route is a new proposal and
 overwrites no local edit; two same-name cards from two PeerIds are two
-proposals; a declined card leaves nothing in the store; the photo is not
+proposals; a declined card leaves nothing in the store; every action
+of steps 2 and 3 driven from the command-line client in a shell with
+no display; the photo is not
 decoded before Accept; no contacts permission, no contacts library,
 `allowBackup="false"` and total extraction rules in the Android build
 (the tree check, broken on purpose once per declaration); the
