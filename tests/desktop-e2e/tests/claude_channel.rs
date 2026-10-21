@@ -980,7 +980,7 @@ const SECOND_NETWORK: &str =
 /// counter shows. The control is that each takes one from its own
 /// namespace, so the refusal is the NAT's and not a listener that is not
 /// up. Then the facade exchange of the one-host test runs, the
-/// facade is told its route to the bridge's peer began relayed, and the
+/// facade is told its route to the bridge's peer is relayed, and the
 /// relay reports carrying A's circuit to B.
 ///
 /// What this does not prove: a NAT whose mapping depends on the
@@ -1097,7 +1097,7 @@ async fn the_bridge_behind_its_own_nat_exchanges_with_the_facade_through_the_rel
                 .find(|(peer, _)| peer == &b_peer)
                 .map(|(_, path)| *path),
             Some(interweave_transport_api::PeerPath::Relayed),
-            "the facade's route to the bridge's peer began relayed: {:?}",
+            "the facade's route to the bridge's peer is relayed: {:?}",
             facade.paths
         );
         let seen = relay.relay().seen().await;
