@@ -319,9 +319,9 @@ Operational implications). It does not put the identity in front.
 
 **Remove this identity** is not offered on the default identity (the
 page says `IdentityRemoveDefault`: make another identity the default
-first), nor while it is the only one, nor, on Android, while an
-identity the configuration authors is the only one enabled (ADR-0061
-d. 7). Elsewhere it opens a confirmation
+first), nor while it is the only one, nor, on Android, when removing
+it would leave no identity enabled, since the embedded runtime needs
+one enabled identity to lease (ADR-0061 d. 7). Elsewhere it opens a confirmation
 dialog, `IdentityRemoveTitle` naming the identity, listing what goes
 (`IdentityRemoveLoses`: its conversations and their messages, unread,
 kept and waiting to be sent; its contacts; its card; and that people
@@ -335,7 +335,12 @@ endpoint the profile's configuration file authors is not deleted but
 turned off, its label kept there; the dialog says so in place of the
 endpoint's deletion (`IdentityRemoveAuthored`), and the rest of the
 list is the same (ADR-0061 d. 7: only an endpoint the client added is
-deleted from the overlay). Then **Cancel**
+deleted from the overlay). A removed identity is gone to the person
+whichever way its endpoint went: it is no longer listed, counted among
+the identities held, offered in the switcher or able to come in front,
+and §5.7.6's turned-off state is not it; its label stays taken on this
+device (`IdentityRouteTaken`). How the client tells such an endpoint
+from one turned off for another reason is §12 Q7. Then **Cancel**
 (default focus) and **Remove** (`IdentityRemoveConfirm`, filled in
 `error`). Enter on the initial focus cancels; Escape and Back cancel.
 Remove has no Undo (ADR-0061 d. 7): the endpoint and every row under it
@@ -829,7 +834,8 @@ none is specified here (§11).
 #### 5.7.6 States of an identity
 
 - **Cannot send or receive** (its session holds no lease, or its
-  endpoint is turned off in the overlay): its row in the switcher and
+  endpoint is turned off in the overlay — other than by Remove, §5.2,
+  after which the identity is not held at all): its row in the switcher and
   §5.1 shows `IdentityUnavailable`; it can still come in front, its
   conversations readable, and its composer line reads
   `IdentityUnavailable` in place of "As {identity}", the send control
@@ -1607,6 +1613,20 @@ given until they answer):
   the note's "who can reach this identity" control is withdrawn; and
   pending outbound on Remove is "tried no further", one that may have
   reached named as such.
+
+- **Q7** (round 1's review, F3) — a removed identity whose endpoint
+  `config.yaml` authors is only turned off (d. 7). The note treats it as
+  no longer held (§5.2). The client then has to tell that endpoint from
+  one turned off for another reason (`enabled: false` written in
+  `config.yaml` or by the command line): asked whether the overlay or
+  STATE.md carries that a turned-off endpoint was removed as an
+  identity, and whose record it is.
+- **Q8** (round 1's review, F6) — the bound on identities. ADR-0061
+  d. 2 and ENDPOINTS.md's prose say 64 endpoints; ENDPOINTS.md's limits
+  table gives configured endpoints per profile a default of 16 and a
+  ceiling of 64. The note keys `IdentityLimit` on the profile's
+  effective limit and on the add's limit refusal (§5.1); asked which
+  figure the records mean, so the two can say the same.
 
 For language-culture:
 
