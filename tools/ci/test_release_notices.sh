@@ -129,6 +129,13 @@ refused "a compiled crate the metadata's normal walk does not reach" \
 printf 'not a tree line\n' > "$SANDBOX/garbled.txt"
 refused "a compiled list that is not cargo tree's" "not a cargo tree line" "$SANDBOX/garbled.txt" app
 refused "a package that is not a workspace member" "not a workspace member: nobody" "$SANDBOX/compiled.txt" nobody
+# A list cargo tree did not make for the named package: empty, or the same
+# crates without the root's own line (the full list above is the control).
+: > "$SANDBOX/empty.txt"
+refused "an empty compiled list" "the compiled list does not name: app" "$SANDBOX/empty.txt" app
+grep -v '^app ' "$SANDBOX/compiled.txt" > "$SANDBOX/rootless.txt"
+refused "a compiled list without the named package's own line" \
+    "the compiled list does not name: app" "$SANDBOX/rootless.txt" app
 # A crate with a licence expression and no licence file: its notice is
 # not in its files, so it is refused, not listed without it (the passing
 # run above, with the same crate defined but not compiled, is the control).

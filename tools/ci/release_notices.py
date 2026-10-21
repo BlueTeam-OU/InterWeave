@@ -32,7 +32,9 @@
 # several crates share is printed once and named by each.
 #
 # REFUSED, writing nothing and removing an earlier run's <out.md>, when a
-# named package is not a workspace member, a compiled crate is not one the
+# named package is not a workspace member, the compiled list does not name
+# every named package (an empty list, or one taken for other programs,
+# would otherwise give a page with no crates), a compiled crate is not one the
 # metadata's normal walk from the packages reaches (the two disagree about
 # the build), or a crate publishes no licence file: an MIT or BSD crate's
 # copyright notice must travel with every copy, and one that lives only in
@@ -84,6 +86,15 @@ def shipped(metadata: dict, roots: list, compiled: set) -> list:
     missing = [r for r in roots if r not in by_name]
     if missing:
         raise ValueError("not a workspace member: " + ", ".join(missing))
+    # cargo tree prints each root's own line, so a list without one was not
+    # made for these programs; the walk below only bounds the list from
+    # above, and an empty list would pass it with nothing to ship.
+    absent = [
+        r for r in roots
+        if (packages[by_name[r]]["name"], packages[by_name[r]]["version"]) not in compiled
+    ]
+    if absent:
+        raise ValueError("the compiled list does not name: " + ", ".join(absent))
     seen, stack = set(), [by_name[r] for r in roots]
     while stack:
         node = stack.pop()
