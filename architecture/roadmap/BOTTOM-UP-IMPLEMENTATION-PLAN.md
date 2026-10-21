@@ -6086,7 +6086,8 @@ authored `human` endpoint provisioned with `advertise: false`, every example pro
 `human` likewise, `human-client-model-b.md`'s directory example and
 suggested profile marked as superseded by ADR-0061 decision 5, and an
 existing profile's authored `human` turned off by the `advertise` delta
-the client asserts at every open, before it takes the identity's lease,
+the client asserts at every acquisition of the identity's lease, a
+reconnect after a daemon restart included, before it takes that lease,
 through `set_advertise` or the embedded host (ADR-0028 A 2026-10-21),
 `config.yaml` unrewritten and the desktop upgrade test's no-rewrite
 assertion widened in step 1 to allow exactly that delta; an identity the person creates on either platform lands in the
@@ -6107,7 +6108,7 @@ sentence gaining the administrative path in the same change.
    (rust-ui-dev): an identity is an endpoint with its card; the client
    holds one data session and one lease per identity it presents; create,
    rename, set the card, set the default and remove through the admin
-   connection (editing the desktop profile's configuration until p2p-network-dev's add, remove and set_advertise methods under Activate land; the desktop upgrade test's no-rewrite assertion (tests/desktop-e2e release.rs) widened in this step to allow exactly the `advertise` delta in the endpoint overlay; on Android no second identity exists until it does, ADR-0061 decision 2);
+   connection (no second identity on either platform until p2p-network-dev's add, remove and set_advertise methods under Activate land — a hand-authored endpoint is a route, not an identity, ADR-0061 decisions 1 and 2; the desktop upgrade test's no-rewrite assertion (tests/desktop-e2e release.rs) widened in this step to allow exactly the `advertise` delta in the endpoint overlay);
    a new conversation speaking as the identity in front, named before
    the first send, and the identity shown on every conversation; the identity verbs of the command-line client
    (ADR-0061 decision 7).
@@ -6146,10 +6147,13 @@ contact with A's unchanged; an identity's endpoint is created with
 advertise off, the authored `human` endpoint's advertise is off after
 provisioning and, on an existing profile, after the client's `advertise`
 delta in the endpoint overlay (ADR-0028 A 2026-10-21), re-asserted at
-every lease acquisition before the lease — with `advertise: true`
-authored, a trusted peer's directory query between the client's lease
-and its first send lists no identity — and the endpoint directory lists
-no identity to a trusted peer; Remove, after one confirmation listing what
+every lease acquisition before the lease — observed from the daemon's
+side: with `advertise: true` authored and `set_advertise` made to fail,
+no lease is granted and the client says why; with it made to block, no
+lease is granted until it returns; after a daemon restart with the delta
+removed from the overlay in between, the client's re-lease asserts it
+again and a trusted peer's directory query lists no identity — and the
+endpoint directory lists no identity to a trusted peer; Remove, after one confirmation listing what
 goes, deletes an added identity's endpoint from the overlay, removes its
 conversations, its pending outbound (attempted no further, a
 may-have-reached row named), its contacts and its card, has no undo, and
