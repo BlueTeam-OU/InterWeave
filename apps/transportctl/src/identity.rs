@@ -198,6 +198,7 @@ fn restore(
     let refused = |what: &str, e: &dyn std::fmt::Display| Failure::Refused(format!("{what}: {e}"));
     let (paths, key_file) = profile(name)?;
     let _lock = lock(&paths)?;
+    warn_active_elsewhere();
     let recovery = phrase::read(expected)?;
     let message = match mode {
         RestoreMode::New => {
@@ -241,6 +242,28 @@ fn restore(
         )));
     }
     Ok(message)
+}
+
+/// What a restore says before it asks for the phrase.
+const ACTIVE_ELSEWHERE: &str = "transportctl: warning: if this identity is still running on \
+another node, restoring its phrase here puts one PeerId on two nodes, which ADR-0043 forbids; \
+this host cannot check that\n";
+
+/// ADR-0043's "recovery UX warns when importing an identity expected to
+/// still be active elsewhere" (IDENTITY-RECOVERY.md section Restore
+/// semantics item 11), on every restore, both forms, every input path:
+/// written before [`phrase::read`] is called, so a pipe or a file is
+/// warned as a terminal is. Nothing on this host can tell whether the
+/// phrase is live on another node, so the warning is unconditional, and
+/// it is a line rather than a question -- a restore stays one command
+/// line. On stderr, where the terminal prompt goes; stdout carries the
+/// result. `apps/transportctl/tests/identity.rs`
+/// `a_restore_warns_before_it_reads_the_phrase` and
+/// `on_a_terminal_the_warning_precedes_the_prompt` hold it.
+fn warn_active_elsewhere() {
+    // A stderr that cannot be written cannot carry the prompt either; the
+    // restore goes on and the read says what failed.
+    let _ = std::io::stderr().write_all(ACTIVE_ELSEWHERE.as_bytes());
 }
 
 /// The drill: no lock, no key read, no write, no profile, no network
