@@ -110,51 +110,6 @@ fn create_fresh(log: &Path) -> std::fs::File {
         .unwrap_or_else(|e| panic!("a fresh daemon log at {}: {e}", log.display()))
 }
 
-#[cfg(test)]
-mod tests {
-    use std::io::Write as _;
-
-    use super::{create_fresh, new_daemon_log, private_tempdir};
-
-    /// Starts in one home, back to back, each get their own log, and none
-    /// cuts a log an earlier start is still writing.
-    #[test]
-    fn every_start_gets_its_own_log_and_none_truncates_another() {
-        let home = private_tempdir();
-        let mut logs = Vec::new();
-        for i in 0..64 {
-            let (path, mut file) = new_daemon_log(home.path());
-            writeln!(file, "start {i}").expect("write");
-            logs.push(path);
-        }
-        let distinct: std::collections::HashSet<_> = logs.iter().collect();
-        assert_eq!(distinct.len(), logs.len(), "no name repeats");
-        for (i, path) in logs.iter().enumerate() {
-            assert_eq!(
-                std::fs::read_to_string(path).expect("read"),
-                format!("start {i}\n"),
-                "a later start left this log whole"
-            );
-        }
-    }
-
-    /// The control on the exclusive open: a name that exists is refused,
-    /// and the file under it keeps what it held.
-    #[test]
-    fn an_existing_log_name_is_refused_not_truncated() {
-        let home = private_tempdir();
-        let path = home.path().join("daemon.log");
-        std::fs::write(&path, "still writing\n").expect("write");
-        let refused = std::panic::catch_unwind(|| create_fresh(&path));
-        assert!(refused.is_err(), "an existing name is refused");
-        assert_eq!(
-            std::fs::read_to_string(&path).expect("read"),
-            "still writing\n",
-            "and left whole"
-        );
-    }
-}
-
 /// One daemon's world: its own XDG tree, and the paths the daemon itself
 /// resolves in it.
 pub struct Home {
@@ -558,4 +513,49 @@ pub fn schema_validator(relative: &str) -> jsonschema::Validator {
         .with_registry(&registry)
         .build(&schema)
         .expect("compiles")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write as _;
+
+    use super::{create_fresh, new_daemon_log, private_tempdir};
+
+    /// Starts in one home, back to back, each get their own log, and none
+    /// cuts a log an earlier start is still writing.
+    #[test]
+    fn every_start_gets_its_own_log_and_none_truncates_another() {
+        let home = private_tempdir();
+        let mut logs = Vec::new();
+        for i in 0..64 {
+            let (path, mut file) = new_daemon_log(home.path());
+            writeln!(file, "start {i}").expect("write");
+            logs.push(path);
+        }
+        let distinct: std::collections::HashSet<_> = logs.iter().collect();
+        assert_eq!(distinct.len(), logs.len(), "no name repeats");
+        for (i, path) in logs.iter().enumerate() {
+            assert_eq!(
+                std::fs::read_to_string(path).expect("read"),
+                format!("start {i}\n"),
+                "a later start left this log whole"
+            );
+        }
+    }
+
+    /// The control on the exclusive open: a name that exists is refused,
+    /// and the file under it keeps what it held.
+    #[test]
+    fn an_existing_log_name_is_refused_not_truncated() {
+        let home = private_tempdir();
+        let path = home.path().join("daemon.log");
+        std::fs::write(&path, "still writing\n").expect("write");
+        let refused = std::panic::catch_unwind(|| create_fresh(&path));
+        assert!(refused.is_err(), "an existing name is refused");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read"),
+            "still writing\n",
+            "and left whole"
+        );
+    }
 }
