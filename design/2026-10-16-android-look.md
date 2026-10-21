@@ -490,12 +490,12 @@ that exist.
 | `DetailsPeerId`, `DetailsChannelId`, `DetailsRoute`, `CopyPeerId`, `CopyChannelId`, `Close`, `PeerIdCopied`, `ChannelIdCopied` (#313, not yet on main) | PeerId · Channel ID · Route named by the peer, not verified: "{route}" · Copy PeerId · Copy channel ID · Close · PeerId copied · Channel ID copied | the Details dialog and its copy confirmation (Android review F11); they replace `ConversationId`'s "Identifier, select to copy" |
 | `Today`, `Yesterday` | Today, Yesterday | day separators; `Yesterday` also in list times (for today the list shows the time of day) |
 | weekdays (seven keys, `Monday` to `Sunday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | inside `DateFull` only (the day separator and a row's accessible label) |
-| short weekdays (seven keys, `MondayShort` to `SundayShort`) | Mon, Tue, Wed, Thu, Fri, Sat, Sun | inside the row templates only (new, proposal: the owner's "Sat 17 Oct", 2026-10-21) |
-| full months (twelve keys, `JanuaryFull` to `DecemberFull`) | January … December | inside `DateFull` only (new, proposal) |
+| short weekdays (seven keys, `MondayShort` to `SundayShort`) | Mon, Tue, Wed, Thu, Fri, Sat, Sun | inside the row templates only; the owner's "Sat 17 Oct", 2026-10-21 |
+| full months (twelve keys, `JanuaryFull` to `DecemberFull`) | January, February, March, April, May, June, July, August, September, October, November, December | inside `DateFull` only |
 | months (twelve keys, `January` to `December`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |
-| `DateRowThisYear` | {weekday} {day} {month} | a list time before yesterday, this year: "Sat 17 Oct" (revised, proposal: replaces `DateThisYear` and the weekday alone) |
-| `DateRowOtherYear` | {weekday} {day} {month} {year} | the same, another year: "Fri 17 Oct 2025" (revised, proposal: replaces `DateOtherYear`) |
-| `DateFull` | {weekday}, {day} {month} {year} | a day separator before yesterday, and a row's accessible label for its date: "Saturday, 17 October 2026", the owner's words (new, proposal) |
+| `DateRowThisYear` | {weekday} {day} {month} | a list time before yesterday, this year: "Sat 17 Oct"; replaces `DateThisYear` and the weekday alone |
+| `DateRowOtherYear` | {weekday} {day} {month} {year} | the same, another year: "Fri 17 Oct 2025"; replaces `DateOtherYear` |
+| `DateFull` | {weekday}, {day} {month} {year} | a day separator before yesterday, and a row's accessible label for its date: "Saturday, 17 October 2026", the owner's words |
 | `Time24` | {hour}:{minute} | the time of day, phone set to 24-hour: "01:18", "13:05" |
 | `TimeAm` | {hour}:{minute} AM | the time of day, phone set to 12-hour, before noon: "1:18 AM", "12:05 AM" just after midnight |
 | `TimePm` | {hour}:{minute} PM | the same, from noon: "1:05 PM", "12:30 PM" |
@@ -504,21 +504,21 @@ that exist.
 | `Item` (exists, new value) | {author}: {body}. {status}, {time} | a message bubble's label, as TalkBack reads it (§7), on every platform: "You: See you at six. Kept, 01:18". `{time}` is the time of day that the bubble shows, whatever day the message is from. The day is read once, from the separator before that day's messages, not on every bubble |
 
 The weekday, month, date and time values are final (language-culture,
-2026-10-17). What the code fills in, and what a translation may change:
+2026-10-17; the dates the owner asked for on 2026-10-21, final on that day). What the code fills in, and what a translation may change:
 - `{day}`, `{year}`, `{hour}` and `{minute}` are numbers in ASCII
   digits. `{day}` has no leading zero. `{minute}` always has two
   digits. In `Time24`, `{hour}` has two digits (00–23). In `TimeAm`
   and `TimePm` it has no leading zero (1–12): 12 is the hour from
   midnight to 1 AM, and from noon to 1 PM.
-- `{month}` is one of the twelve month values. Months are short (three
-  letters, no period) because the list's time column is narrow, and
-  so are the row's weekdays since the owner asked for "Sat 17 Oct"
-  (2026-10-21; this note said until then that a weekday stays whole, as
-  a short one is harder to read: that is why the row's accessible label
-  reads the full date). The separator has room, and reads the whole
-  weekday and month (`DateFull`).
+- In the row templates, `{weekday}` and `{month}` are the short
+  values (three letters, no period), because the list's time column is
+  narrow. The owner asked for "Sat 17 Oct" on 2026-10-21. Until then,
+  this note kept the weekday whole, because a short weekday is harder
+  to read. For that reason, the row's accessible label reads the full
+  date. The day separator has room, so `DateFull` takes the full
+  weekday and the full month.
 - Each date and time is one whole template, never assembled: a
-  translation may reorder the parts ("30 Sep"), and may put its AM or
+  translation may reorder the parts ("Sep 30"), and may put its AM or
   PM word before the time. That is why AM and PM are two templates,
   not one template with an `{am_pm}` word.
 - A numeric date ("9/30") is not used: it reads differently in
