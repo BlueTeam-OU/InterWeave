@@ -16,7 +16,7 @@ Conceptually:
 
 ```text
 contacts(contact_id, display_name, name_source?, name_at?, avatar_ref?, photo_source?, photo_at?, notes?, created_at, updated_at)   -- name_source/photo_source: card | person, with when (A 2026-10-21, ADR-0059 decision 3): a local edit is never overwritten by a card, and the contact page says where a value came from; content-free, in this review
-contact_routes(contact_id, peer_id, endpoint_id, device_label?, verification_note?, last_seen?)   -- one contact per peer_id (A 2026-10-21, ADR-0059 decisions 3-4): every route of a PeerId sits under the same contact; Accept joins it and Move moves them together, and the schema enforces it
+contact_routes(contact_id, peer_id, endpoint_id, device_label?, verification_note?, last_seen?)   -- one contact per peer_id (A 2026-10-21, ADR-0059 decisions 3-4): every route of a PeerId sits under the same contact; Accept joins it and Move moves them together — enforced by the store's writers (plan §29 step 2), not yet by a constraint: UNIQUE(contact_id, peer_id, endpoint_id) allows a split, a trigger is refused on open, and a reshape that could enforce it is not planned
 conversation_index(conversation_id, peer_id, endpoint_id?, channel_id?, title?, last_activity?, last_shared_card?)   -- last_shared_card: A 2026-10-21, ADR-0059 decision 2, content-free, in the §Logical tables review
 own_cards(card_id, label, name, surname?, photo?, created_at, updated_at)   -- A 2026-10-21, ADR-0059 decision 2: the person's own cards, written by them, outside ADR-0044's three states
 pending_outbound(local_row_id, conversation_id, app_message_id, transport_message_id,
