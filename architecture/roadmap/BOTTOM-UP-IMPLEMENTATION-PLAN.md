@@ -5921,8 +5921,10 @@ at the exit gate's (d).
 A conversation shows the counterparty's name because the counterparty
 sent it and the person accepted it; every contact, route, conversation
 and retained message is ciphertext on disk; and neither client can
-reach the platform's address book. Nothing of this touches the daemon,
-the transport or the wire below the chat envelope.
+reach the platform's address book; and a person adds a peer's address
+and shows their own (ADR-0062), so a phone reaches its first peer
+without an operator. Nothing else of this touches the daemon, the
+transport or the wire below the chat envelope.
 
 ### Prerequisites
 
@@ -6004,7 +6006,7 @@ decision 6.
 
 ### Exit gate
 
-(a) Steps 1–4 landed with their tests green on `main`; (b) the
+(a) Steps 1–5 landed with their tests green on `main`; (b) the
 conformance cases, by name: a valid card accepted creates the contact
 and names the conversation; a card from an unknown kind or over a bound
 is rejected locally with no network effect; a card over broadcast is
@@ -6045,14 +6047,20 @@ over the card (what it still discloses: ADR-0059, Security
 implications) and over `read_pairs`, `conversation_index`,
 `contact_routes.last_seen` and the contacts' provenance columns, which
 STATE.md puts in the same review; (e) step 5's cases, by name: an
-address added on the phone is dialled and survives a restart; a string
-outside the grammar is refused by name and nothing is stored; the 65th
-entry is refused; a loopback or link-local address is refused; a scanned
-QR made by a hostile party adds an address and nothing else, the trust
-set unchanged; the shown QR decodes to this node's addresses and PeerId
-and nothing else; a removed address is dialled no more; `transportctl`
-lists what the app added; two phones on one LAN connect by show-and-scan
-with no other configuration.
+address added on the phone for a trusted peer is dialled and survives a
+restart, with no static-bootstrap entry authored; a string outside the
+grammar is refused by name and nothing is stored; the 65th entry is
+refused, and a profile whose authored and added entries exceed 64 fails
+to start naming the overlay; every special-use class of ADR-0052 rule 2
+is refused at the add and a private-range address is admitted; a DNS
+name is admitted typed and refused from a scan; a scanned QR made by a
+hostile party adds its addresses and nothing else, the trust set
+unchanged, and one refused line refuses the whole scan; the shown QR
+decodes to this node's addresses and PeerId and nothing else, none of a
+refused class; a removed address is dialled no more without a restart,
+and an authored one cannot be removed; `transportctl` lists what the
+app added; two phones on one LAN, each fresh, connect after each has
+scanned the other and trusted the shown PeerId, and not before.
 
 ### Record
 
