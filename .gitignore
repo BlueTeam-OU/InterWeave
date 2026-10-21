@@ -215,6 +215,11 @@ spikes/spike-001/runs/*/latest
 !spikes/spike-010/node/Cargo.lock
 # The domain and node rows' recorded runs, beside the script.
 !spikes/spike-010/REPRODUCTION-*.log
+# SPIKE-011 is a release gate on the store's engine: its rows are a claim
+# about the graph that built SQLCipher and OpenSSL, so its lock and its
+# recorded runs are committed with it.
+!spikes/spike-011/harness/Cargo.lock
+!spikes/spike-011/REPRODUCTION-*.log
 
 # cargo-mutants writes its report tree into the working directory when
 # `--output` is not given. It is build output, and a `git add -A` swept
