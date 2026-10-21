@@ -18,7 +18,7 @@ The owner's direction fills that gap: each person loads their own contact data �
 
 4. **Grouping stays manual and trust stays per route** (ADR-0043). Two cards with the same name from two PeerIds are two proposals; the person may put both routes under one contact, and the client never merges on the strength of a name or a photo. Accepting a card changes no trust: the route was already in the data-plane trust set (or the card would not have been received), and a contact name grants nothing — ADR-0032's rule that a label is never an authentication factor is unchanged.
 
-5. **The photo is bounded and inert until accepted.** HUMAN-CHAT.md bounds its encoded size and pixel dimensions so a card fits the payload ceiling with room for the envelope; a client decodes it with a memory-safe decoder, only after the person accepts the card, at a fixed display size, and never fetches anything: the photo is bytes in the envelope, not a reference. Before acceptance the proposal shows the name and a neutral placeholder.
+5. **The photo is bounded and inert until accepted.** HUMAN-CHAT.md bounds its encoded size and pixel dimensions so a card fits the payload ceiling with room for the envelope; a client decodes it with a memory-safe decoder, only after the person accepts the card, at a fixed display size, and never fetches anything: the photo is bytes in the envelope, not a reference. Before acceptance the proposal shows the name and a neutral placeholder. **The photo carries pixels and nothing else** (A 2026-10-21): the sending client re-encodes it and strips every metadata block — EXIF, XMP, GPS, embedded thumbnails, the file name — before it enters the card, so a position or a camera serial is never a disclosure the person did not choose; a receiver treats any metadata that arrives as absent and shows none of it.
 
 6. **The contact system is the application's own and touches no platform address book.** On Android the client declares no contacts permission (`READ_CONTACTS`, `WRITE_CONTACTS`, `GET_ACCOUNTS`), uses no contacts provider or picker, and exports nothing to one; on desktop it reads no system address book. The store's `contacts` and `contact_routes` tables are the only contact storage, at rest under ADR-0060. A tree check over the Android manifest and the Gradle dependency list pins the first half (owed with the implementation, CLAUDE.md §4's rule on a "never").
 
@@ -57,3 +57,9 @@ HUMAN-CHAT.md §Contact card is the wire shape and the malformed cases, with fix
 ## Revisit conditions
 
 When an application identity layer with a stronger binding than the PeerId exists (ADR-0032's "higher-level application identity system"), when a third-party introduction is wanted, when the device-to-device backup of ADR-0060 decision 8 is designed and should carry contacts, or when a client is asked to show a card's photo before acceptance.
+
+## Amendments
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-21 | The photo carries pixels and nothing else, a proposal has no Keep, and the store records where a contact's name and photo came from | Decision 5: the sender strips every metadata block and the receiver treats any as absent (HUMAN-CHAT.md §Contact card, a fixture case); decision 3 and `human-client-ui.md` §3: Accept is the only way a card outlives the session, a proposal cannot be kept as content; STATE.md's `contacts` gains, for the name and the photo, where the value came from (card or person) and when, so a local edit is never overwritten by a card and the contact page can say so. |

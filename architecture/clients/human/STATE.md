@@ -15,7 +15,7 @@ The store is encrypted at rest as a whole — pages, write-ahead log and journal
 Conceptually:
 
 ```text
-contacts(contact_id, display_name, avatar_ref?, notes?, created_at, updated_at)
+contacts(contact_id, display_name, name_source?, name_at?, avatar_ref?, photo_source?, photo_at?, notes?, created_at, updated_at)   -- name_source/photo_source: card | person, with when (A 2026-10-21, ADR-0059 decision 3): a local edit is never overwritten by a card, and the contact page says where a value came from; content-free, in this review
 contact_routes(contact_id, peer_id, endpoint_id, device_label?, verification_note?, last_seen?)
 conversation_index(conversation_id, peer_id, endpoint_id?, channel_id?, title?, last_activity?, last_shared_card?)   -- last_shared_card: A 2026-10-21, ADR-0059 decision 2, content-free, in the §Logical tables review
 own_cards(card_id, label, name, surname?, photo?, created_at, updated_at)   -- A 2026-10-21, ADR-0059 decision 2: the person's own cards, written by them, outside ADR-0044's three states
