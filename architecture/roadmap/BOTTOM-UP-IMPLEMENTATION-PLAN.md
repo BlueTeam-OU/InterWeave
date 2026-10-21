@@ -5076,7 +5076,19 @@ what a harness can measure; the client-side clauses of this sentence
 tests, named in the closing record; (b) every step of "Implement in order" has a test named for it in
 the closing record and green — host Rust tests for the session and
 domain logic, instrumented tests on a real device (API level recorded)
-for each line of "Platform tests", process death and restart included;
+for each line of "Platform tests", process death and restart included
+— **amended 2026-10-21 on the owner's word, for this close, on
+architect-cto's recommendation ("go as your recommendation for clause
+b")**: a Platform-tests line is met by an instrumented test on a device,
+or by a dated device-run record under `apps/human-android/device-runs/`
+naming the device, its API level, the build and the commands, run by a
+person; the instrumented cases not built at the close are carried by
+name to the owner's release gate in the closing record — at the close
+the Keystore user-presence case, which needs a person's biometric, and
+the network-callback case, which needs the Wi-Fi toggle — and the
+TalkBack items travel with the release gate's TalkBack carry (Decided
+2026-10-18); a line with neither an instrumented test nor a record is
+not met;
 step 10 by the release metadata and the dependency check (ADR-0057); (c)
 `tests/android-e2e` proves Android ↔ desktop interoperability through a
 direct and a relayed path, HumanChatV2 both directions, plain and
