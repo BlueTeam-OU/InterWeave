@@ -1578,8 +1578,8 @@ and are for them to write.
 | `IdentityRemoveLabel` | The label {route} can then be given to a new identity. If that happens, people who have {identity} as a contact will reach the new identity through the contact they saved for {identity}, until they accept the new identity's card. | Remove dialog, last line; must say the label is freed and what reusing it would mean for this identity's contacts |
 | `TurnOffIdentity` / `TurnOnIdentity` | Turn off this identity / Turn on this identity | the first identity's overflow |
 | `ConfirmIdentityOff` / `ConfirmIdentityOn` | {identity} turned off / {identity} turned on | snackbars; the first with Undo |
-| `IdentityDefaultNeedsOn` | Turn this identity on before you make it the default. | §5.2, on an identity that is off (new, proposal) |
-| `IdentityChangeFailed` | {action} did not work. Nothing was changed. | snackbar when the device refuses Make default, Remove, Turn off or Turn on; `{action}` the action's name (new, proposal) |
+| `IdentityDefaultNeedsOn` | To make this identity the default, first turn it on. | §5.2, on an identity that is off |
+| `IdentityChangeFailed` | Make default: Could not make {identity} the default. Nothing was changed. Remove: Could not remove {identity}. Nothing was changed. Turn off: Could not turn off {identity}. Nothing was changed. Turn on: Could not turn on {identity}. Nothing was changed. | snackbar when the device refuses Make default, Remove, Turn off or Turn on; `{action}` the action's name; one whole text per action in place of `{action}` (language-culture-en: a button's words placed into a sentence cannot be translated or reordered) |
 | `IdentityRemoveConfirm` | Remove | dialog primary, in `error` |
 | `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name |
 | `IdentityOthersUnread` | One other identity: 1 unread message in your other identity / {n} unread messages in your other identity. Two or more other identities: 1 unread message in your other identities / {n} unread messages in your other identities. | the switch's badge, accessible; plural rules language-culture's |
