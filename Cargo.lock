@@ -3544,11 +3544,17 @@ dependencies = [
 name = "interweave-human-chat-protocol"
 version = "0.0.0"
 dependencies = [
+ "base64 0.23.1",
  "brotli",
+ "bs58",
+ "ed25519-dalek",
  "interweave-transport-api",
  "pulldown-cmark",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "unicode-general-category",
+ "unicode-normalization",
 ]
 
 [[package]]
