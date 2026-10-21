@@ -622,8 +622,12 @@ passed.
      example) reads Sending. After a restart, a row with any earlier
      attempt reads "Not confirmed, trying again", since the outcome of
      an attempt made before the restart is not known (`may_have_reached`
-     is rebuilt as `attempts > 0`, RETENTION.md §2). Items 6, 7 and 9
-     restart the app, so check this item's Sending case before them;
+     is rebuilt as `attempts > 0` for every pending row:
+     `crates/human/transport-client/README.md`'s pending states, agreed
+     amendment A1b; RETENTION.md §2 states it for an undone cancel
+     only). Items 5, 6, 7 and 9 restart the app, item 5 before this one
+     and the others after it, so check this item's Sending case on a
+     kind-C row set up after item 5's restart and before item 6;
    - a drag left removes it and shows "Sending canceled";
    - Undo restores it in place, pending, with the same app message id
      and transport message id (the diagnostics view shows both).
