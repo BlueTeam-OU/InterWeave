@@ -680,8 +680,9 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
     signature is that seed's over the bytes `signed_over` names (Ed25519
     signing is deterministic, so a malformed vector fails for its rule and
     not for a signature nobody made); a small-order signer's key is small
-    order, and `lax_verifies` says whether OpenSSL's cofactorless verify
-    accepts it, which is what makes the strict rule the one that refuses.
+    order and its signature's R is not, and `lax_verifies` says whether
+    OpenSSL's cofactorless verify accepts it, which is what makes the
+    strict rule on the key the one that refuses.
     """
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives import serialization
@@ -729,6 +730,12 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
             raise ValueError("small_order_public_key_hex is not a small-order point")
         if card.get("identity_key") != base64.b64encode(key).decode("ascii"):
             raise ValueError("the card's identity_key is not the small-order key")
+        # A small-order R would be refused by the R check as well, and the
+        # vector would then pin nothing about the key: an implementation
+        # refusing only small-order R would pass it.
+        r = _ed_decode(base64.b64decode(card["signature"])[:32])
+        if r is None or _ed_small_order(r):
+            raise ValueError("the small-order card's R is small order too, so the key rule is not what refuses it")
         try:
             Ed25519PublicKey.from_public_bytes(key).verify(base64.b64decode(card["signature"]), message or b"")
             lax = True

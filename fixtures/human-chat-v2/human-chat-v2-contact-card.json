@@ -209,7 +209,7 @@
     },
     {
       "name": "small-order-identity-key",
-      "note": "The key is a point of order 8 and the signature R is small-order with S = 0: a cofactorless verifier (OpenSSL's) accepts it over the receiver's canonical bytes, strict verification refuses it.",
+      "note": "The key is a point of order 8; the signature's R is [s]B, of prime order, and S = s, so a cofactorless verifier (OpenSSL's) accepts it over the receiver's canonical bytes and only the strict rule on the public key refuses it.",
       "received_on": {
         "peer_id": "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
         "source_endpoint": "human"
@@ -225,7 +225,7 @@
         "card": {
           "name": "Ada",
           "identity_key": "xxdqcD1N2E+6PAt2DRBnDyogU/osOczGTsf9d5KsA3o=",
-          "signature": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+          "signature": "SrB14JA+TjWwltTWTg6BvKXDlorq6Oh9mNgLfoQmES4SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
         }
       },
       "canonical_bytes_hex": "696e74657277656176652d636172642d7631000341646100000000000000260024080112203b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29000568756d616e",
