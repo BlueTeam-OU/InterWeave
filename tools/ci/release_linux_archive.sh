@@ -78,15 +78,19 @@ version="$1" out_dir="$2"
 name="interweave-$version-$target"
 archive="$name.tar.gz"
 outputs=("$archive" "$archive.sha256" linux-values.json)
-scratch="$(mktemp -d)"
+# The trap is set before anything after the version check can fail, the
+# scratch directory's mktemp included, so every failure from here on
+# removes the outputs' names, an earlier run's of them too.
+scratch=""
 finish() {
     local status=$? f
-    rm -rf "$scratch"
+    if [[ -n "$scratch" ]]; then rm -rf "$scratch"; fi
     if (( status != 0 )); then
         for f in "${outputs[@]}"; do rm -f -- "$out_dir/$f"; done
     fi
 }
 trap finish EXIT
+scratch="$(mktemp -d)"
 mkdir -p "$out_dir"
 
 if [[ -z "$bin_dir" ]]; then

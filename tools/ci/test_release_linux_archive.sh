@@ -245,6 +245,28 @@ mv "$BIN/human-desktop.gone" "$BIN/human-desktop"
 [[ ! -e "$A" ]] && pass "a refused run leaves no previous run's archive of the same name" \
     || fail "a refused run left a previous run's archive"
 
+# The scratch directory cannot be made (a full or unwritable TMPDIR): a
+# failure after the version check like any other, so a previous run's
+# three outputs are removed. The control: all three present before.
+FAILTMP="$SANDBOX/failtmp"
+mkdir -p "$FAILTMP"
+printf '#!/bin/sh\necho "mktemp: refused by the test" >&2\nexit 1\n' > "$FAILTMP/mktemp"
+chmod +x "$FAILTMP/mktemp"
+rm -rf "$OUT"
+mkdir -p "$OUT"
+for f in "$A" "$A.sha256" "$OUT/linux-values.json"; do printf 'a previous run\n' > "$f"; done
+[[ -e "$A" && -e "$A.sha256" && -e "$OUT/linux-values.json" ]] || fail "the control: a previous run's outputs"
+if PATH="$FAILTMP:$PATH" SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" \
+    bash "$UNDER_TEST" --bin-dir "$BIN" 0.3.0 "$OUT" >/dev/null 2>"$SANDBOX/err"; then
+    fail "a run with no scratch directory succeeded"
+elif ! grep -q 'refused by the test' "$SANDBOX/err"; then
+    fail "the stub was not reached at mktemp" "$(cat "$SANDBOX/err")"
+elif [[ -e "$A" || -e "$A.sha256" || -e "$OUT/linux-values.json" ]]; then
+    fail "a run with no scratch directory left a previous run's outputs" "$(ls -A "$OUT")"
+else
+    pass "a run that cannot make its scratch directory leaves none of a previous run's outputs"
+fi
+
 refused "a version that is not MAJOR.MINOR.PATCH" "not MAJOR.MINOR.PATCH" 0.3 "$OUT"
 mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
 refused "a missing program" "no executable $BIN/human-desktop" 0.3.0 "$OUT"
