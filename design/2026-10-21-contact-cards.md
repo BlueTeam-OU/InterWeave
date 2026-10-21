@@ -920,7 +920,7 @@ and no string calls a card an "identity" (§1).
 | `UpdateContact` | Update contact | cases U, E |
 | `ShareCardPreviewSpoken` | {title} will see the name {name}. | chooser preview, accessible description, no photo |
 | `ShareCardPreviewSpokenPhoto` | {title} will see the name {name} and your photo. | the same, with the photo |
-| `MoveRoutePickerTitle` | Move this PeerId to which contact? | the move-route picker's title. What moves is one route, the one this row shows (a PeerId with this conversation's route label): a contact may hold other routes of the same PeerId, which stay. The text must not say the whole PeerId moves; language-culture-en to reword (asked 2026-10-21) |
+| `MoveRoutePickerTitle` | Move this conversation to which contact? | the move-route picker's title. What moves is one route, the one this row shows (a PeerId with this conversation's route label): a contact may hold other routes of the same PeerId, which stay. The text must not say the whole PeerId moves; language-culture-en to reword (asked 2026-10-21) |
 | `CardPhotoLabel` | Photo for this card | editor photo circle, accessible label |
 | `CardPhotoNone` | No photo for this card | the same, with no photo |
 | `CardSamePeer` | Your contact {name} already has this PeerId in another conversation. | case P; `{name}` the contact's name |
@@ -954,8 +954,8 @@ and no string calls a card an "identity" (§1).
 | `ContactRouteTrusted` / `ContactRouteNotTrusted` | Trusted / Not trusted | route trust in words |
 | `OpenConversation` | Open conversation | route row |
 | `MoveRoute` | Move to another contact | route row |
-| `MoveRouteConfirm` | Move {peer} from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name |
-| `MoveRouteLast` | {peer} is the only route of {name}, so moving it deletes the contact {name}. | dialog addition |
+| `MoveRouteConfirm` | Move this conversation with {peer} from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name |
+| `MoveRouteLast` | {name} has no other conversation, so moving this one deletes the contact {name}. | dialog addition |
 | `Move` | Move | dialog primary |
 | `DeleteContact` | Delete contact | contact overflow |
 | `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo |
