@@ -612,6 +612,173 @@ action (`DetailsSharesDevice`, as case P's line, §5.4.1), and Add as a
 contact still makes a contact of its own: a contact holds at most one
 route per PeerId (ADR-0061 d. 4), so there is no "add to X".
 
+### 5.7 The identity in front, and switching
+
+ADR-0061 decision 9 and the owner's rule (§1): the app operates as one
+identity at a time and says which, everywhere the person can act. The
+failure this section exists to prevent is one the person does not
+notice: a message, a card, an Accept or a deletion done as one identity
+while they believe they are the other. So the design rests on three
+things, each checkable: what is shown is only the identity in front's
+(no screen mixes two); every place that acts names it in words, not only
+by a face or a colour; and it changes only on one act of the person's
+that is named as such and confirmed by what follows.
+
+Everything here applies while **two or more identities** are held. With
+one, nothing in this section is shown: no switch, no "as {identity}"
+lines, no question when a conversation starts (ADR-0061 d. 3); the
+identity's card is reached as Your card (§4).
+
+#### 5.7.1 The switch
+
+On the Chats screen's top app bar, between the title and the ⋮ (§4):
+the **identity switch**, a control showing the identity in front's
+24 dp avatar, its name (the card's name, else its route label), and a
+▾. It is the only control in the app that changes the identity in
+front. Its accessible name is `IdentitySwitch` ("Identity: {identity}.
+Switch identity"); its target is at least 48 dp high; its name takes
+what width is left after "Chats" and the ⋮ and ellipsises at the end,
+never below the avatar and three graphemes, the full name in the
+accessible name. On the desktop it is in the list pane's bar, where the
+same menu is.
+
+When another identity has unread items or a message that was not sent,
+the switch carries a badge: a dot with the count of unread items in the
+other identities (`IdentityOthersUnread`, read as part of its accessible
+name: "{n} unread in your other identities"). It counts and shows
+nothing else — no name, no preview — so the person knows to look
+without the screen showing another identity's content. (A suggestion
+resting on visibility of system status, Nielsen's first heuristic: a
+person in front of one identity must not lose messages to the other;
+falsified if people in a test switch to see why the badge is there and
+find it says too little.)
+
+Activating it opens the **switcher**: a modal bottom sheet on a narrow
+layout, a menu-anchored dialog on a wide one; Back, Escape and a tap on
+the scrim close it with nothing changed. It holds:
+
+- title `IdentitySwitchTitle` ("Switch identity");
+- the identities as single-choice rows (56 dp): avatar, name, route
+  label, and at the end the row's unread count and, when any message of
+  that identity was not sent, `IdentityNotSent`; the identity in front
+  is the chosen row;
+- at the bottom, **Your identities** (`IdentitiesTitle`, a text
+  button), which opens §5.1 without switching.
+
+Choosing another row switches at once (§5.7.3) and closes the sheet;
+choosing the row already chosen closes it with nothing changed.
+
+#### 5.7.2 Where the identity in front is named
+
+| screen | what it can do | how it names the identity |
+|---|---|---|
+| Chats | open, start or delete a conversation | the switch (§5.7.1) |
+| a conversation | send, share a card, accept or decline a card, delete messages | `ComposerAs` ("As {identity}"), one line in body small at the end side directly above the send control, with the 24 dp avatar; the send control's accessible name is `SendAs` ("Send as {identity}"); Details' `DetailsIdentity` (§6.4). Where the conversation has no composer, the line stands where the composer would |
+| the share sheet | share | `ShareCardAs` (§5.3) |
+| Contacts, a contact | delete, move, rename, remove a photo | the identity as the app bar's subtitle (§6.2, §6.3) |
+| an identity's card | save, make default, remove | that identity as the subtitle (§5.2); when it is not the identity in front, `IdentityNotInFront` under the app bar ("You are using {front}. This page changes {identity}.") |
+| Trust | trust, untrust | not an identity: trust is the device's, held for every identity (ADR-0061 d. 1); `TrustAllIdentities` says so under the title, so no one trusts a peer for "this identity only" by mistake |
+| recovery, discard (§7) | delete stored data | not an identity: the dialog says it is every identity's data (§7.2) |
+
+The "As {identity}" line is text, not a control: a conversation never
+changes identity (ADR-0061 d. 3), and a switch reached from inside one
+would read as changing who speaks in it. It is always the identity in
+front, because only its conversations are shown.
+
+#### 5.7.3 Switching
+
+Choosing another identity in the switcher, and only that, switches.
+Everything shown changes together, at once: the Chats list becomes the
+new identity's conversations, the switch shows its name, and on a wide
+layout an open conversation closes and its pane shows the new
+identity's empty-pane placeholder, since the conversation belongs to the
+identity that was in front. Contacts, a contact page and the share sheet
+are not open at that moment (the switch is on Chats, and a sheet or a
+dialog covers it). What the person had in hand stays with its
+identity: a draft stays in its conversation's composer, sends in
+progress go on under their own lease, and nothing of the old identity's
+is carried into the new one's screens.
+
+A snackbar shown before the switch closes with it: its Undo belonged to
+a screen of the old identity, and what it confirmed stays done, as a
+kill inside its window would leave it.
+
+Feedback: the list cross-fades (under reduced motion it changes at
+once); the snackbar `ConfirmIdentitySwitched` ("You are now
+{identity}") with **Switch back** (`SwitchBack`), which switches to the
+previous identity by the same rule; its text is announced. Focus goes to
+the switch, which now names the new identity. A switch is not a
+destructive act, so it is not confirmed beforehand; its result is named
+right after, and undone by the same act.
+
+**When the app starts**, the identity in front is the one that was in
+front when it last closed, named on the switch as always; if that
+identity is gone or the setting cannot be read, the default identity.
+Where that setting is kept is rust-ui-dev's (it holds no content).
+
+**When the identities change**: a second identity added shows the switch
+and the "as" lines, and switches nothing; going back to one removes
+them. Removing the identity in front (§5.2) brings the default in front
+by this section's switch, with its snackbar (without Switch back, since
+the previous identity is gone).
+
+#### 5.7.4 Starting a conversation, and what never changes identity
+
+A conversation started by the person is the identity in front's
+(ADR-0061 d. 9), and a conversation started by a peer is the identity
+whose endpoint it reached. Neither ever changes identity, and nothing
+moves a conversation, a contact or a card from one identity to another.
+The new-conversation flow is plan §18 carry 11's, not designed here
+(§11); what it must do, while two or more identities are held, is ask
+which identity speaks by naming the identity in front at its top
+(`NewConversationAs`, "You start this conversation as {identity}") with
+**Switch identity** (`IdentitySwitchAction`) beside it, which performs
+§5.7.3's switch, before anything can be sent. It never offers a
+per-conversation choice of identity that would leave the conversation
+under an identity not in front (§12 Q3 on this reading).
+
+#### 5.7.5 Notifications
+
+A notification names the identity it arrived on, in its visible text
+and not only by an icon: on Android the identity's name is the
+notification's sub-text (shown in its header), on the desktop it leads
+the notification's title ("{identity} · {title}") (`human-client-ui.md`
+§10). Notifications of different identities are never folded into one
+summary that hides which is which: on Android each identity is its own
+notification group, its summary naming the identity. On the lock screen,
+when the person has chosen to hide notification content, the redacted
+form shows no identity name either (§12 Q4). The service's persistent
+notification names no identity: there is one runtime (ADR-0061 d. 9).
+
+Opening a notification of the identity in front opens its conversation,
+as today. Opening one of **another identity** switches first, visibly,
+before anything of that identity is shown: a full-screen transition
+with that identity's 96 dp avatar and `SwitchingTo` ("Opening as
+{identity}"), held for at least one second and until the conversation
+is ready, announced; then the conversation opens, and the snackbar
+`ConfirmIdentitySwitched` with Switch back shows in it. Switch back
+there closes the conversation and shows the previous identity's Chats.
+Back from the conversation goes to the new identity's Chats. Under
+reduced motion the transition has no movement and keeps its duration.
+(The one second is a hypothesis: long enough to read a name and a face,
+short enough not to be a wait; falsified if people in a test reply as
+the identity they were in before, or do not say which identity they are
+in when asked right after.) A notification offers no action that sends
+(an inline reply) unless its field names the identity it replies as;
+none is specified here (§11).
+
+#### 5.7.6 States of an identity
+
+- **Cannot send or receive** (its session holds no lease, or its
+  endpoint is turned off in the overlay): its row in the switcher and
+  §5.1 shows `IdentityUnavailable`; it can still come in front, its
+  conversations readable, and its composer line reads
+  `IdentityUnavailable` in place of "As {identity}", the send control
+  disabled with that as its reason. Turning an endpoint on or off is
+  not designed here (§11).
+- **No card yet**: named by its route label everywhere a name would be;
+  Share asks for the name first (§5.3).
+
 ## 6. Showing contacts
 
 ### 6.1 Name and avatar
