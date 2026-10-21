@@ -145,7 +145,8 @@ t0=${EPOCHREALTIME/[.,]/}
 "$pr" true >/dev/null 2>&1; rc=$?
 ms=$(elapsed "$t0")
 rm -f "$T/hang"
-check "a hung kill-server is bounded (${ms} ms < 14000)" [ "$rc" = 0 ] && [ "$ms" -lt 14000 ]
+check "a run with a hung kill-server exits 0" [ "$rc" = 0 ]
+check "a hung kill-server is bounded (${ms} ms < 14000)" [ "$ms" -lt 14000 ]
 check "hung kill-server leaves nothing" nothing_left
 
 exit "$fail"
