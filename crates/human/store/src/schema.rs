@@ -456,19 +456,24 @@ fn carry_sequence(
 /// VIRTUAL: it computes on read and stores nothing, so it is not a second
 /// place a body can be kept and does not widen the content surface
 /// ADR-0044 bounds. `PRAGMA table_info` does not report generated columns
-/// at all, so [`EXPECTED_SCHEMA`] does not list it among the columns;
-/// `PRAGMA index_info` does report it BY NAME, which is what keeps
-/// [`verify_shape`]'s unique key assertion load-bearing. A bare
-/// expression index would have been reported with a NULL column name and
-/// silently dropped by [`actual_unique_keys`], leaving the guard passing
-/// a key it no longer checked.
+/// at all, so [`EXPECTED_SCHEMA`] does not list it among the columns. The
+/// unique key names it, and [`index_key_columns`] reads a key from
+/// `PRAGMA index_xinfo` by column NAME, so [`verify_shape`]'s unique-key
+/// assertion holds the column this migration wrote. A unique index over
+/// `IFNULL(source_endpoint, '')` itself would read as `<expression>`,
+/// which names no expression: one over a constant would read the same.
+/// `the_walk_indexes_are_part_of_the_verified_shape` refuses an
+/// expression under an index's name.
 ///
-/// The NAME alone is still not enough, and an earlier version of this
-/// comment stopped here as though it were: a column of the same name
+/// The NAME alone is still not enough: a column of the same name
 /// generated from a constant presents an identical column list and an
 /// identical unique key while collapsing every endpoint again. So
-/// [`verify_shape`] compares the declaration text, and
-/// [`TableShape::generated`] carries it.
+/// [`verify_shape`] evaluates what each generated column computes
+/// ([`TableShape::generated`], [`generated_columns_compute_what_we_wrote`])
+/// rather than reading its declaration text, which a comment can forge:
+/// `a_generated_key_with_the_right_name_and_a_different_expression_is_refused`
+/// and `a_decoy_comment_carrying_the_expected_declaration_does_not_excuse_a_constant`
+/// hold it.
 ///
 /// The copy is a plain `INSERT`: this migration WIDENS the key, and a
 /// wider key cannot turn two distinct rows into a collision. A failure
@@ -694,7 +699,7 @@ struct TableShape {
     ///
     /// Neither the name nor the declaration text is enough, and this
     /// guard has now been written both wrong ways. `PRAGMA table_info`
-    /// hides generated columns and `PRAGMA index_info` reports only the
+    /// hides generated columns and `PRAGMA index_xinfo` reports only the
     /// NAME of one used in a key, so a `source_endpoint_key` redefined as
     /// the constant `''` presents an identical column list and an
     /// identical unique key while collapsing every endpoint back into
