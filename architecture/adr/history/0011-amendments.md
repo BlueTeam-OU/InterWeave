@@ -319,3 +319,38 @@ starting with no non-loopback address, failing a relay ask, then a view
 with one address: the ask is due; the control without a view waits).
 
 **The two floors (settled before this note landed, on p2p-network-dev's question of 2026-10-09).** The relay ladder's floor is `retry_min` (5 s by default), the gate's peer floor the schedule's first step (30 s). An addition 5–30 s after a lift whose redial failed would make the ladder due while the relay peer's gate backoff still stood; the reservation dial is then refused at the gate, recorded as a failure, and the ladder climbs a rung — the addition delaying the relay. Ruled: the ladder is made due unless the relay peer's gate backoff still stands after the same call — lifted in it, or nothing standing — so where the gate holds the relay peer back its floor governs the ladder too, and where it holds nothing the ladder keeps its own `retry_min` floor; one floor for both (the larger) was the alternative, rejected because it would hold the ladder to the peer floor even when the gate had nothing standing. Built on the same branch before this note landed: `ReservationManager::network_added` takes a gate-holds predicate answered by `ConnectionManager::holds_off` (af803ee3, 35029a68), with the wire test `an_addition_inside_the_gates_floor_leaves_the_relay_ladder_alone` — a relay down, the first addition asks and fails, the second 6 s later (past `retry_min`, inside the gate's 30 s) asks nothing.
+
+### Amendment 2026-10-21 — A circuit that fails at its relay hop holds the circuit route, not the peer, for every caller
+
+p2p-network-dev-02's OBSERVATION 01a15d4d (2026-10-21), on
+rust-ui-dev-01's phone run of the same day: with a relay whose port was
+closed, one peer known only by a circuit through it was redialled 357
+times in thirteen minutes, most a second apart, each failure logging
+"retry scheduled" with the scheduler's capped delay. The 2026-10-09
+amendment had made the hop failure add no backoff — right about the
+peer, since nothing was learnt about the destination — and its "never a
+tight loop" held for the retry scheduler alone: every other caller
+(`DialPeer`, a held send's dial, the path race and, as the addendum
+01a15d50 traced it, the composition's discovery round ticking every
+second) was admitted again at once, because neither the peer nor the
+route carried any state refusing it. Verified between real desktop
+peers at #329's head: five `DialPeer` calls after five failures, all
+admitted; the control, a relay up and answering `NoReservation`, scored
+as before with the peer in backoff.
+
+Ruled (architect-cto's DECISION 01a15d50, option B of the two the
+observation offered): the hop failure holds the circuit route — every
+`/p2p-circuit` address through that relay to that destination — for the
+ordinary failure cadence, refused to every caller with the hold and its
+remainder named; the peer's other routes stay admitted; the relay's
+first direct connection releases the hold as it makes the retry due,
+once per failure, so #245's restart race keeps working; the hold is
+bounded state in the book entry beside the quarantine, reported apart
+from it and never stored. The body's relay-hop paragraph says so in
+place; CONNECTIVITY.md's "A circuit that fails at its relay hop" follows.
+The code and its tests are p2p-network-dev's, on the pull request this
+note lands on: the five calls refused after the first with the route's
+remaining hold; the relay connecting lifting the hold and making the
+retry due; the peer's direct route admitted while its circuit route is
+held; the hold reported apart from the quarantine.
+
