@@ -3150,7 +3150,7 @@ mod tests {
                 .handle()
                 .admit(&request_at(P1, &circuit, DialOrigin::RelayCircuit), 0)
                 .expect("admitted");
-            let hold = m
+            let hold_ends = m
                 .record_relay_hop_unreached(ticket, &relay, false, 0)
                 .expect("scheduled")
                 .delay_ms;
@@ -3175,7 +3175,7 @@ mod tests {
             } else {
                 m.defer_retry_to_route_hold(&p, 5_000);
             }
-            (m, hold)
+            (m, hold_ends)
         };
 
         let (mut released, _) = held(true);
@@ -3185,13 +3185,13 @@ mod tests {
             "the control: released, it is offered again next tick"
         );
 
-        let (mut m, hold) = held(false);
+        let (mut m, hold_ends) = held(false);
         assert!(
             m.take_due_retries(6_000, 4).is_empty(),
             "deferred: not next tick"
         );
         assert_eq!(
-            m.take_due_retries(hold, 4),
+            m.take_due_retries(hold_ends, 4),
             std::slice::from_ref(&p),
             "due when the hold ends"
         );
