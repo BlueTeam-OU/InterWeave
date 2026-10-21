@@ -1,14 +1,17 @@
 # Contact cards, contacts and discarding the store — desktop and Android
 
 Status: proposal for plan §29 steps 2–4, 2026-10-21, at architect-cto's
-request (REQUEST 01a15d2a). rust-ui-dev builds it when the owner opens
-Stage 21. The rules it answers to are on #332
-(`develop-qzapp/architect-cto-01/adr/contact-cards-encrypted-store`,
-not yet merged): ADR-0059, ADR-0060 decision 6, HUMAN-CHAT.md §Contact
-card, STATE.md (`own_cards`, `last_shared_card`, §Migrations) and
-`human-client-ui.md` §3–§6, §10–§13. This note decides how a person
-meets those rules, and changes none of them. Where it needs one
-changed or settled, §12 asks.
+request (REQUEST 01a15d2a); revised the same day for plan §30 (Stage 22)
+at their request (REQUEST 01a15efd), when the owner made a user identity
+an EndpointId of the node with its own card (ADR-0061, ADR-0059 A
+2026-10-21 (ii)). rust-ui-dev builds the card flows when the owner opens
+Stage 21 and the identity flows (§5.7) when the owner opens Stage 22.
+The rules it answers to: ADR-0059, ADR-0060 decision 6, ADR-0061,
+HUMAN-CHAT.md §Contact card, STATE.md (`own_cards` keyed by EndpointId,
+`conversation_index.local_endpoint_id` and `card_shared_at`,
+`contacts.local_endpoint_id`, §Migrations) and `human-client-ui.md`
+§3–§6, §10–§13. This note decides how a person meets those rules, and
+changes none of them. Where it needs one changed or settled, §12 asks.
 
 Owner of the design: ux-designer. The words are language-culture's: §10
 names each string, where it shows and what it must say; its text is a
@@ -33,14 +36,34 @@ The owner, 2026-10-21, as ADR-0059 quotes:
 
 > a user should define more than one identity and choose what to send
 
-Read here as: the person writes cards about themself in the app, picks
-one when they share, and what they receive becomes a contact only when
-they say so (ADR-0059's reading, architect-cto's). "Identity" in the
-second quote is read as a *card* (a name and a photo the person presents),
-never a second PeerId: every card travels under the same PeerId
-(ADR-0059 decision 2). The screens therefore never call a card an
-"identity", because the app already uses that word for the PeerId and
-its recovery phrase (`design/2026-10-19-android-identity.md`).
+The same day the owner said what an identity is, and how the app must
+treat two of them (ADR-0061's status line):
+
+> An EndpointId should match a user identity. One user of the app can
+> have many user identities on the same phone. So for any EndpointId he
+> can add a display_name and a photo
+
+> two endpointid are two identities even if they belong to one user.
+> Avoid any ux that can let the user think that is operating with one
+> while operating instead with the other
+
+Read here as: the person holds one or more **identities** on one device,
+each a configured EndpointId with one card of its own (a name, an
+optional family name and an optional photo); every conversation speaks
+as one identity for life, and the app shows one identity at a time,
+names it wherever the person can act, and changes it only when the
+person switches (ADR-0061 decisions 1, 3 and 9). The card the person
+shares in a conversation is that conversation's identity's card; there
+is nothing to choose. What they receive becomes a contact only when they
+say so, under the identity that received it (ADR-0059 decision 3).
+
+The word "identity" is now the person's word for one of these. The app
+used it until now for the PeerId and its recovery phrase
+(`design/2026-10-19-android-identity.md`), and some of this note's own
+strings did (§7, §10). Two things one word cannot both mean on one
+screen; §12 L1 asks language-culture for the person-facing words of the
+two, and every string here that named the device's identity is marked
+for that pass.
 
 And, 2026-10-16, for the message swipe (`design/2026-10-16-message-swipe.md` §1):
 
@@ -52,13 +75,16 @@ gives it that swipe. §12 O1 asks the owner one narrowing of it.
 
 ## 2. The person's goals
 
-- **Own cards:** "Decide how I appear to people." Most people will have
-  one card. Some want a work name and a private name. They do not think
-  of a card as a technical object.
+- **Identities:** "Be the right person to the right people, and never
+  mix them up." Most people will have one identity and never see the
+  word. Some want a work identity and a private one. They need to know,
+  at every moment they can send or act, which one they are, and that
+  nothing done as one is done as the other. They do not think of an
+  EndpointId as anything; they think of a name and a face.
 - **Share:** "Tell this person who I am." They are in a conversation
   that shows the other side as `…x6gY6Eri` and want it to show their
-  name instead. They need to be sure which card goes, and that only this
-  person gets it.
+  name instead. They need to see what goes before it goes, and that only
+  this person gets it.
 - **Receive:** "Is this really Anna? Then save her." They have no way
   to know who is behind a PeerId except what they already know of it.
   Accepting must be one step, but a stranger calling themselves "Anna"
@@ -86,9 +112,20 @@ From the contracts, listed so a reviewer can check each screen:
 - **The PeerId is always beside a claimed name** on a proposal, in
   full, in the exact canonical form, copyable (`human-client-ui.md` §3,
   §11).
-- **No screen and no message tells a counterparty that other cards
-  exist** or which one another counterparty got (d. 2). Card labels are
-  shown only to their owner.
+- **No screen and no message tells a counterparty about the person's
+  other identities** (d. 2): a card carries one identity's name and
+  photo and nothing else. What the node itself shows is said, not
+  hidden: a counterparty who holds two of the person's identities sees
+  one PeerId beside both (ADR-0061 d. 5), and the identity pages say so
+  (§5.1).
+- **One identity in front, named wherever the person can act** (ADR-0061
+  d. 9, §5.7): every screen shows only the identity in front's
+  conversations, contacts and card; every screen that can send, share,
+  accept, create or delete names it, and the send control names it
+  beside itself; it changes only on the person's switch; no list,
+  search, chooser or warning draws on another identity's data. While
+  the person holds one identity, nothing asks and the identity is shown
+  only where asked for (ADR-0061 d. 3).
 - **A local edit is never overwritten by a card** (d. 3).
 - **A name is plain text.** A received name is never rendered as
   markdown, never a link, and is shown inside a bidirectional isolate
@@ -117,7 +154,13 @@ that. The menu gains two items after "Trust", in order:
 
 1. **Trust** (as today) → the Trust page
 2. **Contacts** (`ContactsTitle`) → §6.2
-3. **Your cards** (`OwnCardsTitle`) → §5.1
+3. **Your identities** (`IdentitiesTitle`) → §5.1; with one identity
+   held, the item reads **Your card** (`OwnCardTitle`) and opens that
+   identity's card (§5.2) directly, since a list of one is a step for
+   nothing and the word "identity" is not needed yet (ADR-0061 d. 3)
+
+While two or more identities are held, the same bar carries the
+**identity switch** (§5.7.1) between the title and the ⋮.
 
 The menu's focus and closing rules stay look spec §5's. The Chats ⋮
 keeps its own accessible name, so that on a wide layout, where it and a
