@@ -313,7 +313,14 @@ fn any_top_level_kind_is_card(text: &str) -> bool {
             d.deserialize_map(V)
         }
     }
+    // The raw key path decodes escapes but skips the grammar's one rule
+    // on string content, no unescaped control character, so it would
+    // read a text that is not JSON. `IgnoredAny` over the whole text
+    // keeps that rule in every string, key or value, and nothing of
+    // representability (range, surrogates, depth): a text is a card only
+    // if it is JSON at all.
     serde_json::from_str::<Kinds>(text).is_ok_and(|Kinds(card)| card)
+        && serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok()
 }
 
 fn parse_card(text: &str, route: CardRoute<'_>) -> Result<Card, CardFault> {

@@ -415,6 +415,39 @@ fn json_this_parser_cannot_represent_never_hides_a_card() {
 }
 
 #[test]
+fn a_raw_control_character_is_not_json_in_a_key_or_a_value() {
+    // RFC 8259 forbids an unescaped control character in any string, so
+    // a text carrying one is not JSON and no reader sees a card in it:
+    // NotCard, in a member name exactly as in a value.
+    let doc = fixture();
+    let valid = wire(vector(&doc, "valid-minimal"));
+    let body = valid.strip_prefix('{').expect("an object");
+    for prefix in ["\"a\tb\":0,", "\"x\":\"a\tb\","] {
+        let text = format!("{{{prefix}{body}");
+        assert!(text.contains('\t'), "the raw tab is in the text");
+        assert_eq!(
+            classify_on_fixture_route(&text),
+            Classified::NotCard,
+            "{prefix:?}"
+        );
+    }
+    // The ESCAPED control character is JSON, in a name as in a value: an
+    // ignored member, and the card stands.
+    let bs = '\\';
+    for prefix in [
+        format!(r#""a{bs}u0009b":0,"#),
+        format!(r#""x":"a{bs}u0009b","#),
+    ] {
+        let text = format!("{{{prefix}{body}");
+        assert!(text.contains("u0009"), "the escape is in the text");
+        assert!(
+            matches!(classify_on_fixture_route(&text), Classified::Card(_)),
+            "{prefix}"
+        );
+    }
+}
+
+#[test]
 fn a_kind_is_read_after_its_escapes() {
     // An escaped `k` (U+006B) and `_` (U+005F) spell the same member and
     // the same value, so the escaped spelling is a card. Built from a
