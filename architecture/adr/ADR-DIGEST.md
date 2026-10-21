@@ -372,6 +372,7 @@ The owner's word of 2026-10-19: no store for now, the project's own release page
 - Keywords: android distribution, release page, no store, apk signing, manual update, no google play services, no firebase, slint royalty-free, skia prebuilt
 - Amendment 2026-10-20 (the Skia build): the release run uses the Skia bindings' prebuilt archive, pinned by a SHA-256 committed in the tree, which CI's android check job is to read too once its workflow calls the script; the bindings' silent fallback to a source build is a failed run; a source build is the revisit.
 - Amendment 2026-10-21 (crate notices): the release page carries, beside the native libraries' notices, the notices of every crate compiled into the native library for the Android target, under ADR-0058's rule and from the same tool as the Linux archive's.
+- `deny.toml` judges the Android target too (Amendment 2026-10-21 (ii)): since #314 `[graph] targets` holds `aarch64-linux-android` and the two Android Slint crates are exceptions; decision 3's "not yet" is dated.
 
 ### 0058 — Every release artifact ships the notice of every crate compiled into it, read from the crate's own publication
 Accepted 2026-10-21 (architect-cto's decision, the owner's word the same day) on the #324 review's finding: around forty crates compiled into the Linux programs publish a licence expression and no licence file, most MIT or BSD, and were listed by expression and URL alone.
