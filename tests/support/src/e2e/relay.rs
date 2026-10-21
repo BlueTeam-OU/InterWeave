@@ -84,6 +84,14 @@ impl Relay {
     /// Serve `clients` -- the daemons, as infrastructure clients of this
     /// relay -- on loopback. Call from inside a tokio runtime.
     pub async fn start(clients: &[&TransportIdentity]) -> Self {
+        Self::start_on(clients, std::net::Ipv4Addr::LOCALHOST).await
+    }
+
+    /// [`start`](Self::start), listening on `ip` -- the relay's own
+    /// address in a network of namespaces ([`super::netns`]), where
+    /// loopback reaches no one else. Call from inside a tokio runtime
+    /// whose thread sits in the network the relay is to serve.
+    pub async fn start_on(clients: &[&TransportIdentity], ip: std::net::Ipv4Addr) -> Self {
         let mut manager = ConnectionManager::new(ConnectionPolicy::new(64, 64), 64);
         let _ = manager.set_trust(
             TrustSources::new(
@@ -118,7 +126,7 @@ impl Relay {
             .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))
             .build();
         swarm
-            .listen_on("/ip4/127.0.0.1/tcp/0".parse().expect("an address"))
+            .listen_on(format!("/ip4/{ip}/tcp/0").parse().expect("an address"))
             .expect("listens");
         let listen: Multiaddr = tokio::time::timeout(PATIENCE, async {
             loop {

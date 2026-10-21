@@ -3951,6 +3951,7 @@ dependencies = [
  "interweave-trust-api",
  "jsonschema",
  "libp2p",
+ "rustix 1.1.5",
  "serde_json",
  "tempfile",
  "tokio",
