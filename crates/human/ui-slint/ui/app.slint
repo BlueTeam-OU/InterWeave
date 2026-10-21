@@ -1985,6 +1985,11 @@ export component AppWindow inherits Window {
                     if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
                 }
                 property <string> swipe-key: "c:" + row.handle;
+                // A selection is drawn only beside its open conversation: on
+                // a phone-wide window the list shows with nothing open, so
+                // the row a person came back from is not selected (section
+                // 5, Android review F17).
+                property <bool> shown-selected: row.selected && !root.narrow;
                 property <length> offset: root.swipe-key == self.swipe-key ? root.swipe-offset : 0px;
                 property <int> focus-seq: root.focus-seq;
                 changed focus-seq => {
@@ -1999,7 +2004,7 @@ export component AppWindow inherits Window {
                 accessible-item-count: root.conversations.length;
                 accessible-description: row.description;
                 accessible-item-selectable: true;
-                accessible-item-selected: row.selected;
+                accessible-item-selected: self.shown-selected;
                 accessible-action-default => { root.choose(row.handle); }
                 key-pressed(event) => {
                     if (event.text == Key.Return || event.text == " ") {
@@ -2051,7 +2056,7 @@ export component AppWindow inherits Window {
                         // The selection is a fill and a bar at the start
                         // edge: the fill alone measures under 3:1 against
                         // the pane (section 5).
-                        background: row.selected ? Palette.primary-container
+                        background: conversation.shown-selected ? Palette.primary-container
                             : root.narrow ? Palette.surface : Palette.surface-container;
                         border-radius: 12px;
                         summary := HorizontalLayout {
@@ -2140,7 +2145,7 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
-                        if row.selected: Rectangle {
+                        if conversation.shown-selected: Rectangle {
                             x: root.rtl ? parent.width - self.width : 0px;
                             y: 0px;
                             width: 4px;

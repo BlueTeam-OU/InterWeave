@@ -3184,6 +3184,41 @@ fn a_resize_back_from_the_list_reads_what_it_shows() {
     );
 }
 
+/// Whether the list shows a conversation row as selected, as a screen
+/// reader hears it; the fill and the bar follow the same property.
+fn listed_selected(view: &View) -> Vec<bool> {
+    i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .match_accessible_role(i_slint_backend_testing::AccessibleRole::ListItem)
+        .find_all()
+        .into_iter()
+        .filter(|e| e.accessible_item_selectable() == Some(true))
+        .map(|e| e.accessible_item_selected() == Some(true))
+        .collect()
+}
+
+/// On a phone-wide window the list shows with nothing open beside it, so
+/// the row a person came back from is not drawn selected; side by side,
+/// the open conversation's row is (look spec section 5, Android review
+/// F17).
+#[test]
+fn a_phone_wide_list_shows_no_row_selected() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    let bob = peer();
+    model.received(received(1, &bob, "seen"));
+    view.set_window_focused(true);
+    let _ = open(&mut view, &mut model, &direct(&bob));
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    assert_eq!(listed_selected(&view), vec![false], "nothing open beside it");
+
+    resize(&view, 1000.0);
+    view.render(&model);
+    assert_eq!(listed_selected(&view), vec![true], "control: side by side");
+}
+
 /// Read is a retention act (RETENTION.md): a conversation the trust
 /// settings cover is not on screen, so nothing in it is read -- not a
 /// message arriving there, and not one selected in the list beside the
