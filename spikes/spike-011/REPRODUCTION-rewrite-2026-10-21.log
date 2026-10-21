@@ -1,0 +1,71 @@
+# SPIKE-011 rewrite and key-file rows
+# date:      2026-10-21T15:57:36Z
+# commit:    80f7c156742ea047e295932c1c1212d974af06db
+# dirty:     5 changed path(s) under spikes/spike-011
+# toolchain: cargo 1.98.1 (797e8a9bc 2026-08-05), rustc 1.98.1 (48a229cea 2026-09-01)
+# host:      Linux 6.17.9-1.qubes.fc37.x86_64 x86_64, ext4 under WORK
+# binary:    e0934e7dd1cd95f8  target-vendored/release/spike-011
+# binary:    2faa490a690b99df  target-plain/release/spike-011
+# kept:      500, plus the unread backlog
+## a clean rewrite, then the next start
+  control: the seeded plaintext holds the content in clear
+{"engine":"sqlcipher-vendored-openssl","start":"rewritten","rows":520,"micros":238031,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+{"engine":"sqlcipher-vendored-openssl","start":"opened","rows":520,"micros":10609,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+{"engine":"sqlite-plaintext","own_format":1,"rollback":"refused: <WORK>/clean/state/profile-format.json says profile format 2, newer than this build's 1: a newer build wrote this profile; start that build or a later one, never an older one"}
+## a crash after each step, then the next start, then one more
+# crash after: marker-raised
+  control: the seeded plaintext holds the content in clear
+  left: human/ human.sqlite | state/ profile-format.json 
+  {"engine":"sqlite-plaintext","own_format":1,"rollback":"refused: <WORK>/crash-marker-raised/state/profile-format.json says profile format 2, newer than this build's 1: a newer build wrote this profile; start that build or a later one, never an older one"}
+  {"engine":"sqlcipher-vendored-openssl","start":"rewritten","rows":520,"micros":226763,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+  {"engine":"sqlcipher-vendored-openssl","start":"opened","rows":520,"micros":4297,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+# crash after: key-written
+  control: the seeded plaintext holds the content in clear
+  left: human/ human.sqlite | state/ human-store.key profile-format.json 
+  {"engine":"sqlite-plaintext","own_format":1,"rollback":"refused: <WORK>/crash-key-written/state/profile-format.json says profile format 2, newer than this build's 1: a newer build wrote this profile; start that build or a later one, never an older one"}
+  {"engine":"sqlcipher-vendored-openssl","start":"rewritten","rows":520,"micros":223841,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+  {"engine":"sqlcipher-vendored-openssl","start":"opened","rows":520,"micros":5652,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+# crash after: exported
+  control: the seeded plaintext holds the content in clear
+  left: human/ human.sqlite human.sqlite.encrypting | state/ human-store.key profile-format.json 
+  {"engine":"sqlite-plaintext","own_format":1,"rollback":"refused: <WORK>/crash-exported/state/profile-format.json says profile format 2, newer than this build's 1: a newer build wrote this profile; start that build or a later one, never an older one"}
+  {"engine":"sqlcipher-vendored-openssl","start":"export restarted","rows":520,"micros":203688,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+  {"engine":"sqlcipher-vendored-openssl","start":"opened","rows":520,"micros":4662,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+# crash after: renamed-encrypted
+  control: the seeded plaintext holds the content in clear
+  left: human/ human.sqlite human.sqlite.encrypted | state/ human-store.key profile-format.json 
+  {"engine":"sqlite-plaintext","own_format":1,"rollback":"refused: <WORK>/crash-renamed-encrypted/state/profile-format.json says profile format 2, newer than this build's 1: a newer build wrote this profile; start that build or a later one, never an older one"}
+  {"engine":"sqlcipher-vendored-openssl","start":"rewrite resumed","rows":520,"micros":49559,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+  {"engine":"sqlcipher-vendored-openssl","start":"opened","rows":520,"micros":4164,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+# crash after: scrubbed
+  control: the seeded plaintext holds the content in clear
+  left: human/ human.sqlite human.sqlite.encrypted | state/ human-store.key profile-format.json 
+  {"engine":"sqlite-plaintext","own_format":1,"rollback":"refused: <WORK>/crash-scrubbed/state/profile-format.json says profile format 2, newer than this build's 1: a newer build wrote this profile; start that build or a later one, never an older one"}
+  {"engine":"sqlcipher-vendored-openssl","start":"rewrite resumed","rows":520,"micros":41189,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+  {"engine":"sqlcipher-vendored-openssl","start":"opened","rows":520,"micros":3366,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+# crash after: unlinked
+  control: the seeded plaintext holds the content in clear
+  left: human/ human.sqlite.encrypted | state/ human-store.key profile-format.json 
+  {"engine":"sqlite-plaintext","own_format":1,"rollback":"refused: <WORK>/crash-unlinked/state/profile-format.json says profile format 2, newer than this build's 1: a newer build wrote this profile; start that build or a later one, never an older one"}
+  {"engine":"sqlcipher-vendored-openssl","start":"rewrite resumed","rows":520,"micros":41596,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+  {"engine":"sqlcipher-vendored-openssl","start":"opened","rows":520,"micros":6252,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+# crash after: renamed-final
+  control: the seeded plaintext holds the content in clear
+  left: human/ human.sqlite | state/ human-store.key profile-format.json 
+  {"engine":"sqlite-plaintext","own_format":1,"rollback":"refused: <WORK>/crash-renamed-final/state/profile-format.json says profile format 2, newer than this build's 1: a newer build wrote this profile; start that build or a later one, never an older one"}
+  {"engine":"sqlcipher-vendored-openssl","start":"opened","rows":520,"micros":26320,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+  {"engine":"sqlcipher-vendored-openssl","start":"opened","rows":520,"micros":6182,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+## the key file
+# key file: missing
+  control: the seeded plaintext holds the content in clear
+  {"engine":"sqlcipher-vendored-openssl","start":"refused: KeyMissing","rows":0,"micros":51,"human_files":["human.sqlite"],"state_files":["human", "human-store.key.aside", "profile-format.json"],"content_in_clear":[]}
+  the store's file: 96d42cea7e4bf65c before, 96d42cea7e4bf65c after (untouched)
+# key file: newer-version
+  control: the seeded plaintext holds the content in clear
+  {"engine":"sqlcipher-vendored-openssl","start":"refused: KeyVersion(2)","rows":0,"micros":159,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+  the store's file: d7e81cc52d6d698b before, d7e81cc52d6d698b after (untouched)
+# key file: malformed
+  control: the seeded plaintext holds the content in clear
+  {"engine":"sqlcipher-vendored-openssl","start":"refused: KeyMalformed","rows":0,"micros":89,"human_files":["human.sqlite"],"state_files":["human", "human-store.key", "profile-format.json"],"content_in_clear":[]}
+  the store's file: 2ac3836813b3a8b0 before, 2ac3836813b3a8b0 after (untouched)
+# end
