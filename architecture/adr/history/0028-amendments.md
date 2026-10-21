@@ -653,3 +653,10 @@ beside the enabled and default deltas, under the overlay's every rule
 (owner-only, atomic, trust boundary, normalised at load); added and
 authored endpoints together obey the 64 bound. The method itself is
 p2p-network-dev's, an IPC minor under ADR-0017.
+Round 11 of #335's review (F32) read the member against the paragraph's
+other sentences: normalisation now judges "configured" as authored and
+added together, so a disable or a default of an added endpoint is not
+undone at restart; an `added` id that `config.yaml` also authors fails
+the load by name; the no-`source` sentence and the two Android sentences
+say that an added endpoint is configured and that the embedded host
+writes `added` through the availability overlay's seam.

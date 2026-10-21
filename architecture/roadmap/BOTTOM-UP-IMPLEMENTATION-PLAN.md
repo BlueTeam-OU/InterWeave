@@ -6074,10 +6074,16 @@ on every direct message exist and are tested.
 No new crate. The work lands in `crates/human/app-core`,
 `crates/human/ui-model`, `crates/human/ui-slint`, `crates/human/store`
 (the §Logical tables review: `conversation_index.local_endpoint_id`,
-`own_cards` keyed by EndpointId, one contact per route), the two
+`contacts.local_endpoint_id` and `contact_routes.local_endpoint_id` with
+existing rows backfilled with `human`, `own_cards` keyed by EndpointId,
+one contact per local identity and route), the two
 graphical clients and the command-line client under `apps/`,
-`profile-config` (the Android profile's endpoints as a list, the one
-`runtime.android.endpoint` field becoming its first entry), and — in
+`profile-config` (the Android profile's authored endpoints as a list,
+the one `runtime.android.endpoint` field becoming its first entry; an
+identity the person creates on either platform lands in the endpoint
+overlay's `added` member, never in the authored file), the overlay's
+`added` member in the runtime's loader — its normalisation and the 64
+bound over authored and added together (ADR-0028 A 2026-10-21) — and — in
 p2p-network-dev's lane, its own PR under ADR-0017's minor rule — the
 administrative method that adds a configured endpoint
 (`admin.endpoints.*`, LOCAL-IPC.md), with `ENDPOINTS.md`'s registration
@@ -6090,8 +6096,8 @@ sentence gaining the administrative path in the same change.
    holds one data session and one lease per identity it presents; create,
    rename, set the card, set the default and remove through the admin
    connection (editing the desktop profile's configuration until p2p-network-dev's add-endpoint method under Activate lands; on Android no second identity exists until it does, ADR-0061 decision 2);
-   the identity chooser on a new conversation and the identity shown on
-   every conversation; the identity verbs of the command-line client
+   a new conversation speaking as the identity in front, named before
+   the first send, and the identity shown on every conversation; the identity verbs of the command-line client
    (ADR-0061 decision 7).
 2. **The conversation and contact model** (rust-ui-dev, shared crates):
    `{local EndpointId, remote route}` as the conversation key for life;
@@ -6115,10 +6121,12 @@ administrative add-endpoint method on `main` with its contract row
 (p2p-network-dev's PR); (b) the conformance cases, by name: a
 conversation cannot change identity, and every message and card it sends
 carries that identity's `source_endpoint` and no other, measured at the
-counterparty; with two identities held a new conversation asks and a
-client with one asks nothing; a card received on a second endpoint of a
-known PeerId creates a second contact and the proposal names the contact
-sharing its node; a contact never holds two routes of one PeerId; the
+counterparty; with two identities held a new conversation speaks as the
+identity in front with no chooser, and a client with one shows no
+identity control; a card received on a second endpoint of a
+PeerId this identity knows creates a second contact and the proposal
+names this identity's contact sharing its node, consulting no other
+identity's; a contact never holds two routes of one PeerId; the
 identity settings and the contact page state what identities of one node
 share (ADR-0061 decision 5); a notification names the identity it arrived
 on and opening it switches to that identity visibly first; with two
