@@ -1035,26 +1035,38 @@ accessibility tree) are checked now.
   character only on request (the platform's own); the label says what
   it is. The row's custom actions (Android) are Accept and Decline with
   the case labels, as the swipe spec's §7 does for its rows.
-- Own card row: "Your card: {label}", the name, status, time.
-- Chooser: title, then each card as "{label}, {name}, selected/not
-  selected, n of m", then the preview as one item (`ShareCardPreviewSpoken`,
-  or `ShareCardPreviewSpokenPhoto` when the photo goes), the note,
-  Cancel, Share.
+- Own card row: "You shared your card", the name, status, time.
+- Share sheet: title, the "as {identity}" line when shown, then the
+  preview as one item (`ShareCardPreviewSpoken`, or
+  `ShareCardPreviewSpokenPhoto` when the photo goes), the note, Cancel,
+  Edit your card, Share.
+- The switch: one control, its name `IdentitySwitch` with the badge's
+  count in it. The switcher: title, then each identity as "{name},
+  {route label}, {n} unread, selected/not selected, n of m", then Your
+  identities.
+- A conversation, with two or more identities: the "As {identity}"
+  line is read just before the send control, and the send control's
+  name says the identity again (`SendAs`), so a person who moves
+  straight to it hears who sends.
 - Discard dialog: title, each lost item as a list item, the keeps line,
   the remains line, Cancel, Delete stored data.
 
 **Announcements** (the app's two alternating live strings): a card
 arriving in the shown conversation is announced as `AnnounceCard` ("New
-contact card"), never with the name; Accept, Decline, card deleted,
-photo removed, contact deleted, a Move and Details' Add this
-conversation to {X} announce their snackbar text; the
-chooser's Share announces nothing extra (focus moves, and the row
-appears with "Sending").
+contact card"), never with the name; Accept, Decline, photo removed,
+contact deleted, a Move, Make default and a switch announce their
+snackbar text; the transition of §5.7.5 announces `SwitchingTo`; the
+sheet's Share announces nothing extra (focus moves, and the row
+appears with "Sending"). Nothing that arrives for an identity not in
+front is announced in the app: its notification is the platform's.
 
 **Targets**: every control at least 48 × 48 dp (Android) and keyboard
 reachable (desktop and a hardware keyboard on Android); radio rows 56 dp
-high. **Text scaling** to 200 % reflows: the chooser and the proposal
-scroll rather than clip; the proposal's actions wrap to their own line.
+high. **Text scaling** to 200 % reflows: the sheets and the proposal
+scroll rather than clip; the proposal's actions wrap to their own line;
+the switch keeps its avatar and three graphemes and the "As {identity}"
+line wraps to two lines before it ellipsises, since it is the one
+naming that must stay readable where the person sends.
 
 **New colour roles.** Four roles here are not in look spec §3's table,
 and rust-ui-dev adds them to `app.slint` with these needs (Material 3's
@@ -1081,9 +1093,19 @@ schemes; rust-ui-dev measures and reports the figures):
 | Discard outlined button text and outline in `error` | `surface` (R, K) | 4.5:1 text, 3:1 outline |
 | Discard confirm, `on-error` on `error` | the button | 4.5:1 |
 | the code-font PeerId | `surface-container`, dialog | 4.5:1 |
+| the switch's name and ▾, and its focus ring | the top app bar's `surface` | 4.5:1 text, 3:1 ▾ and ring |
+| the switch's badge: count on its dot, and the dot | the dot's fill; the app bar's `surface` | 4.5:1 count, 3:1 dot |
+| "As {identity}" line | the composer's surface | 4.5:1 |
+| `SwitchingTo` text | the transition's surface | 4.5:1 |
 
-**Motion**: the sheet slides in and the proposal's in-place replacement
-cross-fades; under reduced motion both appear without movement.
+**Motion**: the sheets slide in, the proposal's in-place replacement
+and a switch's list cross-fade, and §5.7.5's transition fades; under
+reduced motion each appears without movement, the transition keeping
+its duration.
+
+**Never colour alone**: an identity's hue (§5.1) helps recognition and
+tells nothing by itself: every place that names an identity names it in
+words (§5.7.2).
 
 **Focus**: §9's table, item 1 of the acceptance.
 
