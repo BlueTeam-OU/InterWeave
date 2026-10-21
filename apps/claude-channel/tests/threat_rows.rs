@@ -38,7 +38,7 @@ use tokio::net::{UnixListener, UnixStream};
 
 const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 /// The remote's peer-asserted endpoint: a peer's string.
-const SOURCE_ENDPOINT: &str = "zq-peer-asserted-endpoint";
+const SOURCE_ENDPOINT: &str = "zq-wk7p-rt4v-hs2x";
 const PATIENCE: Duration = Duration::from_secs(10);
 
 struct Daemon {
