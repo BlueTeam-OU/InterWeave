@@ -5907,11 +5907,13 @@ Recorded 2026-10-21 on the owner's direction of that day; the decisions
 are ADR-0059 (a contact is built from a card the counterparty sends and
 the person accepts) and ADR-0060 (the human store is encrypted at rest
 under a key the platform seals). **The stage runs beside Stage 17,
-Stage 18 and Stage 19 from the landing of this record, on the owner's
-word of 2026-10-21** — the morning's "open stage 21 after 17 closes"
-superseded that evening, with the stage's three lanes idle on main and
-Stage 17 waiting on device runs and its closing record, by "agents must
-work" on the proposal to run it beside (A 2026-10-21 (ii)); as §19's
+Stage 18 and Stage 19 from the landing of this paragraph's amendment of
+2026-10-21, on the owner's word of that evening** — the morning's "open
+stage 21 after 17 closes", under which this section first landed
+opening nothing, superseded that evening, with the stage's three lanes
+idle on main and Stage 17 waiting on device runs and its closing
+record, by "agents must work" on the proposal to run it beside (this
+paragraph is that word's record); as §19's
 Stage 16 ran beside Stage 15 and §22's Stage 19 runs beside Stage 17.
 The status value stays the lowest open stage,
 `stage-17-android-human-client`, and this record is the authorisation
