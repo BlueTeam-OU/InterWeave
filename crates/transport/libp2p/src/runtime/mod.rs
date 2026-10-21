@@ -993,6 +993,10 @@ enum RetryClaim {
     /// retry state" applies to the scheduler exactly as it does to every
     /// other dial origin.
     Released,
+    /// Offer this peer again when its held circuit route is released --
+    /// the hold's end or its relay's connection -- not on the next tick,
+    /// when the gate would refuse it again (`ConnectionManager::defer_retry_to_route_hold`).
+    Deferred,
     /// Do not reconsider until something else changes. Retrying an
     /// unauthorized, non-data-plane or draining peer on the very next
     /// tick would not become true by waiting a second.
@@ -1030,6 +1034,7 @@ const fn retry_claim(ticketed: bool, last: Option<&DialRefusal>) -> RetryClaim {
     }
     match last {
         Some(refusal) if refusal_settles_the_peer(refusal) => RetryClaim::Cleared,
+        Some(DialRefusal::Policy(DialDenial::RouteHeld)) => RetryClaim::Deferred,
         _ => RetryClaim::Released,
     }
 }
@@ -2218,6 +2223,9 @@ impl SwarmRuntime {
                                 RetryClaim::Held => {}
                                 RetryClaim::Cleared => manager.clear_retry_claim(&peer),
                                 RetryClaim::Released => manager.release_retry_claim(&peer),
+                                RetryClaim::Deferred => {
+                                    manager.defer_retry_to_route_hold(&peer, now);
+                                }
                             }
                             // REPORTED, because nobody asked for this
                             // dial and so nobody is holding a reply
@@ -5408,6 +5416,22 @@ mod retry_claim_tests {
                 "{refusal:?} must not reset retry state"
             );
         }
+    }
+
+    /// A held circuit route DEFERS the claim to the hold's release: a
+    /// release would offer the peer again next tick, into the same
+    /// refusal (#329 review F1).
+    #[test]
+    fn a_route_hold_defers_rather_than_releasing() {
+        assert_eq!(
+            retry_claim(false, Some(&DialRefusal::Policy(DialDenial::RouteHeld))),
+            RetryClaim::Deferred
+        );
+        assert_eq!(
+            retry_claim(true, Some(&DialRefusal::Policy(DialDenial::RouteHeld))),
+            RetryClaim::Held,
+            "a ticket from another candidate still owns it"
+        );
     }
 
     /// Authorization that no longer holds CLEARS.
