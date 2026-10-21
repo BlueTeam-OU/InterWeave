@@ -322,6 +322,46 @@ jobs:
           --run-ignored only --no-tests=fail
           -E 'binary_id(interweave-desktop-e2e-tests::human_app) & test(=release::a_rollback_to_each_previous_build_keeps_the_peer_id_and_is_recorded)'
 
+      # Plan §22's Linux rows "service/autostart lifecycle" and "uninstall
+      # semantics" install the packaged units into the runner account's
+      # systemd user manager. The hosted image already runs one: measured
+      # 2026-10-20 (ubuntu-24.04, systemd 255), runner was lingering and
+      # user@1001.service active from boot, and `journalctl --user -u`
+      # returned a user unit's lines, the restart case's oracle. Linger is
+      # asked for anyway, so an image that stops lingering is put right
+      # rather than failing as a missing bus; the last line fails HERE,
+      # named, if the manager does not answer. Only the uid is exported,
+      # so the session variables reach the user-unit step and no other.
+      - name: The runner account's systemd user manager (plan §22)
+        id: user-manager
+        run: |
+          set -euo pipefail
+          uid=$(id -u)
+          sudo loginctl enable-linger "$USER"
+          for _ in $(seq 30); do
+            systemctl is-active --quiet "user@${uid}.service" && break
+            sleep 1
+          done
+          echo "uid=${uid}" >> "$GITHUB_OUTPUT"
+          XDG_RUNTIME_DIR="/run/user/${uid}" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
+            systemctl --user show-environment > /dev/null
+
+      # The cases are #[ignore]d because a plain `cargo test` may have no
+      # user manager; with Tests' own selection, for the rollback row's
+      # reason (above), and every case of the binary, one at a time: each
+      # refuses to run beside another's interweave-*@ unit, since
+      # uninstall.sh stops every instance of the account. Measured 23 s.
+      - name: The packaged user units under the user manager (plan §22)
+        timeout-minutes: 5
+        env:
+          XDG_RUNTIME_DIR: /run/user/${{ steps.user-manager.outputs.uid }}
+          DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/${{ steps.user-manager.outputs.uid }}/bus
+        run: >-
+          cargo nextest run --workspace --all-targets --locked --profile ci
+          --run-ignored only --no-tests=fail --test-threads 1
+          -E 'binary_id(interweave-desktop-e2e-tests::user_units)'
+
       # Plan §21, decided (4) and P2: the daemon's sockets against a REAL
       # second uid. The test is #[ignore]d for want of an account and
       # panics by name with INTERWEAVE_FOREIGN_UID_USER unset, with

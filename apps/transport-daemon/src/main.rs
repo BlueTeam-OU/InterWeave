@@ -6,7 +6,9 @@
 //! shutdown -- and nothing else: every behaviour is a crate's.
 //!
 //! Exit codes (plan §16 (11)): 0 a clean shutdown, 1 a refused start or
-//! a failed run (the reason printed), 2 a usage error.
+//! a failed run (the reason printed), 2 a usage error, 75
+//! ([`daemon::RESTART_EXIT`]) a clean shutdown SIGHUP asked for, which
+//! the systemd unit restarts.
 
 #![cfg(unix)]
 #![forbid(unsafe_code)]
@@ -42,7 +44,8 @@ fn main() -> ExitCode {
         }
     };
     match runtime.block_on(daemon::run(args)) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(daemon::Stopped::Asked) => ExitCode::SUCCESS,
+        Ok(daemon::Stopped::Restart) => ExitCode::from(daemon::RESTART_EXIT),
         Err(refused) => {
             eprintln!("transport-daemon: {refused}");
             ExitCode::from(1)

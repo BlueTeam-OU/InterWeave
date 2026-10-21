@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# The one prebuilt Skia archive the Android build may link (ADR-0057
+# decision 4, A 2026-10-20), read by tools/ci/skia_prebuilt.sh in the
+# release run; the android check job is to read it too once its workflow
+# calls the script (devex-tooling's j182).
+#
+# One line: <skia-bindings version> <archive file name> <SHA-256>. The
+# archive is the asset of that name on rust-skia/skia-binaries' release
+# tagged with the version. Its name is the bindings' key: the first 20
+# hex digits of the bindings' repository commit (.cargo_vcs_info.json),
+# the target, and the Skia features Slint's Android renderer enables,
+# sorted. A skia-bindings bump or a feature change moves the key, and
+# skia_prebuilt.sh then fails the run until this line is renewed: fetch
+# the new asset, compare its SHA-256 with the digest the release lists,
+# and commit both here.
+#
+# Recorded 2026-10-20 for skia-bindings 0.153.3 (commit b7f043e0b1e2...);
+# the SHA-256 is of the file as downloaded, and equals the digest GitHub
+# lists for the asset.
+0.153.3 skia-binaries-b7f043e0b1e2a850e702-aarch64-linux-android-ganesh-gl-jpegd-jpege-pdf-vulkan.tar.gz 0d917b608d03632fa8428e00ff715bbe5663f89618893a5e0265ffea3e6cf519
