@@ -136,15 +136,18 @@ check_one() {
 }
 
 check() {
-    local target="$1" profile="${2:-release}" outputs output count=0
+    local target="$1" profile="${2:-release}" output count=0
     local dir="$target/aarch64-linux-android/$profile/build"
     [[ -d "$dir" ]] || die "no aarch64-linux-android $profile build under $target"
-    outputs="$(find "$dir" -mindepth 2 -maxdepth 2 -path '*/skia-bindings-*/output' -type f | sort)"
-    [[ -n "$outputs" ]] || die "no skia-bindings build output under $dir"
-    while IFS= read -r output; do
+    # A glob, whose * stays inside one name: find -path matched the whole
+    # path, so a target under a directory named skia-bindings-* took every
+    # crate's output for one of the bindings' and refused the build.
+    for output in "$dir"/skia-bindings-*/output; do
+        [[ -f "$output" ]] || continue
         check_one "$output"
         count=$((count + 1))
-    done <<<"$outputs"
+    done
+    (( count > 0 )) || die "no skia-bindings build output under $dir"
     echo "skia-bindings took the pinned archive $archive ($count output(s) under $dir)"
 }
 

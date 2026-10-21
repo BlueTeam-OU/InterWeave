@@ -175,6 +175,21 @@ checked "a fallen-back release beside a good debug build" "built Skia from sourc
 if run check "$T" debug; then pass "the debug profile, named, is checked on its own"
 else fail "a good debug output was refused under check <target> debug" "$(cat "$SANDBOX/err")"; fi
 
+# Only the bindings' own outputs are read, wherever the target lies: under
+# a directory whose name starts skia-bindings-, another crate's output
+# (no Skia lines at all) is not taken for one.
+T_SAVED="$T"
+T="$SANDBOX/skia-bindings-check/target"
+output release aaaa "0.9.1/$KEY" "$good_from" "DOWNLOAD AND INSTALL SUCCEEDED"
+mkdir -p "$T/aarch64-linux-android/release/build/libc-dddd"
+printf 'cargo:rustc-cfg=freebsd11\n' > "$T/aarch64-linux-android/release/build/libc-dddd/output"
+if run check "$T" && grep -q '(1 output(s)' "$SANDBOX/stdout"; then
+    pass "under a skia-bindings-* ancestor, only the bindings' output is read"
+else
+    fail "a target under a skia-bindings-* directory was misread" "$(cat "$SANDBOX/err" "$SANDBOX/stdout")"
+fi
+T="$T_SAVED"
+
 rm -rf "$T"
 mkdir -p "$T/aarch64-linux-android/release/build"
 if run check "$T"; then fail "a target with no skia-bindings output was accepted"
