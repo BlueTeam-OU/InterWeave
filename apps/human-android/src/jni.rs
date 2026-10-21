@@ -501,7 +501,8 @@ fn said(told: Told) -> String {
     format!(
         "{} addresses, {} resolvers, strict Private DNS {}",
         told.addresses,
-        told.dns_servers,
+        told.dns_servers
+            .map_or_else(|| "unobserved".to_owned(), |n| n.to_string()),
         if told.strict_private_dns { "on" } else { "off" }
     )
 }

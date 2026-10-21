@@ -1059,3 +1059,155 @@ async fn a_broadcast_rides_the_admitted_circuit_and_the_relay_is_not_a_mesh_peer
     target.shutdown().await.expect("shutdown");
     dialer.shutdown().await.expect("shutdown");
 }
+
+/// The next `DialFailed` the runtime reports, or `None` within `within`.
+async fn next_dial_failure(runtime: &mut SwarmRuntime, within: Duration) -> Option<String> {
+    let deadline = tokio::time::Instant::now() + within;
+    loop {
+        tokio::select! {
+            event = runtime.next_event() => {
+                if let SwarmEvent::DialFailed { detail, .. } = event.expect("the runtime is alive") {
+                    return Some(detail);
+                }
+            }
+            () = tokio::time::sleep_until(deadline) => return None,
+        }
+    }
+}
+
+/// A CIRCUIT THAT FAILS AT ITS RELAY HOP HOLDS ITS ROUTE (ADR-0011 A
+/// 2026-10-21; rust-ui-dev-01's Pixel run, where one peer's circuit was
+/// redialled every second). The far end is known only by a circuit
+/// through a relay whose port is closed: the first dial is admitted and
+/// fails at the hop, and every later `DialPeer` -- five, as measured
+/// before the hold, when all five were admitted -- is refused `RouteHeld`
+/// before any socket, the peer's row naming the hold apart from a
+/// quarantine and a backoff. The SAME relay is up at another address: a
+/// direct connection to it lifts the hold, since the hold is the relay's
+/// and not the address's, and the next `DialPeer` is admitted and reaches
+/// the relay, which denies it for want of a reservation.
+#[tokio::test]
+async fn a_circuit_whose_relay_was_not_reached_is_held_until_the_relay_connects() {
+    let relay_keys = identity::Keypair::generate_ed25519();
+    let relay_peer = identity_of(&relay_keys);
+    let mut relay = relay_server(relay_keys);
+    let relay_addr = bound(&mut relay).await;
+    relay.add_external_address(relay_addr.clone());
+    let mut seen = Seen::default();
+    let closed = {
+        let socket = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        socket.local_addr().expect("bound").port()
+    };
+    let unreached: Multiaddr = format!("/ip4/127.0.0.1/tcp/{closed}")
+        .parse()
+        .expect("addr");
+
+    let far_id = ProfileIdentity::generate();
+    let far_peer = far_id.transport_identity().expect("peer id");
+    let dialer_id = ProfileIdentity::generate();
+    let dialer_peer = dialer_id.transport_identity().expect("peer id");
+    let mut dialer = SwarmRuntime::start(
+        &dialer_id,
+        SubstrateConfig {
+            relay_client: Some(client_without_relays()),
+            ..SubstrateConfig::default()
+        },
+        // The relay is data-plane too, so the test can dial it directly.
+        trust(&[&far_peer, &relay_peer], &[&relay_peer]),
+    )
+    .expect("the dialer starts");
+
+    assert_eq!(
+        dialer
+            .dial(
+                far_peer.clone(),
+                circuit_of(&unreached, &relay_peer, &far_peer)
+            )
+            .await
+            .expect("the command reaches the task"),
+        Ok(()),
+        "the control: the first circuit dial is admitted"
+    );
+    let failed = next_dial_failure(&mut dialer, PATIENCE)
+        .await
+        .expect("the circuit fails at its hop");
+    assert!(
+        failed.contains(&closed.to_string()),
+        "it failed at the closed relay port: {failed}"
+    );
+
+    for n in 0..5 {
+        assert_eq!(
+            dialer.dial_peer(far_peer.clone()).await.expect("answered"),
+            Err(DialRefusal::Policy(DialDenial::RouteHeld)),
+            "DialPeer {n}: the route through that relay is held"
+        );
+    }
+    let row = dialer
+        .peer_gates(vec![far_peer.clone()])
+        .await
+        .expect("answered")
+        .remove(0);
+    assert!(
+        row.route_held_until_ms.is_some(),
+        "the hold is reported: {row:?}"
+    );
+    assert_eq!(
+        (row.quarantined_until_ms, row.backoff_until_ms),
+        (None, None),
+        "apart from a quarantine and a backoff"
+    );
+
+    // THE RELAY CONNECTS, directly, at its live address.
+    assert_eq!(
+        dialer
+            .dial(
+                relay_peer.clone(),
+                format!("{relay_addr}/p2p/{}", relay_peer.as_str())
+                    .parse()
+                    .expect("addr"),
+            )
+            .await
+            .expect("answered"),
+        Ok(())
+    );
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        tokio::select! {
+            event = dialer.next_event() => {
+                if let SwarmEvent::Connected { peer, .. } = event.expect("alive")
+                    && peer == relay_peer
+                {
+                    break;
+                }
+            }
+            event = relay.select_next_some() => note_relay(&mut seen, &event),
+            () = tokio::time::sleep_until(deadline) => panic!("the relay never connected"),
+        }
+    }
+    assert_eq!(
+        dialer
+            .peer_gates(vec![far_peer.clone()])
+            .await
+            .expect("answered")
+            .remove(0)
+            .route_held_until_ms,
+        None,
+        "the relay's connection lifted the hold"
+    );
+    assert_eq!(
+        dialer.dial_peer(far_peer.clone()).await.expect("answered"),
+        Ok(()),
+        "and the next DialPeer is admitted"
+    );
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while seen.denied.is_empty() {
+        tokio::select! {
+            _ = dialer.next_event() => {}
+            event = relay.select_next_some() => note_relay(&mut seen, &event),
+            () = tokio::time::sleep_until(deadline) => panic!("the circuit never reached the relay"),
+        }
+    }
+    assert_eq!(seen.denied, vec![(pid(&dialer_peer), pid(&far_peer))]);
+    dialer.shutdown().await.expect("shutdown");
+}

@@ -89,6 +89,27 @@ pub fn private_dir(path: &Path) {
         .expect("a private directory");
 }
 
+/// A daemon log in `dir` no other start in this process has named, created
+/// exclusively. A name from the clock repeats within one tick or after a
+/// step back, and opening it truncating would cut the log a daemon still
+/// running there writes; a counter cannot repeat, and `create_new` makes a
+/// name that exists anyway a panic rather than a truncation.
+fn new_daemon_log(dir: &Path) -> (PathBuf, std::fs::File) {
+    static STARTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = STARTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let log = dir.join(format!("daemon-{}-{n}.log", std::process::id()));
+    let file = create_fresh(&log);
+    (log, file)
+}
+
+fn create_fresh(log: &Path) -> std::fs::File {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(log)
+        .unwrap_or_else(|e| panic!("a fresh daemon log at {}: {e}", log.display()))
+}
+
 /// One daemon's world: its own XDG tree, and the paths the daemon itself
 /// resolves in it.
 pub struct Home {
@@ -172,20 +193,37 @@ impl Home {
 
     /// Run `transportctl` in this home's environment, `input` on stdin.
     pub fn transportctl(&self, args: &[&str], input: &str) -> std::process::Output {
-        use std::io::Write as _;
-        let env = |p: &Path| p.as_os_str().to_owned();
-        let mut child = Command::new(transportctl_binary())
+        let mut command = Command::new(transportctl_binary());
+        command.args(["--profile", self.paths.profile()]).args(args);
+        self.run(command, input)
+    }
+
+    /// [`transportctl`](Self::transportctl), with `preamble` run first
+    /// by the shell that then execs it, as [`start_after`](Self::start_after)
+    /// does for the daemon.
+    pub fn transportctl_after(
+        &self,
+        preamble: &str,
+        args: &[&str],
+        input: &str,
+    ) -> std::process::Output {
+        // By path: the environment is cleared, PATH with it.
+        let mut command = Command::new("/bin/sh");
+        command
+            .arg("-c")
+            .arg(format!("{preamble}\nexec \"$0\" \"$@\""))
+            .arg(transportctl_binary())
             .args(["--profile", self.paths.profile()])
-            .args(args)
-            .env_clear()
-            .env("XDG_CONFIG_HOME", env(&self.roots.config_home))
-            .env("XDG_DATA_HOME", env(&self.roots.data_home))
-            .env("XDG_STATE_HOME", env(&self.roots.state_home))
-            .env("XDG_CACHE_HOME", env(&self.roots.cache_home))
-            .env(
-                "XDG_RUNTIME_DIR",
-                env(self.roots.runtime_dir.as_deref().expect("a runtime dir")),
-            )
+            .args(args);
+        self.run(command, input)
+    }
+
+    /// `command` in this home's environment and nothing else, `input` on
+    /// its stdin, to its end.
+    fn run(&self, mut command: Command, input: &str) -> std::process::Output {
+        use std::io::Write as _;
+        let mut child = self
+            .environment(&mut command)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -200,20 +238,11 @@ impl Home {
         child.wait_with_output().expect("transportctl ends")
     }
 
-    /// Start the daemon for this home's profile, its stderr to a file.
-    pub fn start(&self, extra: &[&str]) -> Daemon {
-        let log = self.root.path().join(format!(
-            "daemon-{}.log",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("a clock")
-                .as_nanos()
-        ));
-        let stderr = std::fs::File::create(&log).expect("a log file");
+    /// `command` with its environment cleared and this home's XDG roots
+    /// set: where a daemon lives is these five variables and nothing else.
+    fn environment<'c>(&self, command: &'c mut Command) -> &'c mut Command {
         let env = |p: &Path| p.as_os_str().to_owned();
-        let child = Command::new(daemon_binary())
-            .args(["--profile", self.paths.profile()])
-            .args(extra)
+        command
             .env_clear()
             .env("XDG_CONFIG_HOME", env(&self.roots.config_home))
             .env("XDG_DATA_HOME", env(&self.roots.data_home))
@@ -223,6 +252,40 @@ impl Home {
                 "XDG_RUNTIME_DIR",
                 env(self.roots.runtime_dir.as_deref().expect("a runtime dir")),
             )
+    }
+
+    /// Start the daemon for this home's profile, its stderr to a file.
+    pub fn start(&self, extra: &[&str]) -> Daemon {
+        let mut command = Command::new(daemon_binary());
+        command
+            .args(["--profile", self.paths.profile()])
+            .args(extra);
+        self.spawn(command)
+    }
+
+    /// [`start`](Self::start), with `preamble` run first by the shell that
+    /// then execs the daemon in its place: a hostile umask, a resource
+    /// limit -- process state the daemon inherits and `Command` cannot
+    /// set. The child is the daemon itself, so signals and the reap reach
+    /// it and not a shell.
+    pub fn start_after(&self, preamble: &str, extra: &[&str]) -> Daemon {
+        // By path: the environment is cleared, PATH with it.
+        let mut command = Command::new("/bin/sh");
+        command
+            .arg("-c")
+            .arg(format!("{preamble}\nexec \"$0\" \"$@\""))
+            .arg(daemon_binary())
+            .args(["--profile", self.paths.profile()])
+            .args(extra);
+        self.spawn(command)
+    }
+
+    /// `command` in this home's environment and nothing else, its stderr
+    /// to a fresh log.
+    fn spawn(&self, mut command: Command) -> Daemon {
+        let (log, stderr) = new_daemon_log(self.root.path());
+        let child = self
+            .environment(&mut command)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(stderr)
@@ -499,4 +562,49 @@ pub fn schema_validator(relative: &str) -> jsonschema::Validator {
         .with_registry(&registry)
         .build(&schema)
         .expect("compiles")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write as _;
+
+    use super::{create_fresh, new_daemon_log, private_tempdir};
+
+    /// Starts in one home, back to back, each get their own log, and none
+    /// cuts a log an earlier start is still writing.
+    #[test]
+    fn every_start_gets_its_own_log_and_none_truncates_another() {
+        let home = private_tempdir();
+        let mut logs = Vec::new();
+        for i in 0..64 {
+            let (path, mut file) = new_daemon_log(home.path());
+            writeln!(file, "start {i}").expect("write");
+            logs.push(path);
+        }
+        let distinct: std::collections::HashSet<_> = logs.iter().collect();
+        assert_eq!(distinct.len(), logs.len(), "no name repeats");
+        for (i, path) in logs.iter().enumerate() {
+            assert_eq!(
+                std::fs::read_to_string(path).expect("read"),
+                format!("start {i}\n"),
+                "a later start left this log whole"
+            );
+        }
+    }
+
+    /// The control on the exclusive open: a name that exists is refused,
+    /// and the file under it keeps what it held.
+    #[test]
+    fn an_existing_log_name_is_refused_not_truncated() {
+        let home = private_tempdir();
+        let path = home.path().join("daemon.log");
+        std::fs::write(&path, "still writing\n").expect("write");
+        let refused = std::panic::catch_unwind(|| create_fresh(&path));
+        assert!(refused.is_err(), "an existing name is refused");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read"),
+            "still writing\n",
+            "and left whole"
+        );
+    }
 }

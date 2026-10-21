@@ -65,8 +65,10 @@ pub enum ResolverSource {
     /// The platform's Private DNS is in strict mode, so no name is
     /// resolved: this build has no DNS-over-TLS.
     PrivateDnsStrict,
-    /// No configuration: the host read failed or is not made (Android),
-    /// and no view has named a nameserver yet. Names do not resolve.
+    /// No configuration: the host read failed or is not made (Android)
+    /// and no view has named a nameserver yet, or the platform's active
+    /// network names none (`CONNECTIVITY.md` §14, A 2026-10-20). Names
+    /// do not resolve.
     None,
 }
 

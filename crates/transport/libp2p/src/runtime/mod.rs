@@ -850,15 +850,17 @@ fn host_resolver_conf() -> Result<(libp2p::dns::ResolverConfig, libp2p::dns::Res
 
 /// The platform view's DNS facts, applied: a resolver installed through
 /// `switch` and the event that says so, or nothing (`CONNECTIVITY.md`
-/// §14, A 2026-10-14).
+/// §14, A 2026-10-14 and A 2026-10-20).
 ///
-/// Nothing when the view names no nameserver and no strict mode (unknown:
-/// the resolver in use is kept), or when its facts are the ones last
-/// applied -- so a view that changes only addresses builds nothing, and
-/// the event comes once per build. Strict Private DNS installs the empty
-/// resolver and reports `ResolverUnavailable` with the ruling's
-/// diagnostic. The event carries a count or a fixed text, never a
-/// nameserver or the Private DNS host.
+/// Nothing when the view carries no DNS facts and no strict mode
+/// (unobserved: the resolver in use is kept), or when its facts are the
+/// ones last applied -- so a view that changes only addresses builds
+/// nothing, and the event comes once per build. Strict Private DNS, and
+/// an active network naming no resolver (unavailable), install the empty
+/// resolver and report `ResolverUnavailable`, each with its own fixed
+/// diagnostic: a resolver the previous network named is never kept for
+/// a network that names none. The event carries a count or a fixed text,
+/// never a nameserver or the Private DNS host.
 fn apply_platform_dns(
     view: &NetworkView,
     port: u16,
@@ -867,12 +869,12 @@ fn apply_platform_dns(
     source: &mut ResolverSource,
 ) -> Option<SwarmEvent> {
     use crate::live_dns::PlatformDns;
-    let dns = PlatformDns::from_view(&view.dns_servers, view.private_dns.as_deref());
+    let dns = PlatformDns::from_view(view.dns_servers.as_deref(), view.private_dns.as_deref());
     if applied.as_ref() == Some(&dns) {
         return None;
     }
     let (next, event) = match &dns {
-        PlatformDns::Unknown => return None,
+        PlatformDns::Unobserved => return None,
         PlatformDns::Plain(servers) => (
             ResolverSource::Platform,
             SwarmEvent::ResolverConfigured {
@@ -883,6 +885,12 @@ fn apply_platform_dns(
             ResolverSource::PrivateDnsStrict,
             SwarmEvent::ResolverUnavailable {
                 detail: PRIVATE_DNS_STRICT.to_owned(),
+            },
+        ),
+        PlatformDns::Unavailable => (
+            ResolverSource::None,
+            SwarmEvent::ResolverUnavailable {
+                detail: NETWORK_NAMES_NO_RESOLVER.to_owned(),
             },
         ),
     };
@@ -896,6 +904,10 @@ fn apply_platform_dns(
 /// What strict Private DNS reports, in architect-cto's words (`GZCoord`
 /// 01a13bb7): the cause, and that the name was not resolved.
 const PRIVATE_DNS_STRICT: &str = "private DNS strict mode: plain DNS refused; name not resolved";
+
+/// What an active network naming no resolver reports: the lack, and that
+/// the name was not resolved (`CONNECTIVITY.md` §14, A 2026-10-20).
+const NETWORK_NAMES_NO_RESOLVER: &str = "the active network names no resolver; name not resolved";
 
 /// The host resolver configuration, or an empty one and the reason.
 ///
@@ -981,6 +993,10 @@ enum RetryClaim {
     /// retry state" applies to the scheduler exactly as it does to every
     /// other dial origin.
     Released,
+    /// Offer this peer again when its held circuit route is released --
+    /// the hold's end or its relay's connection -- not on the next tick,
+    /// when the gate would refuse it again (`ConnectionManager::defer_retry_to_route_hold`).
+    Deferred,
     /// Do not reconsider until something else changes. Retrying an
     /// unauthorized, non-data-plane or draining peer on the very next
     /// tick would not become true by waiting a second.
@@ -1003,6 +1019,23 @@ const fn refusal_settles_the_peer(refusal: &DialRefusal) -> bool {
     )
 }
 
+/// Keep `refusal` as the walk's verdict, unless it is a held circuit
+/// route and an earlier candidate was refused for something else.
+///
+/// The verdict is read as the walk's ([`retry_claim`]): `RouteHeld`
+/// defers the whole retry to the hold's end, which is right only when
+/// every route was held. A direct address refused for capacity before
+/// the held circuit was asked must keep the ordinary release, or the
+/// peer's admitted route waits out a hold that is the circuit's alone
+/// (#329 review F5; ADR-0011 A 2026-10-21, "the peer's other routes
+/// stay admitted").
+fn record_refusal(last: &mut Option<DialRefusal>, refusal: DialRefusal) {
+    let held = matches!(refusal, DialRefusal::Policy(DialDenial::RouteHeld));
+    if !(held && last.is_some()) {
+        *last = Some(refusal);
+    }
+}
+
 /// The claim verdict for one peer after its candidates were walked.
 ///
 /// Extracted from the retry arm because it was unreachable from a test:
@@ -1018,6 +1051,7 @@ const fn retry_claim(ticketed: bool, last: Option<&DialRefusal>) -> RetryClaim {
     }
     match last {
         Some(refusal) if refusal_settles_the_peer(refusal) => RetryClaim::Cleared,
+        Some(DialRefusal::Policy(DialDenial::RouteHeld)) => RetryClaim::Deferred,
         _ => RetryClaim::Released,
     }
 }
@@ -2191,11 +2225,11 @@ impl SwarmRuntime {
                                     // become true by waiting a second,
                                     // so that claim is cleared instead.
                                     Err(DialRefusal::Backend(reason)) => {
-                                        last = Some(DialRefusal::Backend(reason));
+                                        record_refusal(&mut last, DialRefusal::Backend(reason));
                                     }
                                     Err(refusal) => {
                                         let settled = refusal_settles_the_peer(&refusal);
-                                        last = Some(refusal);
+                                        record_refusal(&mut last, refusal);
                                         if settled {
                                             break;
                                         }
@@ -2206,6 +2240,9 @@ impl SwarmRuntime {
                                 RetryClaim::Held => {}
                                 RetryClaim::Cleared => manager.clear_retry_claim(&peer),
                                 RetryClaim::Released => manager.release_retry_claim(&peer),
+                                RetryClaim::Deferred => {
+                                    manager.defer_retry_to_route_hold(&peer, now);
+                                }
                             }
                             // REPORTED, because nobody asked for this
                             // dial and so nobody is holding a reply
@@ -2459,6 +2496,7 @@ impl SwarmRuntime {
                                             connected: open.values().any(|c| c.peer == peer),
                                             backoff_until_ms: held.backoff_until_ms.map(on_wall),
                                             quarantined_until_ms: held.quarantined_until_ms.map(on_wall),
+                                            route_held_until_ms: held.route_held_until_ms.map(on_wall),
                                             peer,
                                         }
                                     })
@@ -3733,8 +3771,8 @@ mod live_dns_tests {
     use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy};
 
     use super::{
-        DialFailureClass, NetworkView, PRIVATE_DNS_STRICT, ResolverSource, SubstrateConfig,
-        SwarmEvent, SwarmRuntime,
+        DialFailureClass, NETWORK_NAMES_NO_RESOLVER, NetworkView, PRIVATE_DNS_STRICT,
+        ResolverSource, SubstrateConfig, SwarmEvent, SwarmRuntime,
     };
 
     const PATIENCE: Duration = Duration::from_secs(20);
@@ -4021,6 +4059,160 @@ mod live_dns_tests {
         listener.shutdown().await.expect("clean shutdown");
     }
 
+    /// UNOBSERVED KEEPS, UNAVAILABLE REPLACES (`CONNECTIVITY.md` §14, A
+    /// 2026-10-20). After a plain view, a view carrying no DNS facts (no
+    /// default network named, or its link not yet reported) keeps the
+    /// resolver in use: no event, and a name still resolves and connects. A
+    /// view whose active network names no resolver installs the empty one
+    /// and says so, and the name the responder WOULD answer -- never asked
+    /// before, so no cache explains the silence -- reaches it no more. The
+    /// same unavailable view again reports nothing, and an unobserved view
+    /// after it keeps the empty resolver as it kept the plain one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_unobserved_view_keeps_the_resolver_and_an_unavailable_one_replaces_it() {
+        let (dns_port, queries) = responder().await;
+        let target_id = ProfileIdentity::generate();
+        let target = target_id.transport_identity().expect("peer id");
+        let after = ProfileIdentity::generate()
+            .transport_identity()
+            .expect("peer id");
+        let dialer_id = ProfileIdentity::generate();
+        let dialer_peer = dialer_id.transport_identity().expect("peer id");
+
+        let listener = SwarmRuntime::start(
+            &target_id,
+            SubstrateConfig::default(),
+            trusting(&[&dialer_peer]),
+        )
+        .expect("the target starts");
+        let bound = listener
+            .listen("/ip4/127.0.0.1/tcp/0".parse().expect("loopback"))
+            .await
+            .expect("listen");
+        let port = bound
+            .iter()
+            .find_map(|p| match p {
+                libp2p::multiaddr::Protocol::Tcp(port) => Some(port),
+                _ => None,
+            })
+            .expect("a tcp port");
+
+        let mut dialer = SwarmRuntime::start_with_seams::<&str>(
+            &dialer_id,
+            SubstrateConfig::default(),
+            trusting(&[&target, &after]),
+            Err("no host resolver configuration is read here"),
+            dns_port,
+        )
+        .expect("a node with no resolver starts");
+        wait_for(&mut dialer, "the start's ResolverUnavailable", |e| {
+            matches!(e, SwarmEvent::ResolverUnavailable { .. })
+        })
+        .await;
+
+        // Only the DNS facts move between views.
+        let addresses: Vec<IpAddr> = vec![Ipv4Addr::LOCALHOST.into()];
+        dialer.network_changed(
+            NetworkView::new(addresses.clone()).with_dns_servers(vec![Ipv4Addr::LOCALHOST.into()]),
+        );
+        wait_for(&mut dialer, "the resolver to be configured", |e| {
+            matches!(e, SwarmEvent::ResolverConfigured { .. })
+        })
+        .await;
+        until_resolver(&dialer, ResolverSource::Platform).await;
+
+        // UNOBSERVED: nothing is built, nothing is said, and the plain
+        // resolver still resolves.
+        let unobserved = NetworkView::new(addresses.clone());
+        dialer.network_changed(unobserved.clone());
+        let quiet = quiet_for(&mut dialer, Duration::from_millis(500)).await;
+        assert!(
+            !quiet.iter().any(|e| matches!(
+                e,
+                SwarmEvent::ResolverConfigured { .. } | SwarmEvent::ResolverUnavailable { .. }
+            )),
+            "an unobserved view reports nothing: {quiet:?}"
+        );
+        assert_eq!(
+            dialer.status(None).await.expect("status").resolver,
+            ResolverSource::Platform,
+            "an unobserved view keeps the resolver"
+        );
+        dialer
+            .dial(target.clone(), named(NAME, port, &target))
+            .await
+            .expect("command delivered")
+            .expect("admitted");
+        wait_for(
+            &mut dialer,
+            "the named target to connect through the kept resolver",
+            |e| matches!(e, SwarmEvent::Connected { peer, .. } if *peer == target),
+        )
+        .await;
+        let asked = queries.load(Ordering::SeqCst);
+        assert!(asked > 0, "the kept resolver asked the responder");
+
+        // UNAVAILABLE: the active network names no resolver.
+        let unavailable = NetworkView::new(addresses).with_dns_servers(Vec::new());
+        dialer.network_changed(unavailable.clone());
+        let said = wait_for(&mut dialer, "the lack to be reported", |e| {
+            matches!(
+                e,
+                SwarmEvent::ResolverUnavailable { .. } | SwarmEvent::ResolverConfigured { .. }
+            )
+        })
+        .await;
+        assert_eq!(
+            said,
+            SwarmEvent::ResolverUnavailable {
+                detail: NETWORK_NAMES_NO_RESOLVER.to_owned()
+            }
+        );
+        assert_eq!(
+            dialer.status(None).await.expect("status").resolver,
+            ResolverSource::None
+        );
+        let (class, detail) =
+            dial_fails(&mut dialer, &after, named(STRICT_NAME, port, &after)).await;
+        assert_eq!(
+            queries.load(Ordering::SeqCst),
+            asked,
+            "the previous network's resolver is asked nothing"
+        );
+        assert_eq!(
+            class,
+            DialFailureClass::DialFailed,
+            "the name did not resolve, rather than resolving to a peer that answered: {detail}"
+        );
+
+        // The same lack again, then an unobserved view: nothing either time.
+        // Each view is waited on before the next is sent: the monitor is a
+        // watch slot, so a view sent before the loop reads the previous one
+        // replaces it and the repeat would never be asked about.
+        for (view, what) in [
+            (unavailable, "the same lack"),
+            (unobserved, "an unobserved view"),
+        ] {
+            dialer.network_changed(view);
+            let quiet = quiet_for(&mut dialer, Duration::from_millis(500)).await;
+            assert!(
+                !quiet.iter().any(|e| matches!(
+                    e,
+                    SwarmEvent::ResolverConfigured { .. } | SwarmEvent::ResolverUnavailable { .. }
+                )),
+                "{what} reports nothing: {quiet:?}"
+            );
+        }
+        assert_eq!(
+            dialer.status(None).await.expect("status").resolver,
+            ResolverSource::None,
+            "an unobserved view keeps the empty resolver too"
+        );
+
+        dialer.shutdown().await.expect("clean shutdown");
+        listener.shutdown().await.expect("clean shutdown");
+    }
+
     /// Wait until the runtime's status reports `source`.
     async fn until_resolver(runtime: &SwarmRuntime, source: ResolverSource) {
         let deadline = tokio::time::Instant::now() + PATIENCE;
@@ -4034,12 +4226,19 @@ mod live_dns_tests {
     }
 
     /// A resolver event the outbox has no room for is held, ONE, the latest,
-    /// and delivered when room comes. At an event capacity of one, the start's
-    /// `ResolverUnavailable` fills the channel and the first view's event the
-    /// outbox; the next two are held in turn, the second replacing the first.
-    /// Nothing is drained until all three views were applied (the status says
-    /// each), so the drain shows what was kept: the strict view's event is
-    /// gone and the last one arrives.
+    /// and delivered when room comes. At an event capacity of one, nothing
+    /// is drained until all three views were applied (the status says each),
+    /// so the drain shows what was kept: the start's `ResolverUnavailable`
+    /// first, the LATEST view's event last, and between them at most one of
+    /// the two earlier views' events, in the order applied -- the one that
+    /// found room before the next view replaced it. Which one, if any, is
+    /// the runtime's timing and not the rule: it turns on whether the
+    /// start's event had moved from the outbox into the channel when each
+    /// view was applied. The exact three-event sequence this test used to
+    /// expect held only for one ordering; CI run 39564325388 met another
+    /// three tries in a row and waited out its patience for a third event,
+    /// and forty runs under load here met the strict view's event delivered
+    /// in the middle (j49).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_held_resolver_event_is_the_latest_and_is_delivered_when_room_comes() {
         let identity = ProfileIdentity::generate();
@@ -4070,8 +4269,8 @@ mod live_dns_tests {
         until_resolver(&runtime, ResolverSource::Platform).await;
 
         let mut resolver_events = Vec::new();
-        while resolver_events.len() < 3 {
-            match wait_for(&mut runtime, "the resolver events", |e| {
+        while resolver_events.last().map(String::as_str) != Some("configured: 2") {
+            match wait_for(&mut runtime, "the latest view's resolver event", |e| {
                 matches!(
                     e,
                     SwarmEvent::ResolverUnavailable { .. } | SwarmEvent::ResolverConfigured { .. }
@@ -4088,14 +4287,17 @@ mod live_dns_tests {
                 other => panic!("unexpected {other:?}"),
             }
         }
-        assert_eq!(
-            resolver_events,
-            [
-                "unavailable: no host resolver configuration is read here".to_owned(),
-                "configured: 1".to_owned(),
-                "configured: 2".to_owned(),
-            ],
-            "the start's event, the first view's, then the latest held one -- not strict mode's"
+        let start = "unavailable: no host resolver configuration is read here";
+        let first = "configured: 1";
+        let strict = format!("unavailable: {PRIVATE_DNS_STRICT}");
+        let latest = "configured: 2";
+        let kept: Vec<&str> = resolver_events.iter().map(String::as_str).collect();
+        assert!(
+            kept == [start, latest]
+                || kept == [start, first, latest]
+                || kept == [start, strict.as_str(), latest],
+            "the start's event, at most one earlier view's that found room, then the latest: \
+             {resolver_events:?}"
         );
         let late = quiet_for(&mut runtime, Duration::from_millis(300)).await;
         assert!(
@@ -5241,6 +5443,71 @@ mod retry_claim_tests {
                 "{refusal:?} must not reset retry state"
             );
         }
+    }
+
+    /// A held circuit route DEFERS the claim to the hold's release: a
+    /// release would offer the peer again next tick, into the same
+    /// refusal (#329 review F1).
+    #[test]
+    fn a_route_hold_defers_rather_than_releasing() {
+        assert_eq!(
+            retry_claim(false, Some(&DialRefusal::Policy(DialDenial::RouteHeld))),
+            RetryClaim::Deferred
+        );
+        assert_eq!(
+            retry_claim(true, Some(&DialRefusal::Policy(DialDenial::RouteHeld))),
+            RetryClaim::Held,
+            "a ticket from another candidate still owns it"
+        );
+    }
+
+    /// The walk's verdict defers only when every candidate was held: a
+    /// direct address refused for capacity before the held circuit keeps
+    /// the release (#329 review F5). THE CONTROL: the held circuit alone
+    /// defers, and a refusal after a held one still replaces it.
+    #[test]
+    fn a_hold_defers_the_walk_only_when_every_candidate_was_held() {
+        let held = || DialRefusal::Policy(DialDenial::RouteHeld);
+        let walk = |refusals: Vec<DialRefusal>| {
+            let mut last = None;
+            for refusal in refusals {
+                super::record_refusal(&mut last, refusal);
+            }
+            retry_claim(false, last.as_ref())
+        };
+        assert_eq!(
+            walk(vec![
+                DialRefusal::Policy(DialDenial::TooManyPendingDials),
+                held()
+            ]),
+            RetryClaim::Released,
+            "a direct route refused for capacity is retried next tick"
+        );
+        assert_eq!(
+            walk(vec![
+                DialRefusal::Backend(BackendRefusal::new(DialFailureClass::DialFailed, "x")),
+                held()
+            ]),
+            RetryClaim::Released
+        );
+        assert_eq!(
+            walk(vec![held()]),
+            RetryClaim::Deferred,
+            "the control: held alone"
+        );
+        assert_eq!(
+            walk(vec![held(), held()]),
+            RetryClaim::Deferred,
+            "every route held"
+        );
+        assert_eq!(
+            walk(vec![
+                held(),
+                DialRefusal::Policy(DialDenial::ConnectionLimitReached)
+            ]),
+            RetryClaim::Released,
+            "a later refusal replaces a held one"
+        );
     }
 
     /// Authorization that no longer holds CLEARS.

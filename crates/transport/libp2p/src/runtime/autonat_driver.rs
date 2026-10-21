@@ -1189,7 +1189,9 @@ pub(super) fn reconcile(
             target.attempts = target.attempts.saturating_add(1);
         } else {
             // A refusal the gate's OWN ladder already paces -- a peer in
-            // backoff, a quarantined address -- is asked again after the
+            // backoff, a quarantined address, a held circuit route (never
+            // a probe server's direct address, listed so the class stays
+            // whole) -- is asked again after the
             // base delay, when that ladder's first step lifts; counting
             // it here too would compound the two. Every other refusal is
             // a standing condition (unauthorized, no budget, backend)
@@ -1206,6 +1208,7 @@ pub(super) fn reconcile(
                 Some(DialRefusal::Policy(
                     interweave_transport_runtime::DialDenial::PeerBackoff
                         | interweave_transport_runtime::DialDenial::AddressQuarantined
+                        | interweave_transport_runtime::DialDenial::RouteHeld
                         | interweave_transport_runtime::DialDenial::PolicySuperseded
                 ))
             );

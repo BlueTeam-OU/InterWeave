@@ -426,6 +426,10 @@ pub struct PeerGateView {
     /// Every known address of it is quarantined until then, the earliest
     /// release; absent while any is dialable (`CONNECTIVITY.md` §19).
     pub quarantined_until: Option<u64>,
+    /// The latest hold among its circuit routes, whose relay was not
+    /// reached (ADR-0011 A 2026-10-21); absent with none held. Apart from
+    /// the quarantine, and set while another route is dialable.
+    pub route_held_until: Option<u64>,
     /// How the last dial or connection ended; `None` until the first one
     /// since the runtime started.
     pub last_outcome: Option<PeerOutcome>,

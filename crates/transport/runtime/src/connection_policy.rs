@@ -283,6 +283,11 @@ pub enum DialDenial {
     PeerBackoff,
     /// This address is quarantined after an identity mismatch.
     AddressQuarantined,
+    /// This circuit route is held: a circuit to the same peer through the
+    /// same relay failed before the relay was reached, and the relay has
+    /// not been reached since (ADR-0011 A 2026-10-21). Never a statement
+    /// about the peer, whose other routes stay admitted.
+    RouteHeld,
     /// The global pending-dial budget is exhausted.
     TooManyPendingDials,
     /// The global connection budget is exhausted.
@@ -326,6 +331,12 @@ pub struct AddressState {
     pub last_success_ms: Option<u64>,
     /// Quarantined until this time, after an identity mismatch.
     pub quarantined_until_ms: Option<u64>,
+    /// Held until this time, for a `/p2p-circuit` address whose dial
+    /// failed before its relay was reached (ADR-0011 A 2026-10-21). Apart
+    /// from the quarantine, because it says nothing about the address's
+    /// identity and the relay's first direct connection lifts it
+    /// ([`ConnectionPolicy::release_relay_holds`]).
+    pub route_held_until_ms: Option<u64>,
 }
 
 impl AddressState {
@@ -357,9 +368,18 @@ impl AddressState {
         self.last_success_ms.is_some() && self.consecutive_failures == 0
     }
 
+    /// Whether this entry holds its circuit route at `now_ms`.
+    #[must_use]
+    pub(crate) fn is_route_held_at(&self, now_ms: u64) -> bool {
+        self.route_held_until_ms.is_some_and(|until| now_ms < until)
+    }
+
     /// Whether this entry is currently SUPPRESSING a dial.
     ///
-    /// A live quarantine, and nothing else. Such an entry must never be
+    /// A live quarantine, and nothing else. A route hold is not one: it
+    /// lasts one retry delay at most and the relay's connection lifts it,
+    /// so an evicted hold costs one dial early, while pinning it would let
+    /// circuit addresses fill the table. Such an entry must never be
     /// evicted to make room: dropping it restores a route the policy had
     /// decided to suppress, and an attacker who can cause evictions could
     /// then clear their own quarantine by flooding the table.
@@ -481,6 +501,19 @@ pub struct ConnectionPolicy {
     pub shutting_down: bool,
 }
 
+/// The relay a `/p2p-circuit` address goes through: the `/p2p/<id>`
+/// component directly before its first `/p2p-circuit`. `None` for any
+/// other address, and for a circuit that names no relay identity, which
+/// no hold can key.
+fn circuit_relay(address: &str) -> Option<&str> {
+    let parts: Vec<&str> = address.split('/').collect();
+    let at = parts.iter().position(|p| *p == "p2p-circuit")?;
+    match parts.get(at.checked_sub(2)?..at)? {
+        ["p2p", id] if !id.is_empty() => Some(id),
+        _ => None,
+    }
+}
+
 /// Whether the book holds `address` for `peer`.
 fn in_book(
     book: &BTreeMap<TransportIdentity, std::collections::BTreeSet<String>>,
@@ -543,7 +576,10 @@ impl ConnectionPolicy {
         let before = self.addresses.len() + self.peers.len();
         let book = &self.book;
         self.addresses.retain(|(peer, address), s| {
-            in_book(book, peer, address) || s.is_punitive_at(now_ms) || !idle(s.last_touched_ms)
+            in_book(book, peer, address)
+                || s.is_punitive_at(now_ms)
+                || s.is_route_held_at(now_ms)
+                || !idle(s.last_touched_ms)
         });
         self.peers
             .retain(|_, b| b.is_punitive_at(now_ms) || !idle(b.last_touched_ms));
@@ -748,7 +784,8 @@ impl ConnectionPolicy {
     /// Decide whether a dial may proceed.
     ///
     /// Evaluated in the order ADR-0011 states: drain, then class and
-    /// origin, then peer backoff, then address quarantine, then limits.
+    /// origin, then peer backoff, then address quarantine, then a held
+    /// circuit route (A 2026-10-21), then limits.
     /// The order is observable — the denial an operator sees should be
     /// the most fundamental reason, not whichever check ran first.
     ///
@@ -810,6 +847,12 @@ impl ConnectionPolicy {
             return Err(DialDenial::AddressQuarantined);
         }
 
+        if let Some(peer) = &request.peer
+            && self.route_held(peer, &request.address, now_ms)
+        {
+            return Err(DialDenial::RouteHeld);
+        }
+
         // A dial whose outcome could not be RECORDED is a dial whose
         // failure cannot suppress a retry, so admitting it would turn the
         // capacity bound into a way to dial without accounting. Only
@@ -857,6 +900,8 @@ impl ConnectionPolicy {
         entry.consecutive_failures = 0;
         entry.last_success_ms = Some(now_ms);
         entry.quarantined_until_ms = None;
+        // A circuit that connected reached its relay.
+        entry.route_held_until_ms = None;
         entry.last_touched_ms = now_ms;
         self.peers.remove(peer);
     }
@@ -980,6 +1025,81 @@ impl ConnectionPolicy {
         entry.last_success_ms = None;
         // The peer map is untouched, on purpose.
         true
+    }
+
+    /// Hold `address`, a `/p2p-circuit` route to `peer`, until `until_ms`:
+    /// its dial failed before the relay was reached (ADR-0011 A
+    /// 2026-10-21). Every circuit to `peer` through the same relay is
+    /// refused [`DialDenial::RouteHeld`] meanwhile, whoever asks; the
+    /// peer's other routes are untouched. Recorded only where the table
+    /// has room, as [`Self::score_address_failure`] records -- which
+    /// always runs first for the same key, so the entry exists unless the
+    /// table is all live quarantines. Returns whether the hold was set.
+    pub fn hold_route(&mut self, peer: &TransportIdentity, address: &str, until_ms: u64) -> bool {
+        if circuit_relay(address).is_none() {
+            return false;
+        }
+        match self.addresses.get_mut(&(peer.clone(), address.to_owned())) {
+            Some(entry) => {
+                entry.route_held_until_ms = Some(until_ms);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Lift every hold on a circuit route through `relay`, whichever peer
+    /// it leads to: a direct connection to the relay is up, so the hop
+    /// that failed can be reached (ADR-0011 A 2026-10-21). Returns how
+    /// many live holds were lifted.
+    pub fn release_relay_holds(&mut self, relay: &TransportIdentity, now_ms: u64) -> usize {
+        let mut lifted = 0;
+        for ((_, address), state) in &mut self.addresses {
+            if state.is_route_held_at(now_ms) && circuit_relay(address) == Some(relay.as_str()) {
+                state.route_held_until_ms = None;
+                lifted += 1;
+            }
+        }
+        lifted
+    }
+
+    /// Whether a dial of `address` to `peer` is refused by a route hold:
+    /// `address` is a circuit, and some circuit to `peer` through the
+    /// same relay holds at `now_ms`. Through the same relay rather than
+    /// the same string, since one relay has several addresses (a
+    /// transport, a family) and the failed hop is the relay's.
+    fn route_held(&self, peer: &TransportIdentity, address: &str, now_ms: u64) -> bool {
+        let Some(relay) = circuit_relay(address) else {
+            return false;
+        };
+        self.peer_routes(peer).any(|(held, state)| {
+            state.is_route_held_at(now_ms) && circuit_relay(held) == Some(relay)
+        })
+    }
+
+    /// The latest live hold among `peer`'s circuit routes at `now_ms`:
+    /// when the last of them is admitted again, unless a relay connects
+    /// sooner. `None` with none held. Reported apart from
+    /// [`Self::quarantined_until`] (ADR-0011 A 2026-10-21), and unlike it
+    /// set while another route is dialable: a held route is what an
+    /// operator reads to see why the circuit is not being tried.
+    #[must_use]
+    pub fn route_held_until(&self, peer: &TransportIdentity, now_ms: u64) -> Option<u64> {
+        self.peer_routes(peer)
+            .filter(|(_, s)| s.is_route_held_at(now_ms))
+            .filter_map(|(_, s)| s.route_held_until_ms)
+            .max()
+    }
+
+    /// `peer`'s address entries.
+    fn peer_routes<'a>(
+        &'a self,
+        peer: &'a TransportIdentity,
+    ) -> impl Iterator<Item = (&'a str, &'a AddressState)> + 'a {
+        self.addresses
+            .range((peer.clone(), String::new())..)
+            .take_while(move |((p, _), _)| p == peer)
+            .map(|((_, a), s)| (a.as_str(), s))
     }
 
     /// Whether this address is dialable for this peer right now.
@@ -1936,6 +2056,97 @@ mod tests {
             q.admit(&ask, ConnectionClass::DataPlaneTrusted, 0),
             Err(DialDenial::PolicyStateFull),
             "a table of live suppressions still denies rather than forgetting one"
+        );
+    }
+
+    /// The relay a circuit goes through is the `/p2p/<id>` directly
+    /// before its `/p2p-circuit`, with or without the destination after
+    /// it; a direct address, and a circuit naming no relay identity, key
+    /// no hold (ADR-0011 A 2026-10-21).
+    #[test]
+    fn a_circuits_relay_is_the_identity_before_its_marker() {
+        assert_eq!(
+            circuit_relay(&format!("/ip4/10.0.0.1/tcp/4001/p2p/{P2}/p2p-circuit")),
+            Some(P2)
+        );
+        assert_eq!(
+            circuit_relay(&format!(
+                "/dns4/relay.example/tcp/4001/p2p/{P2}/p2p-circuit/p2p/{P1}"
+            )),
+            Some(P2),
+            "the destination after the marker is not the relay"
+        );
+        assert_eq!(circuit_relay(A1), None, "a direct address");
+        assert_eq!(
+            circuit_relay(&format!("{A1}/p2p/{P2}")),
+            None,
+            "a direct address with its peer"
+        );
+        assert_eq!(
+            circuit_relay("/ip4/10.0.0.1/tcp/4001/p2p-circuit"),
+            None,
+            "no relay named"
+        );
+        assert_eq!(circuit_relay("/p2p-circuit"), None);
+        assert_eq!(circuit_relay(""), None);
+    }
+
+    /// A route hold is set only on a circuit route the table records, is
+    /// lifted by its relay and by no other, and never pins the bounded
+    /// table: a table full of live holds still makes room for a new
+    /// address, as a table of ordinary failures does -- only a live
+    /// QUARANTINE refuses (`ordinary_failures_never_exhaust_the_address_table`).
+    #[test]
+    fn a_route_hold_is_its_relays_and_never_pins_the_table() {
+        let mut p = ConnectionPolicy::new(64, 64);
+        p.max_addresses = 8;
+        let relay = TransportIdentity::parse(P2).expect("valid identity");
+        let circuit = |i: usize| format!("/ip4/10.0.0.{i}/tcp/4001/p2p/{P2}/p2p-circuit");
+        assert!(
+            !p.hold_route(&peer(), &circuit(0), 1_000),
+            "no record, no hold: the failure's score is what makes the entry"
+        );
+        p.score_address_failure(&peer(), A1, 0);
+        assert!(
+            !p.hold_route(&peer(), A1, 1_000),
+            "a direct address is never held"
+        );
+        for i in 0..8 {
+            p.score_address_failure(&peer(), &circuit(i), 0);
+            assert!(p.hold_route(&peer(), &circuit(i), 1_000));
+        }
+        assert_eq!(p.route_held_until(&peer(), 0), Some(1_000));
+        assert_eq!(
+            p.release_relay_holds(&peer(), 0),
+            0,
+            "the destination's own connection is not the relay"
+        );
+
+        let other =
+            TransportIdentity::parse("12D3KooWA9hFCGwGCpCbWWfLmYSpqPzXgLmPvbBrgWGNvNGSDVpS")
+                .expect("valid identity");
+        let fresh = DialRequest {
+            peer: Some(other.clone()),
+            address: A2.to_owned(),
+            origin: DialOrigin::Manual,
+        };
+        assert_eq!(
+            p.admit(&fresh, ConnectionClass::DataPlaneTrusted, 0),
+            Ok(()),
+            "a table of live holds does not refuse a new address"
+        );
+        p.score_address_failure(&other, A2, 0);
+        assert!(p.address(&other, A2).is_some(), "and its record lands");
+
+        assert!(
+            p.route_held_until(&peer(), 0).is_some(),
+            "the holds that stayed still hold"
+        );
+        assert!(p.release_relay_holds(&relay, 0) > 0);
+        assert_eq!(
+            p.route_held_until(&peer(), 0),
+            None,
+            "the relay lifted every one"
         );
     }
 

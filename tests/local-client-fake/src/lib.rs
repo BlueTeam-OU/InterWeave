@@ -1117,6 +1117,7 @@ impl AdminPort for FakeAdmin {
                     connected,
                     backoff_until: None,
                     quarantined_until: None,
+                    route_held_until: None,
                     last_outcome: connected.then_some(PeerOutcome::Connected),
                 }
             })
