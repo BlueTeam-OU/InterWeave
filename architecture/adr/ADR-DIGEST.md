@@ -42,6 +42,7 @@ Authority order is unchanged (`CLAUDE.md` §2): accepted ADRs → normative cont
 | group/end-to-end encryption, payload confidentiality from forwarding peers | **0014** (deferred — bounded by the trusted overlay) |
 | daemon vs embedded, process model, surviving Claude Code restarts | **0015** (+ 0041 the Android exception) |
 | Android distribution, release page, no store, Google Play services forbidden, Slint licence on Android, APK signing | **0057** (+ 0056 superseded, 0041 the type stays, 0039 the toolkit) |
+| third-party notices, THIRD-PARTY-NOTICES.md, a crate with no licence file, MIT/BSD notice in the copy, release archive licences, Android release page notices | **0058** (+ 0057 the page, 0051 vendored provenance) |
 | profile identity, one PeerId per profile, multiple local applications | **0016** (superseded for routing by **0030**) |
 | local IPC, framing, 128 KiB body, hello handshake, keepalive, capabilities | **0017** (+ 0037 admin split) |
 | admin socket, admin authority, client.kind, privilege separation | **0037** (+ 0017, 0032) |
@@ -355,6 +356,11 @@ The owner's word of 2026-10-19: no store for now, the project's own release page
 - Security: integrity rests on the project's signing key and the published hash; no store signature, no store update path; the Skia prebuilt archive is a build-time third-party download pinned by checksum (A 2026-10-20); a source build is the revisit if a store returns or the owner wants no third-party binary in the APK.
 - Keywords: android distribution, release page, no store, apk signing, manual update, no google play services, no firebase, slint royalty-free, skia prebuilt
 - Amendment 2026-10-20 (the Skia build): the release run uses the Skia bindings' prebuilt archive, pinned by a SHA-256 committed in the tree, which CI's android check job is to read too once its workflow calls the script; the bindings' silent fallback to a source build is a failed run; a source build is the revisit.
+
+### 0058 — Every release artifact ships the notice of every crate compiled into it, read from the crate's own publication (Proposed)
+Decided 2026-10-21 on the #324 review's finding: around forty crates compiled into the Linux programs publish a licence expression and no licence file, most MIT or BSD, and were listed by expression and URL alone.
+- Rules: the set is the artifact's own resolve (target and packages); the notice is read from the pinned registry copy in order — the crate's licence files, else its source-header notice (the same evidence as a file, under the same checksum), else the declared licence's standard text under the crate's `authors` with one sentence saying it publishes no notice; crates under the last two cases are named in a reviewed list in `tools/ci/` and an unlisted one fails the artifact, a stale entry is reported; no licence election is recorded (an `OR` is met by the term the crate publishes, else the first); the Android release page carries the same notices for the native library's crates (ADR-0057 decision 5 amended); the tool stays fail-closed until the derivation lands, and no release runs.
+- Not taken: expression and URL alone; hand-copied per-crate files; an Apache-2.0 election; refusing forever.
 
 ## Cluster 7 — Identity and key material
 
