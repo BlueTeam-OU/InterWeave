@@ -134,6 +134,11 @@ async fn held_route<R: Device>(mut r: R) {
     drop(relay);
     r.kill();
     r.restart();
+    // What the log held before the held run: the control's lines, which
+    // a check of the held run must not read (a first dial can race the
+    // relay's connection there too). Neither runner's log is cleared
+    // here -- the device's is at `start` only.
+    let mark = r.log().lines().count();
     let out = r
         .run_case(cases::ROUTE_HOLD, &args(&d_peer))
         .passed(|| r.log());
@@ -145,7 +150,11 @@ async fn held_route<R: Device>(mut r: R) {
         .as_str()
         .and_then(|n| n.parse().ok())
         .expect("a count");
-    assert!(reads >= 20, "the watch read the row {reads} times");
+    // At least one read per reconnect tick across the watch: what the
+    // hold must stand through. Not a throughput bound -- a read's cost is
+    // the platform's.
+    let ticks = u32::try_from(WATCH.as_secs()).expect("a short watch");
+    assert!(reads >= ticks, "the watch read the row {reads} times");
 
     // R's log says the same: the refusal with the class and the end, the
     // failed hop before it, and no dial to D after it. The end is the
@@ -155,7 +164,8 @@ async fn held_route<R: Device>(mut r: R) {
     let log = r.log();
     let lines: Vec<&str> = log.lines().collect();
     let to_d = format!("peer={}", d_peer.as_str());
-    let refusal = lines
+    let held_run = &lines[mark.min(lines.len())..];
+    let refusal = held_run
         .iter()
         .position(|l| {
             l.contains("reconnect refused")
@@ -169,10 +179,10 @@ async fn held_route<R: Device>(mut r: R) {
         .unwrap_or_else(|| panic!("no held refusal ending near {held} for D:\n{log}"));
     let dial_to_d = |l: &str| l.contains("dial failed") && l.contains(&to_d);
     assert!(
-        lines[..refusal].iter().any(|l| dial_to_d(l)),
-        "the failed hop to D is logged before the hold:\n{log}"
+        held_run[..refusal].iter().any(|l| dial_to_d(l)),
+        "the held run's failed hop to D is logged before the hold:\n{log}"
     );
-    let after: Vec<&str> = lines[refusal..]
+    let after: Vec<&str> = held_run[refusal..]
         .iter()
         .copied()
         .filter(|l| dial_to_d(l))
