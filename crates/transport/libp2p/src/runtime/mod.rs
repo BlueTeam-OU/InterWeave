@@ -1019,6 +1019,23 @@ const fn refusal_settles_the_peer(refusal: &DialRefusal) -> bool {
     )
 }
 
+/// Keep `refusal` as the walk's verdict, unless it is a held circuit
+/// route and an earlier candidate was refused for something else.
+///
+/// The verdict is read as the walk's ([`retry_claim`]): `RouteHeld`
+/// defers the whole retry to the hold's end, which is right only when
+/// every route was held. A direct address refused for capacity before
+/// the held circuit was asked must keep the ordinary release, or the
+/// peer's admitted route waits out a hold that is the circuit's alone
+/// (#329 review F5; ADR-0011 A 2026-10-21, "the peer's other routes
+/// stay admitted").
+fn record_refusal(last: &mut Option<DialRefusal>, refusal: DialRefusal) {
+    let held = matches!(refusal, DialRefusal::Policy(DialDenial::RouteHeld));
+    if !(held && last.is_some()) {
+        *last = Some(refusal);
+    }
+}
+
 /// The claim verdict for one peer after its candidates were walked.
 ///
 /// Extracted from the retry arm because it was unreachable from a test:
@@ -2208,11 +2225,11 @@ impl SwarmRuntime {
                                     // become true by waiting a second,
                                     // so that claim is cleared instead.
                                     Err(DialRefusal::Backend(reason)) => {
-                                        last = Some(DialRefusal::Backend(reason));
+                                        record_refusal(&mut last, DialRefusal::Backend(reason));
                                     }
                                     Err(refusal) => {
                                         let settled = refusal_settles_the_peer(&refusal);
-                                        last = Some(refusal);
+                                        record_refusal(&mut last, refusal);
                                         if settled {
                                             break;
                                         }
@@ -5441,6 +5458,55 @@ mod retry_claim_tests {
             retry_claim(true, Some(&DialRefusal::Policy(DialDenial::RouteHeld))),
             RetryClaim::Held,
             "a ticket from another candidate still owns it"
+        );
+    }
+
+    /// The walk's verdict defers only when every candidate was held: a
+    /// direct address refused for capacity before the held circuit keeps
+    /// the release (#329 review F5). THE CONTROL: the held circuit alone
+    /// defers, and a refusal after a held one still replaces it.
+    #[test]
+    fn a_hold_defers_the_walk_only_when_every_candidate_was_held() {
+        let held = || DialRefusal::Policy(DialDenial::RouteHeld);
+        let walk = |refusals: Vec<DialRefusal>| {
+            let mut last = None;
+            for refusal in refusals {
+                super::record_refusal(&mut last, refusal);
+            }
+            retry_claim(false, last.as_ref())
+        };
+        assert_eq!(
+            walk(vec![
+                DialRefusal::Policy(DialDenial::TooManyPendingDials),
+                held()
+            ]),
+            RetryClaim::Released,
+            "a direct route refused for capacity is retried next tick"
+        );
+        assert_eq!(
+            walk(vec![
+                DialRefusal::Backend(BackendRefusal::new(DialFailureClass::DialFailed, "x")),
+                held()
+            ]),
+            RetryClaim::Released
+        );
+        assert_eq!(
+            walk(vec![held()]),
+            RetryClaim::Deferred,
+            "the control: held alone"
+        );
+        assert_eq!(
+            walk(vec![held(), held()]),
+            RetryClaim::Deferred,
+            "every route held"
+        );
+        assert_eq!(
+            walk(vec![
+                held(),
+                DialRefusal::Policy(DialDenial::ConnectionLimitReached)
+            ]),
+            RetryClaim::Released,
+            "a later refusal replaces a held one"
         );
     }
 
