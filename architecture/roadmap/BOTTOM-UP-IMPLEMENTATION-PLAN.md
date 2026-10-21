@@ -5947,7 +5947,13 @@ decision 6.
 1. **The card on the wire** (rust-ui-dev): `contact_card` in
    `chat-protocol` with HUMAN-CHAT.md §Contact card's bounds and
    malformed cases, the fixture cases named there, and the parser's
-   rule "not a known kind is malformed".
+   rule "not a known kind is malformed". Its acceptance includes the
+   three-way answer the bridge needs (ADR-0059 decision 7; rust-services-
+   dev's j57): for a HumanChatV2 text the parser says NotCard, Card or
+   MalformedCard(reason), where an envelope any of whose top-level kind
+   copies is contact_card is a card — so a duplicate-member card is
+   MalformedCard, never NotCard — and a Card carries the photo's
+   decoded length as the parser measured it.
 2. **The proposal and the acceptance** (rust-ui-dev): the person's own
    cards in settings (several, each under a local label); "Share a
    card" on one conversation, choosing which, the last shared offered
