@@ -194,7 +194,11 @@ Shown while two or more identities are held; with one, the menu opens
   can tell they are on the same device, as can the network; keeping two
   identities fully apart needs a separate profile, which the desktop
   can run and this phone cannot (the Android text says only the last
-  part that is true there);
+  part that is true there); and, in the same block, that an identity's
+  label is no secret from the peers this device trusts: one that learns
+  or guesses it can write to that identity, unless the identity is
+  limited to some of them (§5.2, Who can reach this identity) (ADR-0061
+  d. 5);
 - the identities, one row each, in the order they were created: a 40 dp
   avatar (the card's photo, or its initials, §6.1, on the hue of the
   identity's EndpointId, so two identities of one PeerId do not look
@@ -237,7 +241,10 @@ on Save, inline: `IdentityRouteNeeded`, `IdentityRouteBadCharacters`,
 `IdentityRouteTaken` (another identity, or an endpoint the profile
 already has, uses it). Save creates the endpoint and its card together
 (ADR-0061 d. 2: through the admin connection on the desktop, the
-embedded host's configuration path on Android; rust-ui-dev's), with a
+embedded host's configuration path on Android; rust-ui-dev's), the
+endpoint with `advertise: false`, so the endpoint directory never lists
+the person's identities to a trusted peer; no control changes it
+(ADR-0061 d. 5). Save runs with a
 progress indicator on Save while it runs; a refusal writes nothing and
 shows `IdentityAddFailed` above Save. A new identity is not put in front:
 the list returns with the new row focused, and switching is the
@@ -307,18 +314,42 @@ is in the person's terms (`IdentityDefaultHelp`: people who write to
 this device without naming an identity reach the default; ADR-0061
 Operational implications). It does not put the identity in front.
 
+**Who can reach this identity** (`IdentityReach`), with two or more
+identities, a row on the page under the default line: its value is
+`IdentityReachAll` ("All the peers you trust") or `IdentityReachSome`
+("{n} of the peers you trust"). It narrows and never widens the device's
+trust (ADR-0030; ADR-0061 d. 5): it opens a page listing the peers the
+device trusts, each a checkbox row (this identity's contact name when
+it has one, else the short PeerId, and the full PeerId on expand —
+never a name from another identity's contacts, §5.7), all checked by
+default, with **Save**; the list never offers a peer the device does not
+trust, since trust is granted on the Trust page and nowhere else. On
+Save the policy is written at once, the row's value changes, and a
+snackbar `ConfirmReachChanged` offers Undo (writes the previous set
+back). A peer left out is not told: what it sees is the coarse
+`no_route` of any unreachable endpoint (CLAUDE.md §5), and the page
+says so (`IdentityReachNote`: people you leave out cannot write to this
+identity, and are not told why). Unchecking every peer is allowed and
+reads `IdentityReachNone`; the identity then receives from no one.
+The policy's shape and its writer are plan §30's (Stage 22); this is
+how a person meets it.
+
 **Remove this identity** is not offered on the default identity (the
 page says `IdentityRemoveDefault`: make another identity the default
-first), nor while it is the only one. Elsewhere it opens a confirmation
+first), nor while it is the only one (ADR-0061 d. 7). Elsewhere it opens a confirmation
 dialog, `IdentityRemoveTitle` naming the identity, listing what goes
 (`IdentityRemoveLoses`: its conversations and their messages, unread,
 kept and waiting to be sent; its contacts; its card; and that people
-who write to this identity are no longer reached), with **Cancel**
+who write to this identity are no longer reached). An identity whose
+endpoint the profile's configuration file authors is not deleted but
+turned off, its label kept there; the dialog says so in place of the
+endpoint's deletion (`IdentityRemoveAuthored`), and the rest of the
+list is the same (ADR-0061 d. 7: only an endpoint the client added is
+deleted from the overlay). Then **Cancel**
 (default focus) and **Remove** (`IdentityRemoveConfirm`, filled in
 `error`). Enter on the initial focus cancels; Escape and Back cancel.
-Remove has no Undo: the endpoint and every row under it go together,
-and an Undo would have to bring back messages the transport may already
-have refused for it (§12 Q5). When the removed identity was in front,
+Remove has no Undo (ADR-0061 d. 7): the endpoint and every row under it
+go together; messages waiting to be sent are deleted, never sent. When the removed identity was in front,
 the default comes in front, by §5.7.3's switch, visibly. The list
 returns with focus on the next row, else the previous.
 
@@ -748,7 +779,9 @@ the notification's title ("{identity} · {title}") (`human-client-ui.md`
 summary that hides which is which: on Android each identity is its own
 notification group, its summary naming the identity. On the lock screen,
 when the person has chosen to hide notification content, the redacted
-form shows no identity name either (§12 Q4). The service's persistent
+form shows no identity name either, since an identity's name can be what
+the person wants hidden; the switch happens on opening, after the
+unlock (ADR-0061 d. 9). The service's persistent
 notification names no identity: there is one runtime (ADR-0061 d. 9).
 
 Opening a notification of the identity in front opens its conversation,
@@ -1132,6 +1165,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | Make default, and its Undo | stays on the overflow button | keyboard |
    | Remove this identity: the dialog opens / is cancelled | Cancel / the overflow button | keyboard |
    | an identity removed | the next row, else the previous | keyboard |
+   | Who can reach this identity opened / saved / its Undo | the page title / the row on the identity's page / that row | keyboard |
    | the switch activated | the switcher's chosen row | keyboard |
    | the switcher closed with nothing changed | the switch | keyboard |
    | a switch, from the switcher or Switch back | the switch, naming the new identity | keyboard |
@@ -1261,6 +1295,14 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     losses with focus on Cancel, is not offered on the default or the
     only identity, and, when it was in front, brings the default in
     front with the switch's snackbar.
+24. **Who can reach an identity.** A new identity's endpoint has
+    `advertise: false`, and a trusted peer's directory query lists none
+    of the person's identities; limiting `work` to one trusted peer
+    leaves another trusted peer's message to `work` refused with
+    `no_route`, while it still reaches `human`; the list offers only
+    trusted peers and names them from `work`'s contacts only. Removing
+    an identity whose endpoint `config.yaml` authors turns it off and
+    keeps its label, and its dialog says so.
 
 ### 9.1 `human-client-ui.md` §13 criteria
 
@@ -1379,7 +1421,7 @@ and are for them to write.
 | `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo |
 | `IdentitiesTitle` | Your identities | menu item, page title, the switcher's link (new, proposal) |
 | `OwnCardTitle` | Your card | menu item with one identity (new, proposal) |
-| `IdentitiesShareDevice` | Your identities use this device's PeerId and network addresses. Someone who knows two of them can tell that they are on the same device, and so can the network. To keep two identities fully apart, use a separate profile on a computer. | §5.1; Android ends instead: "This phone cannot keep two identities fully apart." Must state the shared PeerId and addresses, who can see it, and the separation that exists (ADR-0061 d. 5) (new, proposal) |
+| `IdentitiesShareDevice` | Your identities use this device's PeerId and network addresses. Someone who knows two of them can tell that they are on the same device, and so can the network. To keep two identities fully apart, use a separate profile on a computer. The peers you trust can write to any identity whose label they know, unless you limit who can reach it. | §5.1; Android ends instead: "This phone cannot keep two identities fully apart." Must state the shared PeerId and addresses, who can see it, the separation that exists, and that a label is no secret from a trusted peer (ADR-0061 d. 5) (new, proposal) |
 | `IdentityRouteLabel` | Seen by others as {route} | §5.1 row, under the name (new, proposal) |
 | `IdentityDefault` | Default | §5.1 row (new, proposal) |
 | `IdentityInFront` | In use | §5.1 row's accessible description; the check mark's meaning (new, proposal) |
@@ -1393,6 +1435,11 @@ and are for them to write.
 | `IdentityIsDefault` | Default identity | §5.2 line (new, proposal) |
 | `IdentityDefaultHelp` | People who write to this device without choosing an identity reach your default identity. | §5.2 helper; ADR-0061: "which identity a stranger reaches" (new, proposal) |
 | `ConfirmDefaultSet` | {identity} is now the default | snackbar, with Undo (new, proposal) |
+| `IdentityReach` | Who can reach this identity | §5.2 row and page title (new, proposal) |
+| `IdentityReachAll` / `IdentityReachSome` / `IdentityReachNone` | All the peers you trust / {n} of the peers you trust / No one | its value; plural rules language-culture's (new, proposal) |
+| `IdentityReachNote` | People you leave out cannot write to this identity, and are not told why. | its page (new, proposal) |
+| `ConfirmReachChanged` | Changed who can reach {identity} | snackbar, with Undo (new, proposal) |
+| `IdentityRemoveAuthored` | The label {route} stays in this device's settings, turned off. | Remove dialog, for an identity the configuration file authors; must say it is turned off, not deleted (new, proposal) |
 | `RemoveIdentity` | Remove this identity | §5.2 overflow (new, proposal) |
 | `IdentityRemoveDefault` | To remove this identity, first make another identity the default. | §5.2, on the default identity (new, proposal) |
 | `IdentityRemoveTitle` | Remove {identity}? | dialog title (new, proposal) |
@@ -1505,26 +1552,16 @@ given until they answer):
   appear with the second identity, none with one (d. 3 and d. 9;
   §5.7); a new conversation speaks as the identity in front, named
   before the first send, and nothing asks (d. 3; §5.7.4).
-- **Q4** — the lock screen. `human-client-ui.md` §10 lets the person
-  hide notification content; read here as the redacted notification
-  naming no identity, since an identity's name can be what the person
-  wants hidden (§5.7.5).
-- **Q5** — removing an identity: read here as removing its endpoint
-  and, with it, its conversations and their messages (pending outbound
-  included), its contacts and its card, with no Undo, never on the
-  default or the only identity (§5.2). Confirm what goes, and that
-  pending outbound is deleted rather than sent.
-- **Q6** — identities in the endpoint directory. ENDPOINTS.md lists to
-  every trusted peer each endpoint with `advertise: true` and a lease,
-  and every identity holds a lease (ADR-0061 d. 2); an identity created
-  with `advertise: true` would be listed to every trusted peer, beside
-  the person's other identities, which §13's "nothing a counterparty
-  receives reveals the person's other identities" excludes. Read here
-  as every identity created with `advertise: false` and no control
-  offered; and, since trust is the device's, any trusted peer can still
-  write to an identity whose label it learns or guesses. Whether that
-  is said to the person, or an identity's endpoint carries an inbound
-  policy, is yours.
+- **Q4–Q6**, ruled by architect-cto as read here (REPLY 01a15f0e, on
+  #335 at 9746baa4): the redacted lock-screen notification names no
+  identity (d. 9; §5.7.5); Remove is always confirmed with the list of
+  what goes, deletes pending outbound unsent, has no Undo, is absent on
+  the only identity and on the default, and only turns off an endpoint
+  the configuration file authors (d. 7; §5.2); an identity's endpoint
+  is created with `advertise: false` and no control, its label is no
+  secret from a trusted peer, and an identity may be limited to a
+  subset of the device's trusted peers, whose control is Stage 22's
+  (d. 5; §5.1, §5.2).
 
 For language-culture:
 
