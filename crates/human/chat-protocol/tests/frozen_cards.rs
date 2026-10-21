@@ -379,6 +379,73 @@ fn any_top_level_contact_card_kind_makes_a_card_so_a_duplicate_is_malformed_neve
 }
 
 #[test]
+fn json_this_parser_cannot_represent_never_hides_a_card() {
+    // Each text is well-formed JSON with a top-level `kind` that is
+    // `contact_card`; a reader that keeps the last copy, or takes 1e400
+    // as Infinity or a lone surrogate as written, sees a card. So the
+    // answer is a malformed card, never "not a card", whether the value
+    // serde_json cannot hold is a second `kind`, a key, or any member.
+    let doc = fixture();
+    let valid = wire(vector(&doc, "valid-minimal"));
+    let body = valid.strip_prefix('{').expect("an object");
+    let deep = format!("{}{}", "[".repeat(200), "]".repeat(200));
+    for prefix in [
+        r#""kind":1e400,"#.to_owned(),
+        r#""kind":"\ud800","#.to_owned(),
+        format!(r#""kind":{deep},"#),
+        r#""\ud800":0,"#.to_owned(),
+        r#""x":1e400,"#.to_owned(),
+        r#""x":"\udc00","#.to_owned(),
+        format!(r#""x":{deep},"#),
+    ] {
+        let text = format!("{{{prefix}{body}");
+        assert_eq!(
+            classify_on_fixture_route(&text),
+            Classified::MalformedCard(CardFault::Unreadable),
+            "{prefix}"
+        );
+    }
+    // The same, inside the card.
+    let inside = valid.replacen(r#""card":{"#, r#""card":{"x":1e400,"#, 1);
+    assert_ne!(inside, valid, "planted");
+    assert_eq!(
+        classify_on_fixture_route(&inside),
+        Classified::MalformedCard(CardFault::Unreadable)
+    );
+}
+
+#[test]
+fn a_kind_is_read_after_its_escapes() {
+    // An escaped `k` (U+006B) and `_` (U+005F) spell the same member and
+    // the same value, so the escaped spelling is a card. Built from a
+    // backslash so the escapes reach the parser as written.
+    let bs = '\\';
+    let doc = fixture();
+    let valid = wire(vector(&doc, "valid-minimal"));
+    let escaped = valid.replacen(
+        r#""kind":"contact_card""#,
+        &format!(r#""{bs}u006bind":"contact{bs}u005fcard""#),
+        1,
+    );
+    assert_ne!(escaped, valid, "planted");
+    assert!(escaped.contains("u006bind"), "the escape is in the text");
+    assert!(matches!(
+        classify_on_fixture_route(&escaped),
+        Classified::Card(_)
+    ));
+    // And beside the plain spelling it is a second `kind`.
+    let both = valid.replacen(
+        r#""kind":"contact_card""#,
+        &format!(r#""kind":"contact_card","{bs}u006bind":"text""#),
+        1,
+    );
+    assert_eq!(
+        classify_on_fixture_route(&both),
+        Classified::MalformedCard(CardFault::DuplicateMember)
+    );
+}
+
+#[test]
 fn a_text_message_and_a_non_object_are_not_cards() {
     let text = format!(r#"{{"v":2,"kind":"text","app_message_id":"{ID}","text":"contact_card"}}"#);
     assert_eq!(classify_on_fixture_route(&text), Classified::NotCard);
@@ -431,6 +498,7 @@ fn every_fault_has_a_distinct_fixed_name() {
     use std::collections::BTreeSet;
     let all = [
         CardFault::DuplicateMember,
+        CardFault::Unreadable,
         CardFault::Version,
         CardFault::AppMessageId,
         CardFault::SentAtMs,

@@ -99,6 +99,11 @@ pub enum CardFault {
     /// An object named the same member twice, anywhere in the envelope —
     /// a second top-level `kind` included.
     DuplicateMember,
+    /// Well-formed JSON this parser cannot hold to one value: a number
+    /// out of range, a lone surrogate escape, or nesting past the
+    /// recursion limit. Other readers resolve each differently, so the
+    /// card has no single meaning, as for a duplicate member.
+    Unreadable,
     /// `v` was not 2.
     Version,
     /// `app_message_id` was not 32 lowercase hex characters.
@@ -142,6 +147,7 @@ impl CardFault {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::DuplicateMember => "duplicate-member",
+            Self::Unreadable => "unreadable",
             Self::Version => "version",
             Self::AppMessageId => "app-message-id",
             Self::SentAtMs => "sent-at-ms",
@@ -242,10 +248,40 @@ pub fn canonical_card_bytes(
 
 /// Whether any top-level `kind` member is the string `contact_card`.
 ///
-/// Read leniently and apart from the strict parse, which refuses a
-/// duplicate before it could say which copy named a card: here every
-/// copy is seen. A text that is not a JSON object is not a card.
+/// Read apart from the strict parse, which refuses a duplicate before it
+/// could say which copy named a card: here every copy is seen. And read
+/// by the JSON GRAMMAR, not by what `serde_json` can represent: a number
+/// out of `f64`'s range, a lone surrogate escape or nesting past the
+/// recursion limit are all well-formed JSON that other readers accept, so
+/// none of them, in a key or in any value, may stop this pass from seeing
+/// a `contact_card` beside it. Keys are read as raw bytes, which takes
+/// `serde_json`'s unvalidated string path; a `kind` value is taken as a
+/// [`serde_json::value::RawValue`], skipped as loosely as an ignored
+/// member, and only then decoded; every other value is ignored. What
+/// still fails is text that is not a JSON object at all, which no reader
+/// sees a card in.
 fn any_top_level_kind_is_card(text: &str) -> bool {
+    /// Whether a member's name is `kind`, after its escapes.
+    struct IsKind(bool);
+    impl<'de> serde::Deserialize<'de> for IsKind {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            struct V;
+            impl serde::de::Visitor<'_> for V {
+                type Value = IsKind;
+                fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                    f.write_str("a member name")
+                }
+                fn visit_bytes<E>(self, v: &[u8]) -> Result<IsKind, E> {
+                    Ok(IsKind(v == b"kind"))
+                }
+                fn visit_str<E>(self, v: &str) -> Result<IsKind, E> {
+                    Ok(IsKind(v == "kind"))
+                }
+            }
+            d.deserialize_bytes(V)
+        }
+    }
+
     struct Kinds(bool);
     impl<'de> serde::Deserialize<'de> for Kinds {
         fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -260,10 +296,13 @@ fn any_top_level_kind_is_card(text: &str) -> bool {
                     mut map: A,
                 ) -> Result<Kinds, A::Error> {
                     let mut card = false;
-                    while let Some(key) = map.next_key::<String>()? {
-                        if key == "kind" {
-                            let value: serde_json::Value = map.next_value()?;
-                            card |= value.as_str() == Some(CONTACT_CARD_KIND);
+                    while let Some(IsKind(is_kind)) = map.next_key::<IsKind>()? {
+                        if is_kind {
+                            let raw: &'de serde_json::value::RawValue = map.next_value()?;
+                            // A copy that is no string, or one holding a
+                            // lone surrogate, is not `contact_card`.
+                            card |= serde_json::from_str::<String>(raw.get())
+                                .is_ok_and(|kind| kind == CONTACT_CARD_KIND);
                         } else {
                             map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -279,12 +318,14 @@ fn any_top_level_kind_is_card(text: &str) -> bool {
 
 fn parse_card(text: &str, route: CardRoute<'_>) -> Result<Card, CardFault> {
     let StrictValue(raw) = serde_json::from_str::<StrictValue>(text).map_err(|e| {
-        // The lenient pass read this text as an object, so a strict
-        // failure here is a repeated member and nothing else.
+        // The lenient pass read this text as a JSON object by the grammar,
+        // so a strict failure is either a repeated member or JSON this
+        // parser cannot hold to one value: a number out of range, a lone
+        // surrogate, nesting past the recursion limit.
         if duplicate_member(&e).is_some() {
             CardFault::DuplicateMember
         } else {
-            CardFault::MissingCard
+            CardFault::Unreadable
         }
     })?;
 
