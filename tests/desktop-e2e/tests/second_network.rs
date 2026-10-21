@@ -23,7 +23,7 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::net::SocketAddrV4;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use interweave_ipc_client::IpcSession;
 use interweave_local_client_api::{
@@ -288,4 +288,90 @@ async fn two_daemons_behind_their_own_nats_cannot_dial_each_other_and_talk_throu
         a_daemon.log(),
         b_daemon.log()
     );
+}
+
+/// Set by [`the_inner_copy_dies_with_the_test`] for its helper's copies,
+/// so the inner one can be found among this host's processes.
+const LIFETIME_TOKEN: &str = "INTERWEAVE_E2E_LIFETIME_TOKEN";
+
+const HELPER: &str = "the_lifetime_helper_waits_inside";
+
+/// The helper [`the_inner_copy_dies_with_the_test`] runs as a test
+/// process of its own: inside, it waits until it is killed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run by the_inner_copy_dies_with_the_test, never alone"]
+async fn the_lifetime_helper_waits_inside() {
+    assert!(
+        std::env::var_os(LIFETIME_TOKEN).is_some(),
+        "{HELPER} runs only under the_inner_copy_dies_with_the_test"
+    );
+    if !netns::in_second_network(HELPER) {
+        return;
+    }
+    tokio::time::sleep(Duration::from_secs(300)).await;
+}
+
+/// The pids of this user's processes whose environment carries `token`
+/// in `LIFETIME_TOKEN` and that run inside the second network.
+fn holding(token: &str) -> Vec<u32> {
+    let want = format!("{LIFETIME_TOKEN}={token}");
+    let inside = format!("{}=1", netns::NETNS_ENV);
+    std::fs::read_dir("/proc")
+        .expect("/proc")
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|pid| {
+            std::fs::read(format!("/proc/{pid}/environ")).is_ok_and(|env| {
+                let vars: Vec<&[u8]> = env.split(|b| *b == 0).collect();
+                vars.contains(&want.as_bytes()) && vars.contains(&inside.as_bytes())
+            })
+        })
+        .collect()
+}
+
+/// The harness ties the inner copy's life to the test's: the test
+/// process killed alone (`SIGKILL`) -- no unwinding, no destructor -- takes the
+/// inner copy, and with it anything it started, within seconds, rather
+/// than leaving it to run until its own waits end. The control: the
+/// inner copy is found running before the kill.
+#[test]
+fn the_inner_copy_dies_with_the_test() {
+    if std::env::var_os(netns::NETNS_ENV).is_some() {
+        return;
+    }
+    let token = format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after 1970")
+            .as_nanos()
+    );
+    let mut outer = std::process::Command::new(std::env::current_exe().expect("this binary"))
+        .args(["--exact", HELPER, "--ignored", "--nocapture"])
+        .env(LIFETIME_TOKEN, &token)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("the helper's outer copy");
+    let deadline = Instant::now() + PATIENCE;
+    let inner = loop {
+        if let Some(pid) = holding(&token).first() {
+            break *pid;
+        }
+        assert!(
+            Instant::now() < deadline && outer.try_wait().expect("a status").is_none(),
+            "the helper's inner copy never ran"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    outer.kill().expect("SIGKILL to the outer copy alone");
+    let _ = outer.wait();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::path::Path::new(&format!("/proc/{inner}")).exists() && !holding(&token).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "the inner copy {inner} outlived the test process"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }

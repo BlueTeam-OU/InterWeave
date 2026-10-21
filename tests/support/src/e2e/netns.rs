@@ -185,14 +185,24 @@ pub fn in_second_network(test: &str) -> bool {
         .expect("the new root's mount point");
     let script = format!(
         "{SETUP}\nexport {NETNS_ENV}=1 TMPDIR=/scratch\n\
-         exec \"$IW_TEST_EXE\" --exact \"$IW_TEST_NAME\" --nocapture --test-threads 1"
+         exec \"$IW_TEST_EXE\" --exact \"$IW_TEST_NAME\" --include-ignored --nocapture --test-threads 1"
     );
-    // A pid namespace too, with `--kill-child`: when `unshare` dies --
-    // killed below on the deadline, or with this process -- every process
-    // the inner copy started dies with it, its daemons included, rather
-    // than running on until their own waits end.
-    let child = Command::new("unshare")
+    // Every process the inner copy starts dies with this test, whichever
+    // way it ends. `setpriv --pdeathsig KILL` has the kernel kill `unshare`
+    // when the thread that spawned it -- this one, which waits below --
+    // goes, the test process killed included; a pid namespace with
+    // `--kill-child` then takes the inner copy and its daemons with
+    // `unshare`, and the deadline below kills `unshare` on a hang.
+    // The signal follows the spawning THREAD: spawn from a thread that
+    // outlives the child, as this one does, or the tie is void. The
+    // TempDir above is still left when the test is SIGKILLed: no drop
+    // runs. `second_network.rs`'s run with the outer copy SIGKILLed is
+    // the check (`the_inner_copy_dies_with_the_test`).
+    let child = Command::new("setpriv")
         .args([
+            "--pdeathsig",
+            "KILL",
+            "unshare",
             "-rnm",
             "--pid",
             "--fork",
