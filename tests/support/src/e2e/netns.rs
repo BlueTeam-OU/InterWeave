@@ -55,6 +55,10 @@ use super::relay::Relay;
 /// this is reached only by a hang.
 const INNER_DEADLINE: Duration = Duration::from_secs(600);
 
+/// Where the outer copy makes the new root's mount point, when set: the
+/// system's temporary directory otherwise.
+pub const ROOT_PARENT: &str = "INTERWEAVE_E2E_SECOND_NETWORK_ROOT_PARENT";
+
 /// Set in the inner copy; its value is unused.
 pub const NETNS_ENV: &str = "INTERWEAVE_E2E_SECOND_NETWORK";
 
@@ -179,9 +183,12 @@ pub fn in_second_network(test: &str) -> bool {
         .expect("<target>/<profile>/deps/<test>")
         .to_path_buf();
     let repo = crate::repo_root();
+    // Under ROOT_PARENT when set: a caller that kills this copy -- whose
+    // TempDir then never drops -- removes what it left.
+    let parent = std::env::var_os(ROOT_PARENT).map_or_else(std::env::temp_dir, PathBuf::from);
     let root = tempfile::Builder::new()
         .prefix("iw-second-network-")
-        .tempdir()
+        .tempdir_in(parent)
         .expect("the new root's mount point");
     let script = format!(
         "{SETUP}\nexport {NETNS_ENV}=1 TMPDIR=/scratch\n\
@@ -195,8 +202,8 @@ pub fn in_second_network(test: &str) -> bool {
     // `unshare`, and the deadline below kills `unshare` on a hang.
     // The signal follows the spawning THREAD: spawn from a thread that
     // outlives the child, as this one does, or the tie is void. The
-    // TempDir above is still left when the test is SIGKILLed: no drop
-    // runs. `second_network.rs`'s run with the outer copy SIGKILLed is
+    // mount point above is still left when the test is SIGKILLed, since no
+    // drop runs: a caller that kills it gives it a parent (ROOT_PARENT). `second_network.rs`'s run with the outer copy SIGKILLed is
     // the check (`the_inner_copy_dies_with_the_test`).
     let child = Command::new("setpriv")
         .args([

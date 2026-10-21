@@ -346,9 +346,13 @@ fn the_inner_copy_dies_with_the_test() {
             .expect("after 1970")
             .as_nanos()
     );
+    // The helper's mount point under a directory of this test's: the
+    // killed outer copy cannot remove its own.
+    let parent = tempfile::tempdir().expect("a parent for the helper's root");
     let mut outer = std::process::Command::new(std::env::current_exe().expect("this binary"))
         .args(["--exact", HELPER, "--ignored", "--nocapture"])
         .env(LIFETIME_TOKEN, &token)
+        .env(netns::ROOT_PARENT, parent.path())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
