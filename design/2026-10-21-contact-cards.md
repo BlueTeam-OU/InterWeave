@@ -220,10 +220,10 @@ States:
   list shows what it read; Add, Save and Remove are disabled with the
   existing degraded notice above them, since a card that cannot be
   stored cannot be saved.
-- **At the bound**: when the profile holds as many endpoints as its
-  effective limit allows (ENDPOINTS.md's configured-endpoints limit,
-  whose default is below its ceiling of 64, agent endpoints counted;
-  §12 Q8), Add an identity opens nothing and `IdentityLimit` shows
+- **At the bound**: when the profile holds 64 endpoints, the
+  configuration's bound (ENDPOINTS.md), authored and added counted
+  together, agent endpoints included (§12 Q7–Q10), Add an identity opens
+  nothing and `IdentityLimit` shows
   under it, focused.
 
 A row opens that identity's page (§5.2). The list is the one place where
@@ -1681,8 +1681,10 @@ given until they answer):
   identities only, deletes the endpoint from `added` and frees its label;
   the first identity is never removed, only turned off once another is
   enabled (d. 7; §5.2). Add never takes a configured endpoint's label
-  (§5.1). The limit is the profile's effective configured-endpoint limit,
-  authored and added counted together, refused by name (d. 2; §5.1).
+  (§5.1). The limit is the configuration's bound of 64 endpoints, authored and
+  added counted together, refused by name (d. 2; §5.1; corrected at
+  #335's 29ae9c38, INFO 01a15f30: ENDPOINTS.md's default of 16 was a
+  value nothing applied).
 
 For language-culture:
 
