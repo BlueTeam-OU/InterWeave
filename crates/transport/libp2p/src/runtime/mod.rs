@@ -4209,12 +4209,19 @@ mod live_dns_tests {
     }
 
     /// A resolver event the outbox has no room for is held, ONE, the latest,
-    /// and delivered when room comes. At an event capacity of one, the start's
-    /// `ResolverUnavailable` fills the channel and the first view's event the
-    /// outbox; the next two are held in turn, the second replacing the first.
-    /// Nothing is drained until all three views were applied (the status says
-    /// each), so the drain shows what was kept: the strict view's event is
-    /// gone and the last one arrives.
+    /// and delivered when room comes. At an event capacity of one, nothing
+    /// is drained until all three views were applied (the status says each),
+    /// so the drain shows what was kept: the start's `ResolverUnavailable`
+    /// first, the LATEST view's event last, and between them at most one of
+    /// the two earlier views' events, in the order applied -- the one that
+    /// found room before the next view replaced it. Which one, if any, is
+    /// the runtime's timing and not the rule: it turns on whether the
+    /// start's event had moved from the outbox into the channel when each
+    /// view was applied. The exact three-event sequence this test used to
+    /// expect held only for one ordering; CI run 39564325388 met another
+    /// three tries in a row and waited out its patience for a third event,
+    /// and forty runs under load here met the strict view's event delivered
+    /// in the middle (j49).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_held_resolver_event_is_the_latest_and_is_delivered_when_room_comes() {
         let identity = ProfileIdentity::generate();
@@ -4245,8 +4252,8 @@ mod live_dns_tests {
         until_resolver(&runtime, ResolverSource::Platform).await;
 
         let mut resolver_events = Vec::new();
-        while resolver_events.len() < 3 {
-            match wait_for(&mut runtime, "the resolver events", |e| {
+        while resolver_events.last().map(String::as_str) != Some("configured: 2") {
+            match wait_for(&mut runtime, "the latest view's resolver event", |e| {
                 matches!(
                     e,
                     SwarmEvent::ResolverUnavailable { .. } | SwarmEvent::ResolverConfigured { .. }
@@ -4263,14 +4270,17 @@ mod live_dns_tests {
                 other => panic!("unexpected {other:?}"),
             }
         }
-        assert_eq!(
-            resolver_events,
-            [
-                "unavailable: no host resolver configuration is read here".to_owned(),
-                "configured: 1".to_owned(),
-                "configured: 2".to_owned(),
-            ],
-            "the start's event, the first view's, then the latest held one -- not strict mode's"
+        let start = "unavailable: no host resolver configuration is read here";
+        let first = "configured: 1";
+        let strict = format!("unavailable: {PRIVATE_DNS_STRICT}");
+        let latest = "configured: 2";
+        let kept: Vec<&str> = resolver_events.iter().map(String::as_str).collect();
+        assert!(
+            kept == [start, latest]
+                || kept == [start, first, latest]
+                || kept == [start, strict.as_str(), latest],
+            "the start's event, at most one earlier view's that found room, then the latest: \
+             {resolver_events:?}"
         );
         let late = quiet_for(&mut runtime, Duration::from_millis(300)).await;
         assert!(
