@@ -854,7 +854,7 @@ App bar: back arrow, title "Contacts" and, while two or more identities
 are held, the identity in front as the subtitle (§5.7.2): the list is
 that identity's contacts and no other's. Rows sorted by name in the
 locale's collation: avatar, name, and under it `ContactRoutes` ("{n}
-routes") only when there is more than one. A row opens the contact page.
+conversations") only when there is more than one. A row opens the contact page.
 
 - **Empty**: `ContactsEmpty`: no contacts yet; a contact is added when
   someone shares their card and you accept it, or when you name a
@@ -1413,7 +1413,7 @@ and are for them to write.
 | `AddAsContact` / `OpenContact` | Add as a contact / Open contact | Details |
 | `DetailsNoCard` | You have not shared your card here. | Details |
 | `ContactsEmpty` | One identity: You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. Two or more: {front} has no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty; with two or more identities it is this identity's list that is empty, and the text must not suggest the person has no contacts at all (language-culture to judge whether it needs saying) |
-| `ContactRoutes` | {n} conversations | contact row, n ≥ 2: the number of the contact's conversations, called conversations as every other string does (plural rules language-culture's) (revised, proposal) |
+| `ContactRoutes` | {n} conversations | contact row, n ≥ 2: the number of the contact's conversations, called conversations as every other string does (plural rules language-culture's) |
 | `ContactTitleTwin` | {name} ({peer}) | title of a contact sharing a name: `{peer}` the short PeerId across devices, the route label within one device (§6.1) |
 | `ContactName` | Name | contact page field |
 | `ContactNameFromCard` | Name from their card, {date} | provenance |
