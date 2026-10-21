@@ -88,6 +88,25 @@ pub struct HumanStore {
 /// build before `secure_delete` left (`HumanStore::scrub_at_open`).
 const SCRUBBED: &str = "released_content_scrubbed";
 
+/// One page of the inbound walk, in the order the client lists it: by
+/// time of receipt, the row id breaking a tie, so a cursor resumes exactly
+/// where the page before it ended. Each is served by its table's
+/// `<table>_by_received` index (schema v8) rather than a sort of the
+/// whole table on every page; `the_inbound_walk_reads_its_index_not_a_sort`
+/// pins the plan.
+const WALK_UNREAD: &str = "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
+        media_type, payload, received_at, NULL, NULL
+   FROM unread_inbound
+  WHERE (received_at, row_id) > (?1, ?2)
+  ORDER BY received_at, row_id
+  LIMIT ?3";
+const WALK_KEPT: &str = "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
+        media_type, payload, received_at, read_at, kept_at
+   FROM kept_inbound
+  WHERE (received_at, row_id) > (?1, ?2)
+  ORDER BY received_at, row_id
+  LIMIT ?3";
+
 /// THE CLOSE truncates the WAL too (`RETENTION.md` §8: absent "after a
 /// clean close"). DEFENCE IN DEPTH, NOT SEPARATELY PINNED: SQLite's own
 /// close of the last connection checkpoints and removes the WAL as well,
@@ -1276,21 +1295,7 @@ impl HumanStore {
         // `table` is one of two literals chosen by this module, never
         // caller input; SQLite does not bind identifiers.
         let kept = table == "kept_inbound";
-        let sql = if kept {
-            "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
-                    media_type, payload, received_at, read_at, kept_at
-               FROM kept_inbound
-              WHERE (received_at, row_id) > (?1, ?2)
-              ORDER BY received_at, row_id
-              LIMIT ?3"
-        } else {
-            "SELECT row_id, app_message_id, source_peer, source_endpoint, channel_id,
-                    media_type, payload, received_at, NULL, NULL
-               FROM unread_inbound
-              WHERE (received_at, row_id) > (?1, ?2)
-              ORDER BY received_at, row_id
-              LIMIT ?3"
-        };
+        let sql = if kept { WALK_KEPT } else { WALK_UNREAD };
 
         let (sort_key, row_id) = cursor_bounds(after)?;
         let fetch = i64::try_from(limits.max_records().saturating_add(1)).unwrap_or(i64::MAX);
@@ -1907,5 +1912,41 @@ mod parent_tests {
             Path::new("."),
             "a path with no parent at all still yields a directory to check"
         );
+    }
+}
+
+#[cfg(test)]
+mod walk_plan_tests {
+    use super::{WALK_KEPT, WALK_UNREAD};
+
+    /// The walk's plan on a store this build migrated: a SEARCH of the
+    /// table through its v8 index, and no temporary B-tree, which is what
+    /// a sort of the whole table on every page reads as.
+    #[test]
+    fn the_inbound_walk_reads_its_index_not_a_sort() {
+        let mut conn = rusqlite::Connection::open_in_memory().expect("in-memory database");
+        crate::schema::migrate(&mut conn).expect("a fresh database migrates");
+        for (sql, index) in [
+            (WALK_UNREAD, "unread_inbound_by_received"),
+            (WALK_KEPT, "kept_inbound_by_received"),
+        ] {
+            let mut stmt = conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .expect("plan the walk");
+            let plan: Vec<String> = stmt
+                .query_map(rusqlite::params![0_i64, 0_i64, 101_i64], |r| r.get(3))
+                .expect("plan rows")
+                .collect::<Result<_, _>>()
+                .expect("plan text");
+            assert!(
+                plan.iter()
+                    .any(|step| step.contains(&format!("USING INDEX {index}"))),
+                "the walk does not read {index}: {plan:?}"
+            );
+            assert!(
+                !plan.iter().any(|step| step.contains("TEMP B-TREE")),
+                "the walk sorts instead of reading its index: {plan:?}"
+            );
+        }
     }
 }

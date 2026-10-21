@@ -28,7 +28,7 @@ use rusqlite::{Connection, OptionalExtension as _, Transaction};
 use crate::StoreError;
 
 /// The schema version this build writes and expects.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// Every table the store is allowed to contain.
 ///
@@ -38,22 +38,6 @@ pub const SCHEMA_VERSION: i64 = 7;
 /// the conversation index (`RETENTION.md` §5, plan §17 (4)), and since
 /// v7 the read pairs (STATE.md, plan §18 (5)).
 pub const REQUIRED_TABLES: &[&str] = &[
-    "pending_outbound",
-    "unread_inbound",
-    "kept_inbound",
-    "settings",
-    "contacts",
-    "contact_routes",
-    "conversation_index",
-    "read_pairs",
-];
-
-/// Tables whose SQLite-generated indexes are legitimate.
-///
-/// An autoindex is named `sqlite_autoindex_<table>_<n>` and is caught by
-/// the `sqlite_` prefix; this covers any index SQLite names after the
-/// table it backs.
-const INTERNAL_INDEX_OWNERS: &[&str] = &[
     "pending_outbound",
     "unread_inbound",
     "kept_inbound",
@@ -149,12 +133,38 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     if current < 7 {
         migration_7(&tx)?;
     }
+    if current < 8 {
+        migration_8(&tx)?;
+    }
     // The version bump rides the SAME transaction as the DDL above, which
     // is what makes a crashed migration a no-op rather than a schema the
     // store misreads on the next open.
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     Ok(())
+}
+
+/// v8 — the inbound walk's sort key is indexed: `(received_at, row_id)`
+/// on each inbound content table (SPIKE-011; architect-cto's ruling,
+/// REPLY 01a15f1a).
+///
+/// The client's start-up walk pages both tables in that order
+/// (`read_inbound_table`), and without an index every page was a full
+/// scan and a sort of the whole table. Content-free: the index holds the
+/// time of receipt and the row id, both already columns of the row, and
+/// goes with the row it indexes, so a released message leaves nothing
+/// behind in it. No table is rebuilt and none changes shape (STATE.md's
+/// logical tables are unchanged); [`verify_shape`] holds the two indexes
+/// by name and column, as it holds every other part of the schema.
+/// `the_inbound_walk_reads_its_index_not_a_sort` pins the plan.
+fn migration_8(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "
+        CREATE INDEX unread_inbound_by_received ON unread_inbound (received_at, row_id);
+        CREATE INDEX kept_inbound_by_received ON kept_inbound (received_at, row_id);
+        ",
+    )
+    .map_err(migration_error)
 }
 
 /// v7 — the read pairs: a bounded, content-free record of messages read
@@ -697,6 +707,12 @@ struct TableShape {
     /// So the expression is EVALUATED rather than read. See
     /// [`generated_columns_compute_what_we_wrote`].
     generated: &'static [GeneratedColumn],
+    /// Every index the store creates beyond its UNIQUE keys, as `(name,
+    /// ordered columns)`. Any other non-unique index on the table -- an
+    /// extra one, a partial one, one over an expression -- is refused: an
+    /// index is a second copy of the columns it covers, so the set is
+    /// part of what the store keeps.
+    indexes: &'static [(&'static str, &'static [&'static str])],
     /// Whether the rowid primary key is AUTOINCREMENT.
     ///
     /// Not visible through any pragma, and load-bearing: a bare
@@ -1039,6 +1055,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         unique_keys: &[&["app_message_id"], &["transport_message_id"]],
         generated: &[],
         autoincrement: true,
+        indexes: &[],
         foreign_keys: &[],
     },
     TableShape {
@@ -1067,6 +1084,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         ]],
         generated: &[GENERATED_ENDPOINT_KEY, GENERATED_CHANNEL_KEY],
         autoincrement: true,
+        indexes: &[("unread_inbound_by_received", &["received_at", "row_id"])],
         foreign_keys: &[],
     },
     TableShape {
@@ -1091,6 +1109,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         ]],
         generated: &[GENERATED_ENDPOINT_KEY, GENERATED_CHANNEL_KEY],
         autoincrement: true,
+        indexes: &[("kept_inbound_by_received", &["received_at", "row_id"])],
         foreign_keys: &[],
     },
     TableShape {
@@ -1099,6 +1118,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         unique_keys: &[&["key"]],
         generated: &[],
         autoincrement: false,
+        indexes: &[],
         foreign_keys: &[],
     },
     // v5's three content-free tables (`migration_5`): shaped column by
@@ -1119,6 +1139,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         unique_keys: &[&["contact_id"]],
         generated: &[],
         autoincrement: false,
+        indexes: &[],
         foreign_keys: &[],
     },
     TableShape {
@@ -1134,6 +1155,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         unique_keys: &[&["contact_id", "peer_id", "endpoint_id"]],
         generated: &[],
         autoincrement: false,
+        indexes: &[],
         foreign_keys: &[(
             "contact_id",
             "contacts",
@@ -1155,6 +1177,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         unique_keys: &[&["conversation_id"]],
         generated: &[],
         autoincrement: false,
+        indexes: &[],
         foreign_keys: &[],
     },
     TableShape {
@@ -1178,6 +1201,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         ]],
         generated: &[GENERATED_ENDPOINT_KEY, GENERATED_CHANNEL_KEY],
         autoincrement: true,
+        indexes: &[],
         foreign_keys: &[],
     },
 ];
@@ -1222,6 +1246,51 @@ fn actual_unique_keys(conn: &Connection, table: &str) -> Result<Vec<Vec<String>>
     }
     keys.sort();
     Ok(keys)
+}
+
+/// Read one table's non-unique indexes as `(name, ordered columns)`.
+///
+/// A column `index_info` cannot name -- an expression -- reads as
+/// `<expression>`, and a partial index has `<partial>` appended, so
+/// neither can match a declared index by its name and columns alone.
+fn actual_plain_indexes(
+    conn: &Connection,
+    table: &str,
+) -> Result<Vec<(String, Vec<String>)>, StoreError> {
+    let mut list = conn.prepare(&format!("PRAGMA index_list({table})"))?;
+    let indexes: Vec<(String, i64, i64)> = list
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })?
+        .collect::<Result<_, _>>()?;
+
+    let mut out = Vec::new();
+    for (name, unique, partial) in indexes {
+        if unique != 0 {
+            continue;
+        }
+        let mut info = conn.prepare(&format!("PRAGMA index_info(\"{name}\")"))?;
+        let mut cols: Vec<(i64, Option<String>)> = info
+            .query_map([], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(2)?))
+            })?
+            .collect::<Result<_, _>>()?;
+        cols.sort_by_key(|(seq, _)| *seq);
+        let mut cols: Vec<String> = cols
+            .into_iter()
+            .map(|(_, c)| c.unwrap_or_else(|| "<expression>".to_owned()))
+            .collect();
+        if partial != 0 {
+            cols.push("<partial>".to_owned());
+        }
+        out.push((name, cols));
+    }
+    out.sort();
+    Ok(out)
 }
 
 /// Read one table's foreign keys as `[column, parent table, parent
@@ -1367,6 +1436,28 @@ pub fn verify_shape(conn: &Connection) -> Result<(), StoreError> {
         // And what the generated columns COMPUTE, which is the only
         // question a rebuilt schema cannot lie about.
         generated_columns_compute_what_we_wrote(conn, shape)?;
+
+        // Last of the table's checks, so a rebuilt table is refused by
+        // the check that names what the rebuild changed, not by the
+        // index the rebuild dropped with it.
+        let mut expected_indexes: Vec<(String, Vec<String>)> = shape
+            .indexes
+            .iter()
+            .map(|(name, cols)| {
+                (
+                    (*name).to_owned(),
+                    cols.iter().map(|c| (*c).to_owned()).collect(),
+                )
+            })
+            .collect();
+        expected_indexes.sort();
+        let actual_indexes = actual_plain_indexes(conn, shape.name)?;
+        if actual_indexes != expected_indexes {
+            return Err(StoreError::Migration(format!(
+                "table `{}` has indexes {actual_indexes:?}; this build wrote {expected_indexes:?}",
+                shape.name
+            )));
+        }
     }
 
     // AN ALLOWLIST, not a list of names someone thought of.
@@ -1399,7 +1490,13 @@ pub fn verify_shape(conn: &Connection) -> Result<(), StoreError> {
         }
         match kind.as_str() {
             "table" if REQUIRED_TABLES.contains(&name.as_str()) => {}
-            "index" if INTERNAL_INDEX_OWNERS.iter().any(|t| lowered.contains(t)) => {}
+            // Every index this build writes is declared on its table's
+            // shape and checked there, columns and all; any other is
+            // refused here, whatever table it names.
+            "index"
+                if EXPECTED_SCHEMA
+                    .iter()
+                    .any(|shape| shape.indexes.iter().any(|(n, _)| *n == name.as_str())) => {}
             _ => {
                 return Err(StoreError::Migration(format!(
                     "{kind} `{name}` is not part of this store's schema; ADR-0044 allows the \
