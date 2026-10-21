@@ -361,8 +361,9 @@ compare a photo it has not decoded.
 Runs at once: the contact (and route) is written, and the photo is
 decoded only now, with the memory-safe decoder, to the fixed display
 size. The proposal row is replaced in place by a short confirmation row
-(`CardAccepted`: "You saved {name} as a contact.", with the name as
-saved and the new avatar), so the conversation keeps a trace of what
+(`CardAccepted`: "You saved {name} as a contact." in case N and D,
+`CardUpdated` in cases U and E, each with the name as saved and the new
+avatar), so the conversation keeps a trace of what
 happened in this session. The title and the list take the name (§6.1).
 
 Snackbar `ConfirmContactSaved` (or `ConfirmContactUpdated`) with Undo.
@@ -492,8 +493,9 @@ App bar: back arrow, the name as title, overflow with **Delete contact**
   with Copy PeerId;
 - **Move to another contact** on a route row (`MoveRoute`) when there
   are other contacts: a picker of contacts, then a confirmation dialog
-  `MoveRouteConfirm` naming both contacts and the full PeerId, and saying
-  that trust does not carry across. This is the only way two PeerIds
+  `MoveRouteConfirm` naming both contacts and the short PeerId in its
+  sentence, with the full PeerId under it in the code font and Copy
+  PeerId, and saying that trust does not carry across. This is the only way two PeerIds
   come under one contact (ADR-0059 d. 4); no screen suggests it from a
   name or a photo. Moving a contact's last route deletes that contact,
   and the dialog says so (`MoveRouteLast`). It is in v1 on both
@@ -781,7 +783,8 @@ The Text column is a proposal that shows what the string must say;
 the third column is what it must communicate and where. Key names are
 suggestions; rust-ui-dev names them. Placeholders: `{name}` (a received
 or saved name, plain text, isolated), `{title}` (a conversation's title),
-`{label}` (the person's own card label), `{peer}` (a short PeerId),
+`{label}` (the person's own card label; for a card without one, the
+card's name, as §5.1's list shows it), `{peer}` (a short PeerId),
 `{n}` (a number in digits), `{date}` (a date in the app's date format).
 No string uses "keep" as an ordinary verb (Keep is a message action),
 and no string calls a card an "identity" (§1).
@@ -840,6 +843,7 @@ and no string calls a card an "identity" (§1).
 | `CardKeepsPhoto` | You chose this contact's photo yourself. That photo stays. | case E, photo |
 | `CardSame` | This card matches your contact {name}. | case S |
 | `CardAccepted` | You saved {name} as a contact. | confirmation row |
+| `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
 | `CardPhotoNotUsed` | The photo could not be shown and was not saved. | confirmation row addition |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo |
 | `ConfirmCardDeclined` | Card declined | snackbar, with Undo |
