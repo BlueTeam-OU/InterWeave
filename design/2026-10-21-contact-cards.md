@@ -944,7 +944,7 @@ and no string calls a card an "identity" (§1).
 | `CardPhotoNone` | No photo for this card | the same, with no photo |
 | `CardSamePeer` | Your contact {name} already has this PeerId in another conversation. | case P; `{name}` the contact's name |
 | `AddToContact` | Add this conversation to {name} | case P's Accept |
-| `CardSameName` | One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept. | case D; must name both facts |
+| `CardSameName` | One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept. | case D, and cases U, E and P when Accept would write a name that clashes (§5.4.1); `{name}` the other contact's name; must name both facts |
 | `ShowContact` | Open your contact {name} | case D link |
 | `CardUpdates` | If you accept, your contact {name} is updated. | case U |
 | `CardUpdatesName` / `CardUpdatesPhoto` | New name: {name} / New photo | case U, the changes |
