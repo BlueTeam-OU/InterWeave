@@ -14,7 +14,7 @@ derived from the seed.
 
 ### Amendment 2026-10-21 — Remove deletes the identity key with the identity (ii)
 
-With ADR-0063 A 2026-10-21 (ii): Remove of an added identity deletes
+With ADR-0063 A 2026-10-21: Remove of an added identity deletes
 its key file and its Keystore alias beside the endpoint, the
 conversations, the contacts and the card, since the key is the
 identity's; a counterparty keeps the contact it accepted.
