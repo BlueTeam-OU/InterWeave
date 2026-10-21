@@ -434,6 +434,7 @@ mod tests {
                     connected: false,
                     backoff_until: Some(1),
                     quarantined_until: None,
+                    route_held_until: None,
                     last_outcome: Some(interweave_local_client_api::PeerOutcome::Denied),
                 }
             })

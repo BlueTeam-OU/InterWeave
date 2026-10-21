@@ -584,6 +584,15 @@ pub struct PeerRow {
         deserialize_with = "absent_or_millis"
     )]
     pub quarantined_until: Option<u64>,
+    /// The latest hold among its circuit routes, whose relay was not
+    /// reached (ADR-0011 A 2026-10-21); absent with none held (peer-list
+    /// 1.1.0).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "absent_or_millis"
+    )]
+    pub route_held_until: Option<u64>,
     /// How the last dial or connection ended; absent until the first.
     #[serde(default, skip_serializing_if = "Option::is_none", with = "outcome")]
     pub last_outcome: Option<PeerOutcome>,
@@ -596,6 +605,7 @@ impl From<PeerGateView> for PeerRow {
             connected: view.connected,
             backoff_until: view.backoff_until,
             quarantined_until: view.quarantined_until,
+            route_held_until: view.route_held_until,
             last_outcome: view.last_outcome,
         }
     }
@@ -1126,6 +1136,7 @@ mod tests {
             connected: i.is_multiple_of(2),
             backoff_until: i.is_multiple_of(3).then_some(1_791_329_950_227),
             quarantined_until: None,
+            route_held_until: i.is_multiple_of(7).then_some(1_791_329_960_227),
             last_outcome: (!i.is_multiple_of(5)).then_some(PeerOutcome::Denied),
         }
     }
@@ -1151,6 +1162,7 @@ mod tests {
                     connected: false,
                     backoff_until: Some(u64::MAX),
                     quarantined_until: Some(u64::MAX),
+                    route_held_until: Some(u64::MAX),
                     last_outcome: Some(PeerOutcome::IdentityMismatch),
                 })
                 .collect(),
