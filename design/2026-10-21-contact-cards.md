@@ -1114,36 +1114,42 @@ words (§5.7.2).
 Each item is observable in the running build on both clients unless it
 says otherwise. "Checked by keyboard" means hardware or `adb shell input
 keyevent` with uiautomator's `focused="true"` on Android, the keyboard
-on the desktop.
+on the desktop. "Two identities" means a profile with endpoints `human`
+and `work`, each with a card ("Anna Rossi" and "A. Rossi").
 
 1. **Focus**, every case in one table:
 
    | case | focus goes to | check |
    |---|---|---|
-   | Your cards / Contacts opened from the menu | the page title (focusable heading) | keyboard |
-   | editor saved | the saved card's row in the list (or the new card in the chooser) | keyboard |
-   | editor Save with an invalid field | the first invalid field | keyboard |
+   | Your identities / Your card / Contacts opened from the menu | the page title (focusable heading) | keyboard |
+   | a card saved | the identity's row in the list, else the control that opened the page (the sheet's Edit your card or Add your name) | keyboard |
+   | a card's Save with an invalid field | the first invalid field | keyboard |
    | unsaved-changes dialog opens / closes on Continue editing | Continue editing / the field that had focus | keyboard |
-   | card deleted from a row's menu | the next row, else the previous, else Add a card | keyboard |
-   | Undo of a delete | the restored row | keyboard |
-   | chooser opens | the chosen card, else the first card | keyboard |
-   | Share with none chosen | the first card | keyboard |
-   | chooser closes after Share | the control that opened it; the header title when that was the empty conversation's offer | keyboard |
-   | chooser cancelled | what opened it (overflow button or the offer's button) | keyboard |
+   | an identity added | its new row in the list | keyboard |
+   | Add an identity at the bound | `IdentityLimit` | keyboard |
+   | Make default, and its Undo | stays on the overflow button | keyboard |
+   | Remove this identity: the dialog opens / is cancelled | Cancel / the overflow button | keyboard |
+   | an identity removed | the next row, else the previous | keyboard |
+   | the switch activated | the switcher's chosen row | keyboard |
+   | the switcher closed with nothing changed | the switch | keyboard |
+   | a switch, from the switcher or Switch back | the switch, naming the new identity | keyboard |
+   | a notification of another identity opened | the transition's text, then the conversation's header title | keyboard; TalkBack blocked (§8) |
+   | Switch back inside that conversation | the switch on the previous identity's Chats | keyboard |
+   | the share sheet opens | Share, else Add your name | keyboard |
+   | the sheet closes after Share | the control that opened it; the header title when that was the empty conversation's offer | keyboard |
+   | the sheet cancelled | what opened it (overflow button or the offer's button) | keyboard |
    | Accept (button or swipe) | the confirmation row | keyboard; swipe with TalkBack cannot occur |
    | Decline, by button or by keyboard | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title; never the composer | keyboard |
    | Decline by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set elsewhere first, then a swipe |
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
    | case S Close | as Decline | keyboard |
    | snackbar appears | stays where it was; the snackbar is reachable last in order | keyboard |
-   | Open your contact {name} from case D | the contact page title; Back returns to the proposal's Accept | keyboard |
+   | Open your contact {name} from case D, or a shares-a-device link | the contact page title; Back returns to the control that opened it | keyboard |
    | contact deleted | the Contacts list's first row, else its empty text | keyboard |
-   | Move: the picker opens | the first other contact | keyboard |
+   | Move: the picker opens | the first eligible contact | keyboard |
    | Move: the picker cancelled | the route row's Move | keyboard |
    | Move route dialog | Cancel; after Move, the moved-to contact's page title | keyboard |
-   | Details: Add this conversation to {X} | the dialog closes; the conversation's header title | keyboard |
-   | Undo of Details' Add this conversation to {X} | the conversation's header title | keyboard |
-   | Undo of a Move | the moved routes' row on the page focus was on before the Move, recreated if needed | keyboard |
+   | Undo of a Move | the moved route's row on the source contact's page, recreated if needed | keyboard |
    | Discard pressed (R or K) | the dialog's Cancel | keyboard |
    | dialog cancelled | the Discard button | keyboard |
    | discard failed | the failure line (focusable) | keyboard |
@@ -1153,13 +1159,17 @@ on the desktop.
    connecting and the offer itself send nothing (check: the peer's
    receiving client shows no card; the sender's conversation shows no
    own card row).
-3. A channel's overflow has no Share a card; no chooser is reachable
-   from a channel.
-4. The chooser lists the last shared card first and chosen; with no last
-   shared and two or more cards, none is chosen.
-5. Two cards shared to two conversations: each counterparty's proposal
-   shows only its own card's name, and no screen of theirs shows a label
-   or a count of cards.
+3. A channel's overflow has no Share a card; no share sheet is
+   reachable from a channel.
+4. The share sheet shows the conversation's identity's card and no
+   choice; with two identities, a share from a `work` conversation
+   arrives at the counterparty as "A. Rossi" with `source_endpoint`
+   `work`, and from a `human` conversation as "Anna Rossi" with
+   `human`, measured at the counterparty.
+5. Two identities sharing their cards to one counterparty: the
+   counterparty's proposals each show only their own card's name, the
+   second is case P naming the first contact, and no screen of theirs
+   names an identity of the sender that did not write to them.
 6. A proposal shows the claim, the full PeerId (copy gives the exact
    canonical form), "includes a photo" when one is carried, and the
    "goes at close" line; before Accept no decoded photo appears anywhere,
@@ -1170,25 +1180,26 @@ on the desktop.
    Fixtures for D against a contact "Anna Rossi": a card "Anna" +
    "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; a name "Anna Rossi" with
    U+00A0 between the words and no surname; "Ａnna" (fullwidth) +
-   "Rossi" — each
-   shows `CardSameName`. A card from a second endpoint of a contact's
-   PeerId is case P and leaves one contact holding both routes. The
-   Details of a conversation on {P, "phone"}, while {P, "human"} is
-   under Carol, offers Add this conversation to Carol and no Add as a
-   contact; the command-line client refuses a second contact for P. A
-   card
-   naming itself "Anna Rossi" from a new route of contact "Carol"'s
-   PeerId (case P), and one from Carol's own route (case U), each show
-   `CardSameName` naming the other "Anna Rossi" before Accept.
-8. Delete contact Carol, then accept a card from one of Carol's
-   PeerIds on a new route (case N): Delete's Undo is gone. Move a
-   PeerId, then accept a card from it: the Move's Undo is gone.
-   Accept then Undo leaves the store as before the Accept; Decline then
-   restart leaves nothing of the card in the store; an unanswered,
-   shown proposal is gone after a restart; an unshown one survives it.
+   "Rossi" — each shows `CardSameName`. A card from a second endpoint
+   of contact Carol's PeerId is case P: Accept leaves two contacts, each
+   holding one route, Carol unchanged, and each contact page naming the
+   other as sharing its device. A card naming itself "Anna Rossi" from
+   a new route of Carol's PeerId (case P), and one from Carol's own route
+   (case U), each show `CardSameName` naming the "Anna Rossi" on another
+   PeerId before Accept; a card naming itself "Carol" on another route
+   of Carol's PeerId shows case P's line and no `CardSameName`.
+8. Delete contact Carol, then accept a card on one of Carol's routes
+   (case N): Delete's Undo is gone. Move a route, then accept a card on
+   it: the Move's Undo is gone. No action and no Undo leaves a contact
+   holding two routes of one PeerId (the Move picker omits a contact
+   that holds one). Accept then Undo leaves the store as before the
+   Accept; Decline then restart leaves nothing of the card in the store;
+   an unanswered, shown proposal is gone after a restart; an unshown one
+   survives it.
 9. The title and the list show the accepted name; two contacts with one
-   name each show `{name} ({peer})`; the list preview and the
-   notification of a card never contain the claimed name.
+   name on two PeerIds each show `{name} ({peer})`, two on one PeerId
+   `{name} ({route})`; the list preview and the notification of a card
+   never contain the claimed name.
 10. A right-to-left name inside the proposal heading and the same-name
     note does not reorder the surrounding words (a fixture with an
     Arabic name and a name containing U+202E, which must be refused as a
@@ -1203,48 +1214,75 @@ on the desktop.
 13. R shows Delete stored data… as a third action on both clients; K
     (Android, key invalidated) shows it as the primary with no Try
     again; both confirm before deleting.
-14. The full-discard dialog lists exactly §7.2's items; with a complete
+14. The full-discard dialog lists exactly §7.2's items, saying with two
+    identities that it is every identity's data; with a complete
     `human.sqlite.encrypted` the partial dialog shows instead and the
     data is present after the next open; with that copy unopenable the
     full dialog shows and no second dialog follows.
-15. In both dialogs Enter with the initial focus cancels; Escape/Back
-    cancels.
-16. After a discard, identity (PeerId) and trust are unchanged and Chats
-    shows `StoreDiscarded` once.
+15. In every confirmation dialog of this spec Enter with the initial
+    focus cancels; Escape/Back cancels.
+16. After a discard, the PeerId, trust and the configured identities are
+    unchanged, each identity named by its route label, and Chats shows
+    `StoreDiscarded` once.
 17. Every control in this spec is labelled in the accessibility tree
     (desktop now; Android blocked on the bridge), and each swipe has its
     buttons.
 18. §8's contrast table measured, every row at or above its threshold,
     in both schemes.
+19. **One identity in front.** With two identities, `human` in front:
+    Chats, Contacts, a contact page and the Move picker show none of
+    `work`'s conversations or contacts; a same-name contact under
+    `work` raises no `CardSameName` under `human`; the same counterparty
+    accepted under both is two contacts, each seen only under its own
+    identity. Every screen of §5.7.2's table shows its naming, checked
+    screen by screen; with one identity none of it shows and no
+    question is asked.
+20. **The switch is the only way.** Starting the app, opening a
+    contact, opening Your identities or an identity's page, adding an
+    identity and Make default each leave the identity in front
+    unchanged; choosing another identity in the switcher changes the
+    list, the switch's name and every "As" line at once and shows
+    `ConfirmIdentitySwitched`; Switch back returns. On a wide layout an
+    open conversation closes on a switch.
+21. **A conversation never changes identity.** Messages and a card sent
+    from a `work` conversation all carry `source_endpoint` `work`,
+    measured at the counterparty, before and after any switch; nothing
+    in the app moves a conversation, contact or card to another
+    identity.
+22. **Notifications.** A message to `work` while `human` is in front
+    posts a notification naming `work`; opening it shows the transition
+    naming `work` for at least a second before the conversation, then
+    the conversation under `work` with its snackbar; with content hidden
+    on the lock screen, the redacted notification names no identity.
+    The switch's badge counts the unread item, and names nothing.
+23. **Removing an identity** is confirmed by a dialog listing §5.2's
+    losses with focus on Cancel, is not offered on the default or the
+    only identity, and, when it was in front, brings the default in
+    front with the switch's snackbar.
 
-### 9.1 Proposed `human-client-ui.md` §13 criteria
+### 9.1 `human-client-ui.md` §13 criteria
 
-For architect-cto to rule on (plan §29 step 4 names rust-ui-dev as
-their proposer for the code's tests; these are the person-facing ones,
-offered for the same list):
+architect-cto ruled on this section's first proposal on #335
+(REPLY 01a15d98): §13 holds the criteria for contacts, cards and the
+store's discard, read with ADR-0061 and ADR-0059 A 2026-10-21 (ii), and
+they are the ones a build answers to. This section's earlier list is
+not repeated here, so that there is one source. Two of §13's items
+already carry ADR-0061 decision 9 (the identity in front named on every
+acting screen; no screen in front of one identity showing the other's
+data). Offered for the Stage 22 list, which plan §30 step 4 has
+rust-ui-dev propose and architect-cto rule, the person-facing ones this
+note adds:
 
-- a received card's name is never shown without the full PeerId beside
-  it, and never in the conversation list, a notification or an
-  announcement;
-- no contact or route row exists before Accept; Decline and an
-  unanswered card leave none;
-- a received photo is not decoded before Accept;
-- Accept's label and context line state what it will create or change
-  before it runs; a same-name contact on another PeerId is named before
-  acceptance;
-- no card is sent except on Share in the chooser of one direct
-  conversation; channels offer no Share;
-- nothing a counterparty receives reveals another card's existence or
-  label;
-- a locally edited name or photo is unchanged by any later Accept;
-- two contacts with one name are told apart in every title;
-- every received name is rendered as isolated plain text;
-- the sent photo carries no image metadata;
-- Discard and recreate deletes nothing without a confirmation that
-  lists what goes, its initial focus on Cancel, and identity and trust
-  are unchanged after it;
-- every action of this spec has a non-gesture control and an
-  accessibility-tree label.
+- the identity in front changes only on the switcher or on opening a
+  notification of another identity, and the change is named right
+  after it;
+- a notification of another identity is opened only after a transition
+  naming that identity;
+- no notification summary, badge or announcement mixes the content of
+  two identities;
+- Trust and the store's discard say that they cover every identity;
+- an identity is removed only after a confirmation listing what goes,
+  never the default or the only one.
 
 ## 10. Strings
 
