@@ -1302,3 +1302,33 @@ fn an_undo_taken_names_no_closing() {
         "the Undo's own focus rule applies"
     );
 }
+
+/// #304 F11: a copy from Details is confirmed by the one snackbar, with
+/// no Undo, and in the conversation it was made in. Its closing moves no
+/// focus: the view already put it back on the overflow button.
+#[test]
+fn a_copy_is_confirmed_with_no_undo_and_its_closing_moves_no_focus() {
+    let p = peer();
+    let mut model = UiModel::new();
+    let k = key(&p);
+    let _ = read(&mut model, &p, 1, 1);
+    model.identifier_copied(k.clone());
+    let snack = model.snackbar().expect("confirmed");
+    assert_eq!(
+        snack.confirms,
+        Confirmation::IdentifierCopied { channel: false }
+    );
+    assert!(!snack.undo, "nothing to take back");
+    assert_eq!(snack.conversation, Some(k));
+    assert_eq!(
+        model.outcome().and_then(|o| o.focus.clone()),
+        None,
+        "the copy sends focus nowhere"
+    );
+    model.snackbar_closed(snack.id);
+    assert_eq!(model.snackbar(), None);
+    assert!(
+        model.undo_closed().is_none(),
+        "its closing names no focus target: the view keeps the button's"
+    );
+}

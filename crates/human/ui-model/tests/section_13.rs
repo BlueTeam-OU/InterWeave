@@ -77,7 +77,8 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         | Intent::OpenLink(_)
         | Intent::Reopen
         | Intent::RecheckStorage
-        | Intent::AllowNetwork => false,
+        | Intent::AllowNetwork
+        | Intent::Authenticate => false,
         Intent::ReadTrust | Intent::SetTrust(_) => true,
     }
 }

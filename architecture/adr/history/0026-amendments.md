@@ -53,3 +53,17 @@ knowing whether the bytes were valid. Both are bounded per message by the
 transmit ceiling, which is why the remaining exposure is the repeated
 cost of hashing a 48 KiB payload and copying it once per joined session —
 which is what the bucket closes.
+
+### Amendment 2026-10-21 — Configured endpoints have a maximum of 64 and no per-profile default
+
+ADR-0061 (a user identity is an EndpointId of the node) capped a node's
+identities by the profile's configured-endpoint bound, and its review
+(#335, rounds 17 and 18) found that the "default 16 / max 64" this
+record and ENDPOINTS.md's resource table carried for configured
+endpoints was half true: no configuration key and no code holds a
+default of 16; `config.schema.yaml` validates `entries` to `max=64`
+and `profile-config`'s `MAX_ENDPOINTS` is 64. The record now says max
+64 with no per-profile default, ENDPOINTS.md's table row reads the
+same, and ADR-0061's cap cites the bound that exists. The advertised
+endpoints' 16 / 32 is a real key (`directory.max_advertised`) and
+stands.

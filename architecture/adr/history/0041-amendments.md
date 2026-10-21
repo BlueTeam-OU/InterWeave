@@ -31,3 +31,21 @@
 **Ruled.** The `remoteMessaging` condition of this record is the target-SDK half alone, closed by plan §20 step 3's first instrumented run on an API 34+ device; the type stays on the platform's definition and Android's own enforcement. No Play declaration is written, no Play review is awaited, and `specialUse` is no longer a fallback for a store's refusal. The first amendment's quotations and reasoning stay in this history as what was established about Play's texts on that day, since they were read and the gap in them is real; they bind nothing. The revisit trigger that read "Play refuses both" now reads "Android's platform rules disallow the type for this use". Plan §20 step 10 becomes F-Droid metadata and the inclusion-policy check (ADR-0056 decision 5); human-client-android.md and human-client-packaging.md §6 inherit the wording.
 
 **Not ruled.** Whether the project's own release page offers the APK F-Droid built (§22's); the F-Droid recipe's toolchain pin (Stage 19's, with devex-tooling). (Both moot since ADR-0057 the same day: no store, the release page is the distribution.)
+
+### Amendment 2026-10-21 — One lease per user identity in the one embedded runtime
+
+ADR-0061 (the owner's direction of 2026-10-21, clarified the same day:
+a user identity is an EndpointId of the node with its own display name
+and photo, several on one phone) has the Android app's one embedded
+`TransportRuntime` hold one endpoint lease per user identity the person
+holds, each identity its own in-process local session, inside the one
+foreground service this record chose. The sentence "the service owns the
+`human` EndpointId lease while active" read as one lease; it now reads
+one lease per identity, the `human` lease being the first identity's.
+Nothing else of the record moves: one runtime, one notification naming
+the node, the stay-reachable choice, custody, listeners and
+network-change handling the node's. An earlier wording of this
+amendment, written for the record's first draft (one runtime per
+identity, the stay-reachable choice per identity, a restart per
+identity), was replaced before it reached `main`; the raised finding was
+#335's blind review's F7, answered by this wording.

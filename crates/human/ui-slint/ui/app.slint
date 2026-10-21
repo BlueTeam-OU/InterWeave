@@ -31,6 +31,9 @@ export enum Glyph {
     keep, unkeep, hide, retry, cancel, source,
     // The app bars (sections 5 and 6) and the composer.
     shield, back, more, send,
+    // The device's network state on Chats (#304 F7): online in any form,
+    // and offline; unknown has none.
+    cloud, cloud-off,
     // The statuses (section 6's table).
     clock, check, check-outline, error, crossed, bookmark,
 }
@@ -642,12 +645,14 @@ component GlyphIcon {
         : glyph == Glyph.check-outline ? "M 12 3 A 9 9 0 1 1 12 21 A 9 9 0 1 1 12 3 Z M 8 12 L 11 15 L 16 9"
         : glyph == Glyph.error ? "M 12 3 A 9 9 0 1 1 12 21 A 9 9 0 1 1 12 3 Z M 12 7 L 12 13 M 12 16 L 12 17"
         : glyph == Glyph.crossed ? "M 12 3 A 9 9 0 1 1 12 21 A 9 9 0 1 1 12 3 Z M 5.6 5.6 L 18.4 18.4"
+        : glyph == Glyph.cloud-off ? "M 7 19 A 4.5 4.5 0 0 1 6.2 10.05 A 6 6 0 0 1 17.6 9.1 A 5 5 0 0 1 17 19 Z M 3 3 L 21 21"
         : "";
     property <string> filled:
         glyph == Glyph.more ? "M 12 4 A 2 2 0 1 1 12 8 A 2 2 0 1 1 12 4 Z M 12 10 A 2 2 0 1 1 12 14 A 2 2 0 1 1 12 10 Z M 12 16 A 2 2 0 1 1 12 20 A 2 2 0 1 1 12 16 Z"
         : glyph == Glyph.send && !rtl ? "M 3 20 L 21 12 L 3 4 L 3 10 L 15 12 L 3 14 Z"
         : glyph == Glyph.send ? "M 21 20 L 3 12 L 21 4 L 21 10 L 9 12 L 21 14 Z"
         : glyph == Glyph.bookmark ? "M 6 3 L 18 3 L 18 21 L 12 17 L 6 21 Z"
+        : glyph == Glyph.cloud ? "M 7 19 A 4.5 4.5 0 0 1 6.2 10.05 A 6 6 0 0 1 17.6 9.1 A 5 5 0 0 1 17 19 Z"
         : "";
     if root.stroked != "": Path {
         width: root.width;
@@ -1021,6 +1026,40 @@ component UnreadBadge inherits Rectangle {
             horizontal-alignment: center;
             vertical-alignment: center;
             accessible-role: none;
+        }
+    }
+}
+
+/// A session notice: about the whole client, not one conversation, with
+/// the one action that answers it, if any. Shown wherever the person is:
+/// in the conversation pane, and on a phone's Chats as well, where a
+/// fresh profile has no conversation to open.
+component NoticeCard inherits Rectangle {
+    in property <string> message;
+    in property <bool> has-action;
+    in property <string> action;
+    callback pressed();
+    callback focused(string);
+    background: Palette.notice-background;
+    border-radius: 12px;
+    HorizontalLayout {
+        padding: 12px;
+        spacing: 8px;
+        Text {
+            text: root.message;
+            color: Palette.notice-text;
+            wrap: word-wrap;
+            vertical-alignment: center;
+            accessible-role: text;
+            accessible-label: self.text;
+            accessible-live-region: polite;
+        }
+        if root.has-action: ActionButton {
+            text: root.action;
+            focus-key: "notice";
+            on-notice: true;
+            pressed => { root.pressed(); }
+            focused(k) => { root.focused(k); }
         }
     }
 }
@@ -1472,10 +1511,16 @@ export component AppWindow inherits Window {
     in property <string> header-title;
     // The full PeerId of a direct conversation, or the channel id (U5a).
     in property <string> header-id;
-    in property <string> header-id-label;
+    // Details' texts: the identifier's label, the route line (empty for
+    // none), its two actions.
+    in property <string> details-id-label;
+    in property <string> details-route;
+    in property <string> details-copy-label;
+    in property <string> close-label;
+    // Copy put the identifier on the clipboard.
+    callback identifier-copied();
     // The open direct conversation's route indicator, once the runtime has
     // said; empty for a channel or before it has (human-client-ui.md 7).
-    in property <string> header-path;
     // The open conversation's avatar (section 5.1).
     in property <string> header-avatar-letters;
     in property <int> header-avatar-hue;
@@ -1494,8 +1539,17 @@ export component AppWindow inherits Window {
         root.menu-closed-seq += 1;
     }
 
+    // The device's network state: its full text, and Chats' subtitle in
+    // short with its icon (#304 F7). A conversation shows it only while
+    // offline, as its notice.
     in property <string> connectivity;
+    in property <string> state-short;
+    in property <Glyph> state-glyph;
     in property <bool> has-notice;
+    // A notice about the session itself, the conversation's offline
+    // banner excluded: the one a phone's Chats shows too, where the
+    // subtitle already says offline.
+    in property <bool> has-session-notice;
     in property <string> notice;
     in property <bool> has-notice-action;
     in property <string> notice-action;
@@ -1558,7 +1612,23 @@ export component AppWindow inherits Window {
     // (design/2026-10-19-android-identity.md section 3.5).
     in property <bool> show-phrase-offered;
     in property <string> show-phrase-label;
-    in property <string> trust-settings-label;
+    // The Chats bar's overflow (#304 F12): the app's options, named apart
+    // from a conversation's "More options" since both show side by side
+    // on a wide window. Trust is its one entry today.
+    in property <string> app-options-label;
+    // The list pane's width, which the app's options menu is placed by.
+    property <length> list-width: root.list-aside ? 0px
+        : !root.narrow ? 280px
+        : root.list-shown ? root.width - root.safe-area-insets.left - root.safe-area-insets.right
+        : 0px;
+    in-out property <bool> chats-menu-open;
+    // Bumped when the menu closes or Trust is left: focus goes back to
+    // the button.
+    property <int> chats-menu-closed-seq;
+    function close-chats-menu() {
+        root.chats-menu-open = false;
+        root.chats-menu-closed-seq += 1;
+    }
     in property <string> back-label;
     in property <string> trust-heading;
     in property <string> trust-explanation;
@@ -1693,8 +1763,9 @@ export component AppWindow inherits Window {
     // M: the least message area worth showing, two one-line bubbles.
     property <length> least-messages: 120px;
     // The pane's own padding and the spacing between its rows, which take
-    // height whatever steps aside.
-    property <length> pane-chrome: 56px;
+    // height whatever steps aside: 12 px above and below, and 8 px after
+    // the bar, the messages' heading and the list.
+    property <length> pane-chrome: 48px;
     // C, B and the notice: last measured while shown, so a part that
     // steps aside keeps the height it would take back.
     property <length> composer-height: 48px;
@@ -1729,6 +1800,10 @@ export component AppWindow inherits Window {
             root.close-row-menu();
             return true;
         }
+        if (root.chats-menu-open) {
+            root.close-chats-menu();
+            return true;
+        }
         if (root.menu-open || root.details-open) {
             root.close-menu();
             return true;
@@ -1751,6 +1826,7 @@ export component AppWindow inherits Window {
     function close-settings() {
         root.list-shown = true;
         root.close-trust();
+        root.chats-menu-closed-seq += 1;
     }
 
     // The announcement, for a screen reader only: a sighted
@@ -1791,16 +1867,14 @@ export component AppWindow inherits Window {
         padding-bottom: max(root.safe-area-insets.bottom, root.keyboard-overlap);
         Rectangle {
             visible: (!root.narrow || root.list-shown) && !root.list-aside;
-            width: root.list-aside ? 0px
-                : !root.narrow ? 280px
-                : root.list-shown ? root.width - root.safe-area-insets.left - root.safe-area-insets.right
-                : 0px;
+            width: root.list-width;
             background: root.narrow ? Palette.surface : Palette.surface-container;
         VerticalLayout {
-            // The top app bar (section 5): the title at the start, Trust
-            // settings an icon button at the end. Trust is a settings
-            // action, apart from every conversation (human-client-ui.md
-            // section 8): nothing a message shows can reach it.
+            // The top app bar (section 5): the title at the start, the
+            // app's options at the end (#304 F12), Trust among them by
+            // name. Trust is a settings action, apart from every
+            // conversation (human-client-ui.md section 8): nothing a
+            // message shows can reach it.
             HorizontalLayout {
                 min-height: 64px;
                 padding-left: root.rtl ? 4px : 16px;
@@ -1809,10 +1883,12 @@ export component AppWindow inherits Window {
                 if root.rtl: VerticalLayout {
                     alignment: center;
                     IconButton {
-                        glyph: Glyph.shield;
-                        label: root.trust-settings-label;
-                        focus-key: "open-trust";
-                        pressed => { root.open-settings(); }
+                        glyph: Glyph.more;
+                        label: root.app-options-label;
+                        focus-key: "app-options";
+                        focus-seq: root.chats-menu-closed-seq;
+                        focus-wanted: true;
+                        pressed => { root.chats-menu-open = true; }
                         focused(k) => { root.focus-id = k; }
                     }
                 }
@@ -1829,17 +1905,66 @@ export component AppWindow inherits Window {
                         focus-wanted: root.focus-target == "heading";
                         focused(k) => { root.focus-id = k; }
                     }
+                    // The device's network state (#304 F7): the app's, not
+                    // a peer's, so here and not in a conversation's bar.
+                    // One line of a short text, an icon beside it so it is
+                    // never told by colour alone; read after the title,
+                    // its full text as the description. In place, no motion.
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: root.rtl ? LayoutAlignment.end : LayoutAlignment.start;
+                        if !root.rtl && root.state-glyph != Glyph.none: VerticalLayout {
+                            alignment: center;
+                            GlyphIcon {
+                                width: 18px;
+                                height: 18px;
+                                glyph: root.state-glyph;
+                                ink: Palette.on-surface-variant;
+                            }
+                        }
+                        Text {
+                            text: root.state-short;
+                            font-size: Type.body-medium;
+                            color: Palette.on-surface-variant;
+                            vertical-alignment: center;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                            accessible-description: root.connectivity;
+                            accessible-live-region: polite;
+                        }
+                        if root.rtl && root.state-glyph != Glyph.none: VerticalLayout {
+                            alignment: center;
+                            GlyphIcon {
+                                width: 18px;
+                                height: 18px;
+                                glyph: root.state-glyph;
+                                ink: Palette.on-surface-variant;
+                            }
+                        }
+                    }
                 }
                 if !root.rtl: VerticalLayout {
                     alignment: center;
                     IconButton {
-                        glyph: Glyph.shield;
-                        label: root.trust-settings-label;
-                        focus-key: "open-trust";
-                        pressed => { root.open-settings(); }
+                        glyph: Glyph.more;
+                        label: root.app-options-label;
+                        focus-key: "app-options";
+                        focus-seq: root.chats-menu-closed-seq;
+                        focus-wanted: true;
+                        pressed => { root.chats-menu-open = true; }
                         focused(k) => { root.focus-id = k; }
                     }
                 }
+            }
+            // A phone shows Chats or a conversation, never both, so the
+            // session notice is here too; the desktop shows it beside, in
+            // the conversation pane.
+            if root.narrow && root.list-shown && root.has-session-notice: NoticeCard {
+                message: root.notice;
+                has-action: root.has-notice-action;
+                action: root.notice-action;
+                pressed => { root.notice-pressed(); }
+                focused(k) => { root.focus-id = k; }
             }
             // Any number of conversations: the list scrolls rather than
             // raising the window's minimum height past the screen. A row
@@ -2418,27 +2543,6 @@ export component AppWindow inherits Window {
                         focus-wanted: root.focus-target == "h";
                         focused(k) => { root.focus-id = k; }
                     }
-                    Text {
-                        text: root.connectivity;
-                        color: Palette.on-surface-variant;
-                        font-size: Type.body-small;
-                        overflow: elide;
-                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                        accessible-role: text;
-                        accessible-label: self.text;
-                        accessible-live-region: polite;
-                    }
-                    // Updated in place: a path change is not an event a
-                    // person is interrupted for, so it is no live region.
-                    if root.header-path != "": Text {
-                        text: root.header-path;
-                        font-size: Type.body-small;
-                        color: Palette.on-surface-variant;
-                        overflow: elide;
-                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                        accessible-role: text;
-                        accessible-label: self.text;
-                    }
                 }
                 if root.header-id != "" && !root.rtl: VerticalLayout {
                     alignment: center;
@@ -2476,31 +2580,14 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            if root.has-notice && !root.notice-aside: Rectangle {
-                background: Palette.notice-background;
-                border-radius: 12px;
+            if root.has-notice && !root.notice-aside: NoticeCard {
+                message: root.notice;
+                has-action: root.has-notice-action;
+                action: root.notice-action;
                 init => { root.notice-height = self.height; }
                 changed height => { root.notice-height = self.height; }
-            HorizontalLayout {
-                padding: 12px;
-                spacing: 8px;
-                Text {
-                    text: root.notice;
-                    color: Palette.notice-text;
-                    wrap: word-wrap;
-                    vertical-alignment: center;
-                    accessible-role: text;
-                    accessible-label: self.text;
-                    accessible-live-region: polite;
-                }
-                if root.has-notice-action: ActionButton {
-                    text: root.notice-action;
-                    focus-key: "notice";
-                    on-notice: true;
-                    pressed => { root.notice-pressed(); }
-                    focused(k) => { root.focus-id = k; }
-                }
-            }
+                pressed => { root.notice-pressed(); }
+                focused(k) => { root.focus-id = k; }
             }
             // Not drawn: the bubbles show where the messages are. Kept as a
             // heading a screen reader can move to (section 6), clipped to
@@ -2541,7 +2628,27 @@ export component AppWindow inherits Window {
                 function to-newest() {
                     self.content-y = min(0px, self.height - self.content-height);
                 }
-                property <bool> anchored: root.typing;
+                // Pinned to its end while it shows its end: a conversation
+                // opens at its end and stays there as its space or its
+                // messages change (the spec's S3). Whatever moves it away
+                // -- a scroll, a drag, or the toolkit bringing a focused
+                // message into view, which fires no `flicked` -- unpins it,
+                // and a new message then leaves it where it is; back at its
+                // end it is pinned again. A clamp after a resize lands at
+                // the end, so it keeps the pin. The pane's list is shared
+                // by every conversation, so a change of conversation pins
+                // it again.
+                property <bool> pinned: true;
+                changed content-y => {
+                    self.pinned = self.content-y <= self.height - self.content-height + 1px;
+                }
+                property <string> shown: root.header-id;
+                changed shown => {
+                    self.pinned = true;
+                    self.to-newest();
+                }
+                property <bool> anchored: root.typing || self.pinned;
+                init => { self.to-newest(); }
                 changed anchored => {
                     if (self.anchored) { self.to-newest(); }
                 }
@@ -3041,102 +3148,120 @@ export component AppWindow inherits Window {
                 dismissed(id) => { root.snack-closed(id); }
                 focused(k) => { root.focus-id = k; }
             }
-            // A refused send is announced: the primary action's failure is
-            // otherwise silent to a screen reader (rust-ui-dev F3).
-            Text {
-                text: root.refused;
-                color: Palette.error;
-                accessible-role: text;
-                accessible-label: self.text;
-                accessible-live-region: polite;
-            }
-            // The composer (section 6): a filled, fully rounded field and a
-            // round Send. It exists only for an open conversation: an
-            // empty, disabled box would offer nothing to type into.
-            // The field, then Send: one order in the tree in both
-            // directions, so Tab and a screen reader reach the field first.
-            // Send is placed rather than laid out, at the line's end -- the
-            // right, or the left right to left -- as the snackbar's Undo is
-            // (tests/look.rs, `the_composer_mirrors_right_to_left`).
-            // Its own height, the field's lines and their padding: in the
-            // pane's layout a box without one took the free space under
-            // the messages (#304 F3).
-            if root.composer-enabled: Rectangle {
+            // The refused line and the composer are one row of the pane, so an
+            // empty line costs no spacing either: with the keyboard up in
+            // landscape its 25 px were most of the strip left to the messages
+            // (#304 F9 step 5).
+            VerticalLayout {
                 vertical-stretch: 0;
-                height: max(48px, input.preferred-height + 24px);
-                init => { root.composer-height = self.height; }
-                changed height => { root.composer-height = self.height; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    if root.rtl: Rectangle { width: 48px; }
-                    composer-box := Rectangle {
-                        min-height: 48px;
-                        background: Palette.surface-container-high;
-                        border-radius: self.height / 2;
-                        FocusRing {
-                            x: -5px;
-                            y: -5px;
-                            width: composer-box.width + 10px;
-                            height: composer-box.height + 10px;
-                            radius: composer-box.height / 2;
-                            shown: input.has-focus;
-                        }
-                        // The placeholder: the field's own label, "Message",
-                        // shown while it is empty. Not a second node.
-                        if root.draft == "": Text {
-                            x: 20px;
-                            width: parent.width - 40px;
-                            height: parent.height;
-                            text: root.composer-label;
-                            font-size: Type.body-large;
-                            color: Palette.on-surface-variant;
-                            vertical-alignment: center;
-                            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                            accessible-role: none;
-                        }
-                        input := TextInput {
-                            x: 20px;
-                            width: parent.width - 40px;
-                            height: self.preferred-height;
-                            y: (parent.height - self.height) / 2;
-                            vertical-alignment: center;
-                            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                            font-size: Type.body-large;
-                            color: Palette.on-surface;
-                            text <=> root.draft;
-                            enabled: root.composer-enabled;
-                            accessible-label: root.composer-label;
-                            // A touch user who closes the keyboard (Back, or
-                            // the keyboard's own key) is done typing: the field
-                            // lets focus go, and its insertion handle with it,
-                            // which stayed drawn on the empty field (#304 F3,
-                            // round 1). A keyboard user keeps focus.
-                            property <bool> keyboard-up: root.keyboard-overlap > 0;
-                            changed keyboard-up => {
-                                if (!self.keyboard-up && !FocusMode.keyboard && self.has-focus) {
-                                    self.clear-focus();
+                spacing: root.refused != "" && root.composer-enabled ? 8px : 0px;
+                // A refused send is announced: the primary action's failure is
+                // otherwise silent to a screen reader (rust-ui-dev F3).
+                Text {
+                    // No height while empty: an empty line kept its own and the
+                    // spacing after it.
+                    height: root.refused == "" ? 0px : self.preferred-height;
+                    text: root.refused;
+                    color: Palette.error;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                    accessible-live-region: polite;
+                }
+                // The composer (section 6): a filled, fully rounded field and a
+                // round Send. It exists only for an open conversation: an
+                // empty, disabled box would offer nothing to type into.
+                // The field, then Send: one order in the tree in both
+                // directions, so Tab and a screen reader reach the field first.
+                // Send is placed rather than laid out, at the line's end -- the
+                // right, or the left right to left -- as the snackbar's Undo is
+                // (tests/look.rs, `the_composer_mirrors_right_to_left`).
+                // Its own height, the field's lines and their padding: in the
+                // pane's layout a box without one took the free space under
+                // the messages (#304 F3).
+                if root.composer-enabled: Rectangle {
+                    vertical-stretch: 0;
+                    height: max(48px, input.preferred-height + 24px);
+                    init => { root.composer-height = self.height; }
+                    changed height => { root.composer-height = self.height; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        if root.rtl: Rectangle { width: 48px; }
+                        composer-box := Rectangle {
+                            min-height: 48px;
+                            background: Palette.surface-container-high;
+                            border-radius: self.height / 2;
+                            // The field is its whole box, as a Material text
+                            // field is: a tap above or below its line of text
+                            // focuses it too. Under the input, which keeps its
+                            // own taps for the cursor.
+                            TouchArea {
+                                clicked => {
+                                    FocusMode.keyboard = false;
+                                    input.focus();
                                 }
                             }
-                            edited => { root.draft-edited(self.text); }
-                            changed has-focus => {
-                                if (self.has-focus) { root.focus-id = "composer"; }
+                            FocusRing {
+                                x: -5px;
+                                y: -5px;
+                                width: composer-box.width + 10px;
+                                height: composer-box.height + 10px;
+                                radius: composer-box.height / 2;
+                                shown: input.has-focus;
+                            }
+                            // The placeholder: the field's own label, "Message",
+                            // shown while it is empty. Not a second node.
+                            if root.draft == "": Text {
+                                x: 20px;
+                                width: parent.width - 40px;
+                                height: parent.height;
+                                text: root.composer-label;
+                                font-size: Type.body-large;
+                                color: Palette.on-surface-variant;
+                                vertical-alignment: center;
+                                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                                accessible-role: none;
+                            }
+                            input := TextInput {
+                                x: 20px;
+                                width: parent.width - 40px;
+                                height: self.preferred-height;
+                                y: (parent.height - self.height) / 2;
+                                vertical-alignment: center;
+                                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                                font-size: Type.body-large;
+                                color: Palette.on-surface;
+                                text <=> root.draft;
+                                enabled: root.composer-enabled;
+                                accessible-label: root.composer-label;
+                                // Closing the keyboard keeps the field focused, as
+                                // a platform field does. Letting focus go there
+                                // (b010afb9) never removed the insertion handle it
+                                // was for -- Slint 1.18.1's Android backend leaves
+                                // the handle drawn on any focus loss, a toolkit
+                                // limit carried as #304's F3 residual -- and is the
+                                // suspect in F16, a composer that took no focus on
+                                // a tap.
+                                edited => { root.draft-edited(self.text); }
+                                changed has-focus => {
+                                    if (self.has-focus) { root.focus-id = "composer"; }
+                                }
                             }
                         }
+                        if !root.rtl: Rectangle { width: 48px; }
                     }
-                    if !root.rtl: Rectangle { width: 48px; }
-                }
-                IconButton {
-                    x: root.rtl ? 0px : parent.width - self.width;
-                    y: (parent.height - self.height) / 2;
-                    glyph: Glyph.send;
-                    rtl: root.rtl;
-                    label: root.send-label;
-                    filled: true;
-                    // Dimmed and inactive while the field is empty.
-                    active: root.draft != "";
-                    focus-key: "send";
-                    pressed => { root.send(); }
-                    focused(k) => { root.focus-id = k; }
+                    IconButton {
+                        x: root.rtl ? 0px : parent.width - self.width;
+                        y: (parent.height - self.height) / 2;
+                        glyph: Glyph.send;
+                        rtl: root.rtl;
+                        label: root.send-label;
+                        filled: true;
+                        // Dimmed and inactive while the field is empty.
+                        active: root.draft != "";
+                        focus-key: "send";
+                        pressed => { root.send(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
             }
         }
@@ -3154,17 +3279,51 @@ export component AppWindow inherits Window {
     }
     // Over everything: a press outside the menu or Details closes it, as
     // Escape does.
-    if root.menu-open || root.details-open: TouchArea {
+    if root.menu-open || root.details-open || root.chats-menu-open: TouchArea {
         x: 0;
         y: 0;
         width: root.width;
         height: root.height;
         clicked => {
             FocusMode.keyboard = false;
-            root.close-menu();
+            if (root.chats-menu-open) {
+                root.close-chats-menu();
+            } else {
+                root.close-menu();
+            }
         }
         Rectangle {
             background: root.details-open ? #00000052 : transparent;
+        }
+    }
+    // The app's options (#304 F12), under their button at the Chats bar's
+    // end: the list pane's, which starts after the left inset.
+    if root.chats-menu-open: Rectangle {
+        x: root.rtl ? root.safe-area-insets.left + 8px
+            : root.safe-area-insets.left + root.list-width - self.width - 8px;
+        y: root.safe-area-insets.top + 56px;
+        width: max(200px, chats-menu-items.preferred-width);
+        height: chats-menu-items.preferred-height;
+        background: Palette.surface-container-high;
+        border-radius: 4px;
+        drop-shadow-blur: 8px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: #00000052;
+        chats-menu-items := VerticalLayout {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            MenuItem {
+                text: root.trust-heading;
+                focus-key: "app-trust";
+                first: true;
+                rtl: root.rtl;
+                pressed => {
+                    root.chats-menu-open = false;
+                    root.open-settings();
+                }
+                closed => { root.close-chats-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
         }
     }
     // The overflow menu (section 6), under its button at the line's end.
@@ -3210,10 +3369,6 @@ export component AppWindow inherits Window {
             }
         }
     }
-    // Details (section 6): the identifier in exact canonical form, whole,
-    // selectable so a person can copy it with the platform's own keys
-    // (human-client-ui.md section 11). Read-only: nothing typed here goes
-    // anywhere.
     // A message's menu (swipe spec section 7, look spec section 6): its
     // actions in the row's order, Show source last, each 48 high with its
     // icon, anchored under the bubble -- over it when the space below runs
@@ -3400,6 +3555,11 @@ export component AppWindow inherits Window {
             }
         }
     }
+    // Details (#304 F11, a Material basic dialog): the conversation's
+    // title, its identifier whole in the code font -- text, not a field --
+    // and for a direct one the route as the peer named it, unverified;
+    // Copy puts the identifier on the clipboard and closes, focus back on
+    // the overflow button (human-client-ui.md section 11).
     if root.details-open: details := FocusScope {
         focus-gained(reason) => {
             if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
@@ -3414,66 +3574,109 @@ export component AppWindow inherits Window {
                 root.close-menu();
                 return accept;
             }
-            // A modal dialog keeps focus: its one control is the field, so
-            // Tab either way stays on it -- never on this scope, which draws
-            // no ring and reports no focus, nor on the controls behind the
-            // scrim (tests/look.rs, `tab_stays_in_details_and_escape_closes_it`).
+            // A modal dialog keeps focus: Tab either way moves between its
+            // two actions, never to the controls behind the scrim.
             if (event.text == Key.Tab || event.text == Key.Backtab) {
-                // Kept here, it moves no focus: still the keyboard's.
                 FocusMode.keyboard = true;
+                if (details-copy.has-focus) {
+                    details-close.focus();
+                } else {
+                    details-copy.focus();
+                }
                 return accept;
             }
             reject
         }
-        // Focus moves to the identifier once Details is in the window.
+        // Focus moves to Copy once Details is in the window.
         property <bool> taken;
         Timer {
             interval: 1ms;
             running: !details.taken;
             triggered => {
                 details.taken = true;
-                header-id-input.focus();
+                details-copy.focus();
             }
+        }
+        // What Copy copies: the identifier, through the platform's
+        // clipboard as a field's copy would. Never shown.
+        copy-source := TextInput {
+            x: 0;
+            y: 0;
+            width: 0;
+            height: 0;
+            visible: false;
+            read-only: true;
+            text: root.header-id;
+            accessible-role: none;
         }
         details-box := Rectangle {
             background: Palette.surface-container-high;
             border-radius: 28px;
-            // A press on the dialog is the dialog's and moves no focus:
-            // without this it reached this scope, which took the field's
-            // focus and draws no ring (tests/look.rs,
-            // `tab_stays_in_details_and_escape_closes_it`).
+            // A press on the dialog is the dialog's and moves no focus.
             TouchArea {}
             VerticalLayout {
                 padding: 24px;
-                spacing: 12px;
+                spacing: 16px;
                 Text {
-                    text: root.header-id-label;
-                    font-size: Type.body-small;
-                    font-weight: 700;
-                    color: Palette.on-surface-variant;
-                    accessible-role: none;
+                    text: root.header-title;
+                    font-size: Type.title-large;
+                    wrap: word-wrap;
+                    color: Palette.on-surface;
+                    accessible-role: text;
+                    accessible-label: self.text;
                 }
-                header-id-box := Rectangle {
-                    height: header-id-input.preferred-height;
-                    header-id-input := TextInput {
-                        text: root.header-id;
-                        read-only: true;
-                        single-line: false;
-                        wrap: char-wrap;
-                        font-size: Type.body-medium;
-                        color: Palette.on-surface;
-                        accessible-label: root.header-id-label;
-                        accessible-value: self.text;
-                        changed has-focus => {
-                            if (self.has-focus) { root.focus-id = "header-id"; }
-                        }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: root.details-id-label;
+                        font-size: Type.body-small;
+                        font-weight: 700;
+                        color: Palette.on-surface-variant;
+                        accessible-role: text;
+                        accessible-label: self.text;
                     }
-                    FocusRing {
-                        x: -5px;
-                        y: -5px;
-                        width: header-id-box.width + 10px;
-                        height: header-id-box.height + 10px;
-                        shown: header-id-input.has-focus;
+                    Text {
+                        text: root.header-id;
+                        font-family: root.code-font;
+                        font-size: Type.body-medium;
+                        wrap: char-wrap;
+                        color: Palette.on-surface;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                }
+                if root.details-route != "": Text {
+                    text: root.details-route;
+                    font-size: Type.body-medium;
+                    wrap: word-wrap;
+                    color: Palette.on-surface-variant;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    details-close := ActionButton {
+                        text: root.close-label;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "details-close";
+                        pressed => { root.close-menu(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    details-copy := ActionButton {
+                        text: root.details-copy-label;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "details-copy";
+                        pressed => {
+                            copy-source.select-all();
+                            copy-source.copy();
+                            copy-source.clear-selection();
+                            root.close-menu();
+                            root.identifier-copied();
+                        }
+                        focused(k) => { root.focus-id = k; }
                     }
                 }
             }

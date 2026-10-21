@@ -31,10 +31,16 @@
         <!-- Every change here is handled in place, so the window and what
              it shows survive it. fontScale too: Slint's helper view applies
              a new scale on its configuration change, and a recreation
-             dropped an open conversation for Chats (#304 F13). -->
+             dropped an open conversation for Chats (#304 F13).
+             One instance: the views run one event loop, bound to the
+             Activity that started it. A second instance on top, then
+             closed, ended that loop and left the one below drawn and
+             dead to every touch and Back (the Pixel, 2026-10-21, build
+             f382d5ba). A launch while one exists goes to it. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|smallestScreenSize|density|uiMode|fontScale">
             <meta-data
                 android:name="android.app.lib_name"

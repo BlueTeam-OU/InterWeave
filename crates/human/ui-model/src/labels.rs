@@ -116,9 +116,39 @@ ui_texts! {
     Conversations => "Conversations",
     /// The heading of a conversation's messages.
     Messages => "Messages",
-    /// The open conversation's full identifier, selectable to copy: a
-    /// direct route's `PeerId` or a channel's id, in exact form.
-    ConversationId => "Identifier, select to copy",
+    /// Chats' subtitle (#304 F7), one line under "Conversations", short
+    /// enough for 320 dp at 200 %; its accessible description is the
+    /// state's full text. Online, reachable directly.
+    StateShortDirect => "Online, direct",
+    /// Online, reachable inbound through a relay.
+    StateShortRelayed => "Online, relayed",
+    /// Online, some peers might not reach this profile.
+    StateShortPartial => "Online, limited",
+    /// Offline, whichever host: the banner and the description say why.
+    StateShortOffline => "Offline",
+    /// Not known yet: never read as offline.
+    StateShortUnknown => "Status not known",
+    /// Details (#304 F11): the label above a direct conversation's whole
+    /// `PeerId`.
+    DetailsPeerId => "PeerId",
+    /// Details: the label above a channel's whole id.
+    DetailsChannelId => "Channel ID",
+    /// Details: the route a direct conversation goes to, as the peer named
+    /// it and nothing verified. `{route}` is the routing label, quoted as
+    /// a label, never read as a role.
+    DetailsRoute => "Route named by the peer, not verified: “{route}”",
+    /// Details' action: the whole `PeerId` to the clipboard.
+    CopyPeerId => "Copy PeerId",
+    /// Details' action for a channel: its whole id to the clipboard.
+    CopyChannelId => "Copy channel ID",
+    /// Details' other action. Also the DESKTOP start-up refusal
+    /// screen's: it ends the screen, and the app with it.
+    Close => "Close",
+    /// The snackbar after Copy where the platform confirms nothing itself
+    /// (below Android 13, and the desktop).
+    PeerIdCopied => "PeerId copied",
+    /// The same, for a channel's id.
+    ChannelIdCopied => "Channel ID copied",
     /// Shown when no conversation is selected.
     NoConversation => "Select a conversation",
     /// What a direct conversation is, in its row's description.
@@ -331,9 +361,22 @@ ui_texts! {
     NetworkDenied => "Network access is off for this app. You can read your messages, but you cannot send or receive messages until you allow network access.",
     /// Ask for the network access the platform withholds.
     AllowNetwork => "Allow network access",
-    /// The control that opens the trust settings: the shield icon button
-    /// in the conversation list's app bar, whose label this is.
-    TrustSettings => "Trust settings",
+    /// ANDROID: the profile's key needs the person and their last
+    /// authentication is too old, so nothing runs until they
+    /// authenticate; nothing stored is lost. Never says the app will
+    /// connect by itself (#309 acceptance 10).
+    AuthenticationNeeded => "InterWeave is offline because it is locked. To unlock it, tap Unlock and enter your phone's PIN, pattern or password. Your conversations are saved on this phone and appear again after you unlock InterWeave.",
+    /// ANDROID: the notice's action, raising the system's prompt again.
+    Authenticate => "Unlock",
+    /// ANDROID: the title of the system's authentication prompt when it
+    /// unlocks the app for a key operation or a launch (not S1's, which
+    /// is `IdS1Title`).
+    UnlockPromptTitle => "Unlock InterWeave",
+    /// The Chats bar's overflow button, its accessible name and tooltip:
+    /// the app's options, Trust among them (#304 F12; ux-designer-01
+    /// 34023aa1). Named apart from a conversation's More options, which
+    /// shows beside it on a wide window.
+    AppOptions => "App options",
     /// The control that leaves the trust settings for the conversations.
     BackToConversations => "Back to conversations",
     /// The trust settings' heading.
@@ -517,6 +560,9 @@ ui_texts! {
     IdS1Title => "Show your recovery phrase",
     /// ANDROID, identity screens: S1's body, two lines.
     IdS1Body => "You will be asked to unlock your phone first. The app goes offline while your words are shown.",
+    /// ANDROID, identity screens: S1's primary: raises the system's
+    /// prompt, then shows the words.
+    IdS1Unlock => "Unlock and show my words",
     /// ANDROID, identity screens: The progress state (§3.5, §6).
     IdGoingOffline => "Going offline…",
     /// ANDROID, identity screens: S2's primary.
@@ -545,14 +591,46 @@ ui_texts! {
     IdKeyClear => "Clear this word",
     /// ANDROID, identity screens: The grid's button at large font (§4).
     IdReviewWords => "Show all my words",
+    /// How long a waiting message has waited, from when it was written,
+    /// rounded down (#304 F10): under a minute.
+    AgeJustNow => "just now",
+    /// One minute.
+    AgeOneMinute => "1 minute ago",
+    /// 2 to 59 minutes; `{count}` is the number.
+    AgeMinutes => "{count} minutes ago",
+    /// One hour.
+    AgeOneHour => "1 hour ago",
+    /// 2 to 23 hours; `{count}` is the number.
+    AgeHours => "{count} hours ago",
+    /// One day.
+    AgeOneDay => "1 day ago",
+    /// 2 days or more; `{count}` is the number.
+    AgeDays => "{count} days ago",
+    /// A waiting message nothing has reached the peer of yet, with no
+    /// problem known (F10 A0). `{age}` is one of the Age texts. No
+    /// waiting status ends with a period: `AnnounceOwnStatus` adds its own.
+    WaitingSending => "Still sending, started {age}",
+    /// A0 after an attempt that reached no path to the peer, or knew no
+    /// address for it (A1). The phone's own network may be fine.
+    WaitingSendingNoPath => "Still sending, started {age}. Last attempt: the peer could not be reached",
+    /// A0 after the peer answered with the coarse no-route class (A2).
+    WaitingSendingRoute => "Still sending, started {age}. Last attempt: the peer was reached but could not accept the message",
+    /// A0 after a busy answer (A3).
+    WaitingSendingBusy => "Still sending, started {age}. Last attempt: the network or the peer was busy",
+    /// An earlier attempt may have reached the peer, no problem known
+    /// (B0).
+    WaitingMaybe => "May have reached the peer. Still sending, started {age}",
+    /// B0 with A1's problem (B1).
+    WaitingMaybeNoPath => "May have reached the peer. Still sending, started {age}. Last attempt: the peer could not be reached",
+    /// B0 with A2's problem (B2).
+    WaitingMaybeRoute => "May have reached the peer. Still sending, started {age}. Last attempt: the peer was reached but could not accept the message",
+    /// B0 with A3's problem (B3).
+    WaitingMaybeBusy => "May have reached the peer. Still sending, started {age}. Last attempt: the network or the peer was busy",
     /// DESKTOP, start-up refusal screen: its heading, over every reason.
     RefusalHeading => "InterWeave could not start",
     /// DESKTOP, start-up refusal screen: the label of the file or folder
     /// a refusal is about, shown whole below the reason.
     RefusalPath => "File or folder",
-    /// DESKTOP, start-up refusal screen: end the screen, and the app
-    /// with it.
-    Close => "Close",
     /// DESKTOP, start-up refusal screen: said after Try again, when the
     /// answer is still a refusal.
     RefusalStillRefused => "InterWeave tried again, and it still cannot start.",
@@ -679,6 +757,22 @@ host_texts! {
     TrustUnconfirmed => {
         daemon: "The transport daemon did not confirm the change for {peer}. The change may have been made. The list of trusted peers is being read again.",
         embedded: "The network service did not confirm the change for {peer}. The change may have been made. The list of trusted peers is being read again.",
+    },
+    /// A conversation's banner while the device is offline (#304 F7): no
+    /// dismiss, gone when the state leaves offline.
+    OfflineBanner => {
+        daemon: "InterWeave is offline: the transport daemon is not running. What you write now is sent when the transport daemon starts.",
+        embedded: "InterWeave is offline: the network service is not running. What you write now is sent when the network service starts.",
+    },
+    /// A0 after the local runtime was unavailable (F10 A4).
+    WaitingSendingUnavailable => {
+        daemon: "Still sending, started {age}. Last attempt: the transport daemon was not available",
+        embedded: "Still sending, started {age}. Last attempt: the network service was not available",
+    },
+    /// B0 with A4's problem (B4).
+    WaitingMaybeUnavailable => {
+        daemon: "May have reached the peer. Still sending, started {age}. Last attempt: the transport daemon was not available",
+        embedded: "May have reached the peer. Still sending, started {age}. Last attempt: the network service was not available",
     },
 }
 
@@ -1188,6 +1282,7 @@ mod tests {
             ("first", "New message from …abcd1234."),
             ("rest", "Your message: Sent."),
             ("n", "7"),
+            ("age", "3 hours ago"),
         ];
         for text in UiText::ALL {
             let filled = fill(placeholder_en::text(*text), &values);

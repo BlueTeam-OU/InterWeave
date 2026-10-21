@@ -63,6 +63,13 @@ pub enum Confirmation {
     },
     /// A conversation was hidden from the list.
     ConversationHidden,
+    /// Details' Copy put the conversation's whole identifier on the
+    /// clipboard: a direct conversation's `PeerId`, or a channel's id.
+    /// Shown only where the platform confirms nothing itself (#304 F11).
+    IdentifierCopied {
+        /// A channel's id rather than a `PeerId`.
+        channel: bool,
+    },
 }
 
 /// The one snackbar, while it is up.
@@ -186,6 +193,8 @@ enum Undo {
         items: Vec<ItemKey>,
         conversation: Option<ConversationKey>,
     },
+    /// Nothing to take back: a copy changes nothing here.
+    None,
 }
 
 impl Undo {
@@ -196,6 +205,7 @@ impl Undo {
                 vec![*item]
             }
             Self::Unhide { items, .. } => items.clone(),
+            Self::None => Vec::new(),
         }
     }
 }
@@ -673,6 +683,7 @@ impl UiModel {
                 item, restorable, ..
             } => *restorable && self.items.contains_key(item),
             Undo::Unhide { items, .. } => items.iter().any(|k| self.items.contains_key(k)),
+            Undo::None => false,
         }
     }
 
@@ -715,6 +726,7 @@ impl UiModel {
                 self.set_outcome(Some(Announce::Restored), focus, None);
                 None
             }
+            Undo::None => None,
         }
     }
 
@@ -741,6 +753,20 @@ impl UiModel {
     #[must_use]
     pub const fn undo_closed(&self) -> Option<&UndoClosed> {
         self.swipe.undo_closed.as_ref()
+    }
+
+    /// Details' Copy put the identifier of `conversation` on the clipboard,
+    /// on a platform that confirms nothing itself: the one snackbar says
+    /// so, with no Undo. Focus is the view's: back on the overflow button.
+    pub fn identifier_copied(&mut self, conversation: ConversationKey) {
+        let channel = matches!(conversation, ConversationKey::Channel(_));
+        self.open(
+            Confirmation::IdentifierCopied { channel },
+            Some(conversation),
+            Undo::None,
+            None,
+            None,
+        );
     }
 
     /// What closed snackbars no longer need, for the root to let go of.
@@ -818,6 +844,7 @@ impl UiModel {
                 self.swipe.released.cancelled.push(row);
             }
             Undo::Unkeep { .. } | Undo::Keep { .. } => self.evict(),
+            Undo::None => {}
         }
     }
 
@@ -825,6 +852,11 @@ impl UiModel {
     /// its Undo held it (§7). Called before [`Self::finish`] drops what the
     /// Undo held, since a removed row's place is found by it.
     fn closed_under(&mut self, open: &Open) {
+        // A copy's snackbar held nothing in place: focus stays where the
+        // view put it, on the overflow button.
+        if matches!(open.undo, Undo::None) {
+            return;
+        }
         let shown = |key: &ItemKey| self.items.get(key).is_some_and(|i| !i.hidden);
         let about = |key: ItemKey| {
             if shown(&key) {
@@ -849,6 +881,7 @@ impl UiModel {
                 }
             }
             Undo::Unhide { items, .. } => items.first().and_then(|k| about(*k)),
+            Undo::None => None,
         };
         // No row left to name: the conversation's header title, or the
         // list's heading -- never lost.
