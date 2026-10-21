@@ -30,7 +30,6 @@ interweave-profile-identity = { path = "../../crates/identity/profile-identity" 
 tokio = { workspace = true, features = ["macros", "net", "io-util", "process", "rt-multi-thread", "time"] }
 
 [dev-dependencies]
-interweave-ipc-client = { path = "../../crates/local/ipc-client" }
 # S9 writes a raw spoofed hello.
 interweave-ipc-protocol = { path = "../../crates/api/ipc-protocol" }
 interweave-local-client-api = { path = "../../crates/api/local-client-api" }
