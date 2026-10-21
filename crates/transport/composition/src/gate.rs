@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 
 use interweave_transport_api::{DisconnectReason, PeerPath, TransportIdentity};
 use interweave_transport_libp2p::{DialFailureClass, DialRefusal};
-use interweave_transport_runtime::DialOrigin;
+use interweave_transport_runtime::{DialDenial, DialOrigin};
 use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy, TrustDecision};
 
 /// The target the connectivity lines are written under.
@@ -122,6 +122,20 @@ pub(crate) fn quarantined(who: Who<'_>, for_ms: u64) {
 /// The reconnect round's dial to the peer was refused.
 pub(crate) fn reconnect_refused(who: Who<'_>, class: DialFailureClass) {
     connectivity!(info, who, "reconnect refused", class = class.label());
+}
+
+/// The reconnect round's dial to the peer was refused on a held circuit
+/// route, which lasts until `held_until_ms` on the wall clock unless the
+/// relay connects first (ADR-0011 A 2026-10-21): the refusal with the
+/// hold's end, since the class alone would not say how long.
+pub(crate) fn reconnect_held(who: Who<'_>, held_until_ms: u64) {
+    connectivity!(
+        info,
+        who,
+        "reconnect refused",
+        class = DialFailureClass::Denied(DialDenial::RouteHeld).label(),
+        held_until_ms = held_until_ms
+    );
 }
 
 const fn path_label(path: PeerPath) -> &'static str {
@@ -227,6 +241,9 @@ pub struct PeerGateRow {
     /// Every known address of it is quarantined until then, the earliest
     /// release; absent while any is dialable (`CONNECTIVITY.md` §19).
     pub quarantined_until_ms: Option<u64>,
+    /// The latest hold among its circuit routes, whose relay was not
+    /// reached (ADR-0011 A 2026-10-21); absent with none held.
+    pub route_held_until_ms: Option<u64>,
     /// How the last dial or connection to it ended, if any has since the
     /// runtime started.
     pub last_outcome: Option<LastOutcome>,
@@ -293,6 +310,14 @@ impl ReconnectRefusals {
     /// Forget `peer`'s refusal: it connected, or left the allowlist.
     pub(crate) fn forget(&mut self, peer: &TransportIdentity) {
         self.by_peer.remove(peer);
+    }
+
+    /// A reconnect to `peer` was admitted: the refusal streak is over, so
+    /// the next refusal is news even with the same class -- a second
+    /// route hold, with its own end, after the first lapsed and the
+    /// admitted dial failed at the hop again (#329 review F2).
+    pub(crate) fn admitted(&mut self, peer: &TransportIdentity) {
+        self.forget(peer);
     }
 }
 
@@ -427,6 +452,43 @@ mod tests {
             LastOutcome::of_refusal(&DialRefusal::NoKnownAddress),
             None,
             "nothing to dial is not an outcome"
+        );
+    }
+
+    /// A reconnect refused on a held circuit route logs the class and the
+    /// hold's end; a refusal streak logs once, and an admitted reconnect
+    /// ends it, so a later hold -- the same class -- is logged with its own
+    /// end. THE CONTROL: without the admission between them the second
+    /// refusal is not news (#329 review F2).
+    #[test]
+    fn a_held_route_names_its_end_and_each_hold_after_an_admitted_dial_is_news() {
+        let listed = peer();
+        let trust = PeerTrustPolicy::new([listed.clone()]).expect("one peer");
+        let log = captured(|| {
+            reconnect_held(
+                Who::of(&listed, &trust, &InfrastructureSet::default()),
+                1_791_329_960_227,
+            );
+        });
+        assert!(
+            log.contains("reconnect refused")
+                && log.contains("class=\"RouteHeld\"")
+                && log.contains("held_until_ms=1791329960227")
+                && log.contains("INFO"),
+            "{log}"
+        );
+
+        let held = DialFailureClass::Denied(DialDenial::RouteHeld);
+        let mut refusals = ReconnectRefusals::default();
+        assert!(refusals.changed(&trust, &listed, held), "the first hold");
+        assert!(
+            !refusals.changed(&trust, &listed, held),
+            "the control: the same streak is not news"
+        );
+        refusals.admitted(&listed);
+        assert!(
+            refusals.changed(&trust, &listed, held),
+            "after an admitted reconnect, the next hold is"
         );
     }
 

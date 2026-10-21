@@ -161,7 +161,7 @@ pub(crate) async fn admin<A: AdminPort>(
         // The dial gate's rows, paged as the trust list is: the cursor is
         // a position in their order, so nothing is held between pages.
         Request::AdminPeersList(p) => match port.peers().await {
-            Ok(rows) => ResponseFrame::success(id, &PeerList::page(rows, p.after.as_ref())),
+            Ok(rows) => ResponseFrame::success(id, &PeerList::page(rows, p.after.as_ref(), minor)),
             Err(code) => ResponseFrame::failure(id, code),
         },
         // The data domain on the admin socket: admission's to refuse, as
@@ -434,6 +434,7 @@ mod tests {
                     connected: false,
                     backoff_until: Some(1),
                     quarantined_until: None,
+                    route_held_until: Some(7),
                     last_outcome: Some(interweave_local_client_api::PeerOutcome::Denied),
                 }
             })
@@ -441,27 +442,32 @@ mod tests {
         let port = fake.admin([].into()).await.expect("port");
         let counters = Counters::default();
         let grace = Duration::from_secs(1);
-        let page = |params: serde_json::Value| {
+        let (port, counters) = (&port, &counters);
+        let page = move |params: serde_json::Value, minor: u64| {
             let request = request(Method::AdminPeersList, &params);
-            async {
-                let frame = admin(
-                    &port,
-                    &counters,
-                    grace,
-                    id(),
-                    request,
-                    interweave_ipc_protocol::IPC_MAX_MINOR,
-                )
-                .await;
+            async move {
+                let frame = admin(port, counters, grace, id(), request, minor).await;
                 frame.outcome::<PeerList>().expect("a page")
             }
         };
-        let first = page(serde_json::json!({})).await;
+        let max = interweave_ipc_protocol::IPC_MAX_MINOR;
+        let first = page(serde_json::json!({}), max).await;
         assert_eq!(first.peers.len(), MAX_PEER_PAGE_ROWS);
         let next = first.next.expect("one more remains");
-        let second = page(serde_json::json!({"after": next.as_str()})).await;
+        let second = page(serde_json::json!({"after": next.as_str()}), max).await;
         assert_eq!(second.peers.len(), 1);
         assert_eq!(second.next, None, "the last page");
+        // The route hold is served on the connection's own minor: from
+        // 2.6, and not below it (#329 review F4).
+        let since = interweave_ipc_protocol::ROUTE_HELD_SINCE_MINOR;
+        assert_eq!(
+            page(serde_json::json!({}), since).await.peers[0].route_held_until,
+            Some(7)
+        );
+        assert_eq!(
+            page(serde_json::json!({}), since - 1).await.peers[0].route_held_until,
+            None
+        );
     }
 
     /// A runtime whose trust rows do not persist is refused `Internal` on

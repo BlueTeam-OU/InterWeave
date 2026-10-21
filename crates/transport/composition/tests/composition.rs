@@ -809,3 +809,67 @@ async fn a_view_reaches_the_substrate_and_an_empty_one_closes_what_ran_from_the_
     subject.shutdown().await.expect("clean shutdown");
     target.shutdown().await.expect("clean shutdown");
 }
+
+/// THE DISCOVERY ROUND IS PACED BY THE ROUTE HOLD (ADR-0011 A
+/// 2026-10-21). A trusted peer known only by a static circuit through a
+/// relay that cannot be reached: the round reconnects every unconnected
+/// candidate each tick, and before the hold a hop failure added no
+/// backoff, so the round redialled the circuit every tick -- once a
+/// second on a phone, 357 times in thirteen minutes. Here the "relay"
+/// is a bare TCP listener that counts and drops every connection, each
+/// one a hop attempt that fails before the relay is reached, and the
+/// round ticks every 50 ms for two seconds: forty rounds, ONE attempt.
+/// The control is that one: the round does dial the circuit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_discovery_round_redials_a_circuit_whose_relay_was_not_reached_once_per_hold() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let sink = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+    let port = sink.local_addr().expect("bound").port();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    {
+        let attempts = Arc::clone(&attempts);
+        std::thread::spawn(move || {
+            for stream in sink.incoming() {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                drop(stream);
+            }
+        });
+    }
+
+    let (a_id, _) = id();
+    let (_, relay) = id();
+    let (_, far) = id();
+    let seed = format!(
+        "/ip4/127.0.0.1/tcp/{port}/p2p/{}/p2p-circuit/p2p/{}",
+        relay.as_str(),
+        far.as_str()
+    );
+    let infrastructure = format!(
+        "transport:\n  connectivity:\n    infrastructure:\n      allowed_peers: [\"{}\"]\n",
+        relay.as_str()
+    );
+    let runtime = ComposedRuntime::start(
+        &a_id,
+        &profile(&[&far], &[seed], &infrastructure),
+        CompositionOptions {
+            listen: vec!["/ip4/127.0.0.1/tcp/0".to_owned()],
+            discovery_interval: Duration::from_millis(50),
+            ..CompositionOptions::default()
+        },
+    )
+    .await
+    .expect("composes");
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let counted = attempts.load(Ordering::SeqCst);
+    let rows = runtime.diagnostics().await.expect("answered").peers;
+    runtime.shutdown().await.expect("clean shutdown");
+    assert_eq!(counted, 1, "one hop attempt in forty rounds, then the hold");
+    let row = rows.iter().find(|r| r.peer == far).expect("the peer's row");
+    assert!(
+        row.route_held_until_ms.is_some(),
+        "the hold is in the row: {row:?}"
+    );
+}

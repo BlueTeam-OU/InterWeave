@@ -233,7 +233,7 @@ Transport v2 defines an optional remote endpoint-directory capability, specified
 Important properties:
 
 - trust-gated direct control protocol, not GossipSub;
-- lists only endpoints with `advertise: true` **and an active local lease**;
+- lists only endpoints with `advertise: true` **and an active local lease** — `advertise` being the effective value, the endpoint overlay applied over the authored configuration (ADR-0028 A 2026-10-21; added 2026-10-21 with ADR-0061, which turns a human identity's advertisement off through that overlay);
 - maximum 32 advertised endpoints per response;
 - endpoint identifiers only: no human name, avatar, role, prompt, application payload, or permission claim;
 - results are advisory and short-lived;
@@ -285,7 +285,7 @@ Defaults / ceilings:
 
 | Resource | Default | Ceiling |
 |---|---:|---:|
-| configured endpoints/profile | 16 | 64 |
+| configured endpoints/profile | 64 (no per-profile key; the schema's `max=64`, `MAX_ENDPOINTS`; corrected 2026-10-21 with ADR-0061 from a default of 16 nothing held) | 64 |
 | advertised endpoints | 16 | 32 |
 | EndpointId | 64 bytes | 64 bytes |
 | endpoint-directory cache TTL | 60 s | 5 min |

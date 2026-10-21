@@ -82,6 +82,18 @@ impl FacadeLoop {
         B: DataSessionBinding + 'static,
         A: AdminBinding + 'static,
     {
+        // Not bounded by a number, as the desktop's is not
+        // (apps/human-desktop/src/facade_thread.rs). Every command comes
+        // through a view's ModelSide (the window's, or a test build's e2e
+        // client), which drops a command while the same one is in flight:
+        // one send per conversation, and each other command by its value,
+        // a MarkRead per unread row (app-core model_side.rs `InFlight`;
+        // tests/root.rs
+        // `a_second_send_while_one_is_in_flight_is_not_sent_twice`). What can
+        // wait is at most one per action and per unread row the model
+        // holds: rows the store holds, bounded by its quota. The loop below
+        // takes every waiting command each turn, which is latency, not the
+        // bound. The other direction is bounded (hub.rs `TO_VIEW`).
         let (commands, mut waiting) = mpsc::unbounded_channel();
         let (close, mut closed) = oneshot::channel();
         let (report, reported) = std::sync::mpsc::sync_channel(1);

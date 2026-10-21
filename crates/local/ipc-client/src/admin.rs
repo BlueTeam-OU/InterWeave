@@ -351,6 +351,7 @@ impl AdminPort for IpcAdmin {
                 connected: row.connected,
                 backoff_until: row.backoff_until,
                 quarantined_until: row.quarantined_until,
+                route_held_until: row.route_held_until,
                 last_outcome: row.last_outcome,
             })
             .collect())
