@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 
 use interweave_transport_api::{DisconnectReason, PeerPath, TransportIdentity};
 use interweave_transport_libp2p::{DialFailureClass, DialRefusal};
-use interweave_transport_runtime::DialOrigin;
+use interweave_transport_runtime::{DialDenial, DialOrigin};
 use interweave_trust_api::{InfrastructureSet, PeerTrustPolicy, TrustDecision};
 
 /// The target the connectivity lines are written under.
@@ -122,6 +122,20 @@ pub(crate) fn quarantined(who: Who<'_>, for_ms: u64) {
 /// The reconnect round's dial to the peer was refused.
 pub(crate) fn reconnect_refused(who: Who<'_>, class: DialFailureClass) {
     connectivity!(info, who, "reconnect refused", class = class.label());
+}
+
+/// The reconnect round's dial to the peer was refused on a held circuit
+/// route, which lasts until `held_until_ms` on the wall clock unless the
+/// relay connects first (ADR-0011 A 2026-10-21): the refusal with the
+/// hold's end, since the class alone would not say how long.
+pub(crate) fn reconnect_held(who: Who<'_>, held_until_ms: u64) {
+    connectivity!(
+        info,
+        who,
+        "reconnect refused",
+        class = DialFailureClass::Denied(DialDenial::RouteHeld).label(),
+        held_until_ms = held_until_ms
+    );
 }
 
 const fn path_label(path: PeerPath) -> &'static str {
@@ -227,6 +241,9 @@ pub struct PeerGateRow {
     /// Every known address of it is quarantined until then, the earliest
     /// release; absent while any is dialable (`CONNECTIVITY.md` §19).
     pub quarantined_until_ms: Option<u64>,
+    /// The latest hold among its circuit routes, whose relay was not
+    /// reached (ADR-0011 A 2026-10-21); absent with none held.
+    pub route_held_until_ms: Option<u64>,
     /// How the last dial or connection to it ended, if any has since the
     /// runtime started.
     pub last_outcome: Option<LastOutcome>,

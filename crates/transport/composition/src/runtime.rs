@@ -1497,6 +1497,7 @@ impl Driver {
                 connected: gate.connected,
                 backoff_until_ms: gate.backoff_until_ms,
                 quarantined_until_ms: gate.quarantined_until_ms,
+                route_held_until_ms: gate.route_held_until_ms,
                 peer: gate.peer,
             })
             .collect();
@@ -1528,10 +1529,27 @@ impl Driver {
             if let Ok(Err(refusal)) = self.swarm.reconnect(peer.clone()).await {
                 let class = interweave_transport_libp2p::DialFailureClass::of_refusal(&refusal);
                 if self.refusals.changed(&self.trust, &peer, class) {
-                    crate::gate::reconnect_refused(
-                        Who::of(&peer, &self.trust, &self.infrastructure),
-                        class,
-                    );
+                    let who = Who::of(&peer, &self.trust, &self.infrastructure);
+                    // A HELD ROUTE IS NAMED WITH ITS END, read from the
+                    // gate that holds it; asked only when the refusal
+                    // changes, as the line itself is.
+                    let held_until = if class
+                        == interweave_transport_libp2p::DialFailureClass::Denied(
+                            interweave_transport_runtime::DialDenial::RouteHeld,
+                        ) {
+                        self.swarm
+                            .peer_gates(vec![peer.clone()])
+                            .await
+                            .ok()
+                            .and_then(|rows| rows.into_iter().next())
+                            .and_then(|row| row.route_held_until_ms)
+                    } else {
+                        None
+                    };
+                    match held_until {
+                        Some(until) => crate::gate::reconnect_held(who, until),
+                        None => crate::gate::reconnect_refused(who, class),
+                    }
                 }
                 if let Some(outcome) = LastOutcome::of_refusal(&refusal) {
                     self.outcomes.record(&self.trust, &peer, outcome);
