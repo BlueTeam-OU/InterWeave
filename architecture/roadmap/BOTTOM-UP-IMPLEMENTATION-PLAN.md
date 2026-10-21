@@ -5952,7 +5952,10 @@ and `crates/human/ui-slint`, the two clients under `apps/`, and
    memory-safe decoder at a fixed size; a local edit never overwritten.
    The conversation title takes the contact's name (`human-client-ui.md`
    §4). The manifest and dependency check of ADR-0059 decision 6, with
-   its self-test, lands here.
+   its self-test, lands here, and pins ADR-0060 decision 8's
+   declarations too: `allowBackup="false"` and extraction rules that
+   exclude every domain from `cloud-backup` and `device-transfer`
+   (the retention conformance suite's item 13, unprovable there).
 3. **The encrypted store** (rust-ui-dev, after SPIKE-011): the store
    key, its versioned sealed file, the Android sealing through the
    custody seam under `background-compatible`, the desktop sealed file
@@ -5973,8 +5976,9 @@ is rejected locally with no network effect; a card over broadcast is
 ignored; a second card from the same route is a new proposal and
 overwrites no local edit; two same-name cards from two PeerIds are two
 proposals; a declined card leaves nothing in the store; the photo is not
-decoded before Accept; no contacts permission and no contacts library
-in the Android build (the tree check, broken on purpose once); the
+decoded before Accept; no contacts permission, no contacts library,
+`allowBackup="false"` and total extraction rules in the Android build
+(the tree check, broken on purpose once per declaration); the
 store file, its log and its journal contain no plaintext of a contact
 name, a route or a retained message after a clean close and after an
 unclean one; a store whose key is missing opens nothing, reports the

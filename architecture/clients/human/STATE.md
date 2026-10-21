@@ -79,7 +79,7 @@ A migration from any prototype/general-history schema must not preserve full his
 
 ## Backup policy
 
-Android system backup/device transfer excludes the entire human-store database, its sealed store key and the rest of the application's data, permanently (ADR-0060 decision 8, the owner's word of 2026-10-21): InterWeave data never leaves the device through a platform backup, a platform transfer or an application-performed move between phones; a new device starts from the recovery phrase and an empty store.
+Android system backup/device transfer excludes the entire human-store database, its sealed store key and the rest of the application's data, permanently (ADR-0060 decision 8, the owner's word of 2026-10-21): InterWeave data never leaves the device through a platform backup, a platform transfer or any external provider; the backup that will exist travels over InterWeave itself between the person's own devices, by a later record; until then a new device starts from the recovery phrase and an empty store.
 
 A future explicit encrypted application backup may include **message content only from `unread_inbound` and `kept_inbound`**. `pending_outbound` is local crash/restart state but is excluded from portable backup to prevent restored/second devices from becoming implicit replay/delayed-send sources.
 
