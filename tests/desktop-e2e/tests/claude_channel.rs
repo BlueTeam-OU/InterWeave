@@ -3,9 +3,11 @@
 //! The Claude Code Channel bridge against two real daemons (plan §19
 //! step 4). The shipped `claude-channel` binary runs as Claude Code runs
 //! it: a child process speaking JSON-RPC on its stdio, started with
-//! `--profile` and `--endpoint` in daemon A's XDG tree, so the path is:
-//! - host lines in, through the bridge's IPC client and A's daemon;
-//! - then libp2p to B's daemon and an IPC session leased on B's `human`;
+//! `--profile` and `--endpoint` in its daemon's XDG tree (A's, except in
+//! the second-network case, where the sides swap), so the path is:
+//! - host lines in, through the bridge's IPC client and its daemon;
+//! - then libp2p to the far daemon and an IPC session leased on its
+//!   `human`;
 //! - and back.
 //!
 //! Each notification's `meta` is held to the contract's key list and the
@@ -19,15 +21,15 @@
 //!   where the bridge and the facade are each behind their own NAT and
 //!   talk through a relay (plan section 21, decided (7)).
 //!
-//! B's far end is a plain data session in most cases here. In one case
-//! (`the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed`)
-//! it is the human client's own facade, with its store, over its IPC
-//! binding. The facade, not the test, decides how each envelope travels,
-//! and the test reads that choice from the facade's pending row. The
-//! bridge decodes `;ce=br` and forwards the envelope's JSON as text,
-//! reading nothing of what it means. Toward the facade the bridge sends
-//! plain only: a tool's `content` is a UTF-8 string, so the model cannot
-//! hand it compressed bytes.
+//! The far end is a plain data session in most cases here. In two cases
+//! (`the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed`
+//! and the second-network one) it is the human client's own facade, with
+//! its store, over its IPC binding. The facade, not the test, decides how
+//! each envelope travels, and the test reads that choice from the
+//! facade's pending row. The bridge decodes `;ce=br` and forwards the
+//! envelope's JSON as text, reading nothing of what it means. Toward the
+//! facade the bridge sends plain only: a tool's `content` is a UTF-8
+//! string, so the model cannot hand it compressed bytes.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -814,14 +816,17 @@ async fn a_human_chat_envelope_is_notified_as_its_decoded_text() {
     }
 }
 
-/// The human client's own facade on B: its store and its IPC binding,
-/// leased on B's `human`, driven as a composition root drives it.
+/// The human client's own facade on a home's daemon: its store and its
+/// IPC binding, leased on that daemon's `human`, driven as a composition
+/// root drives it.
 struct Facade {
     client: interweave_human_transport_client::TransportClient<
         interweave_ipc_client::IpcBinding,
         interweave_ipc_client::IpcBinding,
     >,
     received: Vec<interweave_human_transport_client::Received>,
+    /// Each route the facade was told of, in order: the peer and the path.
+    paths: Vec<(TransportIdentity, interweave_transport_api::PeerPath)>,
     _store_dir: tempfile::TempDir,
 }
 
@@ -858,6 +863,7 @@ impl Facade {
         Self {
             client,
             received: Vec::new(),
+            paths: Vec::new(),
             _store_dir: store_dir,
         }
     }
@@ -868,7 +874,11 @@ impl Facade {
         Box::pin(self.client.tick(now)).await;
         let drained = Box::pin(self.client.drain(64, now)).await;
         self.received.extend(drained);
-        while self.client.next_event().is_some() {}
+        while let Some(event) = self.client.next_event() {
+            if let interweave_human_transport_client::ClientEvent::PeerPath { peer, path } = event {
+                self.paths.push((peer, path));
+            }
+        }
     }
 
     async fn ready(&mut self, daemons: &[&Daemon]) {
@@ -877,7 +887,7 @@ impl Facade {
         while !matches!(self.client.session_state(), SessionState::Ready { .. }) {
             assert!(
                 tokio::time::Instant::now() < deadline,
-                "the facade never leased B's human\n{}",
+                "the facade never leased its daemon's human\n{}",
                 logs(daemons)
             );
             self.step().await;
@@ -950,8 +960,9 @@ async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed
     exchange_with_the_facade(&mut bridge, &mut facade, &a_peer, &b_peer, &daemons).await;
 }
 
-/// How long a dial is given in the second network: a NAT that drops
-/// answers nothing, so a refused probe ends on this.
+/// How long a dial in the second network is given. A dial toward the
+/// other side's private address ends sooner, on the core's unreachable
+/// answer, so this bounds only a dial that hangs.
 #[cfg(target_os = "linux")]
 const DIAL: Duration = Duration::from_secs(3);
 
@@ -965,15 +976,17 @@ const SECOND_NETWORK: &str =
 /// in A's, behind NAT-A, and the relay is on the core between them
 /// (`interweave_test_support::e2e::netns`). B reserves on the relay, and
 /// A's only route to B is a circuit. Neither daemon's listen address
-/// takes a dial from the other side. The control is that each takes one
-/// from its own namespace, so a refused dial is the NAT's and not a
-/// listener that is not up. Then the facade exchange of the one-host
-/// test runs over the circuit, and the relay reports carrying A's
-/// circuit to B.
+/// takes a dial from the other side, since the core routes neither
+/// private range. The control is that each takes one from its own
+/// namespace, so the refusal is the topology's and not a listener that
+/// is not up. Then the facade exchange of the one-host test runs, the
+/// facade is told its route to the bridge's peer began relayed, and the
+/// relay reports carrying A's circuit to B.
 ///
-/// What this does not prove: a NAT whose mapping depends on the
-/// destination, a hole punch, and a second host, as
-/// `second_network.rs` names them.
+/// What this does not prove: that a NAT refuses a new inbound
+/// connection, since the core routes neither private range and so no
+/// dial reaches a NAT's forward rule; a NAT whose mapping depends on the
+/// destination; a hole punch; a second host.
 #[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_bridge_behind_its_own_nat_exchanges_with_the_facade_through_the_relay() {
@@ -1057,6 +1070,16 @@ async fn the_bridge_behind_its_own_nat_exchanges_with_the_facade_through_the_rel
         let mut facade = Facade::new(&a);
         facade.ready(&daemons).await;
         exchange_with_the_facade(&mut bridge, &mut facade, &b_peer, &a_peer, &daemons).await;
+        assert_eq!(
+            facade
+                .paths
+                .iter()
+                .find(|(peer, _)| peer == &b_peer)
+                .map(|(_, path)| *path),
+            Some(interweave_transport_api::PeerPath::Relayed),
+            "the facade's route to the bridge's peer began relayed: {:?}",
+            facade.paths
+        );
         let seen = relay.relay().seen().await;
         assert!(
             seen.circuits.contains(&(pid(&a_peer), pid(&b_peer))),
