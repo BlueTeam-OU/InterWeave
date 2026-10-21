@@ -356,35 +356,37 @@ out (§11).
 Entry: **Share a card** in a direct conversation's overflow, or the
 offer in an empty conversation (below).
 
-The chooser is one component: a modal bottom sheet on a narrow layout
-(Material's, with a drag handle and a scrim; Back and a tap on the scrim
-close it), a dialog on a wide one (Escape closes it). It holds:
+There is nothing to choose: the card sent is the card of the identity
+the conversation speaks as (ADR-0059 d. 2 (ii), ADR-0061 d. 3), which is
+the identity in front (§5.7). But a disclosure has no undo, so Share
+first shows what goes. The share sheet is one component: a modal bottom
+sheet on a narrow layout (Material's, with a drag handle and a scrim;
+Back and a tap on the scrim close it), a dialog on a wide one (Escape
+closes it). It holds:
 
-- title `ShareCardTitle`, with the conversation's title in it ("Share a
-  card with {title}"), so the person sees who gets it;
-- the person's cards as a single-choice list (radio rows, 56 dp): avatar,
-  label, and the name as sent. **The card the conversation last shared
-  is first and chosen.** Without one: with exactly one card it is
-  chosen; with several, none is chosen until the person picks;
-- **What {title} will see** (`ShareCardPreview`): the chosen card's photo
-  and name and surname, as the counterparty's client will show them
+- title `ShareCardTitle`, with the conversation's title in it ("Share
+  your card with {title}"), so the person sees who gets it;
+- with two or more identities held, the line `ShareCardAs` ("as
+  {identity}"), the identity's avatar beside it, so the person sees which
+  identity's card this is before it goes;
+- **What {title} will see** (`ShareCardPreview`): the card's photo and
+  name and family name, as the counterparty's client will show them
   after they accept;
 - the line `ShareCardNote`: the person will see this name and photo, and
   can save them; a card cannot be removed from their device once it arrives;
-- actions: **Cancel** (`Cancel`) and **Share** (`ShareCardAction`),
-  filled, at the end.
+- actions: **Cancel** (`Cancel`), **Edit your card** (`EditCard`, a text
+  button, which opens §5.2 for this identity and returns to the sheet)
+  and **Share** (`ShareCardAction`), filled, at the end.
 
-Share with no card chosen: nothing is sent, the list shows
-`ShareCardChoose` above it, and focus goes to the first card.
+**No name yet** (the identity's card has none): the preview is replaced
+by `ShareCardNoName` and the primary becomes **Add your name**
+(`CreateCard`), which opens §5.2 for this identity. Its Save returns to
+the sheet with the preview filled; its Back returns to the sheet
+unchanged.
 
-No cards yet: the list is replaced by `ShareCardNoCards` and the primary
-becomes **Add a card** (`CreateCard`), which opens the editor (§5.2).
-Its Save returns to the chooser with the new card chosen; its Back
-returns to the chooser unchanged.
-
-**Too large for this profile.** When the chosen card with its photo is
+**Too large for this profile.** When the card with its photo is
 over the profile's effective payload limit (HUMAN-CHAT.md: the client
-offers to send it without the photo), the chooser knows it before any
+offers to send it without the photo), the sheet knows it before any
 send: the preview shows the initials instead of the photo, the line
 `ShareCardNoPhoto` says the photo cannot be sent in this conversation,
 and the primary reads **Share without the photo**
@@ -392,7 +394,7 @@ and the primary reads **Share without the photo**
 limit below a name's size could do this), the primary is not offered and
 `ShareCardTooLarge` says so; Cancel stays.
 
-**After Share.** The chooser closes, focus returns to the control that
+**After Share.** The sheet closes, focus returns to the control that
 opened it (the overflow button, or the offer's Share a card button,
 which the new row replaces, so then the conversation's header title),
 never to the composer, which would open the keyboard unasked
@@ -400,23 +402,25 @@ never to the composer, which would open the keyboard unasked
 at the end of the conversation as **one's own card row** (§5.5) with
 the status of any outbound message: Sending, then Accepted by remote
 transport, or Not sent with Retry and Cancel (`human-client-ui.md` §5,
-§6). It is pending outbound under RETENTION.md like a text message: it
+§6). It leaves from the conversation's identity's lease, as everything
+the conversation sends does (ADR-0061 d. 3). It is pending outbound
+under RETENTION.md like a text message: it
 survives a restart until terminal, and Cancel with its Undo behaves as
 for text (§6's cancel rule, the same record restored). The
-conversation's `last_shared_card` is set when the card's row reaches
+conversation's `card_shared_at` is set when the card's row reaches
 Accepted by remote transport — the strongest evidence the client has
-that the counterparty's client holds it (`human-client-ui.md` §3: "which
-card the counterparty last received"; §5: never "read"). A card that is
-cancelled or never accepted leaves the previous value; Details and the
-chooser's order follow the stored value only. No
+that the counterparty's client holds it (`human-client-ui.md` §3: "that
+the card was shared and when"; §5: never "read"). A card that is
+cancelled or never accepted leaves the previous value; Details follows
+the stored value only. No
 snackbar: the row is the confirmation, and there is no undo of a
-disclosure, which is why the chooser shows the preview first.
+disclosure, which is why the sheet shows the preview first.
 
 **The offer in an empty conversation.** While a direct conversation
 holds no message, the message area shows,
 centred where the empty list is: `ShareCardOffer` (let {title} see your
 name instead of a PeerId) and a text button **Share a card**, which opens
-the chooser. It disappears with the first item either way, a shared
+the share sheet. It disappears with the first item either way, a shared
 card's row included. It is never a dialog, sends nothing, and stores
 no "dismissed" state: there is nothing to dismiss.
 
