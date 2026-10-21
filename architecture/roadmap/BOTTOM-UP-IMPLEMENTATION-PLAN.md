@@ -5988,7 +5988,11 @@ proposals; a declined card leaves nothing in the store; two own cards shared to 
 conversations, each counterparty holding only its own and nothing
 sent naming the other; a confirmed discard during a stalled rewrite
 removing the plaintext and keeping the key and the complete copy,
-which the next open promotes; the command-line discard refused
+which the next open promotes, the screen listing the plaintext alone;
+the same discard with the copy unopenable (no key, an invalidated
+key, a key that does not open it, a damaged copy) removing the
+plaintext, the copy and the key in one step, the screen listing the
+full loss, and no second screen; the command-line discard refused
 without its confirmation flag; every action
 of steps 2 and 3 driven from the command-line client in a shell with
 no display; the photo is not
