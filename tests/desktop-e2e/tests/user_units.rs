@@ -805,7 +805,7 @@ impl Unmanaged {
 /// instance of its own, so it is found by that link alone. The control is
 /// the links and the package present before.
 #[test]
-fn uninstall_with_no_manager_removes_the_wants_links_with_the_package() {
+fn uninstall_with_no_manager_removes_every_link_with_the_package() {
     let account = Unmanaged::new("e2e-unmanaged");
     let mut links = account.enabled_links("p");
     for (dir, unit, template) in [
