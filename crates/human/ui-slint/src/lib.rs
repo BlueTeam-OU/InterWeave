@@ -24,12 +24,13 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use interweave_human_client_api::TrustOrigin;
+use interweave_human_client_api::{Connectivity, OutboundStatus, TrustOrigin};
 use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
     HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
     RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, TrustSettings,
-    UiModel, UiText, fill, placeholder_en, short_peer, visible_destination,
+    UiModel, UiText, announced_change, fill, next_age_change, placeholder_en, short_peer,
+    visible_destination, waiting_text,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -188,10 +189,12 @@ pub fn platform_check() -> Result<(), PlatformProblem> {
 /// is. Empty -- the default font -- when it names none, or without a
 /// window.
 ///
-/// On Android too: the backend lays text out with the same font stack,
-/// which reads the platform's fonts.xml, and there too "monospace" is a
-/// generic, not a family name -- given by name, every `PeerId` and code
-/// line drew in the body font on the phone (#304 F4, round 2).
+/// On Android the generic resolves to nothing: fontique 0.11.1's Android
+/// backend maps monospace to a family NAMED "monospace", looked up among
+/// the scanned font files before fonts.xml's aliases are read, and no
+/// file carries that name -- so 62fad28a's question still gave the body
+/// font on the phone (#304 F4, round 2 on 35c71169). The families
+/// Android ships its monospace in are asked for by name after it.
 #[cfg(any(feature = "desktop", feature = "android"))]
 fn code_font() -> SharedString {
     use i_slint_common::sharedfontique::fontique::{Collection, CollectionOptions, GenericFamily};
@@ -199,11 +202,27 @@ fn code_font() -> SharedString {
         shared: false,
         system_fonts: true,
     });
-    let family = fonts.generic_families(GenericFamily::Monospace).next();
+    let generic = fonts.generic_families(GenericFamily::Monospace).next();
+    let family = generic.or_else(|| {
+        MONOSPACE_FAMILIES
+            .iter()
+            .find_map(|name| fonts.family_id(name))
+    });
     family
         .and_then(|id| fonts.family_name(id))
         .map_or_else(SharedString::new, SharedString::from)
 }
+
+/// Android's monospaced families, by the names its font files carry,
+/// most likely first: AOSP's DroidSansMono.ttf and CutiveMono.ttf, and
+/// the Noto and Roboto monospace faces some builds add.
+#[cfg(any(feature = "desktop", feature = "android"))]
+const MONOSPACE_FAMILIES: [&str; 4] = [
+    "Droid Sans Mono",
+    "Roboto Mono",
+    "Noto Sans Mono",
+    "Cutive Mono",
+];
 
 #[cfg(not(any(feature = "desktop", feature = "android")))]
 fn code_font() -> SharedString {
@@ -261,6 +280,9 @@ enum Input {
     /// The snackbar closed without one: its timeout, a swipe away, the
     /// app leaving the foreground.
     SnackClosed(u64),
+    /// Details' Copy put the shown conversation's identifier on the
+    /// clipboard.
+    IdentifierCopied,
     /// The notice's action, with the notice that was shown.
     Notice(SessionNotice),
     /// A link's control, with the destination as rendered: the model
@@ -521,6 +543,34 @@ impl Shared {
     }
 }
 
+/// The trust settings' callbacks: each becomes an input, taken by
+/// [`View::take_events`] as the others are.
+fn wire_trust(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
+    let s = Rc::clone(shared);
+    window.on_trust_entry_edited(move |text| {
+        enqueue(&s, Input::Trust(TrustInput::EntryChanged(text.to_string())));
+    });
+    let s = Rc::clone(shared);
+    window.on_trust_add(move || enqueue(&s, Input::Trust(TrustInput::ProposeAllow)));
+    let s = Rc::clone(shared);
+    window.on_trust_remove(move |handle| {
+        let peer = s.borrow().trusted.get(&handle).cloned();
+        if let Some(peer) = peer {
+            enqueue(&s, Input::Trust(TrustInput::ProposeRevoke(peer)));
+        }
+    });
+    let s = Rc::clone(shared);
+    window.on_trust_confirm(move || {
+        let shown = s.borrow().pending_shown.clone();
+        if let Some(change) = shown {
+            s.borrow_mut().trust_confirmed = true;
+            enqueue(&s, Input::Trust(TrustInput::Confirm(change)));
+        }
+    });
+    let s = Rc::clone(shared);
+    window.on_trust_cancel(move || enqueue(&s, Input::Trust(TrustInput::Cancel)));
+}
+
 /// Queue `input` from a window callback, and wake the root after the
 /// borrow is released. The root's own calls queue without waking: the
 /// root is in control already, and may hold the view borrowed (review N4).
@@ -670,10 +720,38 @@ pub struct View {
     /// The one wake at the next local midnight, and when it is due.
     day_timer: slint::Timer,
     day_due: Option<u64>,
+    /// Who confirms a copy from Details.
+    copy_feedback: CopyFeedback,
+    /// The one wake when a shown waiting message's age next reads
+    /// otherwise, and when it is due.
+    age_timer: slint::Timer,
+    age_due: Option<u64>,
     /// What runs once the next frame has been drawn
     /// ([`View::after_next_frame`]); `None` until the window's one
     /// rendering notifier is set.
     frame_tasks: Option<FrameTasks>,
+}
+
+/// Chats' one-line state (#304 F7): its short text, and the icon beside
+/// it so it is never told by colour alone; unknown has none.
+const fn state_line(connectivity: Connectivity) -> (UiText, Glyph) {
+    match connectivity {
+        Connectivity::OnlineDirect => (UiText::StateShortDirect, Glyph::Cloud),
+        Connectivity::OnlineRelay => (UiText::StateShortRelayed, Glyph::Cloud),
+        Connectivity::OnlinePartial => (UiText::StateShortPartial, Glyph::Cloud),
+        Connectivity::Offline => (UiText::StateShortOffline, Glyph::CloudOff),
+        Connectivity::Unknown => (UiText::StateShortUnknown, Glyph::None),
+    }
+}
+
+/// Who tells the person that Details' Copy worked (#304 F11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyFeedback {
+    /// The app's snackbar: the desktop, and Android below 13.
+    Snackbar,
+    /// The platform's own: Android 13 and later show one, and a second
+    /// from the app would say it twice.
+    Platform,
 }
 
 /// The tasks [`View::after_next_frame`] queued, which the window's
@@ -700,13 +778,13 @@ impl View {
         window.set_window_title(text(UiText::AppTitle));
         window.set_conversations_heading(text(UiText::Conversations));
         window.set_messages_heading(text(UiText::Messages));
-        window.set_header_id_label(text(UiText::ConversationId));
+        window.set_close_label(text(UiText::Close));
         window.set_composer_label(text(UiText::Composer));
         window.set_send_label(text(UiText::Send));
         window.set_show_source_label(text(UiText::ShowSource));
         window.set_show_formatted_label(text(UiText::ShowFormatted));
         window.set_code_font(code_font());
-        window.set_trust_settings_label(text(UiText::TrustSettings));
+        window.set_app_options_label(text(UiText::AppOptions));
         window.set_back_label(text(UiText::BackToConversations));
         window.set_trust_heading(text(UiText::TrustHeading));
         window.set_show_phrase_label(text(UiText::IdShowPhraseItem));
@@ -787,28 +865,8 @@ impl View {
         let s = Rc::clone(&shared);
         window.on_close_trust(move || enqueue(&s, Input::TrustPage(false)));
         let s = Rc::clone(&shared);
-        window.on_trust_entry_edited(move |text| {
-            enqueue(&s, Input::Trust(TrustInput::EntryChanged(text.to_string())));
-        });
-        let s = Rc::clone(&shared);
-        window.on_trust_add(move || enqueue(&s, Input::Trust(TrustInput::ProposeAllow)));
-        let s = Rc::clone(&shared);
-        window.on_trust_remove(move |handle| {
-            let peer = s.borrow().trusted.get(&handle).cloned();
-            if let Some(peer) = peer {
-                enqueue(&s, Input::Trust(TrustInput::ProposeRevoke(peer)));
-            }
-        });
-        let s = Rc::clone(&shared);
-        window.on_trust_confirm(move || {
-            let shown = s.borrow().pending_shown.clone();
-            if let Some(change) = shown {
-                s.borrow_mut().trust_confirmed = true;
-                enqueue(&s, Input::Trust(TrustInput::Confirm(change)));
-            }
-        });
-        let s = Rc::clone(&shared);
-        window.on_trust_cancel(move || enqueue(&s, Input::Trust(TrustInput::Cancel)));
+        window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
+        wire_trust(&window, &shared);
 
         let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
         window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
@@ -867,6 +925,9 @@ impl View {
             shown_items: HashMap::new(),
             day_timer: slint::Timer::default(),
             day_due: None,
+            copy_feedback: CopyFeedback::Snackbar,
+            age_timer: slint::Timer::default(),
+            age_due: None,
             frame_tasks: None,
             seen: Seen::default(),
             next_slot_b: false,
@@ -983,6 +1044,12 @@ impl View {
                 wake();
             }
         }
+    }
+
+    /// Who confirms a copy from Details: the platform, or this view's
+    /// snackbar (the default).
+    pub fn set_copy_feedback(&mut self, feedback: CopyFeedback) {
+        self.copy_feedback = feedback;
     }
 
     /// Run `task` once a frame rendered after this call has been handed to
@@ -1253,6 +1320,15 @@ impl View {
                     }
                 }
                 Input::SnackClosed(id) => out.push(ViewEvent::SnackbarClosed(id)),
+                // Said only where the platform confirms nothing itself:
+                // from Android 13 on, it shows its own (#304 F11).
+                Input::IdentifierCopied => {
+                    if self.copy_feedback == CopyFeedback::Snackbar
+                        && let Some(key) = self.shown.clone()
+                    {
+                        out.push(ViewEvent::IdentifierCopied(key));
+                    }
+                }
                 Input::Link(destination) => {
                     out.extend(model.link_activated(&destination).map(ViewEvent::Intent));
                 }
@@ -1659,6 +1735,10 @@ impl View {
         // section 7).
         let menu = self.window.get_row_menu();
         let mut menu_stale = menu >= 0;
+        // A waiting message's status reads its age: the soonest change of
+        // any shown wakes one render then (#304 F10).
+        let now_ms = self.clock.now_ms();
+        let mut age_due: Option<u64> = None;
         let mut rows: Vec<MessageRow> = items
             .iter()
             .map(|item| {
@@ -1689,7 +1769,11 @@ impl View {
                     format!("m:{handle}"),
                     swipe::Swipeable::Item(item.key, offer),
                 );
-                let row = message_row(handle, item, model_rc, drawn, offer, placed);
+                let status = status_text(item, now_ms, self.host);
+                if let Some(next) = waiting_age_change(item, now_ms) {
+                    age_due = Some(age_due.map_or(next, |due: u64| due.min(next)));
+                }
+                let row = message_row(handle, item, model_rc, drawn, offer, placed, &status);
                 rendered.insert(
                     handle,
                     Pressable {
@@ -1701,6 +1785,7 @@ impl View {
                 row
             })
             .collect();
+        self.wake_for_age(age_due, now_ms);
         if menu_stale {
             if rendered.contains_key(&menu) {
                 // Its actions changed: focus back on its bubble.
@@ -1847,21 +1932,43 @@ impl View {
         self.pressed.retain(|key| drawn.contains(key));
     }
 
-    /// Announce what changed since the last render, in the window's one
-    /// polite live region (rust-ui-dev F4): an item's own status is not a
-    /// live region, or a list of fifty would speak fifty times. Two slots
-    /// take turns, so an announcement equal to the last one is still a
-    /// change a screen reader hears.
+    /// One wake at `due`, the soonest age change of a shown waiting
+    /// message, as the day's wake is kept: a render while it runs keeps it.
+    fn wake_for_age(&mut self, due: Option<u64>, now_ms: u64) {
+        let Some(due) = due else {
+            self.age_due = None;
+            self.age_timer.stop();
+            return;
+        };
+        if self.age_due != Some(due) || !self.age_timer.running() {
+            self.age_due = Some(due);
+            let shared = Rc::clone(&self.shared);
+            self.age_timer.start(
+                slint::TimerMode::SingleShot,
+                Duration::from_millis(due.saturating_sub(now_ms)),
+                move || {
+                    let wake = shared.borrow().wake.clone();
+                    if let Some(wake) = wake {
+                        wake();
+                    }
+                },
+            );
+        }
+    }
+
     /// What changed in the conversations since the last render, to
     /// announce: what is on screen is "here", anything else "elsewhere".
     fn conversation_announcement(&mut self, model: &UiModel) -> Option<String> {
-        let now = Seen::of(model, self.on_screen());
+        let now = Seen::of(model, self.on_screen(), self.clock.now_ms(), self.host);
         let said = announcement(&self.seen, &now);
         self.seen = now;
         said
     }
 
-    /// Say `said` in the window's one live region.
+    /// Say `said` in the window's one polite live region (rust-ui-dev
+    /// F4): an item's own status is not a live region, or a list of fifty
+    /// would speak fifty times. Two slots take turns, so an announcement
+    /// equal to the last one is still a change a screen reader hears.
     fn announce(&mut self, said: String) {
         let (said, cleared) = (SharedString::from(said), SharedString::new());
         if self.next_slot_b {
@@ -2222,14 +2329,24 @@ impl View {
             window.set_menu_open(false);
             window.set_details_open(false);
         }
-        window
-            .set_connectivity(placeholder_en::connectivity(self.host, model.connectivity()).into());
+        let connectivity = model.connectivity();
+        window.set_connectivity(placeholder_en::connectivity(self.host, connectivity).into());
+        let (short, glyph) = state_line(connectivity);
+        window.set_state_short(placeholder_en::text(short).into());
+        window.set_state_glyph(glyph);
         let notice = model.session_notice();
         self.shared.borrow_mut().notice = notice;
-        window.set_has_notice(notice.is_some());
+        // A conversation shows the device's state only while it is offline,
+        // as its notice -- under one a person can act on, which says more
+        // (#304 F7). Unknown shows nothing, never as offline.
+        let offline = (notice.is_none() && connectivity == Connectivity::Offline)
+            .then(|| placeholder_en::host_text(self.host, HostText::OfflineBanner).to_owned());
+        window.set_has_notice(notice.is_some() || offline.is_some());
+        window.set_has_session_notice(notice.is_some());
         window.set_notice(
             notice
                 .map(|notice| notice_text(self.host, notice))
+                .or(offline)
                 .unwrap_or_default()
                 .into(),
         );
@@ -2244,7 +2361,6 @@ impl View {
                 window.set_header_title(placeholder_en::text(UiText::NoConversation).into());
                 window.set_header_id(SharedString::new());
                 window.set_header_avatar_letters(SharedString::new());
-                window.set_header_path(SharedString::new());
                 window.set_composer_enabled(false);
                 window.set_refused(SharedString::new());
             }
@@ -2252,11 +2368,27 @@ impl View {
                 let title = model.title(key);
                 window.set_header_title(title.into());
                 window.set_header_id(full_id(key).into());
+                let (label, copy, route) = match key {
+                    ConversationKey::Direct { endpoint, .. } => (
+                        UiText::DetailsPeerId,
+                        UiText::CopyPeerId,
+                        endpoint.as_ref().map(|e| {
+                            fill(
+                                placeholder_en::text(UiText::DetailsRoute),
+                                &[("route", e.as_str())],
+                            )
+                        }),
+                    ),
+                    ConversationKey::Channel(_) => {
+                        (UiText::DetailsChannelId, UiText::CopyChannelId, None)
+                    }
+                };
+                window.set_details_id_label(placeholder_en::text(label).into());
+                window.set_details_copy_label(placeholder_en::text(copy).into());
+                window.set_details_route(route.unwrap_or_default().into());
                 let avatar = Avatar::of(key);
                 window.set_header_avatar_letters(avatar.letters.as_str().into());
                 window.set_header_avatar_hue(hue_index(avatar.hue));
-                let path = model.path(key).map(placeholder_en::path);
-                window.set_header_path(path.unwrap_or_default().into());
                 // No composer while nothing can be sent: without network
                 // access, reading and keeping go on and sending does not.
                 window.set_composer_enabled(model.sending_offered());
@@ -2494,12 +2626,12 @@ fn message_row(
     drawn: &DrawnBody,
     offer: interweave_human_ui_model::SwipeOffer,
     placed: Placement,
+    status: &str,
 ) -> MessageRow {
     let (author, author_id) = match (&item.direction, &item.author) {
         (Direction::Inbound, Some(peer)) => (short_peer(peer.as_str()), peer.as_str().to_owned()),
         _ => (placeholder_en::text(UiText::You).to_owned(), String::new()),
     };
-    let status = status_text(item);
     let mark = status_mark(item);
     let reply = match &item.reply {
         Some(Reply::Present(_)) => placeholder_en::text(UiText::ReplyPresent),
@@ -2556,7 +2688,7 @@ struct SeenItem {
     direction: Direction,
     status: ItemStatus,
     /// The status as the item shows it.
-    status_text: &'static str,
+    status_text: String,
     /// An inbound item's short author.
     author: Option<String>,
 }
@@ -2575,7 +2707,12 @@ struct Seen {
 }
 
 impl Seen {
-    fn of(model: &UiModel, shown: Option<&ConversationKey>) -> Self {
+    fn of(
+        model: &UiModel,
+        shown: Option<&ConversationKey>,
+        now_ms: u64,
+        host: RuntimeHost,
+    ) -> Self {
         let items = shown.map_or_else(HashMap::new, |key| {
             model
                 .messages(key)
@@ -2583,7 +2720,7 @@ impl Seen {
                 .map(|item| {
                     let seen = SeenItem {
                         direction: item.direction,
-                        status_text: status_text(&item),
+                        status_text: status_text(&item, now_ms, host),
                         author: item.author.as_ref().map(|p| short_peer(p.as_str())),
                         status: item.status,
                     };
@@ -2649,7 +2786,7 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
                     && before
                         .items
                         .get(key)
-                        .is_some_and(|was| was.status != item.status)
+                        .is_some_and(|was| announced_change(&was.status, &item.status))
             })
             .map(|(_, item)| item)
             .collect();
@@ -2657,7 +2794,7 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
             [] => {}
             [item] => parts.push(fill(
                 placeholder_en::text(UiText::AnnounceOwnStatus),
-                &[("status", item.status_text)],
+                &[("status", &item.status_text)],
             )),
             many => parts.push(fill(
                 placeholder_en::text(UiText::AnnounceOwnStatuses),
@@ -2694,14 +2831,27 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
     })
 }
 
-/// The status a person reads: the label's text, and for an unread copy of
-/// a kept message, both facts (U2b).
-fn status_text(item: &MessageItem) -> &'static str {
-    match item.status {
+/// The status a person reads: the label's text; for an unread copy of a
+/// kept message, both facts (U2b); for a waiting message, one status with
+/// its age from when it was written and its last problem (#304 F10).
+fn status_text(item: &MessageItem, now_ms: u64, host: RuntimeHost) -> String {
+    match &item.status {
         ItemStatus::Inbound(Retention::Unread) if item.kept => {
-            placeholder_en::text(UiText::UnreadAlsoKept)
+            placeholder_en::text(UiText::UnreadAlsoKept).to_owned()
         }
-        _ => placeholder_en::label(item.label),
+        ItemStatus::Outbound(status) => waiting_text(status, item.local_at, now_ms, host)
+            .unwrap_or_else(|| placeholder_en::label(item.label).to_owned()),
+        ItemStatus::Inbound(_) => placeholder_en::label(item.label).to_owned(),
+    }
+}
+
+/// When a waiting message's status next reads another age.
+fn waiting_age_change(item: &MessageItem, now_ms: u64) -> Option<u64> {
+    match &item.status {
+        ItemStatus::Outbound(
+            OutboundStatus::Sending { .. } | OutboundStatus::Unconfirmed { .. },
+        ) => Some(next_age_change(item.local_at, now_ms)),
+        _ => None,
     }
 }
 
@@ -2765,6 +2915,7 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         Intent::Reopen => UiText::TryAgain,
         Intent::RecheckStorage => UiText::RecheckStorage,
         Intent::AllowNetwork => UiText::AllowNetwork,
+        Intent::Authenticate => UiText::Authenticate,
         // A restore is an Undo's, never a button of its own.
         Intent::MarkRead(_)
         | Intent::Send { .. }
@@ -2803,6 +2954,9 @@ fn notice_text(host: RuntimeHost, notice: SessionNotice) -> String {
         SessionNotice::Reconnecting => placeholder_en::text(UiText::Reconnecting).to_owned(),
         SessionNotice::StorageDegraded => placeholder_en::text(UiText::StorageDegraded).to_owned(),
         SessionNotice::NetworkDenied => placeholder_en::text(UiText::NetworkDenied).to_owned(),
+        SessionNotice::AuthenticationNeeded => {
+            placeholder_en::text(UiText::AuthenticationNeeded).to_owned()
+        }
         SessionNotice::Refused(class) => fill(
             placeholder_en::text(UiText::Refused),
             &[("reason", placeholder_en::error(host, class))],
