@@ -311,16 +311,21 @@ transport, or Not sent with Retry and Cancel (`human-client-ui.md` §5,
 §6). It is pending outbound under RETENTION.md like a text message: it
 survives a restart until terminal, and Cancel with its Undo behaves as
 for text (§6's cancel rule, the same record restored). The
-conversation's `last_shared_card` is set when Share is pressed. No
+conversation's `last_shared_card` is set when the card's row reaches
+Accepted by remote transport — the strongest evidence the client has
+that the counterparty's client holds it (`human-client-ui.md` §3: "which
+card the counterparty last received"; §5: never "read"). A card that is
+cancelled or never accepted leaves the previous value; Details and the
+chooser's order follow the stored value only. No
 snackbar: the row is the confirmation, and there is no undo of a
 disclosure, which is why the chooser shows the preview first.
 
 **The offer in an empty conversation.** While a direct conversation
-holds no message and has never shared a card, the message area shows,
+holds no message, the message area shows,
 centred where the empty list is: `ShareCardOffer` (let {title} see your
 name instead of a PeerId) and a text button **Share a card**, which opens
-the chooser. It disappears with the first message either way, and once
-a card has been shared. It is never a dialog, sends nothing, and stores
+the chooser. It disappears with the first item either way, a shared
+card's row included. It is never a dialog, sends nothing, and stores
 no "dismissed" state: there is nothing to dismiss.
 
 ### 5.4 A received card: the proposal
