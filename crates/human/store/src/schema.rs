@@ -462,8 +462,8 @@ fn carry_sequence(
 /// assertion holds the column this migration wrote. A unique index over
 /// `IFNULL(source_endpoint, '')` itself would read as `<expression>`,
 /// which names no expression: one over a constant would read the same.
-/// `the_walk_indexes_are_part_of_the_verified_shape` refuses an
-/// expression under an index's name.
+/// `a_unique_key_over_an_expression_is_not_the_generated_column_this_build_wrote`
+/// plants both and holds the refusal.
 ///
 /// The NAME alone is still not enough: a column of the same name
 /// generated from a constant presents an identical column list and an
@@ -1437,7 +1437,10 @@ pub fn verify_shape(conn: &Connection) -> Result<(), StoreError> {
         // as a constant satisfies both while quietly restoring the
         // collision `migration_3` removed. Both halves are checked: the
         // hidden-column set, so an extra or missing one is caught, and
-        // the declaration text, so a changed expression is.
+        // what each column computes, evaluated by
+        // `generated_columns_compute_what_we_wrote`, so a changed
+        // expression is; its declaration text is not read, since a
+        // comment can carry the expected one.
         let hidden = actual_hidden_columns(conn, shape.name)?;
         let mut expected_hidden: Vec<(String, i64)> = shape
             .generated
