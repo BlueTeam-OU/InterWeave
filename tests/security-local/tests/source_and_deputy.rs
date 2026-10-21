@@ -23,87 +23,20 @@ use interweave_local_client_api::{
     AdminBinding as _, AdminCapability, AdminPort as _, DataCapability, DataSessionBinding as _,
     DataSessionPort as _, SessionEvent, SessionRequest,
 };
-use interweave_test_support::e2e::{Daemon, Home, PATIENCE, example, free_port, human, stranger};
+use interweave_test_support::e2e::{PATIENCE, human, stranger};
 use interweave_transport_api::{
-    BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MediaType, MessageId, Payload,
-    TransportError, TransportIdentity,
+    BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MessageId, TransportError,
+    TransportIdentity,
 };
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::UnixStream;
 
+mod common;
+
+use common::{Pair, arriving, payload};
+
 fn claude() -> EndpointId {
     EndpointId::parse("claude").expect("endpoint")
-}
-
-/// Two daemons that trust each other, A holding a static route to B.
-struct Pair {
-    a: Home,
-    b: Home,
-    a_daemon: Daemon,
-    b_daemon: Daemon,
-    a_peer: TransportIdentity,
-    b_peer: TransportIdentity,
-}
-
-impl Pair {
-    async fn start() -> Self {
-        let ip = interweave_test_support::net::require_private_interface_v4();
-        let (a, b) = (Home::new("human-desktop"), Home::new("human-desktop"));
-        let (a_peer, b_peer) = (a.write_key(), b.write_key());
-        let (a_port, b_port) = (free_port(ip), free_port(ip));
-        let at = |port: u16| format!("/ip4/{ip}/tcp/{port}");
-        b.write_config(&example("human-desktop.yaml", &a_peer, &at(b_port), None));
-        let route = format!("{}/p2p/{}", at(b_port), b_peer.as_str());
-        a.write_config(&example(
-            "human-desktop.yaml",
-            &b_peer,
-            &at(a_port),
-            Some(&route),
-        ));
-        let mut b_daemon = b.start(&[]);
-        b_daemon.serving(&b).await;
-        let mut a_daemon = a.start(&[]);
-        a_daemon.serving(&a).await;
-        Self {
-            a,
-            b,
-            a_daemon,
-            b_daemon,
-            a_peer,
-            b_peer,
-        }
-    }
-
-    fn logs(&self) -> String {
-        format!("A:\n{}\nB:\n{}", self.a_daemon.log(), self.b_daemon.log())
-    }
-
-    async fn stop(mut self) {
-        assert!(self.a_daemon.terminate().await.success(), "{}", self.logs());
-        assert!(self.b_daemon.terminate().await.success(), "{}", self.logs());
-    }
-}
-
-fn payload(bytes: &[u8]) -> Payload {
-    Payload::at_ceiling(
-        Some(MediaType::parse("application/json").expect("a media type")),
-        bytes.to_vec(),
-    )
-    .expect("a payload")
-}
-
-/// Everything `session` receives within `window`.
-async fn arriving<S: interweave_local_client_api::DataSessionPort>(
-    session: &S,
-    window: Duration,
-) -> Vec<SessionEvent> {
-    let deadline = tokio::time::Instant::now() + window;
-    let mut got = Vec::new();
-    while tokio::time::Instant::now() < deadline {
-        got.extend(session.events(64).await.expect("events"));
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    got
 }
 
 /// One raw data connection, its hello written by the test.
