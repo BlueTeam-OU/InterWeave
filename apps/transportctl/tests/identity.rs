@@ -583,6 +583,202 @@ fn a_replace_must_name_the_stored_identity() {
     );
 }
 
+/// What ADR-0043's warning must say, in the words a test can hold it to.
+const WARNING_NAMES: [&str; 3] = ["ADR-0043", "one PeerId on two nodes", "cannot check"];
+
+/// Run with stdin piped and held open, NOTHING written to it until
+/// ADR-0043's warning is on stderr: the warning is waited for while the
+/// command can only be blocked in its read, so it came before the
+/// phrase was asked for. Then `input`, and the command's end.
+fn feed_after_warning(home: &Home, args: &[&str], input: &str) -> Output {
+    let mut child = home
+        .command(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("runs");
+    let stderr = Arc::new(Mutex::new(Vec::new()));
+    let reader = {
+        let stderr = Arc::clone(&stderr);
+        let mut pipe = child.stderr.take().expect("stderr");
+        std::thread::spawn(move || {
+            let mut chunk = [0_u8; 1024];
+            while let Ok(n) = pipe.read(&mut chunk) {
+                if n == 0 {
+                    break;
+                }
+                stderr.lock().expect("lock").extend_from_slice(&chunk[..n]);
+            }
+        })
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !text(&stderr.lock().expect("lock")).contains(WARNING_NAMES[0]) {
+        assert!(
+            Instant::now() < deadline,
+            "no warning before the phrase was given: {}",
+            text(&stderr.lock().expect("lock"))
+        );
+        assert!(
+            child.try_wait().expect("waits").is_none(),
+            "ended without the phrase and without the warning: {}",
+            text(&stderr.lock().expect("lock"))
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(input.as_bytes())
+        .expect("the record written");
+    let mut stdout = Vec::new();
+    child
+        .stdout
+        .take()
+        .expect("stdout")
+        .read_to_end(&mut stdout)
+        .expect("stdout read");
+    let status = child.wait().expect("ends");
+    reader.join().expect("reader");
+    let stderr = stderr.lock().expect("lock").clone();
+    Output {
+        status,
+        stdout,
+        stderr,
+    }
+}
+
+/// ADR-0043: "Recovery UX warns when importing an identity expected to
+/// still be active elsewhere." Nothing here can tell whether it is, so
+/// every restore says so -- `--new` and `--replace` alike, from a pipe or
+/// a file (IDENTITY-RECOVERY.md section Restore semantics item 11) -- on
+/// stderr, before the phrase is read, and the restore then goes on: a warning,
+/// not a refusal and not a question. Never on stdout, which carries the
+/// result, which each form's stdout is checked to carry. The
+/// phrase-reading drill, `verify`, goes through the same reader and does
+/// not warn: the warning is the restore's, not the shared reader's, so
+/// the marker [`feed_after_warning`] waits for cannot come from the read.
+#[test]
+fn a_restore_warns_before_it_reads_the_phrase() {
+    let home = Home::new();
+    let (record, incoming) = another_record();
+    let out = feed_after_warning(
+        &home,
+        &["--profile", "p", "identity", "restore", "--new"],
+        &record,
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    assert_eq!(home.stored().as_deref(), Some(incoming.as_str()));
+    assert!(
+        text(&out.stdout).contains("restored "),
+        "{}",
+        text(&out.stdout)
+    );
+    for name in WARNING_NAMES {
+        assert!(text(&out.stderr).contains(name), "{}", text(&out.stderr));
+        assert!(!text(&out.stdout).contains(name), "{}", text(&out.stdout));
+    }
+
+    let (record, replacement) = another_record();
+    let out = feed_after_warning(
+        &home,
+        &[
+            "--profile",
+            "p",
+            "identity",
+            "restore",
+            "--replace",
+            "--replacing",
+            &incoming,
+        ],
+        &record,
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    assert_eq!(home.stored().as_deref(), Some(replacement.as_str()));
+    assert!(
+        text(&out.stdout).contains("replaced "),
+        "{}",
+        text(&out.stdout)
+    );
+    for name in WARNING_NAMES {
+        assert!(text(&out.stderr).contains(name), "{}", text(&out.stderr));
+        assert!(!text(&out.stdout).contains(name), "{}", text(&out.stdout));
+    }
+
+    // A file on stdin: nothing to hold open, so only that it is said, on
+    // stderr and not stdout.
+    let (record, from_file) = another_record();
+    let file = home.file("restore.json");
+    std::fs::write(&file, &record).expect("the record file");
+    let out = home
+        .command(&[
+            "--profile",
+            "p",
+            "identity",
+            "restore",
+            "--replace",
+            "--replacing",
+            &replacement,
+        ])
+        .stdin(std::fs::File::open(&file).expect("opens"))
+        .output()
+        .expect("runs");
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    assert_eq!(home.stored().as_deref(), Some(from_file.as_str()));
+    assert!(
+        text(&out.stdout).contains("replaced "),
+        "{}",
+        text(&out.stdout)
+    );
+    for name in WARNING_NAMES {
+        assert!(text(&out.stderr).contains(name), "{}", text(&out.stderr));
+        assert!(!text(&out.stdout).contains(name), "{}", text(&out.stdout));
+    }
+
+    let out = piped(
+        &["identity", "verify", "--expected-peer-id", GOLDEN_PEER],
+        GOLDEN_WORDS,
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
+    assert!(
+        !text(&out.stderr).contains(WARNING_NAMES[0]),
+        "{}",
+        text(&out.stderr)
+    );
+}
+
+/// On a terminal the warning is on the screen ABOVE the hidden prompt,
+/// in both forms: read before the phrase is typed, not after.
+#[test]
+fn on_a_terminal_the_warning_precedes_the_prompt() {
+    let home = Home::new();
+    let established = home.write_key();
+    for form in [
+        "--new".to_owned(),
+        format!("--replace --replacing {established}"),
+    ] {
+        // A typo'd phrase: the restore is refused after the read and
+        // writes nothing, so both forms run against one profile.
+        let shell = format!(
+            "{} {} --profile p identity restore {form} --expected-peer-id {GOLDEN_PEER}; \
+             echo done=$?",
+            home.shell_env(),
+            transportctl()
+        );
+        let session = under_a_terminal(&shell, "recovery phrase (hidden)", b"abandon\r");
+        assert!(session.screen.contains("done="), "{}", session.screen);
+        let warning = session.screen.find(WARNING_NAMES[0]);
+        let prompt = session.screen.find("recovery phrase (hidden)");
+        assert!(
+            matches!((warning, prompt), (Some(w), Some(p)) if w < p),
+            "{form}: {}",
+            session.screen
+        );
+    }
+    assert_eq!(home.stored().as_deref(), Some(established.as_str()));
+}
+
 /// A checksum-valid phrase for another identity is a hard failure, and
 /// nothing is written.
 #[test]

@@ -153,7 +153,9 @@ fn app_pids(manager: &str) -> Vec<String> {
 }
 
 /// The last [`APP_LOG_LINES`] of a `threadtime` log whose pid, the third
-/// field, is one of `pids`.
+/// field, is one of `pids`, after a line saying how many earlier ones
+/// were cut, when any were: a reader must not take a cut log's first line
+/// for the run's first (`a_cut_app_log_says_so`).
 fn lines_of(pids: &[String], log: &str) -> String {
     let lines: Vec<&str> = log
         .lines()
@@ -163,8 +165,17 @@ fn lines_of(pids: &[String], log: &str) -> String {
                 .is_some_and(|pid| pids.iter().any(|p| p == pid))
         })
         .collect();
-    lines[lines.len().saturating_sub(APP_LOG_LINES)..].join("\n")
+    let cut = lines.len().saturating_sub(APP_LOG_LINES);
+    let kept = lines[cut..].join("\n");
+    if cut == 0 {
+        kept
+    } else {
+        format!("({cut} {CUT_LINES})\n{kept}")
+    }
 }
+
+/// What [`lines_of`] says when it cut the front of the app's log.
+pub const CUT_LINES: &str = "earlier lines of the app's log cut";
 
 /// `adb args`'s stdout, or why there is none: a failure report that
 /// cannot read the log says why, never an empty section or a guess.
@@ -224,6 +235,10 @@ impl Device for AdbDevice {
 
     fn stop(&mut self) {
         force_stop();
+    }
+
+    fn fresh_log(&mut self) {
+        run_ok(&["logcat", "-c"]);
     }
 
     fn kill(&mut self) {
@@ -405,6 +420,38 @@ pub fn base64(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    /// The app's lines are filtered by pid and capped at the last
+    /// [`APP_LOG_LINES`]; past the cap the dump says how many it cut, so
+    /// its first line is not taken for the run's first. The control: at
+    /// the cap exactly, nothing is said.
+    #[test]
+    fn a_cut_app_log_says_so() {
+        let line = |pid: &str, n: usize| format!("10-21 20:00:00.000 {pid} {pid} D tag: line {n}");
+        let log = |count: usize| {
+            (0..count)
+                .flat_map(|n| [line("4242", n), line("7", n)])
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let pids = ["4242".to_owned()];
+        let whole = lines_of(&pids, &log(APP_LOG_LINES));
+        assert!(!whole.contains(CUT_LINES), "nothing cut at the cap");
+        assert_eq!(whole.lines().count(), APP_LOG_LINES);
+        assert!(
+            whole.lines().all(|l| l.contains(" 4242 ")),
+            "the app's pid only"
+        );
+        let cut = lines_of(&pids, &log(APP_LOG_LINES + 3));
+        assert_eq!(
+            cut.lines().next(),
+            Some(format!("(3 {CUT_LINES})").as_str())
+        );
+        assert!(
+            cut.lines().nth(1).is_some_and(|l| l.ends_with("line 3")),
+            "{cut}"
+        );
+    }
+
     /// A nonzero exit is the reason, stderr included; the control, a
     /// success, is its stdout.
     #[test]
@@ -463,7 +510,9 @@ mod tests {
             .map(|n| format!("10-20 00:00:00.0 1 1 D interweave: line {n}"))
             .collect();
         let kept = lines_of(&pids, &log.join("\n"));
-        assert_eq!(kept.lines().count(), APP_LOG_LINES);
+        // The last APP_LOG_LINES, after the line saying three were cut.
+        assert_eq!(kept.lines().count(), APP_LOG_LINES + 1);
+        assert!(kept.starts_with(&format!("(3 {CUT_LINES})")), "{kept}");
         assert!(kept.ends_with(&log[APP_LOG_LINES + 2]), "{kept}");
     }
 
