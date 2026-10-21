@@ -5976,9 +5976,11 @@ decision 6.
    and `signature` (ADR-0063), the canonical bytes, the three malformed
    cases, held to the fixture vectors frozen on #343 ahead of
    the parser (`fixtures/human-chat-v2/human-chat-v2-contact-card.json`,
-   with their test-only key pair), and the small-order-R vector
-   HUMAN-CHAT.md's fixture list owes to this step added to that file
-   with the parser.
+   with their test-only key pair), and the small-order-R and
+   non-canonical-S vectors HUMAN-CHAT.md's fixture list owes to this
+   step added to that file with the parser, the non-canonical-S one
+   failing whenever the verifier's `legacy_compatibility` feature is
+   on in the build.
 2. **The proposal and the acceptance** (rust-ui-dev): the identity key
    pair generated with the identity and sealed as the store key is
    (ADR-0063, ADR-0060 decision 3: its own IDK1 envelope and alias
