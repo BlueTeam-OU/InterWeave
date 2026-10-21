@@ -382,7 +382,7 @@ same warning as "Anna".
 
 | case | context line | Accept label | Accept does |
 |---|---|---|---|
-| **P** the route is under no contact; another route of the same PeerId is under contact X | `CardSamePeer`: "This is the PeerId of your contact {X}, on another route." and, when values would change, the U or E lines below | **Add to {X}** (`AddToContact`) | adds the route to X, then writes the card's values to X by the U and E rules; never a second contact for one PeerId (ADR-0059 d. 2) |
+| **P** the route is under no contact; another route of the same PeerId is under contact X | `CardSamePeer`: "Your contact {X} already has this PeerId in another conversation." and, when values would change, the U or E lines below | **Add this conversation to {X}** (`AddToContact`) | adds the route to X, then writes the card's values to X by the U and E rules; never a second contact for one PeerId (ADR-0059 d. 2) |
 | **N** the route is under no contact; no contact has this name | none | **Accept** (`Accept`) | creates a contact {name [surname]}, its photo, and the route |
 | **D** the route is under no contact; a contact on another PeerId has the same name | `CardSameName`, in `error`, with a warning icon: "You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept.", `{name}` being the existing contact's name as stored, so the person sees both spellings; and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
 | **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "If you accept, your contact {X} is updated." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
@@ -920,11 +920,11 @@ and no string calls a card an "identity" (§1).
 | `UpdateContact` | Update contact | cases U, E |
 | `ShareCardPreviewSpoken` | {title} will see the name {name}. | chooser preview, accessible description, no photo |
 | `ShareCardPreviewSpokenPhoto` | {title} will see the name {name} and your photo. | the same, with the photo |
-| `MoveRoutePickerTitle` | Move to which contact? | the move-route picker's title |
+| `MoveRoutePickerTitle` | Move this PeerId to which contact? | the move-route picker's title |
 | `CardPhotoLabel` | Photo for this card | editor photo circle, accessible label |
 | `CardPhotoNone` | No photo for this card | the same, with no photo |
-| `CardSamePeer` | This is the PeerId of your contact {name}, on another route. | case P; `{name}` the contact's name |
-| `AddToContact` | Add to {name} | case P's Accept |
+| `CardSamePeer` | Your contact {name} already has this PeerId in another conversation. | case P; `{name}` the contact's name |
+| `AddToContact` | Add this conversation to {name} | case P's Accept |
 | `CardSameName` | You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept. | case D; must name both facts |
 | `ShowContact` | Open your contact {name} | case D link |
 | `CardUpdates` | If you accept, your contact {name} is updated. | case U |
