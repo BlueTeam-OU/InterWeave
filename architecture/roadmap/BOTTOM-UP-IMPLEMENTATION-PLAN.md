@@ -5365,7 +5365,10 @@ NEW; the matrix names the rest.
   half and the harness.
 - **S11 (02) — identity recovery.** A tampered phrase and a wrong PeerId
   through the `transportctl` path; the phrase absent from logs, IPC, crash
-  output and Channel events — a scan of every captured stream.
+  output and Channel events — a scan of every captured stream; ADR-0043's
+  restore warning on every input path (`IDENTITY-RECOVERY.md` section
+  Restore semantics item 11, added 2026-10-21 after the step's first PR,
+  #337, found no surface carried it).
 - **S12 (02) — Android key, backup and recovery.** Keystore invalidation,
   the secure window, backup exclusion, a half-restored install,
   user-presence offline until authentication: the device lane, waiting on
