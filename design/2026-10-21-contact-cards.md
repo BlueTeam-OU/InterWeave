@@ -1470,8 +1470,8 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     `human`, then Make default `human` is not offered and Remove X is
     not offered); a refused call shows `IdentityChangeFailed` and
     changes nothing; with one identity and no default, its card page
-    shows `IdentityNoDefault` and Make default, and Make default's Undo
-    has no Undo, and its snackbar and any refusal use their one-identity
+    shows `IdentityNoDefault` and Make default, which then has no Undo,
+    and its snackbar and any refusal use their one-identity
     forms, without the word "identity"; it deletes nothing,
     lists the identity as off, leaves it in front if it was, refuses
     messages to it while off, and its Undo and Turn on bring it back.
