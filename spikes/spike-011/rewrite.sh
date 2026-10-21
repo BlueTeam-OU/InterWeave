@@ -59,7 +59,11 @@ for step in marker-raised key-written exported renamed-encrypted scrubbed unlink
     if SPIKE011_CRASH_AT="$step" "$VEND" start "$d" >/dev/null 2>&1; then
         echo "  THE CRASH DID NOT HAPPEN"; exit 1
     fi
-    echo "  left: human/ $(ls "$d/state/human" | tr '\n' ' ')| state/ $(ls "$d/state" | grep -v '^human$' | tr '\n' ' ')"
+    others=
+    for f in "$d/state"/*; do
+        if [ -e "$f" ] && [ "${f##*/}" != human ]; then others+="${f##*/} "; fi
+    done
+    echo "  left: human/ $(ls "$d/state/human" | tr '\n' ' ')| state/ $others"
     "$PLAIN" rollback-check "$d" | sed 's/^/  /'
     "$VEND" start "$d" | sed 's/^/  /'
     "$VEND" start "$d" | sed 's/^/  /'
