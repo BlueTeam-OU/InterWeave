@@ -224,6 +224,8 @@ mod tests {
                 format!("got {} then", words[5..8].join(" ").to_uppercase()).into_bytes(),
             ),
             ("the seed raw", [b"x".as_slice(), &seed, b"y"].concat()),
+            ("22 raw bytes from byte 10", seed[10..].to_vec()),
+            ("22 raw bytes from byte 5", seed[5..27].to_vec()),
             ("the key file", key_file.clone()),
             ("the seed in hex", format!("seed={hex}").into_bytes()),
             (
