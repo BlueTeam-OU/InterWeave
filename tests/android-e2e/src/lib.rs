@@ -160,11 +160,28 @@ pub mod log_capture {
     /// What has been captured so far, one line per event.
     #[must_use]
     pub fn lines() -> String {
-        LINES.get().map_or_else(String::new, |lines| {
+        lines_from(0)
+    }
+
+    /// How many lines have been captured so far.
+    #[must_use]
+    pub fn count() -> usize {
+        LINES.get().map_or(0, |lines| {
             lines
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .join("\n")
+                .len()
+        })
+    }
+
+    /// The lines captured after the first `from`.
+    #[must_use]
+    pub fn lines_from(from: usize) -> String {
+        LINES.get().map_or_else(String::new, |lines| {
+            let lines = lines
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            lines[from.min(lines.len())..].join("\n")
         })
     }
 }
@@ -213,6 +230,13 @@ pub trait Device {
     fn log(&self) -> String {
         String::new()
     }
+
+    /// Begin a fresh log: what [`log`](Self::log) returns from here is
+    /// only what the Android side logs after this call. Called while no
+    /// runtime is up, so a check of the next run reads that run alone --
+    /// counting the lines of an earlier dump is no mark, since a device's
+    /// is formatted and capped (`route_hold.rs`).
+    fn fresh_log(&mut self) {}
 
     /// The bytes of `path`, a file a case on the Android side wrote and
     /// named in its result (`human_chat`'s payloads). The stand-ins share
@@ -376,6 +400,8 @@ pub struct HostStandIn {
     // The provisioned profile's log level, which the capture filters at
     // from BEFORE the host starts, so its startup events are judged at it.
     log_level: LogLevel,
+    // Where `log` begins in the process-wide capture (`fresh_log`).
+    log_from: usize,
 }
 
 impl HostStandIn {
@@ -413,6 +439,7 @@ impl HostStandIn {
                 .expect("a generated identity has a phrase"),
             host: None,
             log_level: LogLevel::Info,
+            log_from: 0,
         }
     }
 
@@ -477,9 +504,14 @@ impl Device for HostStandIn {
         drop(self.host.take());
     }
 
-    /// The capture's lines, when the test process installed it.
+    /// The capture's lines since the last [`fresh_log`](Device::fresh_log),
+    /// when the test process installed it.
     fn log(&self) -> String {
-        log_capture::lines()
+        log_capture::lines_from(self.log_from)
+    }
+
+    fn fresh_log(&mut self) {
+        self.log_from = log_capture::count();
     }
 
     fn restart(&mut self) {

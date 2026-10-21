@@ -35,7 +35,7 @@
 use std::time::Duration;
 
 use interweave_android_e2e_cases::{RouteHoldArgs, cases, keys};
-use interweave_android_e2e_tests::adb::AdbDevice;
+use interweave_android_e2e_tests::adb::{AdbDevice, CUT_LINES};
 use interweave_android_e2e_tests::{
     Desktop, Device, HostStandIn, PATIENCE, Relay, free_port, log_capture, relayed_example_of,
 };
@@ -52,6 +52,22 @@ const WATCH: Duration = Duration::from_secs(6);
 async fn the_android_side_holds_a_circuit_route_through_a_relay_that_is_down() {
     log_capture::install();
     held_route(HostStandIn::new()).await;
+}
+
+/// [`Device::fresh_log`] on the stand-in: what `log` returns after it is
+/// only what was logged after it. The control: the earlier line is there
+/// before the call.
+#[test]
+fn the_stand_ins_fresh_log_begins_after_its_call() {
+    log_capture::install();
+    let mut r = HostStandIn::new();
+    tracing::warn!(target: "interweave::connectivity", "fresh log: before");
+    assert!(r.log().contains("fresh log: before"), "{}", r.log());
+    r.fresh_log();
+    tracing::warn!(target: "interweave::connectivity", "fresh log: after");
+    let log = r.log();
+    assert!(log.contains("fresh log: after"), "{log}");
+    assert!(!log.contains("fresh log: before"), "{log}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -133,12 +149,12 @@ async fn held_route<R: Device>(mut r: R) {
     // through it: the first dial's hop fails, and the route is held.
     drop(relay);
     r.kill();
+    // The held run's log alone, begun while no runtime is up: the
+    // control's lines must not stand in for it (a first dial can race the
+    // relay's connection there too), and the held run's first dial fails
+    // as soon as its runtime starts.
+    r.fresh_log();
     r.restart();
-    // What the log held before the held run: the control's lines, which
-    // a check of the held run must not read (a first dial can race the
-    // relay's connection there too). Neither runner's log is cleared
-    // here -- the device's is at `start` only.
-    let mark = r.log().lines().count();
     let out = r
         .run_case(cases::ROUTE_HOLD, &args(&d_peer))
         .passed(|| r.log());
@@ -164,7 +180,11 @@ async fn held_route<R: Device>(mut r: R) {
     let log = r.log();
     let lines: Vec<&str> = log.lines().collect();
     let to_d = format!("peer={}", d_peer.as_str());
-    let held_run = &lines[mark.min(lines.len())..];
+    assert!(
+        !log.contains(CUT_LINES),
+        "the held run's log was cut at its front, so its first lines cannot be read:\n{log}"
+    );
+    let held_run = &lines[..];
     let refusal = held_run
         .iter()
         .position(|l| {
