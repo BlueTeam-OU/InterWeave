@@ -468,9 +468,13 @@ whether case D should take no right swipe.
 
 - Each card is its own row. A later card from the same route does not
   replace an earlier one (d. 3); each row's context line is computed
-  when it is shown and again after any accept in the conversation, so
-  an older card under a just-accepted newer one reads as case U, E or S
-  against the new values.
+  when it is shown, and again after **any action or Undo that changes
+  which contact holds a route or what a contact's values are** — an
+  Accept and its Undo, Details' Add this conversation to {X} and its
+  Undo, a Move and its Undo, a Delete and its Undo, a name edit, Remove
+  photo — so an older card under a just-accepted newer one reads as
+  case U, E or S against the new values, and a row never keeps a label
+  whose case no longer holds.
 - A card that arrives while the conversation is not shown is unread
   content: it counts in the unread badge and survives a restart as any
   unread item does.
