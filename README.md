@@ -24,7 +24,7 @@ Every closed stage has a closing record in the [implementation plan](./architect
 | 16 | 2026-10-06 | the Claude Code Channel bridge: a stdio MCP server holding one endpoint lease, turning direct and broadcast messages into channel notifications with provenance-only metadata, exchanging messages with a far peer from inside an installed Claude Code | plan §19 |
 | 17 | open | the Android human client, after SPIKE-008 and SPIKE-009 | plan §20 |
 
-Stages 18 (the adversarial and security gate) and 19 (packaging and release) follow.
+Stages 18 (the adversarial and security gate, plan §21) and 19 (packaging, migration and release, plan §22) run beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20); the status value names the lowest open stage.
 
 ## What runs today
 
@@ -33,7 +33,7 @@ Stages 18 (the adversarial and security gate) and 19 (packaging and release) fol
 - **`human-desktop`** (`apps/human-desktop`): the first-party desktop client, a Slint window over a headless application core.
 - **`claude-channel`** (`apps/claude-channel`): the Claude Code Channel bridge, a stdio MCP server over the daemon's data socket; the plugin that starts it is `packaging/claude-plugin/interweave`.
 
-`apps/human-android` is the Android client Stage 17 is building: its APK draws the client's views, and does not host a transport yet.
+`apps/human-android` is the Android client Stage 17 is building: its APK draws the client's views and hosts the profile's runtime in-process — the embedded transport (`crates/transport/embedded`) inside its foreground network service, with the identity seed sealed by a key held in the Android Keystore; no session has yet run on a phone, and the device-run records land with the client's open work.
 
 Trust changes made through the admin socket persist in the profile's state directory, never in its configuration file, and survive a daemon restart.
 
