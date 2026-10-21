@@ -15,7 +15,9 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; [[ -n "${2:-}" ]] && printf '%s\n' "$2" | sed 's/^/       /' | head -6; }
 
-S="$(mktemp -d)"; trap 'rm -rf "$S"' EXIT
+S="$(mktemp -d)"
+[[ -n "$S" && -d "$S" ]] || { echo "test_android_ci_toolchain: no sandbox (mktemp failed)" >&2; exit 1; }
+trap 'rm -rf "$S"' EXIT
 
 # A JDK tarball whose release file names the pinned version, and one that
 # names another; the pins carry the first one's checksum.

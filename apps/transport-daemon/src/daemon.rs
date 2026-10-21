@@ -6,10 +6,16 @@
 //! daemon fails here); load the key (a missing one is fatal unless
 //! `--create-identity` and no key file); clear this uid's stale sockets
 //! and bind both; compose and start the runtime; serve IPC.
-//! Stop, on SIGINT, SIGTERM or an admin port's request: stop the server
-//! (every connection closed, every lease released), stop the runtime
-//! (settle, close the Swarm), unlink both sockets, release the lock --
-//! released, never unlinked.
+//! Stop, on SIGINT, SIGTERM, SIGHUP or an admin port's request: stop the
+//! server (every connection closed, every lease released), stop the
+//! runtime (settle, close the Swarm), unlink both sockets, release the
+//! lock -- released, never unlinked.
+//!
+//! SIGHUP is a restart, not a reload (plan §22, the Stage 13 carry): the
+//! same stop, then [`RESTART_EXIT`], which the systemd unit restarts on.
+//! Nothing survives it -- every lease is released and the next daemon
+//! issues fresh epochs -- because a profile change is applied by starting
+//! again, never by editing a running composition.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -41,6 +47,25 @@ const DEFAULT_SHUTDOWN_GRACE: Duration = SHUTDOWN_GRACE;
 /// A request's deadline when it names none (`TRANSPORT.md`: 10 s).
 const COMMAND_DEADLINE: Duration = Duration::from_secs(10);
 
+/// The exit status of a stop asked for by SIGHUP: `EX_TEMPFAIL` of
+/// `sysexits.h`, "try again". Not 0, which a `Restart=on-failure` unit
+/// leaves stopped, and not 1, 2 or 3, which plan §16 (11) gives a refusal,
+/// a usage error and an unreachable daemon.
+/// `packaging/linux/systemd/interweave-daemon@.service` names it in
+/// `RestartForceExitStatus=` and `SuccessExitStatus=`, and
+/// `sighup_stops_as_sigterm_does_and_exits_with_the_units_restart_status`
+/// (desktop-e2e) reads it from there rather than from here.
+pub(crate) const RESTART_EXIT: u8 = 75;
+
+/// How a stop that went cleanly was asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stopped {
+    /// SIGINT, SIGTERM or an admin port: exit 0.
+    Asked,
+    /// SIGHUP: exit [`RESTART_EXIT`], for the supervisor to start again.
+    Restart,
+}
+
 /// Why the daemon refused to start or stopped badly: printed, exit 1.
 #[derive(Debug)]
 pub(crate) struct Refused(String);
@@ -55,13 +80,14 @@ fn refused(what: &str) -> impl FnOnce(&dyn fmt::Display) -> Refused + '_ {
     move |e| Refused(format!("{what}: {e}"))
 }
 
-/// Run the daemon for `args.profile` until it is asked to stop.
+/// Run the daemon for `args.profile` until it is asked to stop, and say
+/// how it was asked.
 ///
 /// # Errors
 /// Every fatal start condition of `failure-model.md` (the profile, the
 /// lock, the key, a socket's place), and a runtime that failed to start
 /// or stop.
-pub(crate) async fn run(args: Args) -> Result<(), Refused> {
+pub(crate) async fn run(args: Args) -> Result<Stopped, Refused> {
     // Registered before anything is taken, so a signal during start is
     // held and answered by a clean stop once serving, rather than the
     // default action killing the process with its sockets bound.
@@ -157,7 +183,12 @@ pub(crate) async fn run(args: Args) -> Result<(), Refused> {
     }));
     tracing::info!(data = %sockets.data.display(), "serving");
 
-    let (grace, ended_early, runtime_ended) = signals.wait_for_stop(&runtime, &mut server).await;
+    let Stop {
+        grace,
+        ended_early,
+        runtime_ended,
+        restart,
+    } = signals.wait_for_stop(&runtime, &mut server).await;
 
     tracing::info!(grace_ms = millis(grace), "stopping");
     let _ = stop_server.send(());
@@ -172,8 +203,12 @@ pub(crate) async fn run(args: Args) -> Result<(), Refused> {
     // Released, never unlinked (ADR-0028, A 2026-09-28).
     drop(lock);
     let dropped = stopped_outcome(server_outcome, runtime_ended, stopped)?;
-    tracing::info!(events_dropped = dropped, "stopped");
-    Ok(())
+    tracing::info!(events_dropped = dropped, restart, "stopped");
+    Ok(if restart {
+        Stopped::Restart
+    } else {
+        Stopped::Asked
+    })
 }
 
 /// What the daemon answers once everything is stopped, in order: the IPC
@@ -236,10 +271,37 @@ fn sockets(paths: &ProfilePaths) -> Result<SocketPaths, Refused> {
     })
 }
 
-/// SIGINT and SIGTERM, watched from the start.
+/// What [`Signals::wait_for_stop`] hands the stop.
+struct Stop {
+    /// The grace the stop is given: the admin's, or the default.
+    grace: Duration,
+    /// The server's outcome if it had already ended (a finished task
+    /// must not be awaited twice).
+    ended_early: Option<Result<Arc<Counters>, tokio::task::JoinError>>,
+    /// The runtime ended on its own, which the daemon reports as a
+    /// failure rather than serving IPC over a dead runtime.
+    runtime_ended: bool,
+    /// SIGHUP asked for it: the same stop, exit [`RESTART_EXIT`].
+    restart: bool,
+}
+
+impl Stop {
+    fn after(grace: Duration) -> Self {
+        Self {
+            grace,
+            ended_early: None,
+            runtime_ended: false,
+            restart: false,
+        }
+    }
+}
+
+/// SIGINT, SIGTERM and SIGHUP, watched from the start: SIGHUP's default
+/// action would kill the daemon with its sockets bound.
 struct Signals {
     interrupt: Signal,
     terminate: Signal,
+    hangup: Signal,
 }
 
 impl Signals {
@@ -247,28 +309,28 @@ impl Signals {
         Ok(Self {
             interrupt: signal(SignalKind::interrupt())?,
             terminate: signal(SignalKind::terminate())?,
+            hangup: signal(SignalKind::hangup())?,
         })
     }
 
-    /// Until SIGINT, SIGTERM, an admin port's request, the server ending
-    /// on its own, or the RUNTIME ending on its own: the grace the stop is
-    /// given -- the admin's, or the default -- the server's outcome if it
-    /// had already ended (a finished task must not be awaited twice), and
-    /// whether the runtime ended, which the daemon then reports as a
-    /// failure rather than serving IPC over a dead runtime
+    /// Until SIGINT, SIGTERM, SIGHUP, an admin port's request, the server
+    /// ending on its own, or the RUNTIME ending on its own
     /// (`a_runtime_that_ends_on_its_own_stops_the_wait`).
     async fn wait_for_stop(
         mut self,
         runtime: &ComposedRuntime,
         server: &mut tokio::task::JoinHandle<Arc<Counters>>,
-    ) -> (
-        Duration,
-        Option<Result<Arc<Counters>, tokio::task::JoinError>>,
-        bool,
-    ) {
+    ) -> Stop {
         tokio::select! {
             _ = self.interrupt.recv() => tracing::info!("SIGINT"),
             _ = self.terminate.recv() => tracing::info!("SIGTERM"),
+            _ = self.hangup.recv() => {
+                tracing::info!("SIGHUP: stopping for a restart");
+                return Stop {
+                    restart: true,
+                    ..Stop::after(SHUTDOWN_GRACE)
+                };
+            }
             end = runtime.wait_end() => match end {
                 Ended::ShutdownRequested(request) => {
                     tracing::info!(
@@ -276,18 +338,26 @@ impl Signals {
                         grace_ms = millis(request.grace),
                         "an admin port asked for shutdown"
                     );
-                    return (request.grace, None, false);
+                    return Stop::after(request.grace);
                 }
-                Ended::RuntimeEnded => return (SHUTDOWN_GRACE, None, true),
+                Ended::RuntimeEnded => {
+                    return Stop {
+                        runtime_ended: true,
+                        ..Stop::after(SHUTDOWN_GRACE)
+                    };
+                }
             },
             // It ends only when told to; ending first is a failure, and
             // a daemon serving no IPC is not left running.
             outcome = &mut *server => {
                 tracing::error!("the IPC server ended on its own");
-                return (SHUTDOWN_GRACE, Some(outcome), false);
+                return Stop {
+                    ended_early: Some(outcome),
+                    ..Stop::after(SHUTDOWN_GRACE)
+                };
             }
         }
-        (SHUTDOWN_GRACE, None, false)
+        Stop::after(SHUTDOWN_GRACE)
     }
 }
 
@@ -418,7 +488,12 @@ discovery:
             "the control: a live runtime, nothing asked, still waiting"
         );
         runtime.end_driver().await.expect("the driver ends");
-        let (_, server_outcome, runtime_ended) = tokio::time::timeout(
+        let Stop {
+            ended_early: server_outcome,
+            runtime_ended,
+            restart,
+            ..
+        } = tokio::time::timeout(
             Duration::from_secs(20),
             Signals::register()
                 .expect("signals")
@@ -427,6 +502,7 @@ discovery:
         .await
         .expect("the wait returns");
         assert!(runtime_ended, "the end is reported");
+        assert!(!restart, "and is no restart");
         assert!(server_outcome.is_none(), "the server did not end");
         server.abort();
         let _ = runtime.stop().await;

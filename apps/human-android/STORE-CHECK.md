@@ -76,8 +76,8 @@ On Android Slint draws with Skia, which `skia-bindings` 0.153.3
 downloads as a prebuilt archive pinned by the crate's version
 (`github.com/rust-skia/skia-binaries`, release 0.153.3, the
 `aarch64-linux-android-ganesh-gl-jpegd-jpege-pdf-vulkan` build;
-ADR-0057 decision 4 allows it, and Stage 19 decides whether the release
-run builds it from source instead). What it bundles, read from its
+ADR-0057 decision 4 pins it by a committed SHA-256 for the release run,
+A 2026-10-20; a source build is that decision's revisit). What it bundles, read from its
 `libskia.a` (1095 objects, grouped by the build target each came from):
 
 | component | built in as | licence | notice owed |
