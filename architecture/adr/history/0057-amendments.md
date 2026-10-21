@@ -34,5 +34,5 @@ tense with the merge date; the owed list keeps only the Skia notice set
 and the release-gate run, the latter met by the same invocation;
 decision 5 says "as admitted"; `apps/human-android/STORE-CHECK.md`'s
 paragraph was rewritten the same way on #348 (it dates #314 by its
-commit, 2026-10-19; this record dates it by its merge). Propagation: decision 3; this note;
-the log row; the digest entry.
+commit, 2026-10-19; this record dates it by its merge). Propagation: decisions 3 and 5; this
+note; the log row; the digest entry.
