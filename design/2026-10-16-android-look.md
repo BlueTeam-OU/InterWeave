@@ -490,7 +490,7 @@ that exist.
 | `DetailsPeerId`, `DetailsChannelId`, `DetailsRoute`, `CopyPeerId`, `CopyChannelId`, `Close`, `PeerIdCopied`, `ChannelIdCopied` (#313, not yet on main) | PeerId · Channel ID · Route named by the peer, not verified: "{route}" · Copy PeerId · Copy channel ID · Close · PeerId copied · Channel ID copied | the Details dialog and its copy confirmation (Android review F11); they replace `ConversationId`'s "Identifier, select to copy" |
 | `Today`, `Yesterday` | Today, Yesterday | day separators; `Yesterday` also in list times (for today the list shows the time of day) |
 | weekdays (seven keys, `Monday` to `Sunday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | inside `DateFull` only (the day separator and a row's accessible label) |
-| short weekdays (seven keys, `MondayShort` to `SundayShort`) | Mon, Tue, Wed, Thu, Fri, Sat, Sun | inside the row templates only; the owner's "Sat 17 Oct", 2026-10-21 |
+| short weekdays (seven keys, `MondayShort` to `SundayShort`) | Mon, Tue, Wed, Thu, Fri, Sat, Sun | inside the row templates only; the owner's "Sat 17 Oct", 2026-10-21; key names are rust-ui-dev's: one pattern for weekdays and months (for example `Saturday`/`SaturdayShort` and `October`/`OctoberShort`) is a suggestion |
 | full months (twelve keys, `JanuaryFull` to `DecemberFull`) | January, February, March, April, May, June, July, August, September, October, November, December | inside `DateFull` only |
 | months (twelve keys, `January` to `December`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |
 | `DateRowThisYear` | {weekday} {day} {month} | a list time before yesterday, this year: "Sat 17 Oct"; replaces `DateThisYear` and the weekday alone |
@@ -499,8 +499,8 @@ that exist.
 | `Time24` | {hour}:{minute} | the time of day, phone set to 24-hour: "01:18", "13:05" |
 | `TimeAm` | {hour}:{minute} AM | the time of day, phone set to 12-hour, before noon: "1:18 AM", "12:05 AM" just after midnight |
 | `TimePm` | {hour}:{minute} PM | the same, from noon: "1:05 PM", "12:30 PM" |
-| `ConversationDescription` (exists, new value) | {kind}, {unread}, {preview}, {time} | a list row's description as TalkBack reads it (§7), with unread messages. `{kind}` is `DirectConversation` or `ChannelConversation` as today, `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time |
-| `ConversationDescriptionRead` | {kind}, {preview}, {time} | the same, with nothing unread |
+| `ConversationDescription` (exists, new value) | {kind}, {unread}, {preview}, {time} | a list row's description as TalkBack reads it (§7), with unread messages. `{kind}` is `DirectConversation` or `ChannelConversation` as today, `{unread}` is `UnreadCount` ("{count} unread"), `{preview}` the subtitle as shown (with "You: " for one's own), `{time}` the list's time as spoken: the time of day for today, "Yesterday", and `DateFull` for any earlier day ("Saturday, 17 October 2026"), never the short row form (§5.2) |
+| `ConversationDescriptionRead` | {kind}, {preview}, {time} | the same, with nothing unread; `{time}` as in `ConversationDescription` |
 | `Item` (exists, new value) | {author}: {body}. {status}, {time} | a message bubble's label, as TalkBack reads it (§7), on every platform: "You: See you at six. Kept, 01:18". `{time}` is the time of day that the bubble shows, whatever day the message is from. The day is read once, from the separator before that day's messages, not on every bubble |
 
 The weekday, month, date and time values are final (language-culture,
