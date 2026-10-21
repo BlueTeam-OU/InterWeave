@@ -66,7 +66,13 @@ export SPIKE011_KEY=$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n')
 target/release/spike-011 versions
 target/release/spike-011 bench <empty 0700 dir> <kept> <reps>
 target/release/spike-011 deletion <empty 0700 dir> clean|unclean|none
+WORK=<empty dir> ../run.sh          # the timing, deletion and failure rows
+WORK=<empty dir> ../rewrite.sh      # the rewrite and key-file rows
 ```
+
+A forced crash marks the process non-dumpable before it aborts: a core
+would hold the key, and the host's collector keeps it out of this
+account's reach.
 
 Android (`aarch64-linux-android`, API 30 as the app):
 `cargo ndk -t arm64-v8a -P 30 build --release --locked --features cipher-vendored`.
@@ -121,6 +127,44 @@ the three rounds' medians, the cipher builds as a ratio of the plaintext:
   rollback build therefore cannot tell the encrypted store from a corrupt
   one by the error.
 
-Owed: the device rows; the key-file format, a missing key file, a version
-bump; the plaintext-to-encrypted rewrite under a crash at each step; the
-spike's Result in `architecture/roadmap/SPIKES.md`.
+**Recorded: the rewrite and key-file rows, `REPRODUCTION-rewrite-2026-10-21.log`**
+(`rewrite.sh`, 500 kept; the prototype is `harness/src/migrate.rs`, ADR-0060
+decisions 3 and 6 with A 2026-10-21):
+
+- **The sequence.** (a) the profile-format marker raised to 2 (ADR-0028's
+  `profile-format.json`, through the shipping `raise_within`), the key
+  file written and synced, the plaintext exported under the key to
+  `human.sqlite.encrypting`, synced, renamed `.encrypted`, the directory
+  synced; (b) the plaintext's rows deleted under `secure_delete`, vacuumed,
+  its log truncated, then `-wal`, `-shm` and the file unlinked; (c)
+  `.encrypted` renamed `human.sqlite`. A start tells the states apart by
+  the names: an `.encrypting` is an export that did not finish (removed,
+  the plaintext still the store); an `.encrypted` is a complete copy (the
+  store; any plaintext beside it is (b)'s to finish).
+- **A crash after each of the seven steps**, then the next start: every
+  one ends with all 520 rows, `human.sqlite` alone in `human/`, and no
+  file there holding content in clear; the start after it is a plain
+  open. The clean rewrite takes 180-220 ms at 500 kept, the resumed ones
+  less. Control: the seeded plaintext holds the content in clear.
+- **The rollback** refuses the profile from the first step on: the
+  shipping loader's own `check_within` says "profile format 2, newer than
+  this build's 1". It is never the encrypted file's `NotADatabase` a
+  rollback meets.
+- **The key file** (`IWSK`, a version byte, 32 bytes): missing beside an
+  encrypted store, of version 2, and truncated, each refused by name
+  (`KeyMissing`, `KeyVersion(2)`, `KeyMalformed`), the store's file
+  byte-identical after.
+- **Two things the production rewrite must do that the engine does not**:
+  `sqlcipher_export` does not copy the header's `user_version`, the
+  store's schema version (carried by hand, or the copy reads as version 0
+  and migrates from nothing); and `ATTACH` creates a missing database with
+  the process umask (0644 measured, refused by the store as
+  `PermissionsTooOpen`), so the copy is created empty and 0600 first, as
+  the store creates its own file.
+- **Limit.** The unlinked plaintext's blocks are not searched: below the
+  database, RETENTION.md does not overstate (filesystem and flash), and
+  the scrub before the unlink is what the record asks.
+
+Owed: the device rows (and Android's Keystore sealing, decision 3); the
+index on the read walk's sort key, measured before and after (architect-
+cto, REPLY 01a15f1a); the spike's Result in `architecture/roadmap/SPIKES.md`.

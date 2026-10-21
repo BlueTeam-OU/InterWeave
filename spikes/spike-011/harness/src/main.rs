@@ -27,6 +27,13 @@
 //!                                 (unclean), or no release (none, the
 //!                                 control); then the raw search
 //!   abort-after-release <db> <row> the unclean close: release, abort
+//!   migrate-seed <dir> <kept>     CIPHER builds: a plaintext store, as a
+//!                                 build before the change left it
+//!   start <dir>                   CIPHER builds: one start of ADR-0060's
+//!                                 sequence (`migrate.rs`), a crash forced
+//!                                 after the step `SPIKE011_CRASH_AT` names
+//!   rollback-check <dir>          the shipping loader's profile-format
+//!                                 check on `<dir>/state`'s marker
 //!   pages <db>                    INSPECTOR builds only: every page as the
 //!                                 engine decrypts it (`sqlite_dbpage`),
 //!                                 searched for both markers
@@ -45,6 +52,9 @@ use interweave_human_store::{
 };
 use interweave_transport_api::TransportIdentity;
 
+#[cfg(feature = "cipher")]
+mod migrate;
+
 const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 /// TEST-ONLY markers, as `crates/human/store/tests/released_content.rs`.
 const RELEASED: &[u8] = b"SPIKE011-RELEASED-CONTENT-7b3d9f1a5c2e4b6d8f0a1c3e5b7d";
@@ -60,6 +70,16 @@ const PAYLOAD_BYTES: usize = 512;
 /// beside them.
 const UNREAD_BACKLOG: u64 = 20;
 
+/// End the process as a crash would, writing no core: a core of this
+/// process holds the store key and the test content, and the host's
+/// collector keeps it where this account cannot remove it (measured: 15
+/// cores left by an earlier run). Non-dumpable, the kernel dumps nothing.
+fn crash() -> ! {
+    // SAFETY: a plain prctl on this process; nothing else is touched.
+    unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
+    std::process::abort()
+}
+
 fn engine() -> &'static str {
     if cfg!(feature = "cipher-vendored") {
         "sqlcipher-vendored-openssl"
@@ -73,16 +93,21 @@ fn engine() -> &'static str {
 #[cfg(feature = "cipher")]
 mod key {
     use std::ffi::{c_char, c_int};
-    use std::sync::OnceLock;
+    use std::sync::Mutex;
 
     use rusqlite::auto_extension::{init_auto_extension, register_auto_extension};
     use rusqlite::{Connection, ffi};
 
-    static KEY: OnceLock<String> = OnceLock::new();
+    /// The key the next open is given, as 64 hex digits; `None` opens a
+    /// connection unkeyed, as a plaintext file needs.
+    static KEY: Mutex<Option<String>> = Mutex::new(None);
 
     fn key_this(conn: Connection) -> rusqlite::Result<()> {
-        let hex = KEY.get().map_or("", String::as_str);
-        conn.execute_batch(&format!("PRAGMA key = \"x'{hex}'\";"))
+        let key = KEY.lock().map_or(None, |k| k.clone());
+        match key {
+            Some(hex) => conn.execute_batch(&format!("PRAGMA key = \"x'{hex}'\";")),
+            None => Ok(()),
+        }
     }
 
     unsafe extern "C" fn keyed(
@@ -95,15 +120,32 @@ mod key {
         unsafe { init_auto_extension(db, err, key_this) }
     }
 
-    pub fn install() -> Result<(), String> {
-        let hex = std::env::var("SPIKE011_KEY").map_err(|_| "SPIKE011_KEY is not set".to_owned())?;
-        if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err("SPIKE011_KEY is not 64 hex digits".to_owned());
+    pub fn hex_ok(hex: &str) -> bool {
+        hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())
+    }
+
+    /// The key for every open from now on, or none.
+    pub fn set(hex: Option<String>) {
+        if let Ok(mut key) = KEY.lock() {
+            *key = hex;
         }
-        KEY.set(hex).map_err(|_| "the key is installed twice".to_owned())?;
+    }
+
+    /// Registers the hook, keyed from `SPIKE011_KEY` when it is set.
+    pub fn install() -> Result<(), String> {
+        if let Ok(hex) = std::env::var("SPIKE011_KEY") {
+            if !hex_ok(&hex) {
+                return Err("SPIKE011_KEY is not 64 hex digits".to_owned());
+            }
+            set(Some(hex));
+        }
         // SAFETY: the extension opens no database and never closes the one
         // it is given; registered once, before any open.
         unsafe { register_auto_extension(keyed) }.map_err(|e| format!("auto-extension: {e}"))
+    }
+
+    pub fn from_env() -> bool {
+        KEY.lock().is_ok_and(|k| k.is_some())
     }
 }
 
@@ -111,6 +153,9 @@ mod key {
 mod key {
     pub fn install() -> Result<(), String> {
         Ok(())
+    }
+    pub fn from_env() -> bool {
+        true
     }
 }
 
@@ -376,7 +421,7 @@ fn abort_after_release(db: &Path, row: &str) -> Result<(), String> {
         .map_err(|e| store_err("release", &e))?;
     // No drop: the process ends with the store open, its log as the
     // release left it.
-    std::process::abort()
+    crash()
 }
 
 /// Every page as the engine reads it, decrypted under the key in a cipher
@@ -410,8 +455,36 @@ fn pages(db: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// What a shipping build (any engine; the marker check is not the
+/// engine's) says of the profile at `<dir>/state`: its own loader's
+/// marker check, `check_within` against its own `PROFILE_FORMAT`.
+fn rollback_check(dir: &Path) -> Result<(), String> {
+    use interweave_profile_config::profile_format::{
+        PROFILE_FORMAT, PROFILE_FORMAT_FILE, check_within,
+    };
+    let path = dir.join("state").join(PROFILE_FORMAT_FILE);
+    let answer = match check_within(
+        &path,
+        &interweave_profile_config::TrustBoundary::root(),
+        PROFILE_FORMAT,
+    ) {
+        Ok(n) => format!("accepted: format {n}"),
+        Err(e) => format!("refused: {e}"),
+    };
+    println!(
+        "{{\"engine\":\"{}\",\"own_format\":{PROFILE_FORMAT},\"rollback\":{answer:?}}}",
+        engine()
+    );
+    Ok(())
+}
+
 fn run(args: &[String]) -> Result<(), String> {
     key::install()?;
+    // A cipher build measured without its key would measure plaintext.
+    let keyed_commands = ["bench", "open-once", "deletion", "abort-after-release", "pages"];
+    if args.first().is_some_and(|c| keyed_commands.contains(&c.as_str())) && !key::from_env() {
+        return Err("SPIKE011_KEY is not set".to_owned());
+    }
     let arg = |i: usize| args.get(i).ok_or_else(|| format!("missing argument {i}"));
     match args.first().map(String::as_str) {
         Some("versions") => versions(),
@@ -424,6 +497,14 @@ fn run(args: &[String]) -> Result<(), String> {
         Some("deletion") => deletion(Path::new(arg(1)?), arg(2)?),
         Some("abort-after-release") => abort_after_release(Path::new(arg(1)?), arg(2)?),
         Some("pages") => pages(Path::new(arg(1)?)),
+        Some("rollback-check") => rollback_check(Path::new(arg(1)?)),
+        #[cfg(feature = "cipher")]
+        Some("migrate-seed") => {
+            let kept = arg(2)?.parse().map_err(|_| "kept".to_owned())?;
+            migrate::seed_plaintext(Path::new(arg(1)?), kept)
+        }
+        #[cfg(feature = "cipher")]
+        Some("start") => migrate::start_report(Path::new(arg(1)?)),
         _ => Err("usage: versions | bench <dir> <kept> <reps> | open-once <db> | \
                   deletion <dir> clean|unclean|none | abort-after-release <db> <row> | pages <db>"
             .to_owned()),

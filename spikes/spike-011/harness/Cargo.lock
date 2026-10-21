@@ -361,6 +361,7 @@ name = "spike-011-harness"
 version = "0.0.0"
 dependencies = [
  "interweave-human-store",
+ "interweave-profile-config",
  "interweave-transport-api",
  "libc",
  "rusqlite",

@@ -42,6 +42,7 @@ cipher-vendored = ["cipher", "rusqlite/bundled-sqlcipher-vendored-openssl"]
 
 [dependencies]
 interweave-human-store = { git = "https://github.com/BlueTeam-OU/InterWeave.git", rev = "1a4fa590a6059efdaf14ba04d579f33db57bf0f0" }
+interweave-profile-config = { git = "https://github.com/BlueTeam-OU/InterWeave.git", rev = "1a4fa590a6059efdaf14ba04d579f33db57bf0f0" }
 interweave-transport-api = { git = "https://github.com/BlueTeam-OU/InterWeave.git", rev = "1a4fa590a6059efdaf14ba04d579f33db57bf0f0" }
 rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
 libc = "=0.2.190"
