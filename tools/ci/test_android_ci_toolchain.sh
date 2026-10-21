@@ -94,6 +94,13 @@ run() {  # [VAR=value...] -- <component>...
     local envs=()
     while (( $# )) && [[ "$1" != -- ]]; do envs+=("$1"); shift; done; shift
     rm -rf "$S/sdk" "$S/runner"; mkdir -p "$S/sdk" "$S/runner"
+    if [[ " ${envs[*]} " == *" FAKE_PLANT_PLATFORM=1 "* ]]; then
+        mkdir -p "$S/sdk/platforms/android-30"; printf 'Pkg.Revision = 3\n' > "$S/sdk/platforms/android-30/source.properties"
+    fi
+    local e; for e in "${envs[@]}"; do
+        # FAKE_PLANT_LINK=<dir>: the NDK's category is a symlink out of the SDK root.
+        [[ "$e" == FAKE_PLANT_LINK=* ]] && ln -s "${e#*=}" "$S/sdk/ndk"
+    done
     if [[ " ${envs[*]} " == *" FAKE_PLANT_SDKM=1 "* ]]; then
         mkdir -p "$S/sdk/cmdline-tools/latest/bin"; cp "$S/sdkmanager" "$S/sdk/cmdline-tools/latest/bin/sdkmanager"
     fi
@@ -141,11 +148,11 @@ out="$(run FAKE_SDKM_FAIL_FIRST=1 -- sdk)"; rc=$?
 [[ -s "$S/sdkm.seen" && ! -s "$S/sdkm.leftover" ]] && ok "  the staged archive, the intermediates and the half-written NDK were cleared before the retry" || bad "leftover" "seen: $(cat "$S/sdkm.seen" 2>/dev/null) left: $(cat "$S/sdkm.leftover" 2>/dev/null)"
 out="$(run FAKE_SDKM_FAIL_FIRST=2 SDK_INSTALL_ATTEMPTS=2 -- sdk)"; rc=$?
 [[ $rc -eq 1 && "$out" == *"(attempt 2 of 2)"* ]] && ok "SDK_INSTALL_ATTEMPTS bounds the tries: two failures of two is exit 1" || bad "rc $rc" "$out"
-for bad_pin in 'PKG_9=@1' 'PKG_9=platforms' 'PKG_9=ndk;28.2@' 'PKG_9=../x@1'; do
+for bad_pin in 'PKG_9=@1' 'PKG_9=platforms' 'PKG_9=ndk;28.2@' 'PKG_9=../x@1' 'PKG_9=.;platforms@3' 'PKG_9=..;sdk@1' 'PKG_9=.;cmdline-tools;latest@99' 'PKG_9=ndk;..@1'; do
     { cat "$S/pins"; echo "$bad_pin"; } > "$S/pins-badform"
     out="$(PINS="$S/pins-badform" run FAKE_SDKM_FAIL=1 -- sdk)"; rc=$?
     [[ $rc -eq 2 && "$out" == *"pin '$bad_pin'"*"is not <package>@<revision>"* && ! -s "$S/sdkm.calls" ]] \
-        && ok "a malformed pin ($bad_pin): exit 2, named, sdkmanager never run, nothing removed (#347 F1)" || bad "rc $rc calls $(wc -l < "$S/sdkm.calls")" "$out"
+        && ok "a malformed pin ($bad_pin): exit 2, named, sdkmanager never run (#347 F1)" || bad "rc $rc calls $(wc -l < "$S/sdkm.calls")" "$out"
 done
 # The sdkmanager in use inside a pinned package that is not at its revision:
 # the retry keeps that directory, so the next attempt still has a binary.
@@ -154,6 +161,19 @@ out="$(PINS="$S/pins-tools" run FAKE_SDKM_FAIL_FIRST=1 FAKE_STALE_PKG='cmdline-t
     SDKMANAGER="$S/sdk/cmdline-tools/latest/bin/sdkmanager" FAKE_PLANT_SDKM=1 -- sdk)"; rc=$?
 [[ "$(wc -l < "$S/sdkm.calls")" -eq 2 && "$out" != *"No such file"* ]] \
     && ok "a stale package holding the sdkmanager in use is not removed: the retry runs it again" || bad "calls $(wc -l < "$S/sdkm.calls")" "$out"
+# A category pinned with a revision passes the form but is no package: the
+# retry never removes it, however sdkmanager fails (#347 round 2 F1, F2).
+{ cat "$S/pins"; echo 'PKG_9=platforms@3'; } > "$S/pins-category"
+out="$(PINS="$S/pins-category" run FAKE_SDKM_FAIL=1 FAKE_PLANT_PLATFORM=1 -- sdk)"; rc=$?
+[[ $rc -eq 1 && -f "$S/sdk/platforms/android-30/source.properties" ]] \
+    && ok "a category pin (platforms@3): the retry leaves platforms/ and what it holds, and the run is red" || bad "rc $rc" "$(ls -R "$S/sdk" 2>&1 | head -5) $out"
+# A symlink inside the SDK root pointing out of it: resolved, it is outside, never removed.
+# The fake's failed attempt writes a half-written NDK through the link; the
+# retry must leave it, since resolved it is outside the root.
+rm -rf "$S/outside"; mkdir -p "$S/outside"
+out="$(run FAKE_SDKM_FAIL_FIRST=1 FAKE_PLANT_LINK="$S/outside" -- sdk)"; rc=$?
+[[ -f "$S/outside/28.2.13676358/half" ]] && ok "a pinned path that resolves outside the SDK root (through a symlink) is never removed" || bad "outside removed" "$(ls -R "$S/outside" 2>&1 | head -4) $out"
+rm -rf "$S/outside"
 out="$(run SDK_INSTALL_ATTEMPTS=0 -- sdk)"; rc=$?
 [[ $rc -eq 2 && "$out" == *"not a positive count"* ]] && ok "SDK_INSTALL_ATTEMPTS=0: exit 2, never a run that tries nothing" || bad "rc $rc" "$out"
 out="$(env -u ANDROID_HOME bash -c "ANDROID_TOOLCHAIN_PINS='$S/pins' SDKMANAGER='$S/sdkmanager' bash '$SUT' sdk" 2>&1)"; rc=$?

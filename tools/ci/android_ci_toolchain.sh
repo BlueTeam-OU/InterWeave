@@ -91,17 +91,36 @@ curl_fetch() { curl --fail --silent --show-error --location --retry 3 --output "
 # The revision a package's source.properties records.
 revision() { awk -F' *= *' '$1=="Pkg.Revision" {print $2; exit}' "$1/source.properties" 2>/dev/null; }
 
+# The directory of pinned package <pkg> that a retry may remove, printed;
+# status 1 and nothing printed for any other. Safe by construction rather
+# than by the names it refuses (#347 review rounds 1 and 2): the path,
+# resolved (`..`, `.` and symlinks), must lie strictly under the resolved
+# SDK root; it must be a package, i.e. two segments deep (`ndk;<rev>`) or
+# already holding a source.properties (`platform-tools`), so a category
+# (`platforms`, `ndk`) never qualifies; and it must not contain the
+# sdkmanager being run, compared resolved too, or the next attempt fails
+# on a missing binary and names the wrong cause.
+retry_removable() {
+    local pkg="$1" sdkm="$2" root dir
+    root="$(realpath -m -- "$ANDROID_HOME")"
+    dir="$(realpath -m -- "$ANDROID_HOME/${pkg//;//}")"
+    [[ "$dir" == "$root"/* ]] || return 1
+    [[ "$pkg" == *';'* || -f "$dir/source.properties" ]] || return 1
+    [[ "$(realpath -m -- "$sdkm")" == "$dir"/* ]] && return 1
+    printf '%s\n' "$dir"
+}
+
 install_sdk() {
     [[ -n "${ANDROID_HOME:-}" ]] || die "ANDROID_HOME is not set; the runner's SDK is needed"
     local sdkm="${SDKMANAGER:-$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager}"
     [[ -x "$sdkm" ]] || die "no sdkmanager at $sdkm"
     local line pkg rev dir got pkgs=() n=0
     while IFS= read -r line; do
-        # The host installer's own form (android-toolchain.sh's valid_pin):
-        # the value names a directory the retry below may remove, so an
-        # empty or category-only name (`@1`, `platforms`) is refused here,
-        # exit 2, before sdkmanager runs (#347 review F1).
-        [[ "${line#*=}" =~ ^[A-Za-z0-9._-]+(\;[A-Za-z0-9._-]+)*@[0-9]+(\.[0-9]+)*$ ]] \
+        # <package>@<revision>, each `;` segment beginning with a letter or
+        # digit, so no segment is `.` or `..` (#347 review rounds 1 and 2).
+        # Exit 2 before sdkmanager runs. What the retry may then remove is
+        # decided by retry_removable() on the resolved path, not by this.
+        [[ "${line#*=}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(\;[A-Za-z0-9][A-Za-z0-9._-]*)*@[0-9]+(\.[0-9]+)*$ ]] \
             || die "pin '${line}' in $PINS is not <package>@<revision>"
         pkg="${line#*=}"; rev="${pkg##*@}"; pkg="${pkg%@*}"
         pkgs+=("$pkg|$rev")
@@ -130,11 +149,7 @@ install_sdk() {
         for line in "${pkgs[@]}"; do
             pkg="${line%|*}"; rev="${line#*|}"; dir="$ANDROID_HOME/${pkg//;//}"
             [[ "$(revision "$dir")" == "$rev" ]] && continue
-            # Never the directory that holds the sdkmanager being run: the
-            # next attempt would fail on a missing binary and say the
-            # packages could not be installed.
-            [[ "$sdkm" == "$dir"/* ]] && continue
-            rm -rf "$dir"
+            dir="$(retry_removable "$pkg" "$sdkm")" && rm -rf "$dir"
         done
         sleep "$delay"
         try=$((try+1))
