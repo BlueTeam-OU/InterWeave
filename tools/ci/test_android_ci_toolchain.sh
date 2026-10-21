@@ -56,17 +56,18 @@ echo "$*" > "$FAKE_DIR/sdkm.args"
 echo call >> "$FAKE_DIR/sdkm.calls"
 [ -z "${FAKE_SDKM_FAIL:-}" ] || exit 1
 # FAKE_SDKM_FAIL_FIRST=<n>: the first n calls fail as a corrupt download
-# does, leaving a staged archive and a half-written NDK behind.
+# does in repository-core's installer: the archive staged under .temp/ (and
+# .downloadIntermediates/), and at the install path only .installer/.
 if [ "$(wc -l < "$FAKE_DIR/sdkm.calls")" -le "${FAKE_SDKM_FAIL_FIRST:-0}" ]; then
     for d in .temp .downloadIntermediates; do mkdir -p "$ANDROID_HOME/$d"; echo corrupt > "$ANDROID_HOME/$d/ndk.zip"; done
-    mkdir -p "$ANDROID_HOME/ndk/28.2.13676358"; echo partial > "$ANDROID_HOME/ndk/28.2.13676358/half"
+    mkdir -p "$ANDROID_HOME/ndk/28.2.13676358/.installer"; echo op > "$ANDROID_HOME/ndk/28.2.13676358/.installer/.installData"
     for p in "$ANDROID_HOME"/.temp "$ANDROID_HOME"/.downloadIntermediates "$ANDROID_HOME"/ndk/28.2.13676358; do
         find "$p" -type f >> "$FAKE_DIR/sdkm.seen"; done
     echo "Error on ZipFile unknown archive" >&2; exit 1
 fi
 [ -e "$ANDROID_HOME/.temp" ] && echo "staged archive still there" >> "$FAKE_DIR/sdkm.leftover"
 [ -e "$ANDROID_HOME/.downloadIntermediates" ] && echo "intermediates still there" >> "$FAKE_DIR/sdkm.leftover"
-[ -e "$ANDROID_HOME/ndk/28.2.13676358/half" ] && echo "half-written NDK still there" >> "$FAKE_DIR/sdkm.leftover"
+[ -e "$ANDROID_HOME/ndk/28.2.13676358" ] && echo "the NDK's .installer still there" >> "$FAKE_DIR/sdkm.leftover"
 head -c 64 >/dev/null  # some licence answers; it stops reading, as sdkmanager does
 shift
 for pkg in "$@"; do
@@ -97,10 +98,12 @@ run() {  # [VAR=value...] -- <component>...
     if [[ " ${envs[*]} " == *" FAKE_PLANT_PLATFORM=1 "* ]]; then
         mkdir -p "$S/sdk/platforms/android-30"; printf 'Pkg.Revision = 3\n' > "$S/sdk/platforms/android-30/source.properties"
     fi
-    local e; for e in "${envs[@]}"; do
-        # FAKE_PLANT_LINK=<dir>: the NDK's category is a symlink out of the SDK root.
-        [[ "$e" == FAKE_PLANT_LINK=* ]] && ln -s "${e#*=}" "$S/sdk/ndk"
-    done
+    if [[ " ${envs[*]} " == *" FAKE_PLANT_GROUPING=1 "* ]]; then
+        mkdir -p "$S/sdk/extras/google/m2repository"; printf 'Pkg.Revision = 58\n' > "$S/sdk/extras/google/m2repository/source.properties"
+    fi
+    if [[ " ${envs[*]} " == *" FAKE_PLANT_STALE_NDK=1 "* ]]; then
+        mkdir -p "$S/sdk/ndk/28.2.13676358"; printf 'Pkg.Revision = 1.0\n' > "$S/sdk/ndk/28.2.13676358/source.properties"
+    fi
     if [[ " ${envs[*]} " == *" FAKE_PLANT_SDKM=1 "* ]]; then
         mkdir -p "$S/sdk/cmdline-tools/latest/bin"; cp "$S/sdkmanager" "$S/sdk/cmdline-tools/latest/bin/sdkmanager"
     fi
@@ -145,7 +148,7 @@ out="$(run FAKE_SDKM_FAIL=1 -- sdk)"; rc=$?
 out="$(run FAKE_SDKM_FAIL_FIRST=1 -- sdk)"; rc=$?
 [[ $rc -eq 0 && "$out" == *"3 SDK package(s) at their pinned revisions"* ]] && ok "one corrupt download, then a good one: exit 0, every package held to its revision" || bad "rc $rc" "$out"
 [[ "$out" == *"::warning::android_ci_toolchain: sdkmanager failed"*"(attempt 1 of 3)"* ]] && ok "  the failed attempt is a warning in the log, numbered" || bad "no warning" "$out"
-[[ -s "$S/sdkm.seen" && ! -s "$S/sdkm.leftover" ]] && ok "  the staged archive, the intermediates and the half-written NDK were cleared before the retry" || bad "leftover" "seen: $(cat "$S/sdkm.seen" 2>/dev/null) left: $(cat "$S/sdkm.leftover" 2>/dev/null)"
+[[ -s "$S/sdkm.seen" && ! -s "$S/sdkm.leftover" ]] && ok "  the staged archive, the intermediates and the NDK's .installer were cleared before the retry" || bad "leftover" "seen: $(cat "$S/sdkm.seen" 2>/dev/null) left: $(cat "$S/sdkm.leftover" 2>/dev/null)"
 out="$(run FAKE_SDKM_FAIL_FIRST=2 SDK_INSTALL_ATTEMPTS=2 -- sdk)"; rc=$?
 [[ $rc -eq 1 && "$out" == *"(attempt 2 of 2)"* ]] && ok "SDK_INSTALL_ATTEMPTS bounds the tries: two failures of two is exit 1" || bad "rc $rc" "$out"
 for bad_pin in 'PKG_9=@1' 'PKG_9=platforms' 'PKG_9=ndk;28.2@' 'PKG_9=../x@1' 'PKG_9=.;platforms@3' 'PKG_9=..;sdk@1' 'PKG_9=.;cmdline-tools;latest@99' 'PKG_9=ndk;..@1'; do
@@ -167,13 +170,17 @@ out="$(PINS="$S/pins-tools" run FAKE_SDKM_FAIL_FIRST=1 FAKE_STALE_PKG='cmdline-t
 out="$(PINS="$S/pins-category" run FAKE_SDKM_FAIL=1 FAKE_PLANT_PLATFORM=1 -- sdk)"; rc=$?
 [[ $rc -eq 1 && -f "$S/sdk/platforms/android-30/source.properties" ]] \
     && ok "a category pin (platforms@3): the retry leaves platforms/ and what it holds, and the run is red" || bad "rc $rc" "$(ls -R "$S/sdk" 2>&1 | head -5) $out"
-# A symlink inside the SDK root pointing out of it: resolved, it is outside, never removed.
-# The fake's failed attempt writes a half-written NDK through the link; the
-# retry must leave it, since resolved it is outside the root.
-rm -rf "$S/outside"; mkdir -p "$S/outside"
-out="$(run FAKE_SDKM_FAIL_FIRST=1 FAKE_PLANT_LINK="$S/outside" -- sdk)"; rc=$?
-[[ -f "$S/outside/28.2.13676358/half" ]] && ok "a pinned path that resolves outside the SDK root (through a symlink) is never removed" || bad "outside removed" "$(ls -R "$S/outside" 2>&1 | head -4) $out"
-rm -rf "$S/outside"
+# A grouping two segments deep (extras;google) holds packages and no
+# source.properties of its own: a pin naming it never empties it.
+{ cat "$S/pins"; echo 'PKG_9=extras;google@1'; } > "$S/pins-grouping"
+out="$(PINS="$S/pins-grouping" run FAKE_SDKM_FAIL=1 FAKE_PLANT_GROUPING=1 -- sdk)"; rc=$?
+[[ $rc -eq 1 && -f "$S/sdk/extras/google/m2repository/source.properties" ]] \
+    && ok "a grouping pin (extras;google@1): the packages under it are kept, and the run is red (#347 round 3 F1)" || bad "rc $rc" "$out"
+# An installed package at another revision keeps its content through a retry
+# (only an empty directory is removed); the revision check then says so.
+out="$(run FAKE_SDKM_FAIL=1 FAKE_PLANT_STALE_NDK=1 -- sdk)"; rc=$?
+[[ $rc -eq 1 && -f "$S/sdk/ndk/28.2.13676358/source.properties" ]] \
+    && ok "a stale package with content: kept through every retry, never removed recursively" || bad "rc $rc" "$out"
 out="$(run SDK_INSTALL_ATTEMPTS=0 -- sdk)"; rc=$?
 [[ $rc -eq 2 && "$out" == *"not a positive count"* ]] && ok "SDK_INSTALL_ATTEMPTS=0: exit 2, never a run that tries nothing" || bad "rc $rc" "$out"
 out="$(env -u ANDROID_HOME bash -c "ANDROID_TOOLCHAIN_PINS='$S/pins' SDKMANAGER='$S/sdkmanager' bash '$SUT' sdk" 2>&1)"; rc=$?

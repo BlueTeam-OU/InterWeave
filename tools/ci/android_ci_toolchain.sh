@@ -91,25 +91,6 @@ curl_fetch() { curl --fail --silent --show-error --location --retry 3 --output "
 # The revision a package's source.properties records.
 revision() { awk -F' *= *' '$1=="Pkg.Revision" {print $2; exit}' "$1/source.properties" 2>/dev/null; }
 
-# The directory of pinned package <pkg> that a retry may remove, printed;
-# status 1 and nothing printed for any other. Safe by construction rather
-# than by the names it refuses (#347 review rounds 1 and 2): the path,
-# resolved (`..`, `.` and symlinks), must lie strictly under the resolved
-# SDK root; it must be a package, i.e. two segments deep (`ndk;<rev>`) or
-# already holding a source.properties (`platform-tools`), so a category
-# (`platforms`, `ndk`) never qualifies; and it must not contain the
-# sdkmanager being run, compared resolved too, or the next attempt fails
-# on a missing binary and names the wrong cause.
-retry_removable() {
-    local pkg="$1" sdkm="$2" root dir
-    root="$(realpath -m -- "$ANDROID_HOME")"
-    dir="$(realpath -m -- "$ANDROID_HOME/${pkg//;//}")"
-    [[ "$dir" == "$root"/* ]] || return 1
-    [[ "$pkg" == *';'* || -f "$dir/source.properties" ]] || return 1
-    [[ "$(realpath -m -- "$sdkm")" == "$dir"/* ]] && return 1
-    printf '%s\n' "$dir"
-}
-
 install_sdk() {
     [[ -n "${ANDROID_HOME:-}" ]] || die "ANDROID_HOME is not set; the runner's SDK is needed"
     local sdkm="${SDKMANAGER:-$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager}"
@@ -117,9 +98,8 @@ install_sdk() {
     local line pkg rev dir got pkgs=() n=0
     while IFS= read -r line; do
         # <package>@<revision>, each `;` segment beginning with a letter or
-        # digit, so no segment is `.` or `..` (#347 review rounds 1 and 2).
-        # Exit 2 before sdkmanager runs. What the retry may then remove is
-        # decided by retry_removable() on the resolved path, not by this.
+        # digit, so no segment is `.` or `..`: the value becomes a path the
+        # retry below clears a marker under. Exit 2 before sdkmanager runs.
         [[ "${line#*=}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(\;[A-Za-z0-9][A-Za-z0-9._-]*)*@[0-9]+(\.[0-9]+)*$ ]] \
             || die "pin '${line}' in $PINS is not <package>@<revision>"
         pkg="${line#*=}"; rev="${pkg##*@}"; pkg="${pkg%@*}"
@@ -134,12 +114,25 @@ install_sdk() {
     # Retried: one bad download of a package archive ("Error on ZipFile
     # unknown archive", the NDK on runs of #327 and #343's merge group)
     # failed a required job and evicted a reviewed PR from the queue.
-    # Before each retry the download staging sdkmanager keeps under the
-    # SDK root (.temp, .downloadIntermediates: named in its installer,
-    # repository-core's AbstractPackageOperation) is cleared, and so is
-    # every pinned package not yet at its revision, so the retry fetches
-    # afresh rather than reusing the corrupt archive. What decides is
-    # still the revision check below; the last attempt's failure is red.
+    #
+    # What a failed attempt leaves, from the installer the runner runs
+    # (its log reads "An error occurred while preparing SDK package", the
+    # prepare step of repository-core's AbstractPackageOperation, read on
+    # this host's cmdline-tools): the download and its unzip under the SDK
+    # root's .temp/ (and .downloadIntermediates/), and at the package's
+    # install path a .installer/ directory recording the operation, made
+    # before the download, with no package content; content reaches the
+    # install path only on completion, by an overwrite that restores its
+    # backup on failure. So before a retry exactly those are removed: the
+    # two staging directories, and for each pinned package not at its
+    # revision its .installer/, then its directory by rmdir, which only
+    # succeeds on an empty one. Nothing is removed recursively by a name
+    # the pins give, so no pin can make the retry delete a category, a
+    # grouping (extras/google) or the sdkmanager's own directory (#347
+    # review rounds 1-3). What decides is still the revision check below;
+    # the last attempt's failure is red. Not cleared: the staging of the
+    # newer `android` CLI behind an sdkmanager shim ($SDK/.sdk/), which
+    # leaves nothing at the install path when a download fails.
     local attempts="${SDK_INSTALL_ATTEMPTS:-3}" delay="${SDK_RETRY_DELAY:-15}" try=1
     [[ "$attempts" =~ ^[1-9][0-9]*$ ]] || die "SDK_INSTALL_ATTEMPTS '$attempts' is not a positive count"
     until "$sdkm" --install "${names[@]}" < <(yes 2>/dev/null) >/dev/null; do
@@ -149,7 +142,8 @@ install_sdk() {
         for line in "${pkgs[@]}"; do
             pkg="${line%|*}"; rev="${line#*|}"; dir="$ANDROID_HOME/${pkg//;//}"
             [[ "$(revision "$dir")" == "$rev" ]] && continue
-            dir="$(retry_removable "$pkg" "$sdkm")" && rm -rf "$dir"
+            rm -rf -- "$dir/.installer"
+            rmdir -- "$dir" 2>/dev/null || true
         done
         sleep "$delay"
         try=$((try+1))
