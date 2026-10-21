@@ -13,7 +13,7 @@
 # and the readiness wait being a bare TCP connect. And if the real lease or
 # this script is itself SIGKILLed, nothing here takes the case down: the
 # lease frees while that case's stub still holds this login's port, until
-# the case ends (at most about 15 s).
+# that case's run ends: up to the 300 s sleep of the TERM-ignoring cases.
 #
 # It holds the real pixel-9a lease while it runs: its stub server takes
 # this login's adb port, which only a holder of the lease may use, and a
