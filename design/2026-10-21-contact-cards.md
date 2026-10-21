@@ -424,11 +424,16 @@ people who write to it are not reached while it is off. A snackbar
 `ConfirmIdentityOff` with Undo (turns it on again); the overflow then
 holds **Turn on this identity** (`TurnOnIdentity`), which runs at once
 with `ConfirmIdentityOn`. **Turn on** is in the overflow of the page
-of any identity that is off, however many are held and however it came
+of any identity that is off, with two or more held, however it came
 to be off — the first identity by Turn off, an added one in the
 configuration (§5.7.6) — beside Remove on an added one, so no state
 leaves the person without it and `IdentityDefaultNeedsOn` always has a
-control to follow. A
+control to follow. One identity held and off is not a state the app's
+actions reach (the two rules above), and a profile edited into it
+outside the app cannot start the runtime, which needs one identity on
+to lease (ADR-0061 d. 7): the app then shows its existing start-up
+refusal, not this page, so no string here needs a one-identity form
+for Turn on. A
 kill inside the undo window leaves it off, as said. While an identity
 is off, its messages waiting to be sent stay waiting, shown as any
 pending message is (`human-client-ui.md` §5), and are tried when it is
