@@ -242,8 +242,14 @@ letters, digits, `.`, `_` and `-`, starting with a letter, at most 64;
 typed capitals become lowercase as typed, and a space becomes `-`, so
 the person never meets an error for a key they could not avoid. Errors,
 on Save, inline: `IdentityRouteNeeded`, `IdentityRouteBadCharacters`,
-`IdentityRouteTooLong`, `IdentityRouteTaken` (another identity, or an endpoint the profile
-already has, uses it). Save creates the endpoint and its card together
+`IdentityRouteTooLong`, `IdentityRouteTaken` (another identity uses
+it, or an endpoint of the profile that is no identity and not one the
+person removed, such as an agent's). A label an identity the person
+removed still holds (§5.2) is not refused: the field says
+`IdentityRouteReused` under it, that this label was one of their
+identities and Save makes a new identity on it, with this card and
+nothing of the old one (ADR-0061 d. 1, §12 Q10 on telling it from an
+agent's). Save creates the endpoint and its card together
 (ADR-0061 d. 2: through the admin connection on the desktop, the
 embedded host's configuration path on Android; rust-ui-dev's), the
 endpoint with `advertise: false`, as every identity's endpoint has, the
@@ -341,11 +347,13 @@ turned off, its label kept there; the dialog says so in place of the
 endpoint's deletion (`IdentityRemoveAuthored`), and the rest of the
 list is the same (ADR-0061 d. 7: only an endpoint the client added is
 deleted from the overlay). A removed identity is gone to the person
-whichever way its endpoint went: it is no longer listed, counted among
-the identities held, offered in the switcher or able to come in front,
-and §5.7.6's turned-off state is not it; its label stays taken on this
-device (`IdentityRouteTaken`). How the client tells such an endpoint
-from one turned off for another reason is §12 Q7. Then **Cancel**
+whichever way its endpoint went, because Remove deletes its card and
+the card is what makes an endpoint an identity (ADR-0061 d. 1, §12
+Q7): it is no longer listed, counted among the identities held or
+against the limit, offered in the switcher or able to come in front,
+and §5.7.6's turned-off state is not it. Its label stays configured on
+this device, and Add an identity can use it again, as a new identity
+(§5.1). Then **Cancel**
 (default focus) and **Remove** (`IdentityRemoveConfirm`, filled in
 `error`). Enter on the initial focus cancels; Escape and Back cancel.
 Remove has no Undo (ADR-0061 d. 7): the endpoint and every row under it
@@ -846,8 +854,11 @@ none is specified here (§11).
   `IdentityUnavailable` in place of "As {identity}", the send control
   disabled with that as its reason. Turning an endpoint on or off is
   not designed here (§11).
-- **No card yet**: named by its route label everywhere a name would be;
-  Share asks for the name first (§5.3).
+- **No card yet**: only the first identity (`human`) can be in this
+  state — before the person writes their card, or after a discard took
+  it (§7) — since every further identity is made with its card (§5.1;
+  §12 Q9). It is named by its route label everywhere a name would be,
+  and Share asks for the name first (§5.3).
 
 ## 6. Showing contacts
 
@@ -1057,10 +1068,12 @@ reason):
   photos of your identities; the app's settings; and "a message you
   already received may show again";
 - `DiscardStoreKeeps`: this device's PeerId and recovery phrase, the
-  peers you trust, and your network settings are not affected; your
-  identities stay, without their names and photos, since they are the
-  profile's configuration (ADR-0061 d. 6) — each is named by its route
-  label until the person names it again (§5.7.6). With one identity
+  peers you trust, and your network settings are not affected. With two
+  or more identities, it says what happens to them: their cards go with
+  the store, and a card is what makes an identity (ADR-0061 d. 1), so
+  only the first identity remains, without its name and photo
+  (§5.7.6); the others' labels stay on this device, and Add an identity
+  can use each again (§5.1; §12 Q9). With one identity
   held, neither list speaks of identities: the lead-in is the plain one
   and the item reads "your name and photo" (ADR-0061 d. 3);
 - `DiscardStoreRemains`: copies the system made earlier may stay on the
@@ -1307,9 +1320,10 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     full dialog shows and no second dialog follows.
 15. In every confirmation dialog of this spec Enter with the initial
     focus cancels; Escape/Back cancels.
-16. After a discard, the PeerId, trust and the configured identities are
-    unchanged, each identity named by its route label, and Chats shows
-    `StoreDiscarded` once.
+16. After a discard, the PeerId and trust are unchanged, the first
+    identity is held without a card and named by its route label, no
+    other identity is held, Add an identity accepts another's old label
+    with `IdentityRouteReused`, and Chats shows `StoreDiscarded` once.
 17. Every control in this spec is labelled in the accessibility tree
     (desktop now; Android blocked on the bridge), and each swipe has its
     buttons.
@@ -1492,6 +1506,7 @@ and are for them to write.
 | `IdentityRouteField` | Label that others see | §5.1 new identity's field |
 | `IdentityRouteHelp` | Everyone you talk to as this identity sees this label next to your PeerId. You cannot change the label after the identity is created. | under that field and on §5.2; must say who sees it and that it is fixed |
 | `IdentityRouteTooLong` | Use 64 characters or fewer. | route label over 64 (language-culture-en's text, as `CardNameTooLong`) |
+| `IdentityRouteReused` | This label belonged to an identity you removed. Saving makes a new identity with it. | under the label field, for a removed identity's label; must say nothing of the old identity comes back (new, proposal) |
 | `IdentityRouteNeeded` / `IdentityRouteBadCharacters` / `IdentityRouteTaken` | Enter a label. / Use only lowercase letters, digits, dots (.), hyphens (-) and underscores (_), and start with a letter. / Another identity on this device already uses this label. | field errors |
 | `IdentityAddFailed` | The identity could not be added. Try again. | §5.1 above Save |
 | `MakeDefault` | Make default | §5.2 overflow |
@@ -1544,7 +1559,7 @@ and are for them to write.
 | `StoreChecking` | Checking the stored data… | §7.2 progress |
 | `DiscardStoreTitle` | Delete all stored data? | full dialog title |
 | `DiscardStoreLoses` | Two or more identities: This deletes from this device, for all your identities: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; the names and photos of your identities; the app's settings, other than your network settings. A message you already received may show again. One identity: This deletes from this device: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; the name and photo on your card; the app's settings, other than your network settings. A message you already received may show again. | full dialog list; one item per line; must list exactly these, and say it is every identity's (§7.2); with one identity, no "for all your identities" and "your name and photo" |
-| `DiscardStoreKeeps` | Two or more identities: This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. Your identities are not deleted, but they lose their names and photos. One identity: This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. | full dialog; **L1**: the first-round text said "Your identity" for the PeerId; with one identity the second sentence is left out |
+| `DiscardStoreKeeps` | One identity: This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. Two or more identities: the same sentence, then that only your first identity remains, without its name and photo, and that the other identities' labels stay on this device and can be used again. | full dialog; must say, with two or more, that the identities other than the first go with their cards and their labels can be used again (revised, proposal: the first-round text said they stay without names, which ADR-0061 d. 1 made false) |
 | `DiscardStoreRemains` | Earlier copies that your device made outside InterWeave may still be on it. | full dialog |
 | `DiscardStoreConfirm` | Delete stored data | full dialog primary |
 | `DiscardPartialTitle` | Delete the unfinished file? | partial dialog title |
@@ -1632,19 +1647,27 @@ given until they answer):
   pending outbound on Remove is "tried no further", one that may have
   reached named as such.
 
-- **Q7** (round 1's review, F3) — a removed identity whose endpoint
-  `config.yaml` authors is only turned off (d. 7). The note treats it as
-  no longer held (§5.2). The client then has to tell that endpoint from
-  one turned off for another reason (`enabled: false` written in
-  `config.yaml` or by the command line): asked whether the overlay or
-  STATE.md carries that a turned-off endpoint was removed as an
-  identity, and whose record it is.
-- **Q8** (round 1's review, F6) — the bound on identities. ADR-0061
-  d. 2 and ENDPOINTS.md's prose say 64 endpoints; ENDPOINTS.md's limits
-  table gives configured endpoints per profile a default of 16 and a
-  ceiling of 64. The note keys `IdentityLimit` on the profile's
-  effective limit and on the add's limit refusal (§5.1); asked which
-  figure the records mean, so the two can say the same.
+- **Q7–Q8**, ruled by architect-cto (REPLY 01a15f29, on #335 at
+  7082339f): an endpoint is an identity to the client while its card's
+  row in `own_cards` exists; Remove deletes it, so a removed authored
+  identity is no identity while one the person turned off stays listed
+  as off, and its label may become a new identity (d. 1, d. 7; §5.1,
+  §5.2); the limit is the profile's effective configured-endpoint
+  limit, authored and added counted together, refused by name (d. 2;
+  §5.1).
+- **Q9** — the first identity without a card. By d. 1 an endpoint
+  without a card row is no identity; the first endpoint, `human`, has
+  none on a fresh install, after an upgrade, and after a discard. Read
+  here as the first endpoint being the client's identity with or
+  without a card (§5.7.6), so a client is never without one; and a
+  discard with several identities leaving only that one (§7.2).
+- **Q10** — reusing a removed identity's label (d. 1: "create an
+  identity on that endpoint again"). The client must tell a removed
+  identity's cardless endpoint from an agent's (ADR-0055) or one the
+  configuration authors for another use, or Add an identity could take
+  over a route the person never held as an identity. Read here as the
+  client offering reuse only for an endpoint it knows was one of the
+  person's identities; asked how it knows, once the card row is gone.
 
 For language-culture:
 
