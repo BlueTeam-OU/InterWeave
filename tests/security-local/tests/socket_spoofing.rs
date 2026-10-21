@@ -265,9 +265,18 @@ async fn under_a_hostile_umask_the_daemon_makes_nothing_group_or_world_accessibl
                 stack.push(path.clone());
             }
             // The test's own: the profile document (0644 by design), the
-            // probe, and the daemon's log, which the harness opened.
-            let ours =
-                path == config || path == probe || path.extension().is_some_and(|e| e == "log");
+            // probe, and the daemon's log, which the harness opened at the
+            // home's root as `daemon-<pid>-<n>.log` -- that name there and
+            // nowhere else, so a log the daemon wrote is still judged.
+            let prefix = format!("daemon-{}-", std::process::id());
+            let harness_log = path.parent() == Some(home.root.path())
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .and_then(|n| n.strip_prefix(&prefix))
+                    .and_then(|n| n.strip_suffix(".log"))
+                    .is_some_and(|n| n.parse::<u64>().is_ok());
+            let ours = path == config || path == probe || harness_log;
             if !ours {
                 walked += 1;
                 if meta.mode() & 0o077 != 0 {
