@@ -261,7 +261,7 @@ close it), a dialog on a wide one (Escape closes it). It holds:
   and name and surname, as the counterparty's client will show them
   after they accept;
 - the line `ShareCardNote`: the person will see this name and photo, and
-  can save them; after a card arrives, it cannot be taken back;
+  can save them; a card cannot be removed from their device once it arrives;
 - actions: **Cancel** (`Cancel`) and **Share** (`ShareCardAction`),
   filled, at the end.
 
@@ -343,8 +343,8 @@ folding, with leading and trailing spaces removed.
 | case | context line | Accept label | Accept does |
 |---|---|---|---|
 | **N** the route is under no contact; no contact has this name | none | **Accept** (`Accept`) | creates a contact {name [surname]}, its photo, and the route |
-| **D** the route is under no contact; a contact on another PeerId has this name | `CardSameName`, in `error`, with a warning icon: "You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept." and **Open {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
-| **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "Accepting updates your contact {X}." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
+| **D** the route is under no contact; a contact on another PeerId has this name | `CardSameName`, in `error`, with a warning icon: "You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept." and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
+| **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "If you accept, your contact {X} is updated." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
 | **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or the photo variant `CardKeepsPhoto`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
 | **S** the route is under X and the card changes nothing | `CardSame`: "This card matches your contact {X}." | **Close** (`Close`) in place of Accept; Decline is not shown | removes the row from the session, as Decline does, without a snackbar |
 
@@ -359,7 +359,7 @@ compare a photo it has not decoded.
 Runs at once: the contact (and route) is written, and the photo is
 decoded only now, with the memory-safe decoder, to the fixed display
 size. The proposal row is replaced in place by a short confirmation row
-(`CardAccepted`: "You saved {name} as a contact", with the name as
+(`CardAccepted`: "You saved {name} as a contact.", with the name as
 saved and the new avatar), so the conversation keeps a trace of what
 happened in this session. The title and the list take the name (§6.1).
 
@@ -576,7 +576,7 @@ reason):
 
 **Unfinished file only** (a copy exists and opened):
 
-- title `DiscardPartialTitle`: "Finish the interrupted update?";
+- title `DiscardPartialTitle`: "Delete the unfinished file?";
 - `DiscardPartialBody`: an update to how your data is protected was
   interrupted; a complete copy of your data exists; this removes only
   the unfinished file, and the app opens with your data;
@@ -685,7 +685,7 @@ on the desktop.
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
    | case S Close | as Decline | keyboard |
    | snackbar appears | stays where it was; the snackbar is reachable last in order | keyboard |
-   | Open {name} from case D | the contact page title; Back returns to the proposal's Accept | keyboard |
+   | Open your contact {name} from case D | the contact page title; Back returns to the proposal's Accept | keyboard |
    | contact deleted | the Contacts list's first row, else its empty text | keyboard |
    | Move route dialog | Cancel; after Move, the moved-to contact's page title | keyboard |
    | Discard pressed (R or K) | the dialog's Cancel | keyboard |
@@ -813,7 +813,7 @@ and no string calls a card an "identity" (§1).
 | `ShareCard` | Share a card | conversation overflow, empty-conversation offer |
 | `ShareCardTitle` | Share a card with {title} | chooser title |
 | `ShareCardPreview` | What {title} will see | chooser preview heading |
-| `ShareCardNote` | They will see this name and photo, and they can save them. After a card arrives, you cannot take it back. | chooser note |
+| `ShareCardNote` | They will see this name and photo, and they can save them. You cannot remove a card from their device after it arrives. | chooser note |
 | `ShareCardAction` | Share | chooser primary |
 | `ShareCardChoose` | Choose a card to share. | chooser, Share with none chosen |
 | `ShareCardNoCards` | You have no cards yet. Add a card, then share it. | chooser empty |
@@ -831,13 +831,13 @@ and no string calls a card an "identity" (§1).
 | `AcceptAsNew` | Accept as a new contact | case D |
 | `UpdateContact` | Update contact | cases U, E |
 | `CardSameName` | You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept. | case D; must name both facts |
-| `ShowContact` | Open {name} | case D link |
-| `CardUpdates` | Accepting updates your contact {name}. | case U |
+| `ShowContact` | Open your contact {name} | case D link |
+| `CardUpdates` | If you accept, your contact {name} is updated. | case U |
 | `CardUpdatesName` / `CardUpdatesPhoto` | New name: {name} / New photo | case U, the changes |
 | `CardKeepsEdit` | You named this contact {name} yourself. That name stays. | case E, name |
 | `CardKeepsPhoto` | You chose this contact's photo yourself. That photo stays. | case E, photo |
 | `CardSame` | This card matches your contact {name}. | case S |
-| `CardAccepted` | You saved {name} as a contact | confirmation row |
+| `CardAccepted` | You saved {name} as a contact. | confirmation row |
 | `CardPhotoNotUsed` | The photo could not be shown and was not saved. | confirmation row addition |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo |
 | `ConfirmCardDeclined` | Card declined | snackbar, with Undo |
@@ -858,8 +858,8 @@ and no string calls a card an "identity" (§1).
 | `ContactRouteTrusted` / `ContactRouteNotTrusted` | Trusted / Not trusted | route trust in words |
 | `OpenConversation` | Open conversation | route row |
 | `MoveRoute` | Move to another contact | route row |
-| `MoveRouteConfirm` | Move {peer} from {name} to {other}? Trust stays with each PeerId, so moving it does not make {peer} trusted or not trusted. | dialog; `{other}` the target contact's name |
-| `MoveRouteLast` | {name} has no other route, so the contact {name} will be deleted. | dialog addition |
+| `MoveRouteConfirm` | Move {peer} from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name |
+| `MoveRouteLast` | {peer} is the only route of {name}, so moving it deletes the contact {name}. | dialog addition |
 | `Move` | Move | dialog primary |
 | `DeleteContact` | Delete contact | contact overflow |
 | `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo |
@@ -871,11 +871,11 @@ and no string calls a card an "identity" (§1).
 | `DiscardStore` | Delete stored data… | R, K action |
 | `StoreChecking` | Checking the stored data… | §7.2 progress |
 | `DiscardStoreTitle` | Delete all stored data? | full dialog title |
-| `DiscardStoreLoses` | This deletes from this device: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; your cards; the app's settings. A message you already received may show again. | full dialog list; one item per line; must list exactly these |
+| `DiscardStoreLoses` | This deletes from this device: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; your cards; the app's settings, other than your network settings. A message you already received may show again. | full dialog list; one item per line; must list exactly these |
 | `DiscardStoreKeeps` | Your identity, your PeerId, the peers you trust and your network settings are not affected. | full dialog |
-| `DiscardStoreRemains` | Your device may still hold earlier copies that its system made outside InterWeave. | full dialog |
+| `DiscardStoreRemains` | Earlier copies that your device made outside InterWeave may still be on it. | full dialog |
 | `DiscardStoreConfirm` | Delete stored data | full dialog primary |
-| `DiscardPartialTitle` | Finish the interrupted update? | partial dialog title |
+| `DiscardPartialTitle` | Delete the unfinished file? | partial dialog title |
 | `DiscardPartialBody` | An update to how your data is protected was interrupted. A complete copy of your data exists. This deletes only the unfinished file, and InterWeave opens with your data. | partial dialog |
 | `DiscardPartialConfirm` | Delete the unfinished file | partial dialog primary |
 | `StoreDiscarding` | Deleting… | §7.3 progress |
