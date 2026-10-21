@@ -318,9 +318,20 @@ Back with unsaved changes: a dialog `CardDiscardChanges`, actions
 **Continue editing** (`KeepEditing`, default focus) and **Discard**
 (`DiscardChanges`). Back with no change closes at once.
 
-**Make default** runs at once: the default moves to this identity, the
+**Two rules every action on an identity keeps** (ADR-0061 d. 7, on both
+platforms): the default is always an identity that is turned on, so
+peer-only sends reach one that can receive them; and no action leaves
+the profile with no identity turned on, which the runtime needs. Make
+default, its Undo, Turn off, Remove and their states below each obey
+both; an action or an Undo that would break one is not offered, or is
+withdrawn when it would.
+
+**Make default** is offered only on an identity that is turned on (on
+one that is off, the page says `IdentityDefaultNeedsOn`: turn it on
+first). It runs at once: the default moves to this identity, the
 line `IdentityIsDefault` appears, and a snackbar `ConfirmDefaultSet`
-with Undo (moves it back). Its helper on the page says what the default
+with Undo (moves it back), withdrawn — its snackbar closes — as soon
+as the previous default is turned off. Its helper on the page says what the default
 is in the person's terms (`IdentityDefaultHelp`: people who write to
 this device's PeerId without using one of the person's labels reach the
 default; ADR-0061
@@ -336,9 +347,10 @@ first is never removed; it can be turned off instead (below).
 
 **Remove this identity**, on an added identity, is not offered on the
 default identity (the page says `IdentityRemoveDefault`: make another
-identity the default first), nor, on Android, when removing it would
-leave no identity enabled, since the embedded runtime needs one enabled
-identity to lease (ADR-0061 d. 7). Elsewhere it opens a confirmation
+identity the default first), nor when removing it would leave no
+identity turned on, on either platform (the rules above; the embedded
+runtime needs one to lease, and the desktop's composed profile asks for
+one, ADR-0061 d. 7). Elsewhere it opens a confirmation
 dialog, `IdentityRemoveTitle` naming the identity, listing what goes
 (`IdentityRemoveLoses`: its conversations and their messages, unread,
 kept and waiting to be sent; its contacts; its card; and that people
@@ -377,16 +389,25 @@ go together. Where it lands, by what is left:
 
 **Turn off this identity** (`TurnOffIdentity`), in the overflow of the
 first identity's page in place of Remove, with two or more identities
-held, offered once another identity is enabled and not on the default
-(`IdentityRemoveDefault`'s rule, so peer-only sends keep reaching an
-identity that can receive them) (ADR-0061 d. 7). It runs at once,
+held, offered once another identity is turned on and not on the default
+(the rules above) (ADR-0061 d. 7). It runs at once,
 nothing is deleted: the endpoint is disabled, the identity stays
 listed as off (§5.7.6), its conversations, contacts and card stay, and
 people who write to it are not reached while it is off. A snackbar
 `ConfirmIdentityOff` with Undo (turns it on again); the overflow then
 holds **Turn on this identity** (`TurnOnIdentity`), which runs at once
-with `ConfirmIdentityOn`. A kill inside the undo window leaves it off,
-as said. Turning off is not a switch: when the first identity is in
+with `ConfirmIdentityOn`; Turn on is offered on any identity that is
+off, however many are held, so no state leaves the person without it. A
+kill inside the undo window leaves it off, as said. While an identity
+is off, its messages waiting to be sent stay waiting, shown as any
+pending message is (`human-client-ui.md` §5), and are tried when it is
+turned on again; nothing is sent as another identity.
+
+**When the device refuses.** Make default, Remove, Turn off and Turn on
+write the profile's configuration (ADR-0061 d. 2). A refusal or a
+failure changes nothing the person sees as done: no snackbar of
+success, the page as it was, and `IdentityChangeFailed` in a snackbar
+naming the action, with no Undo, since nothing happened. Turning off is not a switch: when the first identity is in
 front it stays in front, readable, its composer saying it cannot send
 (§5.7.6). Focus stays on the overflow button.
 
@@ -765,7 +786,10 @@ each an act of the person's and each named to them right after:
 2. **Switch back** on the snackbar a switch shows (below);
 3. opening a notification of another identity (§5.7.5), named by the
    transition before anything is shown;
-4. removing the identity in front (§5.2), named by Remove's snackbar;
+4. removing the identity in front (§5.2), named by Remove's snackbar
+   while two or more identities remain; with one left there is no
+   identity in front to name (ADR-0061 d. 3), and the snackbar names
+   the removed one;
 5. at the app's start, the default comes in front only when the
    identity last in front is gone (below), and the switch names it.
 
@@ -1359,7 +1383,9 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     identity last in front still held, opening a contact, opening Your
     identities or an identity's page, adding an identity and Make
     default each leave the identity in front unchanged; each of the
-    five acts switches and names the identity right after; choosing
+    five acts switches and names the identity right after, except act 4
+    with one identity left, where `ConfirmIdentityRemoved` names the
+    removed one and nothing else; choosing
     another identity in the switcher changes the
     list, the switch's name and every "As" line at once and shows
     `ConfirmIdentitySwitched`; Switch back returns. On a wide layout a
@@ -1395,7 +1421,13 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     names it as one that may have reached. Add an identity refuses an
     agent's label with `IdentityRouteTaken`.
 25. **Turning the first identity off** is offered only once another
-    identity is enabled and not on the default; it deletes nothing,
+    identity is turned on and not on the default; Make default is not
+    offered on an identity that is off; on both platforms no sequence of
+    Make default, Turn off, Remove and their Undos leaves the default
+    off or no identity on (the sequence: Make default X, Turn off
+    `human`, then Make default `human` is not offered and Remove X is
+    not offered); a refused call shows `IdentityChangeFailed` and
+    changes nothing; it deletes nothing,
     lists the identity as off, leaves it in front if it was, refuses
     messages to it while off, and its Undo and Turn on bring it back.
 
@@ -1422,7 +1454,9 @@ note adds:
   two identities;
 - Trust and the store's discard say that they cover every identity;
 - an identity is removed only after a confirmation listing what goes,
-  never the default or the only one.
+  and only an added one: never the first or the default;
+- the default is always an identity that is turned on, and no action
+  leaves no identity turned on.
 
 ## 10. Strings
 
@@ -1544,6 +1578,8 @@ and are for them to write.
 | `IdentityRemoveLabel` | The label {route} can then be given to a new identity. If that happens, people who have {identity} as a contact will reach the new identity through the contact they saved for {identity}, until they accept the new identity's card. | Remove dialog, last line; must say the label is freed and what reusing it would mean for this identity's contacts |
 | `TurnOffIdentity` / `TurnOnIdentity` | Turn off this identity / Turn on this identity | the first identity's overflow |
 | `ConfirmIdentityOff` / `ConfirmIdentityOn` | {identity} turned off / {identity} turned on | snackbars; the first with Undo |
+| `IdentityDefaultNeedsOn` | Turn this identity on before you make it the default. | §5.2, on an identity that is off (new, proposal) |
+| `IdentityChangeFailed` | {action} did not work. Nothing was changed. | snackbar when the device refuses Make default, Remove, Turn off or Turn on; `{action}` the action's name (new, proposal) |
 | `IdentityRemoveConfirm` | Remove | dialog primary, in `error` |
 | `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name |
 | `IdentityOthersUnread` | One other identity: 1 unread message in your other identity / {n} unread messages in your other identity. Two or more other identities: 1 unread message in your other identities / {n} unread messages in your other identities. | the switch's badge, accessible; plural rules language-culture's |
@@ -1660,8 +1696,9 @@ given until they answer):
   #335 at 9746baa4): the redacted lock-screen notification names no
   identity (d. 9; §5.7.5); Remove is always confirmed with the list of
   what goes, deletes pending outbound and tries it no further, has no Undo, is absent on
-  the only identity and on the default, and only turns off an endpoint
-  the configuration file authors (d. 7; §5.2); an identity's endpoint
+  the only identity and on the default (d. 7; §5.2); its "only turns
+  off an endpoint the configuration file authors" was withdrawn at
+  74d05203 (Q7–Q10 below: Remove exists for added identities only); an identity's endpoint
   is created with `advertise: false` and no control, its label is no
   secret from a trusted peer (d. 5; §5.1). Corrected at #335's
   1f9fdbb2 (INFO 01a15f17): the authored `human` endpoint has
