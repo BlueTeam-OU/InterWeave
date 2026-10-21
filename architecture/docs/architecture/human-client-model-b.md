@@ -80,7 +80,7 @@ The human client persists message content only under ADR-0044: pending outbound,
 
 ## Direct conversation flow
 
-Alice runs one PeerId with `human` and `claude` endpoints. Bob's human UI targets Alice's advertised `human` endpoint:
+Alice runs one PeerId with `human` and `claude` endpoints. Bob's human UI targets Alice's `human` endpoint (superseded in one respect by ADR-0061 decision 5, A 2026-10-21: a human identity's endpoint is not advertised, so Bob learns the label from Alice, not from the directory, and the directory examples and the suggested profile below predate that rule):
 
 ```text
 Bob Human UI

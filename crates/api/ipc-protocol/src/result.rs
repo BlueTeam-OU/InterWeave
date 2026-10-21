@@ -47,6 +47,14 @@ pub const ENDPOINT_PERSISTED_SINCE_MINOR: u64 = 5;
 /// 1.1.0). Below it the 2.1 row is served unchanged.
 pub const TRUST_SOURCE_SINCE_MINOR: u64 = 3;
 
+/// The minor from which a `peer-list` row may carry `route_held_until`,
+/// the latest hold among the peer's circuit routes (ADR-0011 A
+/// 2026-10-21; `ipc/peer-list` 1.1.0, behind the minor under ADR-0017 A
+/// 2026-10-07). Below it the 2.2 row is served unchanged: a client
+/// built before it reads the row with `deny_unknown_fields` and would
+/// refuse the whole page (#329 review F4).
+pub const ROUTE_HELD_SINCE_MINOR: u64 = 6;
+
 /// Rows on one `ipc/peer-list` page: a row is up to 194 bytes, so 1024
 /// would overflow the 128 KiB body and 512 is about 100 KB; a full
 /// allowlist of 4096 is eight pages (architect-cto's ruling of
@@ -504,9 +512,15 @@ impl PeerList {
     /// The page of `rows` that follows `after` (the first when `None`):
     /// sorted and deduplicated by peer here, whatever order the port gave,
     /// so the cursor is a position as [`TrustList::page`]'s is.
-    /// `a_peer_list_pages_in_order_and_says_when_more_remain`.
+    /// `a_peer_list_pages_in_order_and_says_when_more_remain`. Each row is
+    /// the one the connection's `minor` names
+    /// (`a_peer_row_carries_the_route_hold_from_its_minor`).
     #[must_use]
-    pub fn page(mut rows: Vec<PeerGateView>, after: Option<&TransportIdentity>) -> Self {
+    pub fn page(
+        mut rows: Vec<PeerGateView>,
+        after: Option<&TransportIdentity>,
+        minor: u64,
+    ) -> Self {
         rows.sort_by(|a, b| a.peer.cmp(&b.peer));
         rows.dedup_by(|a, b| a.peer == b.peer);
         let mut rest = rows
@@ -516,7 +530,7 @@ impl PeerList {
         let peers: Vec<PeerRow> = rest
             .by_ref()
             .take(MAX_PEER_PAGE_ROWS)
-            .map(PeerRow::from)
+            .map(|view| PeerRow::from_view(view, minor))
             .collect();
         let next = rest
             .peek()
@@ -584,18 +598,31 @@ pub struct PeerRow {
         deserialize_with = "absent_or_millis"
     )]
     pub quarantined_until: Option<u64>,
+    /// The latest hold among its circuit routes, whose relay was not
+    /// reached (ADR-0011 A 2026-10-21); absent with none held (peer-list
+    /// 1.1.0).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "absent_or_millis"
+    )]
+    pub route_held_until: Option<u64>,
     /// How the last dial or connection ended; absent until the first.
     #[serde(default, skip_serializing_if = "Option::is_none", with = "outcome")]
     pub last_outcome: Option<PeerOutcome>,
 }
 
-impl From<PeerGateView> for PeerRow {
-    fn from(view: PeerGateView) -> Self {
+impl PeerRow {
+    /// `view` as the row `minor` names ([`PeerList::page`]).
+    fn from_view(view: PeerGateView, minor: u64) -> Self {
         Self {
             peer: view.peer,
             connected: view.connected,
             backoff_until: view.backoff_until,
             quarantined_until: view.quarantined_until,
+            route_held_until: view
+                .route_held_until
+                .filter(|_| minor >= ROUTE_HELD_SINCE_MINOR),
             last_outcome: view.last_outcome,
         }
     }
@@ -1126,6 +1153,7 @@ mod tests {
             connected: i.is_multiple_of(2),
             backoff_until: i.is_multiple_of(3).then_some(1_791_329_950_227),
             quarantined_until: None,
+            route_held_until: i.is_multiple_of(7).then_some(1_791_329_960_227),
             last_outcome: (!i.is_multiple_of(5)).then_some(PeerOutcome::Denied),
         }
     }
@@ -1151,6 +1179,7 @@ mod tests {
                     connected: false,
                     backoff_until: Some(u64::MAX),
                     quarantined_until: Some(u64::MAX),
+                    route_held_until: Some(u64::MAX),
                     last_outcome: Some(PeerOutcome::IdentityMismatch),
                 })
                 .collect(),
@@ -1179,7 +1208,7 @@ mod tests {
         let mut read = Vec::new();
         let mut pages = 0;
         loop {
-            let page = PeerList::page(rows.clone(), after.as_ref());
+            let page = PeerList::page(rows.clone(), after.as_ref(), crate::IPC_MAX_MINOR);
             pages += 1;
             assert!(page.peers.len() <= MAX_PEER_PAGE_ROWS);
             read.extend(page.peers.iter().map(|row| row.peer.clone()));
@@ -1195,13 +1224,54 @@ mod tests {
         assert_eq!(read, peers, "every peer once, ascending");
 
         // A row says what the view said, and the cursor is a position.
-        let page = PeerList::page(vec![gate_row(3)], None);
-        assert_eq!(page.peers, vec![PeerRow::from(gate_row(3))]);
+        let page = PeerList::page(vec![gate_row(3)], None, crate::IPC_MAX_MINOR);
+        assert_eq!(
+            page.peers,
+            vec![PeerRow::from_view(gate_row(3), crate::IPC_MAX_MINOR)]
+        );
         assert_eq!(page.next, None);
         let gone = peers[10].clone();
         let without: Vec<_> = rows.iter().filter(|r| r.peer != gone).cloned().collect();
-        let page = PeerList::page(without, Some(&gone));
+        let page = PeerList::page(without, Some(&gone), crate::IPC_MAX_MINOR);
         assert_eq!(page.peers[0].peer, peers[11]);
+    }
+
+    /// A row carries `route_held_until` from minor 2.6 and is the 2.2 row
+    /// below it, byte for byte: what an older client, which refuses an
+    /// unknown field, is served (#329 review F4). THE CONTROL: at 2.6 the
+    /// same view's hold is there.
+    #[test]
+    fn a_peer_row_carries_the_route_hold_from_its_minor() {
+        let held = PeerGateView {
+            route_held_until: Some(1_791_329_960_227),
+            ..gate_row(1)
+        };
+        let at = |minor| {
+            serde_json::to_value(PeerList::page(vec![held.clone()], None, minor))
+                .expect("serializes")
+        };
+        let below = at(ROUTE_HELD_SINCE_MINOR - 1);
+        assert_eq!(below["peers"][0].get("route_held_until"), None, "{below}");
+        let without = PeerGateView {
+            route_held_until: None,
+            ..held.clone()
+        };
+        assert_eq!(
+            below,
+            serde_json::to_value(PeerList::page(vec![without], None, ROUTE_HELD_SINCE_MINOR))
+                .expect("serializes"),
+            "the 2.2 row, byte for byte"
+        );
+        assert_eq!(
+            at(ROUTE_HELD_SINCE_MINOR)["peers"][0]["route_held_until"],
+            json!(1_791_329_960_227_u64),
+            "the control: from 2.6 the hold is served"
+        );
+        assert_eq!(
+            ROUTE_HELD_SINCE_MINOR,
+            crate::IPC_MAX_MINOR,
+            "this build speaks it"
+        );
     }
 
     #[test]

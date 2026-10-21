@@ -912,6 +912,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
                         connected: false,
                         backoff_until: Some(1_791_329_950_227),
                         quarantined_until: Some(u64::MAX),
+                        route_held_until: Some(1_791_329_960_227),
                         last_outcome: Some(PeerOutcome::IdentityMismatch),
                     },
                     PeerGateView {
@@ -919,10 +920,12 @@ fn every_result() -> Vec<(&'static str, Value)> {
                         connected: true,
                         backoff_until: None,
                         quarantined_until: None,
+                        route_held_until: None,
                         last_outcome: None,
                     },
                 ],
                 None,
+                interweave_ipc_protocol::IPC_MAX_MINOR,
             )),
         ),
         (
@@ -934,7 +937,11 @@ fn every_result() -> Vec<(&'static str, Value)> {
         ),
         (
             "architecture/contracts/schemas/ipc/peer-list.schema.json",
-            json(&PeerList::page(Vec::new(), None)),
+            json(&PeerList::page(
+                Vec::new(),
+                None,
+                interweave_ipc_protocol::IPC_MAX_MINOR,
+            )),
         ),
     ]
 }

@@ -68,6 +68,10 @@ impl Opener for NoLinks {
     fn ask_network_access(&mut self) {
         panic!("the desktop root never reports network access withheld");
     }
+
+    fn authenticate(&mut self) {
+        panic!("the desktop root never reports authentication needed");
+    }
 }
 
 fn app(node: &FakeNode, daemon: Result<bool, &'static str>) -> App<SlintSurface, NoLinks> {

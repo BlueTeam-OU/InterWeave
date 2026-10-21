@@ -689,6 +689,37 @@ Owed for the close: F4's monospace on the phone, F16, and F9 step 5
 in landscape. The F9 rows were walked in a conversation whose
 composer works; F16's conversation could not be used for them.
 
+Round 3, 2026-10-21 (10:26-10:31 phone time), on #313 at a4b40c99
+(rust-ui-dev-01's), debug build, APK sha256 beginning 338cbf0e (read
+from the phone; installed 09:20 phone time with the app's data kept,
+by rust-ui-dev-01). Same phone and method; dark theme, font 1.0.
+
+An attempt on 1a8ff67e (APK fd2d2708) on 2026-10-20 sent no input:
+MainActivity's window carried `FLAG_SECURE` on Chats, so every capture
+came out black. rust-ui-dev-01 traced it to a closing instance taking
+the ask that turns the flag off, fixed in f382d5ba (each ask carried
+out on the instance in front) and a4b40c99 (one MainActivity
+instance). On this build captures work on Chats, Trust and both
+conversations.
+
+| finding | result |
+|---|---|
+| F4 | Partly. Every PeerId on Trust, this profile's and each trusted peer's, is monospace, in dark theme at font 1.0. Not seen on this build: the Details dialog's PeerId, which round 2 found in the body font, and F4's acceptance at 200 % font and in light theme. |
+| F16 | Partly. The first half passes: in …x6gY6Eri, with its two may-have-reached rows, a tap on the composer opens the keyboard (`mInputShown=true`). The second half, look spec acceptance 23 (a send to a peer Trust does not list becomes a pending row with the not-trusted reason), was not walked: no message was sent in this window, and whether …x6gY6Eri's peer is on Trust was not read. |
+| F9 | Partly, as in round 2. Same in …x6gY6Eri (3 messages) and …5eQhFJG4 (1 message): in landscape with the keyboard up (capture 2424 × 1080 px), the newest bubble's fill shows only from y = 115 to y = 123 px, the composer's top is at y = 236 px, and the space between is empty. The bubble's bottom is 113 px (43 dp at the phone's 420 dpi, 2.625 px per dp) above the composer's top, and the space from the bubble's top edge in view to the composer is 121 px (46 dp), against round 2's about 50 dp read by eye; the newest message's text, status and time are not in view (F9 step 5). The app bar is not in view either. |
+| F17 | Still seen: after the app bar's Back from …5eQhFJG4, its Chats row keeps the selected fill and bar on a phone-wide window. |
+
+Not walked: Show recovery phrase (it needs the phone's own unlock), so
+on this build nobody saw `FLAG_SECURE` set while the words show or the
+Recents card blank, though f382d5ba and a4b40c99 changed how the flag
+is set; and the paste into Trust's field (a person's check, round 2).
+
+Owed for the close: F9 step 5; F16's second half (acceptance 23); F4
+on the Details dialog, at 200 % font and in light theme; and a
+person's walk of S2 on a4b40c99 with the flag read while the words
+show and the Recents card after. Whether the close carries any of
+them by name, as F3, is architect-cto-01's to decide.
+
 ## 8. The swipe spec's acceptance on the same build
 
 `design/2026-10-16-message-swipe.md` §11, walked on the same build and

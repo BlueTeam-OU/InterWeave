@@ -97,6 +97,13 @@ impl Opener for DesktopOpener {
         // prompt to show, and the report says so.
         (self.report)("network access was asked for: the desktop has no prompt for it");
     }
+
+    fn authenticate(&mut self) {
+        // The desktop's daemon holds the key, with no presence policy, so
+        // the root never reports authentication needed; if an ask came,
+        // there is no prompt here, and the report says so.
+        (self.report)("authentication was asked for: the desktop has no prompt for it");
+    }
 }
 
 /// The window's side of the root.

@@ -203,12 +203,18 @@ pub const MAX_PLATFORM_NAMESERVERS: usize = 8;
 pub const DNS_PORT: u16 = 53;
 
 /// What the platform's DNS facts mean for the resolver, decided from the
-/// view alone (`CONNECTIVITY.md` §14, A 2026-10-14).
+/// view alone (`CONNECTIVITY.md` §14, A 2026-10-14 and A 2026-10-20).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlatformDns {
-    /// The view names no nameserver and no strict Private DNS: the
-    /// platform did not say, so the resolver in use is kept.
-    Unknown,
+    /// The view carries no DNS facts and no strict Private DNS: the
+    /// platform has not said (no default network, or its link not yet
+    /// reported), so the resolver in use is kept.
+    Unobserved,
+    /// The active network names no usable nameserver and Private DNS is
+    /// not strict: names are not resolved, as under strict mode, and the
+    /// resolver the previous network named is not kept -- it would send
+    /// names to a server the person has left.
+    Unavailable,
     /// Resolve over plain DNS through these nameservers, deduplicated,
     /// in the platform's order, at most [`MAX_PLATFORM_NAMESERVERS`].
     Plain(Vec<IpAddr>),
@@ -219,17 +225,22 @@ pub enum PlatformDns {
 }
 
 impl PlatformDns {
-    /// Read the view's DNS facts.
+    /// Read the view's DNS facts: `dns_servers` is `None` when the
+    /// platform has not said, `Some` of what the active network names.
     ///
-    /// Strict Private DNS decides first, whatever servers are named:
-    /// those are the network's plain resolvers, which strict mode does
-    /// not permit. An unspecified address (`0.0.0.0`, `::`) names no
-    /// server and is skipped.
+    /// Strict Private DNS decides first, whatever servers are named or
+    /// whether any were observed: those are the network's plain
+    /// resolvers, which strict mode does not permit. An unspecified
+    /// address (`0.0.0.0`, `::`) names no server and is skipped, so a
+    /// network naming only those is unavailable.
     #[must_use]
-    pub fn from_view(dns_servers: &[IpAddr], private_dns: Option<&str>) -> Self {
+    pub fn from_view(dns_servers: Option<&[IpAddr]>, private_dns: Option<&str>) -> Self {
         if private_dns.is_some() {
             return Self::PrivateDnsStrict;
         }
+        let Some(dns_servers) = dns_servers else {
+            return Self::Unobserved;
+        };
         let mut servers: Vec<IpAddr> = Vec::new();
         for ip in dns_servers {
             if servers.len() == MAX_PLATFORM_NAMESERVERS {
@@ -240,21 +251,21 @@ impl PlatformDns {
             }
         }
         if servers.is_empty() {
-            Self::Unknown
+            Self::Unavailable
         } else {
             Self::Plain(servers)
         }
     }
 
     /// The resolver configuration this decision builds, `None` for
-    /// [`Self::Unknown`] (nothing is built). No search list and no local
-    /// domain: an operator's name is resolved as given (ADR-0052 rule 2).
-    /// Strict mode builds the empty configuration, which resolves
-    /// nothing.
+    /// [`Self::Unobserved`] (nothing is built). No search list and no
+    /// local domain: an operator's name is resolved as given (ADR-0052
+    /// rule 2). Strict mode and an unavailable resolver build the empty
+    /// configuration, which resolves nothing.
     #[must_use]
     pub fn resolver_config(&self, port: u16) -> Option<(ResolverConfig, ResolverOpts)> {
         let servers = match self {
-            Self::Unknown => return None,
+            Self::Unobserved => return None,
             Self::Plain(servers) => servers
                 .iter()
                 .map(|ip| {
@@ -265,7 +276,7 @@ impl PlatformDns {
                     server
                 })
                 .collect(),
-            Self::PrivateDnsStrict => Vec::new(),
+            Self::PrivateDnsStrict | Self::Unavailable => Vec::new(),
         };
         Some((
             ResolverConfig::from_parts(None, Vec::new(), servers),
@@ -286,20 +297,40 @@ mod tests {
     }
 
     #[test]
-    fn no_server_and_no_strict_mode_is_unknown_and_builds_nothing() {
-        assert_eq!(PlatformDns::from_view(&[], None), PlatformDns::Unknown);
+    fn no_dns_facts_and_no_strict_mode_is_unobserved_and_builds_nothing() {
+        assert_eq!(PlatformDns::from_view(None, None), PlatformDns::Unobserved);
+        assert!(PlatformDns::Unobserved.resolver_config(53).is_none());
+    }
+
+    #[test]
+    fn a_network_naming_no_server_is_unavailable_and_builds_the_empty_resolver() {
         assert_eq!(
-            PlatformDns::from_view(&[ip("0.0.0.0"), ip("::")], None),
-            PlatformDns::Unknown,
+            PlatformDns::from_view(Some(&[]), None),
+            PlatformDns::Unavailable
+        );
+        assert_eq!(
+            PlatformDns::from_view(Some(&[ip("0.0.0.0"), ip("::")]), None),
+            PlatformDns::Unavailable,
             "an unspecified address names no server"
         );
-        assert!(PlatformDns::Unknown.resolver_config(53).is_none());
+        let (config, _) = PlatformDns::Unavailable
+            .resolver_config(53)
+            .expect("a configuration: the previous resolver is replaced");
+        assert!(
+            config.name_servers().is_empty(),
+            "the replacement asks no server"
+        );
     }
 
     #[test]
     fn strict_private_dns_refuses_plain_dns_whatever_servers_are_named() {
-        let strict = PlatformDns::from_view(&[ip("192.0.2.53")], Some("dns.example"));
+        let strict = PlatformDns::from_view(Some(&[ip("192.0.2.53")]), Some("dns.example"));
         assert_eq!(strict, PlatformDns::PrivateDnsStrict);
+        assert_eq!(
+            PlatformDns::from_view(None, Some("dns.example")),
+            PlatformDns::PrivateDnsStrict,
+            "strict mode decides before whether servers were observed"
+        );
         let (config, _) = strict.resolver_config(53).expect("a configuration");
         assert!(
             config.name_servers().is_empty(),
@@ -307,7 +338,7 @@ mod tests {
         );
         // The control: the same servers without strict mode are used.
         assert_eq!(
-            PlatformDns::from_view(&[ip("192.0.2.53")], None),
+            PlatformDns::from_view(Some(&[ip("192.0.2.53")]), None),
             PlatformDns::Plain(vec![ip("192.0.2.53")])
         );
     }
@@ -316,7 +347,7 @@ mod tests {
     fn the_nameservers_are_deduplicated_in_order_and_bounded() {
         let mut named: Vec<IpAddr> = (1..=20u8).map(|n| IpAddr::from([192, 0, 2, n])).collect();
         named.insert(1, IpAddr::from([192, 0, 2, 1]));
-        let PlatformDns::Plain(servers) = PlatformDns::from_view(&named, None) else {
+        let PlatformDns::Plain(servers) = PlatformDns::from_view(Some(&named), None) else {
             panic!("plain");
         };
         assert_eq!(servers.len(), MAX_PLATFORM_NAMESERVERS);

@@ -387,17 +387,17 @@ fn intents(view: &mut View, model: &UiModel) -> Vec<Intent> {
         .collect()
 }
 
-/// Section 11 item 2: the list's app bar holds its title and Trust
-/// settings as an icon button, and there is no other Trust settings
-/// control.
+/// Section 11 item 2, as #304 F12 changed it: the list's app bar holds
+/// its title and the app's options as an icon button, Trust among them,
+/// and nothing else in it.
 #[test]
-fn the_list_bar_holds_the_title_and_trust_settings_as_its_one_button() {
+fn the_list_bar_holds_the_title_and_the_apps_options_as_its_one_button() {
     let mut view = view();
     view.render(&UiModel::new());
     let title = labelled(&view, placeholder_en::text(UiText::Conversations));
     assert_eq!(title.len(), 1, "the title, once");
-    let trust = labelled(&view, placeholder_en::text(UiText::TrustSettings));
-    assert_eq!(trust.len(), 1, "one Trust settings control");
+    let trust = labelled(&view, placeholder_en::text(UiText::AppOptions));
+    assert_eq!(trust.len(), 1, "one App options control (#304 F12)");
     assert_eq!(
         trust[0].accessible_role(),
         Some(i_slint_backend_testing::AccessibleRole::Button)
@@ -573,9 +573,9 @@ fn the_overflow_menu_holds_details_and_hide_exactly_when_offered() {
         "an unread message: not offered"
     );
     press(&view, text(UiText::Details));
-    let id = labelled(&view, text(UiText::ConversationId));
-    assert_eq!(id.len(), 1);
-    assert_eq!(id[0].accessible_value().as_deref(), Some(ALICE));
+    // #304 F11: the whole PeerId as text under its label, not a field.
+    assert_eq!(labelled(&view, text(UiText::DetailsPeerId)).len(), 1);
+    assert_eq!(labelled(&view, ALICE).len(), 1, "the PeerId, whole");
     assert!(
         labelled(&view, text(UiText::Details)).is_empty(),
         "the menu closed"
@@ -729,7 +729,11 @@ fn each_status_has_its_words_and_its_icon() {
         !words.contains("read") && !words.contains("seen"),
         "{words}"
     );
-    let sending = by_status(LabelKey::Sending);
+    // A waiting message reads one status with its age (#304 F10).
+    let sending = rows
+        .iter()
+        .find(|r| r.status == "Still sending, started just now")
+        .expect("a row still sending");
     assert_eq!(
         sending.status_glyph,
         interweave_human_ui_slint::Glyph::Clock
@@ -810,6 +814,34 @@ fn renders_wake_the_root_once_at_midnight() {
     assert_eq!(woken.get(), 1, "one wake at midnight");
 }
 
+/// #304 F10: a waiting message's one status says how long it has
+/// waited since it was written, and the window wakes once, when that next
+/// reads otherwise, to draw it.
+#[test]
+fn a_waiting_messages_age_wakes_the_root_when_it_next_reads_otherwise() {
+    let mut model = UiModel::new();
+    // Written 1 min 30 s before the view's clock: "1 minute ago" for 30 s.
+    send(&mut model, 3, "waiting", NOW - 90_000);
+    let mut view = view();
+    let woken = std::rc::Rc::new(std::cell::Cell::new(0));
+    let count = std::rc::Rc::clone(&woken);
+    view.set_wake(move || count.set(count.get() + 1));
+    view.select(direct());
+    let _ = view.take_events(&model);
+    view.render(&model);
+    let statuses: Vec<String> = view
+        .window()
+        .get_messages()
+        .iter()
+        .map(|r| r.status.to_string())
+        .collect();
+    assert_eq!(statuses, ["Still sending, started 1 minute ago"]);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(29));
+    assert_eq!(woken.get(), 0, "nothing before the next minute");
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(2));
+    assert_eq!(woken.get(), 1, "one wake when it reads 2 minutes");
+}
+
 /// Review F2 on #295, section 7: right to left the conversation's app bar
 /// mirrors -- Back at the line's start on the right, More options at its
 /// end on the left -- and the menu opens on More's side.
@@ -843,10 +875,11 @@ fn the_conversation_bar_and_its_menu_mirror_right_to_left() {
     }
 }
 
-/// Review F3 on #295 and its re-review: Details is a modal dialog. Tab
-/// and Shift+Tab stay on its identifier field -- never on the dialog
-/// itself, which draws no ring, nor on the controls behind the scrim --
-/// and Escape closes it, giving focus back to More options.
+/// Review F3 on #295, as #304 F11 reshaped it: Details is a modal
+/// dialog. Focus starts on Copy; Tab and Shift+Tab move between its two
+/// actions -- never to the dialog itself, which draws no ring, nor to the
+/// controls behind the scrim -- and Escape closes it, giving focus back
+/// to More options.
 #[test]
 fn tab_stays_in_details_and_escape_closes_it() {
     use slint::platform::{Key, WindowEvent};
@@ -878,23 +911,25 @@ fn tab_stays_in_details_and_escape_closes_it() {
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        "header-id",
-        "in the field"
+        "details-copy",
+        "on Copy, the dialog's act (#304 F11)"
     );
-    for key in [Key::Backtab, Key::Tab, Key::Tab, Key::Backtab] {
+    // Tab either way moves between the dialog's two actions, never out.
+    for (key, to) in [
+        (Key::Backtab, "details-close"),
+        (Key::Tab, "details-copy"),
+        (Key::Tab, "details-close"),
+        (Key::Backtab, "details-copy"),
+    ] {
         send(key);
-        assert_eq!(
-            view.window().get_focus_id().as_str(),
-            "header-id",
-            "still in the field"
-        );
+        assert_eq!(view.window().get_focus_id().as_str(), to, "{key:?}");
         assert_eq!(rings(), 1, "its ring shown");
         assert!(view.window().get_details_open());
     }
-    // A press on the dialog's padding, beside the field, leaves focus there.
-    let field = labelled(&view, text(UiText::ConversationId));
-    assert_eq!(field.len(), 1);
-    let (at, window) = (field[0].absolute_position(), view.window().window());
+    // A press on the dialog's padding, beside the PeerId, leaves focus.
+    let id = labelled(&view, ALICE);
+    assert_eq!(id.len(), 1);
+    let (at, window) = (id[0].absolute_position(), view.window().window());
     let position = slint::LogicalPosition::new(at.x - 12.0, at.y + 4.0);
     let button = slint::platform::PointerEventButton::Left;
     window.dispatch_event(WindowEvent::PointerPressed { position, button });
@@ -902,10 +937,9 @@ fn tab_stays_in_details_and_escape_closes_it() {
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
     assert_eq!(
         view.window().get_focus_id().as_str(),
-        "header-id",
+        "details-copy",
         "a press beside it"
     );
-    assert_eq!(rings(), 1, "the field keeps focus and its ring");
     assert!(
         view.window().get_details_open(),
         "a press inside the dialog keeps it"
@@ -1491,7 +1525,13 @@ fn the_composer_keeps_its_height_whatever_the_free_space() {
 fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() {
     let text = placeholder_en::text;
     let mut model = UiModel::new();
-    model.received(received(1, "the newest", NOW));
+    // A conversation longer than any space above the keyboard, so being
+    // anchored is something the list does, not where it starts (#304 §7:
+    // the phone showed the top, the day line cut).
+    for row in 1..20 {
+        model.received(received(row, &format!("earlier {row}"), NOW));
+    }
+    model.received(received(20, "the newest", NOW));
     let view = opened(&model, false);
     let window = view.window();
     window
@@ -1509,6 +1549,8 @@ fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() 
     assert!(window.get_has_notice(), "control: a network notice");
 
     for (covered, list, notice, app_bar) in [
+        // The keyboard closed: the conversation opens at its end.
+        (0.0, true, true, true),
         // H = 300: the list and the notice step aside, the bar stays.
         (111.0, false, false, true),
         // H = 191: the app bar too.
@@ -1518,6 +1560,7 @@ fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() 
     ] {
         window.set_keyboard_overlap(covered);
         slint::platform::update_timers_and_animations();
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
         assert_eq!(
             field_left(&view) > 281.0,
             list,
@@ -1542,7 +1585,10 @@ fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() 
                     .is_some_and(|l| l.contains("the newest"))
             })
             .collect();
-        assert!(!newest.is_empty(), "the message is in the tree");
+        assert!(
+            !newest.is_empty(),
+            "covered {covered}: the newest message is drawn"
+        );
         // Anchored at its newest message: its end is in view above the
         // keyboard, however little of it the space can hold (step 5).
         assert!(
@@ -1555,12 +1601,64 @@ fn a_short_space_above_the_keyboard_keeps_the_composer_and_the_newest_message() 
     }
 }
 
-/// #304 F3, round 1: a touch user who closes the keyboard leaves the
-/// composer, whose insertion handle otherwise stayed drawn on the empty
-/// field. Typed while the keyboard is up, a letter reaches the draft;
-/// after it closes, none does: the field let focus go.
+/// The spec's S3: a conversation opens at its end and stays there as
+/// messages arrive, until the person scrolls away from it. Scrolled up,
+/// a new message does not pull the list back down.
 #[test]
-fn closing_the_keyboard_after_a_tap_lets_the_composer_go() {
+fn the_list_follows_its_end_until_the_person_scrolls_away() {
+    use slint::platform::WindowEvent;
+    let settle = || {
+        slint::platform::update_timers_and_animations();
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+        slint::platform::update_timers_and_animations();
+    };
+    let drawn = |view: &View, text: &str| {
+        all(view)
+            .into_iter()
+            .any(|e| e.accessible_label().is_some_and(|l| l.contains(text)))
+    };
+    let mut model = UiModel::new();
+    for row in 1..20 {
+        model.received(received(row, &format!("earlier {row}"), NOW));
+    }
+    let mut view = opened(&model, false);
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(390.0, 600.0));
+    settle();
+    assert!(drawn(&view, "earlier 19"), "it opens at its end");
+
+    model.received(received(20, "arrived at the end", NOW));
+    view.render(&model);
+    settle();
+    assert!(drawn(&view, "arrived at the end"), "and follows it");
+
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::PointerScrolled {
+            position: slint::LogicalPosition::new(195.0, 300.0),
+            delta_x: 0.0,
+            delta_y: 400.0,
+        });
+    settle();
+    assert!(
+        !drawn(&view, "arrived at the end"),
+        "control: the scroll moved the list off its end"
+    );
+    model.received(received(21, "arrived while away", NOW));
+    view.render(&model);
+    settle();
+    assert!(
+        !drawn(&view, "arrived while away"),
+        "scrolled away, a new message leaves the list where the person put it"
+    );
+}
+
+/// Closing the keyboard keeps the composer focused, as a platform field
+/// does: a letter typed after it closes still reaches the draft (#304
+/// F16; F3's residual handle is the toolkit's).
+#[test]
+fn closing_the_keyboard_after_a_tap_keeps_the_composer() {
     use slint::platform::{PointerEventButton, WindowEvent};
     let text = placeholder_en::text;
     let mut model = UiModel::new();
@@ -1601,7 +1699,107 @@ fn closing_the_keyboard_after_a_tap_lets_the_composer_go() {
     window.set_keyboard_overlap(0.0);
     slint::platform::update_timers_and_animations();
     typed("b");
-    assert_eq!(window.get_draft().as_str(), "a", "the field let focus go");
+    assert_eq!(window.get_draft().as_str(), "ab", "the field kept focus");
+}
+
+/// #304 F16: the field is its whole rounded box, as a Material text
+/// field is. A tap on the box above or below the one line of text --
+/// most of the box's 48 px -- focuses the field, as a tap on the line
+/// does.
+#[test]
+fn a_tap_anywhere_on_the_composer_box_focuses_the_field() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    let view = opened(&model, false);
+    let window = view.window();
+    let field = labelled(&view, text(UiText::Composer));
+    let (p, z) = (field[0].absolute_position(), field[0].size());
+    assert!(z.height < 40.0, "control: the line is shorter than the box");
+    // Inside the box, above the line of text.
+    let position = slint::LogicalPosition::new(p.x + z.width / 2.0, p.y - 8.0);
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    slint::platform::update_timers_and_animations();
+    let key: slint::SharedString = "a".into();
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text: key });
+    slint::platform::update_timers_and_animations();
+    assert_eq!(window.get_draft().as_str(), "a", "the tapped box types");
+}
+
+/// #304 F16: a conversation holding the person's own messages that need
+/// attention ("May have reached the peer, send again or cancel") still
+/// gives its composer focus on a tap, as one holding none does.
+#[test]
+fn a_tap_focuses_the_composer_beside_messages_needing_attention() {
+    use interweave_human_client_api::{ClientEvent, OutboundStatus, OutboundUpdate, SendProblem};
+    use interweave_human_core::AppMessageId;
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let text = placeholder_en::text;
+    let mut model = UiModel::new();
+    model.received(received(1, "hi", NOW));
+    for row in [2, 3] {
+        send(&mut model, row, "w", NOW);
+        model.client_event(ClientEvent::Outbound(OutboundUpdate {
+            row: RowId::from_stored(row),
+            app_message_id: AppMessageId::parse(format!("{row:032x}")).expect("an id"),
+            status: OutboundStatus::NeedsAttention {
+                problem: SendProblem::NoNetworkPath,
+                may_have_reached: true,
+            },
+            last_code: None,
+        }));
+    }
+    let view = opened(&model, false);
+    let window = view.window();
+    assert!(
+        window
+            .get_messages()
+            .iter()
+            .filter(|r| r.status.starts_with("May have reached the peer"))
+            .count()
+            == 2,
+        "control: two messages need attention"
+    );
+    let field = labelled(&view, text(UiText::Composer));
+    let (p, z) = (field[0].absolute_position(), field[0].size());
+    let position = slint::LogicalPosition::new(p.x + z.width / 2.0, p.y + z.height / 2.0);
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    slint::platform::update_timers_and_animations();
+    window.set_keyboard_overlap(300.0);
+    slint::platform::update_timers_and_animations();
+    let key: slint::SharedString = "a".into();
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text: key });
+    slint::platform::update_timers_and_animations();
+    assert_eq!(window.get_draft().as_str(), "a", "the tapped field types");
 }
 
 /// #304 F9 step 5: with the keyboard up in landscape, a conversation
@@ -1687,5 +1885,69 @@ fn a_long_status_wraps_and_its_time_stays_whole_inside_the_bubble() {
     assert!(
         words <= 390.0 * 0.8,
         "the status wraps inside the bubble: {words}"
+    );
+}
+
+/// #304 F9 step 5, on the phone's own figures (ux-designer-01, round 3:
+/// the Pixel in landscape, keyboard up): the strip left to the messages
+/// ends at the composer, and the newest message's end, its status and
+/// time, are in it. An empty refused-send line kept 25 px between them,
+/// most of that strip.
+#[test]
+fn with_the_keyboard_up_in_landscape_the_newest_message_ends_at_the_composer() {
+    let mut model = UiModel::new();
+    model.received(received(1, "message number 1", NOW - 60_000));
+    let view = opened(&model, false);
+    let window = view.window();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(923.0, 411.0));
+    window.set_keyboard_overlap(270.0);
+    for _ in 0..6 {
+        slint::platform::update_timers_and_animations();
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(5));
+    }
+    let found = all(&view);
+    let top_end = |e: &ElementHandle| {
+        let y = e.absolute_position().y;
+        (y, y + e.size().height)
+    };
+    let (list_top, _) = top_end(
+        found
+            .iter()
+            .find(|e| e.type_name().as_deref() == Some("Flickable"))
+            .expect("the message list"),
+    );
+    let (composer_top, _) = top_end(
+        found
+            .iter()
+            .find(|e| e.id().as_deref() == Some("AppWindow::composer-box"))
+            .expect("the composer"),
+    );
+    let (_, message_end) = top_end(
+        found
+            .iter()
+            .find(|e| {
+                e.accessible_label()
+                    .is_some_and(|l| l.contains("message number 1"))
+            })
+            .expect("the message"),
+    );
+    // The list's padding (5 px) and the pane's spacing (8 px).
+    assert!(
+        composer_top - message_end <= 13.5,
+        "the message ends at the composer: {message_end} against {composer_top}"
+    );
+    let time = found
+        .iter()
+        .find(|e| {
+            e.accessible_label()
+                .is_some_and(|l| l.len() == 5 && l.as_bytes()[2] == b':')
+        })
+        .expect("the message's time");
+    let (time_top, time_end) = top_end(time);
+    assert!(
+        time_top >= list_top && time_end <= composer_top,
+        "its time in view: {time_top}..{time_end} in {list_top}..{composer_top}"
     );
 }

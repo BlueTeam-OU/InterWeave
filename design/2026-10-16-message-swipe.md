@@ -151,8 +151,8 @@ happened.
 
 - At the bottom of the conversation, above the composer, never
   covering the composer. While network access is withheld no
-  composer is drawn (look spec §6), and the snackbar sits at the
-  bottom edge in its place. One at a time. A new swipe's snackbar replaces
+  composer is drawn (look spec §6), and the snackbar sits where look
+  spec §7 puts it then: 12 dp above the bottom of the safe area. One at a time. A new swipe's snackbar replaces
   the old one, and the old one's Undo goes with it. A Cancel's snackbar
   waits for the facade's answer (§8), and until then the old snackbar
   stays, with its Undo. The old snackbar is replaced only when the

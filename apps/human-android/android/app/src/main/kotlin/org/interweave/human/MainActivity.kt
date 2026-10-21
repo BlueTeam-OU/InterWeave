@@ -20,6 +20,7 @@ import android.content.res.Configuration
 import android.database.ContentObserver
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -54,6 +55,30 @@ class MainActivity : NativeActivity() {
     // instance's to show: nothing binds or starts the service until they
     // are gone, a return from Home included (design section 7).
     @Volatile private var phraseShown = false
+    // The person declined the Unlock prompt in this Activity's life (or
+    // left while it showed): a return to it raises no prompt by itself;
+    // the locked notice and its Unlock wait (ux-designer-01, REPLY
+    // 01a155b3). Kept across a recreation in this process (onCreate); a
+    // cold launch, in a new process, prompts again.
+    private var unlockDeclined = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // A recreation the system made in this process (a language change,
+        // a backgrounded instance rebuilt) is not a launch by the person:
+        // it keeps the decline (#313 review 3). A bundle from another
+        // process, restored after a process death, is a launch: it prompts
+        // (review 4), so the decline counts only with this process's token.
+        unlockDeclined = savedInstanceState?.let {
+            it.getBoolean(UNLOCK_DECLINED) && it.getString(UNLOCK_DECLINED_IN) == PROCESS_TOKEN
+        } ?: false
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(UNLOCK_DECLINED, unlockDeclined)
+        outState.putString(UNLOCK_DECLINED_IN, PROCESS_TOKEN)
+    }
 
     override fun onStart() {
         // Before super.onStart(), which waits for the window's thread to
@@ -62,13 +87,15 @@ class MainActivity : NativeActivity() {
         // After it, each would wait on the other (#309 review N1).
         val identity =
             if (identityReady) Native.IDENTITY_READY else Native.identityState(applicationInfo.dataDir)
-        if (identity != Native.IDENTITY_READY) {
+        if (identity != Native.IDENTITY_READY && identity != Native.IDENTITY_AUTHENTICATION_NEEDED) {
             // Before the window can draw a word: the flow's whole length,
             // cleared once a frame without it was drawn (#309 F3).
-            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            secure(true)
         }
         super.onStart()
         shown = true
+        front = this
+        started += 1
         Thread({ relayAsks() }, "interweave-network-ask").start()
         Thread({ relayHaptics() }, "interweave-haptic").start()
         Thread({ relayLeave() }, "interweave-leave").start()
@@ -91,12 +118,43 @@ class MainActivity : NativeActivity() {
         // The identity screens' asks: a first run's or a recovery's before
         // the service, Show my phrase's from Settings after it.
         Thread({ relayIdentity() }, "interweave-identity").start()
+        // A key that needs the person: the prompt before anything binds;
+        // a grant binds (Ask.BIND), a cancel leaves the window offline
+        // with its Unlock (onboard.rs, the custody doc's failure list).
+        if (identity == Native.IDENTITY_AUTHENTICATION_NEEDED) {
+            if (!unlockDeclined) window.decorView.post { prompt(Text.UNLOCK_PROMPT_TITLE) }
+            return
+        }
         // The identity screens come before the service: a profile with no
         // identity, or one the phone lost, binds nothing until the screens
         // say the identity is ready (onboard.rs).
         if (identity != Native.IDENTITY_READY) return
         identityReady = true
         if (!phraseShown) connect()
+    }
+
+    /**
+     * Stop the service for Show my phrase, and tell the flow whether it
+     * stopped. No binding is not no service: under Stay reachable the
+     * service is started and runs unbound, holding the profile's lock, so
+     * it is bound and stopped through its binding. Only before the
+     * identity is ready was none started.
+     */
+    private fun goOffline() {
+        local?.let { service ->
+            service.offline { Native.offline(it) }
+            return
+        }
+        if (!identityReady) {
+            Native.offline(true)
+            return
+        }
+        offlineOnConnect = true
+        if (!bound) bind()
+        if (!bound) {
+            offlineOnConnect = false
+            Native.offline(false)
+        }
     }
 
     /** Bind the network service, asking for access first where needed. */
@@ -138,6 +196,7 @@ class MainActivity : NativeActivity() {
 
     override fun onStop() {
         shown = false
+        if (front === this) front = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
         }
@@ -145,11 +204,27 @@ class MainActivity : NativeActivity() {
         watchSettings(false)
         // A recreation for a configuration change keeps the binding: the
         // next instance finds it held, and foreground-only mode's runtime
-        // and lease survive it (review F2). Any other stop lets go.
-        if (bound && !isChangingConfigurations) {
+        // and lease survive it (review F2). Otherwise the last started
+        // instance lets go: the binding is the application's. Under
+        // singleTask (the manifest) `started` is not expected above 1; the
+        // count stays as the guard for a launch that forces another task,
+        // which is not verified to reuse this one. Before singleTask a Back
+        // that closed one instance over another let go of the binding the
+        // other relied on, and nothing bound again (2026-10-20, the Pixel:
+        // Show recovery phrase refused as Busy).
+        started -= 1
+        if (bound && started == 0 && !isChangingConfigurations) {
             applicationContext.unbindService(connection)
             bound = false
             local = null
+            // A Show my phrase still waiting for the binding is answered
+            // now, as not stopped: no binding will arrive to stop the
+            // service, and a later bind must not stop it unasked (#313
+            // review round 7, risk 1).
+            if (offlineOnConnect) {
+                offlineOnConnect = false
+                Native.offline(false)
+            }
         }
         super.onStop()
     }
@@ -287,18 +362,18 @@ class MainActivity : NativeActivity() {
     /** A swipe armed: the platform's tick, once per crossing. */
     private fun relayHaptics() {
         while (shown) {
-            if (Native.waitHaptic(ASK_WAIT_MS) && shown) {
-                runOnUiThread {
-                    val tick =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                            HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
-                        } else {
-                            HapticFeedbackConstants.CONTEXT_CLICK
-                        }
-                    window.decorView.performHapticFeedback(tick)
-                }
-            }
+            if (Native.waitHaptic(ASK_WAIT_MS)) runOnUiThread { front?.tick() }
         }
+    }
+
+    private fun tick() {
+        val tick =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
+            } else {
+                HapticFeedbackConstants.CONTEXT_CLICK
+            }
+        window.decorView.performHapticFeedback(tick)
     }
 
     /**
@@ -337,40 +412,60 @@ class MainActivity : NativeActivity() {
     /** Back found no way back: leave, as the platform would. */
     private fun relayLeave() {
         while (shown) {
-            if (Native.waitLeave(ASK_WAIT_MS) && shown) runOnUiThread { finish() }
+            if (Native.waitLeave(ASK_WAIT_MS)) runOnUiThread { front?.finish() }
         }
+    }
+
+    /**
+     * The window's flags for the span a word can show: FLAG_SECURE, and on
+     * API 33+ no Recents screenshot either (android-key-custody.md, the
+     * recovery bullet, 80594810). On the main thread.
+     */
+    private fun secure(on: Boolean) {
+        if (on) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(!on)
     }
 
     /** What the identity screens ask, carried out on the main thread. */
     private fun relayIdentity() {
         while (shown) {
-            when (Native.waitIdentityAsk(ASK_WAIT_MS)) {
-                // FLAG_SECURE goes on before any word can be drawn (onStart,
-                // and OFFLINE below), and off only once the window drew a
-                // frame without the flow: no screenshot, no recording, no
-                // recents thumbnail (android-key-custody.md, #309 F3).
-                Ask.SECURE_OFF -> runOnUiThread { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
-                Ask.PROMPT -> runOnUiThread { prompt() }
-                Ask.BIND -> {
-                    identityReady = true
-                    runOnUiThread { connect() }
-                }
-                Ask.FINISH -> runOnUiThread { finish() }
-                // Show my phrase: with no service bound, none runs.
-                Ask.OFFLINE -> {
-                    phraseShown = true
-                    // The flag first, on the main thread: S2's words are
-                    // drawn only after Native.offline, which runs after it.
-                    runOnUiThread {
-                        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                        local?.offline { Native.offline(it) } ?: Native.offline(true)
-                    }
-                }
-                Ask.ONLINE -> {
-                    phraseShown = false
-                    // Unbound since (Home on S2): bind as a launch does.
-                    runOnUiThread { local?.online() ?: connect() }
-                }
+            val ask = Native.waitIdentityAsk(ASK_WAIT_MS)
+            // With no instance started, this one carries it out, as the
+            // last that was.
+            if (ask != 0) runOnUiThread { (front ?: this).identityAsk(ask) }
+        }
+    }
+
+    /** One of the identity screens' asks, on the main thread. */
+    private fun identityAsk(ask: Int) {
+        when (ask) {
+            // FLAG_SECURE goes on before any word can be drawn (onStart,
+            // and OFFLINE below), and off only once the window drew a
+            // frame without the flow: no screenshot, no recording, no
+            // recents thumbnail (android-key-custody.md, #309 F3).
+            Ask.SECURE_OFF -> secure(false)
+            Ask.PROMPT -> prompt(Text.PHRASE_PROMPT_TITLE)
+            Ask.UNLOCK -> prompt(Text.UNLOCK_PROMPT_TITLE)
+            Ask.BIND -> {
+                identityReady = true
+                connect()
+            }
+            Ask.FINISH -> finish()
+            Ask.OFFLINE -> {
+                phraseShown = true
+                // The flag first: S2's words are drawn only after
+                // Native.offline, which runs after it.
+                secure(true)
+                goOffline()
+            }
+            Ask.ONLINE -> {
+                phraseShown = false
+                // Unbound since (Home on S2): bind as a launch does.
+                local?.online() ?: connect()
             }
         }
     }
@@ -380,9 +475,9 @@ class MainActivity : NativeActivity() {
      * unlock policy, before the phrase is shown on demand (ADR-0042, the
      * custody doc). A cancel or an error shows nothing.
      */
-    private fun prompt() {
+    private fun prompt(title: Int) {
         BiometricPrompt.Builder(this)
-            .setTitle(Native.text(Text.PHRASE_PROMPT_TITLE, 0))
+            .setTitle(Native.text(title, 0))
             .setAllowedAuthenticators(Authenticators.BIOMETRIC_STRONG or Authenticators.DEVICE_CREDENTIAL)
             .build()
             .authenticate(
@@ -390,10 +485,13 @@ class MainActivity : NativeActivity() {
                 mainExecutor,
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
+                        if (title == Text.UNLOCK_PROMPT_TITLE) unlockDeclined = false
                         Native.prompted(true)
                     }
 
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                        // A cancel, or Home while it showed: either way, declined.
+                        if (title == Text.UNLOCK_PROMPT_TITLE) unlockDeclined = true
                         Native.prompted(false)
                     }
                 },
@@ -403,7 +501,7 @@ class MainActivity : NativeActivity() {
     /** The window's "Allow network access", carried out on the main thread. */
     private fun relayAsks() {
         while (shown) {
-            if (Native.waitNetworkAsk(ASK_WAIT_MS) && shown) runOnUiThread { ask() }
+            if (Native.waitNetworkAsk(ASK_WAIT_MS)) runOnUiThread { front?.ask() }
         }
     }
 
@@ -455,6 +553,10 @@ class MainActivity : NativeActivity() {
         private const val RUNTIME_INTERNET_SDK = 37
         private const val NETWORK_REQUEST = 2
         private const val NOTIFICATIONS_REQUEST = 1
+        private const val UNLOCK_DECLINED = "unlock-declined"
+        private const val UNLOCK_DECLINED_IN = "unlock-declined-in"
+        /** This process's, minted once: tells a same-process recreation from a restore after a death. */
+        private val PROCESS_TOKEN: String = java.util.UUID.randomUUID().toString()
         private const val ASK_WAIT_MS = 500L
 
         /** The snackbar's own time up, before a screen reader's setting lengthens it. */
@@ -476,10 +578,36 @@ class MainActivity : NativeActivity() {
         // service may be bound. The process's, as the binding is.
         @Volatile private var identityReady = false
         @Volatile private var local: NetworkService.Local? = null
+
+        // The instances between onStart and onStop: the last to stop lets
+        // the binding go. The main thread's.
+        private var started = 0
+
+        // The instance most recently started and not yet stopped: the one
+        // the window shows in, and the one each relay's ask is carried out
+        // on. One queue serves every instance, and a stopping instance's
+        // relay can take an ask for up to ASK_WAIT_MS after its onStop:
+        // after a recreation, the old one's relay can take an ask meant
+        // for the new window. singleTask (the manifest) removed the stacked
+        // instances, where a Back started the one below before the closing
+        // one stopped; the overlap above remains. Run on the instance
+        // whose thread took it, a SECURE_OFF could clear the closing
+        // window's flag and leave the shown one's set, and an OFFLINE could
+        // set the flag on a window the words are not drawn in. The main
+        // thread's.
+        private var front: MainActivity? = null
+
+        // Show my phrase asked while the service was not bound yet: it is
+        // stopped as soon as the binding arrives. The main thread's.
+        private var offlineOnConnect = false
         private val connection =
             object : ServiceConnection {
                 override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
                     local = service as? NetworkService.Local
+                    if (offlineOnConnect) {
+                        offlineOnConnect = false
+                        local?.offline { Native.offline(it) } ?: Native.offline(false)
+                    }
                 }
 
                 override fun onServiceDisconnected(name: ComponentName?) {

@@ -150,6 +150,8 @@ Spikes are **just-in-time implementation gates**, not a large front-loaded phase
 | SPIKE-001 | Stage 16 Claude bridge | **CLOSED 2026-10-03, PASS for implementation against Claude Code 2.1.285** — the handshake era, the development-flag delivery condition, the `plugin.json` `channels` manifest, the tag rendering and escaping, deferred tools, SIGINT shutdown; four architecture sentences amended on the verdict (SPIKES.md's record); eight things not established, carried into §19 |
 | SPIKE-005 | admin hardening when enabled | stronger same-user local admin boundary |
 | SPIKE-007 | optional encrypted key-at-rest feature | selected audited envelope/KDF/AEAD behavior |
+| SPIKE-011 | the §29 store work, and any §22 release that ships a human store | the page-cipher store build for Linux and Android, its open/commit/read cost against the plaintext baseline the spike itself defines (none exists today) under ADR-0060 decision 4's criterion, RETENTION.md's deletion property on the encrypted file, the licence and vendored-advisory consequences; its Result pins the mechanism within ADR-0060 decision 4 or records the fallback |
+| SPIKE-012 | withdrawn 2026-10-21 | opened by ADR-0061's first draft to measure two embedded runtimes in one Android service; withdrawn the same day when a user identity became an EndpointId of the node (one runtime, one lease per identity); the number is kept, `SPIKES.md` says why |
 | SPIKE-008 | Stage 17 Android lifecycle/packaging | foreground service, secure recovery UI, backup/D2D behavior, store policy |
 | SPIKE-009 | Stage 17 Android key custody | Android Keystore wrapping/invalidation and exact-PeerId preservation |
 
@@ -4627,7 +4629,8 @@ revisit); a standalone administrative "forget this peer's directory"
 command (B9 reaches `DirectoryCache::forget` only through a trust
 revocation); endpoint narrowing (`EndpointTrustPolicy`) through
 administration; a new conversation by PeerId, with the
-contacts UX and the owner's privacy review (11); client autostart of
+contacts UX and the owner's privacy review (11 — ADR-0059's work since
+2026-10-21, carried under §29); client autostart of
 the daemon, the owner's with packaging (9); the persistence of
 `admin.trust.*` and `admin.endpoints.*` changes beyond the runtime
 overlay (ADR-0028, the owner's); the Windows binding behind the
@@ -5364,7 +5367,10 @@ NEW; the matrix names the rest.
   half and the harness.
 - **S11 (02) — identity recovery.** A tampered phrase and a wrong PeerId
   through the `transportctl` path; the phrase absent from logs, IPC, crash
-  output and Channel events — a scan of every captured stream.
+  output and Channel events — a scan of every captured stream; ADR-0043's
+  restore warning on every input path (`IDENTITY-RECOVERY.md` section
+  Restore semantics item 11, added 2026-10-21 after the step's first PR,
+  #337, found no surface carried it).
 - **S12 (02) — Android key, backup and recovery.** Keystore invalidation,
   the secure window, backup exclusion, a half-restored install,
   user-presence offline until authentication: the device lane, waiting on
@@ -5894,3 +5900,285 @@ the durations of the two burst cases are samples that depend on the
 client's retry step and the bucket's refill, not promises, as decision
 2 says; the cases assert the delivered counts and the bound, nothing of
 the timing.
+
+## 29. Stage 21 — contacts, cards and the encrypted store
+
+Recorded 2026-10-21 on the owner's direction of that day; the decisions
+are ADR-0059 (a contact is built from a card the counterparty sends and
+the person accepts) and ADR-0060 (the human store is encrypted at rest
+under a key the platform seals). **This section opens nothing by
+itself; the owner's word of 2026-10-21 opens the stage when Stage 17
+closes** ("open stage 21 after 17 closes"): from the landing of Stage
+17's closing record (§20) the stage runs beside Stage 18 and Stage 19
+as §19's Stage 16 ran beside Stage 15, the closing record names it as
+opened, and the status value stays the lowest open stage, Stage 18's
+slug once Stage 17 has closed. It is numbered after §28 so that no citation of
+§23–§28 moves. It takes over Stage 15's carry 11 (§18: a new conversation
+by PeerId, the contacts UX and the owner's privacy review); ADR-0059
+decisions 2, 3 and 6 are input to that review, which the owner answers
+at the exit gate's (d).
+
+### Objective
+
+A conversation shows the counterparty's name because the counterparty
+sent it and the person accepted it; every contact, route, conversation
+and retained message is ciphertext on disk; and neither client can
+reach the platform's address book. Nothing of this touches the daemon,
+the transport or the wire below the chat envelope.
+
+### Prerequisites
+
+Stage 14's store (schema v5's `contacts`, `contact_routes`,
+`conversation_index`) and chat protocol on `main`; the Android custody
+seam of ADR-0042 (§20 step 6) for the Android half of ADR-0060;
+**SPIKE-011 closed** before step 3, with the mechanism pinned within
+ADR-0060 decision 4. ADR-0038's SPIKE-007 is not a prerequisite: the v1
+desktop seals the store key at `filesystem-only` and joins the envelope
+when it lands (ADR-0060 decision 3).
+
+### Activate
+
+No new crate. The work lands in `crates/human/chat-protocol`,
+`crates/human/store`, `crates/human/app-core`, `crates/human/ui-model`
+and `crates/human/ui-slint`, the two graphical clients under `apps/`, a
+command-line human client under `apps/` on the same crates (ADR-0059
+decision 9; the one new application of the stage, named by its
+implementer), and `tools/checks/` for the manifest check of ADR-0059
+decision 6.
+`spikes/spike-011/` is the spike's home, under SPIKES.md's regime.
+
+### Implement in order
+
+1. **The card on the wire** (rust-ui-dev): `contact_card` in
+   `chat-protocol` with HUMAN-CHAT.md §Contact card's bounds and
+   malformed cases, the fixture cases named there, and the parser's
+   rule "not a known kind is malformed". Its acceptance includes the
+   three-way answer the bridge needs (ADR-0059 decision 7; rust-services-
+   dev's j57): for a HumanChatV2 text the parser says NotCard, Card or
+   MalformedCard(reason), where an envelope any of whose top-level kind
+   copies is contact_card is a card — so a duplicate-member card is
+   MalformedCard, never NotCard — and a Card carries the photo's
+   decoded length as the parser measured it.
+2. **The proposal and the acceptance** (rust-ui-dev): the person's own
+   card in settings — one per configured endpoint, the `human` endpoint's
+   in this stage (ADR-0059 decision 2 as amended, ADR-0061); "Share a
+   card" on one conversation sending the conversation's identity's card,
+   no chooser, never automatic; the received card held as inbound content under
+   RETENTION.md, shown as a proposal with the PeerId beside it and the
+   same-name note; Accept writing `contacts` and `contact_routes`,
+   Decline discarding; the photo decoded only after Accept with a
+   memory-safe decoder at a fixed size; a local edit never overwritten,
+   which the migration this step lands records — `contacts` gains
+   name_source, name_at, photo_source and photo_at (STATE.md, ADR-0059
+   A 2026-10-21); the sender re-encodes a chosen photo and strips every
+   metadata block before it enters a card (HUMAN-CHAT.md §Contact card).
+   The conversation title takes the contact's name (`human-client-ui.md`
+   §4). The manifest and dependency check of ADR-0059 decision 6, with
+   its self-test, lands here, and pins ADR-0060 decision 8's
+   declarations too: `allowBackup="false"` and extraction rules that
+   exclude every domain from `cloud-backup` and `device-transfer`
+   (the retention conformance suite's item 13, unprovable there).
+3. **The encrypted store** (rust-ui-dev, after SPIKE-011): the store
+   key, its versioned sealed file, the Android sealing in its own
+   alias namespace apart from the seed custody under
+   `background-compatible`, the desktop sealed file
+   `<state_dir>/human-store.key`, the plaintext-to-encrypted rewrite at first
+   open and the rollback refusal by name, the invalidated-key condition with
+   discard-and-recreate offered directly, and recovery mode's confirmed
+   Discard and recreate on both clients' recovery screens (ADR-0060
+   decision 6), RETENTION.md's deletion property measured on the
+   encrypted file, and §22's upgrade and rollback rows learning the case.
+4. **Desktop and Android screens, and the command-line client**
+   (rust-ui-dev): the same `ui-model` on both; every action of steps
+   2 and 3 as a command, with no display (ADR-0059 decision 9); `human-client-ui.md` §13 acceptance criteria for steps 2 and 3,
+   proposed by rust-ui-dev and ruled by architect-cto.
+
+### Exit gate
+
+(a) Steps 1–4 landed with their tests green on `main`; (b) the
+conformance cases, by name: a valid card accepted creates the contact
+and names the conversation; a card from an unknown kind or over a bound
+is rejected locally with no network effect; a card over broadcast is
+ignored; a second card from the same route is a new proposal and
+overwrites no local edit; two same-name cards from two PeerIds are two
+proposals; a declined card leaves nothing in the store; a photo chosen
+with a GPS block and a camera serial leaves the sender with neither; an
+accepted card never overwrites a locally edited name or photo, and the
+contact page says where each came from; a card accepted on a second
+route of a known PeerId creates a second contact and the proposal names
+the contact sharing its node, and a contact never holds two routes of one
+PeerId (ADR-0061 decision 4, A 2026-10-21 (ii)); the card shared to two
+conversations is the conversation's identity's each time and nothing
+sent names another identity (the two-identity case is §30's gate); a confirmed discard during a stalled rewrite
+removing the plaintext and keeping the key and the complete copy,
+which the next open promotes, the screen listing the plaintext alone;
+the same discard with the copy unopenable (no key, an invalidated
+key, a key that does not open it, a damaged copy) removing the
+plaintext, the copy and the key in one step, the screen listing the
+full loss, and no second screen; the command-line discard refused
+without its confirmation flag; every action
+of steps 2 and 3 driven from the command-line client in a shell with
+no display; the photo is not
+decoded before Accept; no contacts permission, no contacts library,
+`allowBackup="false"` and total extraction rules in the Android build
+(the tree check, broken on purpose once per declaration); the
+store file, its log and its journal contain no plaintext of a contact
+name, a route or a retained message after a clean close and after an
+unclean one; a store whose key is missing opens nothing, reaches recovery mode
+with the confirmed Discard and recreate, and that action leaves the
+identity and trust untouched; an invalidated key (Android) is offered
+discard-and-recreate directly; the plaintext-to-encrypted rewrite killed at each step
+(after the export, after the mark, during the scrub, after the
+unlinks) loses no row on the next open, and a plaintext store with a
+damaged header reaches recovery mode, not discard; (c) SPIKE-011's Result cited with its figures; (d) the
+owner's privacy review of Stage 15's carry 11 answered in the record —
+over the card (what it still discloses: ADR-0059, Security
+implications) and over `read_pairs`, `conversation_index`,
+`contact_routes.last_seen` and the contacts' provenance columns, which
+STATE.md puts in the same review.
+
+### Record
+
+The closing record lands here when the owner closes the stage, with
+the figures and the carried limits, as §28's does.
+
+## 30. Stage 22 — several user identities in one client
+
+Recorded 2026-10-21 on the owner's direction of that day ("a user should
+have multiple network identities"; "An EndpointId should match a user
+identity. One user of the app can have many user identities on the same
+phone. So for any EndpointId he can add a display_name and a photo"); the
+decision is ADR-0061. **This section opens nothing by itself**: the stage
+opens on the owner's word, after §29 or beside it, and the status value
+stays the lowest open stage. It is numbered after §29 so that no citation
+of §23–§29 moves.
+
+### Objective
+
+A person holds several user identities on one node, each a configured
+EndpointId with its own display name and photo; the client presents
+them, every conversation speaks as exactly one and says which, a contact
+is one remote identity, and what identities of one node share is said
+on the identity settings and the contact page. Nothing of this touches
+the wire: the PeerId stays the node's one identity, and the counterparty
+learns which identity spoke from the `source_endpoint` the direct
+protocol already carries.
+
+### Prerequisites
+
+§29's steps 1–2 on `main` (the card and the contact flows, which gain the
+identity dimension here rather than being built twice). No spike:
+several leases in one runtime, a session per lease and `source_endpoint`
+on every direct message exist and are tested.
+
+### Activate
+
+No new crate. The work lands in `crates/human/app-core`,
+`crates/human/ui-model`, `crates/human/ui-slint`, `crates/human/store`
+(the §Logical tables review: `conversation_index.local_endpoint_id`,
+`contacts.local_endpoint_id` and `contact_routes.local_endpoint_id` with
+existing rows backfilled with `human`, `own_cards` keyed by EndpointId,
+one contact per local identity and route), the two
+graphical clients and the command-line client under `apps/`,
+`profile-config` (the Android profile's authored endpoints as a list,
+the one `runtime.android.endpoint` field becoming its first entry, a
+disabled entry allowed while another is enabled and the composed-profile
+check asking for one enabled identity rather than the authored one; the
+authored `human` endpoint provisioned with `advertise: false`, every example profile that declares
+`human` likewise, `human-client-model-b.md`'s directory example and
+suggested profile marked as superseded by ADR-0061 decision 5, and an
+existing profile's authored `human` turned off by the `advertise` delta
+the client asserts at every acquisition of the identity's lease, a
+reconnect after a daemon restart included, before it takes that lease,
+through `set_advertise` or the embedded host (ADR-0028 A 2026-10-21),
+`config.yaml` unrewritten and the desktop upgrade test's no-rewrite
+assertion widened in step 1 to allow exactly that delta; an identity the person creates on either platform lands in the
+endpoint overlay's `added` member, never in the authored file), the overlay's
+`added` and `advertise` members in the runtime's loader — their
+normalisation and the profile's 64-endpoint bound over authored and
+added together
+(ADR-0028 A 2026-10-21) — and — in
+p2p-network-dev's lane, its own PR under ADR-0017's minor rule — the
+administrative methods that add a configured endpoint, remove an
+added one and set an endpoint's `advertise` (`admin.endpoints.*`,
+LOCAL-IPC.md), with `ENDPOINTS.md`'s registration
+sentence gaining the administrative path in the same change.
+
+### Implement in order
+
+1. **Identities in the shared crates and the desktop client**
+   (rust-ui-dev): an identity is an endpoint with its card; the client
+   holds one data session and one lease per identity it presents; create,
+   rename, set the card, set the default and remove through the admin
+   connection (no second identity on either platform until p2p-network-dev's add, remove and set_advertise methods under Activate land — a hand-authored endpoint is a route, not an identity, ADR-0061 decisions 1 and 2; the desktop upgrade test's no-rewrite assertion (tests/desktop-e2e release.rs) widened in this step to allow exactly the `advertise` delta in the endpoint overlay);
+   a new conversation speaking as the identity in front, named before
+   the first send, and the identity shown on every conversation; the identity verbs of the command-line client
+   (ADR-0061 decision 7).
+2. **The conversation and contact model** (rust-ui-dev, shared crates):
+   `{local EndpointId, remote route}` as the conversation key for life;
+   a contact per remote identity held by the local identity that
+   accepted it, at most one route per PeerId under a contact, the
+   contact page showing the PeerId and the identity in front's contacts
+   that share it; the client operating as one identity at a time, named from the second
+   identity on on every acting
+   surface, the explicit switch (ADR-0061 decision 9); Share sending the conversation's identity's card with no
+   chooser; `human-client-ui.md` §3 and §4 as amended.
+3. **Android** (rust-ui-dev): one in-process session and lease per
+   identity in the one embedded runtime (ADR-0041 A 2026-10-21), the
+   identity switch in the app, identities created through the embedded
+   host's configuration path.
+4. **Acceptance criteria** (`human-client-ui.md` §13) for steps 1–3,
+   proposed by rust-ui-dev and ruled by architect-cto.
+
+### Exit gate
+
+(a) Steps 1–4 landed with their tests green on `main`, and the
+administrative add, remove and set_advertise methods on `main` with their contract rows
+(p2p-network-dev's PR); (b) the conformance cases, by name: a
+conversation cannot change identity, and every message and card it sends
+carries that identity's `source_endpoint` and no other, measured at the
+counterparty; with two identities held a new conversation speaks as the
+identity in front with no chooser, and a client with one shows no
+identity control; a card received on a second endpoint of a
+PeerId this identity knows creates a second contact and the proposal
+names this identity's contact sharing its node, consulting no other
+identity's; a contact never holds two routes of one PeerId; a direct
+message reaching identity B from a route only A holds as a contact is
+titled by the short PeerId, and B's Accept on that route creates B's own
+contact with A's unchanged; an identity's endpoint is created with
+advertise off, the authored `human` endpoint's advertise is off after
+provisioning and, on an existing profile, after the client's `advertise`
+delta in the endpoint overlay (ADR-0028 A 2026-10-21), re-asserted at
+every lease acquisition before the lease — observed from the daemon's
+side: with `advertise: true` authored and `set_advertise` made to fail,
+no lease is granted and the client says why; with it made to block, no
+lease is granted until it returns; after a daemon restart with the delta
+removed from the overlay in between, the client's re-lease asserts it
+again, the same fail and block cases granting no re-lease, and a trusted
+peer's directory query lists no identity — and the
+endpoint directory lists no identity to a trusted peer; Remove, after one confirmation listing what
+goes, deletes an added identity's endpoint from the overlay, removes its
+conversations, its pending outbound (attempted no further, a
+may-have-reached row named), its contacts and its card, has no undo, and
+is absent on the first identity and on the default; turning the first
+identity off is allowed once another is enabled, the composed-profile
+check passing with the authored entry disabled; the lock
+screen's redacted notification names no identity and the switch follows
+the unlock; the
+identity settings and the contact page state what identities of one node
+share (ADR-0061 decision 5); a notification names the identity it arrived
+on and opening it switches to that identity visibly first; with two
+identities held, no screen in front of one shows the other's
+conversations, contacts or card, and a share, an Accept and a new
+conversation run under the identity in front and no other (the
+owner's rule, ADR-0061 decision 9); the add refused at the profile's 64-endpoint bound, by name;
+the first identity turned off and never removed, listed as off; an
+agent's or another authored endpoint offered as no identity; after a
+discard of the store the first identity and every added one still
+held, named by their labels; a data session that
+names an unconfigured endpoint is refused as today; every action of
+steps 1–3 driven from the command-line client in a shell with no display.
+
+### Record
+
+The closing record lands here when the owner closes the stage.

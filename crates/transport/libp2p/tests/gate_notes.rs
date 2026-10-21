@@ -123,10 +123,16 @@ async fn a_refused_dial_is_classed_and_its_retry_is_reported_with_its_delay() {
         connected,
         backoff_until_ms,
         quarantined_until_ms,
+        route_held_until_ms,
     } = &rows[0];
     assert_eq!(
-        (peer, *connected, *quarantined_until_ms),
-        (&target, false, None)
+        (
+            peer,
+            *connected,
+            *quarantined_until_ms,
+            *route_held_until_ms
+        ),
+        (&target, false, None, None)
     );
     let until = backoff_until_ms.expect("in backoff");
     assert!(
@@ -140,6 +146,7 @@ async fn a_refused_dial_is_classed_and_its_retry_is_reported_with_its_delay() {
             connected: false,
             backoff_until_ms: None,
             quarantined_until_ms: None,
+            route_held_until_ms: None,
         }
     );
     subject.shutdown().await.expect("clean shutdown");

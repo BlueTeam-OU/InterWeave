@@ -415,9 +415,11 @@ impl EmbeddedHost {
     /// delta, and an empty view when it reports none -- offline, with the
     /// active network's DNS facts (`dns_servers`, `private_dns`). Pass a
     /// view when the addresses or the DNS facts change; a DNS-only change
-    /// rebuilds the resolver unless it names no nameserver and no strict
-    /// Private DNS (unknown: the resolver in use is kept), and is no
-    /// network change. A new network whose addresses equal the old ones
+    /// rebuilds the resolver unless the view carries no DNS facts and no
+    /// strict Private DNS (unobserved: the resolver in use is kept), and
+    /// is no network change. DNS facts naming no nameserver are not
+    /// unobserved: the active network names none, and the empty resolver
+    /// replaces the one in use (`CONNECTIVITY.md` §14, A 2026-10-20). A new network whose addresses equal the old ones
     /// is no change, and the connections that survived it prove
     /// themselves by their own keepalives. Until the first view the
     /// runtime knows the host's addresses from its wildcard listeners
