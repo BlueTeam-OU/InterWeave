@@ -78,6 +78,10 @@ fi
 # refused <what> <needle> <dir>
 refused() {
     local what="$1" needle="$2" dir="$3"
+    # An earlier fetch's archive of the pin's name, which a refusal must
+    # remove.
+    mkdir -p "$dir"
+    printf 'an earlier fetch\n' > "$dir/$ARCHIVE"
     if run fetch "$dir"; then
         fail "$what: accepted"
     elif ls "$dir"/skia-binaries-* >/dev/null 2>&1; then
@@ -85,7 +89,7 @@ refused() {
     elif ! grep -qF -- "$needle" "$SANDBOX/err"; then
         fail "$what: refused without saying $needle" "$(cat "$SANDBOX/err")"
     else
-        pass "$what: refused, no archive left"
+        pass "$what: refused, an earlier archive removed"
     fi
 }
 

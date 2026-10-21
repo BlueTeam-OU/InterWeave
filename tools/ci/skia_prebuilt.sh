@@ -85,11 +85,14 @@ key="${key%.tar.gz}"
 fetch() {
     local dir="$1"
     [[ -r "$lock_file" ]] || { echo "skia_prebuilt: cannot read $lock_file" >&2; exit 2; }
+    # A refusal removes an earlier fetch's archive of the pin's name too, so
+    # what is left in <dir> after a refused fetch is never taken for one.
+    refuse() { rm -f -- "$dir/$archive"; die "$@"; }
     local locked
     locked="$(awk '/^name = "skia-bindings"$/ { getline; gsub(/version = |"/, ""); print }' "$lock_file")"
-    [[ -n "$locked" ]] || die "Cargo.lock builds no skia-bindings"
+    [[ -n "$locked" ]] || refuse "Cargo.lock builds no skia-bindings"
     [[ "$locked" == "$tag" ]] \
-        || die "Cargo.lock builds skia-bindings $locked but the pin is for $tag: renew tools/ci/skia-binaries.pin"
+        || refuse "Cargo.lock builds skia-bindings $locked but the pin is for $tag: renew tools/ci/skia-binaries.pin"
 
     mkdir -p "$dir"
     local path
