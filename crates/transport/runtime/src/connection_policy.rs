@@ -501,7 +501,6 @@ pub struct ConnectionPolicy {
     pub shutting_down: bool,
 }
 
-/// Whether the book holds `address` for `peer`.
 /// The relay a `/p2p-circuit` address goes through: the `/p2p/<id>`
 /// component directly before its first `/p2p-circuit`. `None` for any
 /// other address, and for a circuit that names no relay identity, which
@@ -515,6 +514,7 @@ fn circuit_relay(address: &str) -> Option<&str> {
     }
 }
 
+/// Whether the book holds `address` for `peer`.
 fn in_book(
     book: &BTreeMap<TransportIdentity, std::collections::BTreeSet<String>>,
     peer: &TransportIdentity,
@@ -784,7 +784,8 @@ impl ConnectionPolicy {
     /// Decide whether a dial may proceed.
     ///
     /// Evaluated in the order ADR-0011 states: drain, then class and
-    /// origin, then peer backoff, then address quarantine, then limits.
+    /// origin, then peer backoff, then address quarantine, then a held
+    /// circuit route (A 2026-10-21), then limits.
     /// The order is observable — the denial an operator sees should be
     /// the most fundamental reason, not whichever check ran first.
     ///
