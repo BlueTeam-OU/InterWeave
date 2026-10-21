@@ -239,7 +239,7 @@ letters, digits, `.`, `_` and `-`, starting with a letter, at most 64;
 typed capitals become lowercase as typed, and a space becomes `-`, so
 the person never meets an error for a key they could not avoid. Errors,
 on Save, inline: `IdentityRouteNeeded`, `IdentityRouteBadCharacters`,
-`IdentityRouteTaken` (another identity, or an endpoint the profile
+`IdentityRouteTooLong`, `IdentityRouteTaken` (another identity, or an endpoint the profile
 already has, uses it). Save creates the endpoint and its card together
 (ADR-0061 d. 2: through the admin connection on the desktop, the
 embedded host's configuration path on Android; rust-ui-dev's), the
@@ -261,7 +261,7 @@ the identity's name as the subtitle, so an edit is never made to one
 identity while the person believes it is another's. The overflow, with
 two or more identities held, has **Make default** (`MakeDefault`) and
 **Remove this identity** (`RemoveIdentity`); with one, it has **Add
-another identity** (`AddIdentity`), the way to a second.
+another identity** (`AddAnotherIdentity`), the way to a second.
 
 Fields, in order:
 
@@ -678,7 +678,9 @@ same menu is.
 When another identity has unread items or a message that was not sent,
 the switch carries a badge: a dot with the count of unread items in the
 other identities (`IdentityOthersUnread`, read as part of its accessible
-name: "{n} unread in your other identities"). It counts and shows
+name). With nothing unread there but a message not sent, the dot has no
+count and the accessible name carries `IdentityOthersNotSent`; with
+both, the count, and the name carries both strings. It counts and shows
 nothing else — no name, no preview — so the person knows to look
 without the screen showing another identity's content. (A suggestion
 resting on visibility of system status, Nielsen's first heuristic: a
@@ -1082,7 +1084,8 @@ accessibility tree) are checked now.
   Edit your card, Share.
 - The switch: one control, its name `IdentitySwitch` with the badge's
   count in it. The switcher: title, then each identity as "{name},
-  {route label}, {n} unread, selected/not selected, n of m", then Your
+  {route label}, {unread} (`IdentityRowUnread`), selected/not selected,
+  n of m", then Your
   identities.
 - A conversation, with two or more identities: the "As {identity}"
   line is read just before the send control, and the send control's
@@ -1410,7 +1413,7 @@ and are for them to write.
 | `AddAsContact` / `OpenContact` | Add as a contact / Open contact | Details |
 | `DetailsNoCard` | You have not shared your card here. | Details |
 | `ContactsEmpty` | One identity: You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. Two or more: {front} has no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty; with two or more identities it is this identity's list that is empty, and the text must not suggest the person has no contacts at all (language-culture to judge whether it needs saying) |
-| `ContactRoutes` | {n} routes | contact row, n ≥ 2 (plural rules language-culture's) |
+| `ContactRoutes` | {n} conversations | contact row, n ≥ 2: the number of the contact's conversations, called conversations as every other string does (plural rules language-culture's) (revised, proposal) |
 | `ContactTitleTwin` | {name} ({peer}) | title of a contact sharing a name: `{peer}` the short PeerId across devices, the route label within one device (§6.1) |
 | `ContactName` | Name | contact page field |
 | `ContactNameFromCard` | Name from their card, {date} | provenance |
@@ -1430,10 +1433,12 @@ and are for them to write.
 | `IdentityRouteLabel` | Seen by others as {route} | §5.1 row, under the name |
 | `IdentityDefault` | Default | §5.1 row |
 | `IdentityInFront` | In use | §5.1 row's accessible description; the check mark's meaning |
-| `AddIdentity` | Add an identity / Add another identity | §5.1 primary; one identity's overflow as "Add another identity" |
+| `AddIdentity` | Add an identity | §5.1 primary |
+| `AddAnotherIdentity` | Add another identity | §5.2 overflow while one identity is held (language-culture-en's text) |
 | `IdentityLimit` | You cannot add more identities on this device. | §5.1 at 64 endpoints |
 | `IdentityRouteField` | Label that others see | §5.1 new identity's field |
 | `IdentityRouteHelp` | Everyone you talk to as this identity sees this label next to your PeerId. You cannot change the label after the identity is created. | under that field and on §5.2; must say who sees it and that it is fixed |
+| `IdentityRouteTooLong` | Use 64 characters or fewer. | route label over 64 (language-culture-en's text, as `CardNameTooLong`) |
 | `IdentityRouteNeeded` / `IdentityRouteBadCharacters` / `IdentityRouteTaken` | Enter a label. / Use only lowercase letters, digits, dots (.), hyphens (-) and underscores (_), and start with a letter. / Another identity on this device already uses this label. | field errors |
 | `IdentityAddFailed` | The identity could not be added. Try again. | §5.1 above Save |
 | `MakeDefault` | Make default | §5.2 overflow |
@@ -1453,6 +1458,8 @@ and are for them to write.
 | `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name |
 | `IdentityOthersUnread` | One other identity: 1 unread message in your other identity / {n} unread messages in your other identity. Two or more other identities: 1 unread message in your other identities / {n} unread messages in your other identities. | the switch's badge, accessible; plural rules language-culture's |
 | `IdentitySwitchTitle` | Switch identity | switcher title |
+| `IdentityOthersNotSent` | A message in another identity was not sent. | the switch's accessible name when the badge has no count (language-culture-en's text) |
+| `IdentityRowUnread` | 1 unread message / {n} unread messages | a switcher row's unread count, spoken (language-culture-en's text) |
 | `IdentityNotSent` | A message was not sent | switcher row, when a message of that identity was not sent |
 | `ConfirmIdentitySwitched` | You are now using {identity} | snackbar after a switch; must say which identity is now in use, not only that it changed |
 | `SwitchBack` | Switch back | that snackbar's action |
