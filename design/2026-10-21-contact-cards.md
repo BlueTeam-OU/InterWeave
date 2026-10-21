@@ -190,7 +190,8 @@ Fields, in order:
 1. **Photo**: a 96 dp circle (accessible label `CardPhotoLabel`, or
    `CardPhotoNone` without a photo) showing exactly what will be sent (the
    prepared photo, below), or the initials of the name as typed so far
-   on the card's own hue; under it **Add a photo** (`AddPhoto`) or, with
+   on the hue of the person's own PeerId (look spec §5.1's pick: all of
+   a person's cards travel under that one PeerId); under it **Add a photo** (`AddPhoto`) or, with
    one, **Change photo** (`ChangePhoto`) and **Remove photo**
    (`RemovePhoto`).
 2. **Name** (`CardName`), required.
@@ -238,8 +239,12 @@ client prepares what will be sent from the picked image:
   the rest of the metadata below and a photo stripped of it unturned
   would arrive sideways;
 - then crops the largest centred square, scales it to at most 256 × 256,
-  and encodes it as JPEG (or PNG for an image with transparency) at the
-  highest quality that fits 24,576 bytes (HUMAN-CHAT.md);
+  lays any transparency over plain white, and encodes it as JPEG,
+  always, at the highest quality from 90 down to 50 that fits 24,576
+  bytes (HUMAN-CHAT.md); if quality 50 does not fit, it scales down to
+  192 and then 128 pixels a side and tries again; if nothing fits, the
+  image is unusable (below). JPEG always, because a lossless PNG of a
+  photograph seldom fits and has no quality to lower;
 - the preview shows the prepared bytes, decoded, not the original, so
   the person sees exactly what a counterparty will see;
 - the prepared image carries nothing but the picture: no EXIF, no
@@ -695,6 +700,19 @@ appears with "Sending").
 reachable (desktop and a hardware keyboard on Android); radio rows 56 dp
 high. **Text scaling** to 200 % reflows: the chooser and the proposal
 scroll rather than clip; the proposal's actions wrap to their own line.
+
+**New colour roles.** Four roles here are not in look spec §3's table,
+and rust-ui-dev adds them to `app.slint` with these needs (Material 3's
+names, so a reader recognises them):
+
+- `outline-variant`: the proposal's 1 dp border; decoration only, with no
+  contrast need, since the heading says in words what the row is;
+- `surface-variant`: the neutral avatar's fill; its glyph needs 3:1
+  against it;
+- `surface-container-low`: the share sheet's surface; text on it 4.5:1,
+  the focus ring 3:1;
+- `on-error`: text on an `error` fill (the full discard's confirm);
+  4.5:1.
 
 **Contrast** (WCAG 2.2; one row per surface a mark can sit on, both
 schemes; rust-ui-dev measures and reports the figures):
