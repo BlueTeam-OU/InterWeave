@@ -561,6 +561,12 @@ routes") only when there is more than one. A row opens the contact page.
   conversation from its Details.
 - Nothing here creates a contact without a route: a contact always
   starts from a conversation.
+- **Snackbars on these pages** (Delete contact, Remove photo, Move, and
+  Your cards' Card deleted): a snackbar shown on the Contacts list, a
+  contact page or the Your cards list lives while the person moves among
+  those pages, and closes when they leave them, as a conversation's
+  closes when they leave it (message-swipe §6: one at a time, a new one
+  replaces the old).
 
 ### 6.3 A contact
 
@@ -608,10 +614,8 @@ App bar: back arrow, the name as title, overflow with **Delete contact**
   The Undo is withdrawn — its snackbar closes — as soon as a card from
   that PeerId is accepted, since the Accept may have written its name
   and photo to the target, which no Move undo can tell apart from the
-  target's own; the Accept's own Undo is then the way back. A snackbar
-  shown on the Contacts list or a contact page closes when the person
-  leaves those pages, as a conversation's closes when they leave it
-  (message-swipe §6: one at a time, a new one replaces the old).
+  target's own; the Accept's own Undo is then the way back (§6.2 on
+  how long a snackbar on these pages lasts).
   After Move the moved-to contact's page opens, and its Back goes to
   the Contacts list, since the source page may no longer exist. Undo
   opens the source contact's page again, its Back to the Contacts list.
