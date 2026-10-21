@@ -23,18 +23,19 @@ repository.workspace = true
 [lints]
 workspace = true
 
+# The library's: the secret scan and the IPC tap the tests share.
 [dependencies]
+# S11.
+interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
+tokio = { workspace = true, features = ["macros", "net", "io-util", "process", "rt-multi-thread", "time"] }
 
 [dev-dependencies]
-interweave-ipc-client = { path = "../../crates/local/ipc-client" }
 # S9 writes a raw spoofed hello.
 interweave-ipc-protocol = { path = "../../crates/api/ipc-protocol" }
 interweave-local-client-api = { path = "../../crates/api/local-client-api" }
 interweave-transport-api = { path = "../../crates/api/transport-api" }
 # S10's profile state, and `effective_uid`.
 interweave-profile-config = { path = "../../crates/config/profile-config" }
-# S11.
-interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
 # S10's store cases, agreed with the human client's owner first.
 interweave-human-store = { path = "../../crates/human/store" }
 # The daemon, transportctl and the bridge come from the workspace build
@@ -42,22 +43,11 @@ interweave-human-store = { path = "../../crates/human/store" }
 interweave-test-support = { path = "../support", features = ["e2e"] }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "net", "io-util", "process", "rt-multi-thread", "time"] }
 
 # Every dependency above waits for the S9-S11 test that uses it. Take
 # each one off this list in the commit that adds its first use, so the
 # list empties as the suite fills.
 [package.metadata.cargo-machete]
 ignored = [
-  "interweave-ipc-client",
-  "interweave-ipc-protocol",
-  "interweave-local-client-api",
-  "interweave-transport-api",
-  "interweave-profile-config",
-  "interweave-profile-identity",
   "interweave-human-store",
-  "interweave-test-support",
-  "serde_json",
-  "tempfile",
-  "tokio",
 ]

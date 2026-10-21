@@ -3904,7 +3904,6 @@ name = "interweave-security-local-tests"
 version = "0.0.0"
 dependencies = [
  "interweave-human-store",
- "interweave-ipc-client",
  "interweave-ipc-protocol",
  "interweave-local-client-api",
  "interweave-profile-config",
