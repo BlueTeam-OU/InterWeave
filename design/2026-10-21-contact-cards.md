@@ -954,7 +954,8 @@ task). No file path: the person cannot reach it. **K** has heading
 `StoreKeyLostTitle`, body `StoreKeyLostBody` (the phone no longer accepts
 the key that protects the app's stored data, which happens after some
 changes to the screen lock; the stored data cannot be read again; the
-identity is not affected), primary **Delete stored data…**, then
+device's PeerId and recovery phrase are not affected, and neither are the
+identities, which are configuration), primary **Delete stored data…**, then
 **Close**. K has no Try again: the platform has said the key is gone.
 
 ### 7.2 Building the confirmation
@@ -1291,29 +1292,25 @@ The Text column is a proposal that shows what the string must say;
 the third column is what it must communicate and where. Key names are
 suggestions; rust-ui-dev names them. Placeholders: `{name}` (a received
 or saved name, plain text, isolated), `{title}` (a conversation's title),
-`{label}` (the person's own card label; for a card without one, the
-card's name, as §5.1's list shows it), `{peer}` (a short PeerId),
+`{identity}` and `{front}` (an identity's card name, else its route
+label; `{front}` the identity in front), `{route}` (a route label),
+`{peer}` (a short PeerId),
 `{n}` (a number in digits), `{date}` (a date in the app's date format).
-No string uses "keep" as an ordinary verb (Keep is a message action),
-and no string calls a card an "identity" (§1).
+No string uses "keep" as an ordinary verb (Keep is a message action).
+"Identity" is the person's word for a user identity (§1); a string that
+used it for the device's PeerId and recovery phrase is marked **L1**
+(§12) for language-culture's word for the device. Rows marked "new
+text, proposal" or "revised, proposal" replace language-culture-en's
+final text of the first round where the records changed what it says,
+and are for them to write.
 
 | Key | Text (proposal) | Where, and what it must say |
 |---|---|---|
 | `ContactsTitle` | Contacts | menu item and page title |
-| `OwnCardsTitle` | Your cards | menu item and page title |
-| `OwnCardsIntro` | A card shows your name and photo to the people you share it with. Only you see its label. | §5.1, two lines |
-| `OwnCardsEmpty` | You have no cards yet. When you share a card with someone, they see your name instead of a PeerId. | §5.1 empty |
-| `AddCard` | Add a card | §5.1 primary |
-| `CardMenu` | Options for {label} | a card row's menu button, accessible label |
-| `Edit` | Edit | card row menu |
-| `Delete` | Delete | card row menu |
-| `ConfirmCardDeleted` | Card deleted | snackbar, with Undo |
-| `CardNew` / `CardEdit` | New card / Edit card | editor title |
+| `CardEdit` | Your card | an identity's card page title (§5.2) |
 | `AddPhoto` / `ChangePhoto` / `RemovePhoto` | Add a photo / Change photo / Remove photo | editor and contact page |
 | `CardName` | Name | editor field |
 | `CardSurname` | Family name (optional) | editor field; must say optional |
-| `CardLabel` | Label (optional) | editor field |
-| `CardLabelHelp` | Only you see the label. It helps you tell your cards apart. | under the label field |
 | `CardSharedStays` | People who already have this card still see it as it was. To show them your changes, share the card with them again. | editor note |
 | `Save` | Save | editor, contact page |
 | `CardNameNeeded` | Enter a name. | field error |
@@ -1324,16 +1321,14 @@ and no string calls a card an "identity" (§1).
 | `KeepEditing` / `DiscardChanges` | Continue editing / Discard | its actions |
 | `PhotoUnusable` | This photo cannot be used. Choose another one. | editor, under the circle |
 | `ShareCard` | Share a card | conversation overflow, empty-conversation offer |
-| `ShareCardTitle` | Share a card with {title} | chooser title |
-| `ShareCardPreview` | What {title} will see | chooser preview heading |
-| `ShareCardNote` | They will see this name and photo, and they can save them. You cannot remove a card from their device after it arrives. | chooser note |
-| `ShareCardAction` | Share | chooser primary |
-| `ShareCardChoose` | Choose a card to share. | chooser, Share with none chosen |
-| `ShareCardNoCards` | You have no cards yet. Add a card, then share it. | chooser empty |
-| `CreateCard` | Add a card | chooser empty primary |
-| `ShareCardNoPhoto` | The photo is too large to send in this conversation. | chooser, over the limit |
-| `ShareCardWithoutPhoto` | Share without the photo | chooser primary, over the limit |
-| `ShareCardTooLarge` | This card is too large to send in this conversation. | chooser, nothing fits |
+| `ShareCardTitle` | Share your card with {title} | share sheet title (new text, proposal) |
+| `ShareCardPreview` | What {title} will see | share sheet preview heading |
+| `ShareCardNote` | They will see this name and photo, and they can save them. You cannot remove a card from their device after it arrives. | share sheet note |
+| `ShareCardAction` | Share | share sheet primary |
+| `CreateCard` | Add your name | share sheet primary when the identity's card has no name (new text, proposal) |
+| `ShareCardNoPhoto` | The photo is too large to send in this conversation. | share sheet, over the limit |
+| `ShareCardWithoutPhoto` | Share without the photo | share sheet primary, over the limit |
+| `ShareCardTooLarge` | This card is too large to send in this conversation. | share sheet, nothing fits |
 | `ShareCardOffer` | Let {title} see your name instead of a PeerId. | empty conversation |
 | `CardProposal` | This peer says they are {name} | proposal heading; must keep "says": a claim, not a fact |
 | `CardIncludesPhoto` | This card has a photo. You see it after you accept. | proposal |
@@ -1341,24 +1336,21 @@ and no string calls a card an "identity" (§1).
 | `CopyPeerId` | Copy PeerId | existing (#313) |
 | `CardGoesAtClose` | If you do not accept this card, it is removed when InterWeave stops. | proposal; Android's "closes" includes the system ending the app: language-culture to find the word that is true there |
 | `Accept` / `Decline` | Accept / Decline | proposal actions, case N |
-| `AcceptAsNew` | Accept as a new contact | case D |
+| `AcceptAsNew` | Accept as a new contact | cases D and P |
 | `UpdateContact` | Update contact | cases U, E |
-| `ShareCardPreviewSpoken` | {title} will see the name {name}. | chooser preview, accessible description, no photo |
+| `ShareCardPreviewSpoken` | {title} will see the name {name}. | share sheet preview, accessible description, no photo |
 | `ShareCardPreviewSpokenPhoto` | {title} will see the name {name} and your photo. | the same, with the photo |
-| `MoveRoutePickerTitle` | Move this PeerId to which contact? | the move-route picker's title. Every route of this row's PeerId moves together, not only this conversation (architect-cto's ruling of 2026-10-21); the text must say what the person picks a contact for, without promising less than moves |
+| `MoveRoutePickerTitle` | Move this conversation to which contact? | the move-route picker's title. One route moves, this conversation's (ADR-0061 d. 4); the text must say what the person picks a contact for (revised, proposal) |
 | `CardPhotoLabel` | Photo for this card | editor photo circle, accessible label |
 | `CardPhotoNone` | No photo for this card | the same, with no photo |
-| `CardSamePeer` | Your contact {name} already has this PeerId in another conversation. | case P; `{name}` the contact's name |
-| `AddToContact` | Add this conversation to {name} | case P's Accept, and the Details action of §5.6 |
-| `CardSameName` | One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept. | case D, and cases U, E and P when Accept would write a name that clashes (§5.4.1); `{name}` the other contact's name; must name both facts |
+| `CardSameName` | One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept. | case D, and cases P, U and E when Accept would write a name that clashes with a contact on another PeerId (§5.4.1); `{name}` the other contact's name; must name both facts |
 | `ShowContact` | Open your contact {name} | case D link |
 | `CardUpdates` | If you accept, your contact {name} is updated. | case U |
 | `CardUpdatesName` / `CardUpdatesPhoto` | New name: {name} / New photo | case U, the changes |
 | `CardKeepsEdit` | You named this contact {name} yourself. That name stays. | case E, name |
 | `CardKeepsPhoto` | You chose this contact's photo yourself. That photo stays. | case E, photo |
 | `CardSame` | This card matches your contact {name}. | case S |
-| `CardAccepted` | You saved {name} as a contact. | confirmation row |
-| `CardRouteAdded` | You added this conversation to {name}. | confirmation row, case P when no value changed |
+| `CardAccepted` | You saved {name} as a contact. | confirmation row, cases N, D and P |
 | `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
 | `CardPhotoNotUsed` | The photo could not be shown and was not saved. | confirmation row addition |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo |
@@ -1366,43 +1358,88 @@ and no string calls a card an "identity" (§1).
 | `CardPreviewReceived` / `CardPreviewSent` | Contact card / You shared a card | list previews |
 | `CardNotification` | You received a contact card. | notification body; never the name |
 | `AnnounceCard` | New contact card | live announcement |
-| `CardSentLabel` | Your card: {label} | own card row |
+| `CardSentLabel` | You shared your card | own card row (new text, proposal) |
 | `AddAsContact` / `OpenContact` | Add as a contact / Open contact | Details |
-| `DetailsLastCard` | The card you last shared here: {label} | Details |
-| `DetailsNoCard` | You have not shared a card here. | Details |
-| `DetailsCardDeleted` | You deleted the card you last shared here. | Details |
-| `ContactsEmpty` | You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty |
+| `DetailsNoCard` | You have not shared your card here. | Details (revised, proposal) |
+| `ContactsEmpty` | You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty; with two or more identities it is this identity's list that is empty, and the text must not suggest the person has no contacts at all (language-culture to judge whether it needs saying) |
 | `ContactRoutes` | {n} routes | contact row, n ≥ 2 (plural rules language-culture's) |
-| `ContactTitleTwin` | {name} ({peer}) | title of a contact sharing a name |
+| `ContactTitleTwin` | {name} ({peer}) | title of a contact sharing a name: `{peer}` the short PeerId across devices, the route label within one device (§6.1) |
 | `ContactName` | Name | contact page field |
 | `ContactNameFromCard` | Name from their card, {date} | provenance |
 | `ContactNameTyped` | Name you entered | provenance |
 | `ContactRouteTrusted` / `ContactRouteNotTrusted` | Trusted / Not trusted | route trust in words |
 | `OpenConversation` | Open conversation | route row |
 | `MoveRoute` | Move to another contact | route row |
-| `MoveRouteConfirm` | Move every conversation with {peer} from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name. Must say every conversation with {peer} moves, not this one alone (architect-cto, 2026-10-21) |
-| `MoveRouteLast` | {name} has no other conversations, so moving them deletes the contact {name}. | dialog addition, when {peer}'s routes are all {name} has; must say moving them deletes the contact |
-| `ConfirmRouteMoved` | Conversations moved to {other} | snackbar after Move, with Undo |
+| `MoveRouteConfirm` | Move this conversation from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name; must say one conversation moves and trust does not follow (revised, proposal) |
+| `MoveRouteLast` | {name} has no other conversations, so moving this one deletes the contact {name}. | dialog addition, when the route is all {name} has; must say moving it deletes the contact (revised, proposal) |
+| `ConfirmRouteMoved` | Conversation moved to {other} | snackbar after Move, with Undo (revised, proposal) |
 | `Move` | Move | dialog primary |
 | `DeleteContact` | Delete contact | contact overflow |
 | `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo |
+| `IdentitiesTitle` | Your identities | menu item, page title, the switcher's link (new, proposal) |
+| `OwnCardTitle` | Your card | menu item with one identity (new, proposal) |
+| `IdentitiesShareDevice` | Your identities use this device's PeerId and network addresses. Someone who knows two of them can tell that they are on the same device, and so can the network. To keep two identities fully apart, use a separate profile on a computer. | §5.1; Android ends instead: "This phone cannot keep two identities fully apart." Must state the shared PeerId and addresses, who can see it, and the separation that exists (ADR-0061 d. 5) (new, proposal) |
+| `IdentityRouteLabel` | Seen by others as {route} | §5.1 row, under the name (new, proposal) |
+| `IdentityDefault` | Default | §5.1 row (new, proposal) |
+| `IdentityInFront` | In use | §5.1 row's accessible description; the check mark's meaning (new, proposal) |
+| `AddIdentity` | Add an identity | §5.1 primary; one identity's overflow as "Add another identity" (new, proposal) |
+| `IdentityLimit` | This device has the most identities it can hold. | §5.1 at 64 endpoints (new, proposal) |
+| `IdentityRouteField` | Label others see | §5.1 new identity's field (new, proposal) |
+| `IdentityRouteHelp` | Everyone you talk to as this identity sees this label next to your PeerId. You cannot change it later. | under that field and on §5.2; must say who sees it and that it is fixed (new, proposal) |
+| `IdentityRouteNeeded` / `IdentityRouteBadCharacters` / `IdentityRouteTaken` | Enter a label. / Use lowercase letters, digits, dots, dashes and underscores, and start with a letter. / This label is already used on this device. | field errors (new, proposal) |
+| `IdentityAddFailed` | The identity could not be added. Try again. | §5.1 above Save (new, proposal) |
+| `MakeDefault` | Make default | §5.2 overflow (new, proposal) |
+| `IdentityIsDefault` | Default identity | §5.2 line (new, proposal) |
+| `IdentityDefaultHelp` | People who write to this device without choosing an identity reach your default identity. | §5.2 helper; ADR-0061: "which identity a stranger reaches" (new, proposal) |
+| `ConfirmDefaultSet` | {identity} is now the default | snackbar, with Undo (new, proposal) |
+| `RemoveIdentity` | Remove this identity | §5.2 overflow (new, proposal) |
+| `IdentityRemoveDefault` | To remove this identity, first make another identity the default. | §5.2, on the default identity (new, proposal) |
+| `IdentityRemoveTitle` | Remove {identity}? | dialog title (new, proposal) |
+| `IdentityRemoveLoses` | This deletes from this device: the conversations of {identity} and their messages, unread, kept and waiting to be sent; its contacts; its name and photo. People who write to {identity} will no longer reach you. This cannot be undone. | dialog list, one item per line; must list exactly §5.2's items and say there is no undo (new, proposal) |
+| `IdentityRemoveConfirm` | Remove | dialog primary, in `error` (new, proposal) |
+| `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name (new, proposal) |
+| `IdentityOthersUnread` | {n} unread in your other identities | the switch's badge, accessible; plural rules language-culture's (new, proposal) |
+| `IdentitySwitchTitle` | Switch identity | switcher title (new, proposal) |
+| `IdentityNotSent` | Not sent | switcher row, when a message of that identity was not sent (new, proposal) |
+| `ConfirmIdentitySwitched` | You are now {identity} | snackbar after a switch; must say which identity is now in use, not only that it changed (new, proposal) |
+| `SwitchBack` | Switch back | that snackbar's action (new, proposal) |
+| `SwitchingTo` | Opening as {identity} | §5.7.5 transition (new, proposal) |
+| `ComposerAs` | As {identity} | the line above the send control (new, proposal) |
+| `SendAs` | Send as {identity} | the send control's accessible name with two or more identities (new, proposal) |
+| `ShareCardAs` | as {identity} | share sheet, under the title (new, proposal) |
+| `EditCard` | Edit your card | share sheet (new, proposal) |
+| `ShareCardNoName` | Your card has no name yet. Add your name, then share it. | share sheet, no name (new, proposal) |
+| `IdentityNotInFront` | You are using {front}. This page changes {identity}. | §5.2 when the page's identity is not in front (new, proposal) |
+| `TrustAllIdentities` | Trust applies to all your identities on this device. | Trust page with two or more identities (new, proposal) |
+| `NewConversationAs` | You start this conversation as {identity} | new-conversation flow, when built (new, proposal) |
+| `IdentitySwitchAction` | Switch identity | beside it (new, proposal) |
+| `IdentityUnavailable` | {identity} cannot send or receive right now | §5.7.6 (new, proposal) |
+| `CardSharesDevice` | This card comes from the same device as your contact {name}. | case P (new, proposal) |
+| `CardSharesDeviceMany` | This card comes from the same device as your contact {name} and {n} other contacts. | case P, several (new, proposal) |
+| `CardSharesDeviceNote` | One device can hold several identities. You can save this one as a separate contact. | case P, under it (new, proposal) |
+| `DetailsSharesDevice` | Your contact {name} uses the same device. | Details, a route under no contact (new, proposal) |
+| `DetailsIdentity` | You speak here as {identity} | Details (new, proposal) |
+| `DetailsCardShared` | You shared your card here on {date}. | Details, from `card_shared_at` (new, proposal) |
+| `ContactSharesDevice` | {name} uses the same device (PeerId) | contact page, under a route (new, proposal) |
+| `ContactSharesDeviceNote` | One device can hold several identities, so these contacts may be one person. InterWeave keeps them as separate contacts. | contact page (new, proposal) |
+| `MoveRouteNoneSameDevice` | Contacts on the same device as this conversation are not listed: a contact holds one conversation per device. | Move picker (new, proposal) |
 | `StoreRecoveryTitle` | InterWeave cannot read its stored data | Android R heading |
-| `RefusalStoreRecovery` (revised) | InterWeave cannot read its stored data: your messages, contacts and cards. Nothing was changed. The data opens only with its key on this device, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. If a newer version of InterWeave wrote this data, install and start the newest version that you have used, or a newer one. Restoring your identity does not bring back this data. | desktop R body (Android R has its own, `StoreRecoveryBody`): its backup-copy sentence assumes a plaintext file a person can swap; the store is now encrypted and a copy opens only with its key. Must still say the file was not changed until the person chooses. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). |
-| `StoreRecoveryBody` | InterWeave cannot read its stored data: your messages, contacts and cards. Nothing was changed. The data opens only with its key on this phone, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. Restoring your identity does not bring back this data. | Android R body (new key): Android cannot install an older version over a newer one, so the desktop's newer-version advice is not true here, and Android shows no path. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). |
+| `RefusalStoreRecovery` (revised) | InterWeave cannot read its stored data: your messages, contacts and cards. Nothing was changed. The data opens only with its key on this device, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. If a newer version of InterWeave wrote this data, install and start the newest version that you have used, or a newer one. Restoring your identity does not bring back this data. | desktop R body (Android R has its own, `StoreRecoveryBody`): its backup-copy sentence assumes a plaintext file a person can swap; the store is now encrypted and a copy opens only with its key. Must still say the file was not changed until the person chooses. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). **L1**: "Restoring your identity" means the recovery phrase's identity, the device's |
+| `StoreRecoveryBody` | InterWeave cannot read its stored data: your messages, contacts and cards. Nothing was changed. The data opens only with its key on this phone, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. Restoring your identity does not bring back this data. | Android R body (new key): Android cannot install an older version over a newer one, so the desktop's newer-version advice is not true here, and Android shows no path. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). **L1**: "Restoring your identity" means the recovery phrase's identity, the device's |
 | `StoreKeyLostTitle` | The key to your stored data no longer works | K heading |
-| `StoreKeyLostBody` | This phone no longer accepts the key that protects InterWeave's stored data. This can happen after some changes to the screen lock. The data cannot be read again. Your identity is not affected. | K body |
+| `StoreKeyLostBody` | This phone no longer accepts the key that protects InterWeave's stored data. This can happen after some changes to the screen lock. The data cannot be read again. Your identity is not affected. | K body; **L1**: its "Your identity is not affected" means the PeerId |
 | `DiscardStore` | Delete stored data… | R, K action |
 | `StoreChecking` | Checking the stored data… | §7.2 progress |
 | `DiscardStoreTitle` | Delete all stored data? | full dialog title |
-| `DiscardStoreLoses` | This deletes from this device: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; your cards; the app's settings, other than your network settings. A message you already received may show again. | full dialog list; one item per line; must list exactly these |
-| `DiscardStoreKeeps` | Your identity, your PeerId, the peers you trust and your network settings are not affected. | full dialog |
+| `DiscardStoreLoses` | This deletes from this device, for all your identities: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; the names and photos of your identities; the app's settings, other than your network settings. A message you already received may show again. | full dialog list; one item per line; must list exactly these, and say it is every identity's (§7.2); with one identity, no "for all your identities" and "your name and photo" (revised, proposal) |
+| `DiscardStoreKeeps` | This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. Your identities stay, without their names and photos. | full dialog; **L1**: the first-round text said "Your identity" for the PeerId; with one identity the second sentence is left out (revised, proposal) |
 | `DiscardStoreRemains` | Earlier copies that your device made outside InterWeave may still be on it. | full dialog |
 | `DiscardStoreConfirm` | Delete stored data | full dialog primary |
 | `DiscardPartialTitle` | Delete the unfinished file? | partial dialog title |
 | `DiscardPartialBody` | An update to how your data is protected was interrupted. A complete copy of your data exists. This deletes only the unfinished file, and InterWeave opens with your data. | partial dialog |
 | `DiscardPartialConfirm` | Delete the unfinished file | partial dialog primary |
 | `StoreDiscarding` | Deleting… | §7.3 progress |
-| `StoreDiscarded` | The stored data was deleted. Your identity and the peers you trust did not change. | Chats notice after a full discard |
+| `StoreDiscarded` | The stored data was deleted. This device's PeerId and the peers you trust did not change. | Chats notice after a full discard; **L1** (revised, proposal) |
 | `StoreRestored` | Your data was restored from the complete copy. | Chats notice after a partial discard |
 | `StoreDiscardFailed` | The stored data could not be deleted. Try again. | R/K after a failure |
 
