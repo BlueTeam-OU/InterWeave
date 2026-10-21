@@ -22,7 +22,7 @@ The rules below — content, metadata, the bridge endpoint, the reply token, san
 
 - UTF-8 transport payload: forwarded as text essentially unchanged.
 - non-UTF-8 payload: base64url string representation and `meta.payload_encoding=base64url`.
-- the bridge does not parse JSON/application protocols to infer meaning.
+- the bridge does not parse JSON/application protocols to infer meaning — with one exception, stated in full (A 2026-10-21, ADR-0059 decision 7): a HumanChatV2 payload the chat-protocol parser classifies as a **contact card** (`kind: contact_card`; the parser's three-way answer of plan §29 step 1, where any envelope one of whose top-level `kind` copies is `contact_card` is a card) is parsed by that parser and no other, and nothing is inferred beyond the card's own fields. Such a card reaches the model as `meta` alone, `content` empty: `meta.app_kind=contact_card`, `meta.card_name`, `meta.card_surname` when present, `meta.card_photo_bytes` (the decoded length as a decimal string, `0` when absent) and `meta.card_photo_type` (the media type, absent with the photo) — never the photo's bytes, decoded or not, and never a bridge-composed sentence in `content`, which the §Sanitization rule forbids. A contact card the parser calls malformed (a photo over its bound, base64 outside RFC 4648 §4 padded, a name outside its bounds, a `text` or `reply_to` member, a duplicate member) and a contact card received over broadcast are **dropped and counted** (`status.dropped_cards`, by reason) and never forwarded raw; the stderr line names the fixed reason only, never the parser's message, which can carry peer text. Every other payload stays unparsed as before.
 
 **Content-encoding is decoded first, and that is not application parsing.** When the media type carries a content-encoding parameter — currently only `;ce=br`, the brotli form of HumanChatV2 (ADR-0050) — the bridge decodes it before applying the three rules above, under the mandatory streaming cap and mid-stream abort of `clients/human/HUMAN-CHAT.md`. The recovered bytes are then classified normally — except that recovered bytes that are not UTF-8 are dropped, never base64url (below): a HumanChatV2 envelope is UTF-8 and therefore forwards as text unchanged, with `meta.payload_encoding=utf8`.
 
@@ -46,6 +46,11 @@ Proposed stable keys:
 | `reply_token` | opaque, short-lived local bridge routing token |
 | `payload_encoding` | `utf8` or `base64url` |
 | `content_type` | optional safe media type |
+| `app_kind` | `contact_card` only, for a HumanChatV2 contact card the bridge parsed (§Content's one exception, A 2026-10-21); absent for every other payload |
+| `card_name` | the card's `name`, after the contract's bounds (64 scalar values after NFC, no control, format or separator character); with `app_kind` only |
+| `card_surname` | the card's `surname`, same bounds; absent when the card has none |
+| `card_photo_bytes` | the photo's decoded length as a decimal string, `0` when the card has no photo; never the bytes |
+| `card_photo_type` | `image/png` or `image/jpeg`; absent when the card has no photo |
 
 At the bridge boundary, transport `Payload.media_type` maps one-for-one to Claude-facing `meta.content_type`.
 
@@ -83,4 +88,4 @@ A broadcast reply token does **not** confer or recreate a subscription. If the b
 
 ## Sanitization
 
-All metadata values are bounded strings. The bridge rejects/normalizes control characters and never constructs channel markup by concatenating unescaped peer-controlled strings. Payload stays in `content`; routing metadata stays in `meta`. This rule is load-bearing, not defensive (A 2026-10-03, on SPIKE-001 fact 14, Claude Code 2.1.285): the host XML-escapes `meta` values but does NOT escape the body beyond a closing `</channel>`, so a body is exactly what the bridge hands over — a forged opening tag in a peer's payload reaches the model as text inside the real tag, which is the containment the provenance framing relies on, and anything the bridge itself composed into the body would be indistinguishable from it.
+All metadata values are bounded strings; a legal card name (at most 64 scalar values, each at most 4 bytes) fits the value bound by construction, which the bridge asserts at compile time. The bridge rejects/normalizes control characters and never constructs channel markup by concatenating unescaped peer-controlled strings. Payload stays in `content`; routing metadata stays in `meta`. This rule is load-bearing, not defensive (A 2026-10-03, on SPIKE-001 fact 14, Claude Code 2.1.285): the host XML-escapes `meta` values but does NOT escape the body beyond a closing `</channel>`, so a body is exactly what the bridge hands over — a forged opening tag in a peer's payload reaches the model as text inside the real tag, which is the containment the provenance framing relies on, and anything the bridge itself composed into the body would be indistinguishable from it.
