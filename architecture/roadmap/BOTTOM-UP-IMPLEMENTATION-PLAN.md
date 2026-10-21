@@ -151,7 +151,7 @@ Spikes are **just-in-time implementation gates**, not a large front-loaded phase
 | SPIKE-005 | admin hardening when enabled | stronger same-user local admin boundary |
 | SPIKE-007 | optional encrypted key-at-rest feature | selected audited envelope/KDF/AEAD behavior |
 | SPIKE-011 | the §29 store work, and any §22 release that ships a human store | the page-cipher store build for Linux and Android, its open/commit/read cost against the plaintext baseline the spike itself defines (none exists today) under ADR-0060 decision 4's criterion, RETENTION.md's deletion property on the encrypted file, the licence and vendored-advisory consequences; its Result pins the mechanism within ADR-0060 decision 4 or records the fallback |
-| SPIKE-012 | the §30 Android step | two embedded runtimes in one foreground service on the reference device: ports and listeners apart, network-change handling per runtime, memory and battery over a measured window, two seeds under two custody alias sets, one notification; its Result confirms or moves ADR-0061 decision 2's bound on active identities |
+| SPIKE-012 | withdrawn 2026-10-21 | opened by ADR-0061's first draft to measure two embedded runtimes in one Android service; withdrawn the same day when a user identity became an EndpointId of the node (one runtime, one lease per identity); the number is kept, `SPIKES.md` says why |
 | SPIKE-008 | Stage 17 Android lifecycle/packaging | foreground service, secure recovery UI, backup/D2D behavior, store policy |
 | SPIKE-009 | Stage 17 Android key custody | Android Keystore wrapping/invalidation and exact-PeerId preservation |
 
@@ -6001,9 +6001,11 @@ overwrites no local edit; two same-name cards from two PeerIds are two
 proposals; a declined card leaves nothing in the store; a photo chosen
 with a GPS block and a camera serial leaves the sender with neither; an
 accepted card never overwrites a locally edited name or photo, and the
-contact page says where each came from; a card accepted on a new route
-of a PeerId already under a contact joins that contact, and Move moves
-every route of the PeerId together; two own cards shared to two
+contact page says where each came from; a card accepted on a second
+route of a known PeerId creates a second contact and the proposal names
+the contact sharing its node, and a contact never holds two routes of one
+PeerId (ADR-0061 decision 4, A 2026-10-21 (ii)); the cards of two
+identities shared to two
 conversations, each counterparty holding only its own and nothing
 sent naming the other; a confirmed discard during a stalled rewrite
 removing the plaintext and keeping the key and the complete copy,
@@ -6038,79 +6040,86 @@ STATE.md puts in the same review.
 The closing record lands here when the owner closes the stage, with
 the figures and the carried limits, as §28's does.
 
-## 30. Stage 22 — several network identities in one client
+## 30. Stage 22 — several user identities in one client
 
 Recorded 2026-10-21 on the owner's direction of that day ("a user should
-have multiple network identities"); the decision is ADR-0061. **This
-section opens nothing by itself**: the stage opens on the owner's word,
-after §29 or beside it, and the status value stays the lowest open
-stage. It is numbered after §29 so that no citation of §23–§29 moves.
+have multiple network identities"; "An EndpointId should match a user
+identity. One user of the app can have many user identities on the same
+phone. So for any EndpointId he can add a display_name and a photo"); the
+decision is ADR-0061. **This section opens nothing by itself**: the stage
+opens on the owner's word, after §29 or beside it, and the status value
+stays the lowest open stage. It is numbered after §29 so that no citation
+of §23–§29 moves.
 
 ### Objective
 
-A person holds several identities, each a whole profile; one client
-attaches to several; every conversation speaks as exactly one of them
-and says which; contacts never cross identities unless the person
-copies them; a phone runs a bounded number of identities at once under
-one notification. Nothing of this touches the transport or the wire.
+A person holds several user identities on one node, each a configured
+EndpointId with its own display name and photo; the client presents
+them, every conversation speaks as exactly one and says which, a contact
+is one remote identity, and what identities of one node share is said
+on the identity settings and the contact page. Nothing of this touches
+the wire: the PeerId stays the node's one identity, and the counterparty
+learns which identity spoke from the `source_endpoint` the direct
+protocol already carries.
 
 ### Prerequisites
 
-§29's steps 1–2 on `main` (the card and the contact flows, which gain
-the identity dimension here rather than being built twice);
-**SPIKE-012 closed** before step 3, confirming or moving the bound of
-ADR-0061 decision 2.
+§29's steps 1–2 on `main` (the card and the contact flows, which gain the
+identity dimension here rather than being built twice). No spike:
+several leases in one runtime, a session per lease and `source_endpoint`
+on every direct message exist and are tested.
 
 ### Activate
 
 No new crate. The work lands in `crates/human/app-core`,
 `crates/human/ui-model`, `crates/human/ui-slint`, `crates/human/store`
-(each profile's store stays per profile; the client's own list of the
-profiles it presents — names only, ADR-0061 decision 1 — is the one
-cross-identity record, outside every store), the two graphical clients
-and the command-line client under `apps/`, and `profile-config` for the
-active-identity bound and the "this client presents this profile"
-choice. `spikes/spike-012/` is the spike's home.
+(the §Logical tables review: `conversation_index.local_endpoint_id`,
+`own_cards` keyed by EndpointId, one contact per route), the two
+graphical clients and the command-line client under `apps/`, and — in
+p2p-network-dev's lane, its own PR under ADR-0017's minor rule — the
+administrative method that adds a configured endpoint
+(`admin.endpoints.*`, LOCAL-IPC.md), with `ENDPOINTS.md`'s registration
+sentence gaining the administrative path in the same change.
 
 ### Implement in order
 
-1. **The desktop client of several daemons** (rust-ui-dev): the client
-   attaches to every profile placed under it, each over its own data
-   and admin connections; the identity chooser on a new conversation;
-   the identity shown on every conversation; contacts per identity;
-   the identity verbs of the command-line client (ADR-0061 decision 7).
+1. **Identities in the shared crates and the desktop client**
+   (rust-ui-dev): an identity is an endpoint with its card; the client
+   holds one data session and one lease per identity it presents; create,
+   rename, set the card, set the default and remove through the admin
+   connection (editing the configuration until step 0's method lands);
+   the identity chooser on a new conversation and the identity shown on
+   every conversation; the identity verbs of the command-line client
+   (ADR-0061 decision 7).
 2. **The conversation and contact model** (rust-ui-dev, shared crates):
-   `{local PeerId, remote route}` as the conversation key, the
-   per-identity contact lists, the explicit route copy, the recovery
-   flow per identity, `human-client-ui.md` §3 and §4 as amended.
-3. **The Android host of several runtimes** (rust-ui-dev, after
-   SPIKE-012): one embedded runtime per active identity in the one
-   foreground service, the active/dormant switch per identity, the
-   bound refused above it, the notification naming the active ones,
-   as ADR-0041 A 2026-10-21 says.
+   `{local EndpointId, remote route}` as the conversation key for life;
+   a contact per remote identity, at most one route per PeerId under a
+   contact, the contact page showing the PeerId and the contacts that
+   share it; Share sending the conversation's identity's card with no
+   chooser; `human-client-ui.md` §3 and §4 as amended.
+3. **Android** (rust-ui-dev): one in-process session and lease per
+   identity in the one embedded runtime (ADR-0041 A 2026-10-21), the
+   identity switch in the app, identities created through the embedded
+   host's configuration path.
 4. **Acceptance criteria** (`human-client-ui.md` §13) for steps 1–3,
    proposed by rust-ui-dev and ruled by architect-cto.
 
 ### Exit gate
 
-(a) Steps 1–4 landed with their tests green on `main`; (b) the
-conformance cases, by name: a conversation cannot change identity and
-every message and card it sends travels under that identity's PeerId
-and no other; with two identities held, active or dormant, a new conversation asks
-— a dormant one offered as activate-and-speak under the bound — and a
-client with one asks nothing; a conversation of a dormant identity
-refuses to send until it is activated; no row of any store names two
-identities; a contact of identity A is unknown to identity B until B's
-own trust and store hold it, and the explicit copy creates nothing in
-B's trust set; the bound on active identities refused above it; two
-identities' custody apart (no identity's unlock opens another); the
-identity settings state both limits of ADR-0061 decision 5, the
-counterparty's and the observer's; a notification for identity A's
-contact arriving while identity B's conversation is in front names A
-and shows nothing of B, and B's screens change nothing (decision 9);
-two profiles on one fixed listen port refused at attach by name; every action of steps 1–3 driven from the command-line
-client in a shell with no display; (c) SPIKE-012's Result cited with
-its figures.
+(a) Steps 1–4 landed with their tests green on `main`, and the
+administrative add-endpoint method on `main` with its contract row
+(p2p-network-dev's PR); (b) the conformance cases, by name: a
+conversation cannot change identity, and every message and card it sends
+carries that identity's `source_endpoint` and no other, measured at the
+counterparty; with two identities held a new conversation asks and a
+client with one asks nothing; a card received on a second endpoint of a
+known PeerId creates a second contact and the proposal names the contact
+sharing its node; a contact never holds two routes of one PeerId; the
+identity settings and the contact page state what identities of one node
+share (ADR-0061 decision 5); a notification names the identity it arrived
+on; the 64-endpoint bound refused above it, by name; a data session that
+names an unconfigured endpoint is refused as today; every action of
+steps 1–3 driven from the command-line client in a shell with no display.
 
 ### Record
 

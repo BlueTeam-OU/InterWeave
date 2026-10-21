@@ -516,36 +516,13 @@ clear named.
 mechanism, the store stays as it is and no §22 release ships a human
 store.
 
-## SPIKE-012 — two embedded runtimes in one Android foreground service
+## SPIKE-012 — withdrawn before it opened
 
-**Regime: release gate** (the preamble's second regime), as SPIKE-010
-and SPIKE-011. Home: `spikes/spike-012/`, built by rust-ui-dev; this
-entry and its verdict are the roadmap's. Opened 2026-10-21 by ADR-0061,
-which decides that the Android app hosts one embedded runtime per active
-identity inside its one foreground service, the active count bounded
-(four by the record, a configuration value), and leaves the bound's
-figure to this spike.
-
-**Objective:** show that two embedded `TransportRuntime`s run side by
-side in one foreground service on the reference device, each reachable,
-with their listeners, custody and network-change handling apart, and
-measure what each costs.
-
-**Experiment:** two profiles on the device, two seeds sealed under two
-alias sets (ADR-0042's custody, one per profile), both runtimes started
-in the one service; measure ports and listeners (no sharing, no
-collision on restart), a network change handled by each runtime
-independently (SPIKE-008's L7 reconnect, per runtime), memory and
-battery over a measured window at idle and under a message exchange on
-each identity, the notification naming both, one identity set dormant
-and brought back without the other noticing; then a third and a fourth
-runtime, to the record's bound, with the same figures.
-
-**Evidence:** the figures per runtime count on the reference device,
-the collision and independence cases, the dormant/active switch, and
-the point at which the device's limits (memory, foreground-service
-policy, battery) bite.
-
-**Decision unlocked:** plan §30 step 3. Until the Result lands, the bound
-of ADR-0061 decision 2 stands as that record states it, read from
-configuration.
+Opened 2026-10-21 by the first draft of ADR-0061 (one embedded runtime per
+identity in the one Android service, to measure two runtimes side by
+side) and withdrawn the same day when the owner's clarification made a
+user identity an EndpointId of the node (ADR-0061 as accepted): one
+runtime, one lease per identity, nothing to measure. The number is kept
+so that no later spike reuses it; the measurement it described is the
+revisit condition of ADR-0061 for identities on the phone that no
+counterparty can link.

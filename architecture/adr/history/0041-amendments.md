@@ -32,24 +32,20 @@
 
 **Not ruled.** Whether the project's own release page offers the APK F-Droid built (§22's); the F-Droid recipe's toolchain pin (Stage 19's, with devex-tooling). (Both moot since ADR-0057 the same day: no store, the release page is the distribution.)
 
-### Amendment 2026-10-21 — One embedded runtime per active identity in the one service; stay-reachable per identity, a change restarting that identity's runtime alone
+### Amendment 2026-10-21 — One lease per user identity in the one embedded runtime
 
-ADR-0061 (the owner's direction of 2026-10-21 that a person holds
-several network identities) has the Android app host one embedded
-`TransportRuntime` per identity the person has set active, inside the
-one foreground service this record chose, each with its own `human`
-EndpointId lease, listeners, custody and network-change handling, under
-one persistent notification naming the active identities. Two sentences
-of this record read as one runtime: "the service owns the `human`
-EndpointId lease while active" (one lease per active identity now) and,
-from A 2026-10-10, "a change while running restarts the service in the
-new mode" — which, read with several runtimes, would restart every
-identity's runtime for one identity's choice. Ruled with ADR-0061: the
-stay-reachable overlay is per identity (its file under that identity's
-profile state directory, as before), a change restarts that identity's
-runtime alone, and the service's own lifecycle follows the most
-reachable mode any active identity holds. The bound on active
-identities and the measurement of several runtimes in one service are
-ADR-0061 decision 2's and SPIKE-012's; the raised finding was #335's
-blind review's F7.
-
+ADR-0061 (the owner's direction of 2026-10-21, clarified the same day:
+a user identity is an EndpointId of the node with its own display name
+and photo, several on one phone) has the Android app's one embedded
+`TransportRuntime` hold one endpoint lease per user identity the person
+holds, each identity its own in-process local session, inside the one
+foreground service this record chose. The sentence "the service owns the
+`human` EndpointId lease while active" read as one lease; it now reads
+one lease per identity, the `human` lease being the first identity's.
+Nothing else of the record moves: one runtime, one notification naming
+the node, the stay-reachable choice, custody, listeners and
+network-change handling the node's. An earlier wording of this
+amendment, written for the record's first draft (one runtime per
+identity, the stay-reachable choice per identity, a restart per
+identity), was replaced before it reached `main`; the raised finding was
+#335's blind review's F7, answered by this wording.

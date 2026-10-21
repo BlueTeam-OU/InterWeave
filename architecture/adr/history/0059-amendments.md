@@ -27,3 +27,26 @@ that already has a route under a contact joins that contact — so one
 peer is never shown under two names. None of the four changes what a
 card is, who may send one or what a receiver does with it before
 acceptance.
+
+### Amendment 2026-10-21 — A card is one user identity's: one own card per EndpointId, a received card names the identity of its source endpoint, a contact is one remote identity, and the one-contact-per-PeerId rule is withdrawn (ii)
+
+ADR-0061, the same day, made a user identity an EndpointId of the node
+with its own card, several under one PeerId (the owner: "An EndpointId
+should match a user identity … for any EndpointId he can add a
+display_name and a photo"). Three sentences of this record read against
+it and were changed in place. Decision 2's "as many cards as they like,
+chosen per conversation": the cards were personas under one endpoint,
+which a counterparty could not address; now one own card per identity,
+keyed by EndpointId, and the conversation's identity decides which is
+shared. Decision 1 and decision 3: a received card is still bound to the
+authenticated `source_peer`, and the `source_endpoint` beside it now
+names the identity the card presents, so a route of a PeerId that
+already has another route under a contact is another identity and makes
+a contact of its own, shown as sharing that node. Decision 4 and the
+morning's amendment: "a PeerId never ends under two contacts" and "Move
+moves every route of the PeerId together" are withdrawn — a contact
+holds at most one route per PeerId, two routes of one PeerId are two
+contacts, Move moves one route; grouping routes of one person's several
+devices under one contact stays the person's act (ADR-0043). The
+morning's other three rulings (pixels only, no Keep, provenance
+columns) stand. The withdrawn clause lived on `main` for no release.
