@@ -925,6 +925,7 @@ fn every_result() -> Vec<(&'static str, Value)> {
                     },
                 ],
                 None,
+                interweave_ipc_protocol::IPC_MAX_MINOR,
             )),
         ),
         (
@@ -936,7 +937,11 @@ fn every_result() -> Vec<(&'static str, Value)> {
         ),
         (
             "architecture/contracts/schemas/ipc/peer-list.schema.json",
-            json(&PeerList::page(Vec::new(), None)),
+            json(&PeerList::page(
+                Vec::new(),
+                None,
+                interweave_ipc_protocol::IPC_MAX_MINOR,
+            )),
         ),
     ]
 }
