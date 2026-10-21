@@ -413,14 +413,17 @@ compare a photo it has not decoded.
 Runs at once: the contact (and route) is written, and the photo is
 decoded only now, with the memory-safe decoder, to the fixed display
 size. The proposal row is replaced in place by a short confirmation row
-(`CardAccepted`: "You saved {name} as a contact." in case N and D,
-`CardUpdated` in cases U and E, each with the name as saved and the new
-avatar), so the conversation keeps a trace of what
+(`CardAccepted`: "You saved {name} as a contact." in cases N and D;
+`CardUpdated` in cases U and E, and in P when a value changed;
+`CardRouteAdded` in P when only the route was added; each with the name
+as saved and the new avatar), so the conversation keeps a trace of what
 happened in this session. The title and the list take the name (§6.1).
 
-Snackbar `ConfirmContactSaved` (or `ConfirmContactUpdated`) with Undo.
-Undo is the reverse: a created contact is deleted with its route; an
-updated one gets back the values it had. The proposal row returns,
+Snackbar with Undo: `ConfirmContactSaved` in cases N and D,
+`ConfirmContactUpdated` in U, E and P. Undo is the reverse: a created
+contact is deleted with its route; an updated one gets back the values
+it had; in P the added route is removed from X as well, and X's values
+are restored. The proposal row returns,
 read, as it was. A kill inside the window leaves the contact saved,
 which is what the snackbar said.
 
@@ -949,6 +952,7 @@ and no string calls a card an "identity" (§1).
 | `CardKeepsPhoto` | You chose this contact's photo yourself. That photo stays. | case E, photo |
 | `CardSame` | This card matches your contact {name}. | case S |
 | `CardAccepted` | You saved {name} as a contact. | confirmation row |
+| `CardRouteAdded` | You added this conversation to {name}. | confirmation row, case P when no value changed (proposal; language-culture-en's to write) |
 | `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
 | `CardPhotoNotUsed` | The photo could not be shown and was not saved. | confirmation row addition |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo |
