@@ -213,7 +213,7 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::S1 => (
             UiText::IdS1Title,
             vec![UiText::IdS1Body],
-            Some(UiText::IdContinue),
+            Some(UiText::IdS1Unlock),
         ),
         ScreenId::S2 => (UiText::IdWordsTitle, Vec::new(), Some(UiText::IdDone)),
         ScreenId::Done => return page,

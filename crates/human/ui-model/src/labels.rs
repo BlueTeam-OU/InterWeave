@@ -560,6 +560,9 @@ ui_texts! {
     IdS1Title => "Show your recovery phrase",
     /// ANDROID, identity screens: S1's body, two lines.
     IdS1Body => "You will be asked to unlock your phone first. The app goes offline while your words are shown.",
+    /// ANDROID, identity screens: S1's primary: raises the system's
+    /// prompt, then shows the words.
+    IdS1Unlock => "Unlock and show my words",
     /// ANDROID, identity screens: The progress state (§3.5, §6).
     IdGoingOffline => "Going offline…",
     /// ANDROID, identity screens: S2's primary.
