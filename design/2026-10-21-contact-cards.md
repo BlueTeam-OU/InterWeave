@@ -478,45 +478,51 @@ same warning as "Anna".
 
 | case | context line | Accept label | Accept does |
 |---|---|---|---|
-| **P** the route is under no contact; another route of the same PeerId is under contact X | `CardSamePeer`: "Your contact {X} already has this PeerId in another conversation." and, when values would change, the U or E lines below | **Add this conversation to {X}** (`AddToContact`) | adds the route to X, then writes the card's values to X by the U and E rules; never a second contact for one PeerId (ADR-0059 d. 2) |
-| **N** the route is under no contact; no contact has this name | none | **Accept** (`Accept`) | creates a contact {name [surname]}, its photo, and the route |
-| **D** the route is under no contact; a contact on another PeerId has the same name | `CardSameName`, in `error`, with a warning icon: "One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept.", `{name}` being the existing contact's name as stored, so the person sees both spellings; and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
+| **P** the route is under no contact; another route of the same PeerId is under contact X | `CardSharesDevice`: "This card comes from the same device as your contact {X}." (or `CardSharesDeviceMany`, naming X and the number of other contacts on that PeerId) and, under it, `CardSharesDeviceNote`: a device can hold several identities; you can save this one as a contact of its own | **Accept as a new contact** (`AcceptAsNew`) | creates a contact {name [surname]}, its photo, and the route; X is unchanged, and never gains a second route of one PeerId (ADR-0059 d. 4 (ii), ADR-0061 d. 4) |
+| **N** the route is under no contact; no route of its PeerId is under one; no contact has this name | none | **Accept** (`Accept`) | creates a contact {name [surname]}, its photo, and the route |
+| **D** the route is under no contact; no route of its PeerId is under one; a contact on another PeerId has the same name | `CardSameName`, in `error`, with a warning icon: "One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept.", `{name}` being the existing contact's name as stored, so the person sees both spellings; and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
 | **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "If you accept, your contact {X} is updated." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
 | **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or the photo variant `CardKeepsPhoto`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
 | **S** the route is under X and the card changes nothing | `CardSame`: "This card matches your contact {X}." | **Close** (`Close`) in place of Accept; Decline is not shown | removes the row from the session, as Decline does, without a snackbar |
 
+Every contact compared here is a contact of the identity the
+conversation speaks as, which is the identity in front; another
+identity's contacts are never read for a case, a warning or a link
+(ADR-0061 d. 9), and the same counterparty saved under two identities
+is two contacts (d. 4).
+
 The cases are tested in this order: the route under X (S, E, U), then P,
 then D, then N. E applies per value (name, photo). A card whose route
-or PeerId is already under X updates X rather than creating a contact,
-since X is that peer; but X being that peer says nothing about whether
-it is naming itself as someone else. So **in cases U, E and P, whenever
-Accept would write a name to X** (the name changes and is not a local
-edit), and that name has the same key as a contact other than X,
-`CardSameName` is shown too, in `error`, above the case's own line,
-naming that other contact, with its Open your contact link (ADR-0059
-Security implications: a second contact with an existing name is shown
-as such before acceptance). The Accept label stays the case's. A PeerId is never split across two
-contacts (ADR-0059 d. 2 constrains Move, architect-cto 2026-10-21), so
-P's X is the one contact holding that PeerId. A photo is a "value that changes" whenever the card
-carries one and X's photo is not a local choice, since the client cannot
-compare a photo it has not decoded.
+is already under X updates X rather than creating a contact, since X is
+that identity of that peer; but X being that identity says nothing about
+whether it is naming itself as someone else. So **whenever Accept would
+write a name** — in case P, and in cases U and E when the name changes
+and is not a local edit — and that name has the same key as a contact on
+another PeerId, `CardSameName` is shown too, in `error`, above the
+case's own line, naming that contact, with its Open your contact link
+(ADR-0059 Security implications: a second contact with an existing name
+is shown as such before acceptance). The Accept label stays the case's.
+A contact on the same PeerId with the same name is not a lookalike
+warning: it is the same device, which case P's line already says, and
+their titles are told apart by the route label (§6.1). A photo is a
+"value that changes" whenever the card carries one and X's photo is not
+a local choice, since the client cannot compare a photo it has not
+decoded.
 
 #### 5.4.2 Accept
 
 Runs at once: the contact (and route) is written, and the photo is
 decoded only now, with the memory-safe decoder, to the fixed display
 size. The proposal row is replaced in place by a short confirmation row
-(`CardAccepted`: "You saved {name} as a contact." in cases N and D;
-`CardUpdated` in cases U and E, and in P when a value changed;
-`CardRouteAdded` in P when only the route was added; each with the name
-as saved and the new avatar), so the conversation keeps a trace of what
+(`CardAccepted`: "You saved {name} as a contact." in cases N, D and P;
+`CardUpdated` in cases U and E; each with the name as saved and the new
+avatar), so the conversation keeps a trace of what
 happened in this session. The title and the list take the name (§6.1).
 
-Snackbar with Undo: `ConfirmContactSaved` in cases N and D,
-`ConfirmContactUpdated` in U, E and P. Undo is the reverse: a created
+Snackbar with Undo: `ConfirmContactSaved` in cases N, D and P,
+`ConfirmContactUpdated` in U and E. Undo is the reverse: a created
 contact is deleted with its route; an updated one gets back the values
-it had; in P the added route is removed from X as well, and X's values
-are restored. The proposal row returns,
+it had. The proposal row returns,
 read, as it was. A kill inside the window leaves the contact saved,
 which is what the snackbar said.
 
@@ -566,9 +572,8 @@ whether case D should take no right swipe.
   replace an earlier one (d. 3); each row's context line is computed
   when it is shown, and again after **any action or Undo that changes
   which contact holds a route or what a contact's values are** — an
-  Accept and its Undo, Details' Add this conversation to {X} and its
-  Undo, a Move and its Undo, a Delete and its Undo, a name edit, Remove
-  photo — so an older card under a just-accepted newer one reads as
+  Accept and its Undo, Details' Add as a contact, a Move and its Undo,
+  a Delete and its Undo, a name edit, Remove photo — so an older card under a just-accepted newer one reads as
   case U, E or S against the new values, and a row never keeps a label
   whose case no longer holds.
 - A card that arrives while the conversation is not shown is unread
@@ -579,47 +584,33 @@ whether case D should take no right swipe.
   `CardPreviewSent` ("You shared a card"). Never the claimed name: the
   list has no PeerId beside it to frame the claim.
 - **Notification** (`human-client-ui.md` §10): the conversation's title
-  and `CardNotification` ("You received a contact card."), never the claimed
-  name or photo, for the same reason. A tap opens the conversation.
+  (the short PeerId until Accept) and `CardNotification` ("You received
+  a contact card."), never the claimed name or photo, for the same
+  reason, and the identity it arrived on (§5.7.5). A tap opens the
+  conversation, under that identity.
 
 ### 5.5 One's own card row
 
 An outbound card is shown as a row at the end side in the sent bubble's
 colour (`primary-container`), holding the card as sent (avatar or photo,
-name and surname) and the line `CardSentLabel`: "Your card: {label}"
-(the label is the sender's own and is shown only to them), then the
-status and time as for any sent message. Its actions are those of a sent
+name and surname) and the line `CardSentLabel`: "You shared your card",
+then the status and time as for any sent message. The card shown is the
+one that was sent, not the identity's card as it is now: an edit after
+the share does not rewrite the row (`CardSharedStays`). Its actions are those of a sent
 message in its state (Retry, Cancel), with the same swipes (kind C).
 
 ### 5.6 Naming a contact by hand
 
-The person can also type a name (`human-client-ui.md` §3). What Details
-(§6.4) offers depends on the conversation's PeerId, never on its route
-alone, so that a PeerId is never split across two contacts (§5.4.1):
-
-- **no route of the PeerId is under a contact**: **Add as a contact**
-  (`AddAsContact`), which opens the contact page's name field empty, for
-  that route; Save creates the contact. The name is a local edit from
-  the start (it is never overwritten by a card).
-- **another route of the PeerId is under contact X**: **Add this
-  conversation to {X}** (`AddToContact`, the same words as case P's
-  Accept) in its place. It runs at once, adds the route to X and changes
-  none of X's values; snackbar `ConfirmContactUpdated` with Undo, which
-  removes the route again; a kill inside the window leaves the route
-  added, as said. The Details dialog closes with the action, because
-  the dialog is modal and would cover the snackbar's Undo until it timed
-  out; focus goes to the conversation's header title (never the
-  composer), and the snackbar, its Undo included, is reachable as any
-  conversation snackbar is. After Undo, focus goes to the header title
-  (the Undo control that held it is gone with the snackbar).
-  Opening Details again shows the contact (§6.4). Add as a contact is not
-  offered.
-
-The command-line client follows the same rule: it refuses to create a
-contact for a route whose PeerId is already under one, and names that
-contact. **Undo of Delete contact** (§6.3) is withdrawn — its snackbar
-closes — as soon as any PeerId the deleted contact held comes under
-another contact, so an undo can never put a PeerId under two.
+The person can also type a name (`human-client-ui.md` §3). Details
+(§6.4) of a conversation whose route is under no contact of its
+identity offers **Add as a contact** (`AddAsContact`), which opens the
+contact page's name field empty, for that route; Save creates the
+contact under the conversation's identity. The name is a local edit
+from the start (it is never overwritten by a card). When another route
+of the same PeerId is under a contact X, Details says so above the
+action (`DetailsSharesDevice`, as case P's line, §5.4.1), and Add as a
+contact still makes a contact of its own: a contact holds at most one
+route per PeerId (ADR-0061 d. 4), so there is no "add to X".
 
 ## 6. Showing contacts
 
