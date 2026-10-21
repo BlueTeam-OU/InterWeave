@@ -964,7 +964,7 @@ fn install_with_a_missing_input_writes_nothing() {
             .env_remove("DBUS_SESSION_BUS_ADDRESS")
             .output()
             .expect("install.sh runs");
-        let placed = |dir: &Path| std::fs::read_dir(dir).map(|d| d.count()).unwrap_or(0);
+        let placed = |dir: &Path| std::fs::read_dir(dir).map_or(0, Iterator::count);
         let written = (
             home.join(".local/bin").exists(),
             config.join("systemd/user").exists(),
