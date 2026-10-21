@@ -729,13 +729,14 @@ A conversation started by the person is the identity in front's
 whose endpoint it reached. Neither ever changes identity, and nothing
 moves a conversation, a contact or a card from one identity to another.
 The new-conversation flow is plan §18 carry 11's, not designed here
-(§11); what it must do, while two or more identities are held, is ask
-which identity speaks by naming the identity in front at its top
-(`NewConversationAs`, "You start this conversation as {identity}") with
-**Switch identity** (`IdentitySwitchAction`) beside it, which performs
-§5.7.3's switch, before anything can be sent. It never offers a
-per-conversation choice of identity that would leave the conversation
-under an identity not in front (§12 Q3 on this reading).
+(§11); what it must do, while two or more identities are held, is name
+the identity in front at its top before anything can be sent
+(`NewConversationAs`, "You start this conversation as {identity}"),
+and ask nothing: no choice of identity, since a chooser that could pick
+another identity while this one is in front is the confusion the
+owner's rule forbids (ADR-0061 d. 3). To start as another identity, the
+person switches first, on Chats (§5.7.1), the one place a switch is
+made.
 
 #### 5.7.5 Notifications
 
@@ -1412,7 +1413,6 @@ and are for them to write.
 | `IdentityNotInFront` | You are using {front}. This page changes {identity}. | §5.2 when the page's identity is not in front (new, proposal) |
 | `TrustAllIdentities` | Trust applies to all your identities on this device. | Trust page with two or more identities (new, proposal) |
 | `NewConversationAs` | You start this conversation as {identity} | new-conversation flow, when built (new, proposal) |
-| `IdentitySwitchAction` | Switch identity | beside it (new, proposal) |
 | `IdentityUnavailable` | {identity} cannot send or receive right now | §5.7.6 (new, proposal) |
 | `CardSharesDevice` | This card comes from the same device as your contact {name}. | case P (new, proposal) |
 | `CardSharesDeviceMany` | This card comes from the same device as your contact {name} and {n} other contacts. | case P, several (new, proposal) |
@@ -1499,24 +1499,12 @@ For architect-cto, asked with this revision (the shape of ADR-0061
 decision 9 and the records around it; the note is built on the reading
 given until they answer):
 
-- **Q1** — renaming an identity. ADR-0061 decisions 2 and 7 let the
-  client rename one. Read here as renaming its card (the name people
-  see); the route label, the EndpointId, is fixed once created (§5.1),
-  because conversations are keyed by it for life and every
-  counterparty's contact holds it as the route, so a changed EndpointId
-  would reach them as a new identity and a new contact. If renaming the
-  EndpointId is meant, the dialog must say that every person who knows
-  this identity will see a new one.
-- **Q2** — one identity held. ADR-0061 decision 3 says a client with
-  one identity asks nothing and shows the identity only where asked;
-  decision 9 says the identity is named everywhere. Read here as
-  decision 9 applying from the second identity on (§5.7).
-- **Q3** — starting a conversation. Decision 3 says that with several
-  identities starting one asks which speaks; decision 9 says a new
-  conversation runs under the identity in front and nothing else. Read
-  here as the start naming the identity in front with Switch identity
-  beside it, which switches the whole app, never a per-conversation
-  choice (§5.7.4).
+- **Q1–Q3**, settled by the records on #335 at 6a2896be before they
+  were sent: renaming an identity renames its card, never the EndpointId
+  (ADR-0061 d. 7; §5.1 fixes the route label); the identity controls
+  appear with the second identity, none with one (d. 3 and d. 9;
+  §5.7); a new conversation speaks as the identity in front, named
+  before the first send, and nothing asks (d. 3; §5.7.4).
 - **Q4** — the lock screen. `human-client-ui.md` §10 lets the person
   hide notification content; read here as the redacted notification
   naming no identity, since an identity's name can be what the person
