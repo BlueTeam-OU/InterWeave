@@ -946,7 +946,7 @@ and no string calls a card an "identity" (§1).
 | `UpdateContact` | Update contact | cases U, E |
 | `ShareCardPreviewSpoken` | {title} will see the name {name}. | chooser preview, accessible description, no photo |
 | `ShareCardPreviewSpokenPhoto` | {title} will see the name {name} and your photo. | the same, with the photo |
-| `MoveRoutePickerTitle` | Move this conversation to which contact? | the move-route picker's title. Every route of this row's PeerId moves together, not only this conversation (architect-cto's ruling of 2026-10-21); the text must say what the person picks a contact for, without promising less than moves; language-culture-en to reword |
+| `MoveRoutePickerTitle` | Move this PeerId to which contact? | the move-route picker's title. Every route of this row's PeerId moves together, not only this conversation (architect-cto's ruling of 2026-10-21); the text must say what the person picks a contact for, without promising less than moves |
 | `CardPhotoLabel` | Photo for this card | editor photo circle, accessible label |
 | `CardPhotoNone` | No photo for this card | the same, with no photo |
 | `CardSamePeer` | Your contact {name} already has this PeerId in another conversation. | case P; `{name}` the contact's name |
@@ -981,9 +981,9 @@ and no string calls a card an "identity" (§1).
 | `ContactRouteTrusted` / `ContactRouteNotTrusted` | Trusted / Not trusted | route trust in words |
 | `OpenConversation` | Open conversation | route row |
 | `MoveRoute` | Move to another contact | route row |
-| `MoveRouteConfirm` | Move this conversation with {peer} from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name. Must say every conversation with {peer} moves, not this one alone (architect-cto, 2026-10-21); language-culture-en to reword |
-| `MoveRouteLast` | {name} has no other conversation, so moving this one deletes the contact {name}. | dialog addition, when {peer}'s routes are all {name} has; must say moving them deletes the contact; language-culture-en to reword |
-| `ConfirmRouteMoved` | Moved to {other} | snackbar after Move, with Undo; proposal |
+| `MoveRouteConfirm` | Move every conversation with {peer} from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name. Must say every conversation with {peer} moves, not this one alone (architect-cto, 2026-10-21) |
+| `MoveRouteLast` | {name} has no other conversations, so moving them deletes the contact {name}. | dialog addition, when {peer}'s routes are all {name} has; must say moving them deletes the contact |
+| `ConfirmRouteMoved` | Conversations moved to {other} | snackbar after Move, with Undo |
 | `Move` | Move | dialog primary |
 | `DeleteContact` | Delete contact | contact overflow |
 | `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo |
