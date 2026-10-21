@@ -19,10 +19,12 @@
 //! B's far end is a plain data session in most cases here. In one case
 //! (`the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed`)
 //! it is the human client's own facade, with its store, over its IPC
-//! binding. The facade, not the test, decides how each envelope travels.
-//! The one at the decoded ceiling is larger than any payload, so it can
-//! only cross as `;ce=br`. The bridge decodes it and forwards the
-//! envelope's JSON as text, reading nothing of what it means.
+//! binding. The facade, not the test, decides how each envelope travels,
+//! and the test reads that choice from the facade's pending row. The
+//! bridge decodes `;ce=br` and forwards the envelope's JSON as text,
+//! reading nothing of what it means. Toward the facade the bridge sends
+//! plain only: a tool's `content` is a UTF-8 string, so the model cannot
+//! hand it compressed bytes.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -905,10 +907,10 @@ fn chat(
 /// carry). Two messages go from the facade on B to the bridge on A. The
 /// first is plain. The second's JSON is exactly
 /// `MAX_DECOMPRESSED_BYTES`: the largest the facade may send, and the
-/// most the bridge decodes. The bridge forwards each as the envelope's
-/// own JSON, and `meta.content_type` is the media type without `ce`. The
-/// second's content is larger than any IPC payload, so it can only have
-/// travelled as `;ce=br`. Then the model replies to the facade twice:
+/// most the bridge decodes. The facade's pending rows show it chose plain
+/// for the first and `;ce=br` for the second. The bridge forwards each as
+/// the envelope's own JSON, byte for byte, and `meta.content_type` is the
+/// media type without `ce`. Then the model replies to the facade twice:
 /// once as `HumanChatV2`, which the facade stores and hands over as from
 /// A's `claude`, and once as plain text, which the facade presents
 /// nothing of and counts as an unknown media type. The plain text is the
@@ -933,9 +935,29 @@ async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed
     let edge = chat(2, "", Some(MAX_DECOMPRESSED_BYTES));
     let mut token = None;
     for (envelope, at_the_edge) in [(&plain, false), (&edge, true)] {
-        Box::pin(facade.client.send(to_claude.clone(), envelope, wall_ms()))
+        let row = Box::pin(facade.client.send(to_claude.clone(), envelope, wall_ms()))
             .await
             .expect("the facade commits it");
+        // How the facade chose to send it, read from its pending row
+        // before the first tick attempts it: once accepted the row is gone.
+        let chosen = facade
+            .client
+            .store_mut()
+            .pending_outbound_row(row)
+            .expect("the store reads")
+            .expect("pending until attempted")
+            .media_type
+            .map(|m| m.as_str().to_owned());
+        let expected = if at_the_edge {
+            format!("{MEDIA_TYPE_V2};ce=br")
+        } else {
+            MEDIA_TYPE_V2.to_owned()
+        };
+        assert_eq!(
+            chosen.as_deref(),
+            Some(expected.as_str()),
+            "the facade's encoding"
+        );
         let deadline = tokio::time::Instant::now() + PATIENCE * 3;
         let n = loop {
             facade.step().await;
@@ -957,11 +979,10 @@ async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed
             tokio::time::sleep(Duration::from_millis(250)).await;
         };
         let content = n["content"].as_str().expect("text content");
-        let got = HumanChatV2::parse(content).expect("the envelope's JSON");
         assert_eq!(
-            (&got.kind, &got.text),
-            (&envelope.kind, &envelope.text),
-            "forwarded as composed"
+            content,
+            serde_json::to_string(envelope).expect("serializes"),
+            "the envelope's JSON, byte for byte"
         );
         let meta = &n["meta"];
         assert_eq!(meta["delivery_mode"], json!("direct"));
@@ -970,18 +991,6 @@ async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed
         assert_eq!(meta["destination_endpoint"], json!("claude"));
         assert_eq!(meta["payload_encoding"], json!("utf8"));
         assert_eq!(meta["content_type"], json!(MEDIA_TYPE_V2));
-        if at_the_edge {
-            assert_eq!(content.len(), MAX_DECOMPRESSED_BYTES, "whole, never cut");
-            assert!(
-                content.len() > MAX_PAYLOAD_BYTES,
-                "larger than any payload, so it crossed compressed"
-            );
-        } else {
-            assert!(
-                content.len() <= MAX_PAYLOAD_BYTES,
-                "the control crossed plain"
-            );
-        }
         token = Some(meta["reply_token"].as_str().expect("a token").to_owned());
     }
     let token = token.expect("a token");
