@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# test_phone-run.sh — phone-run's claims, against a stub lease and a stub adb,
-# with no phone and no real lease: the guard refuses a hand-set or nested
-# PHONE_RUN_HELD, the run never sees it, a stop does not wait on the
-# watcher's sleeps, a second TERM does not cut the stop short, and neither
-# a TERM nor a SIGKILLed wrapper leaves any part of the run or the server.
+# test_phone-run.sh — phone-run's claims, against a stub lease and a stub adb
+# that never touch the phone, while it holds the real pixel-9a lease: the
+# guard refuses a hand-set or nested PHONE_RUN_HELD, the run never sees it,
+# a stop does not wait on the watcher's sleeps, a second TERM does not
+# re-run the stop, each kill-server ends at its bound, and neither a TERM,
+# a SIGKILLed wrapper nor a SIGKILLed phone-run leaves any part of the run
+# or the server.
 # Run by hand: bash .agent-fabric/bin/test_phone-run.sh
+#
+# Not checked, because the stub cannot see it: the port's value per login
+# and the readiness wait being a bare TCP connect. And if the real lease or
+# this script is itself SIGKILLed, nothing here takes the case down: the
+# lease frees while that case's stub still holds this login's port, until
+# the case ends (at most about 15 s).
 #
 # It holds the real pixel-9a lease while it runs: its stub server takes
 # this login's adb port, which only a holder of the lease may use, and a
