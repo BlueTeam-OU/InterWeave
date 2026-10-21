@@ -25,6 +25,7 @@ UNDER_TEST="$SCRIPT_DIR/release_notices.py"
 
 failures=0
 SANDBOX="$(realpath -- "$(mktemp -d)")"
+[[ -n "$SANDBOX" && -d "$SANDBOX" ]] || { echo "test_release_notices: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 pass() { echo "  ✓ $1"; }
 fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2

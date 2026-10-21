@@ -51,6 +51,7 @@ command -v python3 >/dev/null || skip "no python3"
 
 failures=0
 SANDBOX="$(realpath -- "$(mktemp -d)")"
+[[ -n "$SANDBOX" && -d "$SANDBOX" ]] || { echo "test_release_android_apk: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 pass() { echo "  ✓ $1"; }
 fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2

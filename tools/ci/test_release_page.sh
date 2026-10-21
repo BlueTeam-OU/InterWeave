@@ -25,6 +25,7 @@ PY="${PYTHON:-python3}"
 
 failures=0
 SANDBOX="$(realpath -- "$(mktemp -d)")"
+[[ -n "$SANDBOX" && -d "$SANDBOX" ]] || { echo "test_release_page: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 
 pass() { echo "  ✓ $1"; }

@@ -28,6 +28,7 @@ UNDER_TEST="$SCRIPT_DIR/skia_prebuilt.sh"
 
 failures=0
 SANDBOX="$(realpath -- "$(mktemp -d)")"
+[[ -n "$SANDBOX" && -d "$SANDBOX" ]] || { echo "test_skia_prebuilt: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 pass() { echo "  ✓ $1"; }
 fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2
