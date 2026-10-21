@@ -31,3 +31,25 @@
 **Ruled.** The `remoteMessaging` condition of this record is the target-SDK half alone, closed by plan §20 step 3's first instrumented run on an API 34+ device; the type stays on the platform's definition and Android's own enforcement. No Play declaration is written, no Play review is awaited, and `specialUse` is no longer a fallback for a store's refusal. The first amendment's quotations and reasoning stay in this history as what was established about Play's texts on that day, since they were read and the gap in them is real; they bind nothing. The revisit trigger that read "Play refuses both" now reads "Android's platform rules disallow the type for this use". Plan §20 step 10 becomes F-Droid metadata and the inclusion-policy check (ADR-0056 decision 5); human-client-android.md and human-client-packaging.md §6 inherit the wording.
 
 **Not ruled.** Whether the project's own release page offers the APK F-Droid built (§22's); the F-Droid recipe's toolchain pin (Stage 19's, with devex-tooling). (Both moot since ADR-0057 the same day: no store, the release page is the distribution.)
+
+### Amendment 2026-10-21 — One embedded runtime per active identity in the one service; stay-reachable per identity, a change restarting that identity's runtime alone
+
+ADR-0061 (the owner's direction of 2026-10-21 that a person holds
+several network identities) has the Android app host one embedded
+`TransportRuntime` per identity the person has set active, inside the
+one foreground service this record chose, each with its own `human`
+EndpointId lease, listeners, custody and network-change handling, under
+one persistent notification naming the active identities. Two sentences
+of this record read as one runtime: "the service owns the `human`
+EndpointId lease while active" (one lease per active identity now) and,
+from A 2026-10-10, "a change while running restarts the service in the
+new mode" — which, read with several runtimes, would restart every
+identity's runtime for one identity's choice. Ruled with ADR-0061: the
+stay-reachable overlay is per identity (its file under that identity's
+profile state directory, as before), a change restarts that identity's
+runtime alone, and the service's own lifecycle follows the most
+reachable mode any active identity holds. The bound on active
+identities and the measurement of several runtimes in one service are
+ADR-0061 decision 2's and SPIKE-012's; the raised finding was #335's
+blind review's F7.
+

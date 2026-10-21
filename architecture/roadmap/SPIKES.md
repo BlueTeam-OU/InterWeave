@@ -547,4 +547,5 @@ the point at which the device's limits (memory, foreground-service
 policy, battery) bite.
 
 **Decision unlocked:** plan §30 step 3. Until the Result lands, the bound
-of ADR-0061 decision 2 stays four, read from configuration.
+of ADR-0061 decision 2 stands as that record states it, read from
+configuration.

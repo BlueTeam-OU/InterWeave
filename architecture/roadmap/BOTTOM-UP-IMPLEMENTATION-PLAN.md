@@ -151,7 +151,7 @@ Spikes are **just-in-time implementation gates**, not a large front-loaded phase
 | SPIKE-005 | admin hardening when enabled | stronger same-user local admin boundary |
 | SPIKE-007 | optional encrypted key-at-rest feature | selected audited envelope/KDF/AEAD behavior |
 | SPIKE-011 | the §29 store work, and any §22 release that ships a human store | the page-cipher store build for Linux and Android, its open/commit/read cost against the plaintext baseline the spike itself defines (none exists today) under ADR-0060 decision 4's criterion, RETENTION.md's deletion property on the encrypted file, the licence and vendored-advisory consequences; its Result pins the mechanism within ADR-0060 decision 4 or records the fallback |
-| SPIKE-012 | the §30 Android step | two embedded runtimes in one foreground service on the reference device: ports and listeners apart, network-change handling per runtime, memory and battery over a measured window, two seeds under two custody alias sets, one notification; its Result confirms or moves ADR-0061 decision 2's bound of four active identities |
+| SPIKE-012 | the §30 Android step | two embedded runtimes in one foreground service on the reference device: ports and listeners apart, network-change handling per runtime, memory and battery over a measured window, two seeds under two custody alias sets, one notification; its Result confirms or moves ADR-0061 decision 2's bound on active identities |
 | SPIKE-008 | Stage 17 Android lifecycle/packaging | foreground service, secure recovery UI, backup/D2D behavior, store policy |
 | SPIKE-009 | Stage 17 Android key custody | Android Keystore wrapping/invalidation and exact-PeerId preservation |
 
@@ -5961,7 +5961,11 @@ decision 6.
    RETENTION.md, shown as a proposal with the PeerId beside it and the
    same-name note; Accept writing `contacts` and `contact_routes`,
    Decline discarding; the photo decoded only after Accept with a
-   memory-safe decoder at a fixed size; a local edit never overwritten.
+   memory-safe decoder at a fixed size; a local edit never overwritten,
+   which the migration this step lands records — `contacts` gains
+   name_source, name_at, photo_source and photo_at (STATE.md, ADR-0059
+   A 2026-10-21); the sender re-encodes a chosen photo and strips every
+   metadata block before it enters a card (HUMAN-CHAT.md §Contact card).
    The conversation title takes the contact's name (`human-client-ui.md`
    §4). The manifest and dependency check of ADR-0059 decision 6, with
    its self-test, lands here, and pins ADR-0060 decision 8's
@@ -5991,7 +5995,10 @@ and names the conversation; a card from an unknown kind or over a bound
 is rejected locally with no network effect; a card over broadcast is
 ignored; a second card from the same route is a new proposal and
 overwrites no local edit; two same-name cards from two PeerIds are two
-proposals; a declined card leaves nothing in the store; two own cards shared to two
+proposals; a declined card leaves nothing in the store; a photo chosen
+with a GPS block and a camera serial leaves the sender with neither; an
+accepted card never overwrites a locally edited name or photo, and the
+contact page says where each came from; two own cards shared to two
 conversations, each counterparty holding only its own and nothing
 sent naming the other; a confirmed discard during a stalled rewrite
 removing the plaintext and keeping the key and the complete copy,
@@ -6017,8 +6024,9 @@ unlinks) loses no row on the next open, and a plaintext store with a
 damaged header reaches recovery mode, not discard; (c) SPIKE-011's Result cited with its figures; (d) the
 owner's privacy review of Stage 15's carry 11 answered in the record —
 over the card (what it still discloses: ADR-0059, Security
-implications) and over `read_pairs`, `conversation_index` and
-`contact_routes.last_seen`, which STATE.md puts in the same review.
+implications) and over `read_pairs`, `conversation_index`,
+`contact_routes.last_seen` and the contacts' provenance columns, which
+STATE.md puts in the same review.
 
 ### Record
 
@@ -6052,8 +6060,9 @@ ADR-0061 decision 2.
 
 No new crate. The work lands in `crates/human/app-core`,
 `crates/human/ui-model`, `crates/human/ui-slint`, `crates/human/store`
-(the identity as a dimension of the client's own state, never of a
-profile's store, which stays per profile), the two graphical clients
+(each profile's store stays per profile; the client's own list of the
+profiles it presents — names only, ADR-0061 decision 1 — is the one
+cross-identity record, outside every store), the two graphical clients
 and the command-line client under `apps/`, and `profile-config` for the
 active-identity bound and the "this client presents this profile"
 choice. `spikes/spike-012/` is the spike's home.
@@ -6083,14 +6092,19 @@ choice. `spikes/spike-012/` is the spike's home.
 (a) Steps 1–4 landed with their tests green on `main`; (b) the
 conformance cases, by name: a conversation cannot change identity and
 every message and card it sends travels under that identity's PeerId
-and no other; with two identities active a new conversation asks and a
-client with one asks nothing; no row of any store names two
+and no other; with two identities held, active or dormant, a new conversation asks
+— a dormant one offered as activate-and-speak under the bound — and a
+client with one asks nothing; a conversation of a dormant identity
+refuses to send until it is activated; no row of any store names two
 identities; a contact of identity A is unknown to identity B until B's
 own trust and store hold it, and the explicit copy creates nothing in
 B's trust set; the bound on active identities refused above it; two
 identities' custody apart (no identity's unlock opens another); the
-identity settings state the network-observer limit of ADR-0061
-decision 5; every action of steps 1–3 driven from the command-line
+identity settings state both limits of ADR-0061 decision 5, the
+counterparty's and the observer's; a notification for identity A's
+contact arriving while identity B's conversation is in front names A
+and shows nothing of B, and B's screens change nothing (decision 9);
+two profiles on one fixed listen port refused at attach by name; every action of steps 1–3 driven from the command-line
 client in a shell with no display; (c) SPIKE-012's Result cited with
 its figures.
 

@@ -18,6 +18,6 @@ that, and `human-client-ui.md` §3 now says it in those words. (A1)
 Decision 3's "a local edit is never overwritten by a card" needs the
 store to know where a value came from: STATE.md's `contacts` gains, for
 the name and for the photo, the source (card or person) and when,
-content-free columns in the §Logical tables review, added by plan §29
-step 2's migration. None of the three changes what a card is, who may
+content-free columns in the §Logical tables review, added by the
+migration plan §29 step 2 lands and listed in its exit gate's (d). None of the three changes what a card is, who may
 send one or what a receiver does with it before acceptance.
