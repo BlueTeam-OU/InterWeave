@@ -394,7 +394,9 @@ then D, then N. E applies per value (name, photo). So a card whose route
 or PeerId is already under X updates X and never warns of a name clash,
 since X is that peer. When routes of one PeerId sit under two contacts
 (after a Move, §6.3), P adds to the contact holding the route most
-recently active in a conversation. A photo is a "value that changes" whenever the card
+recently active in a conversation (`conversation_index.last_activity`;
+a route with none counts as oldest, and among equals the contact created
+first wins). A photo is a "value that changes" whenever the card
 carries one and X's photo is not a local choice, since the client cannot
 compare a photo it has not decoded.
 
@@ -448,8 +450,9 @@ in a menu. A proposal keeps Accept and Decline visible at rest, because
 it exists to be answered: a claim whose answer is hidden in a menu reads
 as a message, and the case's label (§5.4.1) is what tells the person what
 Accept will do before they do it. The row also has §7's menu (long
-press, or Enter on the focused row), holding the same Accept and Decline
-with the case's labels, then Copy PeerId; it has no Show source, since a
+press, or Enter on the focused row), holding the same actions the row shows
+with the case's labels — Accept and Decline, or in case S Close alone —
+then Copy PeerId; it has no Show source, since a
 card has no markdown source to show. §12 O1 asks the owner
 whether case D should take no right swipe.
 
@@ -766,6 +769,8 @@ on the desktop.
    | snackbar appears | stays where it was; the snackbar is reachable last in order | keyboard |
    | Open your contact {name} from case D | the contact page title; Back returns to the proposal's Accept | keyboard |
    | contact deleted | the Contacts list's first row, else its empty text | keyboard |
+   | Move: the picker opens | the first other contact | keyboard |
+   | Move: the picker cancelled | the route row's Move | keyboard |
    | Move route dialog | Cancel; after Move, the moved-to contact's page title | keyboard |
    | Discard pressed (R or K) | the dialog's Cancel | keyboard |
    | dialog cancelled | the Discard button | keyboard |
@@ -889,7 +894,7 @@ and no string calls a card an "identity" (§1).
 | `CardSurname` | Family name (optional) | editor field; must say optional |
 | `CardLabel` | Label (optional) | editor field |
 | `CardLabelHelp` | Only you see the label. It helps you tell your cards apart. | under the label field |
-| `CardSharedStays` | People who already have this card still see it as it was. To show them your changes, share the card with them again. | editor note; "keep" here is the ordinary verb: language-culture to reword around it |
+| `CardSharedStays` | People who already have this card still see it as it was. To show them your changes, share the card with them again. | editor note |
 | `Save` | Save | editor, contact page |
 | `CardNameNeeded` | Enter a name. | field error |
 | `CardNameTooLong` | Use 64 characters or fewer. | field error; "characters" for scalar values |
