@@ -61,14 +61,18 @@ Slint's ten crates on Android are `slint`, `slint-build`,
 `i-slint-backend-android-activity` and `i-slint-renderer-skia`. They are
 used under the Royalty-free licence (the owner, 2026-10-01; kept for
 Android by ADR-0057 decision 3), whose attribution `RELEASE.md`
-carries. **Open, not this file's:** `deny.toml` judges
-`x86_64-unknown-linux-gnu` alone, and its Royalty-free exceptions name
-the desktop's crates; `i-slint-backend-android-activity` and
-`i-slint-renderer-skia` are admitted by ADR-0057 decision 3 and are not
-yet written there, nor is `aarch64-linux-android` among its targets
-(p2p-network-dev's j91, `fix/deny-android-target`). `cargo deny
---target aarch64-linux-android check licenses` is to pass before the
-first release.
+carries. **The licence check sees them:** `deny.toml`'s `[graph]
+targets` is `x86_64-unknown-linux-gnu` and `aarch64-linux-android`
+(since #314, 2026-10-19), so one `cargo deny check` judges the phone's
+graph with the desktop's, and its Royalty-free exceptions name
+`i-slint-backend-android-activity` and `i-slint-renderer-skia` beside
+the desktop's crates (ADR-0057 decision 3). The check this file owed
+before the first release, `cargo deny --target aarch64-linux-android
+check licenses`, is that run: `tools/checks/check_dependencies.sh`, in
+CI's `tree checks` job. Its `unused-license-exception = "deny"` fails
+the check if the Android target leaves the list, since the two
+exceptions would then match nothing (`test_check_dependencies.sh`
+plants it).
 
 ### The native Skia library
 

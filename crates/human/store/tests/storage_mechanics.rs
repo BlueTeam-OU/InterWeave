@@ -2302,7 +2302,7 @@ fn a_v2_database_migrates_to_the_endpoint_scoped_key_without_losing_rows() {
 #[test]
 fn a_generated_key_with_the_right_name_and_a_different_expression_is_refused() {
     // THE NAME IS NOT THE CONTRACT, THE EXPRESSION IS. `table_info` does
-    // not report a generated column at all and `index_info` reports only
+    // not report a generated column at all and `index_xinfo` reports only
     // its name, so a `source_endpoint_key` redefined as the constant ''
     // presents an identical column list AND an identical unique key —
     // while collapsing every endpoint back into one, which is precisely
@@ -2346,8 +2346,8 @@ fn a_generated_key_with_the_right_name_and_a_different_expression_is_refused() {
 fn a_stored_generated_column_is_not_the_virtual_one_this_build_wrote() {
     // STORED rather than VIRTUAL is a different schema: it occupies a
     // real value per row, which is a content surface ADR-0044 did not
-    // budget for. `table_xinfo` reports 3 for it and 2 for VIRTUAL, and
-    // the declaration text differs, so it is caught twice over.
+    // budget for. `table_xinfo` reports 3 for it and 2 for VIRTUAL, which
+    // the hidden-column check compares.
     let dir = common::private_tempdir();
     let path = dir.path().join("state").join("human.sqlite3");
     drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
@@ -3064,6 +3064,55 @@ fn a_unique_key_compared_under_another_collation_is_refused() {
         matches!(&refused, Err(StoreError::Migration(d)) if d.contains("settings") && d.contains("NOCASE")),
         "a NOCASE key must refuse the open by its unique key, got {refused:?}"
     );
+}
+
+#[test]
+fn a_unique_key_over_an_expression_is_not_the_generated_column_this_build_wrote() {
+    // migration_3 keys `unread_inbound` on the generated column
+    // `source_endpoint_key` because a unique index over the expression
+    // itself reads, through `index_xinfo`, as a column with no name: one
+    // over `IFNULL(source_endpoint, '')` and one over a constant that
+    // collapses every endpoint read alike. Both are refused by the
+    // unique-key check, the generated columns left as this build wrote
+    // them so no other check stands in for it.
+    // The constant is written `('' || '')`: a bare `''` in an index's
+    // column list is read as a column name.
+    for expression in ["IFNULL(source_endpoint, '')", "('' || '')"] {
+        let dir = common::private_tempdir();
+        let path = dir.path().join("state").join("human.sqlite3");
+        drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+        let conn = rusqlite::Connection::open(&path).expect("reopen");
+        conn.execute_batch(&format!(
+            "
+            ALTER TABLE unread_inbound RENAME TO unread_inbound_old;
+            CREATE TABLE unread_inbound (
+                row_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_message_id  TEXT    NOT NULL,
+                source_peer     TEXT    NOT NULL,
+                source_endpoint TEXT,
+                channel_id      TEXT,
+                media_type      TEXT,
+                payload         BLOB    NOT NULL,
+                received_at     INTEGER NOT NULL,
+                source_endpoint_key TEXT GENERATED ALWAYS AS (IFNULL(source_endpoint, '')) VIRTUAL,
+                channel_key         TEXT GENERATED ALWAYS AS (IFNULL(channel_id, '')) VIRTUAL
+            );
+            DROP TABLE unread_inbound_old;
+            CREATE UNIQUE INDEX unread_inbound_key
+                ON unread_inbound (source_peer, {expression}, channel_key, app_message_id);
+            CREATE INDEX unread_inbound_by_received ON unread_inbound (received_at, row_id);
+            "
+        ))
+        .expect("the rebuild is legal SQLite");
+        drop(conn);
+
+        let refused = HumanStore::open(&path, StoreOptions::default());
+        assert!(
+            matches!(&refused, Err(StoreError::Migration(m))
+                if m.contains("unread_inbound") && m.contains("has unique keys") && m.contains("<expression>")),
+            "a unique key over {expression} must be refused by the unique-key check, got {refused:?}"
+        );
+    }
 }
 
 #[test]
