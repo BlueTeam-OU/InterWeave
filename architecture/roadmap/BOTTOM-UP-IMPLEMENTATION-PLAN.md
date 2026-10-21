@@ -5978,11 +5978,13 @@ decision 6.
    the parser (`fixtures/human-chat-v2/human-chat-v2-contact-card.json`,
    with their test-only key pair), and the small-order-R and
    non-canonical-S vectors HUMAN-CHAT.md's fixture list owes to this
-   step added to that file with the parser, each shown to verify under
-   a verify without the check it is for (the crate's non-strict
-   `verify`) so that a misbuilt vector is caught, the non-canonical-S
-   one failing whenever the verifier's `legacy_compatibility` feature
-   is on in the build.
+   step added to that file with the parser, each guarded against being
+   misbuilt: the R vector shown to verify under the crate's non-strict
+   `verify`, which lacks only the small-order check; the S vector
+   shown to be the valid signature with S raised by the group order
+   and still below 2^253, since the scalar check is in the decoding
+   every verify of the crate shares, the vector failing whenever the
+   verifier's `legacy_compatibility` feature is on in the build.
 2. **The proposal and the acceptance** (rust-ui-dev): the identity key
    pair generated with the identity and sealed as the store key is
    (ADR-0063, ADR-0060 decision 3: its own IDK1 envelope and alias
