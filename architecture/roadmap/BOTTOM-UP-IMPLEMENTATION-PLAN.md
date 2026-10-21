@@ -6103,8 +6103,8 @@ sentence gaining the administrative path in the same change.
    `{local EndpointId, remote route}` as the conversation key for life;
    a contact per remote identity held by the local identity that
    accepted it, at most one route per PeerId under a contact, the
-   contact page showing the PeerId and the contacts that share it; the
-   client operating as one identity at a time, named on every acting
+   contact page showing the PeerId and the identity in front's contacts
+   that share it; the client operating as one identity at a time, named on every acting
    surface, the explicit switch (ADR-0061 decision 9); Share sending the conversation's identity's card with no
    chooser; `human-client-ui.md` §3 and §4 as amended.
 3. **Android** (rust-ui-dev): one in-process session and lease per
@@ -6126,7 +6126,14 @@ identity in front with no chooser, and a client with one shows no
 identity control; a card received on a second endpoint of a
 PeerId this identity knows creates a second contact and the proposal
 names this identity's contact sharing its node, consulting no other
-identity's; a contact never holds two routes of one PeerId; the
+identity's; a contact never holds two routes of one PeerId; a direct
+message reaching identity B from a route only A holds as a contact is
+titled by the short PeerId, and B's Accept on that route creates B's own
+contact with A's unchanged; an identity's endpoint is created with
+advertise off and the endpoint directory lists no identity to a trusted
+peer; Remove deletes the identity's endpoint, conversations, pending
+outbound (unsent), contacts and card after one confirmation and is absent
+on the only and the default identity; the
 identity settings and the contact page state what identities of one node
 share (ADR-0061 decision 5); a notification names the identity it arrived
 on and opening it switches to that identity visibly first; with two
