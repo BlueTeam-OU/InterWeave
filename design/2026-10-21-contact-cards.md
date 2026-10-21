@@ -740,8 +740,9 @@ on the desktop.
    label, and Accept does what the table says; in case E a locally
    edited name is unchanged after Accept.
    Fixtures for D against a contact "Anna Rossi": a card "Anna" +
-   "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; "Anna" + "Rossi" sent as a
-   name "Anna Rossi" with U+00A0; "Ａnna" (fullwidth) + "Rossi" — each
+   "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; a name "Anna Rossi" with
+   U+00A0 between the words and no surname; "Ａnna" (fullwidth) +
+   "Rossi" — each
    shows `CardSameName`. A card from a second endpoint of a contact's
    PeerId is case P and leaves one contact holding both routes.
 8. Accept then Undo leaves the store as before the Accept; Decline then
