@@ -96,11 +96,13 @@ the three rounds' medians, the cipher builds as a ratio of the plaintext:
 - Within ADR-0060 decision 4's criterion (twice the baseline) at both sizes
   a criterion is judged at, on the desktop. The device rows are owed: the
   Stage 17 reference device is away with the owner.
-- **The read walk is quadratic in the store, whatever the engine**: each
-  page is `SCAN` plus `USE TEMP B-TREE FOR ORDER BY` (no index on
-  `(received_at, row_id)`), so the plaintext walk goes from 1.8 ms at 500 to
-  1.9 s at 20 000, and SQLCipher, paying a decryption per page per scan,
-  multiplies it. Not this spike's mechanism to fix; reported.
+- **The read walk was quadratic in the store, whatever the engine**, at
+  the pin (schema v7): each page was `SCAN` plus `USE TEMP B-TREE FOR
+  ORDER BY` (no index on `(received_at, row_id)`), so the plaintext walk
+  went from 1.8 ms at 500 to 1.9 s at 20 000, and SQLCipher, paying a
+  decryption per page per scan, multiplied it. Reported; architect-cto
+  ruled the index onto this spike's PR (REPLY 01a15f1a): schema v8,
+  below.
 - **The deletion property holds on the encrypted file**, clean close and
   next open after an abort: the decrypted pages hold the kept marker and
   not the released one; the control (no release) finds both. The raw files
@@ -126,6 +128,30 @@ the three rounds' medians, the cipher builds as a ratio of the plaintext:
   HMAC failure on page 1 to stderr (page numbers, no key material). A
   rollback build therefore cannot tell the encrypted store from a corrupt
   one by the error.
+
+**Recorded: the index rows, `REPRODUCTION-index-2026-10-21.log`**
+(`index.sh 1a4fa590 c4a5af95`: the harness built at the pin, schema v7,
+and at schema v8, which indexes `(received_at, row_id)` on both inbound
+tables; the two sides interleaved by round on a shared host, load about
+37 at the start). Medians of the rounds' medians:
+
+| kept | operation | v7 plaintext | v7 SQLCipher | v8 plaintext | v8 SQLCipher |
+|---|---|---|---|---|---|
+| 500 | read-walk | 1.9 ms | 2.2 ms (x1.16) | 1.1 ms | 1.2 ms (x1.15) |
+| 2000 | read-walk | 13.6 ms | 13.2 ms (x0.97) | 5.3 ms | 5.3 ms (x1.01) |
+| 20 000 (stress) | read-walk | 2.50 s | 23.8 s (x9.5) | 223 ms | 146 ms (x0.65) |
+| 500 | open-cold | 5.3 ms | 6.0 ms | 5.1 ms | 6.0 ms |
+| 2000 | open-cold | 6.9 ms | 8.1 ms | 6.8 ms | 8.3 ms |
+| 500 | commit-unread | 2.6 ms | 2.8 ms | 2.2 ms | 2.5 ms |
+| 2000 | commit-unread | 2.6 ms | 2.8 ms | 3.0 ms | 3.0 ms |
+
+- The walk is now linear: v8 reads its index (`SEARCH ... USING INDEX`,
+  no temporary B-tree, pinned by the store's
+  `the_inbound_walk_reads_its_index_not_a_sort`), and SQLCipher's
+  multiplier on the stress row is gone with the repeated scans.
+- The second index costs a commit nothing measurable here at 500 and
+  2000 kept; the stress row's single round on a loaded host is not a
+  measurement of it.
 
 **Recorded: the rewrite and key-file rows, `REPRODUCTION-rewrite-2026-10-21.log`**
 (`rewrite.sh`, 500 kept; the prototype is `harness/src/migrate.rs`, ADR-0060
@@ -166,5 +192,4 @@ decisions 3 and 6 with A 2026-10-21):
   the scrub before the unlink is what the record asks.
 
 Owed: the device rows (and Android's Keystore sealing, decision 3); the
-index on the read walk's sort key, measured before and after (architect-
-cto, REPLY 01a15f1a); the spike's Result in `architecture/roadmap/SPIKES.md`.
+spike's Result in `architecture/roadmap/SPIKES.md`.
