@@ -78,8 +78,6 @@ app v1.0.0 (/somewhere/app)
 shared v1.0.0
 other v1.0.0
 reuse v1.0.0
-bare v1.0.0
-nolicence v1.0.0
 shared v1.0.0 (*)
 EOF
 run() {
@@ -93,8 +91,7 @@ if run "$SANDBOX/compiled.txt" app; then
     N="$SANDBOX/n.md"
     lacking=""
     for line in '- `shared` 1.0.0: MIT — text T' '- `other` 1.0.0: MIT — text T' \
-        '- `reuse` 1.0.0: Apache-2.0 — text T' \
-        '- `bare` 1.0.0: MIT — publishes no licence file; source https://example.invalid/bare'; do
+        '- `reuse` 1.0.0: Apache-2.0 — text T'; do
         grep -qF -- "$line" "$N" || { fail "the notices lack: $line"; lacking=1; }
     done
     [[ -n "$lacking" ]] || pass "every compiled crate is listed with its licence"
@@ -110,7 +107,7 @@ if run "$SANDBOX/compiled.txt" app; then
     grep -qx 'the text of Apache-2.0.txt' "$N" \
         && pass "a LICENSES/ directory's text is included" \
         || fail "a LICENSES/ directory's text is missing"
-    grep -qx '5 crates, 2 distinct licence texts, 2 crates with no licence file' "$SANDBOX/stdout" \
+    grep -qx '3 crates, 2 distinct licence texts' "$SANDBOX/stdout" \
         && pass "the counts are printed" || fail "the counts are not as expected" "$(cat "$SANDBOX/stdout")"
 else
     fail "a consistent metadata and compiled list were refused" "$(cat "$SANDBOX/err")"
@@ -132,9 +129,16 @@ refused "a compiled crate the metadata's normal walk does not reach" \
 printf 'not a tree line\n' > "$SANDBOX/garbled.txt"
 refused "a compiled list that is not cargo tree's" "not a cargo tree line" "$SANDBOX/garbled.txt" app
 refused "a package that is not a workspace member" "not a workspace member: nobody" "$SANDBOX/compiled.txt" nobody
+# A crate with a licence expression and no licence file: its notice is
+# not in its files, so it is refused, not listed without it (the passing
+# run above, with the same crate defined but not compiled, is the control).
+{ cat "$SANDBOX/compiled.txt"; echo "bare v1.0.0"; } > "$SANDBOX/bare.txt"
+refused "a compiled crate that publishes no licence file" \
+    "bare 1.0.0 (MIT) publishes no licence file, so its notice cannot be shipped" "$SANDBOX/bare.txt" app
 metadata broken
+{ cat "$SANDBOX/compiled.txt"; echo "nolicence v1.0.0"; } > "$SANDBOX/nolicence.txt"
 refused "a compiled crate with no licence expression and no licence file" \
-    "nolicence 1.0.0 has no licence expression and no licence file" "$SANDBOX/compiled.txt" app
+    "nolicence 1.0.0 has no licence expression and no licence file" "$SANDBOX/nolicence.txt" app
 
 python3 "$UNDER_TEST" "$SANDBOX/metadata.json" >/dev/null 2>&1
 [[ $? -eq 2 ]] && pass "a missing argument is a usage error (2)" || fail "a missing argument did not exit 2"

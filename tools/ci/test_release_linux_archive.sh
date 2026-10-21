@@ -107,7 +107,6 @@ interweave-transportctl v1.0.0 (/somewhere/apps/transportctl)
 libbar v1.0.0
 interweave-human-desktop v1.0.0 (/somewhere/apps/human-desktop)
 a-macro v1.0.0
-bare v1.0.0
 libfoo v1.0.0 (*)
 EOF
 
@@ -185,8 +184,7 @@ EOF
 
     N="$X/$NAME/THIRD-PARTY-NOTICES.md"
     for line in '- `libfoo` 1.0.0: MIT OR Apache-2.0 — text T' '- `libbar` 1.0.0: MIT — text T' \
-        '- `a-macro` 1.0.0: MIT — text T' \
-        '- `bare` 1.0.0: MIT — publishes no licence file; source https://example.invalid/bare'; do
+        '- `a-macro` 1.0.0: MIT — text T'; do
         grep -qF -- "$line" "$N" || { fail "the notices lack: $line"; lacking=1; }
     done
     [[ -n "${lacking-}" ]] || pass "the notices list every crate reached by a normal dependency, a proc macro included"

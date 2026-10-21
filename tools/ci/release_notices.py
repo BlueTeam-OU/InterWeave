@@ -29,14 +29,16 @@
 # The texts are each crate's own files whose names begin LICENSE, LICENCE,
 # COPYING, NOTICE, COPYRIGHT or UNLICENSE (and the files of a directory so
 # named, as a LICENSES/ directory holds them), or its `license-file`; a text
-# several crates share is printed once and named by each. A crate that
-# publishes no licence file is listed with its licence expression and
-# marked so, never given a text it does not carry.
+# several crates share is printed once and named by each.
 #
-# REFUSED, writing nothing and removing an earlier run's <out.md>, when a named package is not a workspace member,
-# a compiled crate is not one the metadata's normal walk from the
-# packages reaches (the two disagree about the build), or a crate carries
-# no licence expression and no licence file.
+# REFUSED, writing nothing and removing an earlier run's <out.md>, when a
+# named package is not a workspace member, a compiled crate is not one the
+# metadata's normal walk from the packages reaches (the two disagree about
+# the build), or a crate publishes no licence file: an MIT or BSD crate's
+# copyright notice must travel with every copy, and one that lives only in
+# its source headers, or nowhere in the crate, is not found by a name
+# scan, so the crate is refused rather than listed by its licence
+# expression alone with its notice dropped.
 #
 # Exit codes:
 #   0  written; the counts are printed
@@ -120,12 +122,16 @@ def licence_files(package: dict) -> list:
 
 
 def render(third: list) -> tuple:
-    texts, order, lines, bare = {}, [], [], 0
+    texts, order, lines = {}, [], []
     for package in third:
         expr = package.get("license") or ""
         files = licence_files(package)
         if not expr and not files:
             raise ValueError(f"{package['name']} {package['version']} has no licence expression and no licence file")
+        if not files:
+            raise ValueError(
+                f"{package['name']} {package['version']} ({expr}) publishes no licence file, so its notice cannot be shipped"
+            )
         refs = []
         for path in files:
             text = path.read_text(errors="replace").strip() + "\n"
@@ -135,15 +141,7 @@ def render(third: list) -> tuple:
                 order.append(digest)
             texts[digest]["users"].append(f"{package['name']} {package['version']} ({path.name})")
             refs.append(texts[digest]["label"])
-        line = f"- `{package['name']}` {package['version']}: {expr or 'see its licence file'}"
-        if refs:
-            line += " — text " + ", ".join(refs)
-        else:
-            bare += 1
-            line += " — publishes no licence file"
-            if package.get("repository"):
-                line += f"; source {package['repository']}"
-        lines.append(line)
+        lines.append(f"- `{package['name']}` {package['version']}: {expr or 'see its licence file'} — text " + ", ".join(refs))
     out = [
         "# Third-party notices",
         "",
@@ -160,7 +158,7 @@ def render(third: list) -> tuple:
         entry = texts[digest]
         out += ["", f"### {entry['label']}", "", "Used by " + "; ".join(entry["users"]) + ".", "",
                 "```text", entry["text"].rstrip("\n"), "```"]
-    return "\n".join(out) + "\n", len(order), bare
+    return "\n".join(out) + "\n", len(order)
 
 
 def run(argv: list) -> int:
@@ -174,12 +172,12 @@ def run(argv: list) -> int:
         metadata = json.loads(Path(argv[1]).read_text())
         compiled = compiled_set(Path(argv[2]).read_text())
         third = shipped(metadata, argv[4:], compiled)
-        page, distinct, bare = render(third)
+        page, distinct = render(third)
     except (OSError, ValueError, KeyError) as err:
         sys.stderr.write(f"release_notices: {err}\n")
         return 1
     publish(Path(argv[3]), page)
-    print(f"{len(third)} crates, {distinct} distinct licence texts, {bare} crates with no licence file")
+    print(f"{len(third)} crates, {distinct} distinct licence texts")
     return 0
 
 def publish(path: Path, text: str) -> None:

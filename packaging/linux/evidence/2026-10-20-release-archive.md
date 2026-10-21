@@ -70,5 +70,9 @@ archive does not strip them.
 - Crates that publish no licence file in their crate (55 in this run's
   list, 42 in the corrected one) are listed with their licence
   expression and source repository, with no text printed. Their texts
-  are upstream's, not reproduced here.
+  are upstream's, not reproduced here. That listing dropped the
+  copyright notice an MIT or BSD crate requires in every copy (review of
+  2026-10-21 on #324); since then `release_notices.py` refuses such a
+  crate, so this run, repeated on today's tree, fails at the notices
+  until the project decides how such a crate's notice is shipped.
 - A build by the pinned 1.98.1 toolchain, or on the release runner.

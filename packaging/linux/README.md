@@ -97,7 +97,8 @@ A release ships these files as
 `tools/ci/release_linux_archive.sh`: one directory holding `bin/` (the
 three programs), `systemd/` (the two templates), `install.sh`,
 `uninstall.sh`, this README, `LICENSE` and `THIRD-PARTY-NOTICES.md`, the
-licence of every crate compiled into the programs. The archive has no
+licence files of every crate compiled into the programs (a crate that
+publishes none fails the archive, since its notice cannot be shipped). The archive has no
 signature; its SHA-256 is on the release page and in the `.sha256` file
 beside it, and the same sources and `SOURCE_DATE_EPOCH` give the same
 bytes. The first build of it is `evidence/2026-10-20-release-archive.md`.
