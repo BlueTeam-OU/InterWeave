@@ -36,8 +36,8 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use interweave_claude_channel_core::{
-    BROADCAST_ACCEPTED, BridgeState, ChannelMeta, ChannelNotification, Delivery, PullQueue,
-    ReplyRoute, ToolCall, direct_accepted, error_text, parse_call,
+    BROADCAST_ACCEPTED, BridgeState, ChannelMeta, ChannelNotification, ConvertError, Delivery,
+    PullQueue, ReplyRoute, ToolCall, direct_accepted, error_text, parse_call,
 };
 use interweave_local_client_api::Generation;
 use interweave_local_client_api::{
@@ -408,15 +408,41 @@ impl<W: AsyncWrite + Unpin> Emit<'_, W> {
             match self.state.notification(event, entropy, (self.env.now_ms)()) {
                 Ok(Some(n)) => match notification_line(&n) {
                     Ok(line) => write_line(self.out, &line).await?,
-                    Err(e) => eprintln!("claude-channel: a notification did not serialize: {e}"),
+                    // Its category, as `dropped` says why.
+                    Err(e) => eprintln!(
+                        "claude-channel: a notification did not serialize: {:?}",
+                        e.classify()
+                    ),
                 },
                 Ok(None) => {}
                 // Bridge-local: dropped and said, never forwarded in part
                 // (CHANNEL-EVENT.md §Content).
-                Err(e) => eprintln!("claude-channel: an inbound message was dropped: {e}"),
+                Err(e) => eprintln!("{}", dropped(&e)),
             }
         }
         Ok(())
+    }
+}
+
+/// The stderr line for an inbound message dropped: its class, and NOT
+/// the error's `Display`, which for a repeated token names the token. A
+/// line here is written for an operator and carries nothing a message
+/// brought or the bridge minted for it (TM-32,
+/// `a_dropped_messages_line_names_its_class_and_nothing_it_carried`).
+fn dropped(error: &ConvertError) -> &'static str {
+    match error {
+        ConvertError::Content(_) => {
+            "claude-channel: an inbound message was dropped: its payload did not decode"
+        }
+        ConvertError::Meta(_) => {
+            "claude-channel: an inbound message was dropped: a meta value was refused"
+        }
+        ConvertError::ReceivedAt { .. } => {
+            "claude-channel: an inbound message was dropped: its receipt time is not RFC3339"
+        }
+        ConvertError::Token(_) => {
+            "claude-channel: an inbound message was dropped: the entropy repeated a live reply token"
+        }
     }
 }
 
@@ -952,7 +978,7 @@ impl<B: DataSessionBinding> Bridge<B> {
                 Ok(None) => {}
                 // Bridge-local, as on the push path: dropped and said,
                 // never forwarded in part (CHANNEL-EVENT.md §Content).
-                Err(e) => eprintln!("claude-channel: an inbound message was dropped: {e}"),
+                Err(e) => eprintln!("{}", dropped(&e)),
             }
         }
         let received = Received {
@@ -1063,5 +1089,52 @@ mod tests {
         assert_eq!(attempt_after(5, Duration::from_millis(10)), 5);
         assert_eq!(attempt_after(5, Duration::from_millis(29_999)), 5);
         assert_eq!(attempt_after(5, RECONNECT_CEILING), 0);
+    }
+
+    /// Every class of drop, each built with what it can carry -- the
+    /// token a repeated entropy named, a meta key and length, a receipt
+    /// time -- says why and holds none of it.
+    #[test]
+    fn a_dropped_messages_line_names_its_class_and_nothing_it_carried() {
+        use interweave_claude_channel_core::{DuplicateToken, MetaError, channel_content};
+        use interweave_transport_api::{MAX_PAYLOAD_BYTES, MediaType, Payload};
+        const TOKEN: &str = "tok_q7Vb3kZ9xW2mN5pR8sT1uY";
+        let cases = [
+            ConvertError::Token(DuplicateToken {
+                token: TOKEN.to_owned(),
+            }),
+            ConvertError::Content(
+                channel_content(
+                    &Payload::new(
+                        Some(
+                            MediaType::parse(
+                                "application/vnd.interweave-human-chat+json;v=2;ce=br",
+                            )
+                            .expect("a media type"),
+                        ),
+                        b"not brotli at all".to_vec(),
+                        MAX_PAYLOAD_BYTES,
+                    )
+                    .expect("a payload"),
+                )
+                .expect_err("not a brotli stream"),
+            ),
+            ConvertError::Meta(MetaError::TooLong {
+                key: "content_type",
+                len: 4097,
+            }),
+            ConvertError::ReceivedAt { ms: 987_654_321 },
+        ];
+        assert!(
+            cases[0].to_string().contains(TOKEN),
+            "the control: the error's own Display names the token"
+        );
+        for case in &cases {
+            let line = dropped(case);
+            assert!(line.starts_with("claude-channel: an inbound message was dropped: "));
+            for carried in [TOKEN, "content_type", "4097", "987654321", "brotli at all"] {
+                assert!(!line.contains(carried), "{line:?} carries {carried:?}");
+            }
+        }
     }
 }
