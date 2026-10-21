@@ -968,12 +968,20 @@ the screen also shows `StoreChecking`. Then one of two dialogs opens:
 reason):
 
 - title `DiscardStoreTitle`: "Delete all stored data?";
-- `DiscardStoreLoses`, a list, each item its own line: your contacts and
-  their routes; messages waiting to be sent; unread and kept messages;
-  your conversation list; your cards; the app's settings; and "a
-  message you already received may show again";
-- `DiscardStoreKeeps`: your identity and PeerId, the peers you trust,
-  and your network settings are not affected;
+- `DiscardStoreLoses`, a list, each item its own line, for **every
+  identity** on this device and not only the one in front, which the
+  list's lead-in says (ADR-0061 d. 9: no action whose scope the person
+  cannot see): your contacts and their routes; messages waiting to be
+  sent; unread and kept messages; your conversation list; the names and
+  photos of your identities; the app's settings; and "a message you
+  already received may show again";
+- `DiscardStoreKeeps`: this device's PeerId and recovery phrase, the
+  peers you trust, and your network settings are not affected; your
+  identities stay, without their names and photos, since they are the
+  profile's configuration (ADR-0061 d. 6) — each is named by its route
+  label until the person names it again (§5.7.6). With one identity
+  held, neither list speaks of identities: the lead-in is the plain one
+  and the item reads "your name and photo" (ADR-0061 d. 3);
 - `DiscardStoreRemains`: copies the system made earlier may stay on the
   disk (RETENTION.md's disclaimer, ADR-0060 d. 6);
 - actions **Cancel** (default focus) and **Delete stored data**
