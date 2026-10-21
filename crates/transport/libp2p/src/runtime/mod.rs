@@ -2471,6 +2471,7 @@ impl SwarmRuntime {
                                             connected: open.values().any(|c| c.peer == peer),
                                             backoff_until_ms: held.backoff_until_ms.map(on_wall),
                                             quarantined_until_ms: held.quarantined_until_ms.map(on_wall),
+                                            route_held_until_ms: held.route_held_until_ms.map(on_wall),
                                             peer,
                                         }
                                     })

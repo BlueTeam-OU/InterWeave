@@ -430,6 +430,10 @@ pub struct PeerGate {
     /// Every known address of it is quarantined until then, the earliest
     /// release; absent while any is dialable (`CONNECTIVITY.md` §19).
     pub quarantined_until_ms: Option<u64>,
+    /// The latest hold among its circuit routes, whose relay was not
+    /// reached (ADR-0011 A 2026-10-21); absent with none held. Apart from
+    /// the quarantine, and set while another route is dialable.
+    pub route_held_until_ms: Option<u64>,
 }
 
 /// What a failed dial was, as an address-free class
@@ -469,6 +473,7 @@ impl DialFailureClass {
                 DialDenial::NotAuthorizedForDataPlane => "NotAuthorizedForDataPlane",
                 DialDenial::PeerBackoff => "PeerBackoff",
                 DialDenial::AddressQuarantined => "AddressQuarantined",
+                DialDenial::RouteHeld => "RouteHeld",
                 DialDenial::TooManyPendingDials => "TooManyPendingDials",
                 DialDenial::ConnectionLimitReached => "ConnectionLimitReached",
                 DialDenial::PolicySuperseded => "PolicySuperseded",
