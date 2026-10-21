@@ -914,3 +914,95 @@ fn uninstall_refuses_a_manager_whose_query_fails() {
         "the control removed the package and the links"
     );
 }
+
+/// install.sh checks every input before it writes anything: a missing or
+/// non-executable program, or a missing unit template, refuses with no
+/// directory made and no file placed, rather than half an install. Each
+/// case runs a copy of the script beside a copy of its templates, so a
+/// template can be taken away. The control is the same copy with every
+/// input present, which places all five files.
+#[test]
+fn install_with_a_missing_input_writes_nothing() {
+    const PROGRAMS: [&str; 3] = ["transport-daemon", "transportctl", "human-desktop"];
+    const UNITS: [&str; 2] = ["interweave-daemon@.service", "interweave-client@.service"];
+    let run = |missing: &str, unexecutable: bool| {
+        let root = Home::new("e2e-install-inputs");
+        let base = root.root.path().to_path_buf();
+        let (pkg, bins, home, config) = (
+            base.join("pkg"),
+            base.join("bins"),
+            base.join("home"),
+            base.join("config"),
+        );
+        for dir in [&pkg, &bins, &home, &config, &pkg.join("systemd")] {
+            common::private_dir(dir);
+        }
+        std::fs::copy(packaging().join("install.sh"), pkg.join("install.sh")).expect("a copy");
+        for unit in UNITS.iter().filter(|u| **u != missing) {
+            std::fs::copy(
+                packaging().join("systemd").join(unit),
+                pkg.join("systemd").join(unit),
+            )
+            .expect("a template");
+        }
+        for exe in PROGRAMS {
+            if exe == missing && !unexecutable {
+                continue;
+            }
+            let path = bins.join(exe);
+            std::fs::write(&path, "#!/bin/sh\nexit 0\n").expect("a stand-in");
+            let mode = if exe == missing { 0o644 } else { 0o755 };
+            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(mode))
+                .expect("a mode");
+        }
+        let out = Command::new("sh")
+            .arg(pkg.join("install.sh"))
+            .arg(&bins)
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config)
+            .env("XDG_RUNTIME_DIR", base.join("run"))
+            .env_remove("DBUS_SESSION_BUS_ADDRESS")
+            .output()
+            .expect("install.sh runs");
+        let placed = |dir: &Path| std::fs::read_dir(dir).map(|d| d.count()).unwrap_or(0);
+        let written = (
+            home.join(".local/bin").exists(),
+            config.join("systemd/user").exists(),
+        );
+        let counts = (
+            placed(&home.join(".local/bin")),
+            placed(&config.join("systemd/user")),
+        );
+        (out, written, counts, root)
+    };
+
+    let (out, _, counts, _root) = run("", false);
+    assert!(
+        out.status.success() && counts == (3, 2),
+        "the control installs every file: {counts:?} {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for (missing, unexecutable) in PROGRAMS
+        .iter()
+        .map(|p| (*p, false))
+        .chain(std::iter::once(("human-desktop", true)))
+        .chain(UNITS.iter().map(|u| (*u, false)))
+    {
+        let (out, written, _, _root) = run(missing, unexecutable);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{missing} (unexecutable: {unexecutable}) refused: {stderr}"
+        );
+        assert!(
+            stderr.contains(missing),
+            "the refusal names {missing}: {stderr}"
+        );
+        assert_eq!(
+            written,
+            (false, false),
+            "{missing} (unexecutable: {unexecutable}): nothing written"
+        );
+    }
+}
