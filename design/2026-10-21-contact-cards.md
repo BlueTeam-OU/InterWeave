@@ -506,11 +506,13 @@ alone, so that a PeerId is never split across two contacts (§5.4.1):
   Accept) in its place. It runs at once, adds the route to X and changes
   none of X's values; snackbar `ConfirmContactUpdated` with Undo, which
   removes the route again; a kill inside the window leaves the route
-  added, as said. The Details dialog stays open and shows the contact
-  (§6.4: the name, its provenance and Open contact), with focus on Open
-  contact; Undo returns focus to Add this conversation to {X}. The
-  conversation's shown proposals are recomputed (§5.4.5), as after an
-  accept. Add as a contact is not offered.
+  added, as said. The Details dialog closes with the action, because
+  the dialog is modal and would cover the snackbar's Undo until it timed
+  out; focus goes to the conversation's header title (never the
+  composer), and the snackbar, its Undo included, is reachable as any
+  conversation snackbar is. After Undo, focus stays on the header title.
+  Opening Details again shows the contact (§6.4). Add as a contact is not
+  offered.
 
 The command-line client follows the same rule: it refuses to create a
 contact for a route whose PeerId is already under one, and names that
@@ -825,8 +827,8 @@ on the desktop.
    | Move: the picker opens | the first other contact | keyboard |
    | Move: the picker cancelled | the route row's Move | keyboard |
    | Move route dialog | Cancel; after Move, the moved-to contact's page title | keyboard |
-   | Details: Add this conversation to {X} | Open contact, in the same dialog | keyboard |
-   | Undo of Details' Add this conversation to {X} | Add this conversation to {X}, if the dialog is still open; else stays where it was | keyboard |
+   | Details: Add this conversation to {X} | the dialog closes; the conversation's header title | keyboard |
+   | Undo of Details' Add this conversation to {X} | the conversation's header title | keyboard |
    | Undo of a Move | the moved routes' row on the page focus was on before the Move, recreated if needed | keyboard |
    | Discard pressed (R or K) | the dialog's Cancel | keyboard |
    | dialog cancelled | the Discard button | keyboard |
