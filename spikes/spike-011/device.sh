@@ -76,7 +76,15 @@ build)
 run)
     [ $# -eq 3 ] || { echo "usage: phone-run $0 run <WORK> <serial>" >&2; exit 2; }
     WORK="$(cd -- "$2" && pwd)"; SERIAL=$3
-    adb connect "$SERIAL" >/dev/null
+    # A wireless link answers `connect` before it is usable, and drops at
+    # times: wait for the device state, reconnecting, for up to 30 s.
+    ok=
+    for _ in $(seq 30); do
+        adb connect "$SERIAL" >/dev/null
+        adb devices | grep -qF "$SERIAL	device" && { ok=1; break; }
+        sleep 1
+    done
+    [ -n "$ok" ] || { echo "no device at $SERIAL" >&2; exit 4; }
     A=(adb -s "$SERIAL")
     D=/data/local/tmp/spike-011-$$
     cleanup() { "${A[@]}" shell rm -rf "$D" >/dev/null 2>&1 || true; adb disconnect "$SERIAL" >/dev/null 2>&1 || true; }
