@@ -960,9 +960,9 @@ async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed
     exchange_with_the_facade(&mut bridge, &mut facade, &a_peer, &b_peer, &daemons).await;
 }
 
-/// How long a dial in the second network is given. A dial toward the
-/// other side's private address ends sooner, on the core's unreachable
-/// answer, so this bounds only a dial that hangs.
+/// How long a refused dial in the second network is given: the far NAT
+/// drops it and answers nothing, so the probe ends on this (asserted,
+/// beside the NAT's drop counter).
 #[cfg(target_os = "linux")]
 const DIAL: Duration = Duration::from_secs(3);
 
@@ -976,16 +976,14 @@ const SECOND_NETWORK: &str =
 /// in A's, behind NAT-A, and the relay is on the core between them
 /// (`interweave_test_support::e2e::netns`). B reserves on the relay, and
 /// A's only route to B is a circuit. Neither daemon's listen address
-/// takes a dial from the other side, since the core routes neither
-/// private range. The control is that each takes one from its own
-/// namespace, so the refusal is the topology's and not a listener that
-/// is not up. Then the facade exchange of the one-host test runs, the
+/// takes a dial from the other side: the far NAT drops it, which its
+/// counter shows. The control is that each takes one from its own
+/// namespace, so the refusal is the NAT's and not a listener that is not
+/// up. Then the facade exchange of the one-host test runs, the
 /// facade is told its route to the bridge's peer began relayed, and the
 /// relay reports carrying A's circuit to B.
 ///
-/// What this does not prove: that a NAT refuses a new inbound
-/// connection, since the core routes neither private range and so no
-/// dial reaches a NAT's forward rule; a NAT whose mapping depends on the
+/// What this does not prove: a NAT whose mapping depends on the
 /// destination; a hole punch; a second host.
 #[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1054,14 +1052,36 @@ async fn the_bridge_behind_its_own_nat_exchanges_with_the_facade_through_the_rel
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
-    assert!(
-        !netns::tcp_reaches(Net::A, at(netns::B, b_port), DIAL),
-        "the facade's side dialled the bridge's daemon directly"
-    );
-    assert!(
-        !netns::tcp_reaches(Net::B, at(netns::A, a_port), DIAL),
-        "the bridge's side dialled the facade's daemon directly"
-    );
+    // The core carries each dial as far as the far NAT, which drops it
+    // and answers nothing: the dial ends on DIAL, and the NAT's forward
+    // chain counts the drop.
+    for (from, to, nat, what) in [
+        (
+            Net::A,
+            at(netns::B, b_port),
+            Net::NatB,
+            "the facade's side dialled the bridge's daemon directly",
+        ),
+        (
+            Net::B,
+            at(netns::A, a_port),
+            Net::NatA,
+            "the bridge's side dialled the facade's daemon directly",
+        ),
+    ] {
+        let before = netns::inward_drops(nat);
+        let started = std::time::Instant::now();
+        assert!(
+            !netns::tcp_reaches(from, to, DIAL),
+            "{what}\n{}",
+            logs(&[&a_daemon, &b_daemon])
+        );
+        assert!(
+            started.elapsed() >= DIAL && netns::inward_drops(nat) > before,
+            "{what}: refused in {:?}, not by {nat:?}'s drop ({before} dropped before)",
+            started.elapsed()
+        );
+    }
 
     {
         let daemons = [&a_daemon, &b_daemon];
