@@ -399,12 +399,9 @@ edit), and that name has the same key as a contact other than X,
 `CardSameName` is shown too, in `error`, above the case's own line,
 naming that other contact, with its Open your contact link (ADR-0059
 Security implications: a second contact with an existing name is shown
-as such before acceptance). The Accept label stays the case's. When
-routes of one PeerId sit under two contacts
-(after a Move, §6.3), P adds to the contact holding the route most
-recently active in a conversation (`conversation_index.last_activity`;
-a route with none counts as oldest, and among equals the contact created
-first wins). A photo is a "value that changes" whenever the card
+as such before acceptance). The Accept label stays the case's. A PeerId is never split across two
+contacts (ADR-0059 d. 2 constrains Move, architect-cto 2026-10-21), so
+P's X is the one contact holding that PeerId. A photo is a "value that changes" whenever the card
 carries one and X's photo is not a local choice, since the client cannot
 compare a photo it has not decoded.
 
@@ -564,16 +561,25 @@ App bar: back arrow, the name as title, overflow with **Delete contact**
   holds a message, as any conversation is; a row expands to the full PeerId
   with Copy PeerId;
 - **Move to another contact** on a route row (`MoveRoute`) when there
-  are other contacts: a picker of contacts (a dialog titled
+  are other contacts. **Move takes every route of that row's PeerId
+  together**, never one alone: a PeerId is one peer, and a contact list
+  that showed it under two names would present one counterparty as two
+  (ADR-0059 d. 2, as architect-cto ruled on 2026-10-21; the sentence
+  goes into d. 4 on #335). First a picker of contacts (a dialog titled
   `MoveRoutePickerTitle`, the other contacts as single-choice rows, with
-  Cancel), then a confirmation dialog
-  `MoveRouteConfirm` naming both contacts and the short PeerId in its
-  sentence, with the full PeerId under it in the code font and Copy
-  PeerId, and saying that trust does not carry across. This is the only way two PeerIds
-  come under one contact (ADR-0059 d. 4); no screen suggests it from a
-  name or a photo. Moving a contact's last route deletes that contact,
-  and the dialog says so (`MoveRouteLast`). It is in v1 on both
-  graphical clients and the command line (architect-cto, §12 A4).
+  Cancel), then a confirmation dialog `MoveRouteConfirm` naming both
+  contacts and the short PeerId in its sentence, saying that every
+  conversation with that peer moves and that trust does not carry
+  across, with the full PeerId under it in the code font and Copy
+  PeerId. This is the only way two PeerIds come under one contact
+  (ADR-0059 d. 4); no screen suggests it from a name or a photo. When
+  the PeerId's routes are all the contact has, moving them deletes that
+  contact, and the dialog says so (`MoveRouteLast`). Move runs at once
+  and shows `ConfirmRouteMoved` with Undo, which moves the routes back
+  and, when the move deleted the contact, writes it back with its
+  values and their sources; a kill inside the window leaves the move
+  done, as said. It is in v1 on both graphical clients and the command
+  line (architect-cto, §12 A4).
 
 **Remove photo**: at once, snackbar `ConfirmPhotoRemoved` with Undo
 (writes the bytes back). Removing marks the photo a local choice, so a
@@ -783,6 +789,7 @@ on the desktop.
    | Move: the picker opens | the first other contact | keyboard |
    | Move: the picker cancelled | the route row's Move | keyboard |
    | Move route dialog | Cancel; after Move, the moved-to contact's page title | keyboard |
+   | Undo of a Move | the moved routes' row on the page focus was on before the Move, recreated if needed | keyboard |
    | Discard pressed (R or K) | the dialog's Cancel | keyboard |
    | dialog cancelled | the Discard button | keyboard |
    | discard failed | the failure line (focusable) | keyboard |
@@ -939,7 +946,7 @@ and no string calls a card an "identity" (§1).
 | `UpdateContact` | Update contact | cases U, E |
 | `ShareCardPreviewSpoken` | {title} will see the name {name}. | chooser preview, accessible description, no photo |
 | `ShareCardPreviewSpokenPhoto` | {title} will see the name {name} and your photo. | the same, with the photo |
-| `MoveRoutePickerTitle` | Move this conversation to which contact? | the move-route picker's title. What moves is one route, the one this row shows (a PeerId with this conversation's route label): a contact may hold other routes of the same PeerId, which stay. The text must not say the whole PeerId moves |
+| `MoveRoutePickerTitle` | Move this conversation to which contact? | the move-route picker's title. Every route of this row's PeerId moves together, not only this conversation (architect-cto's ruling of 2026-10-21); the text must say what the person picks a contact for, without promising less than moves; language-culture-en to reword |
 | `CardPhotoLabel` | Photo for this card | editor photo circle, accessible label |
 | `CardPhotoNone` | No photo for this card | the same, with no photo |
 | `CardSamePeer` | Your contact {name} already has this PeerId in another conversation. | case P; `{name}` the contact's name |
@@ -974,8 +981,9 @@ and no string calls a card an "identity" (§1).
 | `ContactRouteTrusted` / `ContactRouteNotTrusted` | Trusted / Not trusted | route trust in words |
 | `OpenConversation` | Open conversation | route row |
 | `MoveRoute` | Move to another contact | route row |
-| `MoveRouteConfirm` | Move this conversation with {peer} from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name |
-| `MoveRouteLast` | {name} has no other conversation, so moving this one deletes the contact {name}. | dialog addition |
+| `MoveRouteConfirm` | Move this conversation with {peer} from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name. Must say every conversation with {peer} moves, not this one alone (architect-cto, 2026-10-21); language-culture-en to reword |
+| `MoveRouteLast` | {name} has no other conversation, so moving this one deletes the contact {name}. | dialog addition, when {peer}'s routes are all {name} has; must say moving them deletes the contact; language-culture-en to reword |
+| `ConfirmRouteMoved` | Moved to {other} | snackbar after Move, with Undo; proposal |
 | `Move` | Move | dialog primary |
 | `DeleteContact` | Delete contact | contact overflow |
 | `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo |
@@ -1057,3 +1065,7 @@ lands in architect-cto's next records PR, not on #332:
 - **A4** — moving a route between contacts is in v1, on both
   graphical clients and the command line. §6.3 keeps Move.
 - **A5** — `RefusalStoreRecovery`'s new content is given in §10's row.
+- **A6** (asked after round 2's review, QUESTION 01a15d68; answered
+  in REPLY 01a15d6a) — may Move split one PeerId across two contacts?
+  No. ADR-0059 d. 2 constrains it, so Move takes every route of the
+  PeerId together (§6.3). The sentence goes into d. 4 on #335.
