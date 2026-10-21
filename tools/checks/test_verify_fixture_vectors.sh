@@ -419,9 +419,11 @@ out="$(run "$R")"
 # ── the contact card: a vector is what it says it is ─────────────────────
 # Each test-key signature is recomputed from the seed over the bytes
 # `signed_over` names, so a malformed vector cannot fail on a signature
-# nobody made; and the small-order vector states that OpenSSL's
-# cofactorless verify accepts it, which is what makes the strict rule the
-# one refusing it.
+# nobody made; the small-order vector's R is of prime order and OpenSSL's
+# cofactorless verify accepts it, which is what makes the strict rule on
+# the key the one refusing it; and every other field a vector states
+# (its canonical bytes, its public key, its fingerprint, its photo's size)
+# is recomputed, each case below changing one and expecting its report.
 CARD="$SCRIPT_DIR/../../fixtures/human-chat-v2/human-chat-v2-contact-card.json"
 make_card() {
     local r="$1"
@@ -455,6 +457,71 @@ v['small-order-identity-key']['valid']=True; v['small-order-identity-key']['rule
 json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
 out="$(run "$R")"
 [ "$(run_code "$R")" = "1" ] && [[ "$out" == *"small-order-identity-key]: DRIFT in valid"* ]] && ok "a small-order key is refused by strict verification" || bad "the small-order card should be malformed: $out"
+
+R="$TMP/card-bytes"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['valid-minimal']['canonical_bytes_hex']=v['valid-minimal']['canonical_bytes_hex'][:-1]+'0'
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"canonical_bytes_hex is not the receiver's canonical bytes"* ]] && ok "a changed canonical_bytes_hex is refused" || bad "a changed canonical_bytes_hex is refused: $out"
+R="$TMP/card-pub"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['valid-minimal']['signer']['public_key_base64']=v['small-order-identity-key']['envelope']['card']['identity_key']
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"the signer's public key is not its test-only seed's"* ]] && ok "a public key that is not the seed's is refused" || bad "a public key that is not the seed's is refused: $out"
+R="$TMP/card-fp"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['valid-at-the-bounds']['signer']['fingerprint_hex']='0'*16
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"fingerprint_hex is not the first 8 bytes"* ]] && ok "a wrong fingerprint is refused" || bad "a wrong fingerprint is refused: $out"
+R="$TMP/card-pixels"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['valid-at-the-bounds']['photo_pixels']=[255,256]
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"photo_pixels is not the PNG's IHDR size"* ]] && ok "a wrong photo size is refused" || bad "a wrong photo size is refused: $out"
+R="$TMP/card-so-point"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['small-order-identity-key']['signer']['small_order_public_key_hex']=v['valid-minimal']['signer']['test_only_seed_hex']
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"is not a small-order point"* ]] && ok "a small-order signer whose key is not small order is refused" || bad "a small-order signer whose key is not small order is refused: $out"
+R="$TMP/card-so-key"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['small-order-identity-key']['signer']['small_order_public_key_hex']='0100000000000000000000000000000000000000000000000000000000000000'
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"the card's identity_key is not the small-order key"* ]] && ok "a small-order signer naming another key than the card's is refused" || bad "a small-order signer naming another key than the card's is refused: $out"
+R="$TMP/card-so-r"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+c=v['small-order-identity-key']['envelope']['card']; c['signature']='AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=='
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"R is small order too"* ]] && ok "a small-order card whose R is small order too is refused" || bad "a small-order card whose R is small order too is refused: $out"
+R="$TMP/card-signer"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['valid-minimal']['signer']={}
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"signer names neither"* ]] && ok "a vector with no signer is refused" || bad "a vector with no signer is refused: $out"
 
 # ── usage ────────────────────────────────────────────────────────────────
 [ "$(run_code "$TMP/nothing-here")" = "2" ] && ok "a missing fixtures/ exits 2" || bad "missing tree should exit 2"
