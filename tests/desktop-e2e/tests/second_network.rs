@@ -341,33 +341,54 @@ fn the_inner_copy_dies_with_the_test() {
     // The helper's mount point under a directory of this test's: the
     // killed outer copy cannot remove its own.
     let parent = tempfile::tempdir().expect("a parent for the helper's root");
-    let mut outer = std::process::Command::new(std::env::current_exe().expect("this binary"))
-        .args(["--exact", HELPER, "--ignored", "--nocapture"])
-        .env(LIFETIME_TOKEN, &token)
-        .env(netns::ROOT_PARENT, parent.path())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("the helper's outer copy");
+    // Declared after `parent`, so it is killed and reaped before the
+    // directory goes, whichever way this test ends.
+    let mut outer = Reaped(
+        std::process::Command::new(std::env::current_exe().expect("this binary"))
+            .args(["--exact", HELPER, "--ignored", "--nocapture"])
+            .env(LIFETIME_TOKEN, &token)
+            .env(netns::ROOT_PARENT, parent.path())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("the helper's outer copy"),
+    );
     let deadline = Instant::now() + PATIENCE;
     let inner = loop {
         if let Some(pid) = holding(&token).first() {
             break *pid;
         }
         assert!(
-            Instant::now() < deadline && outer.try_wait().expect("a status").is_none(),
+            Instant::now() < deadline && outer.0.try_wait().expect("a status").is_none(),
             "the helper's inner copy never ran"
         );
         std::thread::sleep(Duration::from_millis(100));
     };
-    outer.kill().expect("SIGKILL to the outer copy alone");
-    let _ = outer.wait();
+    outer.0.kill().expect("SIGKILL to the outer copy alone");
+    let _ = outer.0.wait();
     let deadline = Instant::now() + Duration::from_secs(10);
     while std::path::Path::new(&format!("/proc/{inner}")).exists() && !holding(&token).is_empty() {
-        assert!(
-            Instant::now() < deadline,
-            "the inner copy {inner} outlived the test process"
-        );
+        if Instant::now() >= deadline {
+            // Failed: what outlived the kill is killed here, not left to
+            // the helper's own wait.
+            for pid in holding(&token) {
+                let _ = std::process::Command::new("kill")
+                    .args(["-KILL", &pid.to_string()])
+                    .status();
+            }
+            panic!("the inner copy {inner} outlived the test process");
+        }
         std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// A child killed and reaped when dropped -- a std `Child` is neither --
+/// so a failing test leaves no helper running.
+struct Reaped(std::process::Child);
+
+impl Drop for Reaped {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }

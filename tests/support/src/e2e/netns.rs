@@ -37,7 +37,9 @@
 //! [`in_second_network`] at the top of the test: the outer copy re-runs
 //! the test's own binary inside the namespaces, asserts it passed, and
 //! returns `false`; the inner copy gets `true` and runs the body. Where
-//! user namespaces, `nft` or `iproute2` are unavailable the test FAILS,
+//! user namespaces, `nft`, `iproute2` or util-linux's `unshare` (with
+//! `--kill-child`) and `setpriv` (with `--pdeathsig`) are unavailable
+//! the test FAILS,
 //! never skips (decided (7), ADR-0053 rule 9): a skip is a green check
 //! that asserted nothing.
 
@@ -231,9 +233,10 @@ pub fn in_second_network(test: &str) -> bool {
         .spawn()
         .unwrap_or_else(|e| {
             panic!(
-                "cannot run `unshare -rnm` ({e}): this test needs an unprivileged user \
-                 namespace, iproute2 and nft (plan section 21, decided (7)); it fails rather \
-                 than skips where they are unavailable"
+                "cannot run `setpriv --pdeathsig KILL unshare -rnm` ({e}): this test needs \
+                 util-linux's setpriv and unshare, an unprivileged user namespace, iproute2 \
+                 and nft (plan section 21, decided (7)); it fails rather than skips where they \
+                 are unavailable"
             )
         });
     let pid = child.id();
