@@ -471,3 +471,47 @@ subject is real hardware's territory) that report "not run: no multicast
 domain" where the harness's domain is absent, and the CI job that
 builds the domain. The verdict does not wait on the promotion: MET is
 read off the recorded run, which is what this entry said it would be.
+
+## SPIKE-011 — the encrypted human store
+
+**Regime: release gate** (the preamble's second regime), as SPIKE-010:
+the claim is about the shipping store on the shipping targets, so the
+harness's pin moves only in the change that re-runs the rows and
+re-records the verdict. Home: `spikes/spike-011/`, built by rust-ui-dev;
+this entry and its verdict are the roadmap's. Opened 2026-10-21 by
+ADR-0060, which decides the property (the whole store file, its
+write-ahead log and journal ciphertext at rest under a per-profile key
+the platform seals) and leaves the mechanism to this spike within its
+decision 4.
+
+**Objective:** select and validate an authenticated page-level cipher
+for the human store that builds for every target the clients ship on,
+`aarch64-linux-android` included, and costs within ADR-0060 decision
+4's criterion against a plaintext baseline this spike defines first:
+no store benchmark and no store-health time budget exist in the tree.
+
+**Experiment:** build the first candidate — the page-cipher
+amalgamation `rusqlite` already offers — for Linux and Android, with
+and without a vendored TLS library for its primitives; define the
+baseline — open, commit-unread and read-conversation timings on the
+plaintext store, on the desktop host and on the Stage 17 reference
+device — and measure the same on the encrypted one, against the
+criterion (within twice the baseline per operation, a cold open under
+one second on the device); measure RETENTION.md's
+deletion property (released content absent from every file of the
+store after a clean close and after the next open following an unclean
+one) on the encrypted file; exercise a wrong key, a missing key file,
+a version bump of the key file format, the plaintext-to-encrypted
+rewrite under a crash at each step, and a rollback build opening the
+encrypted file; record the licence of every crate the build adds and
+whether `check_vendored_advisories.sh` sees it.
+
+**Evidence:** the pinned crate features and versions; the figures per
+target; the deletion measurement; the licence list and the advisory
+coverage; the failure behaviours; and, if the first candidate fails a
+bound, the same figures for the column-AEAD fallback with what stays in
+clear named.
+
+**Decision unlocked:** plan §29 step 3. Until the Result pins a
+mechanism, the store stays as it is and no §22 release ships a human
+store.

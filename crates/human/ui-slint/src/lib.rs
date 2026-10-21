@@ -38,12 +38,14 @@ mod body;
 mod clock;
 mod gesture;
 mod identity;
+mod refusal;
 mod swipe;
 
 pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
 pub use identity::{
     IdentityInput, apply as apply_identity, grouped as grouped_peer, page as identity_page,
 };
+pub use refusal::{RefusalPage, RefusalView};
 
 #[allow(
     missing_docs,
@@ -70,6 +72,8 @@ pub use generated::IdentityPage;
 /// The colour roles of design/2026-10-16-android-look.md section 3, so a
 /// test can switch the scheme and measure every pair the section names.
 pub use generated::Palette;
+/// The start-up refusal screen's window, for a test that reads its tree.
+pub use generated::RefusalWindow;
 use generated::{ActionRow, BodyLine, ConversationRow, LineKind, LinkRow, MessageRow, TrustRow};
 
 /// The view's window, to run the event loop on: shows it, and returns

@@ -17,6 +17,7 @@ use std::time::Duration;
 use atspi::ObjectRefOwned;
 use atspi::proxy::accessible::{AccessibleProxy, ObjectRefExt as _};
 use atspi::proxy::action::ActionProxy;
+use atspi::proxy::text::TextProxy;
 
 use crate::common::PATIENCE;
 
@@ -293,6 +294,22 @@ impl Window<'_> {
             );
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
+    }
+
+    /// The text `element` holds, read through its AT-SPI Text interface as
+    /// a screen reader reads a field's value: all of it.
+    pub(crate) async fn text_of(&self, element: &Element) -> String {
+        let proxy = TextProxy::builder(&self.bus.conn)
+            .destination(element.at.name().expect("a bus name").clone())
+            .expect("a destination")
+            .path(element.at.path().clone())
+            .expect("a path")
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
+            .await
+            .expect("a text proxy");
+        let count = proxy.character_count().await.expect("its length");
+        proxy.get_text(0, count).await.expect("its text")
     }
 
     /// Press `element` through its named accessible action, as a screen

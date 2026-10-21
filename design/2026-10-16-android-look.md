@@ -385,7 +385,8 @@ From the top:
 - **The snackbar** becomes Material's: `inverse-surface`, 4 dp corners,
   at least 48 dp tall, 12 dp from the screen's sides, above the
   composer in a conversation and 12 dp above the bottom of the screen's
-  safe area on the Chats list. The text is in `inverse-on-surface` and Undo is a text
+  safe area on the Chats list, and in a conversation without a
+  composer (§6, network access withheld). The text is in `inverse-on-surface` and Undo is a text
   button in `inverse-primary`, with a 48 × 48 dp target. Its behaviour
   follows swipe spec §6.
 - **Focus.** Every focusable control draws a 3 dp ring 2 dp outside its
@@ -617,8 +618,9 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
     ring measures 3:1 or more against it.
 14. The selected conversation on a wide screen shows its start bar as
     well as its fill.
-15. The snackbar is Material's (§7), sits above the composer, or at the
-    bottom on the Chats list, and in an RTL locale has its text at the
+15. The snackbar is Material's (§7), sits above the composer, or 12 dp
+    above the bottom of the safe area on the Chats list and in a
+    conversation with network access withheld, and in an RTL locale has its text at the
     start and Undo at the end.
 16. At 200 % font size nothing overlaps or is cut, apart from the
     one-line subtitles' ellipsis.
