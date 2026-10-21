@@ -275,7 +275,9 @@ Settings gains an item, show recovery phrase, under the identity's
 PeerId.
 
 **S1, Show your recovery phrase.** The network goes offline while the
-words are shown and comes back after. Primary: continue. This raises
+words are shown and comes back after. Primary: "Unlock and show my
+words" (`IdS1Unlock`), which names the prompt it raises, as S1's body
+and the locked notice's Unlock do (the owner's word on #313). This raises
 the system's device-credential or strong-biometric prompt, whatever
 the unlock policy. Back → Settings.
 - The prompt is denied or cancelled: back on S1 with nothing shown and
@@ -527,6 +529,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdDerivedPeerId` (new) | PeerId from your words | The label of the derived PeerId in `IdOtherIdentity`'s banner |
 | `IdShowPhraseItem` | Show recovery phrase | The Settings item (§3.5) |
 | `IdS1Title` | Show your recovery phrase | S1's title |
+| `IdS1Unlock` | Unlock and show my words | S1's primary; it raises the system prompt (language-culture-en's wording, #313) |
 | `IdS1Body` | You will be asked to unlock your phone first. The app goes offline while your words are shown. | S1's body, two lines |
 | `IdGoingOffline` | Going offline… | The progress state (§3.5, §6) |
 | `IdDone` | Done | The primary of S2's PeerId page, its last page |
