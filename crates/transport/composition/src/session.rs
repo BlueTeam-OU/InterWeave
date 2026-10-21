@@ -805,6 +805,7 @@ impl AdminPort for InProcessAdmin {
                 connected: row.connected,
                 backoff_until: row.backoff_until_ms,
                 quarantined_until: row.quarantined_until_ms,
+                route_held_until: row.route_held_until_ms,
                 last_outcome: row.last_outcome.map(crate::gate::LastOutcome::to_view),
             })
             .collect())
