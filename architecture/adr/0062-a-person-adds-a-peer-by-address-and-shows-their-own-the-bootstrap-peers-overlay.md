@@ -1,0 +1,55 @@
+# A person adds a peer by address and shows their own: bootstrap addresses are a persisted overlay written through the administrative boundary, on the phone as on the desktop
+
+**Status:** Accepted — the owner's direction of 2026-10-21 ("I think that apps like android one should have a way to define bootstrap adresses"; "write it" on the shape below)
+
+## Context
+
+A node reaches its first peer through a configured address: the static-bootstrap provider's entries, each a multiaddress ending in the peer's id — `/ip4/<address>/tcp/<port>/p2p/<PeerId>`, a `/dns4` or `/dns6` name in place of the address, or a circuit route through a relay for a relay-only peer (`discovery/providers/static-bootstrap.md`, `config.schema.yaml`'s `multiaddr-with-peer-id`, at most 64). They are reachability hints with configured provenance and nothing more: no trust, no authority, no permanence (ADR-0008, ADR-0010). The transport the profile listens on is TCP, so the addresses are TCP/IP addresses with a port and a PeerId.
+
+Today only an operator who edits `config.yaml` can set one, and `config.yaml` is authored and unrewritten (ADR-0028). The Android app's provisioned profile (`profile-config/src/provision.rs`) lists one discovery provider, the peer cache, and no static entry; it has no screen, no setting and no administrative method through which a person could enter an address; the administrative methods cover status, endpoints, trust and shutdown (LOCAL-IPC.md). A fresh install therefore reaches nobody until the test harness's own command gives it a peer, and two people in one room have no way to connect their phones. The desktop is better off only because its operator can edit a file.
+
+## Decision
+
+1. **A person adds a peer by address, on both platforms, through the administrative boundary.** The address is a `multiaddr-with-peer-id` in the grammar the configuration already defines — direct or a circuit route — and nothing else is accepted: the string is validated by that grammar before anything is stored, and a string that fails it is refused by name with no effect. The administrative methods are `admin.peers.add_address` and `admin.peers.remove_address` under a new capability `admin.peers`, admin socket only, never on the data socket under any `client.kind` (ADR-0037); their rows, params and result schemas are p2p-network-dev's to shape under ADR-0017's minor rule, and they list what the overlay holds. On the desktop the human client calls them over its admin connection; on Android the embedded host reaches the same function through the seam that writes the other overlays.
+
+2. **What a person adds persists in a bootstrap-peers overlay, ADR-0028's fourth overlay.** `<state>/bootstrap-overlay.json`, owner-only, atomic, under the trust boundary, exactly `{"peers": [<multiaddr-with-peer-id>, …]}`, normalised at load (a duplicate of an authored entry leaves; an entry that fails the grammar fails the load by name, never last-wins); `config.yaml` stays authored and unrewritten; authored and added entries together obey the static-bootstrap provider's bound of 64, the add refusing at it by name. The static-bootstrap provider emits the overlay's entries as it emits the authored ones, with the same provenance and the same rule: no eager DNS resolution, no trust, a dial that passes the root admission gate like every other (ADR-0028 A 2026-10-21 (ii)).
+
+3. **Adding an address grants nothing.** The dial it causes is admitted or refused by the gate, the connection is retained only as the peer's trust class allows, and an ordinary data-plane connection still needs the explicit trust rule (ADR-0012, ADR-0036): the person who adds an address has told the node where a peer may be, not who to trust. The client says so beside the control, and the screen that adds an address offers the trust step as a second, separate act.
+
+4. **A person shows their own address.** The client shows, as text and as a QR code, this node's addresses in the same grammar: every listen address bound on a non-loopback interface with the PeerId appended, and every externally confirmed address (AutoNAT, `CONNECTIVITY.md`) when one exists; a circuit route through a relay the node holds a reservation on is included when the node is relay-only. Showing it is the person's act and reveals the node's addresses to whoever sees the screen; the client says so. The QR carries nothing but the address list, one multiaddress per line, and is decoded through the same grammar as a typed one.
+
+5. **Two phones in one room connect by this alone**: one shows, the other scans or types, the dial succeeds over the LAN, and the two then exchange trust by the existing means; the mDNS provider, where it runs, makes the first step unnecessary, and the peer cache remembers the address thereafter.
+
+6. **Every action has a command-line form** (ADR-0059 decision 9): add an address, remove one, list the overlay's entries, show this node's addresses as text; `transportctl` gains the add, remove and list as administrative verbs over the admin socket, since an address is transport configuration and not application state.
+
+7. **Provisioning ships defaults into the overlay, never into the authored file's silence.** A deployment that knows its bootstrap peers (the fleet's one-host deployment, ADR-0055) writes them into the overlay at provisioning through the same function; the Android provisioned profile stays as it is, and the person's first screen offers the add.
+
+8. **Onboarding's third step is this screen.** `human-client-ui.md` §2 step 3 ("configure or import trust/bootstrap/connectivity settings") becomes "add a peer by address or show your own, then trust"; a client with no address and no LAN peer says plainly that it can reach no one yet and what to do, instead of showing an empty, silent list.
+
+## Alternatives considered
+
+- **Keep editing `config.yaml`.** Rejected: a phone has no file to edit, and ADR-0028 keeps the authored file unrewritten for good reasons.
+- **A hosted bootstrap list the app downloads.** Rejected: an external provider the owner's direction excludes, and a single point every node would depend on; InterWeave data and InterWeave's first contact stay between the person's own devices and the peers they choose.
+- **Put the address into the trust allow-list as a side effect of trusting.** Rejected: an address is reachability and trust is authorization; ADR-0010 keeps them apart, and a trusted peer with no address is a valid state (reached through discovery) as is an address with no trust (a relay).
+- **A QR that carries more than the address (a card, a trust grant).** Rejected for this record: a card is a chat envelope the person accepts (ADR-0059), and a trust grant is an explicit act; the QR is the address and nothing else, so scanning one is never more than adding an address.
+- **A shared `peers` member in the endpoint overlay.** Rejected: the endpoint overlay is the endpoint registry's state (ADR-0028 A 2026-10-11, A 2026-10-21) and the static provider's entries are discovery's; one file per concern, as the trust overlay stands apart.
+
+## Consequences
+
+ADR-0028 is amended (A 2026-10-21 (ii)): a fourth persisted overlay, its shape, normalisation and bound. `discovery/providers/static-bootstrap.md` reads the overlay beside the authored entries. LOCAL-IPC.md gains the `admin.peers` capability and the two methods (p2p-network-dev's rows, an IPC minor). `human-client-ui.md` §2 step 3 and a §3 paragraph carry the screens' rules; the Android specification its first-run note. Plan §29 (Stage 21, which opens at Stage 17's close) gains step 5 and its conformance cases, so the phone has its first address with the same stage that gives it contacts. `transportctl` gains three verbs. Nothing on the wire changes: an added address is dialled as a configured one is.
+
+## Security implications
+
+An address is peer-asserted input twice over — typed, or scanned from a code someone else made — and it is treated as such: parsed by the configuration's grammar and nothing looser, bounded by the provider's 64, dialled through the root admission gate, retained only by trust class, granted no trust. A scanned QR cannot make the node trust anyone, join anything or send anything: the worst a hostile code does is cause a bounded dial to an address the gate judges, which is what any configured entry can do today. Showing one's own address discloses the node's IP addresses and PeerId to whoever reads the screen, which is the person's choice and is said on it; the QR is shown only on the person's act, never on a lock screen or in a notification. A loopback or link-local address is refused at the add, since no peer is reached there (ADR-0052's address classes bind the grammar's acceptance as they bind a dial). Same-user local compromise can add addresses as it can set trust, the same residual ADR-0037 states.
+
+## Operational implications
+
+A deployment provisions its bootstrap peers once, into the overlay, and a person adds or removes one in the app or with `transportctl`; an operator still authors `config.yaml` for a daemon they run by hand. The overlay is backed up with the profile as the trust overlay is (ADR-0028), never by a platform backup (ADR-0060 decision 8).
+
+## Implementation implications
+
+p2p-network-dev: the overlay in `profile-config` (loader, normalisation, bound), the static provider reading it, `admin.peers.add_address`/`remove_address` and their schemas under one IPC minor, the `transportctl` verbs, the embedded host's function on Android. rust-ui-dev: the two screens on both clients and the command-line client's forms, the QR encoder and decoder (a dependency on the allow-list or an ADR for it), the ui-model's address list (listen addresses, confirmed external ones). ux-designer: the flows under `design/`, onboarding's third step first. The work is plan §29 step 5, with its conformance cases: an address added on the phone is dialled and survives a restart; a string outside the grammar is refused by name and nothing is stored; the 65th is refused; a loopback address is refused; a scanned QR of a hostile code adds an address and nothing else, trust unchanged; the shown QR decodes to the node's addresses and PeerId and nothing else; a removed address is dialled no more; `transportctl` lists what the app added.
+
+## Revisit conditions
+
+When a transport other than TCP is added (the grammar widens); when a deployment wants a signed bootstrap list (a provider of its own, not this overlay); when the QR should carry an introduction beyond the address (ADR-0059's revisit on a third-party introduction); when the peer cache's persistence makes the first address a one-time act.

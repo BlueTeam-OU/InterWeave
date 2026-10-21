@@ -5990,6 +5990,17 @@ decision 6.
    (rust-ui-dev): the same `ui-model` on both; every action of steps
    2 and 3 as a command, with no display (ADR-0059 decision 9); `human-client-ui.md` §13 acceptance criteria for steps 2 and 3,
    proposed by rust-ui-dev and ruled by architect-cto.
+5. **A peer by address, and one's own** (ADR-0062, A 2026-10-21):
+   p2p-network-dev — the bootstrap-peers overlay in `profile-config`
+   (loader, normalisation, the shared bound of 64), the static-bootstrap
+   provider reading it, `admin.peers.add_address`/`remove_address` and
+   their schemas under one IPC minor, the embedded host's function on
+   Android, `transportctl`'s add, remove and list; rust-ui-dev — the add
+   screen (typed or scanned) and the show screen (text and QR) on both
+   clients and the command-line forms, the QR encoder and decoder on the
+   licence allow-list or with their ADR, the ui-model's address list;
+   ux-designer — the two flows under `design/`, onboarding's third step
+   first; §13 criteria proposed by rust-ui-dev and ruled by architect-cto.
 
 ### Exit gate
 
@@ -6033,7 +6044,15 @@ owner's privacy review of Stage 15's carry 11 answered in the record —
 over the card (what it still discloses: ADR-0059, Security
 implications) and over `read_pairs`, `conversation_index`,
 `contact_routes.last_seen` and the contacts' provenance columns, which
-STATE.md puts in the same review.
+STATE.md puts in the same review; (e) step 5's cases, by name: an
+address added on the phone is dialled and survives a restart; a string
+outside the grammar is refused by name and nothing is stored; the 65th
+entry is refused; a loopback or link-local address is refused; a scanned
+QR made by a hostile party adds an address and nothing else, the trust
+set unchanged; the shown QR decodes to this node's addresses and PeerId
+and nothing else; a removed address is dialled no more; `transportctl`
+lists what the app added; two phones on one LAN connect by show-and-scan
+with no other configuration.
 
 ### Record
 

@@ -35,7 +35,7 @@ DNS resolution occurs when the libp2p/ConnectionManager dial path consumes the m
 
 ## Configuration
 
-Default max entries: 64. Invalid PeerId/multiaddress syntax fails config validation. A valid DNS multiaddress whose hostname later fails to resolve does not invalidate the provider configuration; the dial attempt reports `PeerUnreachable`/address-resolution diagnostics as appropriate. That has held since 2026-09-20, when the DNS transport was built into the Swarm; §DNS ownership records the gap that stood before it.
+Default max entries: 64, authored entries and the bootstrap-peers overlay's together (A 2026-10-21, ADR-0062: `<state>/bootstrap-overlay.json`, the addresses a person adds through `admin.peers.add_address` or the embedded host, ADR-0028 A 2026-10-21 (ii); the provider emits them beside the authored ones with the same configured provenance and the same rules). Invalid PeerId/multiaddress syntax fails config validation, and an overlay entry outside the grammar fails the load by name. A valid DNS multiaddress whose hostname later fails to resolve does not invalidate the provider configuration; the dial attempt reports `PeerUnreachable`/address-resolution diagnostics as appropriate. That has held since 2026-09-20, when the DNS transport was built into the Swarm; §DNS ownership records the gap that stood before it.
 
 ### The accepted address vocabulary
 
