@@ -118,11 +118,12 @@ fi
 
 refused() {
     local what="$1" needle="$2"; shift 2
-    rm -f "$SANDBOX/n.md"
+    # An earlier run's notices, which a refusal must remove.
+    printf 'an earlier run\n' > "$SANDBOX/n.md"
     if run "$@"; then fail "$what: accepted"
-    elif [[ -e "$SANDBOX/n.md" ]]; then fail "$what: refused but wrote the notices"
+    elif [[ -e "$SANDBOX/n.md" ]]; then fail "$what: refused but left notices"
     elif ! grep -qF -- "$needle" "$SANDBOX/err"; then fail "$what: refused without saying $needle" "$(cat "$SANDBOX/err")"
-    else pass "$what: refused, nothing written"; fi
+    else pass "$what: refused, an earlier run's notices removed"; fi
 }
 cp "$SANDBOX/compiled.txt" "$SANDBOX/stray.txt"
 echo "buildonly v1.0.0" >> "$SANDBOX/stray.txt"

@@ -34,8 +34,8 @@
 #   android-values.json                         {apk_sha256, cert_sha256,
 #                                               check:apk_version} for
 #                                               release_page.py
-# all three or none: once <version> and the APK are found, a run that
-# fails at any step, a refusal or a write, leaves none of them, a
+# all three or none: once <version> is checked, a run that fails at any
+# step -- a missing APK, a refusal or a write -- leaves none of them, a
 # previous run's of the same names included.
 #
 # The key is read from the environment and never from a file in the
@@ -79,24 +79,27 @@ version="$1" unsigned="$2" out_dir="$3"
 
 [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
     || die "version '$version' is not MAJOR.MINOR.PATCH"
-[[ -f "$unsigned" ]] || die "no APK at $unsigned"
 
-mkdir -p "$out_dir"
 apk_name="interweave-$version-arm64-v8a.apk"
 outputs=("$apk_name" "$apk_name.sha256" android-values.json)
 # Everything is made in a work directory on the out-dir's filesystem and
-# moved out together at the end; a failure at any step removes every one
-# of the outputs' names from the out-dir, what this run moved and what an
-# earlier run left, so a run that fails leaves no APK, hash or values file.
-work="$(mktemp -d "$out_dir/.release.XXXXXX")"
+# moved out together at the end; a failure at any step after the version
+# is checked removes every one of the outputs' names from the out-dir,
+# what this run moved and what an earlier run left, so a run that fails
+# leaves no APK, hash or values file.
+work=""
 finish() {
     local status=$? f
-    rm -rf "$work"
+    if [[ -n "$work" ]]; then rm -rf "$work"; fi
     if (( status != 0 )); then
         for f in "${outputs[@]}"; do rm -f -- "$out_dir/$f"; done
     fi
 }
 trap finish EXIT
+
+[[ -f "$unsigned" ]] || die "no APK at $unsigned"
+mkdir -p "$out_dir"
+work="$(mktemp -d "$out_dir/.release.XXXXXX")"
 
 for var in INTERWEAVE_RELEASE_KEYSTORE INTERWEAVE_RELEASE_KEY_ALIAS INTERWEAVE_RELEASE_KEYSTORE_PASS; do
     [[ -n "${!var-}" ]] || { echo "release_android_apk: $var is not set" >&2; exit 2; }

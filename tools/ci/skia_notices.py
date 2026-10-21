@@ -12,8 +12,8 @@
 #
 # <out.json> is {"freetype_credit": ..., "third_party_notice_texts": ...},
 # the two placeholders release_page.py fills from it. Every text named in
-# tools/ci/skia-notices.pin is fetched and REFUSED, with nothing written,
-# when its SHA-256 is not the pin's: a text that changed upstream is read
+# tools/ci/skia-notices.pin is fetched and REFUSED, with nothing written
+# and an earlier run's <out.json> removed, when its SHA-256 is not the pin's: a text that changed upstream is read
 # again and the pin renewed by hand, never published unread.
 #
 # The credit is FreeType's own sentence, taken from the FTL.TXT the pin
@@ -141,7 +141,7 @@ def build(entries: list, year: str) -> tuple:
     return "\n".join(out).rstrip("\n"), credit
 
 
-def main(argv: list) -> int:
+def run(argv: list) -> int:
     if len(argv) == 2 and argv[1] in ("-h", "--help"):
         sys.stdout.write(help_text())
         return 0
@@ -159,9 +159,35 @@ def main(argv: list) -> int:
     except (OSError, ValueError) as err:
         sys.stderr.write(f"skia_notices: {err}\n")
         return 1
-    Path(argv[1]).write_text(json.dumps({"freetype_credit": credit, "third_party_notice_texts": texts}) + "\n")
+    publish(Path(argv[1]), json.dumps({"freetype_credit": credit, "third_party_notice_texts": texts}) + "\n")
     print(f"{len(entries)} texts checked against {pin}")
     return 0
+
+def publish(path: Path, text: str) -> None:
+    """Writes `text` at `path` whole or not at all: a temporary file beside
+    it, renamed over it once written, so a failed write leaves no part of a
+    page there."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def main(argv: list) -> int:
+    # A run that fails once its output is named -- a refusal, a failed
+    # write, an exception -- leaves no file of that name, an earlier run's
+    # included, so what is there after a failure is never taken for this
+    # run's.
+    out = Path(argv[1]) if len(argv) == 2 and argv[1] not in ("-h", "--help") else None
+    status = 1
+    try:
+        status = run(argv)
+    finally:
+        if status != 0 and out is not None:
+            out.unlink(missing_ok=True)
+    return status
 
 
 if __name__ == "__main__":

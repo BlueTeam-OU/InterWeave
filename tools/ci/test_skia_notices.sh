@@ -106,13 +106,15 @@ else
     fail "a complete pin was refused" "$(cat "$SANDBOX/err")"
 fi
 
-rm -f "$SANDBOX/out.json"
+# Every refusal below starts from an earlier run's notices, which it
+# must remove: a page published from them would carry unchecked texts.
+printf 'an earlier run\n' > "$SANDBOX/out.json"
 write_pin "$(printf '0%.0s' {1..64})"
 if run; then fail "a text whose SHA-256 is not the pin's was accepted"
-elif [[ -e "$SANDBOX/out.json" ]]; then fail "a refused text still wrote the notices"
+elif [[ -e "$SANDBOX/out.json" ]]; then fail "a refused text left notices behind"
 elif ! grep -qF "Alpha LICENSE has SHA-256 $(sha A-LICENSE), not the pin's" "$SANDBOX/err"; then
     fail "a changed text was refused without naming it" "$(cat "$SANDBOX/err")"
-else pass "a changed text is refused, nothing written"; fi
+else pass "a changed text is refused, an earlier run's notices removed"; fi
 
 write_pin "" "credit-year | 2025"
 run; rc=$?
@@ -121,12 +123,14 @@ run; rc=$?
 cp "$SRC/FTL.TXT" "$SRC/FTL.keep"
 printf 'The licence, with no credit sentence in it.\n' > "$SRC/FTL.TXT"
 write_pin
+printf 'an earlier run\n' > "$SANDBOX/out.json"
 run; rc=$?
 [[ $rc -eq 1 && ! -e "$SANDBOX/out.json" ]] && grep -qF 'no single credit sentence' "$SANDBOX/err" \
-    && pass "an FTL.TXT with no credit sentence is refused (1), nothing written" \
+    && pass "an FTL.TXT with no credit sentence is refused (1), nothing left" \
     || fail "an FTL.TXT with no credit sentence exited $rc" "$(cat "$SANDBOX/err")"
 printf '   """\n    Portions of this software are copyright © 2019 Someone.\n   """\n' > "$SRC/FTL.TXT"
 write_pin
+printf 'an earlier run\n' > "$SANDBOX/out.json"
 run; rc=$?
 [[ $rc -eq 1 && ! -e "$SANDBOX/out.json" ]] && grep -qF 'no single credit sentence' "$SANDBOX/err" \
     && pass "a credit sentence with no <year> to fill is refused (1)" \

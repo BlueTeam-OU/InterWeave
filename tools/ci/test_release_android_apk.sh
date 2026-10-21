@@ -288,6 +288,25 @@ ANDROID_BUILD_TOOLS="$TOOLS" INTERWEAVE_RELEASE_KEYSTORE="$SANDBOX/other.p12" \
 [[ ! -e "$SIGNED" ]] && pass "a refused run leaves no previous run's APK of the same name" \
     || fail "a refused run left a previous run's APK"
 
+# A missing unsigned APK is a failure like any other once the version is
+# checked: the previous run's three outputs of that version are removed.
+# The control: all three present before the run.
+rm -rf "$OUT"
+mkdir -p "$OUT"
+for f in "$SIGNED" "$SIGNED.sha256" "$OUT/android-values.json"; do printf 'a previous run\n' > "$f"; done
+[[ -e "$SIGNED" && -e "$SIGNED.sha256" && -e "$OUT/android-values.json" ]] || fail "the control: a previous run's outputs"
+ANDROID_BUILD_TOOLS="$TOOLS" INTERWEAVE_RELEASE_KEYSTORE="$SANDBOX/rel.p12" \
+    INTERWEAVE_RELEASE_KEY_ALIAS=rel INTERWEAVE_RELEASE_KEYSTORE_PASS="$PASS" \
+    INTERWEAVE_RELEASE_CERT_SHA256="$REL_CERT" \
+    bash "$UNDER_TEST" 0.4.1 "$SANDBOX/no-such.apk" "$OUT" >/dev/null 2>"$SANDBOX/err"
+rc=$?
+if [[ $rc -eq 1 ]] && grep -qF "no APK at" "$SANDBOX/err" \
+    && [[ ! -e "$SIGNED" && ! -e "$SIGNED.sha256" && ! -e "$OUT/android-values.json" ]]; then
+    pass "a run with no unsigned APK leaves none of a previous run's outputs"
+else
+    fail "a run with no unsigned APK exited $rc, left: $(ls -A "$OUT")" "$(cat "$SANDBOX/err")"
+fi
+
 # --first-release with a fingerprint given, signing with another key:
 # refused before anything is signed, whatever the key.
 KEY=other sign --first-release 0.4.1 "$SANDBOX/good.apk" "$OUT"

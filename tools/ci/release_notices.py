@@ -33,7 +33,7 @@
 # publishes no licence file is listed with its licence expression and
 # marked so, never given a text it does not carry.
 #
-# REFUSED, writing nothing, when a named package is not a workspace member,
+# REFUSED, writing nothing and removing an earlier run's <out.md>, when a named package is not a workspace member,
 # a compiled crate is not one the metadata's normal walk from the
 # packages reaches (the two disagree about the build), or a crate carries
 # no licence expression and no licence file.
@@ -163,7 +163,7 @@ def render(third: list) -> tuple:
     return "\n".join(out) + "\n", len(order), bare
 
 
-def main(argv: list) -> int:
+def run(argv: list) -> int:
     if len(argv) == 2 and argv[1] in ("-h", "--help"):
         sys.stdout.write(help_text())
         return 0
@@ -178,9 +178,35 @@ def main(argv: list) -> int:
     except (OSError, ValueError, KeyError) as err:
         sys.stderr.write(f"release_notices: {err}\n")
         return 1
-    Path(argv[3]).write_text(page)
+    publish(Path(argv[3]), page)
     print(f"{len(third)} crates, {distinct} distinct licence texts, {bare} crates with no licence file")
     return 0
+
+def publish(path: Path, text: str) -> None:
+    """Writes `text` at `path` whole or not at all: a temporary file beside
+    it, renamed over it once written, so a failed write leaves no part of a
+    page there."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def main(argv: list) -> int:
+    # A run that fails once its output is named -- a refusal, a failed
+    # write, an exception -- leaves no file of that name, an earlier run's
+    # included, so what is there after a failure is never taken for this
+    # run's.
+    out = Path(argv[3]) if len(argv) >= 5 else None
+    status = 1
+    try:
+        status = run(argv)
+    finally:
+        if status != 0 and out is not None:
+            out.unlink(missing_ok=True)
+    return status
 
 
 if __name__ == "__main__":

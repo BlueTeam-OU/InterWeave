@@ -14,7 +14,8 @@
 # Each <values.json> is one JSON object of strings, and together they
 # give one value per placeholder (the release run's own, and the files
 # release_android_apk.sh, release_linux_archive.sh and skia_notices.py
-# write). The fill REFUSES, writing nothing:
+# write). The fill REFUSES, writing nothing and removing an earlier
+# run's <out.md>:
 #   - a placeholder given a value by two of the files;
 #   - a placeholder of the template with no value (a page with a literal
 #     {apk_sha256} on it would read as published and check nothing);
@@ -44,6 +45,7 @@
 # <<< help
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -98,7 +100,7 @@ def fill(template: str, values: dict) -> str:
     return PLACEHOLDER.sub(lambda m: values[m.group(1)], body)
 
 
-def main(argv: list) -> int:
+def run(argv: list) -> int:
     if len(argv) == 2 and argv[1] in ("-h", "--help"):
         sys.stdout.write(help_text())
         return 0
@@ -130,8 +132,34 @@ def main(argv: list) -> int:
     except ValueError as err:
         sys.stderr.write(f"release_page: {err}\n")
         return 1
-    out_path.write_text(page)
+    publish(out_path, page)
     return 0
+
+def publish(path: Path, text: str) -> None:
+    """Writes `text` at `path` whole or not at all: a temporary file beside
+    it, renamed over it once written, so a failed write leaves no part of a
+    page there."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def main(argv: list) -> int:
+    # A run that fails once its output is named -- a refusal, a failed
+    # write, an exception -- leaves no file of that name, an earlier run's
+    # included, so what is there after a failure is never taken for this
+    # run's.
+    out = Path(argv[2]) if len(argv) >= 4 else None
+    status = 1
+    try:
+        status = run(argv)
+    finally:
+        if status != 0 and out is not None:
+            out.unlink(missing_ok=True)
+    return status
 
 
 if __name__ == "__main__":

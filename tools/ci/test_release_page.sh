@@ -62,16 +62,17 @@ fi
 
 refused() {
     local what="$1" json="$2" needle="$3"
-    rm -f "$SANDBOX/out.md"
+    # An earlier run's page, which a refusal must remove.
+    printf 'an earlier run\n' > "$SANDBOX/out.md"
     printf '%s\n' "$json" > "$SANDBOX/v.json"
     if run "$T" "$SANDBOX/out.md" "$SANDBOX/v.json"; then
         fail "$what: accepted"
     elif [[ -e "$SANDBOX/out.md" ]]; then
-        fail "$what: refused but wrote a page"
+        fail "$what: refused but left a page"
     elif ! grep -qF -- "$needle" "$SANDBOX/err"; then
         fail "$what: refused without naming $needle" "$(cat "$SANDBOX/err")"
     else
-        pass "$what: refused, nothing written"
+        pass "$what: refused, an earlier run's page removed"
     fi
 }
 
@@ -111,13 +112,13 @@ else
     fail "values in several files were not merged" "$(cat "$SANDBOX/err")"
 fi
 printf '{"version": "1.2.4"}' > "$SANDBOX/v3.json"
-rm -f "$SANDBOX/out.md"
+printf 'an earlier run\n' > "$SANDBOX/out.md"
 if run "$T" "$SANDBOX/out.md" "$SANDBOX/v1.json" "$SANDBOX/v2.json" "$SANDBOX/v3.json"; then
     fail "a key two files give was accepted"
 elif [[ ! -e "$SANDBOX/out.md" ]] && grep -qF 'version is given by both' "$SANDBOX/err"; then
-    pass "a key two files give is refused, nothing written"
+    pass "a key two files give is refused, an earlier run's page removed"
 else
-    fail "a key two files give was refused without saying so, or wrote a page" "$(cat "$SANDBOX/err")"
+    fail "a key two files give was refused without saying so, or left a page" "$(cat "$SANDBOX/err")"
 fi
 
 run "$T" "$SANDBOX/out.md" >/dev/null
