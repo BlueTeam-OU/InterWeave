@@ -5,7 +5,9 @@
 #
 # Self-test for verify_fixture_vectors.py. Builds throwaway fixture trees
 # under $TMPDIR so no assertion depends on the real vectors — except the
-# one that deliberately checks them.
+# one that deliberately checks them, and the contact-card cases, which
+# mutate a copy of the real card file: a signed card is too long to
+# restate here.
 
 set -uo pipefail
 
@@ -413,6 +415,46 @@ out="$(run "$R")"
 R="$TMP/topic-missing"; make_topic "$R" ""
 out="$(run "$R")"
 [ "$(run_code "$R")" = "1" ] && [[ "$out" == *"wire_topic is missing"* ]] && ok "a topic key without wire_topic is refused" || bad "a missing wire_topic should fail: $out"
+
+# ── the contact card: a vector is what it says it is ─────────────────────
+# Each test-key signature is recomputed from the seed over the bytes
+# `signed_over` names, so a malformed vector cannot fail on a signature
+# nobody made; and the small-order vector states that OpenSSL's
+# cofactorless verify accepts it, which is what makes the strict rule the
+# one refusing it.
+CARD="$SCRIPT_DIR/../../fixtures/human-chat-v2/human-chat-v2-contact-card.json"
+make_card() {
+    local r="$1"
+    mkdir -p "$r/fixtures/human-chat-v2" "$r/architecture/adr"
+    for n in 0059 0061 0063; do : > "$r/architecture/adr/$n-card.md"; done
+    cp "$CARD" "$r/fixtures/human-chat-v2/card.json"
+}
+R="$TMP/card-ok"; make_card "$R"
+[ "$(run_code "$R")" = "0" ] && ok "the frozen card vectors recompute" || bad "the card vectors should pass: $(run "$R")"
+R="$TMP/card-resigned"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['valid-minimal']['envelope']['card']['signature']=v['signed-for-another-peer-id']['envelope']['card']['signature']
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"not the test-only key's over the bytes signed_over names"* ]] && ok "a card signature over other bytes than signed_over names is refused" || bad "a re-signed card should fail: $out"
+R="$TMP/card-lax"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['small-order-identity-key']['signer']['lax_verifies']=False
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"OpenSSL's verify says True"* ]] && ok "the small-order card's lax verification is recomputed" || bad "a wrong lax_verifies should fail: $out"
+R="$TMP/card-verdict"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['small-order-identity-key']['valid']=True; v['small-order-identity-key']['rule']=None
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"small-order-identity-key]: DRIFT in valid"* ]] && ok "a small-order key is refused by strict verification" || bad "the small-order card should be malformed: $out"
 
 # ── usage ────────────────────────────────────────────────────────────────
 [ "$(run_code "$TMP/nothing-here")" = "2" ] && ok "a missing fixtures/ exits 2" || bad "missing tree should exit 2"

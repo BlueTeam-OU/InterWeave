@@ -87,6 +87,34 @@ fn the_schema_and_the_parser_give_every_frozen_vector_the_same_verdict() {
     }
 }
 
+/// The card vectors are judged by the schema alone: the parser's verdicts
+/// on them are plan §29 step 1's, which lands the kind's acceptance. The
+/// schema cannot see a signature, a bound after NFC or a decoded length,
+/// so only the valid cards are held to it.
+#[test]
+fn every_valid_frozen_card_validates_against_the_schema() {
+    let doc: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root().join("fixtures/human-chat-v2/human-chat-v2-contact-card.json"),
+        )
+        .expect("the fixture"),
+    )
+    .expect("json");
+    let schema = validator();
+    let vectors = doc["vectors"].as_array().expect("vectors");
+    assert_eq!(vectors.len(), 18, "the fixtures README's count");
+    let valid: Vec<&Value> = vectors
+        .iter()
+        .filter(|v| v["valid"].as_bool().expect("a verdict"))
+        .collect();
+    assert_eq!(valid.len(), 4, "the fixtures README's valid cards");
+    for v in valid {
+        let name = v["name"].as_str().expect("name");
+        let envelope = &v["envelope"];
+        assert!(schema.is_valid(envelope), "the schema on {name}");
+    }
+}
+
 #[test]
 fn what_this_crate_emits_validates_against_the_schema() {
     let schema = validator();
