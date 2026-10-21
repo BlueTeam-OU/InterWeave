@@ -863,10 +863,10 @@ async fn the_discovery_round_redials_a_circuit_whose_relay_was_not_reached_once_
     .expect("composes");
 
     tokio::time::sleep(Duration::from_secs(2)).await;
-    let seen = attempts.load(Ordering::SeqCst);
+    let counted = attempts.load(Ordering::SeqCst);
     let rows = runtime.diagnostics().await.expect("answered").peers;
     runtime.shutdown().await.expect("clean shutdown");
-    assert_eq!(seen, 1, "one hop attempt in forty rounds, then the hold");
+    assert_eq!(counted, 1, "one hop attempt in forty rounds, then the hold");
     let row = rows.iter().find(|r| r.peer == far).expect("the peer's row");
     assert!(
         row.route_held_until_ms.is_some(),

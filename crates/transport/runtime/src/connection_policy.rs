@@ -370,7 +370,7 @@ impl AddressState {
 
     /// Whether this entry holds its circuit route at `now_ms`.
     #[must_use]
-    pub fn is_route_held_at(&self, now_ms: u64) -> bool {
+    pub(crate) fn is_route_held_at(&self, now_ms: u64) -> bool {
         self.route_held_until_ms.is_some_and(|until| now_ms < until)
     }
 
