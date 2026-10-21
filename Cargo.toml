@@ -559,6 +559,30 @@ tempfile = "3"
 jni = { version = "0.22", default-features = false }
 ndk-sys = { version = "0.6", default-features = false }
 
+# DEV BUILDS CARRY LINE TABLES ONLY. Measured on this repository on
+# 2026-10-21 (architect-cto, one host, `cargo build --workspace
+# --all-targets` from a clean target):
+#
+#   cargo's defaults                       60 GB   67 min
+#   dependencies only at line tables       48 GB   52 min
+#   the whole dev profile at line tables   25 GB   37 min
+#
+# Of the default's 60 GB, 48 GB is the 223 test and binary executables,
+# each 215-535 MB, each carrying the whole graph's DWARF again. Limiting
+# only the dependencies ([profile.dev.package."*"]) recovers little,
+# because most of that DWARF is emitted while compiling the WORKSPACE
+# crates: the generic code of tokio, libp2p and Slint is instantiated
+# there and takes the workspace's debug level — one test binary still
+# held 291 MB of debug sections against 32 MB of code, 162 MB of it type
+# names. Line tables keep what a test failure needs, the file and line of
+# every panic and backtrace frame (checked on this toolchain), and drop
+# what a debugger would show: locals and types. Incremental stays on;
+# cargo applies it to workspace members only, where it pays for itself.
+# A host that needs full debug info for one build overrides it with
+# CARGO_PROFILE_DEV_DEBUG=full, without touching this file.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
