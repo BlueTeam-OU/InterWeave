@@ -18,7 +18,7 @@
 
 **Trigger.** The review of #324 found that crates publishing a licence expression and no licence file were listed in the Linux archive's notices without the notice MIT and BSD put in every copy, and p2p-network-dev-01's OBSERVATION 01a15c55 asked, beside the Linux decision, whether the Android release owes the same crate notices; its page's `{third_party_notice_texts}` carried the native libraries' notices alone.
 
-**Ruled.** It does. ADR-0058 decides the source order and the reviewed list for every artifact; decision 5 names the crate notices for the Android target, produced by the same tool as the Linux archive's, beside the native libraries' notices already there.
+**Ruled.** It does, pending with ADR-0058: the owner's acceptance of that record accepts this amendment, since the rule it cites is the proposed one. ADR-0058 decides the source order and the reviewed list for every artifact; decision 5 names the crate notices for the Android target, produced by the same tool as the Linux archive's, beside the native libraries' notices already there.
 
 **Propagation.** Decision 5; this note; the log row; the digest line. The page template is rust-ui-dev's, the tool and the release run p2p-network-dev's (ADR-0058, Implementation implications).
 

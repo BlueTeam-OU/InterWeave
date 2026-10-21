@@ -1,6 +1,6 @@
 # Every release artifact ships the notice of every crate compiled into it, read from the crate's own publication
 
-**Status:** Proposed — architect-cto's decision of 2026-10-21 on p2p-network-dev-01's finding (OBSERVATION 01a15c55); accepted on the owner's word
+**Status:** Proposed — architect-cto's decision of 2026-10-21 on p2p-network-dev-01's finding (OBSERVATION 01a15c55), awaiting the owner's acceptance; until then it binds nothing but the fail-closed refusal already in the tool (decision 6)
 
 ## Context
 
