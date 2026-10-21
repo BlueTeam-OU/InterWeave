@@ -176,6 +176,22 @@ Raw internal codes remain available in diagnostics.
 - an undone cancel restores the pending record's `app_message_id`, transport message id, destination selector, media type, stored payload bytes and attempt count unchanged (a new `row_id` is expected), never a re-serialised or re-identified copy (A 2026-10-16);
 - accessibility tree contains meaningful labels/actions for message, route, trust, and connectivity controls.
 
+Contacts, cards and the store's discard (A 2026-10-21, ADR-0059, ADR-0060; ruled on ux-designer-01's proposal, `design/2026-10-21-contact-cards.md` §9.1):
+
+- before Accept, a received card's name is never shown without the full PeerId beside it, and never in the conversation list, a notification or an announcement — a notification for a received card names the short PeerId, not the card;
+- no contact or route row exists before Accept; Decline and an unanswered card leave none; a proposal has no Keep;
+- a received photo is not decoded before Accept;
+- Accept's label and context line state what it will create or change before it runs; a same-name contact on another PeerId is named before acceptance; a card on a route of a PeerId already under a contact names that contact as the one it will update;
+- a PeerId never ends under two contacts: Accept joins the PeerId's existing contact, and Move moves every route of the PeerId together, the dialog saying so;
+- no card is sent except on Share in the chooser of one direct conversation; channels offer no Share; a card received over broadcast is ignored and shows nothing;
+- nothing a counterparty receives reveals another card's existence or label;
+- a locally edited name or photo is unchanged by any later Accept, and the contact page says where each came from;
+- two contacts with one name are told apart in every title, by the route label or the short PeerId, never by colour alone;
+- every received name is rendered as isolated plain text;
+- the sent photo carries no image metadata;
+- Discard and recreate deletes nothing without a confirmation that lists what goes — only the unfinished plaintext when the complete copy is present — with its initial focus on Cancel, and identity and trust are unchanged after it;
+- every action of this section has a non-gesture control and an accessibility-tree label.
+
 ## 14. Android availability-policy diagnostic
 
 When Android is configured with both `availability_mode=stay-reachable` and `key_unlock_policy=user-presence`, the configuration is valid but the UI/status model must expose `background_restart_requires_user_authentication=true`. User-facing copy must explain that the endpoint can stay reachable while the currently unlocked service remains alive, but it cannot automatically recover reachability after process/service restart until the user authenticates.
