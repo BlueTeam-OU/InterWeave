@@ -4,16 +4,21 @@
 # that never touch the phone, while it holds the real pixel-9a lease: the
 # guard refuses a hand-set or nested PHONE_RUN_HELD, the run never sees it,
 # a stop does not wait on the watcher's sleeps, a second TERM does not
-# re-run the stop, each kill-server ends at its bound, and neither a TERM,
-# a SIGKILLed wrapper nor a SIGKILLed phone-run leaves any part of the run
-# or the server.
+# re-run the stop, the start's and the stop's kill-server end at their
+# bound, and neither a TERM, a SIGKILLed wrapper nor a SIGKILLed phone-run
+# leaves any part of the run or the server.
 # Run by hand: bash .agent-fabric/bin/test_phone-run.sh
 #
-# Not checked, because the stub cannot see it: the port's value per login
-# and the readiness wait being a bare TCP connect. And if the real lease or
-# this script is itself SIGKILLed, nothing here takes the case down: the
-# lease frees while that case's stub still holds this login's port, until
-# that case's run ends: up to the 300 s sleep of the TERM-ignoring cases.
+# Not checked: the port's value per login and the readiness wait being a
+# bare TCP connect, which the stub cannot see; and the watcher's
+# kill-server bound, which runs only in the SIGKILL cases, where the stub
+# does not hang.
+#
+# Not held: if the real lease is SIGKILLed, this script runs on without it
+# (the lease cannot forward a SIGKILL) and its remaining cases take this
+# login's port until it exits. If this script is SIGKILLed, nothing ends
+# the case in flight until its run ends: up to the 300 s sleep of the
+# TERM-ignoring cases.
 #
 # It holds the real pixel-9a lease while it runs: its stub server takes
 # this login's adb port, which only a holder of the lease may use, and a
