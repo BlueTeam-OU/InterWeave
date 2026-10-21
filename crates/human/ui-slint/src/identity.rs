@@ -503,6 +503,35 @@ mod tests {
         assert_eq!(flow.screen(), ScreenId::W);
     }
 
+    /// S1's primary raises the system prompt: it has a key of its own,
+    /// never C4's and R4's Continue, which moves on (the owner, on the
+    /// Pixel; language-culture-en, REPLY 01a15d22).
+    #[test]
+    fn s1_asks_to_unlock_where_c4_continues() {
+        let flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        assert_eq!(page(&flow).primary, en(UiText::IdS1Unlock));
+        assert_ne!(en(UiText::IdS1Unlock), en(UiText::IdContinue));
+
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        apply(&mut flow, IdentityInput::Primary);
+        flow.created(words(), mine(), [3, 9]);
+        apply(&mut flow, IdentityInput::Primary);
+        apply(&mut flow, IdentityInput::Primary);
+        for _ in 0..2 {
+            let (position, _) = flow.check().expect("C3 checks a word");
+            let word = words()[position];
+            for letter in word.chars() {
+                if flow.picker().and_then(|p| p.chip(word)).is_some() {
+                    break;
+                }
+                assert!(flow.press(letter), "{letter} is enabled");
+            }
+            flow.choose(word);
+        }
+        assert_eq!(flow.screen(), ScreenId::C4, "control: at C4");
+        assert_eq!(page(&flow).primary, en(UiText::IdContinue));
+    }
+
     #[test]
     fn s1_shows_going_offline_in_place_of_its_action() {
         let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
