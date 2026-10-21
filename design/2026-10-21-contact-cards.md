@@ -344,20 +344,38 @@ the person cannot use (architect-cto confirmed, §12 A2).
 #### 5.4.1 What Accept will do, said before it is done
 
 The client compares the card with the store and shows one context line
-and one Accept label. "Same name" means equal after NFC and full case
-folding, with leading and trailing spaces removed.
+and one Accept label.
+
+**Same name.** What is compared is the name the card would give the
+contact — its `name`, then a space and its `surname` when it has one
+(ADR-0059 d. 3's `display_name`) — against each contact's
+`display_name`. Both sides are reduced to a key: NFKC, then full case
+folding, then every run of whitespace (any `Zs` character, a no-break
+space included, and tabs) collapsed to one space and trimmed, then the
+confusable skeleton of Unicode TS #39 (§4, `skeleton`). Two names are
+the same when their keys are equal. The key decides only whether the
+warning shows and whether titles carry the PeerId (§6.1); it is never
+displayed and never stored in place of the name. The reason is the
+threat ADR-0059 makes visible: a peer naming itself "Аnna" with a
+Cyrillic А, "Anna Rossi" with a no-break space or "Ａnna" in fullwidth
+letters — each allowed by HUMAN-CHAT.md's name rules — must meet the
+same warning as "Anna".
 
 | case | context line | Accept label | Accept does |
 |---|---|---|---|
+| **P** the route is under no contact; another route of the same PeerId is under contact X | `CardSamePeer`: "This is the PeerId of your contact {X}, on another route." and, when values would change, the U or E lines below | **Add to {X}** (`AddToContact`) | adds the route to X, then writes the card's values to X by the U and E rules; never a second contact for one PeerId (ADR-0059 d. 2) |
 | **N** the route is under no contact; no contact has this name | none | **Accept** (`Accept`) | creates a contact {name [surname]}, its photo, and the route |
-| **D** the route is under no contact; a contact on another PeerId has this name | `CardSameName`, in `error`, with a warning icon: "You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept." and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
+| **D** the route is under no contact; a contact on another PeerId has the same name | `CardSameName`, in `error`, with a warning icon: "You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept.", `{name}` being the existing contact's name as stored, so the person sees both spellings; and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
 | **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "If you accept, your contact {X} is updated." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
 | **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or the photo variant `CardKeepsPhoto`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
 | **S** the route is under X and the card changes nothing | `CardSame`: "This card matches your contact {X}." | **Close** (`Close`) in place of Accept; Decline is not shown | removes the row from the session, as Decline does, without a snackbar |
 
-D wins over N; E applies per value (name, photo). A case D card whose
-route is already under X is case U or E, since the route's own contact
-is what it updates. A photo is a "value that changes" whenever the card
+The cases are tested in this order: the route under X (S, E, U), then P,
+then D, then N. E applies per value (name, photo). So a card whose route
+or PeerId is already under X updates X and never warns of a name clash,
+since X is that peer. When routes of one PeerId sit under two contacts
+(after a Move, §6.3), P adds to the contact holding the route most
+recently active in a conversation. A photo is a "value that changes" whenever the card
 carries one and X's photo is not a local choice, since the client cannot
 compare a photo it has not decoded.
 
@@ -452,7 +470,8 @@ local edit from the start (it is never overwritten by a card).
   `{peer}`.
 - **Two contacts with the same name**: every title of either carries
   the short PeerId, `ContactTitleTwin`: "{name} ({peer})", so two Annas
-  are never one line twice. Same name as in §5.4.1.
+  are never one line twice. Same name by §5.4.1's key, so a lookalike
+  spelling counts.
 - **Long names**: one line, ellipsised at the end (the logical end, so
   RTL ellipsises on the left); the full name is in the accessible label
   and on Details.
@@ -717,9 +736,14 @@ on the desktop.
    canonical form), "includes a photo" when one is carried, and the
    "goes at close" line; before Accept no decoded photo appears anywhere,
    and a test pins that the decoder is not called (rust-ui-dev).
-7. Each case N, D, U, E and S of §5.4.1 shows its context line and Accept
+7. Each case P, N, D, U, E and S of §5.4.1 shows its context line and Accept
    label, and Accept does what the table says; in case E a locally
    edited name is unchanged after Accept.
+   Fixtures for D against a contact "Anna Rossi": a card "Anna" +
+   "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; "Anna" + "Rossi" sent as a
+   name "Anna Rossi" with U+00A0; "Ａnna" (fullwidth) + "Rossi" — each
+   shows `CardSameName`. A card from a second endpoint of a contact's
+   PeerId is case P and leaves one contact holding both routes.
 8. Accept then Undo leaves the store as before the Accept; Decline then
    restart leaves nothing of the card in the store; an unanswered,
    shown proposal is gone after a restart; an unshown one survives it.
@@ -840,6 +864,8 @@ and no string calls a card an "identity" (§1).
 | `Accept` / `Decline` | Accept / Decline | proposal actions, case N |
 | `AcceptAsNew` | Accept as a new contact | case D |
 | `UpdateContact` | Update contact | cases U, E |
+| `CardSamePeer` | This is the PeerId of your contact {name}, on another route. | case P; `{name}` the contact's name |
+| `AddToContact` | Add to {name} | case P's Accept |
 | `CardSameName` | You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept. | case D; must name both facts |
 | `ShowContact` | Open your contact {name} | case D link |
 | `CardUpdates` | If you accept, your contact {name} is updated. | case U |
