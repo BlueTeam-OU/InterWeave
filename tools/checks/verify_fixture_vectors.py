@@ -594,6 +594,18 @@ def _card_bytes(name: str, surname: str | None, photo: tuple[str, bytes] | None,
     )
 
 
+def _s_plus_order(s: int) -> int:
+    """S raised by the group order, refused unless it stays below 2^253.
+
+    An honest S reaches the refusal with probability about 2^-126, so no
+    seed exercises it; it is a function so the self-test can hand it one.
+    """
+    raised = s + _ED_L
+    if raised >= 2**253:
+        raise ValueError("S plus the group order reaches 2^253, so a top-bits check would refuse it too")
+    return raised
+
+
 def _card_verifies_strictly(key: bytes, signature: bytes, message: bytes) -> bool:
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -749,10 +761,7 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
             # The honest signature with S raised by l: the same signature
             # modulo l, refused only by the canonical-S check. Below 2^253
             # so the top three bits stay clear and no other check sees it.
-            s = int.from_bytes(honest[32:], "little") + _ED_L
-            if s >= 2**253:
-                raise ValueError("S plus the group order reaches 2^253, so a top-bits check would refuse it too")
-            expected = honest[:32] + s.to_bytes(32, "little")
+            expected = honest[:32] + _s_plus_order(int.from_bytes(honest[32:], "little")).to_bytes(32, "little")
         else:
             raise ValueError(f"signer.constructed '{constructed}' is not a construction this verifier knows")
         if card.get("signature") != base64.b64encode(expected).decode("ascii"):

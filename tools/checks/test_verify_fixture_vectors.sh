@@ -548,6 +548,22 @@ json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
 out="$(run "$R")"
 [ "$(run_code "$R")" = "1" ] && [[ "$out" == *"not the small-order-r construction from the test-only key's"* ]] && ok "a constructed signature that is not its construction is refused" || bad "a constructed signature that is not its construction is refused: $out"
 
+# The S-plus-order bound cannot be reached through any fixture (an honest
+# S lands there with probability about 2^-126), so it is handed an S.
+bound_out="$(python3 - "$CHECK" <<'PY' 2>&1
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("v", sys.argv[1])
+v = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(v)
+assert v._s_plus_order(0) == v._ED_L
+try:
+    v._s_plus_order(2**253 - v._ED_L)
+except ValueError as e:
+    print(e)
+PY
+)"
+[[ "$bound_out" == *"S plus the group order reaches 2^253"* ]] && ok "S plus the group order at 2^253 is refused" || bad "the 2^253 bound: $bound_out"
+
 # ── usage ────────────────────────────────────────────────────────────────
 [ "$(run_code "$TMP/nothing-here")" = "2" ] && ok "a missing fixtures/ exits 2" || bad "missing tree should exit 2"
 help_out="$(python3 "$CHECK" --help 2>/dev/null)"
