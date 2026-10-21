@@ -1525,8 +1525,19 @@ impl Driver {
             .reconnect_targets(now, |p| paths.contains_key(p))
         {
             // A refusal is the peer's last outcome (`CONNECTIVITY.md`
-            // §19); an admitted dial reports its own outcome as events.
-            if let Ok(Err(refusal)) = self.swarm.reconnect(peer.clone()).await {
+            // §19); an admitted dial reports its own outcome as events,
+            // and ends the refusal streak, so the next refusal is logged
+            // again -- a hold that follows another names its own end
+            // (#329 review F2).
+            let refusal = match self.swarm.reconnect(peer.clone()).await {
+                Ok(Ok(())) => {
+                    self.refusals.admitted(&peer);
+                    None
+                }
+                Ok(Err(refusal)) => Some(refusal),
+                Err(_) => None,
+            };
+            if let Some(refusal) = refusal {
                 let class = interweave_transport_libp2p::DialFailureClass::of_refusal(&refusal);
                 if self.refusals.changed(&self.trust, &peer, class) {
                     let who = Who::of(&peer, &self.trust, &self.infrastructure);

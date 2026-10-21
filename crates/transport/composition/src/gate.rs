@@ -311,6 +311,14 @@ impl ReconnectRefusals {
     pub(crate) fn forget(&mut self, peer: &TransportIdentity) {
         self.by_peer.remove(peer);
     }
+
+    /// A reconnect to `peer` was admitted: the refusal streak is over, so
+    /// the next refusal is news even with the same class -- a second
+    /// route hold, with its own end, after the first lapsed and the
+    /// admitted dial failed at the hop again (#329 review F2).
+    pub(crate) fn admitted(&mut self, peer: &TransportIdentity) {
+        self.forget(peer);
+    }
 }
 
 #[cfg(test)]
@@ -444,6 +452,43 @@ mod tests {
             LastOutcome::of_refusal(&DialRefusal::NoKnownAddress),
             None,
             "nothing to dial is not an outcome"
+        );
+    }
+
+    /// A reconnect refused on a held circuit route logs the class and the
+    /// hold's end; a refusal streak logs once, and an admitted reconnect
+    /// ends it, so a later hold -- the same class -- is logged with its own
+    /// end. THE CONTROL: without the admission between them the second
+    /// refusal is not news (#329 review F2).
+    #[test]
+    fn a_held_route_names_its_end_and_each_hold_after_an_admitted_dial_is_news() {
+        let listed = peer();
+        let trust = PeerTrustPolicy::new([listed.clone()]).expect("one peer");
+        let log = captured(|| {
+            reconnect_held(
+                Who::of(&listed, &trust, &InfrastructureSet::default()),
+                1_791_329_960_227,
+            );
+        });
+        assert!(
+            log.contains("reconnect refused")
+                && log.contains("class=\"RouteHeld\"")
+                && log.contains("held_until_ms=1791329960227")
+                && log.contains("INFO"),
+            "{log}"
+        );
+
+        let held = DialFailureClass::Denied(DialDenial::RouteHeld);
+        let mut refusals = ReconnectRefusals::default();
+        assert!(refusals.changed(&trust, &listed, held), "the first hold");
+        assert!(
+            !refusals.changed(&trust, &listed, held),
+            "the control: the same streak is not news"
+        );
+        refusals.admitted(&listed);
+        assert!(
+            refusals.changed(&trust, &listed, held),
+            "after an admitted reconnect, the next hold is"
         );
     }
 
