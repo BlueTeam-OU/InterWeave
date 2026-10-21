@@ -384,7 +384,7 @@ same warning as "Anna".
 |---|---|---|---|
 | **P** the route is under no contact; another route of the same PeerId is under contact X | `CardSamePeer`: "Your contact {X} already has this PeerId in another conversation." and, when values would change, the U or E lines below | **Add this conversation to {X}** (`AddToContact`) | adds the route to X, then writes the card's values to X by the U and E rules; never a second contact for one PeerId (ADR-0059 d. 2) |
 | **N** the route is under no contact; no contact has this name | none | **Accept** (`Accept`) | creates a contact {name [surname]}, its photo, and the route |
-| **D** the route is under no contact; a contact on another PeerId has the same name | `CardSameName`, in `error`, with a warning icon: "You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept.", `{name}` being the existing contact's name as stored, so the person sees both spellings; and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
+| **D** the route is under no contact; a contact on another PeerId has the same name | `CardSameName`, in `error`, with a warning icon: "One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept.", `{name}` being the existing contact's name as stored, so the person sees both spellings; and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
 | **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "If you accept, your contact {X} is updated." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
 | **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or the photo variant `CardKeepsPhoto`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
 | **S** the route is under X and the card changes nothing | `CardSame`: "This card matches your contact {X}." | **Close** (`Close`) in place of Accept; Decline is not shown | removes the row from the session, as Decline does, without a snackbar |
@@ -944,7 +944,7 @@ and no string calls a card an "identity" (§1).
 | `CardPhotoNone` | No photo for this card | the same, with no photo |
 | `CardSamePeer` | Your contact {name} already has this PeerId in another conversation. | case P; `{name}` the contact's name |
 | `AddToContact` | Add this conversation to {name} | case P's Accept |
-| `CardSameName` | You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept. | case D; must name both facts |
+| `CardSameName` | One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept. | case D; must name both facts |
 | `ShowContact` | Open your contact {name} | case D link |
 | `CardUpdates` | If you accept, your contact {name} is updated. | case U |
 | `CardUpdatesName` / `CardUpdatesPhoto` | New name: {name} / New photo | case U, the changes |
@@ -952,7 +952,7 @@ and no string calls a card an "identity" (§1).
 | `CardKeepsPhoto` | You chose this contact's photo yourself. That photo stays. | case E, photo |
 | `CardSame` | This card matches your contact {name}. | case S |
 | `CardAccepted` | You saved {name} as a contact. | confirmation row |
-| `CardRouteAdded` | You added this conversation to {name}. | confirmation row, case P when no value changed (proposal; language-culture-en's to write) |
+| `CardRouteAdded` | You added this conversation to {name}. | confirmation row, case P when no value changed |
 | `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
 | `CardPhotoNotUsed` | The photo could not be shown and was not saved. | confirmation row addition |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo |
