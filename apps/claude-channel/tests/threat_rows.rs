@@ -323,12 +323,12 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
     // The host's side: a line over the ceiling, refused unread; a line
     // that is not JSON; a reply to a token nobody minted.
     let over_long = format!(
-        "{{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{{\"text\":\"hostsecret-{}\"}}}}",
+        "{{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{{\"text\":\"qx7h-{}\"}}}}",
         "h".repeat(MAX_HOST_LINE_BYTES)
     );
-    let not_json = "hostgarbage-K4dQ-{-y3Vb";
+    let not_json = "qx7g-K4dQ-{-y3Vb";
     let unminted = json!({"jsonrpc": "2.0", "id": 10, "method": "tools/call",
-        "params": {"name": "reply", "arguments": {"reply_token": "unminted-tok-P9wE", "content": "c"}}});
+        "params": {"name": "reply", "arguments": {"reply_token": "qx7u-tP9w-E2c", "content": "c"}}});
     for line in [over_long.as_str(), not_json, &unminted.to_string()] {
         host_in
             .write_all(format!("{line}\n").as_bytes())
@@ -344,7 +344,7 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
 
     // The peer's side: a `;ce=br` envelope that does not decode, then a
     // message that is notified and replied to.
-    let malformed = "brsecret-T6yU-c2Lp-v9Qe";
+    let malformed = "qx7b-T6yU-c2Lp-v9Qe";
     daemon
         .direct(
             1,
@@ -352,7 +352,7 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
             malformed.as_bytes(),
         )
         .await;
-    let normal = "payloadsecret-M3nB-w4Rt-j1Hs";
+    let normal = "qx7p-M3nB-w4Rt-j1Hs";
     daemon
         .direct(2, Some("text/plain"), normal.as_bytes())
         .await;
@@ -370,7 +370,7 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
         .as_str()
         .expect("an id")
         .to_owned();
-    let reply_text = "replysecret-Z8kL-f5Gd-n0Xa";
+    let reply_text = "qx7r-Z8kL-f5Gd-n0Xa";
     let reply = json!({"jsonrpc": "2.0", "id": 11, "method": "tools/call",
         "params": {"name": "reply", "arguments": {"reply_token": token, "content": reply_text}}});
     host_in
@@ -414,11 +414,11 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
         stderr.contains("an inbound message was dropped: its payload did not decode"),
         "{stderr}"
     );
-    let over_long_marker = format!("hostsecret-{}", "h".repeat(16));
+    let over_long_marker = format!("qx7h-{}", "h".repeat(16));
     for secret in [
         over_long_marker.as_str(),
         not_json,
-        "unminted-tok-P9wE",
+        "qx7u-tP9w-E2c",
         malformed,
         normal,
         reply_text,
