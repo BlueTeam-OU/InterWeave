@@ -3041,6 +3041,51 @@ fn the_walk_indexes_are_part_of_the_verified_shape() {
 }
 
 #[test]
+fn a_unique_key_compared_under_another_collation_is_refused() {
+    // A UNIQUE key is read with its column's collation as well as its
+    // name: rebuilt `COLLATE NOCASE`, `settings.key` keeps its name, its
+    // type and its key while refusing rows the build's key admits, and
+    // neither the column check nor a key read by name sees it.
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    conn.execute_batch(
+        "ALTER TABLE settings RENAME TO settings_old;
+         CREATE TABLE settings (key TEXT COLLATE NOCASE PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO settings SELECT key, value FROM settings_old;
+         DROP TABLE settings_old;",
+    )
+    .expect("the rebuild is legal SQLite");
+    drop(conn);
+
+    let refused = HumanStore::open(&path, StoreOptions::default());
+    assert!(
+        matches!(&refused, Err(StoreError::Migration(d)) if d.contains("settings") && d.contains("NOCASE")),
+        "a NOCASE key must refuse the open by its unique key, got {refused:?}"
+    );
+}
+
+#[test]
+fn an_index_naming_binary_in_lower_case_is_the_index_this_build_wrote() {
+    // SQLite matches collation names without case and reports them as
+    // written, so `COLLATE binary` is the default collation by another
+    // spelling and the walk index declared with it is the one v8 writes.
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    conn.execute_batch(
+        "DROP INDEX unread_inbound_by_received;
+         CREATE INDEX unread_inbound_by_received
+             ON unread_inbound (received_at COLLATE binary, row_id)",
+    )
+    .expect("recreate");
+    drop(conn);
+    HumanStore::open(&path, StoreOptions::default()).expect("the same index opens");
+}
+
+#[test]
 fn a_migration_blocked_by_another_writer_is_not_a_file_needing_recovery() {
     // Another local process holding a write transaction blocks the
     // migration's DDL; the file is healthy and the next try works. Read

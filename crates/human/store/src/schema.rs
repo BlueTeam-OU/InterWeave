@@ -1223,105 +1223,108 @@ fn actual_columns(conn: &Connection, table: &str) -> Result<Vec<Column>, StoreEr
     rows.collect::<Result<_, _>>().map_err(StoreError::from)
 }
 
-/// Read one table's UNIQUE keys as ordered column lists.
+/// Read one table's UNIQUE keys as ordered column lists, each column as
+/// [`index_key_columns`] reads it, with `<partial>` appended to a key
+/// whose index carries a WHERE clause.
 fn actual_unique_keys(conn: &Connection, table: &str) -> Result<Vec<Vec<String>>, StoreError> {
-    let mut list = conn.prepare(&format!("PRAGMA index_list({table})"))?;
-    let indexes: Vec<(String, i64)> = list
-        .query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, i64>(2)?)))?
+    let mut keys: Vec<Vec<String>> = index_list(conn, table)?
+        .into_iter()
+        .filter(|ix| ix.unique)
+        .map(|ix| index_columns(conn, &ix))
         .collect::<Result<_, _>>()?;
-
-    let mut keys = Vec::new();
-    for (name, unique) in indexes {
-        if unique == 0 {
-            continue;
-        }
-        let mut info = conn.prepare(&format!("PRAGMA index_info(\"{name}\")"))?;
-        let mut cols: Vec<(i64, Option<String>)> = info
-            .query_map([], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(2)?))
-            })?
-            .collect::<Result<_, _>>()?;
-        cols.sort_by_key(|(seq, _)| *seq);
-        keys.push(cols.into_iter().filter_map(|(_, c)| c).collect());
-    }
     keys.sort();
     Ok(keys)
 }
 
-/// Read one table's non-unique indexes as `(name, ordered columns)`.
-///
-/// Read from `index_xinfo`'s key columns, not `index_info`: the latter
-/// names a column and nothing else, so `received_at DESC` or `received_at
-/// COLLATE NOCASE` under a declared name read as the index this build
-/// wrote while the walk sorts again. A column this build did not write
-/// carries its difference: an expression reads as `<expression>`, a
-/// descending key has ` DESC` appended, a collation other than `BINARY`
-/// ` COLLATE <name>`, and a partial index has `<partial>` appended -- so
-/// none can match a declared index by its name and columns.
+/// Read one table's non-unique indexes as `(name, ordered columns)`, each
+/// column as [`index_key_columns`] reads it, with `<partial>` appended to
+/// a partial index.
 fn actual_plain_indexes(
     conn: &Connection,
     table: &str,
 ) -> Result<Vec<(String, Vec<String>)>, StoreError> {
-    let mut list = conn.prepare(&format!("PRAGMA index_list({table})"))?;
-    let indexes: Vec<(String, i64, i64)> = list
-        .query_map([], |r| {
-            Ok((
-                r.get::<_, String>(1)?,
-                r.get::<_, i64>(2)?,
-                r.get::<_, i64>(4)?,
-            ))
-        })?
-        .collect::<Result<_, _>>()?;
-
-    let mut out = Vec::new();
-    for (name, unique, partial) in indexes {
-        if unique != 0 {
-            continue;
-        }
-        let mut info = conn.prepare(&format!("PRAGMA index_xinfo(\"{name}\")"))?;
-        // (seqno, name, desc, coll) of each key column; the rowid entry
-        // `index_xinfo` adds is not a key and is left out.
-        let mut cols: Vec<(i64, Option<String>, i64, Option<String>)> = info
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, Option<String>>(2)?,
-                    r.get::<_, i64>(3)?,
-                    r.get::<_, Option<String>>(4)?,
-                    r.get::<_, i64>(5)?,
-                ))
-            })?
-            .filter_map(|row| match row {
-                Ok((seq, name, desc, coll, 1)) => Some(Ok((seq, name, desc, coll))),
-                Ok(_) => None,
-                Err(e) => Some(Err(e)),
-            })
-            .collect::<Result<_, _>>()?;
-        cols.sort_by_key(|(seq, ..)| *seq);
-        let mut cols: Vec<String> = cols
-            .into_iter()
-            .map(|(_, c, desc, coll)| {
-                let mut col = c.unwrap_or_else(|| "<expression>".to_owned());
-                if desc != 0 {
-                    col.push_str(" DESC");
-                }
-                match coll.as_deref() {
-                    None | Some("BINARY") => {}
-                    Some(other) => {
-                        col.push_str(" COLLATE ");
-                        col.push_str(other);
-                    }
-                }
-                col
-            })
-            .collect();
-        if partial != 0 {
-            cols.push("<partial>".to_owned());
-        }
-        out.push((name, cols));
-    }
+    let mut out: Vec<(String, Vec<String>)> = index_list(conn, table)?
+        .into_iter()
+        .filter(|ix| !ix.unique)
+        .map(|ix| Ok((ix.name.clone(), index_columns(conn, &ix)?)))
+        .collect::<Result<_, StoreError>>()?;
     out.sort();
     Ok(out)
+}
+
+struct IndexEntry {
+    name: String,
+    unique: bool,
+    partial: bool,
+}
+
+fn index_list(conn: &Connection, table: &str) -> Result<Vec<IndexEntry>, StoreError> {
+    let mut list = conn.prepare(&format!("PRAGMA index_list({table})"))?;
+    let rows = list
+        .query_map([], |r| {
+            Ok(IndexEntry {
+                name: r.get(1)?,
+                unique: r.get::<_, i64>(2)? != 0,
+                partial: r.get::<_, i64>(4)? != 0,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(rows)
+}
+
+fn index_columns(conn: &Connection, ix: &IndexEntry) -> Result<Vec<String>, StoreError> {
+    let mut cols = index_key_columns(conn, &ix.name)?;
+    if ix.partial {
+        cols.push("<partial>".to_owned());
+    }
+    Ok(cols)
+}
+
+/// One index's key columns, in order, read from `index_xinfo` and not
+/// `index_info`: the latter names a column and nothing else, so
+/// `received_at DESC`, `received_at COLLATE NOCASE` or an expression read
+/// as the key this build wrote (an expression's NULL name was once
+/// dropped outright) while the walk sorts again or a UNIQUE key compares
+/// differently. A column this build did not write carries its difference:
+/// an expression reads as `<expression>`, a descending key has ` DESC`
+/// appended, and a collation other than `BINARY` -- matched without case,
+/// as SQLite matches collation names -- ` COLLATE <name>`; so none can
+/// match a declared column by its name alone.
+fn index_key_columns(conn: &Connection, index: &str) -> Result<Vec<String>, StoreError> {
+    let mut info = conn.prepare(&format!("PRAGMA index_xinfo(\"{index}\")"))?;
+    // (seqno, name, desc, coll) of each key column; the rowid entry
+    // `index_xinfo` adds is not a key and is left out.
+    let mut cols: Vec<(i64, Option<String>, i64, Option<String>)> = info
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, i64>(5)?,
+            ))
+        })?
+        .filter_map(|row| match row {
+            Ok((seq, name, desc, coll, 1)) => Some(Ok((seq, name, desc, coll))),
+            Ok(_) => None,
+            Err(e) => Some(Err(e)),
+        })
+        .collect::<Result<_, _>>()?;
+    cols.sort_by_key(|(seq, ..)| *seq);
+    Ok(cols
+        .into_iter()
+        .map(|(_, c, desc, coll)| {
+            let mut col = c.unwrap_or_else(|| "<expression>".to_owned());
+            if desc != 0 {
+                col.push_str(" DESC");
+            }
+            if let Some(coll) = coll.filter(|c| !c.eq_ignore_ascii_case("BINARY")) {
+                col.push_str(" COLLATE ");
+                col.push_str(&coll);
+            }
+            col
+        })
+        .collect())
 }
 
 /// Read one table's foreign keys as `[column, parent table, parent
