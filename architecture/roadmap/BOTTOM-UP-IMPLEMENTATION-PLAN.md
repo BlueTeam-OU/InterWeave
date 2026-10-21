@@ -5998,7 +5998,9 @@ overwrites no local edit; two same-name cards from two PeerIds are two
 proposals; a declined card leaves nothing in the store; a photo chosen
 with a GPS block and a camera serial leaves the sender with neither; an
 accepted card never overwrites a locally edited name or photo, and the
-contact page says where each came from; two own cards shared to two
+contact page says where each came from; a card accepted on a new route
+of a PeerId already under a contact joins that contact, and Move moves
+every route of the PeerId together; two own cards shared to two
 conversations, each counterparty holding only its own and nothing
 sent naming the other; a confirmed discard during a stalled rewrite
 removing the plaintext and keeping the key and the complete copy,
@@ -6082,8 +6084,7 @@ choice. `spikes/spike-012/` is the spike's home.
    SPIKE-012): one embedded runtime per active identity in the one
    foreground service, the active/dormant switch per identity, the
    bound refused above it, the notification naming the active ones,
-   ADR-0041's "owns the human EndpointId" amended to "each active
-   identity's" when this lands.
+   as ADR-0041 A 2026-10-21 says.
 4. **Acceptance criteria** (`human-client-ui.md` §13) for steps 1–3,
    proposed by rust-ui-dev and ruled by architect-cto.
 

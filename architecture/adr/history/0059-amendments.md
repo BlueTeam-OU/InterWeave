@@ -1,6 +1,6 @@
 # ADR-0059 — amendment notes
 
-### Amendment 2026-10-21 — The photo carries pixels and nothing else, a proposal has no Keep, and the store records where a contact's name and photo came from
+### Amendment 2026-10-21 — The photo carries pixels and nothing else, a proposal has no Keep, the store records where a contact's name and photo came from, and a PeerId never ends under two contacts
 
 ux-designer-01's specification of the card flows (#334,
 `design/2026-10-21-contact-cards.md`, questions A1–A3 of its §12, the
@@ -19,5 +19,11 @@ Decision 3's "a local edit is never overwritten by a card" needs the
 store to know where a value came from: STATE.md's `contacts` gains, for
 the name and for the photo, the source (card or person) and when,
 content-free columns in the §Logical tables review, added by the
-migration plan §29 step 2 lands and listed in its exit gate's (d). None of the three changes what a card is, who may
-send one or what a receiver does with it before acceptance.
+migration plan §29 step 2 lands and listed in its exit gate's (d). A fourth, from the same specification's later question (its §6.3,
+Move): decision 2's "one contact with two names, never two peers"
+constrains both Move and Accept — moving a route moves every route of
+the PeerId together, and accepting a card on a new route of a PeerId
+that already has a route under a contact joins that contact — so one
+peer is never shown under two names. None of the four changes what a
+card is, who may send one or what a receiver does with it before
+acceptance.
