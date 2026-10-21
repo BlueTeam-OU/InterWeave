@@ -5983,9 +5983,10 @@ decoded before Accept; no contacts permission, no contacts library,
 (the tree check, broken on purpose once per declaration); the
 store file, its log and its journal contain no plaintext of a contact
 name, a route or a retained message after a clean close and after an
-unclean one; a store whose key is missing opens nothing, reports the
-condition, and discard-and-recreate leaves the identity and trust
-untouched; the plaintext-to-encrypted rewrite killed at each step
+unclean one; a store whose key is missing opens nothing, reaches recovery mode
+with the confirmed Discard and recreate, and that action leaves the
+identity and trust untouched; an invalidated key (Android) is offered
+discard-and-recreate directly; the plaintext-to-encrypted rewrite killed at each step
 (after the export, after the mark, during the scrub, after the
 unlinks) loses no row on the next open, and a plaintext store with a
 damaged header reaches recovery mode, not discard; (c) SPIKE-011's Result cited with its figures; (d) the
