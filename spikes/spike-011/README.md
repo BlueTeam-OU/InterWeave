@@ -129,6 +129,48 @@ the three rounds' medians, the cipher builds as a ratio of the plaintext:
   rollback build therefore cannot tell the encrypted store from a corrupt
   one by the error.
 
+**Recorded: the device rows, `REPRODUCTION-device-2026-10-21.log`**
+(`device.sh`, binaries of bb1f7113 -- its BUILD says one dirty path, the
+rustfmt of `migrate.rs` that 6f6f58c4 records -- on the Stage 17
+reference device: Pixel 9a, Android 17, API 37, Tensor G4, f2fs, on
+battery). The harness ran from shell's `/data/local/tmp`, not the app's
+sandbox, on the same userdata partition; each store was opened as the
+Android client opens it, `open_profile` under a boundary the run's
+directory stands for. Medians of the rounds' medians, SQLCipher
+(vendored OpenSSL) as a ratio of the plaintext on the same side:
+
+| kept | operation | v7 plaintext | v7 SQLCipher | v8 plaintext | v8 SQLCipher |
+|---|---|---|---|---|---|
+| 500 | open-cold | 53.3 ms | 41.7 ms (x0.78) | 53.8 ms | 45.1 ms (x0.84) |
+| 500 | commit-unread | 1.1 ms | 1.7 ms (x1.49) | 1.2 ms | 1.8 ms (x1.57) |
+| 500 | read-walk | 3.4 ms | 3.6 ms (x1.05) | 3.4 ms | 3.2 ms (x0.97) |
+| 2000 | open-cold | 51.4 ms | 42.7 ms (x0.83) | 51.2 ms | 44.6 ms (x0.87) |
+| 2000 | commit-unread | 1.2 ms | 1.5 ms (x1.28) | 1.2 ms | 1.9 ms (x1.56) |
+| 2000 | read-walk | 9.2 ms | 10.2 ms (x1.10) | 4.9 ms | 7.7 ms (x1.58) |
+| 20 000 (stress) | read-walk | 1.66 s | 10.84 s (x6.5) | 99 ms | 127 ms (x1.28) |
+
+- **Within ADR-0060 decision 4 on the device**: every operation within
+  twice the baseline at 500 and 2000 kept, on both schema versions (the
+  largest, x1.58), and a cold open of 42-54 ms against the one-second
+  bound.
+- **The cold open is not shown to be cold on the device.** The harness
+  evicts with `posix_fadvise(DONTNEED)` after a sync, which Linux
+  honours; that f2fs on this kernel dropped the pages was not measured.
+  The figures are ten times the desktop's, which reads like a read from
+  the medium, and the bound has a factor of twenty to spare.
+- **The deletion property holds on the device's encrypted file**: after
+  a clean close, and after the next open following an abort, the
+  decrypted pages hold the kept marker and not the released one; the
+  control finds both; the raw files hold neither, and no plaintext
+  header.
+- **The failures are the desktop's**: a wrong key, the plaintext build on
+  the encrypted file, and the cipher build on a plaintext file, each
+  `NotADatabase`.
+- **Not run on the device**: the rewrite and key-file rows (Android's
+  key is sealed by the Keystore, ADR-0060 decision 3, which the harness
+  does not prototype), and the system-libcrypto build (Android has no
+  libcrypto an app may load).
+
 **Recorded: the index rows, `REPRODUCTION-index-2026-10-21.log`**
 (`index.sh 1a4fa590 c4a5af95`: the harness built at the pin, schema v7,
 and at schema v8, which indexes `(received_at, row_id)` on both inbound
@@ -191,5 +233,5 @@ decisions 3 and 6 with A 2026-10-21):
   database, RETENTION.md does not overstate (filesystem and flash), and
   the scrub before the unlink is what the record asks.
 
-Owed: the device rows (and Android's Keystore sealing, decision 3); the
-spike's Result in `architecture/roadmap/SPIKES.md`.
+Owed: Android's Keystore sealing of the key (decision 3), plan section 29
+step 3's; the spike's Result in `architecture/roadmap/SPIKES.md`.
