@@ -1887,3 +1887,67 @@ fn a_long_status_wraps_and_its_time_stays_whole_inside_the_bubble() {
         "the status wraps inside the bubble: {words}"
     );
 }
+
+/// #304 F9 step 5, on the phone's own figures (ux-designer-01, round 3:
+/// the Pixel in landscape, keyboard up): the strip left to the messages
+/// ends at the composer, and the newest message's end, its status and
+/// time, are in it. An empty refused-send line kept 25 px between them,
+/// most of that strip.
+#[test]
+fn with_the_keyboard_up_in_landscape_the_newest_message_ends_at_the_composer() {
+    let mut model = UiModel::new();
+    model.received(received(1, "message number 1", NOW - 60_000));
+    let view = opened(&model, false);
+    let window = view.window();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(923.0, 411.0));
+    window.set_keyboard_overlap(270.0);
+    for _ in 0..6 {
+        slint::platform::update_timers_and_animations();
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(5));
+    }
+    let found = all(&view);
+    let top_end = |e: &ElementHandle| {
+        let y = e.absolute_position().y;
+        (y, y + e.size().height)
+    };
+    let (list_top, _) = top_end(
+        found
+            .iter()
+            .find(|e| e.type_name().as_deref() == Some("Flickable"))
+            .expect("the message list"),
+    );
+    let (composer_top, _) = top_end(
+        found
+            .iter()
+            .find(|e| e.id().as_deref() == Some("AppWindow::composer-box"))
+            .expect("the composer"),
+    );
+    let (_, message_end) = top_end(
+        found
+            .iter()
+            .find(|e| {
+                e.accessible_label()
+                    .is_some_and(|l| l.contains("message number 1"))
+            })
+            .expect("the message"),
+    );
+    // The list's padding (5 px) and the pane's spacing (8 px).
+    assert!(
+        composer_top - message_end <= 13.5,
+        "the message ends at the composer: {message_end} against {composer_top}"
+    );
+    let time = found
+        .iter()
+        .find(|e| {
+            e.accessible_label()
+                .is_some_and(|l| l.len() == 5 && l.as_bytes()[2] == b':')
+        })
+        .expect("the message's time");
+    let (time_top, time_end) = top_end(time);
+    assert!(
+        time_top >= list_top && time_end <= composer_top,
+        "its time in view: {time_top}..{time_end} in {list_top}..{composer_top}"
+    );
+}

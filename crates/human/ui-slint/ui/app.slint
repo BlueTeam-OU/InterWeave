@@ -1763,8 +1763,9 @@ export component AppWindow inherits Window {
     // M: the least message area worth showing, two one-line bubbles.
     property <length> least-messages: 120px;
     // The pane's own padding and the spacing between its rows, which take
-    // height whatever steps aside.
-    property <length> pane-chrome: 56px;
+    // height whatever steps aside: 12 px above and below, and 8 px after
+    // the bar, the messages' heading and the list.
+    property <length> pane-chrome: 48px;
     // C, B and the notice: last measured while shown, so a part that
     // steps aside keeps the height it would take back.
     property <length> composer-height: 48px;
@@ -3147,109 +3148,120 @@ export component AppWindow inherits Window {
                 dismissed(id) => { root.snack-closed(id); }
                 focused(k) => { root.focus-id = k; }
             }
-            // A refused send is announced: the primary action's failure is
-            // otherwise silent to a screen reader (rust-ui-dev F3).
-            Text {
-                text: root.refused;
-                color: Palette.error;
-                accessible-role: text;
-                accessible-label: self.text;
-                accessible-live-region: polite;
-            }
-            // The composer (section 6): a filled, fully rounded field and a
-            // round Send. It exists only for an open conversation: an
-            // empty, disabled box would offer nothing to type into.
-            // The field, then Send: one order in the tree in both
-            // directions, so Tab and a screen reader reach the field first.
-            // Send is placed rather than laid out, at the line's end -- the
-            // right, or the left right to left -- as the snackbar's Undo is
-            // (tests/look.rs, `the_composer_mirrors_right_to_left`).
-            // Its own height, the field's lines and their padding: in the
-            // pane's layout a box without one took the free space under
-            // the messages (#304 F3).
-            if root.composer-enabled: Rectangle {
+            // The refused line and the composer are one row of the pane, so an
+            // empty line costs no spacing either: with the keyboard up in
+            // landscape its 25 px were most of the strip left to the messages
+            // (#304 F9 step 5).
+            VerticalLayout {
                 vertical-stretch: 0;
-                height: max(48px, input.preferred-height + 24px);
-                init => { root.composer-height = self.height; }
-                changed height => { root.composer-height = self.height; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    if root.rtl: Rectangle { width: 48px; }
-                    composer-box := Rectangle {
-                        min-height: 48px;
-                        background: Palette.surface-container-high;
-                        border-radius: self.height / 2;
-                        // The field is its whole box, as a Material text
-                        // field is: a tap above or below its line of text
-                        // focuses it too. Under the input, which keeps its
-                        // own taps for the cursor.
-                        TouchArea {
-                            clicked => {
-                                FocusMode.keyboard = false;
-                                input.focus();
-                            }
-                        }
-                        FocusRing {
-                            x: -5px;
-                            y: -5px;
-                            width: composer-box.width + 10px;
-                            height: composer-box.height + 10px;
-                            radius: composer-box.height / 2;
-                            shown: input.has-focus;
-                        }
-                        // The placeholder: the field's own label, "Message",
-                        // shown while it is empty. Not a second node.
-                        if root.draft == "": Text {
-                            x: 20px;
-                            width: parent.width - 40px;
-                            height: parent.height;
-                            text: root.composer-label;
-                            font-size: Type.body-large;
-                            color: Palette.on-surface-variant;
-                            vertical-alignment: center;
-                            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                            accessible-role: none;
-                        }
-                        input := TextInput {
-                            x: 20px;
-                            width: parent.width - 40px;
-                            height: self.preferred-height;
-                            y: (parent.height - self.height) / 2;
-                            vertical-alignment: center;
-                            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
-                            font-size: Type.body-large;
-                            color: Palette.on-surface;
-                            text <=> root.draft;
-                            enabled: root.composer-enabled;
-                            accessible-label: root.composer-label;
-                            // Closing the keyboard keeps the field focused, as
-                            // a platform field does. Letting focus go there
-                            // (b010afb9) never removed the insertion handle it
-                            // was for -- Slint 1.18.1's Android backend leaves
-                            // the handle drawn on any focus loss, a toolkit
-                            // limit carried as #304's F3 residual -- and is the
-                            // suspect in F16, a composer that took no focus on
-                            // a tap.
-                            edited => { root.draft-edited(self.text); }
-                            changed has-focus => {
-                                if (self.has-focus) { root.focus-id = "composer"; }
-                            }
-                        }
-                    }
-                    if !root.rtl: Rectangle { width: 48px; }
+                spacing: root.refused != "" && root.composer-enabled ? 8px : 0px;
+                // A refused send is announced: the primary action's failure is
+                // otherwise silent to a screen reader (rust-ui-dev F3).
+                Text {
+                    // No height while empty: an empty line kept its own and the
+                    // spacing after it.
+                    height: root.refused == "" ? 0px : self.preferred-height;
+                    text: root.refused;
+                    color: Palette.error;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                    accessible-live-region: polite;
                 }
-                IconButton {
-                    x: root.rtl ? 0px : parent.width - self.width;
-                    y: (parent.height - self.height) / 2;
-                    glyph: Glyph.send;
-                    rtl: root.rtl;
-                    label: root.send-label;
-                    filled: true;
-                    // Dimmed and inactive while the field is empty.
-                    active: root.draft != "";
-                    focus-key: "send";
-                    pressed => { root.send(); }
-                    focused(k) => { root.focus-id = k; }
+                // The composer (section 6): a filled, fully rounded field and a
+                // round Send. It exists only for an open conversation: an
+                // empty, disabled box would offer nothing to type into.
+                // The field, then Send: one order in the tree in both
+                // directions, so Tab and a screen reader reach the field first.
+                // Send is placed rather than laid out, at the line's end -- the
+                // right, or the left right to left -- as the snackbar's Undo is
+                // (tests/look.rs, `the_composer_mirrors_right_to_left`).
+                // Its own height, the field's lines and their padding: in the
+                // pane's layout a box without one took the free space under
+                // the messages (#304 F3).
+                if root.composer-enabled: Rectangle {
+                    vertical-stretch: 0;
+                    height: max(48px, input.preferred-height + 24px);
+                    init => { root.composer-height = self.height; }
+                    changed height => { root.composer-height = self.height; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        if root.rtl: Rectangle { width: 48px; }
+                        composer-box := Rectangle {
+                            min-height: 48px;
+                            background: Palette.surface-container-high;
+                            border-radius: self.height / 2;
+                            // The field is its whole box, as a Material text
+                            // field is: a tap above or below its line of text
+                            // focuses it too. Under the input, which keeps its
+                            // own taps for the cursor.
+                            TouchArea {
+                                clicked => {
+                                    FocusMode.keyboard = false;
+                                    input.focus();
+                                }
+                            }
+                            FocusRing {
+                                x: -5px;
+                                y: -5px;
+                                width: composer-box.width + 10px;
+                                height: composer-box.height + 10px;
+                                radius: composer-box.height / 2;
+                                shown: input.has-focus;
+                            }
+                            // The placeholder: the field's own label, "Message",
+                            // shown while it is empty. Not a second node.
+                            if root.draft == "": Text {
+                                x: 20px;
+                                width: parent.width - 40px;
+                                height: parent.height;
+                                text: root.composer-label;
+                                font-size: Type.body-large;
+                                color: Palette.on-surface-variant;
+                                vertical-alignment: center;
+                                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                                accessible-role: none;
+                            }
+                            input := TextInput {
+                                x: 20px;
+                                width: parent.width - 40px;
+                                height: self.preferred-height;
+                                y: (parent.height - self.height) / 2;
+                                vertical-alignment: center;
+                                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                                font-size: Type.body-large;
+                                color: Palette.on-surface;
+                                text <=> root.draft;
+                                enabled: root.composer-enabled;
+                                accessible-label: root.composer-label;
+                                // Closing the keyboard keeps the field focused, as
+                                // a platform field does. Letting focus go there
+                                // (b010afb9) never removed the insertion handle it
+                                // was for -- Slint 1.18.1's Android backend leaves
+                                // the handle drawn on any focus loss, a toolkit
+                                // limit carried as #304's F3 residual -- and is the
+                                // suspect in F16, a composer that took no focus on
+                                // a tap.
+                                edited => { root.draft-edited(self.text); }
+                                changed has-focus => {
+                                    if (self.has-focus) { root.focus-id = "composer"; }
+                                }
+                            }
+                        }
+                        if !root.rtl: Rectangle { width: 48px; }
+                    }
+                    IconButton {
+                        x: root.rtl ? 0px : parent.width - self.width;
+                        y: (parent.height - self.height) / 2;
+                        glyph: Glyph.send;
+                        rtl: root.rtl;
+                        label: root.send-label;
+                        filled: true;
+                        // Dimmed and inactive while the field is empty.
+                        active: root.draft != "";
+                        focus-key: "send";
+                        pressed => { root.send(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
             }
         }

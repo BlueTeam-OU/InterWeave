@@ -1798,6 +1798,12 @@ fn a_refused_send_is_announced() {
         the(&view, &reason).accessible_live_region(),
         Some(i_slint_backend_testing::AccessibleLiveness::Polite)
     );
+    // The line takes no height while empty (#304 F9 step 5); shown, it
+    // has its own.
+    assert!(
+        the(&view, &reason).size().height > 0.0,
+        "the refused line is drawn"
+    );
 }
 
 /// rust-ui-dev R1, review N2: inputs resolve in the order they arrived.
