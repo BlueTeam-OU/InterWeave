@@ -6152,7 +6152,8 @@ side: with `advertise: true` authored and `set_advertise` made to fail,
 no lease is granted and the client says why; with it made to block, no
 lease is granted until it returns; after a daemon restart with the delta
 removed from the overlay in between, the client's re-lease asserts it
-again and a trusted peer's directory query lists no identity — and the
+again, the same fail and block cases granting no re-lease, and a trusted
+peer's directory query lists no identity — and the
 endpoint directory lists no identity to a trusted peer; Remove, after one confirmation listing what
 goes, deletes an added identity's endpoint from the overlay, removes its
 conversations, its pending outbound (attempted no further, a
