@@ -514,7 +514,8 @@ alone, so that a PeerId is never split across two contacts (§5.4.1):
   the dialog is modal and would cover the snackbar's Undo until it timed
   out; focus goes to the conversation's header title (never the
   composer), and the snackbar, its Undo included, is reachable as any
-  conversation snackbar is. After Undo, focus stays on the header title.
+  conversation snackbar is. After Undo, focus goes to the header title
+  (the Undo control that held it is gone with the snackbar).
   Opening Details again shows the contact (§6.4). Add as a contact is not
   offered.
 
@@ -562,9 +563,11 @@ routes") only when there is more than one. A row opens the contact page.
 - Nothing here creates a contact without a route: a contact always
   starts from a conversation.
 - **Snackbars on these pages** (Delete contact, Remove photo, Move, and
-  Your cards' Card deleted): a snackbar shown on the Contacts list, a
-  contact page or the Your cards list lives while the person moves among
-  those pages, and closes when they leave them, as a conversation's
+  Your cards' Card deleted): a snackbar shown on the Contacts list or a
+  contact page lives while the person moves between those two, and one
+  shown on the Your cards list lives while they stay on it (opening the
+  card editor counts as leaving); each closes when the person leaves its
+  pages, as a conversation's
   closes when they leave it (message-swipe §6: one at a time, a new one
   replaces the old).
 
