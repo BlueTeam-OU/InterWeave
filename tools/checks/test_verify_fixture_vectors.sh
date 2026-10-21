@@ -546,7 +546,7 @@ p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
 v['signature-non-canonical-s']['signer']['constructed']='small-order-r'
 json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
 out="$(run "$R")"
-[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"not the test-only key's over the bytes signed_over names"* ]] && ok "a constructed signature that is not its construction is refused" || bad "a constructed signature that is not its construction is refused: $out"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"not the small-order-r construction from the test-only key's"* ]] && ok "a constructed signature that is not its construction is refused" || bad "a constructed signature that is not its construction is refused: $out"
 
 # ── usage ────────────────────────────────────────────────────────────────
 [ "$(run_code "$TMP/nothing-here")" = "2" ] && ok "a missing fixtures/ exits 2" || bad "missing tree should exit 2"

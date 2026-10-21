@@ -680,7 +680,11 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
     bytes; a test-only signer's public key is its seed's, and the card's
     signature is that seed's over the bytes `signed_over` names (Ed25519
     signing is deterministic, so a malformed vector fails for its rule and
-    not for a signature nobody made); a small-order signer's key is small
+    not for a signature nobody made) -- or, where `signer.constructed`
+    names one, that construction from it: `small-order-r` (R the identity
+    point, S recomputed for it) and `s-plus-order` (S raised by the group
+    order), each with `lax_verifies` recomputed against OpenSSL, which
+    accepts the first and refuses the second; a small-order signer's key is small
     order and its signature's R is not, and `lax_verifies` says whether
     OpenSSL's cofactorless verify accepts it, which is what makes the
     strict rule on the key the one that refuses; a stated
@@ -752,6 +756,8 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
         else:
             raise ValueError(f"signer.constructed '{constructed}' is not a construction this verifier knows")
         if card.get("signature") != base64.b64encode(expected).decode("ascii"):
+            if constructed is not None:
+                raise ValueError(f"the card's signature is not the {constructed} construction from the test-only key's")
             raise ValueError("the card's signature is not the test-only key's over the bytes signed_over names")
         if constructed is not None:
             try:
