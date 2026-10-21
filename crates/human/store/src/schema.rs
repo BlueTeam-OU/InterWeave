@@ -1250,9 +1250,14 @@ fn actual_unique_keys(conn: &Connection, table: &str) -> Result<Vec<Vec<String>>
 
 /// Read one table's non-unique indexes as `(name, ordered columns)`.
 ///
-/// A column `index_info` cannot name -- an expression -- reads as
-/// `<expression>`, and a partial index has `<partial>` appended, so
-/// neither can match a declared index by its name and columns alone.
+/// Read from `index_xinfo`'s key columns, not `index_info`: the latter
+/// names a column and nothing else, so `received_at DESC` or `received_at
+/// COLLATE NOCASE` under a declared name read as the index this build
+/// wrote while the walk sorts again. A column this build did not write
+/// carries its difference: an expression reads as `<expression>`, a
+/// descending key has ` DESC` appended, a collation other than `BINARY`
+/// ` COLLATE <name>`, and a partial index has `<partial>` appended -- so
+/// none can match a declared index by its name and columns.
 fn actual_plain_indexes(
     conn: &Connection,
     table: &str,
@@ -1273,16 +1278,42 @@ fn actual_plain_indexes(
         if unique != 0 {
             continue;
         }
-        let mut info = conn.prepare(&format!("PRAGMA index_info(\"{name}\")"))?;
-        let mut cols: Vec<(i64, Option<String>)> = info
+        let mut info = conn.prepare(&format!("PRAGMA index_xinfo(\"{name}\")"))?;
+        // (seqno, name, desc, coll) of each key column; the rowid entry
+        // `index_xinfo` adds is not a key and is left out.
+        let mut cols: Vec<(i64, Option<String>, i64, Option<String>)> = info
             .query_map([], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(2)?))
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, i64>(5)?,
+                ))
             })?
+            .filter_map(|row| match row {
+                Ok((seq, name, desc, coll, 1)) => Some(Ok((seq, name, desc, coll))),
+                Ok(_) => None,
+                Err(e) => Some(Err(e)),
+            })
             .collect::<Result<_, _>>()?;
-        cols.sort_by_key(|(seq, _)| *seq);
+        cols.sort_by_key(|(seq, ..)| *seq);
         let mut cols: Vec<String> = cols
             .into_iter()
-            .map(|(_, c)| c.unwrap_or_else(|| "<expression>".to_owned()))
+            .map(|(_, c, desc, coll)| {
+                let mut col = c.unwrap_or_else(|| "<expression>".to_owned());
+                if desc != 0 {
+                    col.push_str(" DESC");
+                }
+                match coll.as_deref() {
+                    None | Some("BINARY") => {}
+                    Some(other) => {
+                        col.push_str(" COLLATE ");
+                        col.push_str(other);
+                    }
+                }
+                col
+            })
             .collect();
         if partial != 0 {
             cols.push("<partial>".to_owned());

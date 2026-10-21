@@ -2966,9 +2966,9 @@ fn the_walk_indexes_are_part_of_the_verified_shape() {
     // An index is a second copy of the columns it covers. Before v8 the
     // guard admitted any index whose name contained a store table's, so
     // `unread_inbound_bodies` over the payload opened; now every index
-    // is declared on its table's shape, by name and column, and anything
-    // else -- missing, extra, partial, over an expression, or UNIQUE --
-    // refuses the open.
+    // is declared on its table's shape, by name, column, direction and
+    // collation, and anything else -- missing, extra, partial, descending,
+    // another collation, over an expression, or UNIQUE -- refuses the open.
     for (case, ddl, table) in [
         (
             "missing",
@@ -2992,6 +2992,19 @@ fn the_walk_indexes_are_part_of_the_verified_shape() {
              CREATE INDEX unread_inbound_by_received ON unread_inbound (received_at, row_id)
               WHERE received_at > 0",
             "unread_inbound",
+        ),
+        (
+            "descending under the name",
+            "DROP INDEX unread_inbound_by_received;
+             CREATE INDEX unread_inbound_by_received ON unread_inbound (received_at DESC, row_id)",
+            "unread_inbound",
+        ),
+        (
+            "another collation under the name",
+            "DROP INDEX kept_inbound_by_received;
+             CREATE INDEX kept_inbound_by_received
+                 ON kept_inbound (received_at COLLATE NOCASE, row_id)",
+            "kept_inbound",
         ),
         (
             "an expression under the name",
