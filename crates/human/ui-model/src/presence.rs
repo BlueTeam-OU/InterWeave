@@ -5,11 +5,10 @@
 //! needed"; acceptance 10): on a profile whose key needs the person, a key
 //! operation outside the window since the last authentication waits for
 //! the system prompt, raised by the screen before the operation, never by
-//! the service. A cancelled prompt runs nothing the gate held. What the
-//! flow's end then owes the service is the root's: a service Show my
-//! phrase stopped is asked back all the same, and with the key closed it
-//! stays offline and says so (#309 review N4; design section 6,
-//! acceptance 10's "returns to Settings offline").
+//! the service. A cancelled prompt runs nothing the gate held: a
+//! cancelled service start leaves the person offline, and the window says
+//! why, with an Unlock that raises the prompt again (the root's; design
+//! section 6, acceptance 10; android-key-custody.md's failure list).
 //!
 //! It stands between [`crate::IdentityFlow`]'s effects and the platform
 //! that carries them out, so every key operation passes it whichever

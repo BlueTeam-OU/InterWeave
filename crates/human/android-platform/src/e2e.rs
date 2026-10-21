@@ -71,7 +71,14 @@ impl AppClient for HubClient {
                 ToView::Running(false) if self.running => {
                     return Err("the app's service stopped".to_owned());
                 }
-                ToView::Running(false) | ToView::NetworkAccess(true) => {}
+                ToView::Running(false)
+                | ToView::NetworkAccess(true)
+                | ToView::AuthenticationNeeded(false) => {}
+                // The case's profile is background-compatible: a need to
+                // authenticate means the case cannot run, so it ends.
+                ToView::AuthenticationNeeded(true) => {
+                    return Err("the profile waits for the person's authentication".to_owned());
+                }
                 ToView::Update(update) => updates.push(*update),
                 // The service runs the network-denied posture: the case's
                 // exchange cannot happen, so it ends, saying why.

@@ -123,7 +123,7 @@ Multi-byte integers are **big-endian**, matching `DIRECT.md`, the IPC length pre
 
 A refusal carries no endpoint list. The maximum request is 1 byte; the maximum response is 1 + 8 + 4 + 1 + 32 × 65 = **2094 bytes**, and both codecs bound their reads to those ceilings before allocating. `fixtures/endpoints/endpoint-directory-v1-frame.json` freezes the empty, single-entry and ceiling frames, one refusal, and the request.
 
-The sender sorts the list lexicographically for deterministic fixtures. Only currently leased endpoints configured with `advertise: true` are included. No endpoint metadata beyond `EndpointId` is carried.
+The sender sorts the list lexicographically for deterministic fixtures. Only currently leased endpoints configured with `advertise: true` — the effective value, the endpoint overlay applied over the authored configuration (ADR-0028 A 2026-10-21; a human identity's endpoint is never advertised, ADR-0061) — are included. No endpoint metadata beyond `EndpointId` is carried.
 
 The querying peer treats the response as hostile metadata until validated. More than 32 entries, an invalid/noncanonical EndpointId, or a duplicate entry is a protocol violation and is not cached/surfaced. A valid but unsorted unique list is locally sorted rather than rejected, with a bounded noncanonical diagnostic. `ttl_ms` is clamped to `min(remote_ttl, local_cache_ttl, 300000)` and begins at local receipt; `generated_at_ms` never extends freshness.
 

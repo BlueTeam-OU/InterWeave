@@ -21,6 +21,7 @@ mod model;
 mod picker;
 mod presence;
 mod trust;
+mod waiting;
 
 pub use identity_flow::{
     Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, Words,
@@ -40,3 +41,4 @@ pub use model::{
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};
 pub use trust::{EntryProblem, TrustChange, TrustInput, TrustOutcome, TrustSettings};
+pub use waiting::{age_text, announced_change, next_age_change, waiting_text};

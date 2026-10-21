@@ -508,7 +508,7 @@ What to actually do, in order:
 ### Identity and endpoint routing
 
 - One profile owns one persistent PeerId.
-- EndpointIds are configured routing selectors beneath a PeerId, not cryptographic identities, people, roles, or authorization principals.
+- EndpointIds are configured routing selectors beneath a PeerId, not cryptographic identities, people, roles, or authorization principals. Above transport the human client presents one user identity per EndpointId it holds — a display name and a photo, several on one node (ADR-0061) — which changes nothing the transport authenticates.
 - Direct-capable local sessions obtain one exclusive configured endpoint lease.
 - Source EndpointId is derived from the local lease, never trusted from arbitrary caller input.
 - Endpoint-specific policy may narrow profile trust but never widen it.

@@ -241,6 +241,12 @@ pub(crate) fn confirmation_text(confirms: Confirmation) -> &'static str {
         Confirmation::Cancelled {
             may_have_reached: true,
         } => placeholder_en::text(UiText::ConfirmSendingCanceledMayHaveReached),
+        Confirmation::IdentifierCopied { channel: false } => {
+            placeholder_en::text(UiText::PeerIdCopied)
+        }
+        Confirmation::IdentifierCopied { channel: true } => {
+            placeholder_en::text(UiText::ChannelIdCopied)
+        }
     }
 }
 

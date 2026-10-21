@@ -515,3 +515,14 @@ clear named.
 **Decision unlocked:** plan §29 step 3. Until the Result pins a
 mechanism, the store stays as it is and no §22 release ships a human
 store.
+
+## SPIKE-012 — withdrawn before it opened
+
+Opened 2026-10-21 by the first draft of ADR-0061 (one embedded runtime per
+identity in the one Android service, to measure two runtimes side by
+side) and withdrawn the same day when the owner's clarification made a
+user identity an EndpointId of the node (ADR-0061 as accepted): one
+runtime, one lease per identity, nothing to measure. The number is kept
+so that no later spike reuses it; the measurement it described is the
+revisit condition of ADR-0061 for identities on the phone that no
+counterparty can link.

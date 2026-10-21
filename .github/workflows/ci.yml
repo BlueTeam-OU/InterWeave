@@ -322,6 +322,33 @@ jobs:
           --run-ignored only --no-tests=fail
           -E 'binary_id(interweave-desktop-e2e-tests::human_app) & test(=release::a_rollback_to_each_previous_build_keeps_the_peer_id_and_is_recorded)'
 
+      # Plan §21, decided (4) and P2: the daemon's sockets against a REAL
+      # second uid. The test is #[ignore]d for want of an account and
+      # panics by name with INTERWEAVE_FOREIGN_UID_USER unset, with
+      # `sudo -n -u` refused, or with the uid unchanged. The account is
+      # `nobody`: every runner image has it, and `sudo` runs a command
+      # without its login shell. The first lines fail HERE, named, when
+      # the image stops letting this job become `nobody` or `nobody`
+      # cannot run python3 (the test's client). TMPDIR is pinned to /tmp
+      # because the test's scratch comes from it and `nobody` must
+      # traverse it; a TMPDIR under the runner's home would not be. The
+      # selection is the rollback row's (above), for its reasons: Tests
+      # built the binary and the daemon beside it, and a name matching
+      # nothing fails rather than passes.
+      - name: The daemon's sockets refuse a foreign uid (plan §21, decided (4))
+        timeout-minutes: 5
+        env:
+          INTERWEAVE_FOREIGN_UID_USER: nobody
+          TMPDIR: /tmp
+        run: |
+          set -euo pipefail
+          foreign=$(sudo -n -u "$INTERWEAVE_FOREIGN_UID_USER" -- id -u)
+          [ "$foreign" != "$(id -u)" ] || { echo "sudo -u $INTERWEAVE_FOREIGN_UID_USER kept uid $foreign" >&2; exit 1; }
+          sudo -n -u "$INTERWEAVE_FOREIGN_UID_USER" -- python3 -c 'import os; print(os.getuid())'
+          cargo nextest run --workspace --all-targets --locked --profile ci \
+            --run-ignored only --no-tests=fail \
+            -E 'binary_id(interweave-security-local-tests::socket_spoofing) & test(=a_foreign_uid_is_refused_by_the_modes_and_then_by_the_peer_credential_check)'
+
       - name: The lockfile is the one that was committed
         # Belt and braces to `--locked`: if any step did rewrite it, say
         # so here rather than letting a green run attest to a graph the

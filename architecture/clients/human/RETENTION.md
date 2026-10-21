@@ -67,7 +67,7 @@ locally read/presented under UI read policy
 
 `read` is a local UI state only. It does not generate a network read receipt and does not prove the human actually perceived the content.
 
-The receiver may mark an inbound message `Keep` **only after it has entered the local read state**. Remote payload fields, EndpointId names, contacts, senders, notification actions, or application envelope fields can never force durable retention.
+The receiver may mark an inbound message `Keep` **only after it has entered the local read state**. A received `contact_card` (ADR-0059, A 2026-10-21) is the one inbound item with no `Keep`: it is a proposal, unread until shown and gone at process exit if not accepted, and Accept — which writes the contact store, not a message row — is its only durable outcome; a client offers no Keep on it and refuses one asked through any other path. Remote payload fields, EndpointId names, contacts, senders, notification actions, or application envelope fields can never force durable retention.
 
 If a read-but-unkept message is still visible in the current process, a later explicit `Keep` action may write it back as `KEPT_INBOUND`. If the process exits before that action, the content is gone by design.
 
@@ -165,3 +165,4 @@ The desktop and Android human clients must share tests proving:
 14. storage unavailable/full transitions the human endpoint to degraded/offline handling rather than silently claiming unread durability.
 15. released content is absent from the store's files (the database and its write-ahead log) after a clean close, after the next open following an unclean one, and within the store's bound while open (`crates/human/store/tests/released_content.rs`; A 2026-10-07).
 16. an undone cancel re-commits the cancelled record's `app_message_id`, transport message id, destination selector, media type, payload bytes and attempt count unchanged, durable before the first attempt (A 2026-10-16).
+17. a received `contact_card` proposal is offered no Keep, a Keep asked for it is refused, and only Accept makes anything of it durable, in `contacts` (A 2026-10-21, ADR-0059 decision 3);

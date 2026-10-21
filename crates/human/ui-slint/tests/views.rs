@@ -19,7 +19,7 @@ use i_slint_backend_testing::ElementHandle;
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{
     ClientEvent, Connectivity, Destination, Origin, OutboundStatus, OutboundUpdate, Received,
-    SessionProblem, SessionState, TrustList, TrustRow,
+    SendProblem, SessionProblem, SessionState, TrustList, TrustRow,
 };
 use interweave_human_core::{AppMessageId, RowId};
 use interweave_human_ui_model::{
@@ -119,6 +119,7 @@ fn intents(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
                 ViewEvent::Trust(input) => out.extend(model.trust_settings_mut().input(input)),
                 ViewEvent::Undo(id) => out.extend(model.undo(id)),
                 ViewEvent::SnackbarClosed(id) => model.snackbar_closed(id),
+                ViewEvent::IdentifierCopied(key) => model.identifier_copied(key),
             }
         }
     }
@@ -150,6 +151,12 @@ fn open(view: &mut View, model: &mut UiModel, key: &ConversationKey) -> Vec<Inte
 
 fn labelled(view: &View, label: &str) -> Vec<ElementHandle> {
     ElementHandle::find_by_accessible_label(view.window(), label).collect()
+}
+
+/// Trust, by the app's options and their Trust entry (#304 F12).
+fn open_trust(view: &View) {
+    labelled(view, text(UiText::AppOptions))[0].invoke_accessible_default_action();
+    labelled(view, text(UiText::TrustHeading))[0].invoke_accessible_default_action();
 }
 
 /// Choose `label` from the menu of the first message row that offers it
@@ -480,6 +487,51 @@ fn the_notice_action_resolves_only_while_its_notice_is_shown() {
     );
 }
 
+/// A session notice is about the whole client, not one conversation, so
+/// a phone shows it on Chats too, where a fresh profile has nothing to
+/// open: the locked notice and its Unlock are the only way back online
+/// after a cancelled prompt (#313's device run on the Samsung A40).
+#[test]
+fn a_phone_shows_the_session_notice_and_its_action_on_chats() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    model.authentication_needed(true);
+    view.render(&model);
+    let notice = the(&view, text(UiText::AuthenticationNeeded));
+    assert!(notice.size().width > 0.0, "the notice is laid out");
+    let unlock = the(&view, text(UiText::Authenticate));
+    assert!(unlock.size().width > 0.0, "and so is its action");
+    unlock.invoke_accessible_default_action();
+    assert_eq!(intents(&mut view, &mut model), vec![Intent::Authenticate]);
+
+    model.authentication_needed(false);
+    model.client_event(ClientEvent::Session(SessionState::Refused {
+        problem: SessionProblem::EndpointInUse,
+    }));
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::AuthenticationNeeded)).is_empty(),
+        "one notice at a time"
+    );
+    the(&view, text(UiText::TryAgain));
+
+    model.client_event(ClientEvent::Session(SessionState::Ready {
+        endpoint: Some(human()),
+    }));
+    model.client_event(ClientEvent::Connectivity(Connectivity::Offline));
+    view.render(&model);
+    the(&view, text(UiText::StateShortOffline));
+    assert!(
+        labelled(
+            &view,
+            placeholder_en::host_text(RuntimeHost::Daemon, HostText::OfflineBanner)
+        )
+        .is_empty(),
+        "the offline banner is a conversation's: Chats' subtitle says it"
+    );
+}
+
 /// §13, the accessibility tree: message and connectivity controls carry
 /// meaningful labels, roles and descriptions; connectivity is a polite
 /// live region and an item's status is not; the full `PeerId` is on the
@@ -560,9 +612,15 @@ fn the_tree_labels_message_route_and_connectivity_controls() {
          announcement says what changed (F4)"
     );
 
-    let online = the(
-        &view,
-        placeholder_en::connectivity(RuntimeHost::Daemon, Connectivity::OnlineDirect),
+    // The device's state, on Chats (#304 F7): the short text as shown is
+    // its name, the full one its description.
+    let online = the(&view, text(UiText::StateShortDirect));
+    assert_eq!(
+        online.accessible_description().as_deref(),
+        Some(placeholder_en::connectivity(
+            RuntimeHost::Daemon,
+            Connectivity::OnlineDirect
+        ))
     );
     assert_eq!(
         online.accessible_live_region(),
@@ -629,9 +687,13 @@ fn unknown_connectivity_is_not_shown_as_offline() {
     let model = UiModel::new();
     assert_eq!(model.connectivity(), Connectivity::Unknown);
     view.render(&model);
-    let shown = the(
-        &view,
-        placeholder_en::connectivity(RuntimeHost::Daemon, Connectivity::Unknown),
+    let shown = the(&view, text(UiText::StateShortUnknown));
+    assert_eq!(
+        shown.accessible_description().as_deref(),
+        Some(placeholder_en::connectivity(
+            RuntimeHost::Daemon,
+            Connectivity::Unknown
+        ))
     );
     assert!(
         !shown
@@ -640,12 +702,14 @@ fn unknown_connectivity_is_not_shown_as_offline() {
             .to_ascii_lowercase()
             .contains("offline")
     );
+    assert!(labelled(&view, text(UiText::StateShortOffline)).is_empty());
     assert!(
         labelled(
             &view,
-            placeholder_en::connectivity(RuntimeHost::Daemon, Connectivity::Offline)
+            placeholder_en::host_text(RuntimeHost::Daemon, HostText::OfflineBanner)
         )
-        .is_empty()
+        .is_empty(),
+        "no offline banner"
     );
 }
 
@@ -1031,7 +1095,7 @@ fn remote_text_is_drawn_and_raises_nothing_but_the_read() {
                 text(UiText::Keep),
                 text(UiText::Send),
                 text(UiText::ShowSource),
-                text(UiText::TrustSettings),
+                text(UiText::AppOptions),
                 text(UiText::MoreOptions),
                 open_link("https://example.org").as_str(),
             ]
@@ -1734,6 +1798,12 @@ fn a_refused_send_is_announced() {
         the(&view, &reason).accessible_live_region(),
         Some(i_slint_backend_testing::AccessibleLiveness::Polite)
     );
+    // The line takes no height while empty (#304 F9 step 5); shown, it
+    // has its own.
+    assert!(
+        the(&view, &reason).size().height > 0.0,
+        "the refused line is drawn"
+    );
 }
 
 /// rust-ui-dev R1, review N2: inputs resolve in the order they arrived.
@@ -1886,45 +1956,131 @@ fn the_platform_check_passes_where_fontconfig_loads() {
     assert_eq!(interweave_human_ui_slint::platform_check(), Ok(()));
 }
 
-/// The open conversation's identifier is in the tree in exact canonical
-/// form, as a read-only field a person selects and copies
-/// (human-client-ui.md section 11), in Details from the overflow menu
-/// (android-look section 6); with no conversation open there is none.
+/// #304 F12: Trust is reached by name, from the app's options in the
+/// Chats bar: the menu holds Trust, Trust opens the settings, and leaving
+/// them, or Escape on the menu, gives focus back to the button.
 #[test]
-fn the_open_conversations_identifier_is_exact_and_selectable() {
+fn the_apps_options_name_trust_and_hand_focus_back() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::TrustHeading)).is_empty(),
+        "no Trust entry before the menu opens"
+    );
+    press(&view, text(UiText::AppOptions));
+    assert_eq!(
+        labelled(&view, text(UiText::TrustHeading)).len(),
+        1,
+        "the menu's one entry"
+    );
+    // The first entry takes focus once it is in the window.
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(2));
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_focus_id(), "app-trust");
+    let key: slint::SharedString = Key::Escape.into();
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text: key });
+    assert!(
+        labelled(&view, text(UiText::TrustHeading)).is_empty(),
+        "closed"
+    );
+    assert_eq!(view.window().get_focus_id(), "app-options");
+
+    open_trust(&view);
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    assert!(view.window().get_trust_page(), "Trust is open");
+    // Focus inside the page first, on its back control: leaving the page
+    // must bring it back to the button, not leave it on a control gone.
+    let mut on_back = false;
+    for _ in 0..30 {
+        if tab(&view) == "close-trust" {
+            on_back = true;
+            break;
+        }
+    }
+    assert!(on_back, "Tab reaches the page's back control");
+    press(&view, text(UiText::BackToConversations));
+    let _ = intents(&mut view, &mut model);
+    view.render(&model);
+    assert!(!view.window().get_trust_page());
+    assert_eq!(view.window().get_focus_id(), "app-options");
+}
+
+/// #304 F11: Details, from the overflow menu, is a dialog with the
+/// conversation's title, its identifier whole under its label as text,
+/// the route as the peer named it, and Copy and Close. Copy closes it with
+/// focus back on the overflow button, and is confirmed by the app's
+/// snackbar only where the platform confirms nothing itself. A channel's
+/// says Channel ID and has no route. With no conversation open there is
+/// none.
+#[test]
+fn details_shows_the_identifier_whole_and_copy_closes_with_its_confirmation() {
+    use interweave_human_ui_slint::CopyFeedback;
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
-    assert!(
-        labelled(&view, text(UiText::ConversationId)).is_empty(),
-        "no conversation, no identifier"
-    );
+    assert!(labelled(&view, text(UiText::DetailsPeerId)).is_empty());
     model.received(received(1, &alice, "hi"));
     open(&mut view, &mut model, &direct(&alice));
-    // In Details, from the overflow menu (android-look section 6), and
-    // not on the conversation screen itself.
-    assert!(labelled(&view, text(UiText::ConversationId)).is_empty());
+    assert!(
+        labelled(&view, text(UiText::DetailsPeerId)).is_empty(),
+        "not on the conversation screen itself"
+    );
     press(&view, text(UiText::MoreOptions));
     press(&view, text(UiText::Details));
-    let field = the(&view, text(UiText::ConversationId));
-    assert_eq!(
-        field.accessible_value().as_deref(),
-        Some(alice.as_str()),
-        "the PeerId, exact"
+    assert_eq!(labelled(&view, text(UiText::DetailsPeerId)).len(), 1);
+    assert!(
+        labelled(&view, alice.as_str())
+            .iter()
+            .any(|e| e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Text)),
+        "the PeerId whole, as text, not a field"
     );
-    // Selectable: a text input, so a person can select and copy it.
-    assert_eq!(
-        field.accessible_role(),
-        Some(i_slint_backend_testing::AccessibleRole::TextInput),
-        "a field a person can select in"
+    let route = interweave_human_ui_model::fill(text(UiText::DetailsRoute), &[("route", "human")]);
+    assert_eq!(labelled(&view, &route).len(), 1, "the route, as named");
+    assert_eq!(labelled(&view, text(UiText::Close)).len(), 1);
+
+    the(&view, text(UiText::CopyPeerId)).invoke_accessible_default_action();
+    assert!(!view.window().get_details_open(), "Copy closes Details");
+    let events = view.take_events(&model);
+    assert!(
+        events.contains(&ViewEvent::IdentifierCopied(direct(&alice))),
+        "the app confirms where the platform does not: {events:?}"
     );
-    // And read-only: an edit would drop the binding and leave an
-    // identifier that is not the conversation's.
-    assert_eq!(
-        field.accessible_read_only(),
-        Some(true),
-        "the identifier cannot be edited"
+
+    view.set_copy_feedback(CopyFeedback::Platform);
+    press(&view, text(UiText::MoreOptions));
+    press(&view, text(UiText::Details));
+    the(&view, text(UiText::CopyPeerId)).invoke_accessible_default_action();
+    let events = view.take_events(&model);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, ViewEvent::IdentifierCopied(_))),
+        "the platform confirms it, so nothing more: {events:?}"
     );
+
+    let general = ChannelId::parse("general").expect("a channel");
+    model.received(Received {
+        row: RowId::from_stored(2),
+        origin: Origin::Channel {
+            channel: general.clone(),
+            publisher: alice.clone(),
+        },
+        envelope: envelope(78, "on the channel"),
+        received_at: 2,
+    });
+    open(&mut view, &mut model, &ConversationKey::Channel(general));
+    press(&view, text(UiText::MoreOptions));
+    press(&view, text(UiText::Details));
+    assert_eq!(labelled(&view, text(UiText::DetailsChannelId)).len(), 1);
+    assert_eq!(labelled(&view, text(UiText::CopyChannelId)).len(), 1);
+    assert!(labelled(&view, &route).is_empty(), "no route for a channel");
 }
 
 /// Whether the list item at `index` of `count` -- conversations when
@@ -2016,6 +2172,131 @@ fn a_long_conversation_brings_the_focused_message_into_view() {
     assert!(
         item_in_view(&view, false, MANY - 1, MANY),
         "the focused last message is scrolled into view"
+    );
+}
+
+/// Let the window run its change handlers and animations, as its event
+/// loop does between frames.
+fn settle() {
+    slint::platform::update_timers_and_animations();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    slint::platform::update_timers_and_animations();
+}
+
+/// The spec's S3 with keyboard focus: a conversation opens at its end,
+/// and once Tab has brought an older message into view, a new message
+/// leaves the list there, the focused message still shown (#313 review
+/// round 6, finding 1: the toolkit's own scroll into view fires no
+/// `flicked`).
+#[test]
+fn a_message_arriving_leaves_the_list_on_the_focused_older_message() {
+    const MANY: usize = 40;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let alice = peer();
+    for n in 0..MANY {
+        model.received(received(i64::try_from(n).expect("small") + 1, &alice, "hi"));
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    settle();
+    assert!(
+        item_in_view(&view, false, MANY - 1, MANY),
+        "it opens at its end"
+    );
+    assert!(
+        !item_in_view(&view, false, 0, MANY),
+        "control: the first message is outside the window"
+    );
+    let mut focused = String::new();
+    for _ in 0..40 {
+        focused = tab(&view);
+        if focused.starts_with("item:") {
+            break;
+        }
+    }
+    settle();
+    assert!(focused.starts_with("item:"), "Tab reached a message");
+    assert!(
+        item_in_view(&view, false, 0, MANY),
+        "the focused first message is brought into view"
+    );
+    model.received(received(
+        i64::try_from(MANY).expect("small") + 1,
+        &alice,
+        "new",
+    ));
+    view.render(&model);
+    settle();
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        focused,
+        "focus stays"
+    );
+    assert!(
+        item_in_view(&view, false, 0, MANY + 1),
+        "the arrival leaves the focused message in view"
+    );
+}
+
+/// The pane's list is shared by every conversation: one scrolled away
+/// from its end does not carry that offset to the next one opened, which
+/// opens at its end (#313 review round 6, finding 2).
+#[test]
+fn a_conversation_opened_after_scrolling_another_opens_at_its_end() {
+    use slint::platform::WindowEvent;
+    const MANY: usize = 40;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    for n in 0..MANY {
+        let row = i64::try_from(n).expect("small");
+        model.received(received(2 * row + 1, &alice, "hi"));
+        model.received(received(2 * row + 2, &bob, "hi"));
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    settle();
+    view.window()
+        .window()
+        .dispatch_event(WindowEvent::PointerScrolled {
+            position: slint::LogicalPosition::new(700.0, 300.0),
+            delta_x: 0.0,
+            delta_y: 600.0,
+        });
+    settle();
+    assert!(
+        !item_in_view(&view, false, MANY - 1, MANY),
+        "control: alice's conversation is scrolled away from its end"
+    );
+    open(&mut view, &mut model, &direct(&bob));
+    settle();
+    assert!(
+        item_in_view(&view, false, MANY - 1, MANY),
+        "bob's conversation opens at its end"
+    );
+}
+
+/// A shorter conversation then a longer one: the longer opens at its end
+/// although its content's height reaches the list a turn after the
+/// switch (#313 review round 7, risk 3).
+#[test]
+fn a_longer_conversation_opened_after_a_shorter_one_opens_at_its_end() {
+    const MANY: usize = 40;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (alice, bob) = (peer(), peer());
+    for n in 0..5 {
+        model.received(received(n + 1, &alice, "hi"));
+    }
+    for n in 0..MANY {
+        model.received(received(i64::try_from(n).expect("small") + 100, &bob, "hi"));
+    }
+    open(&mut view, &mut model, &direct(&alice));
+    settle();
+    open(&mut view, &mut model, &direct(&bob));
+    settle();
+    assert!(
+        item_in_view(&view, false, MANY - 1, MANY),
+        "bob's longer conversation opens at its end"
     );
 }
 
@@ -2142,6 +2423,39 @@ fn arrivals_and_own_status_changes_are_one_announcement() {
                 ),
             ]
         )
+    );
+}
+
+/// #304 F10: a waiting message is announced when its wait or its last
+/// problem changes, never at a retry, so a screen reader is not told
+/// "Sending" at each attempt.
+#[test]
+fn a_waiting_message_is_announced_at_a_new_problem_never_at_a_retry() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    let id = sent(&mut model, 7, &bob, "to bob");
+    view.render(&model);
+    open(&mut view, &mut model, &direct(&bob));
+    let sending = |attempts, last_problem| OutboundStatus::Sending {
+        attempts,
+        next_retry_at: Some(u64::from(attempts) * 1_000),
+        last_problem,
+    };
+    update(&mut model, 7, &id, sending(1, None));
+    view.render(&model);
+    assert_eq!(announced(&view), None, "a first attempt says nothing new");
+    update(&mut model, 7, &id, sending(2, Some(SendProblem::Busy)));
+    view.render(&model);
+    let said = announced(&view).expect("a new problem is announced");
+    assert!(said.contains("busy"), "{said}");
+    let before = slots(&view);
+    update(&mut model, 7, &id, sending(3, Some(SendProblem::Busy)));
+    view.render(&model);
+    assert_eq!(
+        slots(&view),
+        before,
+        "a retry with the same problem says nothing, not even again"
     );
 }
 
@@ -2341,61 +2655,70 @@ fn a_render_keeps_focus_on_a_links_control() {
     assert_eq!(tab(&view), next, "focus stayed on {on} across the render");
 }
 
-/// Section 7's route indicator: an open direct conversation says how it
-/// is connected once the runtime has said, and a path change updates it
-/// in place -- no new item, no announcement, no live region -- while a
-/// disconnection takes it away.
+/// #304 F7: a conversation's bar shows the peer's name alone, with no
+/// network state and no route line, since the state is the device's and
+/// is on Chats. A conversation shows the state only while it is offline,
+/// as its banner: gone when it leaves offline, never for unknown, and
+/// under a session notice a person can act on, which says more.
 #[test]
-fn the_route_indicator_follows_the_path_in_place() {
+fn a_conversation_shows_the_device_state_only_while_offline() {
     use interweave_transport_api::PeerPath;
     let mut view = view();
     let mut model = UiModel::new();
     let alice = peer();
     model.received(received(1, &alice, "hello"));
+    model.client_event(ClientEvent::Session(SessionState::Ready {
+        endpoint: Some(human()),
+    }));
     view.render(&model);
     open(&mut view, &mut model, &direct(&alice));
-    let relayed = placeholder_en::path(PeerPath::Relayed);
-    let direct_path = placeholder_en::path(PeerPath::Direct);
-    assert!(
-        labelled(&view, relayed).is_empty() && labelled(&view, direct_path).is_empty(),
-        "nothing until the runtime says"
-    );
-
     model.client_event(ClientEvent::PeerPath {
         peer: alice.clone(),
         path: PeerPath::Relayed,
     });
     view.render(&model);
-    let shown = the(&view, relayed);
-    assert_eq!(shown.accessible_live_region(), None, "not an interruption");
-
-    let items = all(&view)
-        .into_iter()
-        .filter(|e| e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::ListItem))
-        .count();
-    let said = announced(&view);
-    model.client_event(ClientEvent::PeerPath {
-        peer: alice.clone(),
-        path: PeerPath::Direct,
-    });
-    view.render(&model);
-    assert_eq!(labelled(&view, direct_path).len(), 1, "updated in place");
-    assert!(labelled(&view, relayed).is_empty());
-    assert_eq!(
-        all(&view)
-            .into_iter()
-            .filter(
-                |e| e.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::ListItem)
-            )
-            .count(),
-        items,
-        "no new item"
+    assert!(
+        labelled(&view, placeholder_en::path(PeerPath::Relayed)).is_empty(),
+        "no route line (#304 F7 leaves it out)"
     );
-    assert_eq!(announced(&view), said, "nothing announced");
+    let banner = placeholder_en::host_text(RuntimeHost::Daemon, HostText::OfflineBanner);
+    assert!(
+        labelled(&view, banner).is_empty(),
+        "the control: unknown, no banner"
+    );
 
-    model.client_event(ClientEvent::PeerDisconnected { peer: alice });
+    model.client_event(ClientEvent::Connectivity(Connectivity::Offline));
     view.render(&model);
-    assert!(labelled(&view, direct_path).is_empty(), "no longer known");
+    assert_eq!(labelled(&view, banner).len(), 1, "offline: the banner");
+    assert!(
+        labelled(
+            &view,
+            placeholder_en::connectivity(RuntimeHost::Daemon, Connectivity::Offline)
+        )
+        .iter()
+        .all(|e| e.accessible_role() != Some(i_slint_backend_testing::AccessibleRole::Text)),
+        "and no state line in the bar: the full text is only Chats' description"
+    );
+
+    model.client_event(ClientEvent::Session(SessionState::Reconnecting {
+        attempt: 1,
+        next_at: 1_000,
+    }));
+    view.render(&model);
+    assert!(
+        labelled(&view, banner).is_empty(),
+        "under a session notice, which says more"
+    );
+
+    model.client_event(ClientEvent::Session(SessionState::Ready {
+        endpoint: Some(human()),
+    }));
+    model.client_event(ClientEvent::Connectivity(Connectivity::OnlineDirect));
+    view.render(&model);
+    assert!(
+        labelled(&view, banner).is_empty(),
+        "gone when it leaves offline"
+    );
 }
 
 /// The source is shown in place of the drawn body, and a link's control is
@@ -2433,7 +2756,7 @@ fn trust_settings(
     me: &TransportIdentity,
     allowed: &[TransportIdentity],
 ) {
-    the(view, text(UiText::TrustSettings)).invoke_accessible_default_action();
+    open_trust(view);
     assert_eq!(intents(view, model), vec![Intent::ReadTrust]);
     model.trust_settings_mut().read(Ok(TrustList {
         local_peer: Some(me.clone()),
@@ -2452,7 +2775,7 @@ fn each_trusted_peer_says_whether_it_is_configured_or_added_here() {
     let mut model = UiModel::new();
     let me = peer();
     let (carol, dave) = (peer(), peer());
-    the(&view, text(UiText::TrustSettings)).invoke_accessible_default_action();
+    open_trust(&view);
     assert_eq!(intents(&mut view, &mut model), vec![Intent::ReadTrust]);
     model.trust_settings_mut().read(Ok(TrustList {
         local_peer: Some(me),
@@ -2698,7 +3021,7 @@ fn back_then_the_trust_settings_in_one_take_reads_nothing() {
     view.render(&model);
     model.read(RowId::from_stored(1));
     press(&view, text(UiText::BackToConversations));
-    press(&view, text(UiText::TrustSettings));
+    open_trust(&view);
     let _ = intents(&mut view, &mut model);
     view.render(&model);
     press(&view, text(UiText::BackToConversations));
@@ -2756,11 +3079,11 @@ fn arrival_read_after_closing_trust(width: f32) -> bool {
     let _ = open(&mut view, &mut model, &direct(&bob));
     model.read(RowId::from_stored(1));
     // A narrow window reaches the settings from the list only.
-    if labelled(&view, text(UiText::TrustSettings)).is_empty() {
+    if labelled(&view, text(UiText::AppOptions)).is_empty() {
         press(&view, text(UiText::BackToConversations));
         let _ = intents(&mut view, &mut model);
     }
-    press(&view, text(UiText::TrustSettings));
+    open_trust(&view);
     let _ = intents(&mut view, &mut model);
     view.render(&model);
     press(&view, text(UiText::BackToConversations));
@@ -2787,7 +3110,7 @@ fn a_resize_to_the_list_reads_nothing_before_its_handler_runs() {
     view.set_window_focused(true);
     let _ = open(&mut view, &mut model, &direct(&bob));
     model.read(RowId::from_stored(1));
-    press(&view, text(UiText::TrustSettings));
+    open_trust(&view);
     let _ = intents(&mut view, &mut model);
     view.render(&model);
     press(&view, text(UiText::BackToConversations));
@@ -3027,7 +3350,7 @@ fn an_arrival_and_a_trust_outcome_in_one_render_are_both_announced() {
 fn the_add_row_waits_for_the_list() {
     let mut view = view();
     let mut model = UiModel::new();
-    the(&view, text(UiText::TrustSettings)).invoke_accessible_default_action();
+    open_trust(&view);
     assert_eq!(intents(&mut view, &mut model), vec![Intent::ReadTrust]);
     view.render(&model);
     assert!(
@@ -3049,7 +3372,7 @@ fn the_add_row_waits_for_the_list() {
 fn settings_offer_the_recovery_phrase_only_where_the_platform_does() {
     let mut view = view();
     let mut model = UiModel::new();
-    the(&view, text(UiText::TrustSettings)).invoke_accessible_default_action();
+    open_trust(&view);
     let _ = intents(&mut view, &mut model);
     view.render(&model);
     assert!(

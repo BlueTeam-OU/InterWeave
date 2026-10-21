@@ -117,6 +117,7 @@ fn turn(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
                 ViewEvent::Intent(intent) => out.push(intent),
                 ViewEvent::Undo(id) => out.extend(model.undo(id)),
                 ViewEvent::SnackbarClosed(id) => model.snackbar_closed(id),
+                ViewEvent::IdentifierCopied(key) => model.identifier_copied(key),
                 ViewEvent::DraftChanged { key, draft } => model.draft_changed(key, draft),
                 ViewEvent::Trust(_) => {}
             }
@@ -207,6 +208,12 @@ fn swipe(view: &View, key: &str, dx: f32, dy: f32, steps: u32) {
 
 fn labelled(view: &View, label: &str) -> Vec<ElementHandle> {
     ElementHandle::find_by_accessible_label(view.window(), label).collect()
+}
+
+/// Trust, by the app's options and their Trust entry (#304 F12).
+fn open_trust(view: &View) {
+    labelled(view, text(UiText::AppOptions))[0].invoke_accessible_default_action();
+    labelled(view, text(UiText::TrustHeading))[0].invoke_accessible_default_action();
 }
 
 /// Choose `label` from the menu of the first message row that offers it
@@ -609,7 +616,7 @@ fn dismissed_beside_a_list_kept_shown(view: &mut View, model: &mut UiModel) -> C
     let alice = peer();
     read(model, 1, &alice, "first");
     open(view, model, &direct(&alice));
-    labelled(view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    open_trust(view);
     let _ = turn(view, model);
     labelled(view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
     let _ = turn(view, model);
@@ -886,7 +893,7 @@ fn opening_the_trust_settings_closes_the_conversations_snackbar() {
     let mut view = view();
     let mut model = UiModel::new();
     let (alice, _) = dismissed_in_a_wide_window(&mut view, &mut model);
-    labelled(&view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    open_trust(&view);
     assert!(
         labelled(&view, text(UiText::Undo)).is_empty(),
         "gone at the press"
@@ -956,7 +963,7 @@ fn a_dismiss_then_a_resize_to_the_list_in_one_take_leaves_no_snackbar() {
     let alice = peer();
     read(&mut model, 1, &alice, "first");
     open(&mut view, &mut model, &direct(&alice));
-    labelled(&view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    open_trust(&view);
     let _ = turn(&mut view, &mut model);
     labelled(&view, text(UiText::BackToConversations))[0].invoke_accessible_default_action();
     let _ = turn(&mut view, &mut model);
@@ -1698,7 +1705,7 @@ fn platform_back_closes_the_trust_settings_first() {
         !view.back(),
         "control: a wide window's conversation has no way back"
     );
-    labelled(&view, text(UiText::TrustSettings))[0].invoke_accessible_default_action();
+    open_trust(&view);
     let _ = turn(&mut view, &mut model);
     assert!(view.back(), "the trust settings take Back");
     let _ = turn(&mut view, &mut model);

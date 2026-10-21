@@ -25,6 +25,8 @@ pub struct ViewSide<S: Surface, O: Opener> {
     fresh: Box<dyn FnMut() -> ModelSide<S, O>>,
     /// Network access as the hub last said it.
     network: bool,
+    /// Whether the person must authenticate first, as the hub last said.
+    authentication: bool,
 }
 
 impl<S: Surface, O: Opener> ViewSide<S, O> {
@@ -35,6 +37,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             side: fresh(),
             fresh: Box::new(fresh),
             network: true,
+            authentication: false,
         }
     }
 
@@ -51,10 +54,15 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                 // Access is the platform's, not the service's: a fresh
                 // model keeps what the hub last said of it.
                 self.side.network_access(self.network);
+                self.side.authentication_needed(self.authentication);
             }
             ToView::NetworkAccess(allowed) => {
                 self.network = allowed;
                 self.side.network_access(allowed);
+            }
+            ToView::AuthenticationNeeded(needed) => {
+                self.authentication = needed;
+                self.side.authentication_needed(needed);
             }
             ToView::Update(update) => self.side.apply(*update),
             ToView::ListingFailed => return Err(ListingFailed),
@@ -99,6 +107,7 @@ mod tests {
     impl Opener for Blank {
         fn open(&mut self, _destination: &str) {}
         fn ask_network_access(&mut self) {}
+        fn authenticate(&mut self) {}
     }
 
     fn view_side() -> ViewSide<Blank, Blank> {
@@ -199,6 +208,37 @@ mod tests {
         assert_eq!(
             model(&side).session_notice(),
             Some(SessionNotice::Reconnecting)
+        );
+    }
+
+    /// The person's authentication, while needed, outlives a fresh model
+    /// as access does; the notice is the one that says so, never the
+    /// "will connect" of no service, and the line reads offline (#309
+    /// acceptance 10, conditions 1 and 3).
+    #[test]
+    fn a_needed_authentication_outlives_a_fresh_model_and_reads_offline() {
+        use interweave_human_client_api::Connectivity;
+        let mut side = view_side();
+        side.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(
+            model(&side).session_notice(),
+            Some(SessionNotice::NoDaemon),
+            "the control: no service, the notice that promises a connection"
+        );
+        side.apply(ToView::AuthenticationNeeded(true))
+            .expect("applied");
+        side.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(
+            model(&side).session_notice(),
+            Some(SessionNotice::AuthenticationNeeded),
+            "a fresh model still knows"
+        );
+        assert_eq!(model(&side).connectivity(), Connectivity::Offline);
+        side.apply(ToView::AuthenticationNeeded(false))
+            .expect("applied");
+        assert_ne!(
+            model(&side).session_notice(),
+            Some(SessionNotice::AuthenticationNeeded)
         );
     }
 

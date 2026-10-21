@@ -109,6 +109,9 @@ struct Opened(Rc<RefCell<Vec<String>>>);
 /// this shape.
 const NETWORK_ASKED: &str = "<network access>";
 
+/// What [`Opened`] records for an ask for the person's authentication.
+const AUTHENTICATION_ASKED: &str = "<authentication>";
+
 impl Opener for Opened {
     fn open(&mut self, destination: &str) {
         self.0.borrow_mut().push(destination.to_owned());
@@ -116,6 +119,10 @@ impl Opener for Opened {
 
     fn ask_network_access(&mut self) {
         self.0.borrow_mut().push(NETWORK_ASKED.to_owned());
+    }
+
+    fn authenticate(&mut self) {
+        self.0.borrow_mut().push(AUTHENTICATION_ASKED.to_owned());
     }
 }
 
@@ -1424,5 +1431,32 @@ async fn hides_after_a_keep_in_one_take_leave_the_keep_and_report_nothing() {
             .collect::<Vec<_>>(),
         [item],
         "not hidden"
+    );
+}
+
+/// The ask for the person's authentication is the platform's too: it
+/// reaches the opener and never the facade, and while it is needed the
+/// model says so, offline rather than unknown (#309 acceptance 10).
+#[tokio::test]
+async fn an_ask_for_authentication_reaches_the_platform_and_never_the_facade() {
+    use interweave_human_client_api::Connectivity;
+    use interweave_human_ui_model::SessionNotice;
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut alice, opened) = Root::new(facade(&a, memory()));
+    alice.pump(0).await;
+    alice.model.authentication_needed(true);
+    assert_eq!(
+        alice.model().session_notice(),
+        Some(SessionNotice::AuthenticationNeeded)
+    );
+    assert_eq!(alice.model().connectivity(), Connectivity::Offline);
+    alice.will(vec![ViewEvent::Intent(Intent::Authenticate)]);
+    alice.pump(1).await;
+    assert_eq!(*opened.0.borrow(), [AUTHENTICATION_ASKED]);
+    assert!(alice.commands.is_empty(), "{:?}", alice.commands);
+    alice.model.authentication_needed(false);
+    assert_ne!(
+        alice.model().session_notice(),
+        Some(SessionNotice::AuthenticationNeeded)
     );
 }
