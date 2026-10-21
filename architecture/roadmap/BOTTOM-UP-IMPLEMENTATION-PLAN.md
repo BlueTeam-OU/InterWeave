@@ -5923,8 +5923,10 @@ at the exit gate's (d).
 A conversation shows the counterparty's name because the counterparty
 sent it and the person accepted it; every contact, route, conversation
 and retained message is ciphertext on disk; and neither client can
-reach the platform's address book. Nothing of this touches the daemon,
-the transport or the wire below the chat envelope.
+reach the platform's address book; and a person adds a peer's address
+and shows their own (ADR-0062), so a phone reaches its first peer
+without an operator. Nothing else of this touches the daemon, the
+transport or the wire below the chat envelope.
 
 ### Prerequisites
 
@@ -5958,10 +5960,19 @@ decision 6.
    MalformedCard(reason), where an envelope any of whose top-level kind
    copies is contact_card is a card — so a duplicate-member card is
    MalformedCard, never NotCard — and a Card carries the photo's
-   decoded length as the parser measured it.
-2. **The proposal and the acceptance** (rust-ui-dev): the person's own
+   decoded length as the parser measured it; the card's `identity_key`
+   and `signature` (ADR-0063), the canonical bytes, the three malformed
+   cases and the frozen fixture vector with its test-only key pair.
+2. **The proposal and the acceptance** (rust-ui-dev): the identity key
+   pair generated with the identity and sealed as the store key is
+   (ADR-0063, ADR-0060 decision 3: its own IDK1 envelope and alias
+   namespace, `<state_dir>/identity-keys/<EndpointId>.key`, the Android
+   wrapping key reached through the embedded host as the store key's is,
+   never the seed's custody seam); the person's own
    card in settings — one per configured endpoint, the `human` endpoint's
-   in this stage (ADR-0059 decision 2 as amended, ADR-0061); "Share a
+   in this stage (ADR-0059 decision 2 as amended, ADR-0061) — signed by
+   its key; `contact_routes.identity_key`; the key-change proposal and
+   the fingerprint on the identity and contact pages; "Share a
    card" on one conversation sending the conversation's identity's card,
    no chooser, never automatic; the received card held as inbound content under
    RETENTION.md, shown as a proposal with the PeerId beside it and the
@@ -5992,10 +6003,26 @@ decision 6.
    (rust-ui-dev): the same `ui-model` on both; every action of steps
    2 and 3 as a command, with no display (ADR-0059 decision 9); `human-client-ui.md` §13 acceptance criteria for steps 2 and 3,
    proposed by rust-ui-dev and ruled by architect-cto.
+5. **A peer by address, and one's own** (ADR-0062, A 2026-10-21):
+   p2p-network-dev — the bootstrap-peers overlay in `profile-config`
+   (loader, normalisation, the shared bound of 64, FATAL above it at
+   start), the composition building the static-bootstrap provider from
+   the overlay when none is authored and the provider taking adds and
+   removals live, the add's class floor (ADR-0052 rule 2) in the
+   method itself and the embedded host's function, the typed-only DNS
+   rule at the client,
+   `admin.peers.add_address`, `remove_address` and `list_addresses` and
+   their schemas under one IPC minor, the embedded host's function on
+   Android, `transportctl`'s add, remove and list; rust-ui-dev — the add
+   screen (typed or scanned) and the show screen (text and QR) on both
+   clients and the command-line forms, the QR encoder and decoder on the
+   licence allow-list or with their ADR, the ui-model's address list;
+   ux-designer — the two flows under `design/`, onboarding's third step
+   first; §13 criteria proposed by rust-ui-dev and ruled by architect-cto.
 
 ### Exit gate
 
-(a) Steps 1–4 landed with their tests green on `main`; (b) the
+(a) Steps 1–5 landed with their tests green on `main`; (b) the
 conformance cases, by name: a valid card accepted creates the contact
 and names the conversation; a card from an unknown kind or over a bound
 is rejected locally with no network effect; a card over broadcast is
@@ -6009,7 +6036,11 @@ route of a known PeerId creates a second contact and the proposal names
 the contact sharing its node, and a contact never holds two routes of one
 PeerId (ADR-0061 decision 4, A 2026-10-21 (ii)); the card shared to two
 conversations is the conversation's identity's each time and nothing
-sent names another identity (the two-identity case is §30's gate); a confirmed discard during a stalled rewrite
+sent names another identity (the two-identity case is §30's gate); a
+card's signature verifies at the receiver and a card replayed from
+another PeerId is malformed; a card with a changed identity key on a
+known route is shown as a key change and accepted only by the person;
+the identity key never enters the store, a log, IPC or a backup; a confirmed discard during a stalled rewrite
 removing the plaintext and keeping the key and the complete copy,
 which the next open promotes, the screen listing the plaintext alone;
 the same discard with the copy unopenable (no key, an invalidated
@@ -6035,7 +6066,25 @@ owner's privacy review of Stage 15's carry 11 answered in the record —
 over the card (what it still discloses: ADR-0059, Security
 implications) and over `read_pairs`, `conversation_index`,
 `contact_routes.last_seen` and the contacts' provenance columns, which
-STATE.md puts in the same review.
+STATE.md puts in the same review; (e) step 5's cases, by name: an
+address added on the phone for a trusted peer is dialled and survives a
+restart, with no static-bootstrap entry authored; a string outside the
+grammar is refused by name and nothing is stored; the 65th entry is
+refused, and a profile whose authored and added entries exceed 64 fails
+to start naming the overlay; every special-use class of ADR-0052 rule 2
+is refused by the method itself, `transportctl` as the caller, and a
+private-range address is admitted; an add under an authored
+`enabled: false` provider is refused by name, and overlay entries
+already present under one raise the load-time diagnostic and list as
+not dialled; a DNS
+name is admitted typed and refused from a scan; a scanned QR made by a
+hostile party adds its addresses and nothing else, the trust set
+unchanged, and one refused line refuses the whole scan; the shown QR
+decodes to this node's addresses and PeerId and nothing else, none of a
+refused class; a removed address is dialled no more without a restart,
+and an authored one cannot be removed; `transportctl` lists what the
+app added; two phones on one LAN, each fresh, connect after each has
+scanned the other and trusted the shown PeerId, and not before.
 
 ### Record
 

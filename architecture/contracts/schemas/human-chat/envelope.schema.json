@@ -92,9 +92,11 @@
         "properties": {
           "card": {
             "type": "object",
-            "description": "The sender's own contact card (HUMAN-CHAT.md §Contact card, ADR-0059): what they say their name is, bound at the receiver to the authenticated source_peer of the direct message it arrived in — so it carries NO identifier of its own, and a member that looks like one is ignored like any unknown member. It is a PROPOSAL at the receiver: nothing reaches the contact store until the person accepts it. Open to unknown members for the same forward-compatibility reason the envelope is. Defined inside the contact_card branch below and nowhere else: on a `text` envelope a `card` member is an unknown member, ignored like any other, which is what the parser does — the negative-conformance test holds the schema and the parser to the same verdict on every mutant of a text message.",
+            "description": "The sender's own contact card (HUMAN-CHAT.md §Contact card, ADR-0059): what they say their name is, bound at the receiver to the authenticated source_peer of the direct message it arrived in. It carries no identifier a person chose; since 2.2.0 (ADR-0063) it carries the sending identity's Ed25519 public key and a signature by it over the canonical card bytes HUMAN-CHAT.md defines, which bind the name, surname, photo, PeerId and EndpointId — both required, so a card that proves no key is malformed. 2.2.0 tightens the contact_card branch before any producer of it exists (plan §29 step 1 is unbuilt on main), which is why the correction is a minor and not a new file (ADR-0049). It is a PROPOSAL at the receiver: nothing reaches the contact store until the person accepts it. Open to unknown members for the same forward-compatibility reason the envelope is. Defined inside the contact_card branch below and nowhere else: on a `text` envelope a `card` member is an unknown member, ignored like any other, which is what the parser does — the negative-conformance test holds the schema and the parser to the same verdict on every mutant of a text message.",
             "required": [
-              "name"
+              "name",
+              "identity_key",
+              "signature"
             ],
             "properties": {
               "name": {
@@ -128,6 +130,20 @@
                   }
                 },
                 "description": "Optional, bounded; a photo that fails to decode or exceeds the pixel bound is discarded and the card kept without it (HUMAN-CHAT.md)."
+              },
+              "identity_key": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+                "minLength": 44,
+                "maxLength": 44,
+                "description": "The sending identity's 32-byte Ed25519 public key, RFC 4648 §4 standard base64 with padding (44 characters); the decoded length, strict verification and the canonical bytes are HUMAN-CHAT.md's (ADR-0063)."
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+                "minLength": 88,
+                "maxLength": 88,
+                "description": "The identity key's 64-byte Ed25519 signature over the canonical card bytes, standard base64 with padding (88 characters); a signature that fails strict verification is malformed (ADR-0063)."
               }
             }
           }
@@ -138,13 +154,14 @@
   "x-contract": {
     "name": "human-chat.envelope",
     "status": "active",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "adr": [
       "0039",
       "0044",
       "0047",
       "0050",
-      "0059"
+      "0059",
+      "0063"
     ],
     "specification": "architecture/clients/human/HUMAN-CHAT.md"
   }
