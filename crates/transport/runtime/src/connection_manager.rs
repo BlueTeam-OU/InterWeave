@@ -2276,6 +2276,26 @@ impl ConnectionManager {
         }
     }
 
+    /// Give up a claim whose dial a ROUTE HOLD refused, and move the
+    /// retry to the hold's end (ADR-0011 A 2026-10-21). Released as
+    /// [`Self::release_retry_claim`] releases, the retry stayed due: a
+    /// network addition or a newly learned circuit through the same
+    /// relay had made it due during the hold, so the scheduler was
+    /// offered it, refused, and offered it again every tick until the
+    /// hold lapsed -- and, sorted oldest-due first, four such peers took
+    /// every slot of every tick from everyone else (#329 review F1).
+    /// `attempts` is untouched and so is `waits_on`: the relay's first
+    /// direct connection still makes it due at once ([`Self::relay_reached`]).
+    pub fn defer_retry_to_route_hold(&mut self, peer: &TransportIdentity, now_ms: u64) {
+        let held_until = self.policy.route_held_until(peer, now_ms);
+        if let Some(entry) = self.retries.get_mut(peer) {
+            entry.claimed = false;
+            if let Some(until) = held_until {
+                entry.due_at_ms = entry.due_at_ms.max(until);
+            }
+        }
+    }
+
     /// Peers awaiting a retry.
     #[must_use]
     pub fn scheduled_retries(&self) -> usize {
@@ -3110,6 +3130,78 @@ mod tests {
         assert!(
             m.policy().peer(&p).is_none_or(|b| b.is_clear_at(1)),
             "and the peer is still not backed off"
+        );
+    }
+
+    /// A retry made due DURING a route hold -- here by a network
+    /// addition -- is refused `RouteHeld` and deferred to the hold's end,
+    /// not offered again every tick (#329 review F1); the relay's
+    /// connection still makes it due at once. THE CONTROL: released
+    /// instead, it is due again on the very next tick, into the same
+    /// refusal.
+    #[test]
+    fn a_retry_refused_by_a_route_hold_waits_for_the_hold_not_the_next_tick() {
+        let circuit = format!("/ip4/10.0.0.9/tcp/4001/p2p/{P2}/p2p-circuit");
+        let p = peer(P1);
+        let relay = peer(P2);
+        let held = |release: bool| {
+            let mut m = manager(4);
+            let ticket = m
+                .handle()
+                .admit(&request_at(P1, &circuit, DialOrigin::RelayCircuit), 0)
+                .expect("admitted");
+            let hold = m
+                .record_relay_hop_unreached(ticket, &relay, false, 0)
+                .expect("scheduled")
+                .delay_ms;
+            let _ = m.network_added(5_000);
+            assert_eq!(
+                m.take_due_retries(5_000, 4),
+                std::slice::from_ref(&p),
+                "the network addition made it due during the hold"
+            );
+            assert_eq!(
+                m.handle()
+                    .admit(
+                        &request_at(P1, &circuit, DialOrigin::ConnectionManager),
+                        5_000
+                    )
+                    .map(|_| ()),
+                Err(DialDenial::RouteHeld),
+                "and the gate refuses the scheduler's dial"
+            );
+            if release {
+                m.release_retry_claim(&p);
+            } else {
+                m.defer_retry_to_route_hold(&p, 5_000);
+            }
+            (m, hold)
+        };
+
+        let (mut released, _) = held(true);
+        assert_eq!(
+            released.take_due_retries(6_000, 4),
+            std::slice::from_ref(&p),
+            "the control: released, it is offered again next tick"
+        );
+
+        let (mut m, hold) = held(false);
+        assert!(
+            m.take_due_retries(6_000, 4).is_empty(),
+            "deferred: not next tick"
+        );
+        assert_eq!(
+            m.take_due_retries(hold, 4),
+            std::slice::from_ref(&p),
+            "due when the hold ends"
+        );
+
+        let (mut m, _) = held(false);
+        m.relay_reached(&relay, 7_000);
+        assert_eq!(
+            m.take_due_retries(7_000, 4),
+            std::slice::from_ref(&p),
+            "or at once when the relay connects"
         );
     }
 
