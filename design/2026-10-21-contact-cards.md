@@ -357,7 +357,8 @@ as everywhere with one (ADR-0061 d. 3): its result is
 `ConfirmDefaultSetOne` (people who write to the PeerId now reach the
 person), no Undo, the no-default line gone and no default line in its
 place (§5.2 field 4 shows only with two or more), and a refusal shows
-`IdentityChangeFailed`'s one-identity form. Its helper on the page says what the default
+`IdentityChangeFailed`'s one-identity form. With two or more
+identities held, its helper on the page says what the default
 is in the person's terms (`IdentityDefaultHelp`: people who write to
 this device's PeerId without using one of the person's labels reach the
 default; ADR-0061
@@ -440,8 +441,9 @@ the overflow button.
 write the profile's configuration (ADR-0061 d. 2). A refusal or a
 failure changes nothing the person sees as done: no snackbar of
 success, the page as it was, and `IdentityChangeFailed` in a snackbar
-with the text for that action, naming the identity, and no Undo, since
-nothing happened. A refused Remove closes its dialog first; after any
+with the text for that action, naming the identity while two or more
+are held (with one, Make default's form names none, as nothing shown
+with one identity does), and no Undo, since nothing happened. A refused Remove closes its dialog first; after any
 refusal focus is on the overflow button of the identity's page.
 
 **The photo.** Add a photo opens Android's Photo Picker (images only,
@@ -1611,7 +1613,7 @@ and are for them to write.
 | `IdentityAddFailed` | The identity could not be added. Try again. | §5.1 above Save |
 | `MakeDefault` | Make default | §5.2 overflow |
 | `IdentityIsDefault` | This is your default identity. | §5.2 line |
-| `IdentityDefaultHelp` | People who write to your PeerId without using one of your labels reach your default identity. | §5.2 helper; ADR-0061: "which identity a stranger reaches" |
+| `IdentityDefaultHelp` | People who write to your PeerId without using one of your labels reach your default identity. | §5.2 helper, with two or more identities only; ADR-0061: "which identity a stranger reaches" |
 | `ConfirmDefaultSet` | {identity} is now your default identity | snackbar, with Undo; without Undo when there was no default before |
 | `ConfirmDefaultSetOne` | People who write to your PeerId without using your label now reach you. | snackbar after Make default with one identity held, no Undo; must not use the word "identity" |
 | `RemoveIdentity` | Remove this identity | §5.2 overflow |
@@ -1625,7 +1627,7 @@ and are for them to write.
 | `TurnOffIdentity` / `TurnOnIdentity` | Turn off this identity / Turn on this identity | Turn off: the first identity's overflow; Turn on: the overflow of any identity that is off (§5.2) |
 | `ConfirmIdentityOff` / `ConfirmIdentityOn` | {identity} turned off / {identity} turned on | snackbars; the first with Undo |
 | `IdentityDefaultNeedsOn` | To make this identity the default, first turn it on. | §5.2, on an identity that is off |
-| `IdentityChangeFailed` | Make default, one identity: Could not set the default. Nothing was changed. Make default, two or more identities: Could not make {identity} the default. Nothing was changed. Remove: Could not remove {identity}. Nothing was changed. Turn off: Could not turn off {identity}. Nothing was changed. Turn on: Could not turn on {identity}. Nothing was changed. | snackbar when the device refuses Make default, Remove, Turn off or Turn on; one whole text per action, each naming the identity and saying nothing was changed (language-culture-en: a button's words placed into a sentence cannot be translated or reordered); with one identity, Make default's form names no identity and does not use the word; the one-identity Make default form added in round 5 |
+| `IdentityChangeFailed` | Make default, one identity: Could not set the default. Nothing was changed. Make default, two or more identities: Could not make {identity} the default. Nothing was changed. Remove: Could not remove {identity}. Nothing was changed. Turn off: Could not turn off {identity}. Nothing was changed. Turn on: Could not turn on {identity}. Nothing was changed. | snackbar when the device refuses Make default, Remove, Turn off or Turn on; one whole text per action, each saying nothing was changed and, with two or more identities, naming the identity (language-culture-en: a button's words placed into a sentence cannot be translated or reordered); with one identity, Make default's form names no identity and does not use the word; the one-identity Make default form added in round 5 |
 | `IdentityNoDefault` | One identity: People who write to your PeerId without using your label do not reach you. To let them reach you, choose Make default in the menu on this page. Two or more identities: You have no default identity. People who write to your PeerId without using one of your labels do not reach any of your identities. To set a default, open an identity that is turned on and choose Make default. | §5.1, when the profile has no default; must say who is not reached; with one identity, a one-identity form on the card page, naming no identity, saying people who write to the PeerId without the label do not reach the person and that Make default in the page's menu fixes it; the one-identity form added in round 4 |
 | `IdentityRemoveConfirm` | Remove | dialog primary, in `error` |
 | `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name |
