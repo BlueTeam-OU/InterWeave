@@ -853,14 +853,18 @@ none is specified here (§11).
   route rule is unchanged: when two conversations with the same peer on
   different routes exist, the title is `DirectTitle` with the name in
   `{peer}`.
-- **Two contacts with the same name** (of the identity in front): on
-  different PeerIds, every title of either carries the short PeerId,
-  `ContactTitleTwin`: "{name} ({peer})", never a route label alone,
-  which another device can forge; on one PeerId (two identities of one
-  device), every title carries the route label instead, `ContactTitleTwin`
-  with the route in `{peer}`'s place (`human-client-ui.md` §4); so two
-  Annas are never one line twice. Same name by §5.4.1's key, so a
-  lookalike spelling counts. Never told apart by colour alone.
+- **Two contacts with the same name** (of the identity in front, by
+  §5.4.1's key, so a lookalike spelling counts): each title carries
+  what tells it apart from every other contact of that name, both when
+  both are needed (`human-client-ui.md` §4, §13):
+  - another contact of that name on **another PeerId** → the short
+    PeerId, never a route label alone, which another device can forge;
+  - another contact of that name on **the same PeerId** (another
+    identity of that device) → the route label;
+  - both at once (three or more contacts) → both, PeerId first.
+  So `ContactTitleTwin` is "{name} ({peer})", "{name} ({route})" or
+  `ContactTitleTwinBoth` "{name} ({peer}, {route})", and no two titles
+  are one line twice. Never told apart by colour alone.
 - **Long names**: one line, ellipsised at the end (the logical end, so
   RTL ellipsises on the left); the full name is in the accessible label
   and on Details.
@@ -1268,7 +1272,9 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    survives it.
 9. The title and the list show the accepted name; two contacts with one
    name on two PeerIds each show `{name} ({peer})`, two on one PeerId
-   `{name} ({route})`; the list preview and the notification of a card
+   `{name} ({route})`; three named "Anna Rossi", two on PeerId A (routes
+   `x` and `y`) and one on B, show A's two as `{name} ({peer}, {route})`
+   with different routes and B's as `{name} ({peer})`; the list preview and the notification of a card
    never contain the claimed name.
 10. A right-to-left name inside the proposal heading and the same-name
     note does not reorder the surrounding words (a fixture with an
@@ -1450,6 +1456,7 @@ and are for them to write.
 | `DetailsNoCard` | You have not shared your card here. | Details |
 | `ContactsEmpty` | One identity: You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. Two or more: {front} has no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty; with two or more identities it is this identity's list that is empty, and the text must not suggest the person has no contacts at all (language-culture to judge whether it needs saying) |
 | `ContactRoutes` | {n} conversations | contact row, n ≥ 2: the number of the contact's conversations, called conversations as every other string does (plural rules language-culture's) |
+| `ContactTitleTwinBoth` | {name} ({peer}, {route}) | title of a contact sharing a name both with a contact on another PeerId and with one on its own (§6.1) (new, proposal) |
 | `ContactTitleTwin` | {name} ({peer}) | title of a contact sharing a name: `{peer}` the short PeerId across devices, the route label within one device (§6.1) |
 | `ContactName` | Name | contact page field |
 | `ContactNameFromCard` | Name from their card, {date} | provenance |
