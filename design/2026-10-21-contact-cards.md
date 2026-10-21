@@ -187,7 +187,8 @@ arrow, title `CardNew` or `CardEdit`.
 
 Fields, in order:
 
-1. **Photo**: a 96 dp circle showing exactly what will be sent (the
+1. **Photo**: a 96 dp circle (accessible label `CardPhotoLabel`, or
+   `CardPhotoNone` without a photo) showing exactly what will be sent (the
    prepared photo, below), or the initials of the name as typed so far
    on the card's own hue; under it **Add a photo** (`AddPhoto`) or, with
    one, **Change photo** (`ChangePhoto`) and **Remove photo**
@@ -334,7 +335,8 @@ never looks like a message the app wrote:
   on Details;
 - `CardIncludesPhoto` when the card carries one: it includes a photo,
   shown after you accept;
-- **PeerId** (`OwnPeerIdLabel`-style label, `CardPeerIdLabel`) and the
+- **PeerId** (a label of its own, `CardPeerIdLabel`, beside the app's
+  existing `OwnPeerId`) and the
   full PeerId under it in the code font, wrapping, selectable, with
   **Copy PeerId** (`CopyPeerId`);
 - the **context line**, exactly one of (§5.4.1);
@@ -538,7 +540,9 @@ App bar: back arrow, the name as title, overflow with **Delete contact**
   holds a message, as any conversation is; a row expands to the full PeerId
   with Copy PeerId;
 - **Move to another contact** on a route row (`MoveRoute`) when there
-  are other contacts: a picker of contacts, then a confirmation dialog
+  are other contacts: a picker of contacts (a dialog titled
+  `MoveRoutePickerTitle`, the other contacts as single-choice rows, with
+  Cancel), then a confirmation dialog
   `MoveRouteConfirm` naming both contacts and the short PeerId in its
   sentence, with the full PeerId under it in the code font and Copy
   PeerId, and saying that trust does not carry across. This is the only way two PeerIds
@@ -674,8 +678,9 @@ accessibility tree) are checked now.
   the case labels, as the swipe spec's §7 does for its rows.
 - Own card row: "Your card: {label}", the name, status, time.
 - Chooser: title, then each card as "{label}, {name}, selected/not
-  selected, n of m", then the preview as one item ("{title} will see
-  {name}, with a photo"), the note, Cancel, Share.
+  selected, n of m", then the preview as one item (`ShareCardPreviewSpoken`,
+  or `ShareCardPreviewSpokenPhoto` when the photo goes), the note,
+  Cancel, Share.
 - Discard dialog: title, each lost item as a list item, the keeps line,
   the remains line, Cancel, Delete stored data.
 
@@ -890,6 +895,11 @@ and no string calls a card an "identity" (§1).
 | `Accept` / `Decline` | Accept / Decline | proposal actions, case N |
 | `AcceptAsNew` | Accept as a new contact | case D |
 | `UpdateContact` | Update contact | cases U, E |
+| `ShareCardPreviewSpoken` | {title} will see the name {name}. | chooser preview, accessible description, no photo |
+| `ShareCardPreviewSpokenPhoto` | {title} will see the name {name} and your photo. | the same, with the photo |
+| `MoveRoutePickerTitle` | Move to which contact? | the move-route picker's title |
+| `CardPhotoLabel` | Photo for this card | editor photo circle, accessible label |
+| `CardPhotoNone` | No photo for this card | the same, with no photo |
 | `CardSamePeer` | This is the PeerId of your contact {name}, on another route. | case P; `{name}` the contact's name |
 | `AddToContact` | Add to {name} | case P's Accept |
 | `CardSameName` | You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept. | case D; must name both facts |
