@@ -15,8 +15,9 @@
 #            main, before anything else starts
 #   apk      steps 2-4 and 7: the unsigned APK and the notices; no secrets
 #   linux    step 6; no secrets
-#   sign     step 5: the release environment's secrets, a read-only token,
-#            and nothing run but the toolchain install and the signing
+#   sign     step 5, once every check job above has passed: the release
+#            environment's secrets, a read-only token, and nothing run but
+#            the toolchain install and the signing
 #   publish  steps 8-9: contents: write, no secrets, builds nothing
 # Steps 2-7 are run in the README's order within a job; the page that
 # consumes them is filled only once every one has finished.
@@ -153,7 +154,10 @@ jobs:
 
   sign:
     name: release apk signing
-    needs: [tag, apk]
+    # After every check job, linux included: a run refused at any check
+    # (the Linux archive's notices, say) leaves no signed APK, not even as
+    # a run artifact.
+    needs: [tag, apk, linux]
     runs-on: ubuntu-latest
     environment: release
     timeout-minutes: 20
@@ -216,7 +220,8 @@ jobs:
             ${{ runner.temp }}/out/interweave-*-arm64-v8a.apk.sha256
             ${{ runner.temp }}/out/android-values.json
           if-no-files-found: error
-          retention-days: 7
+          # The signed APK: kept only as long as publish needs it.
+          retention-days: 1
 
   linux:
     name: release archive (x86_64-unknown-linux-gnu)
