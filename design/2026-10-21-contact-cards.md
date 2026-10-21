@@ -318,10 +318,16 @@ Back with unsaved changes: a dialog `CardDiscardChanges`, actions
 **Continue editing** (`KeepEditing`, default focus) and **Discard**
 (`DiscardChanges`). Back with no change closes at once.
 
-**Two rules every action on an identity keeps** (ADR-0061 d. 7, on both
-platforms): the default is always an identity that is turned on, so
-peer-only sends reach one that can receive them; and no action leaves
-the profile with no identity turned on, which the runtime needs. Make
+**Two rules every action on an identity keeps**, on both platforms: the
+default is always an identity that is turned on, so peer-only sends
+reach one that can receive them (ADR-0028's endpoint overlay and
+ENDPOINTS.md: the default references an enabled endpoint or there is
+none); and no action leaves the profile with no identity turned on,
+which the runtime needs (ADR-0061 d. 7). Where the overlay would clear
+the default when it is turned off, the note instead does not offer Turn
+off on the default, an interaction choice of its own: a cleared default
+silently leaves peer-only senders reaching no one, while asking the
+person to choose another default first keeps that decision theirs. Make
 default, its Undo, Turn off, Remove and their states below each obey
 both; an action or an Undo that would break one is not offered, or is
 withdrawn when it would.
@@ -331,7 +337,14 @@ one that is off, the page says `IdentityDefaultNeedsOn`: turn it on
 first). It runs at once: the default moves to this identity, the
 line `IdentityIsDefault` appears, and a snackbar `ConfirmDefaultSet`
 with Undo (moves it back), withdrawn — its snackbar closes — as soon
-as the previous default is turned off. Its helper on the page says what the default
+as the previous default is turned off or removed. A kill inside the
+undo window leaves the new default, as the snackbar said. **No
+default**: a profile can arrive without one (a configuration edited
+outside the app, or the overlay clearing it); then no row in §5.1
+carries Default, the list shows `IdentityNoDefault` above the rows
+(people who write to this device without using a label reach none of
+your identities), and Make default on any identity that is on sets
+one. Its helper on the page says what the default
 is in the person's terms (`IdentityDefaultHelp`: people who write to
 this device's PeerId without using one of the person's labels reach the
 default; ADR-0061
@@ -396,20 +409,27 @@ listed as off (§5.7.6), its conversations, contacts and card stay, and
 people who write to it are not reached while it is off. A snackbar
 `ConfirmIdentityOff` with Undo (turns it on again); the overflow then
 holds **Turn on this identity** (`TurnOnIdentity`), which runs at once
-with `ConfirmIdentityOn`; Turn on is offered on any identity that is
-off, however many are held, so no state leaves the person without it. A
+with `ConfirmIdentityOn`. **Turn on** is in the overflow of the page
+of any identity that is off, however many are held and however it came
+to be off — the first identity by Turn off, an added one in the
+configuration (§5.7.6) — beside Remove on an added one, so no state
+leaves the person without it and `IdentityDefaultNeedsOn` always has a
+control to follow. A
 kill inside the undo window leaves it off, as said. While an identity
 is off, its messages waiting to be sent stay waiting, shown as any
 pending message is (`human-client-ui.md` §5), and are tried when it is
-turned on again; nothing is sent as another identity.
+turned on again; nothing is sent as another identity. Turning off is
+not a switch: when the first identity is in front it stays in front,
+readable, its composer saying it cannot send (§5.7.6). Focus stays on
+the overflow button.
 
 **When the device refuses.** Make default, Remove, Turn off and Turn on
 write the profile's configuration (ADR-0061 d. 2). A refusal or a
 failure changes nothing the person sees as done: no snackbar of
 success, the page as it was, and `IdentityChangeFailed` in a snackbar
-naming the action, with no Undo, since nothing happened. Turning off is not a switch: when the first identity is in
-front it stays in front, readable, its composer saying it cannot send
-(§5.7.6). Focus stays on the overflow button.
+with the text for that action, naming the identity, and no Undo, since
+nothing happened. A refused Remove closes its dialog first; after any
+refusal focus is on the overflow button of the identity's page.
 
 **The photo.** Add a photo opens Android's Photo Picker (images only,
 one item) or the desktop's file dialog filtered to PNG and JPEG. The
@@ -1275,6 +1295,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | an identity removed, two or more left (in front or not) | the next row, else the previous | keyboard |
    | an identity removed, one left | Chats' title | keyboard |
    | Turn off / Turn on this identity, and the Undo | stays on the overflow button | keyboard |
+   | a change refused (Make default, Remove, Turn off, Turn on) | the identity page's overflow button, Remove's dialog closed first | keyboard |
    | the switch activated | the switcher's chosen row | keyboard |
    | the switcher closed with nothing changed | the switch | keyboard |
    | a switch, from the switcher or Switch back | the switch, naming the new identity | keyboard |
@@ -1584,10 +1605,11 @@ and are for them to write.
 | `ConfirmIdentityRemoved` | {identity} removed | snackbar after Remove, no Undo |
 | `ConfirmIdentityRemovedSwitched` | {identity} removed. You are now using {front}. | snackbar after Remove of the identity in front with two or more left; must name both |
 | `IdentityRemoveLabel` | The label {route} can then be given to a new identity. If that happens, people who have {identity} as a contact will reach the new identity through the contact they saved for {identity}, until they accept the new identity's card. | Remove dialog, last line; must say the label is freed and what reusing it would mean for this identity's contacts |
-| `TurnOffIdentity` / `TurnOnIdentity` | Turn off this identity / Turn on this identity | the first identity's overflow |
+| `TurnOffIdentity` / `TurnOnIdentity` | Turn off this identity / Turn on this identity | Turn off: the first identity's overflow; Turn on: the overflow of any identity that is off (§5.2) |
 | `ConfirmIdentityOff` / `ConfirmIdentityOn` | {identity} turned off / {identity} turned on | snackbars; the first with Undo |
 | `IdentityDefaultNeedsOn` | To make this identity the default, first turn it on. | §5.2, on an identity that is off |
-| `IdentityChangeFailed` | Make default: Could not make {identity} the default. Nothing was changed. Remove: Could not remove {identity}. Nothing was changed. Turn off: Could not turn off {identity}. Nothing was changed. Turn on: Could not turn on {identity}. Nothing was changed. | snackbar when the device refuses Make default, Remove, Turn off or Turn on; `{action}` the action's name; one whole text per action in place of `{action}` (language-culture-en: a button's words placed into a sentence cannot be translated or reordered) |
+| `IdentityChangeFailed` | Make default: Could not make {identity} the default. Nothing was changed. Remove: Could not remove {identity}. Nothing was changed. Turn off: Could not turn off {identity}. Nothing was changed. Turn on: Could not turn on {identity}. Nothing was changed. | snackbar when the device refuses Make default, Remove, Turn off or Turn on; one whole text per action, each naming the identity and saying nothing was changed (language-culture-en: a button's words placed into a sentence cannot be translated or reordered) |
+| `IdentityNoDefault` | You have no default identity. People who write to your PeerId without using one of your labels do not reach you. | §5.1, when the profile has no default; must say who is not reached (new, proposal) |
 | `IdentityRemoveConfirm` | Remove | dialog primary, in `error` |
 | `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name |
 | `IdentityOthersUnread` | One other identity: 1 unread message in your other identity / {n} unread messages in your other identity. Two or more other identities: 1 unread message in your other identities / {n} unread messages in your other identities. | the switch's badge, accessible; plural rules language-culture's |
