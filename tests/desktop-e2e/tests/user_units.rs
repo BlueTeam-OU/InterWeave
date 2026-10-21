@@ -915,6 +915,60 @@ fn uninstall_refuses_a_manager_whose_query_fails() {
     );
 }
 
+const PROGRAMS: [&str; 3] = ["transport-daemon", "transportctl", "human-desktop"];
+const UNITS: [&str; 2] = ["interweave-daemon@.service", "interweave-client@.service"];
+
+/// Runs a copy of install.sh beside a copy of its templates, under a
+/// scratch `HOME` and `XDG_CONFIG_HOME`, with stand-in programs: `missing`
+/// is left out (or, `unexecutable`, placed at 0644), and `plant` is
+/// handed the two destination directories before the script runs.
+fn scratch_install(
+    missing: &str,
+    unexecutable: bool,
+    plant: &dyn Fn(&Path, &Path),
+) -> (std::process::Output, Home) {
+    let root = Home::new("e2e-install-inputs");
+    let base = root.root.path().to_path_buf();
+    let (pkg, bins, home, config) = (
+        base.join("pkg"),
+        base.join("bins"),
+        base.join("home"),
+        base.join("config"),
+    );
+    for dir in [&pkg, &bins, &home, &config, &pkg.join("systemd")] {
+        common::private_dir(dir);
+    }
+    std::fs::copy(packaging().join("install.sh"), pkg.join("install.sh")).expect("a copy");
+    for unit in UNITS.iter().filter(|u| **u != missing) {
+        std::fs::copy(
+            packaging().join("systemd").join(unit),
+            pkg.join("systemd").join(unit),
+        )
+        .expect("a template");
+    }
+    for exe in PROGRAMS {
+        if exe == missing && !unexecutable {
+            continue;
+        }
+        let path = bins.join(exe);
+        std::fs::write(&path, "#!/bin/sh\nexit 0\n").expect("a stand-in");
+        let mode = if exe == missing { 0o644 } else { 0o755 };
+        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(mode))
+            .expect("a mode");
+    }
+    plant(&home.join(".local/bin"), &config.join("systemd/user"));
+    let out = Command::new("sh")
+        .arg(pkg.join("install.sh"))
+        .arg(&bins)
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", &config)
+        .env("XDG_RUNTIME_DIR", base.join("run"))
+        .env_remove("DBUS_SESSION_BUS_ADDRESS")
+        .output()
+        .expect("install.sh runs");
+    (out, root)
+}
+
 /// install.sh checks every input before it writes anything: a missing or
 /// non-executable program, or a missing unit template, refuses with no
 /// directory made and no file placed, rather than half an install. Each
@@ -923,47 +977,10 @@ fn uninstall_refuses_a_manager_whose_query_fails() {
 /// input present, which places all five files.
 #[test]
 fn install_with_a_missing_input_writes_nothing() {
-    const PROGRAMS: [&str; 3] = ["transport-daemon", "transportctl", "human-desktop"];
-    const UNITS: [&str; 2] = ["interweave-daemon@.service", "interweave-client@.service"];
     let run = |missing: &str, unexecutable: bool| {
-        let root = Home::new("e2e-install-inputs");
+        let (out, root) = scratch_install(missing, unexecutable, &|_, _| {});
         let base = root.root.path().to_path_buf();
-        let (pkg, bins, home, config) = (
-            base.join("pkg"),
-            base.join("bins"),
-            base.join("home"),
-            base.join("config"),
-        );
-        for dir in [&pkg, &bins, &home, &config, &pkg.join("systemd")] {
-            common::private_dir(dir);
-        }
-        std::fs::copy(packaging().join("install.sh"), pkg.join("install.sh")).expect("a copy");
-        for unit in UNITS.iter().filter(|u| **u != missing) {
-            std::fs::copy(
-                packaging().join("systemd").join(unit),
-                pkg.join("systemd").join(unit),
-            )
-            .expect("a template");
-        }
-        for exe in PROGRAMS {
-            if exe == missing && !unexecutable {
-                continue;
-            }
-            let path = bins.join(exe);
-            std::fs::write(&path, "#!/bin/sh\nexit 0\n").expect("a stand-in");
-            let mode = if exe == missing { 0o644 } else { 0o755 };
-            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(mode))
-                .expect("a mode");
-        }
-        let out = Command::new("sh")
-            .arg(pkg.join("install.sh"))
-            .arg(&bins)
-            .env("HOME", &home)
-            .env("XDG_CONFIG_HOME", &config)
-            .env("XDG_RUNTIME_DIR", base.join("run"))
-            .env_remove("DBUS_SESSION_BUS_ADDRESS")
-            .output()
-            .expect("install.sh runs");
+        let (home, config) = (base.join("home"), base.join("config"));
         let placed = |dir: &Path| std::fs::read_dir(dir).map_or(0, Iterator::count);
         let written = (
             home.join(".local/bin").exists(),
@@ -1005,4 +1022,80 @@ fn install_with_a_missing_input_writes_nothing() {
             "{missing} (unexecutable: {unexecutable}): nothing written"
         );
     }
+}
+
+/// A directory at a name install.sh writes, final or temporary, is refused
+/// before anything is written: cp and mv would put the file inside it and
+/// report success with nothing at the name a unit starts. A symlink at a
+/// temporary name is refused too (cp would write through it). The control
+/// is a symlink at a final name, which the install replaces with the file
+/// rather than following (mv -T), and the plain install of the test above.
+#[test]
+fn install_over_a_directory_at_a_destination_writes_nothing() {
+    let names = PROGRAMS
+        .iter()
+        .map(|p| (true, (*p).to_owned()))
+        .chain(UNITS.iter().map(|u| (false, (*u).to_owned())))
+        .chain(std::iter::once((true, ".transportctl.install".to_owned())))
+        .chain(std::iter::once((
+            false,
+            ".interweave-client@.service.install".to_owned(),
+        )));
+    for (in_bin, name) in names {
+        let (out, root) = scratch_install("", false, &|bin, units| {
+            let dir = if in_bin { bin } else { units };
+            std::fs::create_dir_all(dir.join(&name)).expect("a directory in the way");
+        });
+        let base = root.root.path().to_path_buf();
+        let (bin, units) = (
+            base.join("home/.local/bin"),
+            base.join("config/systemd/user"),
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "{name}: refused: {stderr}");
+        assert!(stderr.contains(&name), "the refusal names {name}: {stderr}");
+        let files = |dir: &Path| {
+            std::fs::read_dir(dir).map_or(0, |d| {
+                d.filter(|e| e.as_ref().is_ok_and(|e| e.path().is_file()))
+                    .count()
+            })
+        };
+        assert_eq!(
+            (files(&bin), files(&units)),
+            (0, 0),
+            "{name}: nothing written"
+        );
+    }
+
+    let (out, root) = scratch_install("", false, &|bin, units| {
+        std::fs::create_dir_all(bin.join(".tmp-elsewhere")).expect("a link target");
+        std::os::unix::fs::symlink(".tmp-elsewhere", bin.join(".transportctl.install"))
+            .expect("a link at a temporary name");
+        let _ = units;
+    });
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "a link at a temporary name is refused: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    drop(root);
+
+    let (out, root) = scratch_install("", false, &|bin, units| {
+        std::fs::create_dir_all(bin.join(".tmp-elsewhere")).expect("a link target");
+        std::os::unix::fs::symlink(".tmp-elsewhere", bin.join("transportctl"))
+            .expect("a link at a final name");
+        let _ = units;
+    });
+    let bin = root.root.path().join("home/.local/bin");
+    assert!(
+        out.status.success(),
+        "the control installs over a link: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let placed = std::fs::symlink_metadata(bin.join("transportctl")).expect("transportctl");
+    assert!(
+        placed.file_type().is_file() && !bin.join(".tmp-elsewhere/.transportctl.install").exists(),
+        "the link at the final name is replaced by the program, not followed"
+    );
 }

@@ -55,6 +55,25 @@ for unit in interweave-daemon@.service interweave-client@.service; do
         exit 1
     fi
 done
+# A directory at a name written below would take the file inside it (cp and
+# mv both write into a directory) and the install would report success with
+# nothing at the name a unit starts; a symlink at a temporary name would
+# have cp write through it. Both are refused here, before anything is
+# written. A symlink at a final name is replaced, not followed (mv -T).
+refuse_target() {
+    if { [ -d "$1" ] && [ ! -L "$1" ]; } || { [ -n "${2:-}" ] && [ -L "$1" ]; }; then
+        echo "install.sh: $1 is in the way (a directory or a link); nothing was installed" >&2
+        exit 1
+    fi
+}
+for exe in transport-daemon transportctl human-desktop; do
+    refuse_target "$bin_dest/$exe"
+    refuse_target "$bin_dest/.$exe.install" temporary
+done
+for unit in interweave-daemon@.service interweave-client@.service; do
+    refuse_target "$unit_dest/$unit"
+    refuse_target "$unit_dest/.$unit.install" temporary
+done
 
 umask 077
 mkdir -p "$bin_dest" "$unit_dest"
@@ -64,12 +83,12 @@ for exe in transport-daemon transportctl human-desktop; do
     # half-written executable at the name a unit starts.
     cp "$bin_dir/$exe" "$bin_dest/.$exe.install"
     chmod 0755 "$bin_dest/.$exe.install"
-    mv -f "$bin_dest/.$exe.install" "$bin_dest/$exe"
+    mv -fT "$bin_dest/.$exe.install" "$bin_dest/$exe"
 done
 for unit in interweave-daemon@.service interweave-client@.service; do
     cp "$unit_src/$unit" "$unit_dest/.$unit.install"
     chmod 0644 "$unit_dest/.$unit.install"
-    mv -f "$unit_dest/.$unit.install" "$unit_dest/$unit"
+    mv -fT "$unit_dest/.$unit.install" "$unit_dest/$unit"
 done
 
 # A user manager that is not running (a container, a session without one)
