@@ -62,7 +62,10 @@ pub struct Layout {
 impl Layout {
     pub fn at(dir: &Path) -> Self {
         let state = dir.join("state");
-        Self { human: state.join("human"), state }
+        Self {
+            human: state.join("human"),
+            state,
+        }
     }
     pub fn key(&self) -> PathBuf {
         self.state.join(KEY_FILE)
