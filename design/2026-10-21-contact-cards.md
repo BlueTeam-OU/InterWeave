@@ -621,10 +621,14 @@ route per PeerId (ADR-0061 d. 4), so there is no "add to X".
   route rule is unchanged: when two conversations with the same peer on
   different routes exist, the title is `DirectTitle` with the name in
   `{peer}`.
-- **Two contacts with the same name**: every title of either carries
-  the short PeerId, `ContactTitleTwin`: "{name} ({peer})", so two Annas
-  are never one line twice. Same name by §5.4.1's key, so a lookalike
-  spelling counts.
+- **Two contacts with the same name** (of the identity in front): on
+  different PeerIds, every title of either carries the short PeerId,
+  `ContactTitleTwin`: "{name} ({peer})", never a route label alone,
+  which another device can forge; on one PeerId (two identities of one
+  device), every title carries the route label instead, `ContactTitleTwin`
+  with the route in `{peer}`'s place (`human-client-ui.md` §4); so two
+  Annas are never one line twice. Same name by §5.4.1's key, so a
+  lookalike spelling counts. Never told apart by colour alone.
 - **Long names**: one line, ellipsised at the end (the logical end, so
   RTL ellipsises on the left); the full name is in the accessible label
   and on Details.
@@ -640,7 +644,9 @@ route per PeerId (ADR-0061 d. 4), so there is no "add to X".
 
 ### 6.2 Contacts (list)
 
-App bar: back arrow, title "Contacts". Rows sorted by name in the
+App bar: back arrow, title "Contacts" and, while two or more identities
+are held, the identity in front as the subtitle (§5.7.2): the list is
+that identity's contacts and no other's. Rows sorted by name in the
 locale's collation: avatar, name, and under it `ContactRoutes` ("{n}
 routes") only when there is more than one. A row opens the contact page.
 
@@ -650,17 +656,18 @@ routes") only when there is more than one. A row opens the contact page.
 - Nothing here creates a contact without a route: a contact always
   starts from a conversation.
 - **Snackbars on these pages** (Delete contact, Remove photo, Move, and
-  Your cards' Card deleted): a snackbar shown on the Contacts list or a
-  contact page lives while the person moves between those two, and one
-  shown on the Your cards list lives while they stay on it (opening the
-  card editor counts as leaving); each closes when the person leaves its
-  pages, as a conversation's
+  an identity page's Make default): a snackbar shown on the Contacts
+  list or a contact page lives while the person moves between those
+  two, and one shown on an identity's page lives while they stay on it;
+  each closes when the person leaves its pages or switches identity
+  (§5.7.3), as a conversation's
   closes when they leave it (message-swipe §6: one at a time, a new one
   replaces the old).
 
 ### 6.3 A contact
 
-App bar: back arrow, the name as title, overflow with **Delete contact**
+App bar: back arrow, the name as title, the identity in front as the
+subtitle while two or more are held, overflow with **Delete contact**
 (`DeleteContact`).
 
 - the 96 dp avatar, and **Remove photo** when there is one;
@@ -681,37 +688,47 @@ App bar: back arrow, the name as title, overflow with **Delete contact**
   ADR-0059 d. 3); such a conversation is listed in Chats only once it
   holds a message, as any conversation is; a row expands to the full PeerId
   with Copy PeerId;
+- **Shares a device**: under a route whose PeerId also holds a route
+  of another contact of this identity, `ContactSharesDevice`: "{other}
+  uses the same device (PeerId)", each other contact a link to its page,
+  and once on the page the plain statement `ContactSharesDeviceNote`:
+  one device can hold several identities, so these contacts may be one
+  person; InterWeave keeps them apart and never joins them (ADR-0061
+  d. 4 and d. 5). Only the identity in front's contacts are named.
 - **Move to another contact** on a route row (`MoveRoute`) when there
-  are other contacts. **Move takes every route of that row's PeerId
-  together**, never one alone: a PeerId is one peer, and a contact list
-  that showed it under two names would present one counterparty as two
-  (ADR-0059 d. 2, as architect-cto ruled on 2026-10-21; the sentence
-  goes into d. 4 on #335). First a picker of contacts (a dialog titled
-  `MoveRoutePickerTitle`, the other contacts as single-choice rows, with
-  Cancel), then a confirmation dialog `MoveRouteConfirm` naming both
-  contacts and the short PeerId in its sentence, saying that every
-  conversation with that peer moves and that trust does not carry
+  are other contacts that hold no route of this route's PeerId. Move
+  takes this one route (ADR-0061 d. 4, ADR-0059 d. 4 (ii)): a contact
+  holds at most one route per PeerId, so a contact that already holds
+  one of this PeerId is not offered, and the picker says why when that
+  leaves it shorter (`MoveRouteNoneSameDevice`). First a picker of
+  contacts (a dialog titled `MoveRoutePickerTitle`, the eligible
+  contacts as single-choice rows, with Cancel), then a confirmation
+  dialog `MoveRouteConfirm` naming both contacts and the route's
+  conversation in its sentence, saying that trust does not carry
   across, with the full PeerId under it in the code font and Copy
   PeerId. This is the only way two PeerIds come under one contact
-  (ADR-0059 d. 4); no screen suggests it from a name or a photo. When
-  the PeerId's routes are all the contact has, moving them deletes that
-  contact, and the dialog says so (`MoveRouteLast`). Move runs at once
-  and shows `ConfirmRouteMoved` with Undo, which moves back every route
-  of that PeerId, a route a card added to the target in the meantime
-  included, so that the PeerId stays under one contact (§5.6), and, when the move
-  deleted the contact, writes it back with its values and their
-  sources; a kill inside the window leaves the move done, as said.
-  The Undo is withdrawn — its snackbar closes — as soon as a card from
-  that PeerId is accepted, since the Accept may have written its name
-  and photo to the target, which no Move undo can tell apart from the
-  target's own; the Accept's own Undo is then the way back (§6.2 on
-  how long a snackbar on these pages lasts).
-  After Move the moved-to contact's page opens, and its Back goes to
-  the Contacts list, since the source page may no longer exist. Undo
-  opens the source contact's page again, its Back to the Contacts list.
-  A Move and its Undo change which contact holds a route, so the
-  proposals in the session are recomputed (§5.4.5), as after a delete. It is in v1 on both graphical clients and the command
-  line (architect-cto, §12 A4).
+  (ADR-0059 d. 4: one person's several devices, ADR-0043); no screen
+  suggests it from a name or a photo. When the route is all the
+  contact has, moving it deletes that contact, and the dialog says so
+  (`MoveRouteLast`). Move runs at once and shows `ConfirmRouteMoved`
+  with Undo, which moves the route back and, when the move deleted the
+  contact, writes it back with its values and their sources; a kill
+  inside the window leaves the move done, as said. The Undo is
+  withdrawn — its snackbar closes — as soon as its reverse would
+  break a rule or lose a write: a card on the moved route is accepted
+  (the Accept may have written its name and photo to the target, which
+  no Move undo can tell apart from the target's own; the Accept's own
+  Undo is then the way back), or another route of the same PeerId comes
+  under the source contact (§6.2 on how long a snackbar on these pages
+  lasts). After Move the moved-to contact's page opens, and its Back
+  goes to the Contacts list, since the source page may no longer exist.
+  Undo opens the source contact's page again, its Back to the Contacts
+  list. A Move and its Undo change which contact holds a route, so the
+  proposals in the session are recomputed (§5.4.5), as after a delete.
+  It is in v1 on both graphical clients and the command line
+  (architect-cto, §12 A4). A route never moves between identities: a
+  contact belongs to the identity that accepted it (ADR-0061 d. 4), and
+  the picker lists the identity in front's contacts only.
 
 **Remove photo**: at once, snackbar `ConfirmPhotoRemoved` with Undo
 (writes the bytes back). Removing marks the photo a local choice, so a
@@ -720,8 +737,9 @@ later card's photo is case E (§5.4.1).
 **Delete contact**: at once (contact and its routes deleted), snackbar
 `ConfirmContactDeleted` with Undo (writes them back with the same
 values and provenance). The Undo is withdrawn — its snackbar closes —
-as soon as any PeerId the deleted contact held comes under another
-contact (§5.6), so it can never put a PeerId under two. The page closes to the list. Conversations stay;
+as soon as a route the deleted contact held comes under another contact
+of this identity (an Accept, or Details' Add as a contact), so it can
+never put one route under two contacts. The page closes to the list. Conversations stay;
 their titles return to the short PeerId. The proposals in the session
 are recomputed (§5.4.5).
 
@@ -730,14 +748,15 @@ are recomputed (§5.4.5).
 The conversation's Details dialog (look spec §6) gains, above the
 PeerId:
 
+- with two or more identities held, `DetailsIdentity`: "You speak here
+  as {identity}", with its avatar and route label: the conversation's
+  identity, fixed for its life (ADR-0061 d. 3);
 - the name and its provenance (§6.3), or for a route under no contact
-  **Add as a contact** or **Add this conversation to {X}**, by §5.6's
-  rule; with a contact, **Open contact**
-  (`OpenContact`);
-- `DetailsLastCard`: "The card you last shared here: {label}", or
-  `DetailsNoCard` ("You have not shared a card here."), or, if that card
-  was since deleted, `DetailsCardDeleted` ("You deleted the card you last shared here.").
-  This is the person's own record and is never sent.
+  **Add as a contact**, with `DetailsSharesDevice` above it by §5.6's
+  rule; with a contact, **Open contact** (`OpenContact`);
+- `DetailsCardShared`: "You shared your card here on {date}", from
+  `card_shared_at`, or `DetailsNoCard` ("You have not shared your card
+  here."). This is the person's own record and is never sent.
 
 ## 7. Discard and recreate
 
