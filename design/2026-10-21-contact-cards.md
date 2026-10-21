@@ -765,9 +765,9 @@ on the desktop.
     format character, HUMAN-CHAT.md).
 11. The photo sent is at most 256 × 256 and 24,576 bytes, and carries no
     metadata block (EXIF, XMP, text chunks), checked on the bytes a test
-    captures before send; a JPEG fixture with Orientation 6 and a marker
-    in its top-left corner arrives with the marker where the original
-    showed it.
+    captures before send; a JPEG fixture stored with Orientation 6
+    arrives with its marker in the corner where a viewer that honours the
+    tag shows it.
 12. A card too large for a low-limit profile is offered "Share without
     the photo" and nothing is sent before the person presses it.
 13. R shows Delete stored data… as a third action on both clients; K
