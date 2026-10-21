@@ -1456,8 +1456,19 @@ Existing keys reused unchanged: `AppOptions` (look spec §9; the Chats
   reject the preview).
 - **Contacts as a navigation destination** (bar or rail): reached from
   the menu until it is used often enough to earn the space.
-- **Search or sort in Contacts and Your cards**, a contact's notes and
-  device labels: not asked for; the store has the columns.
+- **Search or sort in Contacts and Your identities**, a contact's notes
+  and device labels: not asked for; the store has the columns. A search,
+  when one comes, searches the identity in front only (ADR-0061 d. 9):
+  a search across identities is excluded by the record, not left out.
+- **Turning an identity's endpoint on or off**, and per-identity
+  notification settings (an Android channel per identity, to mute one):
+  the overlay and the platform allow them; not asked for. §5.7.6 says
+  what a turned-off identity shows.
+- **A shortcut that switches identity** (a key, a gesture on the
+  switch): left out on purpose, since a switch made without looking is
+  the failure §5.7 exists to prevent.
+- **An inline reply from a notification**: not specified; if it comes,
+  its field names the identity it replies as (§5.7.5).
 - **Starting a conversation with a PeerId no contact or conversation
   holds**: plan §18 carry 11's own flow, not designed here. A contact
   starts from a conversation and may outlive it; for its routes, §6.3's
@@ -1484,6 +1495,61 @@ For the owner:
   only helps if the person noticed. Until the owner answers, the swipe
   is built as the owner's words give it.
 
+For architect-cto, asked with this revision (the shape of ADR-0061
+decision 9 and the records around it; the note is built on the reading
+given until they answer):
+
+- **Q1** — renaming an identity. ADR-0061 decisions 2 and 7 let the
+  client rename one. Read here as renaming its card (the name people
+  see); the route label, the EndpointId, is fixed once created (§5.1),
+  because conversations are keyed by it for life and every
+  counterparty's contact holds it as the route, so a changed EndpointId
+  would reach them as a new identity and a new contact. If renaming the
+  EndpointId is meant, the dialog must say that every person who knows
+  this identity will see a new one.
+- **Q2** — one identity held. ADR-0061 decision 3 says a client with
+  one identity asks nothing and shows the identity only where asked;
+  decision 9 says the identity is named everywhere. Read here as
+  decision 9 applying from the second identity on (§5.7).
+- **Q3** — starting a conversation. Decision 3 says that with several
+  identities starting one asks which speaks; decision 9 says a new
+  conversation runs under the identity in front and nothing else. Read
+  here as the start naming the identity in front with Switch identity
+  beside it, which switches the whole app, never a per-conversation
+  choice (§5.7.4).
+- **Q4** — the lock screen. `human-client-ui.md` §10 lets the person
+  hide notification content; read here as the redacted notification
+  naming no identity, since an identity's name can be what the person
+  wants hidden (§5.7.5).
+- **Q5** — removing an identity: read here as removing its endpoint
+  and, with it, its conversations and their messages (pending outbound
+  included), its contacts and its card, with no Undo, never on the
+  default or the only identity (§5.2). Confirm what goes, and that
+  pending outbound is deleted rather than sent.
+- **Q6** — identities in the endpoint directory. ENDPOINTS.md lists to
+  every trusted peer each endpoint with `advertise: true` and a lease,
+  and every identity holds a lease (ADR-0061 d. 2); an identity created
+  with `advertise: true` would be listed to every trusted peer, beside
+  the person's other identities, which §13's "nothing a counterparty
+  receives reveals the person's other identities" excludes. Read here
+  as every identity created with `advertise: false` and no control
+  offered; and, since trust is the device's, any trusted peer can still
+  write to an identity whose label it learns or guesses. Whether that
+  is said to the person, or an identity's endpoint carries an inbound
+  policy, is yours.
+
+For language-culture:
+
+- **L1** — two meanings of "identity". The owner's word is now the
+  person's for a user identity (§1). The app used "identity" for the
+  PeerId and its recovery phrase: the recovery and discard strings
+  marked L1 in §10, and `design/2026-10-19-android-identity.md`'s
+  screens. One word cannot mean both on one screen. Asked: the
+  person-facing word for the device's identity, and the text of every
+  L1 string with it. Proposed: "this device's PeerId and recovery
+  phrase" where the restore is meant, as `human-client-ui.md` §2 already
+  calls the PeerId a device identity, never a person's.
+
 For architect-cto, answered 2026-10-21 (REPLY 01a15d51); each answer
 lands in architect-cto's next records PR, not on #332:
 
@@ -1499,9 +1565,13 @@ lands in architect-cto's next records PR, not on #332:
   treats any that arrives as absent and never shows it; a fixture
   case with a GPS block the sender strips. §5.2 and acceptance 11.
 - **A4** — moving a route between contacts is in v1, on both
-  graphical clients and the command line. §6.3 keeps Move.
+  graphical clients and the command line. §6.3 keeps Move, of one route
+  (A6).
 - **A5** — `RefusalStoreRecovery`'s new content is given in §10's row.
 - **A6** (asked after round 2's review, QUESTION 01a15d68; answered
-  in REPLY 01a15d6a) — may Move split one PeerId across two contacts?
-  No. ADR-0059 d. 2 constrains it, so Move takes every route of the
-  PeerId together (§6.3). The sentence goes into d. 4 on #335.
+  in REPLY 01a15d6a, then withdrawn by ADR-0061 the same day) — the
+  first answer was that Move takes every route of a PeerId together and
+  a PeerId is never under two contacts. ADR-0061 decision 4 and
+  ADR-0059 A 2026-10-21 (ii) replaced it: a contact is one remote
+  identity, holds at most one route per PeerId, and Move moves one
+  route (§5.4.1 case P, §5.6, §6.3).
