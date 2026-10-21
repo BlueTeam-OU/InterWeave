@@ -17,7 +17,8 @@ Conceptually:
 ```text
 contacts(contact_id, display_name, avatar_ref?, notes?, created_at, updated_at)
 contact_routes(contact_id, peer_id, endpoint_id, device_label?, verification_note?, last_seen?)
-conversation_index(conversation_id, peer_id, endpoint_id?, channel_id?, title?, last_activity?)
+conversation_index(conversation_id, peer_id, endpoint_id?, channel_id?, title?, last_activity?, last_shared_card?)   -- last_shared_card: A 2026-10-21, ADR-0059 decision 2, content-free, in the §Logical tables review
+own_cards(card_id, label, name, surname?, photo?, created_at, updated_at)   -- A 2026-10-21, ADR-0059 decision 2: the person's own cards, written by them, outside ADR-0044's three states
 pending_outbound(local_row_id, conversation_id, app_message_id, transport_message_id,
                  destination_peer?, destination_endpoint?, channel_id?, media_type?, payload,
                  created_at, last_attempt_at?, retry_state)

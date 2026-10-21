@@ -5948,8 +5948,9 @@ decision 6.
    malformed cases, the fixture cases named there, and the parser's
    rule "not a known kind is malformed".
 2. **The proposal and the acceptance** (rust-ui-dev): the person's own
-   card in settings; "Share my card" on one conversation, never
-   automatic; the received card held as inbound content under
+   cards in settings (several, each under a local label); "Share a
+   card" on one conversation, choosing which, the last shared offered
+   first, never automatic; the received card held as inbound content under
    RETENTION.md, shown as a proposal with the PeerId beside it and the
    same-name note; Accept writing `contacts` and `contact_routes`,
    Decline discarding; the photo decoded only after Accept with a
@@ -5983,7 +5984,12 @@ and names the conversation; a card from an unknown kind or over a bound
 is rejected locally with no network effect; a card over broadcast is
 ignored; a second card from the same route is a new proposal and
 overwrites no local edit; two same-name cards from two PeerIds are two
-proposals; a declined card leaves nothing in the store; every action
+proposals; a declined card leaves nothing in the store; two own cards shared to two
+conversations, each counterparty holding only its own and nothing
+sent naming the other; a confirmed discard during a stalled rewrite
+removing the plaintext and keeping the key and the complete copy,
+which the next open promotes; the command-line discard refused
+without its confirmation flag; every action
 of steps 2 and 3 driven from the command-line client in a shell with
 no display; the photo is not
 decoded before Accept; no contacts permission, no contacts library,
