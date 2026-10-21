@@ -15,7 +15,7 @@ The store is encrypted at rest as a whole — pages, write-ahead log and journal
 Conceptually:
 
 ```text
-contacts(contact_id, display_name, surname?, avatar_ref?, notes?, created_at, updated_at)   -- surname: A 2026-10-21, ADR-0059, by plan §29 step 2's migration
+contacts(contact_id, display_name, avatar_ref?, notes?, created_at, updated_at)
 contact_routes(contact_id, peer_id, endpoint_id, device_label?, verification_note?, last_seen?)
 conversation_index(conversation_id, peer_id, endpoint_id?, channel_id?, title?, last_activity?)
 pending_outbound(local_row_id, conversation_id, app_message_id, transport_message_id,

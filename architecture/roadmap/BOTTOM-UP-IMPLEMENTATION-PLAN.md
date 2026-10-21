@@ -5961,8 +5961,7 @@ and `crates/human/ui-slint`, the two clients under `apps/`, and
    key, its versioned sealed file, the Android sealing in its own
    alias namespace apart from the seed custody under
    `background-compatible`, the desktop sealed file
-   `<state_dir>/human-store.key`, the `surname` column of step 2's
-   migration if not already landed, the plaintext-to-encrypted rewrite at first
+   `<state_dir>/human-store.key`, the plaintext-to-encrypted rewrite at first
    open and the rollback refusal by name, the store-health condition and
    its one action, RETENTION.md's deletion property measured on the
    encrypted file, and §22's upgrade and rollback rows learning the case.
