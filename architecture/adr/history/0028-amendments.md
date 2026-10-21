@@ -691,5 +691,8 @@ normalised at load (a duplicate of an authored entry leaves, an entry
 outside the grammar fails the load by name), counted with the authored
 entries against the static-bootstrap provider's 64. The static provider
 reads it beside the authored entries and emits both with configured
-provenance; nothing of trust moves. The methods are p2p-network-dev's,
+provenance — the composition building the provider from the overlay
+alone when the profile authors none, an authored `enabled: false`
+refusing the add — and a composed count above 64 at start is FATAL
+naming the overlay, never truncated; nothing of trust moves. The methods are p2p-network-dev's,
 an IPC minor under ADR-0017, as the endpoint overlay's were.

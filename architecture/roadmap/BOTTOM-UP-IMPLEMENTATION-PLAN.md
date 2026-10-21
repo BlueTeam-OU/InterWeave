@@ -5994,8 +5994,12 @@ decision 6.
    proposed by rust-ui-dev and ruled by architect-cto.
 5. **A peer by address, and one's own** (ADR-0062, A 2026-10-21):
    p2p-network-dev — the bootstrap-peers overlay in `profile-config`
-   (loader, normalisation, the shared bound of 64), the static-bootstrap
-   provider reading it, `admin.peers.add_address`/`remove_address` and
+   (loader, normalisation, the shared bound of 64, FATAL above it at
+   start), the composition building the static-bootstrap provider from
+   the overlay when none is authored and the provider taking adds and
+   removals live, the add's class floor (ADR-0052 rule 2) and
+   typed-only DNS rule at the client and the embedded host,
+   `admin.peers.add_address`, `remove_address` and `list_addresses` and
    their schemas under one IPC minor, the embedded host's function on
    Android, `transportctl`'s add, remove and list; rust-ui-dev — the add
    screen (typed or scanned) and the show screen (text and QR) on both
