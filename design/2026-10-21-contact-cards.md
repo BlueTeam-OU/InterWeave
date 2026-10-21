@@ -520,7 +520,12 @@ App bar: back arrow, the name as title, overflow with **Delete contact**
   `DirectTitle` builds it, the trust state in words
   (`ContactRouteTrusted` "Trusted" / `ContactRouteNotTrusted` "Not
   trusted", from the PeerId's trust, never inherited from another route,
-  ADR-0043), and **Open conversation**; a row expands to the full PeerId
+  ADR-0043), and **Open conversation**, which opens that route's direct
+  conversation — empty, with §5.3's offer, when nothing of it is held
+  any more (a conversation whose messages were read and not kept is
+  gone after a restart, look spec §5.2, while the contact stays,
+  ADR-0059 d. 3); such a conversation is listed in Chats only once it
+  holds a message, as any conversation is; a row expands to the full PeerId
   with Copy PeerId;
 - **Move to another contact** on a route row (`MoveRoute`) when there
   are other contacts: a picker of contacts, then a confirmation dialog
@@ -945,9 +950,10 @@ Existing keys reused unchanged: `AppOptions` (look spec §9; the Chats
   the menu until it is used often enough to earn the space.
 - **Search or sort in Contacts and Your cards**, a contact's notes and
   device labels: not asked for; the store has the columns.
-- **Starting a conversation from a contact** with no conversation: a
-  contact always comes from one, and starting a conversation by PeerId
-  is plan §18 carry 11's own flow, not designed here.
+- **Starting a conversation with a PeerId no contact or conversation
+  holds**: plan §18 carry 11's own flow, not designed here. A contact
+  starts from a conversation and may outlive it; for its routes, §6.3's
+  Open conversation is the way back.
 - **The command-line client's words and output**: its implementer's
   (ADR-0059 d. 9). Its discard needs an explicit confirmation flag and
   refuses without it; this spec's lists are what it should print.
