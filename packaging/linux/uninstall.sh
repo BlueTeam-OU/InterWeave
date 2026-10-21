@@ -21,8 +21,8 @@
 # manager looked up in this account's own /run/user/<uid>; if a manager
 # is running there or under the inherited directory and still cannot be
 # reached, nothing is removed and the script fails, since it could not
-# stop what runs. With no manager running at all, the instances' wants
-# links are removed by hand.
+# stop what runs. With no manager running at all, the instances'
+# dependency links are removed by hand.
 #
 # Usage: uninstall.sh
 set -eu
@@ -42,37 +42,46 @@ esac
 bin_dest="$HOME/.local/bin"
 unit_dest="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
+# The kinds of dependency link that start an instance with another unit:
+# .wants (`enable`, `add-wants`), .requires (`add-requires`, RequiredBy=)
+# and .upholds (UpheldBy=). Each is looked for in the persistent and the
+# runtime configuration.
+link_kinds="wants requires upholds"
+
 # The instances: every one in $1, the manager's list of the units it has
 # loaded, running or not (empty when no manager runs), and
-# every one enabled -- persistently or for this boot only -- that it has
-# not loaded, found by the wants links `enable` makes. Sorted, so every
-# client comes before every daemon and none is restarted by its daemon's
-# stop.
+# every one linked -- persistently or for this boot only -- that it has
+# not loaded, found by those links. Sorted, so every client comes before
+# every daemon and none is restarted by its daemon's stop.
 instances() {
     {
         printf '%s\n' "$1" | awk 'NF { print $1 }'
-        for wants in "$unit_dest"/*.wants \
-            "${XDG_RUNTIME_DIR:-/nonexistent}"/systemd/user/*.wants; do
-            [ -d "$wants" ] || continue
-            for link in "$wants"/interweave-client@?*.service \
-                "$wants"/interweave-daemon@?*.service; do
-                if [ -L "$link" ]; then basename "$link"; fi
+        for kind in $link_kinds; do
+            for dir in "$unit_dest"/*."$kind" \
+                "${XDG_RUNTIME_DIR:-/nonexistent}"/systemd/user/*."$kind"; do
+                [ -d "$dir" ] || continue
+                for link in "$dir"/interweave-client@?*.service \
+                    "$dir"/interweave-daemon@?*.service; do
+                    if [ -L "$link" ]; then basename "$link"; fi
+                done
             done
         done
     } | sort -u
 }
 
-# Every wants link naming $1, persistent and runtime, removed. `disable`
-# leaves one whose template is already gone (it refuses a unit it cannot
-# find), and a link left behind would make a later install.sh enable the
-# instance again without anyone asking.
+# Every dependency link naming $1, of every kind, persistent and runtime,
+# removed. `disable` leaves one whose template is already gone (it refuses
+# a unit it cannot find), and a link left behind would make a later
+# install.sh start the instance again without anyone asking.
 remove_links() {
-    for link in "$unit_dest"/*.wants/"$1" \
-        "${XDG_RUNTIME_DIR:-/nonexistent}"/systemd/user/*.wants/"$1"; do
-        if [ -L "$link" ]; then
-            rm -f "$link"
-            echo "removed the link $link"
-        fi
+    for kind in $link_kinds; do
+        for link in "$unit_dest"/*."$kind"/"$1" \
+            "${XDG_RUNTIME_DIR:-/nonexistent}"/systemd/user/*."$kind"/"$1"; do
+            if [ -L "$link" ]; then
+                rm -f "$link"
+                echo "removed the link $link"
+            fi
+        done
     done
 }
 
@@ -132,7 +141,7 @@ if [ "$manager" = yes ]; then
     done
 else
     # No manager runs for this account, so no instance runs under one; what
-    # is left of an enable is its links.
+    # is left of an enable, or of an add-wants or add-requires, is its links.
     echo "uninstall.sh: no systemd user manager is running for this account" >&2
     for unit in $(instances ""); do
         remove_links "$unit"

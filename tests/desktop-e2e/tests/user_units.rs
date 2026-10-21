@@ -799,13 +799,31 @@ impl Unmanaged {
 
 /// With no user manager running for the account (a container, a host
 /// without systemd), nothing can run under one, and what is left of an
-/// `enable` is its wants links: uninstall removes them with the package,
-/// so a later install cannot enable anything again. The control is the
-/// links and the package present before.
+/// `enable`, an `add-requires` or an `UpheldBy=` is its links: uninstall
+/// removes every kind, persistent and runtime, with the package, so a
+/// later install cannot start anything again. Each further kind names an
+/// instance of its own, so it is found by that link alone. The control is
+/// the links and the package present before.
 #[test]
 fn uninstall_with_no_manager_removes_the_wants_links_with_the_package() {
     let account = Unmanaged::new("e2e-unmanaged");
-    let links = account.enabled_links("p");
+    let mut links = account.enabled_links("p");
+    for (dir, unit, template) in [
+        (
+            account.units().join("default.target.requires"),
+            "interweave-daemon@q.service",
+            "interweave-daemon@.service",
+        ),
+        (
+            account.runtime.join("systemd/user/default.target.upholds"),
+            "interweave-client@r.service",
+            "interweave-client@.service",
+        ),
+    ] {
+        std::fs::create_dir_all(&dir).expect("a link dir");
+        std::os::unix::fs::symlink(account.units().join(template), dir.join(unit)).expect("a link");
+        links.push(dir.join(unit));
+    }
     assert!(
         links.iter().all(|l| l.is_symlink()) && account.package_present(),
         "the control: enabled and installed"
