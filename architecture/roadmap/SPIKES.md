@@ -537,14 +537,22 @@ below). What the evidence establishes:
   `read-walk` (`list_all`'s walk over every pending, unread and kept row),
   at 500 kept (the realistic store) and 2000 (a large one; the owner,
   2026-10-21), with a labelled stress row at 20 000.
+- **The criterion is judged on medians**: each figure below is the median
+  of three rounds' medians (30 repetitions a round), the cipher's against
+  the plaintext's on the same side; the per-round extremes are given
+  beside them.
 - **Desktop** (Core Ultra 7 155H, ext4): at 500 and 2000 kept every
   operation within x1.21 of the plaintext, at v7 and at v8, across the
-  desktop and index runs; a cold open of 5-8 ms.
+  desktop and index runs; no single round above x1.93; a cold open of
+  5-8 ms.
 - **The Stage 17 reference device** (Pixel 9a, Android 17, API 37,
   f2fs), the store opened as the Android client opens it
   (`open_profile` under the platform's boundary): at 500 and 2000 kept
   every operation within x1.58 of the plaintext at v7 and v8, the largest
-  the v8 walk at 2000 (7.7 ms against 4.9 ms); a cold open of 42-54 ms
+  the v8 walk at 2000 (7.7 ms against 4.9 ms). Per round, two of 36 pairs
+  were above x2, both at v7: the walk at 2000, round 1 (19.7 ms against
+  9.0 ms, x2.18), and the commit at 500, round 2 (1.69 ms against
+  0.83 ms, x2.03); at v8 no round was above x1.85. A cold open of 42-54 ms
   against the one-second bound. That the cold open read from the medium
   rests on `posix_fadvise(DONTNEED)` and was not measured on f2fs.
 - **The walk was quadratic**, each page a scan and a sort of the table:

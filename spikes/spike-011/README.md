@@ -152,7 +152,8 @@ directory stands for. Medians of the rounds' medians, SQLCipher
 - **Within ADR-0060 decision 4 on the device**: every operation within
   twice the baseline at 500 and 2000 kept, on both schema versions (the
   largest, x1.58), and a cold open of 42-54 ms against the one-second
-  bound.
+  bound. Per round, two of 36 pairs were above x2, both at v7 (x2.18 and
+  x2.03); at v8 none was above x1.85.
 - **The cold open is not shown to be cold on the device.** The harness
   evicts with `posix_fadvise(DONTNEED)` after a sync, which Linux
   honours; that f2fs on this kernel dropped the pages was not measured.
