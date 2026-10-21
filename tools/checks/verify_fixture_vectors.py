@@ -512,7 +512,8 @@ STRICT_BASE64_RE = re.compile(r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Z
 
 # Edwards25519, for the strictness OpenSSL's verify does not apply: it
 # accepts a small-order public key, and a small-order R, when the
-# cofactorless equation holds (the small-order vector is built so it does).
+# cofactorless equation holds. The small-order vector's key is small order
+# and its R is not, so the equation holds and only the key check refuses it.
 _ED_P = 2**255 - 19
 _ED_D = (-121665 * pow(121666, _ED_P - 2, _ED_P)) % _ED_P
 _ED_L = 2**252 + 27742317777372353535851937790883648493
@@ -673,7 +674,7 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
     """From architecture/clients/human/HUMAN-CHAT.md §Contact card (ADR-0059, ADR-0063).
 
     The verdict on a received card, the PeerId and source endpoint taken
-    from `received_on` — the connection — never from the envelope. Three
+    from `received_on` — the connection — never from the envelope. The
     checks beside the verdict keep each vector what it says it is:
     `canonical_bytes_hex`, where stated, is the receiver's canonical
     bytes; a test-only signer's public key is its seed's, and the card's
@@ -682,7 +683,9 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
     not for a signature nobody made); a small-order signer's key is small
     order and its signature's R is not, and `lax_verifies` says whether
     OpenSSL's cofactorless verify accepts it, which is what makes the
-    strict rule on the key the one that refuses.
+    strict rule on the key the one that refuses; a stated
+    `fingerprint_hex` is the key's (ADR-0063 decision 1) and a stated
+    `photo_pixels` the PNG's IHDR size.
     """
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives import serialization
