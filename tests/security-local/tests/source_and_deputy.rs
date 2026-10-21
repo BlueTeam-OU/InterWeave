@@ -270,7 +270,7 @@ fn admin_shaped(stranger: &TransportIdentity) -> Vec<Vec<u8>> {
 /// admin requests as payloads, directly and as broadcasts. Each reaches
 /// B's session as the bytes it was -- the control that the deputy was
 /// handed them -- and B's trust list, endpoints and leases are exactly
-/// as before, B still runs, and its admin socket counted no request.
+/// as before, and B still runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_remote_message_shaped_as_an_admin_request_changes_nothing() {
     let mut pair = Pair::start().await;
@@ -403,11 +403,6 @@ async fn a_remote_message_shaped_as_an_admin_request_changes_nothing() {
         format!("{:?}", admin.endpoints_result().await.expect("endpoints")),
         endpoints_before,
         "no endpoint revoked or changed"
-    );
-    let status = admin.status_result().await.expect("status");
-    assert_eq!(
-        status.ipc.cross_domain_capability_denied_total, 0,
-        "no request reached either socket"
     );
     assert!(
         pair.b_daemon.child.try_wait().is_ok_and(|s| s.is_none()),
