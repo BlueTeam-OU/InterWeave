@@ -1,0 +1,50 @@
+# Every user identity has its own signing key, and the contact card carries and is signed by it
+
+**Status:** Accepted — the owner's direction of 2026-10-21 ("A matter is peer level encryption and another should be the end2end encryption"; "do it", on the recommendation that the card carry an identity key now and the full layer follow as a proposed record, ADR-0064)
+
+## Context
+
+What is encrypted today is the link: Noise authenticates the PeerId and encrypts each peer connection with ephemeral keys, a relay carries ciphertext, and a broadcast is signed by the PeerId and encrypted only hop by hop among the trusted peers that forward it (`transport/libp2p/SECURITY.md`, "the per-hop Noise, trusted-forwarder plaintext boundary"; group encryption "still deferred"). The key belongs to the node. A user identity (ADR-0061) is an EndpointId under that node with a card (ADR-0059), and nothing cryptographic is the identity's own: two identities on one phone share one Noise key, a card is bound to the PeerId it arrived on and to nothing else, and the records say in as many words that an identity is "authenticated only by the PeerId" (ADR-0032's revisit, "a higher-level application identity system"; ADR-0059's, "an application identity layer with a stronger binding than the PeerId").
+
+End-to-end encryption at the identity level is a layer above the transport, decided as ADR-0064 in proposed state. What cannot wait is the one field a card ships with: once cards are exchanged without an identity key, every contact made before the layer has to be re-exchanged when it arrives. This record gives each identity a key now and puts it in the card.
+
+## Decision
+
+1. **Every user identity has an identity key pair**, Ed25519, generated with the identity from the system's CSPRNG — never derived from the node's transport seed, so that the same identity can later live on a second node (ADR-0064) and a node's phrase restores the node, not the identities. The public key is the identity's cryptographic name; its fingerprint (the first 8 bytes of the SHA-256 of the public key, shown as 16 lowercase hex characters) is what a person compares.
+
+2. **The private key's custody is the transport seed's.** On Android it is sealed under an `AndroidKeyStore` wrapping key in an IWK1 envelope of its own (ADR-0042; the alias carries the profile name and the EndpointId), at the `background-compatible` level, since the identity must sign and later decrypt without a person present; on the v1 desktop it is an owner-only file beside the seed under ADR-0038's `filesystem-only` floor; in both cases under the trust boundary (ADR-0028), one file per identity, `<state_dir>/identity-keys/<EndpointId>.key`. A Keystore invalidation leaves the identity with no key: the client says so, and the person creates a new one, which the counterparty sees as a key change (decision 5). Nothing of the key enters the human store, a backup, a log or IPC; an export is ADR-0064's.
+
+3. **The contact card carries the identity's public key and is signed by it.** HUMAN-CHAT.md §Contact card gains two required members: `card.identity_key`, the 32-byte Ed25519 public key as RFC 4648 §4 base64, and `card.signature`, the 64-byte Ed25519 signature as base64 over the card's canonical bytes — the ASCII prefix `interweave-card-v1`, then `name` and `surname` (absent as empty) each as a 2-byte big-endian length and its UTF-8, then the SHA-256 of the decoded photo bytes (32 zero bytes when absent), then the sender's PeerId as its multihash bytes with a 2-byte length, then the `source_endpoint` as a 2-byte length and its UTF-8. The PeerId and EndpointId inside the signed bytes bind the card to the route it is sent from, so a card lifted from one node cannot be replayed from another. A card whose key is not 32 bytes, whose signature is not 64 bytes, or whose signature does not verify over the bytes the receiver reconstructs from the envelope and the connection it arrived on, is **malformed** (dropped and counted under the parser's fixed reasons, `CHANNEL-EVENT.md` §Content). The card stays bound to the authenticated `source_peer` as ADR-0059 decision 1 says; the key is what the card additionally proves, not a substitute for the connection.
+
+4. **A contact records the identity key.** `contact_routes` gains `identity_key`, the public key the accepted card carried, and a contact page shows the fingerprint beside the PeerId. Two cards from one route with the same key are one identity; a route whose key differs from the recorded one is a **key change**: the proposal says so in plain words before Accept — the person may accept the new key, which replaces the old one in that route and nothing else, or decline — and the client never accepts a changed key on its own. A card with the same identity key from a different PeerId is the same identity on another node (ADR-0064's multi-device case): until that record lands the client treats it as a new route the person may group under the contact by hand (ADR-0043), and says the key matches.
+
+5. **What the key proves today, and what it does not.** It proves that whoever sent this card holds the identity's private key, and that a later card from the same route is the same identity or a declared change. It encrypts nothing yet, authenticates no message, and grants no trust: trust stays the node's allow-list on the PeerId (ADR-0012). Until ADR-0064 lands, the key is a name a person can compare, not a channel.
+
+6. **Every action has a command-line form** (ADR-0059 decision 9): show an identity's fingerprint, show a contact's, and the key-change decision on a proposal.
+
+## Alternatives considered
+
+- **Derive the identity key from the node's seed and the EndpointId.** Rejected: the phrase would restore it, but the identity could never move to a second node without cloning the node's key, which ADR-0043 forbids; independence is the point of the layer.
+- **Wait and add the key with ADR-0064.** Rejected by this record: every contact made before it would carry no key and would have to be re-exchanged; the field is cheap now and expensive later.
+- **An X25519 key now.** Rejected: agreement keys and prekeys are the protocol's, chosen with it (ADR-0064); a signing key is what a card needs and what every protocol can authenticate its agreement keys with.
+- **The card unsigned, the key a plain member.** Rejected: an unsigned key proves possession of nothing, and the binding to the route is what stops a card from being replayed from another node.
+
+## Consequences
+
+ADR-0059 is amended (iii): decision 1's card gains the two members and the malformed cases. ADR-0061 is amended: an identity is an EndpointId with its card and its key. ADR-0042's wrapping and ADR-0038's floor gain a second subject, named in `android-key-custody.md`. HUMAN-CHAT.md §Contact card carries the members, the canonical bytes, the malformed cases and the fixture vector owed with plan §29 step 1 (a key pair, a card and its signature as frozen test data, the private key labelled test-only). STATE.md's `contact_routes` gains `identity_key`; the client's own key files live outside the store. `human-client-ui.md` §3 carries the key-change proposal and the fingerprint. Plan §29 steps 1 and 2 gain the work. The wire envelope's version does not change: `contact_card` is not yet `active`, so its shape is corrected in place (ADR-0049).
+
+## Security implications
+
+The identity key is a second long-term secret per phone, under the same custody and the same limits as the seed: once unwrapped it is in the app's process memory, and an attacker holding the device holds it. The signature binds name, photo and route, so a card replayed from another node fails to verify and a card tampered in flight (impossible under Noise, but the envelope should not rely on it) fails too. The key change is the one new user-facing security event: a changed key may be a reinstall or an impersonation, and the client cannot tell them apart, so it says both and lets the person decide, as every messenger with safety numbers does. The fingerprint is 64 bits, enough to compare by eye, not to be ground against a target's; a full-key compare is ADR-0064's verification screen. Nothing here changes what the transport authenticates or admits.
+
+## Operational implications
+
+A new identity costs one key generation and one sealed file; a card is 96 bytes longer. An operator sees a `identity-keys/` directory beside the seed and treats it as the seed: backed up with the profile by the future device-to-device backup (ADR-0060 decision 8), never by a platform backup.
+
+## Implementation implications
+
+rust-ui-dev: the key pair and its custody in the shared crates (the Android path through the embedded host's custody seam, the desktop file), the card's members and signature in `chat-protocol`, the fixture vector, the contact's `identity_key` and the key-change proposal, the fingerprint on the identity and contact pages and in the command-line client. p2p-network-dev: nothing on the wire. The canonical bytes above are the normative definition; `tools/checks/verify_fixture_vectors.py` recomputes the vector. The work rides plan §29 steps 1 and 2.
+
+## Revisit conditions
+
+When ADR-0064 is accepted (the key becomes the root of the protocol's agreement and the multi-device device list); when a verification screen compares full keys; when the owner wants the identity key restorable from a phrase of its own.

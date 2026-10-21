@@ -5958,10 +5958,17 @@ decision 6.
    MalformedCard(reason), where an envelope any of whose top-level kind
    copies is contact_card is a card — so a duplicate-member card is
    MalformedCard, never NotCard — and a Card carries the photo's
-   decoded length as the parser measured it.
-2. **The proposal and the acceptance** (rust-ui-dev): the person's own
+   decoded length as the parser measured it; the card's `identity_key`
+   and `signature` (ADR-0063), the canonical bytes, the three malformed
+   cases and the frozen fixture vector with its test-only key pair.
+2. **The proposal and the acceptance** (rust-ui-dev): the identity key
+   pair generated with the identity and sealed under the seed's custody
+   (ADR-0063; `identity-keys/<EndpointId>.key`, the Android path through
+   the embedded host's custody seam); the person's own
    card in settings — one per configured endpoint, the `human` endpoint's
-   in this stage (ADR-0059 decision 2 as amended, ADR-0061); "Share a
+   in this stage (ADR-0059 decision 2 as amended, ADR-0061) — signed by
+   its key; `contact_routes.identity_key`; the key-change proposal and
+   the fingerprint on the identity and contact pages; "Share a
    card" on one conversation sending the conversation's identity's card,
    no chooser, never automatic; the received card held as inbound content under
    RETENTION.md, shown as a proposal with the PeerId beside it and the
@@ -6025,7 +6032,11 @@ route of a known PeerId creates a second contact and the proposal names
 the contact sharing its node, and a contact never holds two routes of one
 PeerId (ADR-0061 decision 4, A 2026-10-21 (ii)); the card shared to two
 conversations is the conversation's identity's each time and nothing
-sent names another identity (the two-identity case is §30's gate); a confirmed discard during a stalled rewrite
+sent names another identity (the two-identity case is §30's gate); a
+card's signature verifies at the receiver and a card replayed from
+another PeerId is malformed; a card with a changed identity key on a
+known route is shown as a key change and accepted only by the person;
+the identity key never enters the store, a log, IPC or a backup; a confirmed discard during a stalled rewrite
 removing the plaintext and keeping the key and the complete copy,
 which the next open promotes, the screen listing the plaintext alone;
 the same discard with the copy unopenable (no key, an invalidated

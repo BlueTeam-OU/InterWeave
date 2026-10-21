@@ -1,5 +1,7 @@
 # Android transport-key custody
 
+**A second subject (A 2026-10-21, ADR-0063).** Every user identity's Ed25519 identity key is sealed exactly as the transport seed is — an IWK1 envelope under an `AndroidKeyStore` wrapping key whose alias carries the profile name and the EndpointId, at the `background-compatible` level — one file per identity at `<state_dir>/identity-keys/<EndpointId>.key`; everything below about the seed's envelope, invalidation and recovery mode applies to it, except that a lost identity key is a new key and a key change at every counterparty, not a recovery flow.
+
 Status: architecture/design only.
 
 ## Constraint
