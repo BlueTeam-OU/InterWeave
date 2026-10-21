@@ -46,47 +46,6 @@
     "from_endpoint": {
       "$ref": "urn:interweave:schemas:endpoints:endpoint-id",
       "description": "AN UNAUTHENTICATED DISPLAY HINT. Direct transport metadata is authoritative for source_peer and the peer-asserted source_endpoint; a conflicting value here is ignored for routing and authority. On broadcast it is unauthenticated by construction, because transport broadcast origin is PeerId-only (ADR-0030) — so a UI that renders this as identity is asserting something the transport never verified."
-    },
-    "card": {
-      "type": "object",
-      "description": "The sender's own contact card (HUMAN-CHAT.md §Contact card, ADR-0059): what they say their name is, bound at the receiver to the authenticated source_peer of the direct message it arrived in — so it carries NO identifier of its own, and a member that looks like one is ignored like any unknown member. It is a PROPOSAL at the receiver: nothing reaches the contact store until the person accepts it. Open to unknown members for the same forward-compatibility reason the envelope is.",
-      "required": [
-        "name"
-      ],
-      "properties": {
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "description": "1 to 64 Unicode scalar values after NFC normalisation, no control, format or separator character; `minLength` counts code points as JSON Schema does, the 64 bound and the character classes are HUMAN-CHAT.md's and are checked above the schema. Displayed as plain text, never markdown."
-        },
-        "surname": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Same grammar and bounds as `name`; optional."
-        },
-        "photo": {
-          "type": "object",
-          "required": [
-            "media_type",
-            "data"
-          ],
-          "properties": {
-            "media_type": {
-              "enum": [
-                "image/png",
-                "image/jpeg"
-              ],
-              "description": "The only two types; anything else makes the card malformed."
-            },
-            "data": {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9+/]*={0,2}$",
-              "description": "RFC 4648 §4 standard base64 with padding and no whitespace, of at most 24,576 decoded bytes (the byte bound and the 256 × 256 pixel bound are HUMAN-CHAT.md's, checked above the schema). Decoded only after the person accepts the card, never before, and never fetched: the photo is bytes in the envelope."
-            }
-          },
-          "description": "Optional, bounded; a photo that fails to decode or exceeds the pixel bound is discarded and the card kept without it (HUMAN-CHAT.md)."
-        }
-      }
     }
   },
   "allOf": [
@@ -129,6 +88,49 @@
               ]
             }
           ]
+        },
+        "properties": {
+          "card": {
+            "type": "object",
+            "description": "The sender's own contact card (HUMAN-CHAT.md §Contact card, ADR-0059): what they say their name is, bound at the receiver to the authenticated source_peer of the direct message it arrived in — so it carries NO identifier of its own, and a member that looks like one is ignored like any unknown member. It is a PROPOSAL at the receiver: nothing reaches the contact store until the person accepts it. Open to unknown members for the same forward-compatibility reason the envelope is. Defined inside the contact_card branch below and nowhere else: on a `text` envelope a `card` member is an unknown member, ignored like any other, which is what the parser does — the negative-conformance test holds the schema and the parser to the same verdict on every mutant of a text message.",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "1 to 64 Unicode scalar values after NFC normalisation, no control, format or separator character; `minLength` counts code points as JSON Schema does, the 64 bound and the character classes are HUMAN-CHAT.md's and are checked above the schema. Displayed as plain text, never markdown."
+              },
+              "surname": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Same grammar and bounds as `name`; optional."
+              },
+              "photo": {
+                "type": "object",
+                "required": [
+                  "media_type",
+                  "data"
+                ],
+                "properties": {
+                  "media_type": {
+                    "enum": [
+                      "image/png",
+                      "image/jpeg"
+                    ],
+                    "description": "The only two types; anything else makes the card malformed."
+                  },
+                  "data": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+                    "description": "RFC 4648 §4 standard base64 with padding and no whitespace, of at most 24,576 decoded bytes (the byte bound and the 256 × 256 pixel bound are HUMAN-CHAT.md's, checked above the schema). Decoded only after the person accepts the card, never before, and never fetched: the photo is bytes in the envelope."
+                  }
+                },
+                "description": "Optional, bounded; a photo that fails to decode or exceeds the pixel bound is discarded and the card kept without it (HUMAN-CHAT.md)."
+              }
+            }
+          }
         }
       }
     }
