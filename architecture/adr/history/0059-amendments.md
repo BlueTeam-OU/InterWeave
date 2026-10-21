@@ -50,3 +50,8 @@ contacts, Move moves one route; grouping routes of one person's several
 devices under one contact stays the person's act (ADR-0043). The
 morning's other three rulings (pixels only, no Keep, provenance
 columns) stand. The withdrawn clause lived on `main` for no release.
+The same hour the owner added that two EndpointIds are two identities
+even when one person holds them, and that no UX may let the person act
+as one while believing they act as the other: a contact is therefore
+held by the local identity that accepted it (decision 3), and the same
+counterparty accepted by two identities is two contacts.

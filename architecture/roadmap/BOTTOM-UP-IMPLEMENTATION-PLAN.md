@@ -6093,9 +6093,11 @@ sentence gaining the administrative path in the same change.
    (ADR-0061 decision 7).
 2. **The conversation and contact model** (rust-ui-dev, shared crates):
    `{local EndpointId, remote route}` as the conversation key for life;
-   a contact per remote identity, at most one route per PeerId under a
-   contact, the contact page showing the PeerId and the contacts that
-   share it; Share sending the conversation's identity's card with no
+   a contact per remote identity held by the local identity that
+   accepted it, at most one route per PeerId under a contact, the
+   contact page showing the PeerId and the contacts that share it; the
+   client operating as one identity at a time, named on every acting
+   surface, the explicit switch (ADR-0061 decision 9); Share sending the conversation's identity's card with no
    chooser; `human-client-ui.md` §3 and §4 as amended.
 3. **Android** (rust-ui-dev): one in-process session and lease per
    identity in the one embedded runtime (ADR-0041 A 2026-10-21), the
@@ -6117,7 +6119,11 @@ known PeerId creates a second contact and the proposal names the contact
 sharing its node; a contact never holds two routes of one PeerId; the
 identity settings and the contact page state what identities of one node
 share (ADR-0061 decision 5); a notification names the identity it arrived
-on; the 64-endpoint bound refused above it, by name; a data session that
+on and opening it switches to that identity visibly first; with two
+identities held, no screen in front of one shows the other's
+conversations, contacts or card, and a share, an Accept and a new
+conversation run under the identity in front and no other (the
+owner's rule, ADR-0061 decision 9); the 64-endpoint bound refused above it, by name; a data session that
 names an unconfigured endpoint is refused as today; every action of
 steps 1–3 driven from the command-line client in a shell with no display.
 
