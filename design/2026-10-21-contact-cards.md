@@ -920,7 +920,7 @@ and no string calls a card an "identity" (§1).
 | `UpdateContact` | Update contact | cases U, E |
 | `ShareCardPreviewSpoken` | {title} will see the name {name}. | chooser preview, accessible description, no photo |
 | `ShareCardPreviewSpokenPhoto` | {title} will see the name {name} and your photo. | the same, with the photo |
-| `MoveRoutePickerTitle` | Move this PeerId to which contact? | the move-route picker's title |
+| `MoveRoutePickerTitle` | Move this PeerId to which contact? | the move-route picker's title. What moves is one route, the one this row shows (a PeerId with this conversation's route label): a contact may hold other routes of the same PeerId, which stay. The text must not say the whole PeerId moves; language-culture-en to reword (asked 2026-10-21) |
 | `CardPhotoLabel` | Photo for this card | editor photo circle, accessible label |
 | `CardPhotoNone` | No photo for this card | the same, with no photo |
 | `CardSamePeer` | Your contact {name} already has this PeerId in another conversation. | case P; `{name}` the contact's name |
