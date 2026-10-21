@@ -82,15 +82,16 @@ until_gone() {
 
 # TERM the group, give it 5 s, KILL what is left, then end any daemon a
 # run's teardown forked. Further signals are ignored from here on, so a
-# second TERM from the wrapper cannot cut it short.
+# second TERM from the wrapper cannot cut it short. The watcher goes
+# before the KILL pass: alive, it would fork a sleep the pass never saw.
 stop() {
   trap '' TERM INT HUP
   trap - EXIT
   kill -TERM 0 2>/dev/null
   until_gone 5 others
+  [ -n "$watcher" ] && kill -KILL "$watcher" 2>/dev/null
   kill_them=1 others
   timeout -s KILL 5 adb kill-server >/dev/null 2>&1
-  [ -n "$watcher" ] && kill -KILL "$watcher" 2>/dev/null
 }
 trap 'stop; exit 143' TERM
 trap 'stop; exit 130' INT
