@@ -8,9 +8,13 @@
 //! Ed25519 seed (`ProfileIdentity::from_phrase`), so a stream carrying
 //! the seed in any encoding carries the phrase, and the scan looks for
 //! both. Every form is searched as a PART of the secret rather than the
-//! whole, so a line cut short or a value printed from an offset is still
-//! found; and each form has a positive control below, since a scan that
-//! finds nothing because it cannot find anything passes every stream.
+//! whole, a window of it at every start, so a line cut short or a value
+//! printed from an offset is still found: any [`RAW`] bytes of the seed
+//! raw or in hex, any [`LISTED`] as a derived `Debug`, and any
+//! [`BASE64`] + 2 in base64 or base64url wherever the encoded value
+//! begins. Each form has a positive control below, cut at both ends,
+//! since a scan that finds nothing because it cannot find anything
+//! passes every stream.
 
 use interweave_profile_identity::ProfileIdentity;
 
@@ -18,6 +22,19 @@ use interweave_profile_identity::ProfileIdentity;
 /// ordinary English (`able`, `about`, `act` are BIP-39 words), and three
 /// in the phrase's own order is not something a log line says by chance.
 const RUN: usize = 3;
+
+/// The window, in bytes, of the raw and hex forms: 12 bytes of an
+/// Ed25519 seed are 96 bits no stream carries by chance.
+const RAW: usize = 12;
+
+/// The window of a derived `Debug` listing.
+const LISTED: usize = 8;
+
+/// The window of the base64 forms, a whole number of 3-byte groups: an
+/// encoded slice of `BASE64 + 2` bytes holds a group boundary within its
+/// first three, and from there `BASE64` bytes encode to characters that
+/// depend on nothing else.
+const BASE64: usize = 18;
 
 /// One identity's secret, in every form the scan looks for.
 pub struct Secret {
@@ -88,26 +105,21 @@ impl Secret {
 /// Every needle of `seed`: each a window of it in one encoding.
 fn needles(seed: &[u8; 32]) -> Vec<(String, Vec<u8>)> {
     let mut out = Vec::new();
-    // Raw: 12-byte windows 10 apart, so any 22 bytes of it are found.
-    for at in [0, 10, 20] {
-        out.push((format!("raw bytes {at}.."), seed[at..at + 12].to_vec()));
-    }
-    for (half, bytes) in [("first", &seed[..16]), ("second", &seed[16..])] {
-        let lower = hex(bytes);
+    for at in 0..=seed.len() - RAW {
+        let window = &seed[at..at + RAW];
+        out.push((format!("raw bytes from byte {at}"), window.to_vec()));
+        let lower = hex(window);
         out.push((
-            format!("lower hex, {half} half"),
+            format!("lower hex from byte {at}"),
             lower.clone().into_bytes(),
         ));
         out.push((
-            format!("upper hex, {half} half"),
+            format!("upper hex from byte {at}"),
             lower.to_uppercase().into_bytes(),
         ));
     }
-    // Base64 of bytes that start at any offset in a larger value: one of
-    // the three alignments puts a 27-byte window on a 3-byte boundary,
-    // and 27 bytes encode to 36 characters that depend on nothing else.
-    for at in 0..3 {
-        let window = &seed[at..at + 27];
+    for at in 0..=seed.len() - BASE64 {
+        let window = &seed[at..at + BASE64];
         out.push((
             format!("base64 from byte {at}"),
             base64(window, STANDARD).into_bytes(),
@@ -119,8 +131,8 @@ fn needles(seed: &[u8; 32]) -> Vec<(String, Vec<u8>)> {
     }
     // A derived `Debug` of a byte array or a `Vec<u8>`: decimals, or hex
     // under `{:x?}` and `{:02x?}`, each byte apart.
-    for at in [0, 8, 16, 24] {
-        let window = &seed[at..at + 8];
+    for at in 0..=seed.len() - LISTED {
+        let window = &seed[at..at + LISTED];
         let listed =
             |byte: fn(&u8) -> String| window.iter().map(byte).collect::<Vec<_>>().join(", ");
         out.push((
@@ -212,7 +224,7 @@ mod tests {
             identity.save(&path).expect("saved");
             std::fs::read(&path).expect("read")
         };
-        let hex = hex(&seed);
+        let seed_hex = hex(&seed);
         let cases: Vec<(&str, Vec<u8>)> = vec![
             ("the phrase as typed", secret.phrase().into_bytes()),
             (
@@ -224,13 +236,18 @@ mod tests {
                 format!("got {} then", words[5..8].join(" ").to_uppercase()).into_bytes(),
             ),
             ("the seed raw", [b"x".as_slice(), &seed, b"y"].concat()),
-            ("22 raw bytes from byte 10", seed[10..].to_vec()),
-            ("22 raw bytes from byte 5", seed[5..27].to_vec()),
+            ("12 raw bytes from byte 13", seed[13..25].to_vec()),
+            ("the seed's tail raw", seed[20..].to_vec()),
+            (
+                "12 bytes in hex, cut at both ends",
+                hex(&seed[7..19]).into_bytes(),
+            ),
+            ("hex of bytes 4..28", hex(&seed[4..28]).into_bytes()),
             ("the key file", key_file.clone()),
-            ("the seed in hex", format!("seed={hex}").into_bytes()),
+            ("the seed in hex", format!("seed={seed_hex}").into_bytes()),
             (
                 "half the seed in upper hex",
-                hex[..32].to_uppercase().into_bytes(),
+                seed_hex[..32].to_uppercase().into_bytes(),
             ),
             (
                 "the key file in base64",
@@ -241,12 +258,28 @@ mod tests {
                 base64_padded_to_group(&key_file, URL_SAFE).into_bytes(),
             ),
             (
+                "base64 of the seed from byte 3",
+                base64_padded_to_group(&seed[3..], STANDARD).into_bytes(),
+            ),
+            (
+                "base64url of 20 bytes, cut at both ends",
+                base64_padded_to_group(&seed[5..25], URL_SAFE).into_bytes(),
+            ),
+            (
+                "base64 of the seed cut short at byte 26",
+                base64_padded_to_group(&seed[..26], STANDARD).into_bytes(),
+            ),
+            (
                 "the seed as a derived Debug",
                 format!("Secret({seed:?})").into_bytes(),
             ),
             (
                 "the seed from an offset",
                 format!("{:?}", &seed[9..30]).into_bytes(),
+            ),
+            (
+                "8 bytes listed, cut at both ends",
+                format!("{:02x?}", &seed[11..19]).into_bytes(),
             ),
             (
                 "the key file as {:x?}",
@@ -281,8 +314,8 @@ mod tests {
         assert_eq!(secret.found_in(stream.as_bytes()), Vec::<String>::new());
     }
 
-    /// A whole value in base64 whatever its length: zero-padded to a group
-    /// and the tail cut, as an encoder's last group differs only there.
+    /// A whole value in base64 whatever its length, zero-padded to a
+    /// group: only its last group's characters differ from an encoder's.
     fn base64_padded_to_group(bytes: &[u8], alphabet: &[u8; 64]) -> String {
         let mut padded = bytes.to_vec();
         while !padded.len().is_multiple_of(3) {
