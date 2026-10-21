@@ -357,9 +357,10 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
         .direct(2, Some("text/plain"), normal.as_bytes())
         .await;
     let notification = next_json(&mut lines).await;
-    assert_eq!(
-        notification["params"]["content"],
-        json!(normal),
+    // Compared rather than printed: a failure message here is a CI log
+    // line, so it names what failed and shows none of the secrets.
+    assert!(
+        notification["params"]["content"] == json!(normal),
         "the malformed envelope was dropped and the normal one notified"
     );
     let token = notification["params"]["meta"]["reply_token"]
@@ -408,15 +409,16 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
         stderr.contains(&format!(
             "a host line over {MAX_HOST_LINE_BYTES} bytes was dropped"
         )),
-        "{stderr}"
+        "the refused host line is not on stderr ({} bytes)",
+        stderr.len()
     );
     assert!(
         stderr.contains("an inbound message was dropped: its payload did not decode"),
-        "{stderr}"
+        "the dropped envelope is not on stderr ({} bytes)",
+        stderr.len()
     );
     let over_long_marker = format!("qx7h-{}", "h".repeat(16));
-    // A hit is reported by the secret's name and where it sits, never
-    // by its bytes or stderr's: a failing run's message is a CI log line.
+    // A hit is reported by the secret's name and where it sits.
     for (name, secret) in [
         ("the over-long host line", over_long_marker.as_str()),
         ("the non-JSON host line", not_json),
