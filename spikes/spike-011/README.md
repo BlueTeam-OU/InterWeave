@@ -94,8 +94,8 @@ the three rounds' medians, the cipher builds as a ratio of the plaintext:
 | 20 000 (stress) | read-walk | 1.9 s | x9.5 | x7.7 |
 
 - Within ADR-0060 decision 4's criterion (twice the baseline) at both sizes
-  a criterion is judged at, on the desktop. The device rows are owed: the
-  Stage 17 reference device is away with the owner.
+  a criterion is judged at, on the desktop. The device rows were recorded
+  later the same day, when the reference device was back (below).
 - **The read walk was quadratic in the store, whatever the engine**, at
   the pin (schema v7): each page was `SCAN` plus `USE TEMP B-TREE FOR
   ORDER BY` (no index on `(received_at, row_id)`), so the plaintext walk
@@ -234,4 +234,4 @@ decisions 3 and 6 with A 2026-10-21):
   the scrub before the unlink is what the record asks.
 
 Owed: Android's Keystore sealing of the key (decision 3), plan section 29
-step 3's; the spike's Result in `architecture/roadmap/SPIKES.md`.
+step 3's. The spike's Result is in `architecture/roadmap/SPIKES.md`.
