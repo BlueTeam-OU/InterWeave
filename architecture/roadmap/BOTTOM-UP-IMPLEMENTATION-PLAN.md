@@ -6079,14 +6079,18 @@ existing rows backfilled with `human`, `own_cards` keyed by EndpointId,
 one contact per local identity and route), the two
 graphical clients and the command-line client under `apps/`,
 `profile-config` (the Android profile's authored endpoints as a list,
-the one `runtime.android.endpoint` field becoming its first entry; an
-identity the person creates on either platform lands in the endpoint
-overlay's `added` member, never in the authored file), the overlay's
+the one `runtime.android.endpoint` field becoming its first entry, a
+disabled entry allowed while another is enabled and the composed-profile
+check asking for one enabled identity rather than the authored one; the
+authored `human` endpoint provisioned with `advertise: false`, the two
+example profiles likewise, and a migration setting it on existing
+profiles; an identity the person creates on either platform lands in the
+endpoint overlay's `added` member, never in the authored file), the overlay's
 `added` member in the runtime's loader — its normalisation and the 64
 bound over authored and added together (ADR-0028 A 2026-10-21) — and — in
 p2p-network-dev's lane, its own PR under ADR-0017's minor rule — the
-administrative method that adds a configured endpoint
-(`admin.endpoints.*`, LOCAL-IPC.md), with `ENDPOINTS.md`'s registration
+administrative methods that add a configured endpoint and remove an
+added one (`admin.endpoints.*`, LOCAL-IPC.md), with `ENDPOINTS.md`'s registration
 sentence gaining the administrative path in the same change.
 
 ### Implement in order
@@ -6104,7 +6108,8 @@ sentence gaining the administrative path in the same change.
    a contact per remote identity held by the local identity that
    accepted it, at most one route per PeerId under a contact, the
    contact page showing the PeerId and the identity in front's contacts
-   that share it; the client operating as one identity at a time, named on every acting
+   that share it; the client operating as one identity at a time, named from the second
+   identity on on every acting
    surface, the explicit switch (ADR-0061 decision 9); Share sending the conversation's identity's card with no
    chooser; `human-client-ui.md` §3 and §4 as amended.
 3. **Android** (rust-ui-dev): one in-process session and lease per
@@ -6130,10 +6135,15 @@ identity's; a contact never holds two routes of one PeerId; a direct
 message reaching identity B from a route only A holds as a contact is
 titled by the short PeerId, and B's Accept on that route creates B's own
 contact with A's unchanged; an identity's endpoint is created with
-advertise off and the endpoint directory lists no identity to a trusted
-peer; Remove deletes the identity's endpoint, conversations, pending
-outbound (unsent), contacts and card after one confirmation and is absent
-on the only and the default identity; the
+advertise off, the authored `human` endpoint's advertise is off after
+provisioning and the migration, and the endpoint directory lists no
+identity to a trusted peer; Remove, after one confirmation listing what
+goes, deletes an added identity's endpoint and only disables an authored
+one saying so, removes its conversations, its pending outbound (attempted
+no further, a may-have-reached row named), its contacts and its card, has
+no undo, and is absent on the only and the default identity; the lock
+screen's redacted notification names no identity and the switch follows
+the unlock; the
 identity settings and the contact page state what identities of one node
 share (ADR-0061 decision 5); a notification names the identity it arrived
 on and opening it switches to that identity visibly first; with two
