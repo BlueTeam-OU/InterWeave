@@ -161,8 +161,7 @@ directory stands for. Medians of the rounds' medians, SQLCipher
 - **The deletion property holds on the device's encrypted file**: after
   a clean close, and after the next open following an abort, the
   decrypted pages hold the kept marker and not the released one; the
-  control finds both; the raw files hold neither, and no plaintext
-  header.
+  control finds both; a raw search of the files finds neither.
 - **The failures are the desktop's**: a wrong key, the plaintext build on
   the encrypted file, and the cipher build on a plaintext file, each
   `NotADatabase`.
