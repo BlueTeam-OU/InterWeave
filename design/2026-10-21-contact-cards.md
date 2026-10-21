@@ -428,7 +428,17 @@ mirroring, reduced-motion rules and Undo snackbar (its §3–§8), as a new
 row kind E there. The reveal's label is the button's label of the case
 ("Accept as a new contact" in case D), never a bare "Accept". In case S
 neither direction moves (Close is not a swipe action). The buttons are
-the non-gesture equivalent, always present. §12 O1 asks the owner
+the non-gesture equivalent, always present.
+
+**A difference from message-swipe §7, on purpose.** There, as revised by
+Android review F2, a row at rest shows no buttons and keeps its actions
+in a menu. A proposal keeps Accept and Decline visible at rest, because
+it exists to be answered: a claim whose answer is hidden in a menu reads
+as a message, and the case's label (§5.4.1) is what tells the person what
+Accept will do before they do it. The row also has §7's menu (long
+press, or Enter on the focused row), holding the same Accept and Decline
+with the case's labels, then Copy PeerId; it has no Show source, since a
+card has no markdown source to show. §12 O1 asks the owner
 whether case D should take no right swipe.
 
 #### 5.4.5 Several proposals, and a proposal while away
