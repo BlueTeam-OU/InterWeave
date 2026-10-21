@@ -589,9 +589,9 @@ App bar: back arrow, the name as title, overflow with **Delete contact**
   (ADR-0059 d. 4); no screen suggests it from a name or a photo. When
   the PeerId's routes are all the contact has, moving them deletes that
   contact, and the dialog says so (`MoveRouteLast`). Move runs at once
-  and shows `ConfirmRouteMoved` with Undo, which moves back exactly the
-  routes this Move moved (a route a card added to the target in the
-  meantime stays there; it was never the source's) and, when the move
+  and shows `ConfirmRouteMoved` with Undo, which moves back every route
+  of that PeerId, a route a card added to the target in the meantime
+  included, so that the PeerId stays under one contact (§5.6), and, when the move
   deleted the contact, writes it back with its values and their
   sources; a kill inside the window leaves the move done, as said.
   After Move the moved-to contact's page opens, and its Back goes to
