@@ -651,7 +651,8 @@ the overlay gains an `added` member holding each added endpoint's
 definition — the fields a configured endpoint has in `config.yaml` —
 beside the enabled and default deltas, under the overlay's every rule
 (owner-only, atomic, trust boundary, normalised at load); added and
-authored endpoints together obey the 64 bound. The method itself is
+authored endpoints together obey the profile's configured-endpoint
+limit (ENDPOINTS.md's table: default 16, ceiling 64). The method itself is
 p2p-network-dev's, an IPC minor under ADR-0017.
 Round 11 of #335's review (F32) read the member against the paragraph's
 other sentences: normalisation now judges "configured" as authored and

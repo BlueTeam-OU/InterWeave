@@ -6091,7 +6091,8 @@ open (ADR-0028 A 2026-10-21), `config.yaml` unrewritten and the upgrade
 test's expectation kept; an identity the person creates on either platform lands in the
 endpoint overlay's `added` member, never in the authored file), the overlay's
 `added` and `advertise` members in the runtime's loader — their
-normalisation and the 64 bound over authored and added together
+normalisation and the profile's configured-endpoint limit over authored
+and added together
 (ADR-0028 A 2026-10-21) — and — in
 p2p-network-dev's lane, its own PR under ADR-0017's minor rule — the
 administrative methods that add a configured endpoint, remove an
@@ -6159,7 +6160,9 @@ on and opening it switches to that identity visibly first; with two
 identities held, no screen in front of one shows the other's
 conversations, contacts or card, and a share, an Accept and a new
 conversation run under the identity in front and no other (the
-owner's rule, ADR-0061 decision 9); the 64-endpoint bound refused above it, by name; a data session that
+owner's rule, ADR-0061 decision 9); the add refused at the profile's configured-endpoint limit, by name;
+a removed authored identity listed among no identities and told from one
+merely turned off, which keeps its card; a data session that
 names an unconfigured endpoint is refused as today; every action of
 steps 1–3 driven from the command-line client in a shell with no display.
 
