@@ -14,14 +14,17 @@
 //! What this does not prove:
 //! - the host itself (step 5: the bridge loaded as a plugin in the
 //!   installed Claude Code);
-//! - a network other than one host's private address;
-//! - B's far end as the human client's facade itself: B is a plain data
-//!   session, which is what the facade sits on, and the envelope the
-//!   facade adds -- `HumanChatV2`, plain or brotli-compressed (`;ce=br`)
-//!   past the payload limit -- is built with chat-protocol's own encoder
-//!   and sent from it (`a_human_chat_envelope_is_notified_as_its_decoded_text`).
-//!   The bridge decodes `;ce=br` and forwards the envelope's JSON as text,
-//!   reading nothing of what it means.
+//! - a network other than one host's private address.
+//!
+//! B's far end is a plain data session in most cases here. In one case
+//! (`the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed`)
+//! it is the human client's own facade, with its store, over its IPC
+//! binding. The facade, not the test, decides how each envelope travels,
+//! and the test reads that choice from the facade's pending row. The
+//! bridge decodes `;ce=br` and forwards the envelope's JSON as text,
+//! reading nothing of what it means. Toward the facade the bridge sends
+//! plain only: a tool's `content` is a UTF-8 string, so the model cannot
+//! hand it compressed bytes.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -785,6 +788,274 @@ async fn a_human_chat_envelope_is_notified_as_its_decoded_text() {
         assert_eq!(n["meta"]["payload_encoding"], json!("utf8"));
         assert_eq!(n["meta"]["content_type"], json!(MEDIA_TYPE_V2));
     }
+}
+
+/// The human client's own facade on B: its store and its IPC binding,
+/// leased on B's `human`, driven as a composition root drives it.
+struct Facade {
+    client: interweave_human_transport_client::TransportClient<
+        interweave_ipc_client::IpcBinding,
+        interweave_ipc_client::IpcBinding,
+    >,
+    received: Vec<interweave_human_transport_client::Received>,
+    _store_dir: tempfile::TempDir,
+}
+
+impl Facade {
+    fn new(home: &Home) -> Self {
+        use interweave_human_store::{HumanStore, StoreOptions};
+        use interweave_human_transport_client::{ClientConfig, TransportClient};
+        use std::os::unix::fs::PermissionsExt as _;
+        // Owner-only whatever the umask, which the store asks of every
+        // ancestor it makes (ADR-0028 A 2026-10-08).
+        let store_dir = tempfile::Builder::new()
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .expect("a store directory");
+        let store = HumanStore::open(
+            &store_dir.path().join("state/human.sqlite"),
+            StoreOptions::default(),
+        )
+        .expect("a store");
+        let client = TransportClient::new(
+            home.binding(),
+            home.binding(),
+            store,
+            ClientConfig {
+                client_kind: "human-client".to_owned(),
+                endpoints: vec![human()],
+                channels: vec![],
+                max_payload_bytes: MAX_PAYLOAD_BYTES,
+            },
+            Box::new(wall_ms),
+            wall_ms(),
+        )
+        .expect("an empty store's pending rows");
+        Self {
+            client,
+            received: Vec::new(),
+            _store_dir: store_dir,
+        }
+    }
+
+    /// One turn of the root's loop: tick, then drain what arrived.
+    async fn step(&mut self) {
+        let now = wall_ms();
+        Box::pin(self.client.tick(now)).await;
+        let drained = Box::pin(self.client.drain(64, now)).await;
+        self.received.extend(drained);
+        while self.client.next_event().is_some() {}
+    }
+
+    async fn ready(&mut self, daemons: &[&Daemon]) {
+        use interweave_human_transport_client::SessionState;
+        let deadline = tokio::time::Instant::now() + PATIENCE;
+        while !matches!(self.client.session_state(), SessionState::Ready { .. }) {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the facade never leased B's human\n{}",
+                logs(daemons)
+            );
+            self.step().await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+}
+
+fn wall_ms() -> u64 {
+    u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("a clock")
+            .as_millis(),
+    )
+    .expect("a Unix time in ms")
+}
+
+/// A text envelope; with `raw_len`, its text padded so its JSON is
+/// exactly that many bytes.
+fn chat(
+    serial: u8,
+    text: &str,
+    raw_len: Option<usize>,
+) -> interweave_human_chat_protocol::HumanChatV2 {
+    use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
+    let mut envelope = HumanChatV2 {
+        v: 2,
+        kind: MessageKind::Text,
+        app_message_id: format!("{serial:02x}").repeat(16),
+        text: text.to_owned(),
+        reply_to: None,
+        sent_at_ms: None,
+        from_endpoint: None,
+    };
+    if let Some(len) = raw_len {
+        let base = serde_json::to_string(&envelope).expect("serializes").len();
+        // Repetitive and escape-free, so the JSON grows byte for byte and
+        // brotli brings it far under the payload limit.
+        let pad = "the same line again, ".repeat(len / 21 + 1);
+        envelope.text.push_str(&pad[..len - base]);
+        assert_eq!(
+            serde_json::to_string(&envelope).expect("serializes").len(),
+            len
+        );
+    }
+    envelope
+}
+
+/// The human client's facade as the far end (plan §21 C-05, the Stage 16
+/// carry). Two messages go from the facade on B to the bridge on A. The
+/// first is plain. The second's JSON is exactly
+/// `MAX_DECOMPRESSED_BYTES`: the largest the facade may send, and the
+/// most the bridge decodes. The facade's pending rows show it chose plain
+/// for the first and `;ce=br` for the second. The bridge forwards each as
+/// the envelope's own JSON, byte for byte, and `meta.content_type` is the
+/// media type without `ce`. Then the model replies to the facade twice:
+/// once as `HumanChatV2`, which the facade stores and hands over as from
+/// A's `claude`, and once as plain text, which the facade presents
+/// nothing of and counts as an unknown media type. The plain text is the
+/// control that the facade is not taking whatever arrives.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_human_clients_facade_exchanges_with_the_bridge_plain_and_compressed() {
+    use interweave_human_chat_protocol::{HumanChatV2, MAX_DECOMPRESSED_BYTES, MEDIA_TYPE_V2};
+    use interweave_human_transport_client::{Destination, Origin};
+
+    let (a, a_daemon, a_peer, b, b_daemon, b_peer) = two_daemons().await;
+    let daemons = [&a_daemon, &b_daemon];
+    let mut bridge = Bridge::start(&a);
+    bridge.wait_leased(&daemons).await;
+    let mut facade = Facade::new(&b);
+    facade.ready(&daemons).await;
+    let to_claude = Destination::Direct {
+        peer: a_peer.clone(),
+        endpoint: Some(claude()),
+    };
+
+    let plain = chat(1, "hello claude, from the facade", None);
+    let edge = chat(2, "", Some(MAX_DECOMPRESSED_BYTES));
+    let mut token = None;
+    for (envelope, at_the_edge) in [(&plain, false), (&edge, true)] {
+        let row = Box::pin(facade.client.send(to_claude.clone(), envelope, wall_ms()))
+            .await
+            .expect("the facade commits it");
+        // How the facade chose to send it, read from its pending row
+        // before the first tick attempts it: once accepted the row is gone.
+        let chosen = facade
+            .client
+            .store_mut()
+            .pending_outbound_row(row)
+            .expect("the store reads")
+            .expect("pending until attempted")
+            .media_type
+            .map(|m| m.as_str().to_owned());
+        let expected = if at_the_edge {
+            format!("{MEDIA_TYPE_V2};ce=br")
+        } else {
+            MEDIA_TYPE_V2.to_owned()
+        };
+        assert_eq!(
+            chosen.as_deref(),
+            Some(expected.as_str()),
+            "the facade's encoding"
+        );
+        let deadline = tokio::time::Instant::now() + PATIENCE * 3;
+        let n = loop {
+            facade.step().await;
+            let _ = bridge.status().await;
+            if let Some(at) = bridge.notifications.iter().position(|(n, _)| {
+                HumanChatV2::parse(n["content"].as_str().unwrap_or(""))
+                    .is_ok_and(|got| got.app_message_id == envelope.app_message_id)
+            }) {
+                let (n, line) = bridge.notifications.remove(at).expect("held");
+                meta_is_the_contracts(&n["meta"], &line);
+                break n;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the bridge was never notified of {}\n{}",
+                envelope.app_message_id,
+                logs(&daemons)
+            );
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        };
+        let content = n["content"].as_str().expect("text content");
+        assert_eq!(
+            content,
+            serde_json::to_string(envelope).expect("serializes"),
+            "the envelope's JSON, byte for byte"
+        );
+        let meta = &n["meta"];
+        assert_eq!(meta["delivery_mode"], json!("direct"));
+        assert_eq!(meta["source_peer"], json!(b_peer.as_str()));
+        assert_eq!(meta["source_endpoint"], json!("human"));
+        assert_eq!(meta["destination_endpoint"], json!("claude"));
+        assert_eq!(meta["payload_encoding"], json!("utf8"));
+        assert_eq!(meta["content_type"], json!(MEDIA_TYPE_V2));
+        token = Some(meta["reply_token"].as_str().expect("a token").to_owned());
+    }
+    let token = token.expect("a token");
+
+    let reply = chat(3, "hello facade, from claude", None);
+    let (answer, error) = bridge
+        .tool(
+            "reply",
+            json!({
+                "reply_token": token,
+                "content": serde_json::to_string(&reply).expect("serializes"),
+                "content_type": MEDIA_TYPE_V2,
+            }),
+        )
+        .await;
+    assert!(!error, "{answer}\n{}", logs(&daemons));
+    assert_eq!(answer, "remote transport accepted at endpoint human");
+    let (answer, error) = bridge
+        .tool(
+            "reply",
+            json!({"reply_token": token, "content": "plain words, no envelope"}),
+        )
+        .await;
+    assert!(!error, "{answer}");
+
+    // Two direct sends are two streams, so either may land first: wait
+    // for both.
+    let deadline = tokio::time::Instant::now() + PATIENCE * 3;
+    while facade.received.is_empty()
+        || facade.client.diagnostics().malformed_unknown_media_type == 0
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the replies never both arrived ({} received, {:?})\n{}",
+            facade.received.len(),
+            facade.client.diagnostics(),
+            logs(&daemons)
+        );
+        facade.step().await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        facade.received.len(),
+        1,
+        "the plain reply is presented as nothing"
+    );
+    let got = &facade.received[0];
+    assert_eq!(got.envelope, reply, "stored and handed over as composed");
+    assert_eq!(
+        got.origin,
+        Origin::Direct {
+            peer: a_peer.clone(),
+            endpoint: claude(),
+        }
+    );
+    let diagnostics = facade.client.diagnostics();
+    assert_eq!(
+        (
+            diagnostics.malformed_unknown_media_type,
+            diagnostics.malformed_undecodable,
+            diagnostics.malformed_invalid_envelope
+        ),
+        (1, 0, 0),
+        "only the plain reply is malformed"
+    );
 }
 
 /// A plain MCP host -- no channel extension -- drives the bridge in pull

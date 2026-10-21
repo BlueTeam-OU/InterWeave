@@ -15,7 +15,9 @@
 #             JDK_SHA256, unpacked under $RUNNER_TEMP; JAVA_HOME points at it
 #   sdk       every PKG_<n>=<package>@<revision> into the runner's SDK
 #             ($ANDROID_HOME) by sdkmanager, each then held to its pinned
-#             revision by its own source.properties. sdkmanager installs
+#             revision by its own source.properties; the install is tried
+#             SDK_INSTALL_ATTEMPTS times (default 3, SDK_RETRY_DELAY seconds
+#             apart, default 15), its downloads cleared between. sdkmanager installs
 #             the newest revision of a package, so a revision Google
 #             replaced fails here, by name, rather than building with it.
 #             Never a HOST_PKG_<n>: those are for other projects' builds on
@@ -28,7 +30,8 @@
 # the JDK's bin on PATH.
 #
 # Seams for the self-test: ANDROID_TOOLCHAIN_PINS, SDKMANAGER, FETCH (a
-# command run as `$FETCH <url> <out>`), RUSTUP, CARGO.
+# command run as `$FETCH <url> <out>`), RUSTUP, CARGO, SDK_INSTALL_ATTEMPTS,
+# SDK_RETRY_DELAY.
 #
 # Exit codes: 0 installed; 1 an install or a pin check failed; 2 usage,
 # environment or pins problem.
@@ -94,6 +97,11 @@ install_sdk() {
     [[ -x "$sdkm" ]] || die "no sdkmanager at $sdkm"
     local line pkg rev dir got pkgs=() n=0
     while IFS= read -r line; do
+        # <package>@<revision>, each `;` segment beginning with a letter or
+        # digit, so no segment is `.` or `..`: the value becomes a path the
+        # retry below clears a marker under. Exit 2 before sdkmanager runs.
+        [[ "${line#*=}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(\;[A-Za-z0-9][A-Za-z0-9._-]*)*@[0-9]+(\.[0-9]+)*$ ]] \
+            || die "pin '${line}' in $PINS is not <package>@<revision>"
         pkg="${line#*=}"; rev="${pkg##*@}"; pkg="${pkg%@*}"
         pkgs+=("$pkg|$rev")
     done < <(grep -E '^PKG_[0-9]+=' "$PINS")
@@ -102,7 +110,44 @@ install_sdk() {
     # Licences answered from a process substitution, not a pipe: under
     # pipefail, `yes | sdkmanager` fails on yes's SIGPIPE when sdkmanager
     # stops reading, however the install went.
-    "$sdkm" --install "${names[@]}" < <(yes 2>/dev/null) >/dev/null || fail "sdkmanager could not install ${names[*]}"
+    #
+    # Retried: one bad download of a package archive ("Error on ZipFile
+    # unknown archive", the NDK on runs of #327 and #343's merge group)
+    # failed a required job and evicted a reviewed PR from the queue.
+    #
+    # What a failed attempt leaves, from the installer the runner runs
+    # (its log reads "An error occurred while preparing SDK package", the
+    # prepare step of repository-core's AbstractPackageOperation, read on
+    # this host's cmdline-tools): the download and its unzip under the SDK
+    # root's .temp/ (and .downloadIntermediates/), and at the package's
+    # install path a .installer/ directory recording the operation, made
+    # before the download, with no package content; content reaches the
+    # install path only on completion, by an overwrite that restores its
+    # backup on failure. So before a retry exactly those are removed: the
+    # two staging directories, and for each pinned package not at its
+    # revision its .installer/, then its directory by rmdir, which only
+    # succeeds on an empty one. Nothing is removed recursively by a name
+    # the pins give, so no pin can make the retry delete a category, a
+    # grouping (extras/google) or the sdkmanager's own directory (#347
+    # review rounds 1-3). What decides is still the revision check below;
+    # the last attempt's failure is red. Not cleared: the staging of the
+    # newer `android` CLI behind an sdkmanager shim ($SDK/.sdk/), which
+    # leaves nothing at the install path when a download fails.
+    local attempts="${SDK_INSTALL_ATTEMPTS:-3}" delay="${SDK_RETRY_DELAY:-15}" try=1
+    [[ "$attempts" =~ ^[1-9][0-9]*$ ]] || die "SDK_INSTALL_ATTEMPTS '$attempts' is not a positive count"
+    until "$sdkm" --install "${names[@]}" < <(yes 2>/dev/null) >/dev/null; do
+        (( try < attempts )) || fail "sdkmanager could not install ${names[*]} (attempt $try of $attempts)"
+        echo "::warning::$me: sdkmanager failed installing ${names[*]} (attempt $try of $attempts); clearing its downloads and retrying in ${delay}s" >&2
+        rm -rf "${ANDROID_HOME:?}/.temp" "${ANDROID_HOME:?}/.downloadIntermediates"
+        for line in "${pkgs[@]}"; do
+            pkg="${line%|*}"; rev="${line#*|}"; dir="$ANDROID_HOME/${pkg//;//}"
+            [[ "$(revision "$dir")" == "$rev" ]] && continue
+            rm -rf -- "$dir/.installer"
+            rmdir -- "$dir" 2>/dev/null || true
+        done
+        sleep "$delay"
+        try=$((try+1))
+    done
     for line in "${pkgs[@]}"; do
         pkg="${line%|*}"; rev="${line#*|}"
         dir="$ANDROID_HOME/${pkg//;//}"
