@@ -505,7 +505,12 @@ alone, so that a PeerId is never split across two contacts (§5.4.1):
   conversation to {X}** (`AddToContact`, the same words as case P's
   Accept) in its place. It runs at once, adds the route to X and changes
   none of X's values; snackbar `ConfirmContactUpdated` with Undo, which
-  removes the route again. Add as a contact is not offered.
+  removes the route again; a kill inside the window leaves the route
+  added, as said. The Details dialog stays open and shows the contact
+  (§6.4: the name, its provenance and Open contact), with focus on Open
+  contact; Undo returns focus to Add this conversation to {X}. The
+  conversation's shown proposals are recomputed (§5.4.5), as after an
+  accept. Add as a contact is not offered.
 
 The command-line client follows the same rule: it refuses to create a
 contact for a route whose PeerId is already under one, and names that
@@ -745,7 +750,8 @@ accessibility tree) are checked now.
 **Announcements** (the app's two alternating live strings): a card
 arriving in the shown conversation is announced as `AnnounceCard` ("New
 contact card"), never with the name; Accept, Decline, card deleted,
-photo removed and contact deleted announce their snackbar text; the
+photo removed, contact deleted, a Move and Details' Add this
+conversation to {X} announce their snackbar text; the
 chooser's Share announces nothing extra (focus moves, and the row
 appears with "Sending").
 
@@ -817,6 +823,8 @@ on the desktop.
    | Move: the picker opens | the first other contact | keyboard |
    | Move: the picker cancelled | the route row's Move | keyboard |
    | Move route dialog | Cancel; after Move, the moved-to contact's page title | keyboard |
+   | Details: Add this conversation to {X} | Open contact, in the same dialog | keyboard |
+   | Undo of Details' Add this conversation to {X} | Add this conversation to {X}, if the dialog is still open; else stays where it was | keyboard |
    | Undo of a Move | the moved routes' row on the page focus was on before the Move, recreated if needed | keyboard |
    | Discard pressed (R or K) | the dialog's Cancel | keyboard |
    | dialog cancelled | the Discard button | keyboard |
@@ -982,7 +990,7 @@ and no string calls a card an "identity" (§1).
 | `CardPhotoLabel` | Photo for this card | editor photo circle, accessible label |
 | `CardPhotoNone` | No photo for this card | the same, with no photo |
 | `CardSamePeer` | Your contact {name} already has this PeerId in another conversation. | case P; `{name}` the contact's name |
-| `AddToContact` | Add this conversation to {name} | case P's Accept |
+| `AddToContact` | Add this conversation to {name} | case P's Accept, and the Details action of §5.6 |
 | `CardSameName` | One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept. | case D, and cases U, E and P when Accept would write a name that clashes (§5.4.1); `{name}` the other contact's name; must name both facts |
 | `ShowContact` | Open your contact {name} | case D link |
 | `CardUpdates` | If you accept, your contact {name} is updated. | case U |
