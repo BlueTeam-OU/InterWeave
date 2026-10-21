@@ -188,7 +188,7 @@ Fields, in order:
    one, **Change photo** (`ChangePhoto`) and **Remove photo**
    (`RemovePhoto`).
 2. **Name** (`CardName`), required.
-3. **Surname** (`CardSurname`), optional, marked as optional in its
+3. **Family name** (`CardSurname`), optional, marked as optional in its
    label.
 4. **Label** (`CardLabel`), optional, with the helper `CardLabelHelp`:
    only you see it; it tells your cards apart. Empty, the list shows the
@@ -220,7 +220,7 @@ On a valid Save: the row is written, the page closes back to the list
 saved card's row there. No snackbar: the row is the confirmation.
 
 Back with unsaved changes: a dialog `CardDiscardChanges`, actions
-**Keep editing** (`KeepEditing`, default focus) and **Discard**
+**Continue editing** (`KeepEditing`, default focus) and **Discard**
 (`DiscardChanges`). Back with no change closes at once.
 
 **The photo.** Add a photo opens Android's Photo Picker (images only,
@@ -263,7 +263,7 @@ close it), a dialog on a wide one (Escape closes it). It holds:
   and name and surname, as the counterparty's client will show them
   after they accept;
 - the line `ShareCardNote`: the person will see this name and photo, and
-  can keep them; a card cannot be taken back once it arrives;
+  can save them; a card cannot be removed from their device once it arrives;
 - actions: **Cancel** (`Cancel`) and **Share** (`ShareCardAction`),
   filled, at the end.
 
@@ -271,7 +271,7 @@ Share with no card chosen: nothing is sent, the list shows
 `ShareCardChoose` above it, and focus goes to the first card.
 
 No cards yet: the list is replaced by `ShareCardNoCards` and the primary
-becomes **Create a card** (`CreateCard`), which opens the editor (§5.2).
+becomes **Add a card** (`CreateCard`), which opens the editor (§5.2).
 Its Save returns to the chooser with the new card chosen; its Back
 returns to the chooser unchanged.
 
@@ -345,10 +345,10 @@ folding, with leading and trailing spaces removed.
 | case | context line | Accept label | Accept does |
 |---|---|---|---|
 | **N** the route is under no contact; no contact has this name | none | **Accept** (`Accept`) | creates a contact {name [surname]}, its photo, and the route |
-| **D** the route is under no contact; a contact on another PeerId has this name | `CardSameName`, in `error`, with a warning icon: "You already have a contact named {name}, on a different PeerId. Compare the PeerIds before you accept." and **Show {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
-| **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "This updates your contact {X}." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
+| **D** the route is under no contact; a contact on another PeerId has this name | `CardSameName`, in `error`, with a warning icon: "You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept." and **Open your contact {name}** (`ShowContact`), which opens that contact's page | **Accept as a new contact** (`AcceptAsNew`) | creates a separate contact; never merges (ADR-0059 d. 4) |
+| **U** the route is under contact X; the card differs from X's values and neither is a local edit | `CardUpdates`: "If you accept, your contact {X} is updated." with the values that change named (`CardUpdatesName`, `CardUpdatesPhoto`) | **Update contact** (`UpdateContact`) | writes the card's values to X |
 | **E** as U, but a value that differs is a local edit | `CardKeepsEdit`: "You named this contact {X} yourself. That name stays." (and/or the photo variant `CardKeepsPhoto`) | **Update contact** if any value would change, else see S | writes only the values not locally edited |
-| **S** the route is under X and the card changes nothing | `CardSame`: "This matches your contact {X}." | **Close** (`Close`) in place of Accept; Decline is not shown | removes the row from the session, as Decline does, without a snackbar |
+| **S** the route is under X and the card changes nothing | `CardSame`: "This card matches your contact {X}." | **Close** (`Close`) in place of Accept; Decline is not shown | removes the row from the session, as Decline does, without a snackbar |
 
 D wins over N; E applies per value (name, photo). A case D card whose
 route is already under X is case U or E, since the route's own contact
@@ -361,7 +361,7 @@ compare a photo it has not decoded.
 Runs at once: the contact (and route) is written, and the photo is
 decoded only now, with the memory-safe decoder, to the fixed display
 size. The proposal row is replaced in place by a short confirmation row
-(`CardAccepted`: "You saved {name} as a contact", with the name as
+(`CardAccepted`: "You saved {name} as a contact.", with the name as
 saved and the new avatar), so the conversation keeps a trace of what
 happened in this session. The title and the list take the name (§6.1).
 
@@ -415,7 +415,7 @@ whether case D should take no right swipe.
   `CardPreviewSent` ("You shared a card"). Never the claimed name: the
   list has no PeerId beside it to frame the claim.
 - **Notification** (`human-client-ui.md` §10): the conversation's title
-  and `CardNotification` ("Sent you a contact card"), never the claimed
+  and `CardNotification` ("You received a contact card."), never the claimed
   name or photo, for the same reason. A tap opens the conversation.
 
 ### 5.5 One's own card row
@@ -431,7 +431,7 @@ message in its state (Retry, Cancel), with the same swipes (kind C).
 
 The person can also type a name (`human-client-ui.md` §3). In a direct
 conversation whose route is under no contact, Details (§6.4) offers
-**Add as contact** (`AddAsContact`), which opens the contact page's name
+**Add as a contact** (`AddAsContact`), which opens the contact page's name
 field empty, for that route; Save creates the contact. The name is a
 local edit from the start (it is never overwritten by a card).
 
@@ -483,7 +483,7 @@ App bar: back arrow, the name as title, overflow with **Delete contact**
   local edit; the same input rules as §5.2 (the name is local only, but
   one rule is easier to learn and keeps a later card comparable);
 - the provenance line `ContactNameFromCard` ("Name from their card,
-  {date}") or `ContactNameTyped` ("Name you gave");
+  {date}") or `ContactNameTyped` ("Name you entered");
 - **Routes**, one row each: the short PeerId and the route label as
   `DirectTitle` builds it, the trust state in words
   (`ContactRouteTrusted` "Trusted" / `ContactRouteNotTrusted` "Not
@@ -515,11 +515,11 @@ The conversation's Details dialog (look spec §6) gains, above the
 PeerId:
 
 - the name and its provenance (§6.3), or for a route under no contact
-  **Add as contact** (§5.6); with a contact, **Open contact**
+  **Add as a contact** (§5.6); with a contact, **Open contact**
   (`OpenContact`);
-- `DetailsLastCard`: "Card you last shared here: {label}", or
-  `DetailsNoCard` ("You have not shared a card here"), or, if that card
-  was since deleted, `DetailsCardDeleted` ("a card you have deleted").
+- `DetailsLastCard`: "The card you last shared here: {label}", or
+  `DetailsNoCard` ("You have not shared a card here."), or, if that card
+  was since deleted, `DetailsCardDeleted` ("You deleted the card you last shared here.").
   This is the person's own record and is never sent.
 
 ## 7. Discard and recreate
@@ -532,8 +532,8 @@ PeerId:
 | a key that does not open the file, no key file, an unlisted combination of names, a failed migration | **R**, the recovery screen | a third action beside Close and Try again |
 
 **Desktop**: R is today's `RefusalWindow` page for
-`RefusalStoreRecovery`. Its actions become, from the start: **Discard
-and recreate…** (`DiscardStore`, an outlined button in `error`, at the
+`RefusalStoreRecovery`. Its actions become, from the start: **Delete
+stored data…** (`DiscardStore`, an outlined button in `error`, at the
 start side, apart from the others), then at the end **Close** and **Try
 again** (filled). The ellipsis says a further step follows.
 `RefusalStoreRecovery`'s text ("The file was not changed, moved or
@@ -545,18 +545,18 @@ store; §10 gives what the new text must say (architect-cto, §12 A5).
 refusal to code −5; nothing presents it as a page). This spec gives it
 one, built on the identity screens' frame
 (`design/2026-10-19-android-identity.md` §3): heading `StoreRecoveryTitle`,
-the reason, and at the bottom **Try again** (filled), then **Discard and
-recreate…** (outlined, `error`), then **Close** (text; closes the app's
+the reason (`StoreRecoveryBody`), and at the bottom **Try again** (filled), then **Delete stored
+data…** (outlined, `error`), then **Close** (text; closes the app's
 task). No file path: the person cannot reach it. **K** has heading
 `StoreKeyLostTitle`, body `StoreKeyLostBody` (the phone no longer accepts
 the key that protects the app's stored data, which happens after some
 changes to the screen lock; the stored data cannot be read again; the
-identity is not affected), primary **Discard and recreate…**, then
+identity is not affected), primary **Delete stored data…**, then
 **Close**. K has no Try again: the platform has said the key is gone.
 
 ### 7.2 Building the confirmation
 
-Pressing Discard and recreate first tries `human.sqlite.encrypted`
+Pressing **Delete stored data…** first tries `human.sqlite.encrypted`
 read-only under the key when that file exists (ADR-0060 d. 6). While it
 tries, the button shows a progress indicator and is inert; past 300 ms
 the screen also shows `StoreChecking`. Then one of two dialogs opens:
@@ -564,7 +564,7 @@ the screen also shows `StoreChecking`. Then one of two dialogs opens:
 **Full discard** (no copy, or a copy that cannot be opened for any
 reason):
 
-- title `DiscardStoreTitle`: "Discard all stored data?";
+- title `DiscardStoreTitle`: "Delete all stored data?";
 - `DiscardStoreLoses`, a list, each item its own line: your contacts and
   their routes; messages waiting to be sent; unread and kept messages;
   your conversation list; your cards; the app's settings; and "a
@@ -573,16 +573,16 @@ reason):
   and your network settings are not affected;
 - `DiscardStoreRemains`: copies the system made earlier may stay on the
   disk (RETENTION.md's disclaimer, ADR-0060 d. 6);
-- actions **Cancel** (default focus) and **Discard and recreate**
+- actions **Cancel** (default focus) and **Delete stored data**
   (`DiscardStoreConfirm`, filled in `error`).
 
 **Unfinished file only** (a copy exists and opened):
 
-- title `DiscardPartialTitle`: "Finish the interrupted update?";
+- title `DiscardPartialTitle`: "Delete the unfinished file?";
 - `DiscardPartialBody`: an update to how your data is protected was
   interrupted; a complete copy of your data exists; this removes only
   the unfinished file, and the app opens with your data;
-- actions **Cancel** (default focus) and **Remove the unfinished file**
+- actions **Cancel** (default focus) and **Delete the unfinished file**
   (`DiscardPartialConfirm`, filled, not in `error`: nothing the person
   has is lost).
 
@@ -597,8 +597,8 @@ indeterminate indicator, every action inert, Back ignored (a half-done
 discard cannot be left). It is short; it is not cancellable.
 
 - **Done**: the app opens as on any start. Chats shows a notice banner
-  (the existing notice slot) `StoreDiscarded` ("Stored data was
-  discarded. Your identity and trust are unchanged.") after a full
+  (the existing notice slot) `StoreDiscarded` ("The stored data
+  was deleted. Your identity and the peers you trust did not change.") after a full
   discard, or `StoreRestored` ("Your data was restored from the complete
   copy.") after the partial one, with **Close** to dismiss it; it is
   shown once and not stored.
@@ -629,7 +629,7 @@ accessibility tree) are checked now.
   selected, n of m", then the preview as one item ("{title} will see
   {name}, with a photo"), the note, Cancel, Share.
 - Discard dialog: title, each lost item as a list item, the keeps line,
-  the remains line, Cancel, Discard.
+  the remains line, Cancel, Delete stored data.
 
 **Announcements** (the app's two alternating live strings): a card
 arriving in the shown conversation is announced as `AnnounceCard` ("New
@@ -675,7 +675,7 @@ on the desktop.
    | Your cards / Contacts opened from the menu | the page title (focusable heading) | keyboard |
    | editor saved | the saved card's row in the list (or the new card in the chooser) | keyboard |
    | editor Save with an invalid field | the first invalid field | keyboard |
-   | unsaved-changes dialog opens / closes on Keep editing | Keep editing / the field that had focus | keyboard |
+   | unsaved-changes dialog opens / closes on Continue editing | Continue editing / the field that had focus | keyboard |
    | card deleted from a row's menu | the next row, else the previous, else Add a card | keyboard |
    | Undo of a delete | the restored row | keyboard |
    | chooser opens | the chosen card, else the first card | keyboard |
@@ -687,7 +687,7 @@ on the desktop.
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
    | case S Close | as Decline | keyboard |
    | snackbar appears | stays where it was; the snackbar is reachable last in order | keyboard |
-   | Show {name} from case D | the contact page title; Back returns to the proposal's Accept | keyboard |
+   | Open your contact {name} from case D | the contact page title; Back returns to the proposal's Accept | keyboard |
    | contact deleted | the Contacts list's first row, else its empty text | keyboard |
    | Move route dialog | Cancel; after Move, the moved-to contact's page title | keyboard |
    | Discard pressed (R or K) | the dialog's Cancel | keyboard |
@@ -728,7 +728,7 @@ on the desktop.
     captures before send.
 12. A card too large for a low-limit profile is offered "Share without
     the photo" and nothing is sent before the person presses it.
-13. R shows Discard and recreate as a third action on both clients; K
+13. R shows Delete stored data… as a third action on both clients; K
     (Android, key invalidated) shows it as the primary with no Try
     again; both confirm before deleting.
 14. The full-discard dialog lists exactly §7.2's items; with a complete
@@ -783,16 +783,15 @@ suggestions; rust-ui-dev names them. Placeholders: `{name}` (a received
 or saved name, plain text, isolated), `{title}` (a conversation's title),
 `{label}` (the person's own card label), `{peer}` (a short PeerId),
 `{n}` (a number in digits), `{date}` (a date in the app's date format).
-No string uses "keep" as an ordinary verb (Keep is a message action)
-except `KeepEditing`, which language-culture may replace; no string
-calls a card an "identity" (§1).
+No string uses "keep" as an ordinary verb (Keep is a message action),
+and no string calls a card an "identity" (§1).
 
 | Key | Text (proposal) | Where, and what it must say |
 |---|---|---|
 | `ContactsTitle` | Contacts | menu item and page title |
 | `OwnCardsTitle` | Your cards | menu item and page title |
-| `OwnCardsIntro` | A card is what someone sees when you share it with them. Only you see the label. | §5.1, two lines |
-| `OwnCardsEmpty` | You have no cards yet. Share a card with someone, and they see your name instead of a PeerId. | §5.1 empty |
+| `OwnCardsIntro` | A card shows your name and photo to the people you share it with. Only you see its label. | §5.1, two lines |
+| `OwnCardsEmpty` | You have no cards yet. When you share a card with someone, they see your name instead of a PeerId. | §5.1 empty |
 | `AddCard` | Add a card | §5.1 primary |
 | `CardMenu` | Options for {label} | a card row's menu button, accessible label |
 | `Edit` | Edit | card row menu |
@@ -801,89 +800,90 @@ calls a card an "identity" (§1).
 | `CardNew` / `CardEdit` | New card / Edit card | editor title |
 | `AddPhoto` / `ChangePhoto` / `RemovePhoto` | Add a photo / Change photo / Remove photo | editor and contact page |
 | `CardName` | Name | editor field |
-| `CardSurname` | Surname (optional) | editor field; must say optional |
+| `CardSurname` | Family name (optional) | editor field; must say optional |
 | `CardLabel` | Label (optional) | editor field |
-| `CardLabelHelp` | Only you see this. It tells your cards apart. | under the label field |
-| `CardSharedStays` | People you shared this card with keep it as it was. They see changes only if you share it again. | editor note; "keep" here is the ordinary verb: language-culture to reword around it |
+| `CardLabelHelp` | Only you see the label. It helps you tell your cards apart. | under the label field |
+| `CardSharedStays` | People who already have this card still see it as it was. To show them your changes, share the card with them again. | editor note; "keep" here is the ordinary verb: language-culture to reword around it |
 | `Save` | Save | editor, contact page |
 | `CardNameNeeded` | Enter a name. | field error |
 | `CardNameTooLong` | Use 64 characters or fewer. | field error; "characters" for scalar values |
-| `CardNameBadCharacters` | Remove the line breaks or invisible characters. | field error for Cc/Cf/separators |
+| `CardNameBadCharacters` | Remove line breaks and invisible characters. | field error for Cc/Cf/separators |
 | `CharCount` | {n} / 64 | field counter |
 | `CardDiscardChanges` | Discard your changes? | unsaved-changes dialog |
-| `KeepEditing` / `DiscardChanges` | Keep editing / Discard | its actions |
-| `PhotoUnusable` | This picture can't be used. Try another one. | editor, under the circle |
+| `KeepEditing` / `DiscardChanges` | Continue editing / Discard | its actions |
+| `PhotoUnusable` | This photo cannot be used. Choose another one. | editor, under the circle |
 | `ShareCard` | Share a card | conversation overflow, empty-conversation offer |
 | `ShareCardTitle` | Share a card with {title} | chooser title |
 | `ShareCardPreview` | What {title} will see | chooser preview heading |
-| `ShareCardNote` | They will see this name and photo and can save them. A card can't be taken back once it arrives. | chooser note |
+| `ShareCardNote` | They will see this name and photo, and they can save them. You cannot remove a card from their device after it arrives. | chooser note |
 | `ShareCardAction` | Share | chooser primary |
 | `ShareCardChoose` | Choose a card to share. | chooser, Share with none chosen |
-| `ShareCardNoCards` | You have no cards yet. Create one to share it. | chooser empty |
-| `CreateCard` | Create a card | chooser empty primary |
+| `ShareCardNoCards` | You have no cards yet. Add a card, then share it. | chooser empty |
+| `CreateCard` | Add a card | chooser empty primary |
 | `ShareCardNoPhoto` | The photo is too large to send in this conversation. | chooser, over the limit |
 | `ShareCardWithoutPhoto` | Share without the photo | chooser primary, over the limit |
 | `ShareCardTooLarge` | This card is too large to send in this conversation. | chooser, nothing fits |
 | `ShareCardOffer` | Let {title} see your name instead of a PeerId. | empty conversation |
 | `CardProposal` | This peer says they are {name} | proposal heading; must keep "says": a claim, not a fact |
-| `CardIncludesPhoto` | Includes a photo, shown after you accept | proposal |
+| `CardIncludesPhoto` | This card has a photo. You see it after you accept. | proposal |
 | `CardPeerIdLabel` | PeerId | proposal, above the PeerId |
 | `CopyPeerId` | Copy PeerId | existing (#313) |
-| `CardGoesAtClose` | If you don't accept it, it goes when InterWeave closes. | proposal; Android's "closes" includes the system ending the app: language-culture to find the word that is true there |
+| `CardGoesAtClose` | If you do not accept this card, it is removed when InterWeave stops. | proposal; Android's "closes" includes the system ending the app: language-culture to find the word that is true there |
 | `Accept` / `Decline` | Accept / Decline | proposal actions, case N |
 | `AcceptAsNew` | Accept as a new contact | case D |
 | `UpdateContact` | Update contact | cases U, E |
-| `CardSameName` | You already have a contact named {name}, on a different PeerId. Compare the PeerIds before you accept. | case D; must name both facts |
-| `ShowContact` | Show {name} | case D link |
-| `CardUpdates` | This updates your contact {name}. | case U |
+| `CardSameName` | You already have a contact named {name}, with a different PeerId. Compare the two PeerIds before you accept. | case D; must name both facts |
+| `ShowContact` | Open your contact {name} | case D link |
+| `CardUpdates` | If you accept, your contact {name} is updated. | case U |
 | `CardUpdatesName` / `CardUpdatesPhoto` | New name: {name} / New photo | case U, the changes |
 | `CardKeepsEdit` | You named this contact {name} yourself. That name stays. | case E, name |
-| `CardKeepsPhoto` | You chose this contact's photo yourself. It stays. | case E, photo |
-| `CardSame` | This matches your contact {name}. | case S |
-| `CardAccepted` | You saved {name} as a contact | confirmation row |
+| `CardKeepsPhoto` | You chose this contact's photo yourself. That photo stays. | case E, photo |
+| `CardSame` | This card matches your contact {name}. | case S |
+| `CardAccepted` | You saved {name} as a contact. | confirmation row |
 | `CardPhotoNotUsed` | The photo could not be shown and was not saved. | confirmation row addition |
 | `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo |
 | `ConfirmCardDeclined` | Card declined | snackbar, with Undo |
 | `CardPreviewReceived` / `CardPreviewSent` | Contact card / You shared a card | list previews |
-| `CardNotification` | Sent you a contact card | notification body; never the name |
+| `CardNotification` | You received a contact card. | notification body; never the name |
 | `AnnounceCard` | New contact card | live announcement |
 | `CardSentLabel` | Your card: {label} | own card row |
-| `AddAsContact` / `OpenContact` | Add as contact / Open contact | Details |
-| `DetailsLastCard` | Card you last shared here: {label} | Details |
-| `DetailsNoCard` | You haven't shared a card here | Details |
-| `DetailsCardDeleted` | Card you last shared here: one you have deleted | Details |
-| `ContactsEmpty` | No contacts yet. A contact is added when someone shares their card and you accept it, or when you name a conversation in its Details. | §6.2 empty |
+| `AddAsContact` / `OpenContact` | Add as a contact / Open contact | Details |
+| `DetailsLastCard` | The card you last shared here: {label} | Details |
+| `DetailsNoCard` | You have not shared a card here. | Details |
+| `DetailsCardDeleted` | You deleted the card you last shared here. | Details |
+| `ContactsEmpty` | You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty |
 | `ContactRoutes` | {n} routes | contact row, n ≥ 2 (plural rules language-culture's) |
 | `ContactTitleTwin` | {name} ({peer}) | title of a contact sharing a name |
 | `ContactName` | Name | contact page field |
 | `ContactNameFromCard` | Name from their card, {date} | provenance |
-| `ContactNameTyped` | Name you gave | provenance |
+| `ContactNameTyped` | Name you entered | provenance |
 | `ContactRouteTrusted` / `ContactRouteNotTrusted` | Trusted / Not trusted | route trust in words |
 | `OpenConversation` | Open conversation | route row |
 | `MoveRoute` | Move to another contact | route row |
-| `MoveRouteConfirm` | Move {peer} from {name} to {other}? Trust stays with the PeerId and does not carry across. | dialog; `{other}` the target contact's name |
-| `MoveRouteLast` | {name} has no other route, so {name} will be deleted. | dialog addition |
+| `MoveRouteConfirm` | Move {peer} from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name |
+| `MoveRouteLast` | {peer} is the only route of {name}, so moving it deletes the contact {name}. | dialog addition |
 | `Move` | Move | dialog primary |
 | `DeleteContact` | Delete contact | contact overflow |
 | `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo |
-| `StoreRecoveryTitle` | InterWeave can't read its stored data | Android R heading |
-| `RefusalStoreRecovery` (revised) | — | desktop R and Android R body. Must say: the file was not changed; the stored data opens only with its key on this device, and a copy of the file without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Discard and recreate, which loses what it lists; the recovery phrase restores the identity alone, never this data. Must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (architect-cto, §12 A5; ADR-0060 d. 8) |
+| `StoreRecoveryTitle` | InterWeave cannot read its stored data | Android R heading |
+| `RefusalStoreRecovery` (revised) | This version of InterWeave cannot read the file below, where it stores your messages and contacts. The file may be damaged, the key that protects it may be lost, or a newer version of InterWeave may have written it. The file was not changed, moved or deleted, and nothing is deleted unless you choose Delete stored data. If a newer version wrote the file, install and start the newest version of InterWeave that you have used, or a newer one. | desktop R body (Android R has its own, `StoreRecoveryBody`): its backup-copy sentence assumes a plaintext file a person can swap; the store is now encrypted and a copy opens only with its key. Must still say the file was not changed until the person chooses. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). The Text column predates A5 and is language-culture's to revise |
+| `StoreRecoveryBody` | InterWeave cannot read the data it stored on this phone: your messages, contacts and cards. The data may be damaged, or the key that protects it may be lost. Nothing was changed or deleted, and nothing is deleted unless you choose Delete stored data. | Android R body (new key): Android cannot install an older version over a newer one, so the desktop's newer-version advice is not true here, and Android shows no path. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). The Text column predates A5 and is language-culture's to revise |
 | `StoreKeyLostTitle` | The key to your stored data no longer works | K heading |
-| `StoreKeyLostBody` | This phone no longer accepts the key that protects InterWeave's stored data. This can happen after a change to the screen lock. The data can't be read again. Your identity is not affected. | K body |
-| `DiscardStore` | Discard and recreate… | R, K action |
+| `StoreKeyLostBody` | This phone no longer accepts the key that protects InterWeave's stored data. This can happen after some changes to the screen lock. The data cannot be read again. Your identity is not affected. | K body |
+| `DiscardStore` | Delete stored data… | R, K action |
 | `StoreChecking` | Checking the stored data… | §7.2 progress |
-| `DiscardStoreTitle` | Discard all stored data? | full dialog title |
-| `DiscardStoreLoses` | This removes from this device: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; your cards; the app's settings. A message you already received may show again. | full dialog list; one item per line; must list exactly these |
+| `DiscardStoreTitle` | Delete all stored data? | full dialog title |
+| `DiscardStoreLoses` | This deletes from this device: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; your cards; the app's settings, other than your network settings. A message you already received may show again. | full dialog list; one item per line; must list exactly these |
 | `DiscardStoreKeeps` | Your identity, your PeerId, the peers you trust and your network settings are not affected. | full dialog |
-| `DiscardStoreRemains` | Copies your system made earlier may stay on the disk. | full dialog |
-| `DiscardStoreConfirm` | Discard and recreate | full dialog primary |
-| `DiscardPartialTitle` | Finish the interrupted update? | partial dialog title |
-| `DiscardPartialBody` | An update to how your data is protected was interrupted. A complete copy of your data exists. This removes only the unfinished file, and InterWeave opens with your data. | partial dialog |
-| `DiscardPartialConfirm` | Remove the unfinished file | partial dialog primary |
-| `StoreDiscarding` | Discarding… | §7.3 progress |
-| `StoreDiscarded` | Stored data was discarded. Your identity and trust are unchanged. | Chats notice after a full discard |
+| `DiscardStoreRemains` | Earlier copies that your device made outside InterWeave may still be on it. | full dialog |
+| `DiscardStoreConfirm` | Delete stored data | full dialog primary |
+| `DiscardPartialTitle` | Delete the unfinished file? | partial dialog title |
+| `DiscardPartialBody` | An update to how your data is protected was interrupted. A complete copy of your data exists. This deletes only the unfinished file, and InterWeave opens with your data. | partial dialog |
+| `DiscardPartialConfirm` | Delete the unfinished file | partial dialog primary |
+| `StoreDiscarding` | Deleting… | §7.3 progress |
+| `StoreDiscarded` | The stored data was deleted. Your identity and the peers you trust did not change. | Chats notice after a full discard |
 | `StoreRestored` | Your data was restored from the complete copy. | Chats notice after a partial discard |
-| `StoreDiscardFailed` | The data could not be discarded. Try again. | R/K after a failure |
+| `StoreDiscardFailed` | The stored data could not be deleted. Try again. | R/K after a failure |
 
 Existing keys reused unchanged: `MoreOptions`, `BackToConversations`,
 `Cancel`, `Close`, `Undo`, `TryAgain`, `Details`, `DirectTitle`,
