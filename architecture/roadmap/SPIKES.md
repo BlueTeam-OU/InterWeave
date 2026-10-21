@@ -493,7 +493,7 @@ no store benchmark and no store-health time budget exist in the tree.
 **Experiment:** build the first candidate — the page-cipher
 amalgamation `rusqlite` already offers — for Linux and Android, with
 and without a vendored TLS library for its primitives; define the
-baseline — open, commit-unread and read-conversation timings on the
+baseline — open, commit-unread and read-conversation timings — the last being the client's start-up walk over the store (`listing.rs` `list_all`), the read the client makes (A 2026-10-21) — on the
 plaintext store, on the desktop host and on the Stage 17 reference
 device — and measure the same on the encrypted one, against the
 criterion (within twice the baseline per operation, a cold open under
@@ -515,6 +515,102 @@ clear named.
 **Decision unlocked:** plan §29 step 3. Until the Result pins a
 mechanism, the store stays as it is and no §22 release ships a human
 store.
+
+**Result (2026-10-21): PASS for the first candidate, within ADR-0060
+decision 4 on both targets; the column-AEAD fallback is not needed.**
+The mechanism is SQLCipher 4.14.0 community, as `rusqlite =0.40.2`'s
+`bundled-sqlcipher-vendored-openssl` builds it (`libsqlite3-sys`
+0.38.2, OpenSSL 3.6.3 from `openssl-src` 300.6.1+3.6.3 through
+`openssl-sys` 0.9.117, linked statically): the only build of the
+candidate that links for `aarch64-linux-android`, whose NDK carries no
+OpenSSL. The record and the reproducing scripts are in
+[`spikes/spike-011/`](../../spikes/spike-011/README.md): the desktop rows
+(`REPRODUCTION-2026-10-21.log`, `run.sh`), the rewrite and key-file rows
+(`-rewrite-`, `rewrite.sh`), the index rows (`-index-`, `index.sh`) and
+the device rows (`-device-`, `device.sh`); the harness takes the shipping
+store by revision (the pin 1a4fa590, schema v7; schema v8 at c4a5af95,
+below). What the evidence establishes:
+
+- **The baseline, defined here**, on the shipping store opened by its own
+  code: `open-cold` (a fresh process, the files' pages evicted first),
+  `commit-unread` (one 512-byte unread commit, `synchronous=FULL`) and
+  `read-walk` (`list_all`'s walk over every pending, unread and kept row),
+  at 500 kept (the realistic store) and 2000 (a large one; the owner,
+  2026-10-21), with a labelled stress row at 20 000.
+- **The criterion is judged on medians**: each figure below is the median
+  of three rounds' medians (30 repetitions a round), the cipher's against
+  the plaintext's on the same side; the per-round extremes are given
+  beside them.
+- **Desktop** (Core Ultra 7 155H, ext4): at 500 and 2000 kept every
+  operation within x1.21 of the plaintext, at v7 and at v8, across the
+  desktop and index runs; no single round above x1.93; a cold open of
+  5-8 ms.
+- **The Stage 17 reference device** (Pixel 9a, Android 17, API 37,
+  f2fs), the store opened as the Android client opens it
+  (`open_profile` under the platform's boundary): at 500 and 2000 kept
+  every operation within x1.58 of the plaintext at v7 and v8, the largest
+  the v8 walk at 2000 (7.7 ms against 4.9 ms). Per round, two of 36 pairs
+  were above x2, both at v7: the walk at 2000, round 1 (19.7 ms against
+  9.0 ms, x2.18), and the commit at 500, round 2 (1.69 ms against
+  0.83 ms, x2.03); at v8 no round was above x1.85. A cold open of 42-54 ms
+  against the one-second bound. That the cold open read from the medium
+  rests on `posix_fadvise(DONTNEED)` and was not measured on f2fs.
+- **The walk was quadratic**, each page a scan and a sort of the table:
+  23.8 s on the desktop and 10.8 s on the device at the 20 000 stress
+  row under SQLCipher. Schema v8 indexes `(received_at, row_id)` on both
+  inbound tables (architect-cto's ruling, its own commit c4a5af95, the
+  shape guard holding every index by name and column): 146 ms and 127 ms,
+  and the walk at 2000 kept from 13.2 to 5.3 ms on the desktop.
+- **RETENTION.md's deletion property holds on the encrypted file**, on
+  the desktop and on the device: after a clean close, and after the next
+  open following an abort, the pages as the engine decrypts them
+  (`sqlite_dbpage`, a separate inspector build reading a copy) hold the
+  kept marker and not the released one; the control, nothing released,
+  finds both; a raw search of the files finds neither.
+- **The failures**: a wrong key, the plaintext build on the encrypted
+  file and the cipher build on a plaintext file each end the open as
+  `NotADatabase`. A rollback never meets that error:
+  the profile-format marker (ADR-0028's `profile-format.json`) is raised
+  as the first act of the rewrite's step (a), and a build since the
+  marker refuses the profile by it, naming both numbers (ADR-0060
+  A 2026-10-21); a build from before the marker reads the encrypted file
+  as corruption, ADR-0028's stated limit. The desktop key file (`IWSK`,
+  a version byte, 32 bytes) missing, of a newer version or truncated is
+  refused by name with the store's file byte-identical after.
+- **The plaintext-to-encrypted rewrite** (decisions 3 and 6, prototyped
+  in `harness/src/migrate.rs`) survives a crash after each of its seven
+  steps: every next start ends with every row, one file, nothing in
+  clear. The production rewrite must carry two things the engine does
+  not: `sqlcipher_export` leaves `user_version` (the store's schema
+  version) behind, and `ATTACH` creates the copy with the umask (0644),
+  so the copy is created empty at 0600 first.
+- **Two SQLite versions**: SQLCipher 4.14.0 is built on SQLite 3.51.3,
+  the plaintext store on 3.53.2. Accepted within decision 4
+  (architect-cto, REPLY 01a15f1a): from plan §29 step 3 the store's
+  SQLite follows SQLCipher's releases, and an advisory on bundled SQLite
+  that SQLCipher's cadence lags is the revisit trigger. The release notes
+  between them were read: 3.52.0 was withdrawn; the WAL-reset corruption
+  fix is in both 3.51.3 and 3.53.0; 3.53's self-healing expression
+  indexes repair an index whose expression computed differently under
+  another version or platform (the case seen in the field was floating
+  point), and the store's only expression keys are `IFNULL(text, '')`
+  over text.
+  Nothing the store relies on is missing from 3.51.3.
+- **What the build adds, and who sees it**: `openssl-src` (MIT OR
+  Apache-2.0; the OpenSSL 3 it builds is Apache-2.0) and `openssl-sys`
+  (MIT), both on `deny.toml`'s allow-list and neither in the root graph
+  today; SQLCipher's C source inside `libsqlite3-sys`, whose licence field
+  says MIT while the bundled SQLCipher is Zetetic's BSD-3-Clause, which
+  `cargo-deny` does not see. All are crates.io releases, so
+  `check_vendored_advisories.sh`, which judges `third_party/`, sees none
+  of them; their RustSec coverage is the root graph's `cargo deny` once
+  the store depends on them, and Dependabot's.
+
+**Not established, carried to plan §29 step 3**: Android's Keystore
+sealing of the key (decision 3: the harness takes its key from the
+environment); the rewrite and the key file on the device; the
+system-libcrypto build, which the phone cannot link and the desktop
+measured within the same bounds and which this Result does not pin.
 
 ## SPIKE-012 — withdrawn before it opened
 

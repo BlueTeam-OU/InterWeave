@@ -1,0 +1,133 @@
+# SPIKE-011 device rows
+# date:      2026-10-21T17:25:09Z
+# build:     before 1a4fa590a6059efdaf14ba04d579f33db57bf0f0
+# build:     after c4a5af955b7029d0cb661610ebff58f234dc7762
+# build:     commit bb1f711327cf4e812d577727f7e86e5e658a4b6b
+# build:     dirty 1
+# build:     toolchain cargo 1.98.1 (797e8a9bc 2026-08-05), rustc 1.98.1 (48a229cea 2026-09-01), cargo-ndk 4.1.2
+# device:    Pixel 9a, Android 17 (API 37), Tensor G4
+# medium:    f2fs /dev/block/dm-30 109G  53G   56G  49% /data/user/0 
+# battery:    AC powered: false USB powered: false level: 77 temperature: 332 Capacity level: 2 
+# binary:    9a4259e82db4c237  before-plain
+# binary:    07570c2f5e46e2e0  before-vend
+# binary:    a1dfb50fd42d5e0a  before-inspect
+# binary:    9eedd312469c722b  after-plain
+# binary:    fde2b966f0f5e5cf  after-vend
+## versions
+{"engine":"sqlite-plaintext","sqlite":"3.53.2","cipher_version":"-","cipher_provider":"-","cipher_provider_version":"-"}
+{"engine":"sqlcipher-vendored-openssl","sqlite":"3.51.3","cipher_version":"4.14.0 community","cipher_provider":"openssl","cipher_provider_version":"OpenSSL 3.6.3 9 Jun 2026"}
+{"engine":"sqlcipher-vendored-openssl","sqlite":"3.51.3","cipher_version":"4.14.0 community","cipher_provider":"openssl","cipher_provider_version":"OpenSSL 3.6.3 9 Jun 2026"}
+## timings: 500 2000 kept, 3 rounds of 30 per side and engine
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":17411,"median_us":53615,"p90_us":58971,"max_us":328822,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":1037,"median_us":1137,"p90_us":1365,"max_us":9396,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":3441,"median_us":5178,"p90_us":15424,"max_us":284028,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":17023,"median_us":42763,"p90_us":60266,"max_us":294225,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":963,"median_us":1076,"p90_us":1284,"max_us":8738,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":2209,"median_us":3352,"p90_us":8566,"max_us":24741,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":19682,"median_us":44702,"p90_us":54938,"max_us":312464,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":752,"median_us":818,"p90_us":1044,"max_us":7392,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":1995,"median_us":3050,"p90_us":6172,"max_us":21922,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":17929,"median_us":45071,"p90_us":54337,"max_us":56516,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":1709,"median_us":1824,"p90_us":2208,"max_us":16061,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":1952,"median_us":3238,"p90_us":10711,"max_us":45503,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":32123,"median_us":47255,"p90_us":207521,"max_us":363773,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":719,"median_us":833,"p90_us":986,"max_us":8183,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":1945,"median_us":3177,"p90_us":7265,"max_us":29067,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":46447,"median_us":54655,"p90_us":60159,"max_us":62612,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":1039,"median_us":1162,"p90_us":1458,"max_us":14058,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":2194,"median_us":3151,"p90_us":12003,"max_us":33696,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":24511,"median_us":40930,"p90_us":53938,"max_us":297621,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":1550,"median_us":1690,"p90_us":2079,"max_us":10448,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":2204,"median_us":3555,"p90_us":9243,"max_us":44527,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":32756,"median_us":45653,"p90_us":55476,"max_us":151867,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":1713,"median_us":1830,"p90_us":2278,"max_us":11503,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":1932,"median_us":3158,"p90_us":10323,"max_us":45261,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":44114,"median_us":53344,"p90_us":58303,"max_us":61481,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":1027,"median_us":1135,"p90_us":1472,"max_us":14314,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":2249,"median_us":3381,"p90_us":7442,"max_us":40985,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":25504,"median_us":53801,"p90_us":282244,"max_us":346231,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":1030,"median_us":1232,"p90_us":1495,"max_us":8651,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":2061,"median_us":3356,"p90_us":12908,"max_us":32996,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":19361,"median_us":41700,"p90_us":55729,"max_us":336745,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":1531,"median_us":1722,"p90_us":2168,"max_us":9759,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":1995,"median_us":3689,"p90_us":9300,"max_us":44954,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":16933,"median_us":42651,"p90_us":281942,"max_us":304288,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":1612,"median_us":1864,"p90_us":2408,"max_us":10747,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":2048,"median_us":3582,"p90_us":11789,"max_us":275769,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":18560,"median_us":52409,"p90_us":58462,"max_us":130657,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":1101,"median_us":1219,"p90_us":1314,"max_us":11175,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":8564,"median_us":9001,"p90_us":17819,"max_us":113535,"kept":2000,"unread":20,"db_bytes":2105344,"rows":2050}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":18833,"median_us":51164,"p90_us":276605,"max_us":320371,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":1124,"median_us":1223,"p90_us":1564,"max_us":8952,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":3698,"median_us":6236,"p90_us":14677,"max_us":109905,"kept":2000,"unread":20,"db_bytes":2142208,"rows":2050}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":19302,"median_us":36706,"p90_us":55226,"max_us":291148,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":999,"median_us":1231,"p90_us":1686,"max_us":9664,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":13886,"median_us":19664,"p90_us":271847,"max_us":286995,"kept":2000,"unread":20,"db_bytes":2125824,"rows":2050}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":17686,"median_us":42236,"p90_us":269889,"max_us":290332,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":727,"median_us":869,"p90_us":1116,"max_us":8328,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":4005,"median_us":7656,"p90_us":13202,"max_us":276135,"kept":2000,"unread":20,"db_bytes":2162688,"rows":2050}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":23499,"median_us":49610,"p90_us":284995,"max_us":296322,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":949,"median_us":1087,"p90_us":1294,"max_us":8829,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":13845,"median_us":20149,"p90_us":273723,"max_us":290424,"kept":2000,"unread":20,"db_bytes":2105344,"rows":2050}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":22677,"median_us":52111,"p90_us":59942,"max_us":269057,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":1023,"median_us":1211,"p90_us":1344,"max_us":9059,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":3554,"median_us":4857,"p90_us":14993,"max_us":113162,"kept":2000,"unread":20,"db_bytes":2142208,"rows":2050}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":22226,"median_us":43319,"p90_us":145431,"max_us":320226,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":1433,"median_us":1621,"p90_us":2212,"max_us":12008,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":9005,"median_us":9214,"p90_us":17458,"max_us":151918,"kept":2000,"unread":20,"db_bytes":2125824,"rows":2050}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":25023,"median_us":45810,"p90_us":285943,"max_us":319378,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":1700,"median_us":1926,"p90_us":2430,"max_us":10657,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":4200,"median_us":8629,"p90_us":23419,"max_us":286020,"kept":2000,"unread":20,"db_bytes":2162688,"rows":2050}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":26256,"median_us":51351,"p90_us":57191,"max_us":59849,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":1057,"median_us":1167,"p90_us":1318,"max_us":8758,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":8450,"median_us":9196,"p90_us":17251,"max_us":116530,"kept":2000,"unread":20,"db_bytes":2105344,"rows":2050}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":16401,"median_us":48491,"p90_us":56349,"max_us":320425,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":896,"median_us":1025,"p90_us":1245,"max_us":7876,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":3543,"median_us":4648,"p90_us":12762,"max_us":77792,"kept":2000,"unread":20,"db_bytes":2142208,"rows":2050}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":17512,"median_us":42696,"p90_us":277813,"max_us":352806,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":1156,"median_us":1489,"p90_us":2135,"max_us":9006,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":8686,"median_us":10152,"p90_us":24323,"max_us":298169,"kept":2000,"unread":20,"db_bytes":2125824,"rows":2050}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":21734,"median_us":44563,"p90_us":141467,"max_us":295794,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":1745,"median_us":1892,"p90_us":2423,"max_us":10219,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":4088,"median_us":7618,"p90_us":12817,"max_us":101177,"kept":2000,"unread":20,"db_bytes":2162688,"rows":2050}
+## stress, not a criterion: 20000 kept, 1 round of 3 per side and engine
+{"side":"before","stress":true,"engine":"sqlite-plaintext","op":"open-cold","n":3,"min_us":40997,"median_us":48707,"p90_us":48707,"max_us":50413,"kept":20000,"unread":20,"db_bytes":16809984}
+{"side":"before","stress":true,"engine":"sqlite-plaintext","op":"commit-unread","n":3,"min_us":1132,"median_us":1374,"p90_us":1374,"max_us":32548,"kept":20000,"unread":20,"db_bytes":16809984}
+{"side":"before","stress":true,"engine":"sqlite-plaintext","op":"read-walk","n":3,"min_us":1590354,"median_us":1662227,"p90_us":1662227,"max_us":1961520,"kept":20000,"unread":20,"db_bytes":16809984,"rows":20023}
+{"side":"after","stress":true,"engine":"sqlite-plaintext","op":"open-cold","n":3,"min_us":41036,"median_us":47292,"p90_us":47292,"max_us":58020,"kept":20000,"unread":20,"db_bytes":17113088}
+{"side":"after","stress":true,"engine":"sqlite-plaintext","op":"commit-unread","n":3,"min_us":1325,"median_us":1360,"p90_us":1360,"max_us":17304,"kept":20000,"unread":20,"db_bytes":17113088}
+{"side":"after","stress":true,"engine":"sqlite-plaintext","op":"read-walk","n":3,"min_us":49021,"median_us":99231,"p90_us":99231,"max_us":522868,"kept":20000,"unread":20,"db_bytes":17113088,"rows":20023}
+{"side":"before","stress":true,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":3,"min_us":47565,"median_us":48459,"p90_us":48459,"max_us":54655,"kept":20000,"unread":20,"db_bytes":16883712}
+{"side":"before","stress":true,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":3,"min_us":1926,"median_us":2432,"p90_us":2432,"max_us":54239,"kept":20000,"unread":20,"db_bytes":16883712}
+{"side":"before","stress":true,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":3,"min_us":10833442,"median_us":10836974,"p90_us":10836974,"max_us":11160938,"kept":20000,"unread":20,"db_bytes":16883712,"rows":20023}
+{"side":"after","stress":true,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":3,"min_us":20435,"median_us":38110,"p90_us":38110,"max_us":51267,"kept":20000,"unread":20,"db_bytes":17195008}
+{"side":"after","stress":true,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":3,"min_us":1916,"median_us":1971,"p90_us":1971,"max_us":45174,"kept":20000,"unread":20,"db_bytes":17195008}
+{"side":"after","stress":true,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":3,"min_us":70713,"median_us":126770,"p90_us":126770,"max_us":714900,"kept":20000,"unread":20,"db_bytes":17195008,"rows":20023}
+## deletion (RETENTION.md section 8), at the pin
+{"engine":"sqlite-plaintext","case":"none","search":"raw","file":"db","bytes":86016,"released":true,"kept":true}
+{"engine":"sqlite-plaintext","case":"none","search":"raw","file":"wal","bytes":-1,"released":false,"kept":false}
+{"engine":"sqlite-plaintext","case":"clean","search":"raw","file":"db","bytes":86016,"released":false,"kept":true}
+{"engine":"sqlite-plaintext","case":"clean","search":"raw","file":"wal","bytes":-1,"released":false,"kept":false}
+{"engine":"sqlite-plaintext","case":"after-abort","search":"raw","file":"db","bytes":86016,"released":false,"kept":true}
+{"engine":"sqlite-plaintext","case":"after-abort","search":"raw","file":"wal","bytes":0,"released":false,"kept":false}
+{"engine":"sqlite-plaintext","case":"unclean","search":"raw","file":"db","bytes":86016,"released":false,"kept":true}
+{"engine":"sqlite-plaintext","case":"unclean","search":"raw","file":"wal","bytes":-1,"released":false,"kept":false}
+{"engine":"sqlcipher-vendored-openssl","case":"none","search":"raw","file":"db","bytes":86016,"released":false,"kept":false}
+{"engine":"sqlcipher-vendored-openssl","case":"none","search":"raw","file":"wal","bytes":-1,"released":false,"kept":false}
+{"case":"none","engine":"sqlcipher-vendored-openssl","search":"pages","pages":21,"released":true,"kept":true}
+{"engine":"sqlcipher-vendored-openssl","case":"clean","search":"raw","file":"db","bytes":86016,"released":false,"kept":false}
+{"engine":"sqlcipher-vendored-openssl","case":"clean","search":"raw","file":"wal","bytes":-1,"released":false,"kept":false}
+{"case":"clean","engine":"sqlcipher-vendored-openssl","search":"pages","pages":21,"released":false,"kept":true}
+{"engine":"sqlcipher-vendored-openssl","case":"after-abort","search":"raw","file":"db","bytes":86016,"released":false,"kept":false}
+{"engine":"sqlcipher-vendored-openssl","case":"after-abort","search":"raw","file":"wal","bytes":0,"released":false,"kept":false}
+{"engine":"sqlcipher-vendored-openssl","case":"unclean","search":"raw","file":"db","bytes":86016,"released":false,"kept":false}
+{"engine":"sqlcipher-vendored-openssl","case":"unclean","search":"raw","file":"wal","bytes":-1,"released":false,"kept":false}
+{"case":"unclean","engine":"sqlcipher-vendored-openssl","search":"pages","pages":21,"released":false,"kept":true}
+## failures, at the pin
+# a wrong key, on the vendored build's clean store:
+  spike-011: open: Sql(SqliteFailure(Error { code: NotADatabase, extended_code: 26 }, Some("file is not a database")))
+# the plaintext build (a rollback) on the encrypted store:
+  spike-011: open: Sql(SqliteFailure(Error { code: NotADatabase, extended_code: 26 }, Some("file is not a database")))
+# the vendored build on a plaintext store:
+  spike-011: open: Sql(SqliteFailure(Error { code: NotADatabase, extended_code: 26 }, Some("file is not a database")))
+# end

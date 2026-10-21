@@ -480,7 +480,7 @@ fn a_v5_database_gains_transport_ids_keeping_its_rows_and_its_id_high_water() {
          ALTER TABLE pending_outbound_v5 RENAME TO pending_outbound;
          UPDATE sqlite_sequence SET seq = (SELECT seq FROM temp.seq)
           WHERE name = 'pending_outbound';
-         DROP TABLE read_pairs;
+         DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received;
          PRAGMA user_version = 5;",
     )
     .expect("back to v5, its high-water mark intact");
@@ -539,7 +539,7 @@ fn a_v4_database_gains_the_three_tables_and_keeps_its_rows() {
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(
         "DROP TABLE contact_routes; DROP TABLE contacts; DROP TABLE conversation_index;
-         DROP TABLE read_pairs;
+         DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received;
          PRAGMA user_version = 4;",
     )
     .expect("back to v4");
@@ -2870,7 +2870,7 @@ fn a_v6_database_gains_the_read_pairs_keeping_its_rows() {
             .expect("a v6-era row");
     }
     let conn = rusqlite::Connection::open(&path).expect("reopen");
-    conn.execute_batch("DROP TABLE read_pairs; PRAGMA user_version = 6;")
+    conn.execute_batch("DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6;")
         .expect("back to v6");
     drop(conn);
 
@@ -2886,11 +2886,203 @@ fn a_v6_database_gains_the_read_pairs_keeping_its_rows() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .expect("version");
-    assert_eq!(version, 7);
+    assert_eq!(version, SCHEMA_VERSION);
     let pairs: i64 = conn
         .query_row("SELECT COUNT(*) FROM read_pairs", [], |r| r.get(0))
         .expect("pairs");
     assert_eq!(pairs, 1);
+}
+
+/// The names of `table`'s non-unique indexes the store did not leave to
+/// SQLite, as `sqlite_master` lists them.
+fn store_indexes(conn: &rusqlite::Connection, table: &str) -> Vec<String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ?1 \
+             AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .expect("index list");
+    stmt.query_map([table], |r| r.get(0))
+        .expect("indexes")
+        .map(|n| n.expect("index name"))
+        .collect()
+}
+
+#[test]
+fn a_v7_database_gains_the_walk_indexes_keeping_its_rows() {
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    {
+        let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+        for (id, body) in [(ID_A, b"first before v8"), (ID_B, b"later before v8")] {
+            store
+                .commit_unread_inbound(&inbound(id, body.to_vec()))
+                .expect("a v7-era row");
+        }
+    }
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    conn.execute_batch(
+        "DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received;
+         PRAGMA user_version = 7;",
+    )
+    .expect("back to v7");
+    assert!(
+        store_indexes(&conn, "unread_inbound").is_empty(),
+        "a v7 file has no walk index"
+    );
+    drop(conn);
+
+    let store = HumanStore::open(&path, StoreOptions::default())
+        .expect("a v7 database migrates rather than being refused");
+    let bodies: Vec<Vec<u8>> = store
+        .unread_inbound()
+        .expect("read")
+        .into_iter()
+        .map(|m| m.payload)
+        .collect();
+    assert_eq!(
+        bodies,
+        [b"first before v8".to_vec(), b"later before v8".to_vec()],
+        "both v7 rows, in the walk's order"
+    );
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .expect("version");
+    assert_eq!(version, SCHEMA_VERSION);
+    assert_eq!(
+        store_indexes(&conn, "unread_inbound"),
+        ["unread_inbound_by_received"]
+    );
+    assert_eq!(
+        store_indexes(&conn, "kept_inbound"),
+        ["kept_inbound_by_received"]
+    );
+}
+
+#[test]
+fn the_walk_indexes_are_part_of_the_verified_shape() {
+    // An index is a second copy of the columns it covers. Before v8 the
+    // guard admitted any index whose name contained a store table's, so
+    // `unread_inbound_bodies` over the payload opened; now every index
+    // is declared on its table's shape, by name, column, direction and
+    // collation, and anything else -- missing, extra, partial, descending,
+    // another collation, over an expression, or UNIQUE -- refuses the open.
+    for (case, ddl, table) in [
+        (
+            "missing",
+            "DROP INDEX kept_inbound_by_received",
+            "kept_inbound",
+        ),
+        (
+            "an extra one over the bodies",
+            "CREATE INDEX unread_inbound_bodies ON unread_inbound (payload)",
+            "unread_inbound",
+        ),
+        (
+            "other columns under the name",
+            "DROP INDEX unread_inbound_by_received;
+             CREATE INDEX unread_inbound_by_received ON unread_inbound (received_at, payload)",
+            "unread_inbound",
+        ),
+        (
+            "partial under the name",
+            "DROP INDEX unread_inbound_by_received;
+             CREATE INDEX unread_inbound_by_received ON unread_inbound (received_at, row_id)
+              WHERE received_at > 0",
+            "unread_inbound",
+        ),
+        (
+            "descending under the name",
+            "DROP INDEX unread_inbound_by_received;
+             CREATE INDEX unread_inbound_by_received ON unread_inbound (received_at DESC, row_id)",
+            "unread_inbound",
+        ),
+        (
+            "another collation under the name",
+            "DROP INDEX kept_inbound_by_received;
+             CREATE INDEX kept_inbound_by_received
+                 ON kept_inbound (received_at COLLATE NOCASE, row_id)",
+            "kept_inbound",
+        ),
+        (
+            "an expression under the name",
+            "DROP INDEX kept_inbound_by_received;
+             CREATE INDEX kept_inbound_by_received ON kept_inbound (received_at + 0, row_id)",
+            "kept_inbound",
+        ),
+        (
+            "a declared name on another table",
+            "CREATE INDEX unread_inbound_by_received_too ON settings (value);
+             DROP INDEX unread_inbound_by_received;
+             CREATE INDEX unread_inbound_by_received ON contacts (display_name)",
+            "",
+        ),
+        (
+            "unique",
+            "CREATE UNIQUE INDEX settings_by_value ON settings (value)",
+            "",
+        ),
+    ] {
+        let dir = common::private_tempdir();
+        let path = dir.path().join("state").join("human.sqlite3");
+        drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+        let conn = rusqlite::Connection::open(&path).expect("reopen");
+        conn.execute_batch(ddl).expect(case);
+        drop(conn);
+
+        let refused = HumanStore::open(&path, StoreOptions::default());
+        assert!(
+            matches!(&refused, Err(StoreError::Migration(d)) if d.contains(table)),
+            "{case}: must refuse the open naming `{table}`, got {refused:?}"
+        );
+    }
+}
+
+#[test]
+fn a_unique_key_compared_under_another_collation_is_refused() {
+    // A UNIQUE key is read with its column's collation as well as its
+    // name: rebuilt `COLLATE NOCASE`, `settings.key` keeps its name, its
+    // type and its key while refusing rows the build's key admits, and
+    // neither the column check nor a key read by name sees it.
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    conn.execute_batch(
+        "ALTER TABLE settings RENAME TO settings_old;
+         CREATE TABLE settings (key TEXT COLLATE NOCASE PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO settings SELECT key, value FROM settings_old;
+         DROP TABLE settings_old;",
+    )
+    .expect("the rebuild is legal SQLite");
+    drop(conn);
+
+    let refused = HumanStore::open(&path, StoreOptions::default());
+    assert!(
+        matches!(&refused, Err(StoreError::Migration(d)) if d.contains("settings") && d.contains("NOCASE")),
+        "a NOCASE key must refuse the open by its unique key, got {refused:?}"
+    );
+}
+
+#[test]
+fn an_index_naming_binary_in_lower_case_is_the_index_this_build_wrote() {
+    // SQLite matches collation names without case and reports them as
+    // written, so `COLLATE binary` is the default collation by another
+    // spelling and the walk index declared with it is the one v8 writes.
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    conn.execute_batch(
+        "DROP INDEX unread_inbound_by_received;
+         CREATE INDEX unread_inbound_by_received
+             ON unread_inbound (received_at COLLATE binary, row_id)",
+    )
+    .expect("recreate");
+    drop(conn);
+    HumanStore::open(&path, StoreOptions::default()).expect("the same index opens");
 }
 
 #[test]
@@ -2902,7 +3094,7 @@ fn a_migration_blocked_by_another_writer_is_not_a_file_needing_recovery() {
     let path = dir.path().join("state").join("human.sqlite3");
     drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
     let conn = rusqlite::Connection::open(&path).expect("raw");
-    conn.execute_batch("DROP TABLE read_pairs; PRAGMA user_version = 6;")
+    conn.execute_batch("DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6;")
         .expect("back to v6");
     conn.execute_batch("BEGIN IMMEDIATE;")
         .expect("a writer holds the file");
@@ -2929,7 +3121,7 @@ fn a_migration_of_a_file_this_user_cannot_write_is_not_a_file_needing_recovery()
         drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
         let conn = rusqlite::Connection::open(&path).expect("raw");
         conn.execute_batch(&format!(
-            "DROP TABLE read_pairs; PRAGMA user_version = 6; PRAGMA journal_mode = {journal};"
+            "DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6; PRAGMA journal_mode = {journal};"
         ))
         .expect("back to v6");
         drop(conn);
