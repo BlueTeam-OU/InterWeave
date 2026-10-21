@@ -220,8 +220,11 @@ States:
   list shows what it read; Add, Save and Remove are disabled with the
   existing degraded notice above them, since a card that cannot be
   stored cannot be saved.
-- **At the bound**: with 64 endpoints configured (ENDPOINTS.md), Add an
-  identity opens nothing and `IdentityLimit` shows under it, focused.
+- **At the bound**: when the profile holds as many endpoints as its
+  effective limit allows (ENDPOINTS.md's configured-endpoints limit,
+  whose default is below its ceiling of 64, agent endpoints counted;
+  §12 Q8), Add an identity opens nothing and `IdentityLimit` shows
+  under it, focused.
 
 A row opens that identity's page (§5.2). The list is the one place where
 identities are shown side by side, and it shows nothing of their
@@ -248,7 +251,9 @@ first one's (`human`) included, so the endpoint directory lists none of
 the person's identities to a trusted peer; no control changes it
 (ADR-0061 d. 5). Save runs with a
 progress indicator on Save while it runs; a refusal writes nothing and
-shows `IdentityAddFailed` above Save. A new identity is not put in front:
+shows `IdentityAddFailed` above Save, except a refusal for the limit,
+which shows `IdentityLimit` there instead, since "try again" could
+never succeed. A new identity is not put in front:
 the list returns with the new row focused, and switching is the
 person's act (§5.7.3).
 
@@ -1478,7 +1483,7 @@ and are for them to write.
 | `IdentityInFront` | In use | §5.1 row's accessible description; the check mark's meaning |
 | `AddIdentity` | Add an identity | §5.1 primary |
 | `AddAnotherIdentity` | Add another identity | §5.2 overflow while one identity is held (language-culture-en's text) |
-| `IdentityLimit` | You cannot add more identities on this device. | §5.1 at 64 endpoints |
+| `IdentityLimit` | You cannot add more identities on this device. | §5.1 at the profile's endpoint limit, and on a Save refused for it |
 | `IdentityRouteField` | Label that others see | §5.1 new identity's field |
 | `IdentityRouteHelp` | Everyone you talk to as this identity sees this label next to your PeerId. You cannot change the label after the identity is created. | under that field and on §5.2; must say who sees it and that it is fixed |
 | `IdentityRouteTooLong` | Use 64 characters or fewer. | route label over 64 (language-culture-en's text, as `CardNameTooLong`) |
