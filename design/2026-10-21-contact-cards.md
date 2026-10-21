@@ -575,10 +575,16 @@ App bar: back arrow, the name as title, overflow with **Delete contact**
   (ADR-0059 d. 4); no screen suggests it from a name or a photo. When
   the PeerId's routes are all the contact has, moving them deletes that
   contact, and the dialog says so (`MoveRouteLast`). Move runs at once
-  and shows `ConfirmRouteMoved` with Undo, which moves the routes back
-  and, when the move deleted the contact, writes it back with its
-  values and their sources; a kill inside the window leaves the move
-  done, as said. It is in v1 on both graphical clients and the command
+  and shows `ConfirmRouteMoved` with Undo, which moves back exactly the
+  routes this Move moved (a route a card added to the target in the
+  meantime stays there; it was never the source's) and, when the move
+  deleted the contact, writes it back with its values and their
+  sources; a kill inside the window leaves the move done, as said.
+  After Move the moved-to contact's page opens, and its Back goes to
+  the Contacts list, since the source page may no longer exist. Undo
+  opens the source contact's page again, its Back to the Contacts list.
+  A Move and its Undo change which contact holds a route, so the
+  proposals in the session are recomputed (§5.4.5), as after a delete. It is in v1 on both graphical clients and the command
   line (architect-cto, §12 A4).
 
 **Remove photo**: at once, snackbar `ConfirmPhotoRemoved` with Undo
