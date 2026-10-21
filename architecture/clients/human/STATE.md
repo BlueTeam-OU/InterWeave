@@ -63,7 +63,7 @@ It must not label transport acceptance as “read by human” or “processed by
 
 ## Where the store lives
 
-The database and the single-instance lock beside it sit in the human client's own directory under the profile's state root — `ProfilePaths::human_dir()`, `<state_dir>/human` (A 2026-10-03, Stage 15 Q3) — never among the daemon's files (its sockets, profile lock and identity key), and the profile's `identity.key_file` may not point inside it — judged on disk, links followed (`configuration.md`; the lexical check landed with Stage 15's batch 2, the on-disk one A 2026-10-05). Deleting the directory loses only what RETENTION.md allows to be lost.
+The database and the single-instance lock beside it sit in the human client's own directory under the profile's state root — `ProfilePaths::human_dir()`, `<state_dir>/human` (A 2026-10-03, Stage 15 Q3) — never among the daemon's files (its sockets, profile lock and identity key), and the profile's `identity.key_file` may not point inside it — judged on disk, links followed (`configuration.md`; the lexical check landed with Stage 15's batch 2, the on-disk one A 2026-10-05). Deleting the directory loses only what RETENTION.md allows to be lost. The one client file outside it is the sealed store key, `<state_dir>/human-store.key` (A 2026-10-21, ADR-0060 decision 3): kept out of `human/` so that an export or a copy of the store's directory leaves the key behind, and kept out of the daemon's identity directory because the daemon's secrets are not the client's; deleting `human/` leaves it, harmless and useless alone, and recreating the store replaces it.
 
 ## Store health
 
@@ -73,7 +73,7 @@ There remains a bounded handoff window after transport endpoint-queue acceptance
 
 ## Migrations
 
-Every schema migration is transactional and versioned. Migration failure puts the human app database into recovery/read-only/export mode; it never triggers transport identity regeneration. Stage 15's desktop client ships the recovery half (A 2026-10-03, Q4): a blocking screen with no session and no lease, showing the database path, offering Quit and Retry, and never renaming, moving or deleting the file; the read-only open and the export are carried by name (plan §18).
+Every schema migration is transactional and versioned. Migration failure puts the human app database into recovery/read-only/export mode; it never triggers transport identity regeneration. Stage 15's desktop client ships the recovery half (A 2026-10-03, Q4): a blocking screen with no session and no lease, showing the database path, offering Quit and Retry, and never renaming, moving or deleting the file; the read-only open and the export are carried by name (plan §18). One step is file-level, by exception (A 2026-10-21, ADR-0060 decision 6): the rewrite of a plaintext `human.sqlite` into an encrypted one — export to `human.sqlite.encrypting`, scrub the plaintext in place while it holds its name, unlink it with its `-wal` and `-shm`, rename the encrypted file into place — with its crash states told apart by name and header on the next open: plaintext beside `.encrypting` restarts the rewrite, `.encrypting` alone finishes the rename, an encrypted `human.sqlite` opens. The recovery screen's never-rename rule is about a store that failed to migrate, and does not apply to this rewrite.
 
 A migration from any prototype/general-history schema must not preserve full history by default. It must explicitly classify rows into pending-outbound, unread-inbound, receiver-kept-inbound, or discard message content according to ADR-0044.
 

@@ -18,7 +18,7 @@
         "text",
         "contact_card"
       ],
-      "description": "`text` is the message (`text` required); `contact_card` is the sender's own card (`card` required, `text` and `reply_to` forbidden; HUMAN-CHAT.md §Contact card, ADR-0059). The set is closed: any other value is malformed. Attachments, edits, reactions, typing indicators, delivery/read receipts, and multi-device sync are explicitly not part of HumanChatV2; artifact/attachment references await their own ADR (ADR-0050 rule 9)."
+      "description": "`text` is the message (`text` required); `contact_card` is the sender's own card (`card` required, `text` and `reply_to` forbidden; HUMAN-CHAT.md §Contact card, ADR-0059). The set is closed: any other value is malformed. `contact_card` is on the wire from plan §29 step 1, which lands its parser and its frozen vectors together: until then the current clients reject a card as an unknown kind, and the schema-agreement test holds because no card vector exists yet — the status stays `active` because the envelope is the current wire and the kind is one value of it, recorded here rather than as a second document. Attachments, edits, reactions, typing indicators, delivery/read receipts, and multi-device sync are explicitly not part of HumanChatV2; artifact/attachment references await their own ADR (ADR-0050 rule 9)."
     },
     "app_message_id": {
       "type": "string",
