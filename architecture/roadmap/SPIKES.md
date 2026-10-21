@@ -493,7 +493,7 @@ no store benchmark and no store-health time budget exist in the tree.
 **Experiment:** build the first candidate — the page-cipher
 amalgamation `rusqlite` already offers — for Linux and Android, with
 and without a vendored TLS library for its primitives; define the
-baseline — open, commit-unread and read-conversation timings on the
+baseline — open, commit-unread and read-conversation timings — the last being the client's start-up walk over the store (`listing.rs` `list_all`), the read the client makes (A 2026-10-21) — on the
 plaintext store, on the desktop host and on the Stage 17 reference
 device — and measure the same on the encrypted one, against the
 criterion (within twice the baseline per operation, a cold open under
