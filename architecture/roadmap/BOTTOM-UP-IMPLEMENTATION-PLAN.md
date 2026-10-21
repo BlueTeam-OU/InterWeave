@@ -6148,11 +6148,12 @@ provisioning and, on an existing profile, after the client's `advertise`
 delta in the endpoint overlay (ADR-0028 A 2026-10-21), re-asserted at
 every open, and the endpoint directory lists no identity to a trusted
 peer; Remove, after one confirmation listing what
-goes, deletes an added identity's endpoint and only disables an authored
-one saying so (on Android once another identity is enabled, the
-composed-profile check passing with the authored entry disabled), removes its conversations, its pending outbound (attempted
-no further, a may-have-reached row named), its contacts and its card, has
-no undo, and is absent on the only and the default identity; the lock
+goes, deletes an added identity's endpoint from the overlay, removes its
+conversations, its pending outbound (attempted no further, a
+may-have-reached row named), its contacts and its card, has no undo, and
+is absent on the first identity and on the default; turning the first
+identity off is allowed once another is enabled, the composed-profile
+check passing with the authored entry disabled; the lock
 screen's redacted notification names no identity and the switch follows
 the unlock; the
 identity settings and the contact page state what identities of one node
@@ -6162,8 +6163,10 @@ identities held, no screen in front of one shows the other's
 conversations, contacts or card, and a share, an Accept and a new
 conversation run under the identity in front and no other (the
 owner's rule, ADR-0061 decision 9); the add refused at the profile's configured-endpoint limit, by name;
-a removed authored identity listed among no identities and told from one
-merely turned off, which keeps its card; a data session that
+the first identity turned off and never removed, listed as off; an
+agent's or another authored endpoint offered as no identity; after a
+discard of the store the first identity and every added one still
+held, named by their labels; a data session that
 names an unconfigured endpoint is refused as today; every action of
 steps 1–3 driven from the command-line client in a shell with no display.
 
