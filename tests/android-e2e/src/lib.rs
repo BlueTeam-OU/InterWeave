@@ -68,6 +68,7 @@ pub mod adb;
 /// One per test process, installed by [`log_capture::install`]; until
 /// then [`HostStandIn`]'s log is empty.
 pub mod log_capture {
+    use std::fmt::Write as _;
     use std::sync::{Mutex, OnceLock, RwLock};
 
     use interweave_profile_config::sections::LogLevel;
@@ -77,12 +78,31 @@ pub mod log_capture {
     static LINES: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
     static LEVEL: RwLock<LogLevel> = RwLock::new(LogLevel::Info);
 
-    struct Message(String);
+    /// An event as the app's platform layer writes it
+    /// (`apps/human-android/src/platform_log.rs`): the message, then each
+    /// field as ` name=value` -- a string bare, anything else in its
+    /// `Debug` form -- so a case reads a field the same way from either
+    /// runner's log.
+    #[derive(Default)]
+    struct Line {
+        message: String,
+        fields: String,
+    }
 
-    impl tracing::field::Visit for Message {
+    impl tracing::field::Visit for Line {
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            if field.name() == "message" {
+                value.clone_into(&mut self.message);
+            } else {
+                let _ = write!(self.fields, " {}={value}", field.name());
+            }
+        }
+
         fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
             if field.name() == "message" {
-                self.0 = format!("{value:?}");
+                self.message = format!("{value:?}");
+            } else {
+                let _ = write!(self.fields, " {}={value:?}", field.name());
             }
         }
     }
@@ -102,13 +122,19 @@ pub mod log_capture {
             if !log_admits(meta.target(), *meta.level(), level) {
                 return;
             }
-            let mut message = Message(String::new());
-            event.record(&mut message);
+            let mut line = Line::default();
+            event.record(&mut line);
             if let Some(lines) = LINES.get() {
                 lines
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .push(format!("{} {} {}", meta.level(), meta.target(), message.0));
+                    .push(format!(
+                        "{} {} {}{}",
+                        meta.level(),
+                        meta.target(),
+                        line.message,
+                        line.fields
+                    ));
             }
         }
     }
