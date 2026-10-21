@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:ipc:peer-list",
   "title": "IPC admin.peers.list result",
-  "description": "One page of the dial gate's state per allowlisted peer (2.2, CONNECTIVITY.md §19): ascending by canonical string, at most 512 rows a page (a row is up to 194 bytes, so 1024 would overflow the 128 KiB body; architect-cto's ruling of 2026-10-07), `next` the last row's peer when more remain and absent on the last page. Never an address: what holds a peer is read as times and a bounded class.",
+  "description": "One page of the dial gate's state per allowlisted peer (2.2, CONNECTIVITY.md §19): ascending by canonical string, at most 512 rows a page (a row is up to 194 bytes with the three original fields and about 220 with `route_held_until` — 512 of them about 110 KB against the 128 KiB body, 1024 would overflow it; architect-cto's ruling of 2026-10-07, re-read 2026-10-21), `next` the last row's peer when more remain and absent on the last page. Never an address: what holds a peer is read as times and a bounded class.",
   "type": "object",
   "required": [
     "peers"
@@ -36,6 +36,11 @@
             "minimum": 0,
             "description": "Every known address of the peer is quarantined until then, in milliseconds since the Unix epoch: the earliest release among them, the moment the peer is dialable again. Absent while any known address is dialable, since quarantine is per address and a peer with a good route is not held by it (CONNECTIVITY.md section 19)."
           },
+          "route_held_until": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The peer's circuit routes are held until then, in milliseconds since the Unix epoch: the latest hold among them, each a `/p2p-circuit` route whose dial failed at its relay hop (ADR-0011 A 2026-10-21, CONNECTIVITY.md section 12). Absent when no route is held. A hold is per route and never backs the peer off: a peer with a direct route stays dialable over it while this is set, which is why the field stands apart from `quarantined_until` and `backoff_until` rather than folding into either."
+          },
           "last_outcome": {
             "enum": [
               "connected",
@@ -43,7 +48,7 @@
               "identity_mismatch",
               "denied"
             ],
-            "description": "How the last dial to, or connection with, the peer ended; absent until the first since the daemon started. Every refusal folds to `denied`; the connectivity log line names the finer class."
+            "description": "How the last dial to, or connection with, the peer ended; absent until the first since the daemon started. Every refusal folds to `denied` — a route hold's included, which is why `route_held_until` is read beside it; the connectivity log line names the finer class."
           }
         }
       },
@@ -56,7 +61,7 @@
   "x-contract": {
     "name": "ipc.peer-list",
     "status": "approved",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "adr": [
       "0017",
       "0037",
