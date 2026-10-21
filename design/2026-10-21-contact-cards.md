@@ -71,7 +71,7 @@ And, 2026-10-16, for the message swipe (`design/2026-10-16-message-swipe.md` §1
 > Swipe left → Discard / Reject / Skip
 
 At the time nothing could be accepted. A received card can be, so §5.4
-gives it that swipe. §12 O1 asks the owner one narrowing of it.
+gives it that swipe, with one narrowing the owner agreed to (§12 O1).
 
 ## 2. The person's goals
 
@@ -638,9 +638,15 @@ The proposal row takes the owner's swipe (§1): **swipe right (start→end)
 = Accept** with the label the case gives it, **swipe left = Decline**,
 with the message-swipe spec's region, thresholds, reveal, haptics, RTL
 mirroring, reduced-motion rules and Undo snackbar (its §3–§8), as a new
-row kind E there. The reveal's label is the button's label of the case
-("Accept as a new contact" in case D), never a bare "Accept". In case S
-neither direction moves (Close is not a swipe action). The buttons are
+row kind E there. The reveal's label is the button's label of the case,
+never a bare "Accept". **In case D the right swipe is withheld** (§12
+O1, the owner's answer): the row does not move to the right and shows no
+accept reveal, and only the button "Accept as a new contact" saves the
+card, since a swipe can happen without reading, and a stranger saved
+under an existing contact's name by a stray thumb is the impersonation
+ADR-0059 makes visible; Undo helps only a person who noticed. The left
+swipe still declines. In case S neither direction moves (Close is not a
+swipe action). The buttons are
 the non-gesture equivalent, always present.
 
 **A difference from message-swipe §7, on purpose.** There, as revised by
@@ -652,8 +658,7 @@ Accept will do before they do it. The row also has §7's menu (long
 press, or Enter on the focused row), holding the same actions the row shows
 with the case's labels — Accept and Decline, or in case S Close alone —
 then Copy PeerId; it has no Show source, since a
-card has no markdown source to show. §12 O1 asks the owner
-whether case D should take no right swipe.
+card has no markdown source to show.
 
 #### 5.4.5 Several proposals, and a proposal while away
 
@@ -1315,7 +1320,10 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    "goes at close" line; before Accept no decoded photo appears anywhere,
    and a test pins that the decoder is not called (rust-ui-dev).
 7. Each case P, N, D, U, E and S of §5.4.1 shows its context line and Accept
-   label, and Accept does what the table says; in case E a locally
+   label, and Accept does what the table says; in case D a right swipe
+   past the commit threshold neither moves the row nor accepts, shows
+   no accept reveal, and the store is unchanged, while a left swipe
+   declines (§5.4.4); in case E a locally
    edited name is unchanged after Accept.
    Fixtures for D against a contact "Anna Rossi": a card "Anna" +
    "Rossi"; "Аnna" (Cyrillic А) + "Rossi"; a name "Anna Rossi" with
@@ -1679,8 +1687,10 @@ For the owner:
   swipe be withheld, so that only the button "Accept as a new contact"
   saves it? Proposed: withheld, because a second "Anna" accepted by a
   stray thumb is the impersonation ADR-0059 makes visible, and Undo
-  only helps if the person noticed. Until the owner answers, the swipe
-  is built as the owner's words give it.
+  only helps if the person noticed. **Answered 2026-10-21**, the owner:
+  "i agree with your reccomandation" — withheld in case D (§5.4.4); the
+  left swipe still declines, and every other case keeps the owner's
+  swipe as given.
 
 For architect-cto, asked with this revision (the shape of ADR-0061
 decision 9 and the records around it; the note is built on the reading
