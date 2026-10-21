@@ -117,14 +117,24 @@ fn needles(seed: &[u8; 32]) -> Vec<(String, Vec<u8>)> {
             base64(window, URL_SAFE).into_bytes(),
         ));
     }
-    // A derived `Debug` of a byte array or a `Vec<u8>`: decimals.
+    // A derived `Debug` of a byte array or a `Vec<u8>`: decimals, or hex
+    // under `{:x?}` and `{:02x?}`, each byte apart.
     for at in [0, 8, 16, 24] {
-        let decimal = seed[at..at + 8]
-            .iter()
-            .map(u8::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
-        out.push((format!("decimal from byte {at}"), decimal.into_bytes()));
+        let window = &seed[at..at + 8];
+        let listed =
+            |byte: fn(&u8) -> String| window.iter().map(byte).collect::<Vec<_>>().join(", ");
+        out.push((
+            format!("decimal from byte {at}"),
+            listed(u8::to_string).into_bytes(),
+        ));
+        out.push((
+            format!("listed hex from byte {at}"),
+            listed(|b| format!("{b:x}")).into_bytes(),
+        ));
+        out.push((
+            format!("listed padded hex from byte {at}"),
+            listed(|b| format!("{b:02x}")).into_bytes(),
+        ));
     }
     out
 }
@@ -235,6 +245,14 @@ mod tests {
             (
                 "the seed from an offset",
                 format!("{:?}", &seed[9..30]).into_bytes(),
+            ),
+            (
+                "the key file as {:x?}",
+                format!("{key_file:x?}").into_bytes(),
+            ),
+            (
+                "the key file as {:02x?}",
+                format!("{key_file:02x?}").into_bytes(),
             ),
         ];
         for (what, stream) in cases {
