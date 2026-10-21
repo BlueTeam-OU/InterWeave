@@ -249,7 +249,11 @@ removed still holds (§5.2) is not refused: the field says
 `IdentityRouteReused` under it, that this label was one of their
 identities and Save makes a new identity on it, with this card and
 nothing of the old one (ADR-0061 d. 1, §12 Q10 on telling it from an
-agent's). Save creates the endpoint and its card together
+agent's). It must also say the consequence the person cannot see from
+here: the label is the same route, so anyone who held the old identity
+as a contact still has it, can write to the new identity, and sees what
+it sends under the contact they saved for the old one, name and photo
+included, until they accept its new card. Save creates the endpoint and its card together
 (ADR-0061 d. 2: through the admin connection on the desktop, the
 embedded host's configuration path on Android; rust-ui-dev's), the
 endpoint with `advertise: false`, as every identity's endpoint has, the
@@ -1506,7 +1510,7 @@ and are for them to write.
 | `IdentityRouteField` | Label that others see | §5.1 new identity's field |
 | `IdentityRouteHelp` | Everyone you talk to as this identity sees this label next to your PeerId. You cannot change the label after the identity is created. | under that field and on §5.2; must say who sees it and that it is fixed |
 | `IdentityRouteTooLong` | Use 64 characters or fewer. | route label over 64 (language-culture-en's text, as `CardNameTooLong`) |
-| `IdentityRouteReused` | This label belonged to an identity that was removed. Save creates a new identity with this label. Nothing from the old identity is restored. | under the label field, for a removed identity's label; must say nothing of the old identity comes back |
+| `IdentityRouteReused` | This label belonged to an identity that was removed. Save creates a new identity with this label. Nothing from the old identity is restored. | under the label field, for a removed identity's label; must say nothing of the old identity comes back; and must say that people who had the old identity as a contact still reach this label, and see the new identity under their old contact until they accept its card (§5.1) (revised, proposal: this sentence added after the first text) |
 | `IdentityRouteNeeded` / `IdentityRouteBadCharacters` / `IdentityRouteTaken` | Enter a label. / Use only lowercase letters, digits, dots (.), hyphens (-) and underscores (_), and start with a letter. / Another identity on this device already uses this label. | field errors |
 | `IdentityAddFailed` | The identity could not be added. Try again. | §5.1 above Save |
 | `MakeDefault` | Make default | §5.2 overflow |
@@ -1559,7 +1563,7 @@ and are for them to write.
 | `StoreChecking` | Checking the stored data… | §7.2 progress |
 | `DiscardStoreTitle` | Delete all stored data? | full dialog title |
 | `DiscardStoreLoses` | Two or more identities: This deletes from this device, for all your identities: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; the names and photos of your identities; the app's settings, other than your network settings. A message you already received may show again. One identity: This deletes from this device: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; the name and photo on your card; the app's settings, other than your network settings. A message you already received may show again. | full dialog list; one item per line; must list exactly these, and say it is every identity's (§7.2); with one identity, no "for all your identities" and "your name and photo" |
-| `DiscardStoreKeeps` | One identity: This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. Two or more identities: This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. Your first identity stays. It keeps its label, but not its name and photo. Your other identities are deleted. Their labels stay on this device, and you can use them again when you add an identity. | full dialog; must say, with two or more, that the identities other than the first go with their cards and their labels can be used again; the first-round text said they stay without names, which ADR-0061 d. 1 made false |
+| `DiscardStoreKeeps` | One identity: This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. Two or more identities: This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. Your first identity stays. It keeps its label, but not its name and photo. Your other identities are deleted. Their labels stay on this device, and you can use them again when you add an identity. | full dialog; must say, with two or more, that the identities other than the first go with their cards and their labels can be used again; the first-round text said they stay without names, which ADR-0061 d. 1 made false; the two-or-more form names the first identity by its label, `{route}`, since nothing else names it after a discard (revised, proposal: `{route}` added) |
 | `DiscardStoreRemains` | Earlier copies that your device made outside InterWeave may still be on it. | full dialog |
 | `DiscardStoreConfirm` | Delete stored data | full dialog primary |
 | `DiscardPartialTitle` | Delete the unfinished file? | partial dialog title |
