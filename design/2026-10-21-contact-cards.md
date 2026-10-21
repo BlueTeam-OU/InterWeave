@@ -619,7 +619,9 @@ later card's photo is case E (§5.4.1).
 
 **Delete contact**: at once (contact and its routes deleted), snackbar
 `ConfirmContactDeleted` with Undo (writes them back with the same
-values and provenance). The page closes to the list. Conversations stay;
+values and provenance). The Undo is withdrawn — its snackbar closes —
+as soon as any PeerId the deleted contact held comes under another
+contact (§5.6), so it can never put a PeerId under two. The page closes to the list. Conversations stay;
 their titles return to the short PeerId. The proposals in the session
 are recomputed (§5.4.5).
 
@@ -862,7 +864,10 @@ on the desktop.
    naming itself "Anna Rossi" from a new route of contact "Carol"'s
    PeerId (case P), and one from Carol's own route (case U), each show
    `CardSameName` naming the other "Anna Rossi" before Accept.
-8. Accept then Undo leaves the store as before the Accept; Decline then
+8. Delete contact Carol, then accept a card from one of Carol's
+   PeerIds on a new route (case N): Delete's Undo is gone. Move a
+   PeerId, then accept a card from it: the Move's Undo is gone.
+   Accept then Undo leaves the store as before the Accept; Decline then
    restart leaves nothing of the card in the store; an unanswered,
    shown proposal is gone after a restart; an unshown one survives it.
 9. The title and the list show the accepted name; two contacts with one
