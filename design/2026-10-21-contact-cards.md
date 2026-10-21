@@ -290,8 +290,11 @@ and the primary reads **Share without the photo**
 limit below a name's size could do this), the primary is not offered and
 `ShareCardTooLarge` says so; Cancel stays.
 
-**After Share.** The chooser closes, focus returns to the composer (or
-to the overflow button when there is no composer), and the card appears
+**After Share.** The chooser closes, focus returns to the control that
+opened it (the overflow button, or the offer's Share a card button,
+which the new row replaces, so then the conversation's header title),
+never to the composer, which would open the keyboard unasked
+(message-swipe §7's reason); and the card appears
 at the end of the conversation as **one's own card row** (§5.5) with
 the status of any outbound message: Sending, then Accepted by remote
 transport, or Not sent with Retry and Cancel (`human-client-ui.md` §5,
@@ -706,10 +709,11 @@ on the desktop.
    | Undo of a delete | the restored row | keyboard |
    | chooser opens | the chosen card, else the first card | keyboard |
    | Share with none chosen | the first card | keyboard |
-   | chooser closes after Share | the composer, else the overflow button | keyboard |
+   | chooser closes after Share | the control that opened it; the header title when that was the empty conversation's offer | keyboard |
    | chooser cancelled | what opened it (overflow button or the offer's button) | keyboard |
    | Accept (button or swipe) | the confirmation row | keyboard; swipe with TalkBack cannot occur |
-   | Decline | the next row in the conversation, else the composer | keyboard |
+   | Decline, by button or by keyboard | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title; never the composer | keyboard |
+   | Decline by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set elsewhere first, then a swipe |
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
    | case S Close | as Decline | keyboard |
    | snackbar appears | stays where it was; the snackbar is reachable last in order | keyboard |
