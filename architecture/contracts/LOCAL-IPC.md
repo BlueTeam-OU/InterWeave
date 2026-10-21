@@ -327,7 +327,7 @@ with their schemas and the Rust mirror, in the batch that implements
 them; the list method's params were `none` there and are a page cursor
 here (architect-cto's ruling of 2026-10-04, below).
 
-`admin.peers.list` (2.2, A 2026-10-06, `CONNECTIVITY.md` §19) moved into the table with the batch that implements it, as `admin.trust.*` did: under the `admin.status` capability, the dial gate's state for each allowlisted peer — `{peer, connected, backoff_until?, quarantined_until?, route_held_until?, last_outcome?}` (`route_held_until` since A 2026-10-21: the latest hold among the peer's circuit routes whose dial failed at its relay hop, ADR-0011 A 2026-10-21 — apart from the other two because a route hold never backs the peer off), the three times in milliseconds since the Unix epoch, `last_outcome` absent until the peer's first dial or connection since the daemon started — never an address. It is paged as `admin.trust.list` is (`{after?: peer-id}` → `{peers, next?}`, ascending by canonical string), at most 512 rows a page (`MAX_PEER_PAGE_ROWS`; ruled 2026-10-07 on p2p-network-dev's measurement: a peer-list row is up to 194 bytes of compact JSON with every field present — about 220 since `route_held_until` — so a trust-list page's 1024 would be about 200 KB, since 225 KB, against the 128 KiB body ceiling, `MAX_BODY_BYTES`; 512 is about 100 KB worst case, since 110 KB, and `MAX_ALLOWED_PEERS` at 4096 makes at most eight pages). Its schemas `peer-list-params` and `peer-list` (1.1.0 since the route hold's field) are `approved`, and the method and request enums carry its minor (`ipc/method` 1.2.0, `ipc/request` 1.2.0). A client requests it only on a connection that negotiated minor 2.2 or later; `admin.status` being a 2.0 capability, the capability rule below does not apply, so the client reads the minor from that connection's own `hello_response` and does not send the method below 2.2, where the server answers it as an unknown method (§Version negotiation).
+`admin.peers.list` (2.2, A 2026-10-06, `CONNECTIVITY.md` §19) moved into the table with the batch that implements it, as `admin.trust.*` did: under the `admin.status` capability, the dial gate's state for each allowlisted peer — `{peer, connected, backoff_until?, quarantined_until?, route_held_until?, last_outcome?}` (`route_held_until` since A 2026-10-21: the latest hold among the peer's circuit routes whose dial failed at its relay hop, ADR-0011 A 2026-10-21 — apart from the other two because a route hold never backs the peer off; served on a connection that negotiated 2.6 or later, and below 2.6 the 2.2 row, without it, is served unchanged — `ipc/peer-list` 1.1.0, ADR-0017 A 2026-10-07: a closed result shape widens behind a new minor, since a 2.2 client refuses an unknown member and would lose the whole page; 2.6 adds no method or capability), the three times in milliseconds since the Unix epoch, `last_outcome` absent until the peer's first dial or connection since the daemon started — never an address. It is paged as `admin.trust.list` is (`{after?: peer-id}` → `{peers, next?}`, ascending by canonical string), at most 512 rows a page (`MAX_PEER_PAGE_ROWS`; ruled 2026-10-07 on p2p-network-dev's measurement: a peer-list row is up to 194 bytes of compact JSON with every field present — about 220 since `route_held_until` — so a trust-list page's 1024 would be about 200 KB, since 225 KB, against the 128 KiB body ceiling, `MAX_BODY_BYTES`; 512 is about 100 KB worst case, since 110 KB, and `MAX_ALLOWED_PEERS` at 4096 makes at most eight pages). Its schemas `peer-list-params` and `peer-list` (1.1.0 since the route hold's field, which 2.6 brings) are `approved`, and the method and request enums carry its minor (`ipc/method` 1.2.0, `ipc/request` 1.2.0). A client requests it only on a connection that negotiated minor 2.2 or later; `admin.status` being a 2.0 capability, the capability rule below does not apply, so the client reads the minor from that connection's own `hello_response` and does not send the method below 2.2, where the server answers it as an unknown method (§Version negotiation).
 
 `admin.trust.list` answers the profile's allowlist as `trust-api`'s `PeerTrustPolicy` holds it, ONE PAGE at a time: the allowed peers in the
 ascending order of their canonical strings, at most 1024 a page, with
@@ -394,8 +394,10 @@ speaks 2.1 (§Version negotiation's capability rule); the `close` frame's
 `supported` list was `[{major: 2, minor: 1}]` from R1, `[{major: 2,
 minor: 2}]` from `admin.peers.list` (A 2026-10-06), `[{major: 2,
 minor: 3}]` from the trust overlay (A 2026-10-07), `[{major: 2,
-minor: 4}]` from the route notices (A 2026-10-09), and is `[{major: 2,
-minor: 5}]` since the endpoint overlay (A 2026-10-11): it names the
+minor: 4}]` from the route notices (A 2026-10-09), `[{major: 2,
+minor: 5}]` from the endpoint overlay (A 2026-10-11), and is `[{major: 2,
+minor: 6}]` since the route-hold peer row (`ipc/peer-list` 1.1.0,
+`route_held_until`, ADR-0011 A 2026-10-21): it names the
 server's `IPC_MAX_MINOR`, never a literal. The two were the
 same runtime overlay as `admin.endpoints.*` then was — never written to
 `config.yaml`, `persisted: false` — until the owner decided persistence
@@ -456,7 +458,7 @@ the implementing batch and its mirror, as above.
 `hello.ipc_version.major` accepts any positive integer, so an unsupported
 major is a well-formed hello: the server answers
 `close{code: VersionIncompatible, supported: [{major: 2, minor: IPC_MAX_MINOR}]}`
-— the server's highest minor, 4 since the route-begin notices (A 2026-10-09; 3 since the trust overlay, A 2026-10-07),
+— the server's highest minor, 6 since the route-hold peer row (A 2026-10-21; 5 since the endpoint overlay, A 2026-10-11; 4 since the route-begin notices, A 2026-10-09; 3 since the trust overlay, A 2026-10-07),
 never a literal older than the server — and closes. For major 2 the server selects `minor = min(client, server)` and
 returns it in `hello_response`. The client holds the server to that
 rule: a `hello_response` whose minor is above the minor the client
