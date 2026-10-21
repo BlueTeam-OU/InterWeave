@@ -1044,10 +1044,11 @@ fn install_with_a_missing_input_writes_nothing() {
 
 /// A directory at a name install.sh writes, final or temporary, is refused
 /// before anything is written: cp and mv would put the file inside it and
-/// report success with nothing at the name a unit starts. A symlink at a
-/// temporary name is refused too (cp would write through it). The control
-/// is a symlink at a final name, which the install replaces with the file
-/// rather than following (mv -T), and the plain install of the test above.
+/// report success with nothing at the name a unit starts. Then, in each of
+/// the two destination directories, the control: a symlink at a final name
+/// is replaced by the file rather than followed (mv -T), and a symlink and
+/// a hard link at temporary names are removed before the copy rather than
+/// written through, so neither what they point at changes.
 #[test]
 fn install_over_a_directory_at_a_destination_writes_nothing() {
     let names = PROGRAMS
@@ -1085,35 +1086,51 @@ fn install_over_a_directory_at_a_destination_writes_nothing() {
         );
     }
 
-    let (out, root) = scratch_install("", false, &|bin, units| {
-        std::fs::create_dir_all(bin.join(".tmp-elsewhere")).expect("a link target");
-        std::os::unix::fs::symlink(".tmp-elsewhere", bin.join(".transportctl.install"))
-            .expect("a link at a temporary name");
-        let _ = units;
-    });
-    assert_eq!(
-        out.status.code(),
-        Some(1),
-        "a link at a temporary name is refused: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    drop(root);
-
-    let (out, root) = scratch_install("", false, &|bin, units| {
-        std::fs::create_dir_all(bin.join(".tmp-elsewhere")).expect("a link target");
-        std::os::unix::fs::symlink(".tmp-elsewhere", bin.join("transportctl"))
-            .expect("a link at a final name");
-        let _ = units;
-    });
-    let bin = root.root.path().join("home/.local/bin");
-    assert!(
-        out.status.success(),
-        "the control installs over a link: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let placed = std::fs::symlink_metadata(bin.join("transportctl")).expect("transportctl");
-    assert!(
-        placed.file_type().is_file() && !bin.join(".tmp-elsewhere/.transportctl.install").exists(),
-        "the link at the final name is replaced by the program, not followed"
-    );
+    for (in_bin, last, other) in [
+        (true, "transportctl", "human-desktop"),
+        (
+            false,
+            "interweave-client@.service",
+            "interweave-daemon@.service",
+        ),
+    ] {
+        let (out, root) = scratch_install("", false, &|bin, units| {
+            let dir = if in_bin { bin } else { units };
+            std::fs::create_dir_all(dir.join(".elsewhere")).expect("a link target");
+            std::fs::write(dir.join("kept"), "kept\n").expect("a file to keep");
+            std::os::unix::fs::symlink(".elsewhere", dir.join(last)).expect("a final link");
+            std::os::unix::fs::symlink(".elsewhere", dir.join(format!(".{last}.install")))
+                .expect("a temporary symlink");
+            std::fs::hard_link(dir.join("kept"), dir.join(format!(".{other}.install")))
+                .expect("a temporary hard link");
+        });
+        let base = root.root.path().to_path_buf();
+        let dir = if in_bin {
+            base.join("home/.local/bin")
+        } else {
+            base.join("config/systemd/user")
+        };
+        assert!(
+            out.status.success(),
+            "{last}: the control installs: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let placed = std::fs::symlink_metadata(dir.join(last)).expect("the final name");
+        assert!(
+            placed.file_type().is_file(),
+            "{last}: the link at the final name is replaced by the file, not followed"
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.join(".elsewhere"))
+                .map(Iterator::count)
+                .ok(),
+            Some(0),
+            "{last}: nothing is written through a link"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("kept")).ok().as_deref(),
+            Some("kept\n"),
+            "{other}: nothing is written through a hard link"
+        );
+    }
 }

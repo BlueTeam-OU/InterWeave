@@ -57,22 +57,24 @@ for unit in interweave-daemon@.service interweave-client@.service; do
 done
 # A directory at a name written below would take the file inside it (cp and
 # mv both write into a directory) and the install would report success with
-# nothing at the name a unit starts; a symlink at a temporary name would
-# have cp write through it. Both are refused here, before anything is
-# written. A symlink at a final name is replaced, not followed (mv -T).
-refuse_target() {
-    if { [ -d "$1" ] && [ ! -L "$1" ]; } || { [ -n "${2:-}" ] && [ -L "$1" ]; }; then
-        echo "install.sh: $1 is in the way (a directory or a link); nothing was installed" >&2
+# nothing at the name a unit starts, so it is refused here, before anything
+# is written. Anything else at a temporary name -- a symlink, a hard link, a
+# FIFO, a file an interrupted install left -- is removed before the copy,
+# which would otherwise write through it; a symlink at a final name is
+# replaced, not followed (mv -T).
+refuse_directory() {
+    if [ -d "$1" ] && [ ! -L "$1" ]; then
+        echo "install.sh: $1 is a directory in the way; nothing was installed" >&2
         exit 1
     fi
 }
 for exe in transport-daemon transportctl human-desktop; do
-    refuse_target "$bin_dest/$exe"
-    refuse_target "$bin_dest/.$exe.install" temporary
+    refuse_directory "$bin_dest/$exe"
+    refuse_directory "$bin_dest/.$exe.install"
 done
 for unit in interweave-daemon@.service interweave-client@.service; do
-    refuse_target "$unit_dest/$unit"
-    refuse_target "$unit_dest/.$unit.install" temporary
+    refuse_directory "$unit_dest/$unit"
+    refuse_directory "$unit_dest/.$unit.install"
 done
 
 umask 077
@@ -81,11 +83,13 @@ for exe in transport-daemon transportctl human-desktop; do
     # Copied to a temporary name and renamed over the old one, so a daemon
     # running the old binary keeps its inode and an upgrade never leaves a
     # half-written executable at the name a unit starts.
+    rm -f "$bin_dest/.$exe.install"
     cp "$bin_dir/$exe" "$bin_dest/.$exe.install"
     chmod 0755 "$bin_dest/.$exe.install"
     mv -fT "$bin_dest/.$exe.install" "$bin_dest/$exe"
 done
 for unit in interweave-daemon@.service interweave-client@.service; do
+    rm -f "$unit_dest/.$unit.install"
     cp "$unit_src/$unit" "$unit_dest/.$unit.install"
     chmod 0644 "$unit_dest/.$unit.install"
     mv -fT "$unit_dest/.$unit.install" "$unit_dest/$unit"
