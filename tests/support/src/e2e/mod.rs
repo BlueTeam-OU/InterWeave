@@ -89,6 +89,72 @@ pub fn private_dir(path: &Path) {
         .expect("a private directory");
 }
 
+/// A daemon log in `dir` no other start in this process has named, created
+/// exclusively. A name from the clock repeats within one tick or after a
+/// step back, and opening it truncating would cut the log a daemon still
+/// running there writes; a counter cannot repeat, and `create_new` makes a
+/// name that exists anyway a panic rather than a truncation.
+fn new_daemon_log(dir: &Path) -> (PathBuf, std::fs::File) {
+    static STARTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = STARTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let log = dir.join(format!("daemon-{}-{n}.log", std::process::id()));
+    let file = create_fresh(&log);
+    (log, file)
+}
+
+fn create_fresh(log: &Path) -> std::fs::File {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(log)
+        .unwrap_or_else(|e| panic!("a fresh daemon log at {}: {e}", log.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write as _;
+
+    use super::{create_fresh, new_daemon_log, private_tempdir};
+
+    /// Starts in one home, back to back, each get their own log, and none
+    /// cuts a log an earlier start is still writing.
+    #[test]
+    fn every_start_gets_its_own_log_and_none_truncates_another() {
+        let home = private_tempdir();
+        let mut logs = Vec::new();
+        for i in 0..64 {
+            let (path, mut file) = new_daemon_log(home.path());
+            writeln!(file, "start {i}").expect("write");
+            logs.push(path);
+        }
+        let distinct: std::collections::HashSet<_> = logs.iter().collect();
+        assert_eq!(distinct.len(), logs.len(), "no name repeats");
+        for (i, path) in logs.iter().enumerate() {
+            assert_eq!(
+                std::fs::read_to_string(path).expect("read"),
+                format!("start {i}\n"),
+                "a later start left this log whole"
+            );
+        }
+    }
+
+    /// The control on the exclusive open: a name that exists is refused,
+    /// and the file under it keeps what it held.
+    #[test]
+    fn an_existing_log_name_is_refused_not_truncated() {
+        let home = private_tempdir();
+        let path = home.path().join("daemon.log");
+        std::fs::write(&path, "still writing\n").expect("write");
+        let refused = std::panic::catch_unwind(|| create_fresh(&path));
+        assert!(refused.is_err(), "an existing name is refused");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read"),
+            "still writing\n",
+            "and left whole"
+        );
+    }
+}
+
 /// One daemon's world: its own XDG tree, and the paths the daemon itself
 /// resolves in it.
 pub struct Home {
@@ -202,14 +268,7 @@ impl Home {
 
     /// Start the daemon for this home's profile, its stderr to a file.
     pub fn start(&self, extra: &[&str]) -> Daemon {
-        let log = self.root.path().join(format!(
-            "daemon-{}.log",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("a clock")
-                .as_nanos()
-        ));
-        let stderr = std::fs::File::create(&log).expect("a log file");
+        let (log, stderr) = new_daemon_log(self.root.path());
         let env = |p: &Path| p.as_os_str().to_owned();
         let child = Command::new(daemon_binary())
             .args(["--profile", self.paths.profile()])
