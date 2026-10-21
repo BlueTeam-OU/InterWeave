@@ -14,7 +14,11 @@
 //! Each NAT masquerades what leaves its private side and forwards
 //! nothing new into it, so neither daemon can dial the other's listen
 //! address, while both reach the relay -- symmetric, which one NAT
-//! between a namespace and the host would not be.
+//! between a namespace and the host would not be. The core routes each
+//! private range to its NAT, so a dial into one is carried as far as
+//! that NAT and refused THERE, by its forward chain's last rule, which
+//! counts what it drops ([`inward_drops`]): the refusal a test asserts
+//! is the NAT's, not an unroutable address's.
 //!
 //! # Why the namespace has a root of its own
 //!
@@ -69,6 +73,10 @@ pub enum Net {
     B,
     /// The relay's, on the core.
     Relay,
+    /// NAT-A itself, between A and the core.
+    NatA,
+    /// NAT-B itself, between B and the core.
+    NatB,
 }
 
 impl Net {
@@ -79,6 +87,8 @@ impl Net {
             Self::A => "A",
             Self::B => "B",
             Self::Relay => "R",
+            Self::NatA => "natA",
+            Self::NatB => "natB",
         };
         Path::new("/run/netns").join(name)
     }
@@ -113,12 +123,18 @@ table ip filter {
     type filter hook forward priority 0; policy drop
     ct state established,related accept
     iifname "$3" accept
+    counter drop
   }
 }
 NFT
 }
 nat natA na a1
 nat natB nb b1
+# The core routes each private range to its NAT, so a dial into one gets
+# as far as that NAT's forward chain: the NAT, and nothing upstream of
+# it, is what refuses it (counted, `inward_drops`).
+ip -n core route add 10.1.0.0/24 via 203.0.113.2
+ip -n core route add 10.2.0.0/24 via 203.0.113.6
 # Then the root of the namespace's own.
 mount -t tmpfs -o mode=0755 none "$NR"
 for d in usr etc proc sys dev run tmp scratch; do mkdir -p "$NR/$d"; done
@@ -227,6 +243,32 @@ fn enter(net: Net) {
         Some(rustix::thread::LinkNameSpaceType::Network),
     )
     .unwrap_or_else(|e| panic!("entering {}: {e}", net.path().display()));
+}
+
+/// How many packets `nat`'s forward chain has dropped coming in: new
+/// connections into its private side. Read with `nft` in `nat`.
+///
+/// # Panics
+/// When `nat` is not a NAT, or `nft` cannot be read.
+#[must_use]
+pub fn inward_drops(nat: Net) -> u64 {
+    assert!(matches!(nat, Net::NatA | Net::NatB), "{nat:?} is not a NAT");
+    let out = Command::new("nsenter")
+        .arg(format!("--net={}", nat.path().display()))
+        .args(["--", "nft", "list", "chain", "ip", "filter", "forwarding"])
+        .output()
+        .expect("nft runs");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.lines()
+        .find(|l| l.contains("counter") && l.trim_end().ends_with("drop"))
+        .and_then(|l| l.split_whitespace().skip_while(|w| *w != "packets").nth(1))
+        .and_then(|n| n.parse().ok())
+        .unwrap_or_else(|| panic!("no drop counter in:\n{text}"))
 }
 
 /// Whether a TCP connection from `net` to `to` is made within `patience`:
