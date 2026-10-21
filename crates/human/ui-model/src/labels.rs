@@ -566,7 +566,7 @@ ui_texts! {
     RefusalProfileSettings => "InterWeave could not use the settings in the file below. Check the file, then start InterWeave again.",
     /// DESKTOP, start-up refusal screen: the profile's folders could not
     /// be worked out, or two of them are one. No path.
-    RefusalProfileFolders => "InterWeave could not set up the folders for this profile. Check where this profile keeps its files, then start InterWeave again.",
+    RefusalProfileFolders => "InterWeave could not set up the folders for this profile. Check where this profile stores its files, then start InterWeave again.",
     /// DESKTOP, start-up refusal screen: another window holds this
     /// profile. No path.
     RefusalAlreadyOpen => "InterWeave is already open for this profile. Use that window. It may be behind other windows.",
@@ -578,13 +578,13 @@ ui_texts! {
     RefusalNotPrivate => "Other accounts on this computer can read or change the file or folder below. InterWeave needs it to be private to you. Nothing was changed. Make it private to you, then start InterWeave again.",
     /// DESKTOP, start-up refusal screen: as `RefusalNotPrivate`, for the
     /// message store, where Try again is offered.
-    RefusalStoreNotPrivate => "Other accounts on this computer can read or change the file or folder below, where InterWeave keeps your messages. InterWeave needs it to be private to you. Nothing was changed. Make it private to you, then try again.",
+    RefusalStoreNotPrivate => "Other accounts on this computer can read or change the file or folder below, where InterWeave stores your messages. InterWeave needs it to be private to you. Nothing was changed. Make it private to you, then try again.",
     /// DESKTOP, start-up refusal screen: a file the app needs before the
     /// store (the lock) could not be opened. Nothing offers Try again.
     RefusalUnavailable => "InterWeave could not open a file that it needs. Check that the computer has free disk space, and that you can write to the folder below. Then start InterWeave again.",
     /// DESKTOP, start-up refusal screen: the message store could not be
     /// opened now; Try again is offered.
-    RefusalStoreUnavailable => "InterWeave could not open the file that keeps your messages. Check that the computer has free disk space, and that you can write to the file and its folder. Then try again.",
+    RefusalStoreUnavailable => "InterWeave could not open the file that holds your messages. Check that the computer has free disk space, and that you can write to the file and its folder. Then try again.",
     /// DESKTOP, start-up refusal screen: the message store needs
     /// recovery -- corrupt, written by a newer version, or its migration
     /// failed. Try again is offered.
