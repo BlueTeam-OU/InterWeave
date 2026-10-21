@@ -261,17 +261,17 @@ async fn tm_30_peer_text_that_instructs_the_host_reaches_it_as_content_only() {
     assert_eq!(routed["result"]["isError"], json!(false), "{routed}");
 }
 
-/// Every run of `len` bytes of `secret`: a byte string none of whose
-/// windows appears in the captured stream shares no recognisable part
-/// with it. The secrets below are written to share no eight bytes with
+/// Every run of `len` bytes of `secret`, with its offset: a byte string
+/// none of whose windows appears in the captured stream shares no
+/// recognisable part with it. The secrets below are written to share no eight bytes with
 /// any English the bridge writes, so a hit is a leak, never a word.
-fn windows(secret: &str, len: usize) -> Vec<&str> {
+fn windows(secret: &str, len: usize) -> Vec<(usize, &str)> {
     if secret.len() <= len {
-        return vec![secret];
+        return vec![(0, secret)];
     }
     (0..=secret.len() - len)
         .filter(|&i| secret.is_char_boundary(i) && secret.is_char_boundary(i + len))
-        .map(|i| &secret[i..i + len])
+        .map(|i| (i, &secret[i..i + len]))
         .collect()
 }
 
@@ -415,22 +415,25 @@ async fn tm_32_nothing_a_message_brought_reaches_the_bridges_stderr() {
         "{stderr}"
     );
     let over_long_marker = format!("qx7h-{}", "h".repeat(16));
-    for secret in [
-        over_long_marker.as_str(),
-        not_json,
-        "qx7u-tP9w-E2c",
-        malformed,
-        normal,
-        reply_text,
-        token.as_str(),
-        message_id.as_str(),
-        PEER,
-        SOURCE_ENDPOINT,
+    // A hit is reported by the secret's name and where it sits, never
+    // by its bytes or stderr's: a failing run's message is a CI log line.
+    for (name, secret) in [
+        ("the over-long host line", over_long_marker.as_str()),
+        ("the non-JSON host line", not_json),
+        ("the unminted token", "qx7u-tP9w-E2c"),
+        ("the malformed envelope", malformed),
+        ("the normal payload", normal),
+        ("the reply's text", reply_text),
+        ("the minted reply token", token.as_str()),
+        ("the message id", message_id.as_str()),
+        ("the peer id", PEER),
+        ("the source endpoint", SOURCE_ENDPOINT),
     ] {
-        for window in windows(secret, 8) {
+        for (offset, window) in windows(secret, 8) {
+            let at = stderr.find(window);
             assert!(
-                !stderr.contains(window),
-                "stderr carries {window:?} of {secret:?}:\n{stderr}"
+                at.is_none(),
+                "stderr carries {name}'s bytes from {offset} at byte {at:?} of stderr"
             );
         }
     }
