@@ -233,9 +233,14 @@ From the top:
   (`sent_at_ms`), which a peer chooses. Day separators and the
   one-minute grouping use it too.
 - The time is the last message's, computed in the phone's time zone:
-  the time of day for today, "Yesterday", the day of the week within
-  the last seven days (today and the six calendar days before it),
-  else the month and day (and the year when it is not this year). A
+  the time of day for today, "Yesterday", and for every earlier day a
+  short date with its weekday, "Sat 17 Oct", with the year when it is
+  not this year ("Fri 17 Oct 2025"); the row's accessible label reads
+  the full date ("Saturday, 17 October 2026"). (The owner, 2026-10-21,
+  at the phone: "not simply "Saturday" but "Saturday, 17 October
+  2026"", and, asked where, the short form on the row and the full one
+  in the day separator, "Today" and "Yesterday" kept. Until then this
+  read the weekday alone within the last seven days.) A
   time later than now (a clock set back) counts as today, never as a
   future day. The time of day follows the phone's 12- or 24-hour
   setting (`DateFormat.is24HourFormat`), read again when it changes
@@ -292,10 +297,10 @@ From the top:
     means read (§5 there).
   - Consecutive messages from the same side within a minute sit 2 dp
     apart. A change of side, 8 dp. A day change shows a centred
-    separator in body small, naming the day: "Today", "Yesterday", the
-    day of the week within the last seven days, else the month and day
-    (and the year when it is not this year), with days counted as in
-    §5.2. For a screen reader, the separator is an item of its own. It
+    separator in body small, naming the day: "Today", "Yesterday", and
+    for every earlier day the full date with its weekday and year,
+    "Saturday, 17 October 2026" (the owner's words, §5.2), with days
+    counted as in §5.2. For a screen reader, the separator is an item of its own. It
     is read before the messages of its day.
   - In a **direct** conversation the author line ("...x6gY6Eri", "You")
     is removed: there are two parties and the bubble's side shows which.
@@ -484,10 +489,13 @@ that exist.
 | `OfflineBanner` (#313, not yet on main) | language-culture's | the notice banner under a conversation's app bar while the device is offline (F7) |
 | `DetailsPeerId`, `DetailsChannelId`, `DetailsRoute`, `CopyPeerId`, `CopyChannelId`, `Close`, `PeerIdCopied`, `ChannelIdCopied` (#313, not yet on main) | PeerId · Channel ID · Route named by the peer, not verified: "{route}" · Copy PeerId · Copy channel ID · Close · PeerId copied · Channel ID copied | the Details dialog and its copy confirmation (Android review F11); they replace `ConversationId`'s "Identifier, select to copy" |
 | `Today`, `Yesterday` | Today, Yesterday | day separators; `Yesterday` also in list times (for today the list shows the time of day) |
-| weekdays (seven keys, `Monday` to `Sunday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | day separators and list times within the last seven days |
+| weekdays (seven keys, `Monday` to `Sunday`) | Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday | inside `DateFull` only (the day separator and a row's accessible label) |
+| short weekdays (seven keys, `MondayShort` to `SundayShort`) | Mon, Tue, Wed, Thu, Fri, Sat, Sun | inside the row templates only (new, proposal: the owner's "Sat 17 Oct", 2026-10-21) |
+| full months (twelve keys, `JanuaryFull` to `DecemberFull`) | January … December | inside `DateFull` only (new, proposal) |
 | months (twelve keys, `January` to `December`) | Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec | inside the date templates only |
-| `DateThisYear` | {month} {day} | day separators and list times before the last seven days, this year: "Sep 30" |
-| `DateOtherYear` | {month} {day}, {year} | the same, another year: "Sep 30, 2025" |
+| `DateRowThisYear` | {weekday} {day} {month} | a list time before yesterday, this year: "Sat 17 Oct" (revised, proposal: replaces `DateThisYear` and the weekday alone) |
+| `DateRowOtherYear` | {weekday} {day} {month} {year} | the same, another year: "Fri 17 Oct 2025" (revised, proposal: replaces `DateOtherYear`) |
+| `DateFull` | {weekday}, {day} {month} {year} | a day separator before yesterday, and a row's accessible label for its date: "Saturday, 17 October 2026", the owner's words (new, proposal) |
 | `Time24` | {hour}:{minute} | the time of day, phone set to 24-hour: "01:18", "13:05" |
 | `TimeAm` | {hour}:{minute} AM | the time of day, phone set to 12-hour, before noon: "1:18 AM", "12:05 AM" just after midnight |
 | `TimePm` | {hour}:{minute} PM | the same, from noon: "1:05 PM", "12:30 PM" |
@@ -503,9 +511,12 @@ The weekday, month, date and time values are final (language-culture,
   and `TimePm` it has no leading zero (1–12): 12 is the hour from
   midnight to 1 AM, and from noon to 1 PM.
 - `{month}` is one of the twelve month values. Months are short (three
-  letters, no period) because the list's time column is narrow; a
-  screen reader reads "Sep 30" as the full date. Weekdays stay whole:
-  one word fits, and a short weekday is harder to read.
+  letters, no period) because the list's time column is narrow, and
+  so are the row's weekdays since the owner asked for "Sat 17 Oct"
+  (2026-10-21; this note said until then that a weekday stays whole, as
+  a short one is harder to read: that is why the row's accessible label
+  reads the full date). The separator has room, and reads the whole
+  weekday and month (`DateFull`).
 - Each date and time is one whole template, never assembled: a
   translation may reorder the parts ("30 Sep"), and may put its AM or
   PM word before the time. That is why AM and PM are two templates,
@@ -584,8 +595,10 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
    it still has both messages unread.
 6. The preview is the first line with markdown removed, a link showing
    its text. One's own reads "You: …". The time reads as §5.2 says for
-   a message from today, yesterday, this week, earlier this year and a
-   past year, and comes from `local_at` (a ui-model test with a
+   a message from today, yesterday ("Yesterday"), this week and earlier
+   this year ("Sat 17 Oct") and a past year ("Fri 17 Oct 2025"), the
+   row's accessible label reading the full date, and comes from
+   `local_at` (a ui-model test with a
    peer-asserted time far off). With the phone set to 12-hour the time
    of day shows AM or PM, and switching the setting while the app is
    open changes the list's times.
@@ -598,9 +611,8 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
 8. Received messages are on the start side and sent on the end side,
    with §6's fills, corners and width (at most 80 %). In an RTL locale
    the sides swap. Same-side messages within a minute sit 2 dp apart,
-   and a day change shows its separator as §6 says: a message from two
-   to six days before today under its weekday, an older one under its
-   date.
+   and a day change shows its separator as §6 says: "Today",
+   "Yesterday", and any earlier day as "Saturday, 17 October 2026".
 9. In a channel, each received bubble shows its author, and the
    author's description is the full PeerId. In a direct conversation
    no bubble shows an author line.
