@@ -504,6 +504,259 @@ def human_chat_v2_brotli_decode(vector: dict) -> str:
     return "sha256:" + hashlib.sha256(decoded).hexdigest()
 
 
+CARD_PREFIX = b"interweave-card-v1"
+CARD_NAME_MAX_SCALARS = 64
+CARD_PHOTO_MAX_BYTES = 24_576
+CARD_MEDIA_TYPES = ("image/png", "image/jpeg")
+STRICT_BASE64_RE = re.compile(r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$")
+
+# Edwards25519, for the strictness OpenSSL's verify does not apply: it
+# accepts a small-order public key, and a small-order R, when the
+# cofactorless equation holds. The small-order vector's key is small order
+# and its R is not, so the equation holds and only the key check refuses it.
+_ED_P = 2**255 - 19
+_ED_D = (-121665 * pow(121666, _ED_P - 2, _ED_P)) % _ED_P
+_ED_L = 2**252 + 27742317777372353535851937790883648493
+
+
+def _ed_decode(b: bytes):
+    """RFC 8032 §5.1.3 point decoding; None for a non-canonical or invalid encoding."""
+    y = int.from_bytes(b, "little") & ((1 << 255) - 1)
+    sign = b[31] >> 7
+    if y >= _ED_P:
+        return None
+    x2 = (y * y - 1) * pow(_ED_D * y * y + 1, _ED_P - 2, _ED_P) % _ED_P
+    x = pow(x2, (_ED_P + 3) // 8, _ED_P)
+    if (x * x - x2) % _ED_P:
+        x = x * pow(2, (_ED_P - 1) // 4, _ED_P) % _ED_P
+    if (x * x - x2) % _ED_P:
+        return None
+    if x == 0 and sign:
+        return None
+    if x & 1 != sign:
+        x = _ED_P - x
+    return (x, y)
+
+
+def _ed_add(a, b):
+    (x1, y1), (x2, y2) = a, b
+    t = _ED_D * x1 * x2 * y1 * y2 % _ED_P
+    return (
+        (x1 * y2 + x2 * y1) * pow(1 + t, _ED_P - 2, _ED_P) % _ED_P,
+        (y1 * y2 + x1 * x2) * pow(1 - t, _ED_P - 2, _ED_P) % _ED_P,
+    )
+
+
+def _ed_small_order(pt) -> bool:
+    for _ in range(3):  # [8]P
+        pt = _ed_add(pt, pt)
+    return pt == (0, 1)
+
+
+def _strict_base64(text: object) -> bytes | None:
+    """RFC 4648 §4, padded, no whitespace, no other alphabet; None otherwise."""
+    if not isinstance(text, str) or not STRICT_BASE64_RE.fullmatch(text):
+        return None
+    raw = base64.b64decode(text, validate=True)
+    # Non-zero bits in the last character's unused positions decode to the
+    # same bytes; the canonical text is the one the bytes re-encode to.
+    return raw if base64.b64encode(raw).decode("ascii") == text else None
+
+
+def _card_name(value: object) -> str | None:
+    """A name or surname after NFC, or None outside HUMAN-CHAT.md's bounds."""
+    import unicodedata
+
+    if not isinstance(value, str):
+        return None
+    nfc = unicodedata.normalize("NFC", value)
+    if not 1 <= len(nfc) <= CARD_NAME_MAX_SCALARS:
+        return None
+    if any(unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") for ch in nfc):
+        return None
+    return nfc
+
+
+def _card_field(b: bytes) -> bytes:
+    return len(b).to_bytes(2, "big") + b
+
+
+def _card_bytes(name: str, surname: str | None, photo: tuple[str, bytes] | None, peer_id: str, endpoint: str) -> bytes:
+    """HUMAN-CHAT.md §Contact card's canonical card bytes."""
+    return (
+        CARD_PREFIX
+        + _card_field(name.encode("utf-8"))
+        + _card_field((surname or "").encode("utf-8"))
+        + _card_field(photo[0].encode("ascii") if photo else b"")
+        + _card_field(hashlib.sha256(photo[1]).digest() if photo else b"")
+        + _card_field(_base58btc_decode(peer_id))
+        + _card_field(endpoint.encode("utf-8"))
+    )
+
+
+def _card_verifies_strictly(key: bytes, signature: bytes, message: bytes) -> bool:
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    a = _ed_decode(key)
+    r = _ed_decode(signature[:32])
+    if a is None or r is None or _ed_small_order(a) or _ed_small_order(r):
+        return False
+    if int.from_bytes(signature[32:], "little") >= _ED_L:
+        return False
+    try:
+        Ed25519PublicKey.from_public_bytes(key).verify(signature, message)
+    except InvalidSignature:
+        return False
+    return True
+
+
+def _contact_card_verdict(vector: dict) -> tuple[bool, str | None, bytes | None]:
+    """(valid, the rule broken, the receiver's canonical bytes if reached)."""
+    env = vector["envelope"]
+    ctx = vector["received_on"]
+    if not isinstance(env, dict) or env.get("v") != 2:
+        return False, "version", None
+    if env.get("kind") != "contact_card":
+        return False, "kind", None
+    mid = env.get("app_message_id")
+    if not isinstance(mid, str) or not HEX32_RE.fullmatch(mid):
+        return False, "app-message-id", None
+    if "text" in env:
+        return False, "text-present", None
+    if "reply_to" in env:
+        return False, "reply-to-present", None
+    sent = env.get("sent_at_ms")
+    if sent is not None and (isinstance(sent, bool) or not isinstance(sent, int) or not 0 <= sent <= SENT_AT_MS_MAX):
+        return False, "sent-at-ms", None
+    src = env.get("from_endpoint")
+    if src is not None and not endpoint_id_grammar_v1({"endpoint_id": src}):
+        return False, "from-endpoint", None
+    card = env.get("card")
+    if not isinstance(card, dict):
+        return False, "card", None
+    name = _card_name(card.get("name"))
+    if name is None:
+        return False, "name", None
+    surname = None
+    if "surname" in card:
+        surname = _card_name(card["surname"])
+        if surname is None:
+            return False, "surname", None
+    photo = None
+    if "photo" in card:
+        p = card["photo"]
+        if not isinstance(p, dict) or p.get("media_type") not in CARD_MEDIA_TYPES:
+            return False, "photo-media-type", None
+        data = _strict_base64(p.get("data"))
+        if data is None:
+            return False, "photo-encoding", None
+        if len(data) > CARD_PHOTO_MAX_BYTES:
+            return False, "photo-size", None
+        photo = (p["media_type"], data)
+    key = _strict_base64(card.get("identity_key"))
+    if key is None:
+        return False, "identity-key-encoding", None
+    if len(key) != 32:
+        return False, "identity-key-length", None
+    sig = _strict_base64(card.get("signature"))
+    if sig is None:
+        return False, "signature-encoding", None
+    if len(sig) != 64:
+        return False, "signature-length", None
+    message = _card_bytes(name, surname, photo, ctx["peer_id"], ctx["source_endpoint"])
+    if not _card_verifies_strictly(key, sig, message):
+        return False, "signature-fails", message
+    return True, None, message
+
+
+def human_chat_v2_contact_card_v1(vector: dict) -> dict:
+    """From architecture/clients/human/HUMAN-CHAT.md §Contact card (ADR-0059, ADR-0063).
+
+    The verdict on a received card, the PeerId and source endpoint taken
+    from `received_on` — the connection — never from the envelope. The
+    checks beside the verdict keep each vector what it says it is:
+    `canonical_bytes_hex`, where stated, is the receiver's canonical
+    bytes; a test-only signer's public key is its seed's, and the card's
+    signature is that seed's over the bytes `signed_over` names (Ed25519
+    signing is deterministic, so a malformed vector fails for its rule and
+    not for a signature nobody made); a small-order signer's key is small
+    order and its signature's R is not, and `lax_verifies` says whether
+    OpenSSL's cofactorless verify accepts it, which is what makes the
+    strict rule on the key the one that refuses; a stated
+    `fingerprint_hex` is the key's (ADR-0063 decision 1) and a stated
+    `photo_pixels` the PNG's IHDR size.
+    """
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+
+    valid, rule, message = _contact_card_verdict(vector)
+    stated = vector.get("canonical_bytes_hex")
+    if stated is not None and (message is None or stated != message.hex()):
+        raise ValueError("canonical_bytes_hex is not the receiver's canonical bytes for this card")
+
+    card = vector["envelope"].get("card", {})
+    signer = vector["signer"]
+    if "test_only_seed_hex" in signer:
+        sk = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(signer["test_only_seed_hex"]))
+        pub = sk.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        if signer.get("public_key_base64") != base64.b64encode(pub).decode("ascii"):
+            raise ValueError("the signer's public key is not its test-only seed's")
+        fp = signer.get("fingerprint_hex")
+        if fp is not None and fp != hashlib.sha256(pub).digest()[:8].hex():
+            raise ValueError("fingerprint_hex is not the first 8 bytes of the key's SHA-256")
+        over = dict(signer.get("signed_over", {}))
+        ctx = vector["received_on"]
+        signed_photo = None
+        if isinstance(card.get("photo"), dict):
+            p = card["photo"]
+            # What was signed is the photo before any wire mangling: the
+            # encoding vectors bend the base64, not the image.
+            raw = base64.b64decode(re.sub(r"\s", "", p["data"]).replace("-", "+").replace("_", "/"))
+            signed_photo = (p["media_type"], raw)
+        import unicodedata
+
+        signed = _card_bytes(
+            unicodedata.normalize("NFC", over.get("name", card["name"])),
+            unicodedata.normalize("NFC", card["surname"]) if "surname" in card else None,
+            signed_photo,
+            over.get("peer_id", ctx["peer_id"]),
+            over.get("source_endpoint", ctx["source_endpoint"]),
+        )
+        if card.get("signature") != base64.b64encode(sk.sign(signed)).decode("ascii"):
+            raise ValueError("the card's signature is not the test-only key's over the bytes signed_over names")
+    elif "small_order_public_key_hex" in signer:
+        key = bytes.fromhex(signer["small_order_public_key_hex"])
+        pt = _ed_decode(key)
+        if pt is None or not _ed_small_order(pt):
+            raise ValueError("small_order_public_key_hex is not a small-order point")
+        if card.get("identity_key") != base64.b64encode(key).decode("ascii"):
+            raise ValueError("the card's identity_key is not the small-order key")
+        # A small-order R would be refused by the R check as well, and the
+        # vector would then pin nothing about the key: an implementation
+        # refusing only small-order R would pass it.
+        r = _ed_decode(base64.b64decode(card["signature"])[:32])
+        if r is None or _ed_small_order(r):
+            raise ValueError("the small-order card's R is small order too, so the key rule is not what refuses it")
+        try:
+            Ed25519PublicKey.from_public_bytes(key).verify(base64.b64decode(card["signature"]), message or b"")
+            lax = True
+        except InvalidSignature:
+            lax = False
+        if signer.get("lax_verifies") is not lax:
+            raise ValueError(f"lax_verifies is {signer.get('lax_verifies')}, OpenSSL's verify says {lax}")
+    else:
+        raise ValueError("signer names neither a test-only seed nor a small-order key")
+
+    pixels = vector.get("photo_pixels")
+    if pixels is not None:
+        data = base64.b64decode(card["photo"]["data"])
+        if data[12:16] != b"IHDR" or [int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")] != pixels:
+            raise ValueError("photo_pixels is not the PNG's IHDR size")
+    return {"valid": valid, "rule": rule}
+
+
 def config_v2_cross_field(vector: dict) -> bool:
     """From architecture/config/config.schema.yaml §endpoints cross-field.
 
@@ -795,6 +1048,9 @@ ALGORITHMS = {
     "endpoint-id-grammar-v1": (endpoint_id_grammar_v1, "valid", False, ()),
     "human-chat-v2-envelope": (human_chat_v2_envelope, "valid", False, ()),
     "human-chat-v2-brotli-decode": (human_chat_v2_brotli_decode, "result", False, ()),
+    "human-chat-v2-contact-card-v1": (
+        human_chat_v2_contact_card_v1, ("valid", "rule"), False, (),
+    ),
     "config-v2-cross-field": (config_v2_cross_field, "valid", False, ()),
 }
 
