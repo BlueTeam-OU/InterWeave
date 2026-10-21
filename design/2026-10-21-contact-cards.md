@@ -122,7 +122,8 @@ From the contracts, listed so a reviewer can check each screen:
   d. 9, §5.7): every screen shows only the identity in front's
   conversations, contacts and card; every screen that can send, share,
   accept, create or delete names it, and the send control names it
-  beside itself; it changes only on the person's switch; no list,
+  beside itself; it changes only on one of the person's acts that §5.7.3
+  lists, and is named right after; no list,
   search, chooser or warning draws on another identity's data. While
   the person holds one identity, nothing asks and the identity is shown
   only where asked for (ADR-0061 d. 3).
@@ -654,8 +655,9 @@ identity's card is reached as Your card (§4).
 On the Chats screen's top app bar, between the title and the ⋮ (§4):
 the **identity switch**, a control showing the identity in front's
 24 dp avatar, its name (the card's name, else its route label), and a
-▾. It is the only control in the app that changes the identity in
-front. Its accessible name is `IdentitySwitch` ("Identity: {identity}.
+▾. It is the only control whose purpose is to change the identity in
+front; §5.7.3 lists the other acts of the person's that change it as a
+consequence. Its accessible name is `IdentitySwitch` ("Identity: {identity}.
 Switch identity"); its target is at least 48 dp high; its name takes
 what width is left after "Chats" and the ⋮ and ellipsises at the end,
 never below the avatar and three graphemes, the full name in the
@@ -709,8 +711,20 @@ front, because only its conversations are shown.
 
 #### 5.7.3 Switching
 
-Choosing another identity in the switcher, and only that, switches.
-Everything shown changes together, at once: the Chats list becomes the
+**What changes the identity in front**, all of it and nothing else,
+each an act of the person's and each named to them right after:
+
+1. choosing another identity in the switcher (§5.7.1);
+2. **Switch back** on the snackbar a switch shows (below);
+3. opening a notification of another identity (§5.7.5), named by the
+   transition before anything is shown;
+4. removing the identity in front (§5.2), named by Remove's snackbar;
+5. at the app's start, the default comes in front only when the
+   identity last in front is gone (below), and the switch names it.
+
+Starting the app otherwise, opening a contact, Your identities or an
+identity's page, adding an identity and Make default change nothing.
+A switch, by any of these, changes everything shown together, at once: the Chats list becomes the
 new identity's conversations, the switch shows its name, and on a wide
 layout an open conversation closes and its pane shows the new
 identity's empty-pane placeholder, since the conversation belongs to the
@@ -758,8 +772,8 @@ the identity in front at its top before anything can be sent
 and ask nothing: no choice of identity, since a chooser that could pick
 another identity while this one is in front is the confusion the
 owner's rule forbids (ADR-0061 d. 3). To start as another identity, the
-person switches first, on Chats (§5.7.1), the one place a switch is
-made.
+person switches first, on Chats (§5.7.1); nothing on this screen
+switches.
 
 #### 5.7.5 Notifications
 
@@ -1267,10 +1281,12 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     identity. Every screen of §5.7.2's table shows its naming, checked
     screen by screen; with one identity none of it shows and no
     question is asked.
-20. **The switch is the only way.** Starting the app, opening a
-    contact, opening Your identities or an identity's page, adding an
-    identity and Make default each leave the identity in front
-    unchanged; choosing another identity in the switcher changes the
+20. **Only §5.7.3's five acts switch.** Starting the app with the
+    identity last in front still held, opening a contact, opening Your
+    identities or an identity's page, adding an identity and Make
+    default each leave the identity in front unchanged; each of the
+    five acts switches and names the identity right after; choosing
+    another identity in the switcher changes the
     list, the switch's name and every "As" line at once and shows
     `ConfirmIdentitySwitched`; Switch back returns. On a wide layout an
     open conversation closes on a switch.
@@ -1311,9 +1327,10 @@ data). Offered for the Stage 22 list, which plan §30 step 4 has
 rust-ui-dev propose and architect-cto rule, the person-facing ones this
 note adds:
 
-- the identity in front changes only on the switcher or on opening a
-  notification of another identity, and the change is named right
-  after it;
+- the identity in front changes only on the person's acts of §5.7.3
+  (the switcher, Switch back, opening a notification of another
+  identity, removing the identity in front, and at start the default
+  when the last one is gone), and the change is named right after it;
 - a notification of another identity is opened only after a transition
   naming that identity;
 - no notification summary, badge or announcement mixes the content of
