@@ -638,3 +638,43 @@ fixed three facts the Decision paragraph now carries: the load-time
 check judges the file and leaves the directory to the lock; the raise
 is under the lock after the runtime's start, so a refused start writes
 nothing; the marker is re-read after the lock.
+
+### Amendment 2026-10-21 — The endpoint overlay carries the endpoints added through the administrative method, an authored endpoint's advertise delta, and the composed-profile check asks for one enabled identity
+
+ADR-0061 makes a user identity a configured EndpointId of the node with
+its own card, several on one phone, created through the administrative
+boundary. Registration stays configured-only (ENDPOINTS.md), and this
+record keeps `config.yaml` authored and unrewritten and pinned the
+endpoint overlay to `{enabled, default}` (A 2026-10-11), so an endpoint
+the person adds had no home: #335's blind review named it (F29). Ruled:
+the overlay gains an `added` member holding each added endpoint's
+definition — the fields a configured endpoint has in `config.yaml` —
+beside the enabled and default deltas, under the overlay's every rule
+(owner-only, atomic, trust boundary, normalised at load); added and
+authored endpoints together obey the profile's 64-endpoint bound
+(`MAX_ENDPOINTS`; ENDPOINTS.md's table row, which once read a default
+of 16 no key held, now says 64). The method itself is
+p2p-network-dev's, an IPC minor under ADR-0017.
+Round 11 of #335's review (F32) read the member against the paragraph's
+other sentences: normalisation now judges "configured" as authored and
+added together, so a disable or a default of an added endpoint is not
+undone at restart; an `added` id that `config.yaml` also authors fails
+the load by name; the no-`source` sentence and the two Android sentences
+say that an added endpoint is configured and that the embedded host
+writes `added` through the availability overlay's seam.
+Round 14 (F47, F51) added two more: an `advertise` delta for an
+authored endpoint — the one authored field the overlay may change,
+written once by the human client at its first Stage 22 open so that
+the authored `human` identity stops being advertised without
+`config.yaml` being rewritten — and the composed-profile check, which
+asked for the embedded runtime's lease endpoint to be enabled and now
+asks for one enabled identity, authored or added, so that an authored
+identity can be disabled once another is enabled (ADR-0061 decision 7).
+Round 15 (F52, F56) named the writers: `admin.endpoints.set_advertise`
+on the desktop, the embedded host on Android (its member list gains
+`advertise`), the human client asserting the delta at every open rather
+than once, and `advertise` described as a second authored field beside
+`enabled`, not the only one.
+Round 17 (F62): the client asserts the delta before it takes the
+identity's lease, at every acquisition of that lease, so no window exists
+in which a listed-and-leased identity answers a directory query.

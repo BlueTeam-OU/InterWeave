@@ -20,7 +20,7 @@ Adopt Model B as transport contract v2:
 - no direct local fan-out occurs in v2;
 - endpoint-specific policy may narrow, never widen, profile PeerTrustPolicy;
 - endpoint leases are runtime-only and disappear on IPC disconnect;
-- endpoint identifiers are routing labels, not human/application identity proof or an authorization principal; endpoint ACLs remain PeerId-based;
+- endpoint identifiers are routing labels, not human/application identity proof or an authorization principal; endpoint ACLs remain PeerId-based — above transport, the human client presents one **user identity** per EndpointId it holds, with a display name and a photo (ADR-0061, A 2026-10-21): a use of the label the person sees, not a change to what the transport authenticates, which stays the PeerId alone;
 - no daemon-side buffering exists for an unavailable endpoint;
 - implementation target becomes `/interweave/direct/2.0.0` and IPC major version 2.
 
@@ -55,3 +55,9 @@ No second Swarm or PeerId is created. Broadcast and discovery remain unchanged. 
 ## Revisit conditions
 
 Revisit if endpoint leases must be shared by multiple local processes, if cryptographic sub-identities are required, if offline endpoint delivery becomes a product requirement, or if endpoint-specific authentication must be stronger than the same-user IPC boundary.
+
+## Amendments
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-21 | An EndpointId is the human client's user identity above transport | Decision: ADR-0061 presents one user identity per EndpointId — a display name and a photo, several on one node — as a use of the label above transport; the transport authenticates the PeerId alone, a remote source endpoint stays peer-asserted, endpoint policy still narrows and never widens, and nothing on the wire changes. |
