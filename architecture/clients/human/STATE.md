@@ -8,14 +8,14 @@ Use a versioned SQLite database behind a Rust `human-store` crate on desktop and
 
 The store is **not** a conventional permanent conversation-history database. Message content is durable only in the retention states defined by `RETENTION.md`.
 
-The store is encrypted at rest as a whole — pages, write-ahead log and journal — under a per-profile store key the platform's custody seals (A 2026-10-21, ADR-0060): on Android an `AndroidKeyStore`-wrapped key under the `background-compatible` policy, on the v1 desktop an owner-only sealed key file beside the identity key at ADR-0038's `filesystem-only` level, moving into ADR-0038's envelope when it lands. The mechanism is SPIKE-011's to select within ADR-0060 decision 4; a store whose key is missing or invalidated is a store-health condition whose one action is discard and recreate, never an identity condition.
+The store is encrypted at rest as a whole — pages, write-ahead log and journal — under a per-profile store key the platform's custody seals (A 2026-10-21, ADR-0060): on Android an `AndroidKeyStore`-wrapped key under the `background-compatible` policy, on the v1 desktop one owner-only sealed key file `<state_dir>/human-store.key`, under the state root and outside this directory so a copy of `<state_dir>/human` leaves it behind, at ADR-0038's `filesystem-only` level, moving into ADR-0038's envelope when it lands. The mechanism is SPIKE-011's to select within ADR-0060 decision 4; a store whose key is missing or invalidated is a store-health condition whose one action is discard and recreate, never an identity condition.
 
 ## Logical tables
 
 Conceptually:
 
 ```text
-contacts(contact_id, display_name, avatar_ref?, notes?, created_at, updated_at)
+contacts(contact_id, display_name, surname?, avatar_ref?, notes?, created_at, updated_at)   -- surname: A 2026-10-21, ADR-0059, by plan §29 step 2's migration
 contact_routes(contact_id, peer_id, endpoint_id, device_label?, verification_note?, last_seen?)
 conversation_index(conversation_id, peer_id, endpoint_id?, channel_id?, title?, last_activity?)
 pending_outbound(local_row_id, conversation_id, app_message_id, transport_message_id,

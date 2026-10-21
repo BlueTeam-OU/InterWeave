@@ -14,7 +14,7 @@ The owner's direction fills that gap: each person loads their own contact data �
 
 2. **A card is sent only on the person's explicit action** — "share my card" with a conversation's counterparty — never automatically on first contact, on connection, on a card received, or to a channel. A card is never broadcast: a `contact_card` received over broadcast is ignored. Sending one's card is telling one peer who one is; a client that did it unasked would publish the person's name to every peer the trust set admits.
 
-3. **A received card is a proposal, not a contact.** The receiving client holds it as inbound content of that conversation under ADR-0044's retention rules — unread until the person acts — and shows it as "this peer says they are <name>", beside the PeerId the trust indicators are tied to. Nothing is written to `contacts` or `contact_routes` until the person **accepts** it; accepting creates (or, for a route already under a contact, updates) the contact with the card's name and photo and the route `{source_peer, source_endpoint}`; declining or dismissing discards the card. A later card from the same route is a new proposal that replaces nothing until accepted. The person may edit any accepted value, and a local edit is never overwritten by a later card.
+3. **A received card is a proposal, not a contact.** The receiving client holds it as inbound content of that conversation under ADR-0044's retention rules — unread until the person acts — and shows it as "this peer says they are <name>", beside the PeerId the trust indicators are tied to. Nothing is written to `contacts` or `contact_routes` until the person **accepts** it; accepting creates (or, for a route already under a contact, updates) the contact with the card's name, surname and photo — `contacts` gains a `surname` column for it, by the migration plan §29 step 2 records in STATE.md, and the clients show name then surname — and the route `{source_peer, source_endpoint}`; declining or dismissing discards the card. **A proposal follows the retention rules of the conversation it arrived in (ADR-0044, RETENTION.md):** it is unread content until shown, and once shown and not accepted it is read-but-unkept content, gone when the process exits like any other item the person did not keep; the counterparty can send the card again. An accepted contact is application metadata outside any conversation: it stays when the conversation empties and disappears at close, and the person removes it only by deleting the contact. A later card from the same route is a new proposal that replaces nothing until accepted. The person may edit any accepted value, and a local edit is never overwritten by a later card.
 
 4. **Grouping stays manual and trust stays per route** (ADR-0043). Two cards with the same name from two PeerIds are two proposals; the person may put both routes under one contact, and the client never merges on the strength of a name or a photo. Accepting a card changes no trust: the route was already in the data-plane trust set (or the card would not have been received), and a contact name grants nothing — ADR-0032's rule that a label is never an authentication factor is unchanged.
 
@@ -24,7 +24,7 @@ The owner's direction fills that gap: each person loads their own contact data �
 
 7. **Desktop and Android share the implementation**: the `chat-protocol`, `store`, `app-core` and `ui-model` crates are the ones both clients already build on (ADR-0039), so the card, the proposal, the acceptance and the contact rows are written once; each client adds its screens. An automated client (ADR-0055) receives a card as data like any payload, may surface the name to its operator, and routes and trusts on the PeerId alone, as before.
 
-8. **The recovery phrase restores no contact** (ADR-0043, `human-client-ui.md` §9): a card accepted on one device lives in that device's store. A person who wants the contact on a second device accepts the counterparty's card there, or the explicit encrypted application backup of ADR-0044 carries the store — not this record's.
+8. **The recovery phrase restores no contact** (ADR-0043, `human-client-ui.md` §9): a card accepted on one device lives in that device's store. No backup carries a contact today: ADR-0044's future backup covers message content only, and the device-to-device backup over InterWeave of ADR-0060 decision 8 carries contacts only if its own record says so. A person who wants the contact on a second device accepts the counterparty's card there.
 
 ## Alternatives considered
 
@@ -38,7 +38,7 @@ The owner's direction fills that gap: each person loads their own contact data �
 
 ## Consequences
 
-Conversations gain names the counterparty chose, with one tap by the receiver and none of the keyboard work the Stage 15 carry assumed. The chat contract gains a second kind, and the parser's "not `text` is malformed" rule becomes "not a known kind is malformed", unchanged in effect for every client built so far since nothing has shipped. The store's two dormant tables get their writers. The carried contacts UX (plan §18, carry 11) is this record's work, and the owner's privacy review named there is discharged by decisions 2, 3 and 6 as far as the card goes; the plan carries it under §29.
+Conversations gain names the counterparty chose, with one tap by the receiver and none of the keyboard work the Stage 15 carry assumed. The chat contract gains a second kind, and the parser's "not `text` is malformed" rule becomes "not a known kind is malformed", unchanged in effect for every client built so far since nothing has shipped. The store's two dormant tables get their writers. The carried contacts UX (plan §18, carry 11) is this record's work, and decisions 2, 3 and 6 are input to the owner's privacy review named there, not its discharge: the owner answers that review at §29's exit gate (d), over the card and over what STATE.md already puts in it (`read_pairs`, `conversation_index`, `contact_routes.last_seen`).
 
 ## Security implications
 
@@ -46,7 +46,7 @@ A card is peer-controlled content and is treated as such end to end: it is held 
 
 ## Operational implications
 
-Nothing changes for the daemon or the transport: a card is a 48 KiB-bounded direct message. The Android manifest gains nothing; the tree check of decision 6 fails a change that adds a contacts permission or a contacts library. Stage 19's upgrade and rollback rows learn the schema change that holds a card proposal, if the implementation needs one beyond the `unread_inbound` row the envelope already lands in.
+Nothing changes for the daemon or the transport: a card is a direct message under the 49,152-byte hard ceiling, and under a profile's lower configured limit the client offers to send it without the photo (HUMAN-CHAT.md §Contact card). The Android manifest gains nothing; the tree check of decision 6 fails a change that adds a contacts permission or a contacts library. Stage 19's upgrade and rollback rows learn the schema change that holds a card proposal, if the implementation needs one beyond the `unread_inbound` row the envelope already lands in.
 
 ## Implementation implications
 
@@ -54,4 +54,4 @@ HUMAN-CHAT.md §Contact card is the wire shape and the malformed cases, with fix
 
 ## Revisit conditions
 
-When an application identity layer with a stronger binding than the PeerId exists (ADR-0032's "higher-level application identity system"), when a third-party introduction is wanted, when the encrypted application backup of ADR-0044 lands and should carry contacts, or when a client is asked to show a card's photo before acceptance.
+When an application identity layer with a stronger binding than the PeerId exists (ADR-0032's "higher-level application identity system"), when a third-party introduction is wanted, when the device-to-device backup of ADR-0060 decision 8 is designed and should carry contacts, or when a client is asked to show a card's photo before acceptance.

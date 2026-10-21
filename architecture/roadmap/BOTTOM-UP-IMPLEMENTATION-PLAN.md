@@ -150,7 +150,7 @@ Spikes are **just-in-time implementation gates**, not a large front-loaded phase
 | SPIKE-001 | Stage 16 Claude bridge | **CLOSED 2026-10-03, PASS for implementation against Claude Code 2.1.285** — the handshake era, the development-flag delivery condition, the `plugin.json` `channels` manifest, the tag rendering and escaping, deferred tools, SIGINT shutdown; four architecture sentences amended on the verdict (SPIKES.md's record); eight things not established, carried into §19 |
 | SPIKE-005 | admin hardening when enabled | stronger same-user local admin boundary |
 | SPIKE-007 | optional encrypted key-at-rest feature | selected audited envelope/KDF/AEAD behavior |
-| SPIKE-011 | the §29 store work, and any §22 release that ships a human store | the page-cipher store build for Linux and Android, its open/commit/read cost against the store benchmarks, RETENTION.md's deletion property on the encrypted file, the licence and vendored-advisory consequences; its Result pins the mechanism within ADR-0060 decision 4 or records the fallback |
+| SPIKE-011 | the §29 store work, and any §22 release that ships a human store | the page-cipher store build for Linux and Android, its open/commit/read cost against the plaintext baseline the spike itself defines (none exists today) under ADR-0060 decision 4's criterion, RETENTION.md's deletion property on the encrypted file, the licence and vendored-advisory consequences; its Result pins the mechanism within ADR-0060 decision 4 or records the fallback |
 | SPIKE-008 | Stage 17 Android lifecycle/packaging | foreground service, secure recovery UI, backup/D2D behavior, store policy |
 | SPIKE-009 | Stage 17 Android key custody | Android Keystore wrapping/invalidation and exact-PeerId preservation |
 
@@ -5908,8 +5908,9 @@ as §19's Stage 16 ran beside Stage 15, the closing record names it as
 opened, and the status value stays the lowest open stage, Stage 18's
 slug once Stage 17 has closed. It is numbered after §28 so that no citation of
 §23–§28 moves. It takes over Stage 15's carry 11 (§18: a new conversation
-by PeerId, the contacts UX and the owner's privacy review), whose
-privacy half ADR-0059 decisions 2, 3 and 6 answer for the card.
+by PeerId, the contacts UX and the owner's privacy review); ADR-0059
+decisions 2, 3 and 6 are input to that review, which the owner answers
+at the exit gate's (d).
 
 ### Objective
 
@@ -5957,9 +5958,11 @@ and `crates/human/ui-slint`, the two clients under `apps/`, and
    exclude every domain from `cloud-backup` and `device-transfer`
    (the retention conformance suite's item 13, unprovable there).
 3. **The encrypted store** (rust-ui-dev, after SPIKE-011): the store
-   key, its versioned sealed file, the Android sealing through the
-   custody seam under `background-compatible`, the desktop sealed file
-   beside the identity key, the plaintext-to-encrypted rewrite at first
+   key, its versioned sealed file, the Android sealing in its own
+   alias namespace apart from the seed custody under
+   `background-compatible`, the desktop sealed file
+   `<state_dir>/human-store.key`, the `surname` column of step 2's
+   migration if not already landed, the plaintext-to-encrypted rewrite at first
    open and the rollback refusal by name, the store-health condition and
    its one action, RETENTION.md's deletion property measured on the
    encrypted file, and §22's upgrade and rollback rows learning the case.
@@ -5984,8 +5987,10 @@ name, a route or a retained message after a clean close and after an
 unclean one; a store whose key is missing opens nothing, reports the
 condition, and discard-and-recreate leaves the identity and trust
 untouched; (c) SPIKE-011's Result cited with its figures; (d) the
-owner's privacy review of Stage 15's carry 11 answered in the record,
-naming what the card still discloses (ADR-0059, Security implications).
+owner's privacy review of Stage 15's carry 11 answered in the record —
+over the card (what it still discloses: ADR-0059, Security
+implications) and over `read_pairs`, `conversation_index` and
+`contact_routes.last_seen`, which STATE.md puts in the same review.
 
 ### Record
 

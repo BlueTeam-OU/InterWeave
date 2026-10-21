@@ -486,14 +486,18 @@ decision 4.
 
 **Objective:** select and validate an authenticated page-level cipher
 for the human store that builds for every target the clients ship on,
-`aarch64-linux-android` included, and costs within the store-health
-budgets the clients hold.
+`aarch64-linux-android` included, and costs within ADR-0060 decision
+4's criterion against a plaintext baseline this spike defines first:
+no store benchmark and no store-health time budget exist in the tree.
 
 **Experiment:** build the first candidate — the page-cipher
 amalgamation `rusqlite` already offers — for Linux and Android, with
-and without a vendored TLS library for its primitives; measure open,
-commit and read against the Stage 15 and Stage 17 store benchmarks on
-the plaintext build and the encrypted one; measure RETENTION.md's
+and without a vendored TLS library for its primitives; define the
+baseline — open, commit-unread and read-conversation timings on the
+plaintext store, on the desktop host and on the Stage 17 reference
+device — and measure the same on the encrypted one, against the
+criterion (within twice the baseline per operation, a cold open under
+one second on the device); measure RETENTION.md's
 deletion property (released content absent from every file of the
 store after a clean close and after the next open following an unclean
 one) on the encrypted file; exercise a wrong key, a missing key file,
