@@ -233,8 +233,10 @@ client prepares what will be sent from the picked image:
 - the preview shows the prepared bytes, decoded, not the original, so
   the person sees exactly what a counterparty will see;
 - the prepared image carries nothing but the picture: no EXIF, no
-  location, no camera data, no file name (§12 A3 asks architect-cto to
-  make this a rule);
+  location, no camera data, no thumbnail, no file name: the sender
+  strips every metadata block before the photo enters the card
+  (architect-cto's answer to §12 A3, a rule of HUMAN-CHAT.md §Contact
+  card from their next records PR);
 - an image that cannot be read or prepared leaves the card as it was
   and shows `PhotoUnusable` under the circle.
 
@@ -332,7 +334,7 @@ never looks like a message the app wrote:
 The row carries the time and the status words of any received item
 (Unread, Read) under `human-client-ui.md` §5–§6. It has no Keep: Accept
 is how a card is kept, and keeping an unanswered claim would add a state
-the person cannot use (§12 A2 asks architect-cto to confirm).
+the person cannot use (architect-cto confirmed, §12 A2).
 
 #### 5.4.1 What Accept will do, said before it is done
 
@@ -494,8 +496,8 @@ App bar: back arrow, the name as title, overflow with **Delete contact**
   that trust does not carry across. This is the only way two PeerIds
   come under one contact (ADR-0059 d. 4); no screen suggests it from a
   name or a photo. Moving a contact's last route deletes that contact,
-  and the dialog says so (`MoveRouteLast`). §12 A4 asks whether this is
-  wanted in v1's graphical clients.
+  and the dialog says so (`MoveRouteLast`). It is in v1 on both
+  graphical clients and the command line (architect-cto, §12 A4).
 
 **Remove photo**: at once, snackbar `ConfirmPhotoRemoved` with Undo
 (writes the bytes back). Removing marks the photo a local choice, so a
@@ -534,16 +536,16 @@ PeerId:
 stored data…** (`DiscardStore`, an outlined button in `error`, at the
 start side, apart from the others), then at the end **Close** and **Try
 again** (filled). The ellipsis says a further step follows.
-`RefusalStoreRecovery`'s text ("The file was not changed, moved or
-deleted…") stays true until the person confirms; its sentence on
+`RefusalStoreRecovery`'s text ("Nothing was changed…") stays
+true until the person confirms; its sentence on
 replacing the file with a backup copy no longer fits an encrypted
-store, and goes to language-culture with that reason (§10).
+store; §10 gives what the new text must say (architect-cto, §12 A5).
 
 **Android**: there is no store-recovery screen today (`jni.rs` maps the
 refusal to code −5; nothing presents it as a page). This spec gives it
 one, built on the identity screens' frame
 (`design/2026-10-19-android-identity.md` §3): heading `StoreRecoveryTitle`,
-the reason (`StoreRecoveryBody`), and at the bottom **Try again** (filled), then **Delete stored
+the reason, and at the bottom **Try again** (filled), then **Delete stored
 data…** (outlined, `error`), then **Close** (text; closes the app's
 task). No file path: the person cannot reach it. **K** has heading
 `StoreKeyLostTitle`, body `StoreKeyLostBody` (the phone no longer accepts
@@ -864,8 +866,7 @@ and no string calls a card an "identity" (§1).
 | `DeleteContact` | Delete contact | contact overflow |
 | `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo |
 | `StoreRecoveryTitle` | InterWeave cannot read its stored data | Android R heading |
-| `RefusalStoreRecovery` (revised) | This version of InterWeave cannot read the file below, where it stores your messages and contacts. The file may be damaged, the key that protects it may be lost, or a newer version of InterWeave may have written it. The file was not changed, moved or deleted, and nothing is deleted unless you choose Delete stored data. If a newer version wrote the file, install and start the newest version of InterWeave that you have used, or a newer one. | desktop R body (Android R has its own, `StoreRecoveryBody`): its backup-copy sentence assumes a plaintext file a person can swap; the store is now encrypted and a copy opens only with its key. Must still say the file was not changed until the person chooses |
-| `StoreRecoveryBody` | InterWeave cannot read the data it stored on this phone: your messages, contacts and cards. The data may be damaged, or the key that protects it may be lost. Nothing was changed or deleted, and nothing is deleted unless you choose Delete stored data. | Android R body (new key): Android cannot install an older version over a newer one, so the desktop's newer-version advice is not true here, and Android shows no path |
+| `RefusalStoreRecovery` (revised) | InterWeave cannot read its stored data: your messages, contacts and cards. Nothing was changed. The data opens only with its key on this device, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. Restoring your identity does not bring back this data. | desktop R and Android R body. Must say: the file was not changed; the stored data opens only with its key on this device, and a copy of the file without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Discard and recreate, which loses what it lists; the recovery phrase restores the identity alone, never this data. Must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (architect-cto, §12 A5; ADR-0060 d. 8) |
 | `StoreKeyLostTitle` | The key to your stored data no longer works | K heading |
 | `StoreKeyLostBody` | This phone no longer accepts the key that protects InterWeave's stored data. This can happen after some changes to the screen lock. The data cannot be read again. Your identity is not affected. | K body |
 | `DiscardStore` | Delete stored data… | R, K action |
@@ -922,26 +923,20 @@ For the owner:
   only helps if the person noticed. Until the owner answers, the swipe
   is built as the owner's words give it.
 
-For architect-cto:
+For architect-cto, answered 2026-10-21 (REPLY 01a15d51); each answer
+lands in architect-cto's next records PR, not on #332:
 
-- **A1** — "a local edit is never overwritten" needs the store to know,
-  per contact, whether the name and the photo were typed/chosen locally
-  or came from a card, and when (Details and the contact page show it,
-  §6.3). STATE.md's `contacts` has no such column. Is it a column of
-  the record, or the implementer's in STATE.md?
-- **A2** — a shown proposal has no Keep (§5.4): Accept is the way to
-  keep it. Confirm that `human-client-ui.md` §3's "like any item the
-  person did not keep" does not mean a proposal may be kept unaccepted.
-- **A3** — the sent photo carries no metadata (§5.2, acceptance 11). The
-  person sees only the picture, so anything else in the file (a GPS
-  position in EXIF) would be a disclosure they did not choose. Should
-  HUMAN-CHAT.md §Contact card or ADR-0059 say so, so a non-first-party
-  sender is held to it too?
-- **A4** — moving a route between contacts (§6.3) is ADR-0059 d. 4's
-  manual grouping. Is it in v1's graphical clients, or command-line
-  only for now? The spec is ready either way: without it, §6.3 loses
-  Move and nothing else changes.
-- **A5** — `RefusalStoreRecovery`'s backup-copy advice no longer fits an
-  encrypted store (§7.1). Language-culture rewrites it; is there a
-  replacement the record wants it to say (for example nothing about
-  copies)?
+- **A1** — where a value came from. STATE.md's `contacts` gains, for
+  the name and for the photo, its source (card or person) and when,
+  added by plan §29 step 2's migration. §6.3 and §6.4 are built as
+  written.
+- **A2** — a proposal has no Keep. Confirmed: Accept is the only way a
+  card outlives the session; `human-client-ui.md` §3 will say so.
+- **A3** — the photo carries pixels and nothing else. A rule of
+  HUMAN-CHAT.md §Contact card: the sender re-encodes and strips every
+  metadata block (EXIF, XMP, GPS, thumbnails, file name); a receiver
+  treats any that arrives as absent and never shows it; a fixture
+  case with a GPS block the sender strips. §5.2 and acceptance 11.
+- **A4** — moving a route between contacts is in v1, on both
+  graphical clients and the command line. §6.3 keeps Move.
+- **A5** — `RefusalStoreRecovery`'s new content is given in §10's row.
