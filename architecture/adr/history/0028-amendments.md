@@ -651,8 +651,9 @@ the overlay gains an `added` member holding each added endpoint's
 definition — the fields a configured endpoint has in `config.yaml` —
 beside the enabled and default deltas, under the overlay's every rule
 (owner-only, atomic, trust boundary, normalised at load); added and
-authored endpoints together obey the profile's configured-endpoint
-limit (ENDPOINTS.md's table: default 16, ceiling 64). The method itself is
+authored endpoints together obey the profile's 64-endpoint bound
+(`MAX_ENDPOINTS`; ENDPOINTS.md's table row, which once read a default
+of 16 no key held, now says 64). The method itself is
 p2p-network-dev's, an IPC minor under ADR-0017.
 Round 11 of #335's review (F32) read the member against the paragraph's
 other sentences: normalisation now judges "configured" as authored and
@@ -674,3 +675,6 @@ on the desktop, the embedded host on Android (its member list gains
 `advertise`), the human client asserting the delta at every open rather
 than once, and `advertise` described as a second authored field beside
 `enabled`, not the only one.
+Round 17 (F62): the client asserts the delta before it takes the
+identity's lease, at every acquisition of that lease, so no window exists
+in which a listed-and-leased identity answers a directory query.

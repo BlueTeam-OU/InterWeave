@@ -6092,8 +6092,8 @@ through `set_advertise` or the embedded host (ADR-0028 A 2026-10-21),
 assertion widened in step 1 to allow exactly that delta; an identity the person creates on either platform lands in the
 endpoint overlay's `added` member, never in the authored file), the overlay's
 `added` and `advertise` members in the runtime's loader — their
-normalisation and the profile's configured-endpoint limit over authored
-and added together
+normalisation and the profile's 64-endpoint bound over authored and
+added together
 (ADR-0028 A 2026-10-21) — and — in
 p2p-network-dev's lane, its own PR under ADR-0017's minor rule — the
 administrative methods that add a configured endpoint, remove an
@@ -6146,8 +6146,10 @@ contact with A's unchanged; an identity's endpoint is created with
 advertise off, the authored `human` endpoint's advertise is off after
 provisioning and, on an existing profile, after the client's `advertise`
 delta in the endpoint overlay (ADR-0028 A 2026-10-21), re-asserted at
-every open, and the endpoint directory lists no identity to a trusted
-peer; Remove, after one confirmation listing what
+every lease acquisition before the lease — with `advertise: true`
+authored, a trusted peer's directory query between the client's lease
+and its first send lists no identity — and the endpoint directory lists
+no identity to a trusted peer; Remove, after one confirmation listing what
 goes, deletes an added identity's endpoint from the overlay, removes its
 conversations, its pending outbound (attempted no further, a
 may-have-reached row named), its contacts and its card, has no undo, and
@@ -6162,7 +6164,7 @@ on and opening it switches to that identity visibly first; with two
 identities held, no screen in front of one shows the other's
 conversations, contacts or card, and a share, an Accept and a new
 conversation run under the identity in front and no other (the
-owner's rule, ADR-0061 decision 9); the add refused at the profile's configured-endpoint limit, by name;
+owner's rule, ADR-0061 decision 9); the add refused at the profile's 64-endpoint bound, by name;
 the first identity turned off and never removed, listed as off; an
 agent's or another authored endpoint offered as no identity; after a
 discard of the store the first identity and every added one still

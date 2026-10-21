@@ -285,7 +285,7 @@ Defaults / ceilings:
 
 | Resource | Default | Ceiling |
 |---|---:|---:|
-| configured endpoints/profile | 16 | 64 |
+| configured endpoints/profile | 64 (no per-profile key; the schema's `max=64`, `MAX_ENDPOINTS`; corrected 2026-10-21 with ADR-0061 from a default of 16 nothing held) | 64 |
 | advertised endpoints | 16 | 32 |
 | EndpointId | 64 bytes | 64 bytes |
 | endpoint-directory cache TTL | 60 s | 5 min |
