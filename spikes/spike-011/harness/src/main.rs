@@ -193,6 +193,56 @@ fn store_err(what: &str, e: &StoreError) -> String {
     format!("{what}: {e:?}")
 }
 
+/// THE OPENER THE PLATFORM'S CLIENT USES. On Android the store is judged
+/// up to the app's data directory as the platform reports it, never `/`:
+/// `/data` is `system` `0771`, which the desktop opener refuses by design
+/// (ADR-0028 A 2026-10-08). `SPIKE011_BOUNDARY` names that directory for
+/// a run (device.sh: the run's own directory under `/data/local/tmp`), and
+/// the store is opened as the Android client opens it --
+/// `ProfilePaths::resolve_embedded` and `HumanStore::open_profile`, so
+/// its file sits where the app's does under the boundary. Unset, the
+/// desktop opener, as the desktop rows were measured.
+fn boundary() -> Option<PathBuf> {
+    std::env::var_os("SPIKE011_BOUNDARY").map(PathBuf::from)
+}
+
+fn embedded_paths(boundary: &Path) -> Result<interweave_profile_config::ProfilePaths, String> {
+    let boundary = interweave_profile_config::TrustBoundary::new(boundary)
+        .map_err(|e| format!("boundary {}: {e:?}", boundary.display()))?;
+    interweave_profile_config::ProfilePaths::resolve_embedded(EMBEDDED_PROFILE, boundary)
+        .map_err(|e| format!("embedded paths: {e:?}"))
+}
+
+/// The profile name the embedded runs use; any valid name serves.
+const EMBEDDED_PROFILE: &str = "spike-011";
+
+/// Where a run in `dir` keeps its store: `dir/human.sqlite` on the
+/// desktop, the embedded layout under the boundary on Android.
+fn store_db(dir: &Path) -> Result<PathBuf, String> {
+    match boundary() {
+        Some(b) => Ok(embedded_paths(&b)?
+            .human_dir()
+            .join(interweave_human_store::STORE_FILE)),
+        None => Ok(dir.join("human.sqlite")),
+    }
+}
+
+fn open_store(db: &Path) -> Result<HumanStore, String> {
+    let Some(b) = boundary() else {
+        return HumanStore::open(db, StoreOptions::default()).map_err(|e| store_err("open", &e));
+    };
+    let paths = embedded_paths(&b)?;
+    let expected = paths.human_dir().join(interweave_human_store::STORE_FILE);
+    if expected != db {
+        return Err(format!(
+            "{} is not the embedded store {}",
+            db.display(),
+            expected.display()
+        ));
+    }
+    HumanStore::open_profile(&paths, StoreOptions::default()).map_err(|e| store_err("open", &e))
+}
+
 fn limits() -> PageLimits {
     PageLimits::new(PAGE_RECORDS, PAGE_BYTES).expect("non-zero")
 }
@@ -224,7 +274,11 @@ fn read_walk(store: &HumanStore) -> Result<usize, StoreError> {
 /// the medium. Unprivileged, on the caller's own files; dirty pages are not
 /// dropped, so the files are synced first.
 fn evict(db: &Path) {
-    for path in [db.to_path_buf(), with_suffix(db, "-wal"), with_suffix(db, "-shm")] {
+    for path in [
+        db.to_path_buf(),
+        with_suffix(db, "-wal"),
+        with_suffix(db, "-shm"),
+    ] {
         if let Ok(file) = std::fs::File::open(&path) {
             let _ = file.sync_all();
             use std::os::fd::AsRawFd as _;
@@ -276,30 +330,40 @@ fn versions() -> Result<(), String> {
 }
 
 fn seed(db: &Path, kept: u64) -> Result<(), String> {
-    let mut store = HumanStore::open(db, StoreOptions::default()).map_err(|e| store_err("open", &e))?;
+    let mut store = open_store(db)?;
     for n in 0..kept + UNREAD_BACKLOG {
         let row = store
             .commit_unread_inbound(&inbound(n, line(n)))
             .map_err(|e| store_err("seed commit", &e))?;
         if n < kept {
-            let read = store.mark_read(row, 3_000 + n).map_err(|e| store_err("seed read", &e))?;
-            store.keep(&read, 3_001 + n).map_err(|e| store_err("seed keep", &e))?;
+            let read = store
+                .mark_read(row, 3_000 + n)
+                .map_err(|e| store_err("seed read", &e))?;
+            store
+                .keep(&read, 3_001 + n)
+                .map_err(|e| store_err("seed keep", &e))?;
         }
     }
     Ok(())
 }
 
 fn bench(dir: &Path, kept: u64, reps: usize) -> Result<(), String> {
-    let db = dir.join("human.sqlite");
+    let db = store_db(dir)?;
     if db.exists() {
-        return Err(format!("{} exists: bench seeds its own store", db.display()));
+        return Err(format!(
+            "{} exists: bench seeds its own store",
+            db.display()
+        ));
     }
     seed(&db, kept)?;
     let bytes = std::fs::metadata(&db).map_or(0, |m| m.len());
     let extra = format!(",\"kept\":{kept},\"unread\":{UNREAD_BACKLOG},\"db_bytes\":{bytes}");
 
     let me = std::env::current_exe().map_err(|e| e.to_string())?;
-    let mut open = Stats { op: "open-cold", micros: Vec::new() };
+    let mut open = Stats {
+        op: "open-cold",
+        micros: Vec::new(),
+    };
     for _ in 0..reps {
         evict(&db);
         let out = Command::new(&me)
@@ -308,26 +372,36 @@ fn bench(dir: &Path, kept: u64, reps: usize) -> Result<(), String> {
             .output()
             .map_err(|e| e.to_string())?;
         let text = String::from_utf8_lossy(&out.stdout);
-        let micros = text
-            .trim()
-            .parse::<u128>()
-            .map_err(|_| format!("open-once said {text:?} ({})", String::from_utf8_lossy(&out.stderr)))?;
+        let micros = text.trim().parse::<u128>().map_err(|_| {
+            format!(
+                "open-once said {text:?} ({})",
+                String::from_utf8_lossy(&out.stderr)
+            )
+        })?;
         open.micros.push(micros);
     }
     open.print(&extra);
 
-    let mut store = HumanStore::open(&db, StoreOptions::default()).map_err(|e| store_err("open", &e))?;
-    let mut commit = Stats { op: "commit-unread", micros: Vec::new() };
+    let mut store = open_store(&db)?;
+    let mut commit = Stats {
+        op: "commit-unread",
+        micros: Vec::new(),
+    };
     for k in 0..reps as u64 {
         let n = kept + UNREAD_BACKLOG + k;
         let new = inbound(n, line(n));
         let start = Instant::now();
-        store.commit_unread_inbound(&new).map_err(|e| store_err("commit", &e))?;
+        store
+            .commit_unread_inbound(&new)
+            .map_err(|e| store_err("commit", &e))?;
         commit.micros.push(start.elapsed().as_micros());
     }
     commit.print(&extra);
 
-    let mut read = Stats { op: "read-walk", micros: Vec::new() };
+    let mut read = Stats {
+        op: "read-walk",
+        micros: Vec::new(),
+    };
     let mut rows = 0;
     for _ in 0..reps {
         let start = Instant::now();
@@ -340,7 +414,7 @@ fn bench(dir: &Path, kept: u64, reps: usize) -> Result<(), String> {
 
 fn open_once(db: &Path) -> Result<(), String> {
     let start = Instant::now();
-    let store = HumanStore::open(db, StoreOptions::default()).map_err(|e| store_err("open", &e))?;
+    let store = open_store(db)?;
     let micros = start.elapsed().as_micros();
     drop(store);
     println!("{micros}");
@@ -365,16 +439,23 @@ fn search(db: &Path, case: &str) {
 }
 
 fn deletion(dir: &Path, case: &str) -> Result<(), String> {
-    let db = dir.join("human.sqlite");
+    let db = store_db(dir)?;
     if db.exists() {
-        return Err(format!("{} exists: deletion seeds its own store", db.display()));
+        return Err(format!(
+            "{} exists: deletion seeds its own store",
+            db.display()
+        ));
     }
-    let mut store = HumanStore::open(&db, StoreOptions::default()).map_err(|e| store_err("open", &e))?;
+    let mut store = open_store(&db)?;
     let kept = store
         .commit_unread_inbound(&inbound(2, KEPT.to_vec()))
         .map_err(|e| store_err("kept", &e))?;
-    let read = store.mark_read(kept, 3_000).map_err(|e| store_err("read", &e))?;
-    store.keep(&read, 3_001).map_err(|e| store_err("keep", &e))?;
+    let read = store
+        .mark_read(kept, 3_000)
+        .map_err(|e| store_err("read", &e))?;
+    store
+        .keep(&read, 3_001)
+        .map_err(|e| store_err("keep", &e))?;
     let released = store
         .commit_unread_inbound(&inbound(1, RELEASED.to_vec()))
         .map_err(|e| store_err("released", &e))?;
@@ -383,9 +464,10 @@ fn deletion(dir: &Path, case: &str) -> Result<(), String> {
 
     match case {
         "clean" => {
-            let mut store =
-                HumanStore::open(&db, StoreOptions::default()).map_err(|e| store_err("reopen", &e))?;
-            store.mark_read(released, 4_000).map_err(|e| store_err("release", &e))?;
+            let mut store = open_store(&db).map_err(|e| format!("reopen: {e}"))?;
+            store
+                .mark_read(released, 4_000)
+                .map_err(|e| store_err("release", &e))?;
             drop(store);
         }
         "unclean" => {
@@ -400,8 +482,7 @@ fn deletion(dir: &Path, case: &str) -> Result<(), String> {
                 return Err("the unclean close did not abort".to_owned());
             }
             search(&db, "after-abort");
-            let store = HumanStore::open(&db, StoreOptions::default())
-                .map_err(|e| store_err("the next open", &e))?;
+            let store = open_store(&db).map_err(|e| format!("the next open: {e}"))?;
             drop(store);
         }
         // The control for `pages`: the released marker, unreleased, is
@@ -415,7 +496,7 @@ fn deletion(dir: &Path, case: &str) -> Result<(), String> {
 
 fn abort_after_release(db: &Path, row: &str) -> Result<(), String> {
     let row: i64 = row.parse().map_err(|_| format!("row {row:?}"))?;
-    let mut store = HumanStore::open(db, StoreOptions::default()).map_err(|e| store_err("open", &e))?;
+    let mut store = open_store(db)?;
     store
         .mark_read(RowId::from_stored(row), 4_000)
         .map_err(|e| store_err("release", &e))?;
@@ -481,8 +562,18 @@ fn rollback_check(dir: &Path) -> Result<(), String> {
 fn run(args: &[String]) -> Result<(), String> {
     key::install()?;
     // A cipher build measured without its key would measure plaintext.
-    let keyed_commands = ["bench", "open-once", "deletion", "abort-after-release", "pages"];
-    if args.first().is_some_and(|c| keyed_commands.contains(&c.as_str())) && !key::from_env() {
+    let keyed_commands = [
+        "bench",
+        "open-once",
+        "deletion",
+        "abort-after-release",
+        "pages",
+    ];
+    if args
+        .first()
+        .is_some_and(|c| keyed_commands.contains(&c.as_str()))
+        && !key::from_env()
+    {
         return Err("SPIKE011_KEY is not set".to_owned());
     }
     let arg = |i: usize| args.get(i).ok_or_else(|| format!("missing argument {i}"));
@@ -505,9 +596,11 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         #[cfg(feature = "cipher")]
         Some("start") => migrate::start_report(Path::new(arg(1)?)),
-        _ => Err("usage: versions | bench <dir> <kept> <reps> | open-once <db> | \
+        _ => Err(
+            "usage: versions | bench <dir> <kept> <reps> | open-once <db> | \
                   deletion <dir> clean|unclean|none | abort-after-release <db> <row> | pages <db>"
-            .to_owned()),
+                .to_owned(),
+        ),
     }
 }
 

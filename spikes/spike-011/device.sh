@@ -16,7 +16,9 @@
 # `run` is phone-run's command: it connects, pushes the binaries to a
 # directory of its own under /data/local/tmp (shell's, not the app's
 # sandbox: the medium and the CPU are the device's, the app's data is not
-# touched), runs the rows, and removes that directory however it ends.
+# touched), runs the rows -- each in a directory given to the harness as
+# the platform's boundary, as the app's data directory is -- and removes
+# that directory however it ends.
 # Stress at 20000 kept is three reps per engine, labelled, not a criterion.
 #
 # The key is made here, per run, and never printed; it reaches the device
@@ -30,6 +32,11 @@ STRESS=20000
 ROUNDS=3
 REPS=30
 BINS=(before-plain before-vend before-inspect after-plain after-vend)
+# Where a run's store sits under its boundary: the Android client's layout
+# (`ProfilePaths::resolve_embedded`), which the harness opens when
+# SPIKE011_BOUNDARY is set -- `/data` is system 0771, so the desktop
+# opener, judging up to `/`, refuses any path on the phone.
+STORE=interweave/state/profiles/spike-011/human/human.sqlite
 
 build_one() { # <src> <name> <cargo args...>
     local src=$1 name=$2; shift 2
@@ -96,7 +103,7 @@ run)
         for r in $(seq "$ROUNDS"); do
             for k in before-plain after-plain before-vend after-vend; do
                 d="$D/bench-$n-$r-$k"
-                sh_ "mkdir -m 700 $d && ./$k bench $d $n $REPS; rm -rf $d" \
+                sh_ "mkdir -m 700 $d && SPIKE011_BOUNDARY=$d ./$k bench $d $n $REPS; rm -rf $d" \
                     | tr -d '\r' | sed "s/^{/{\"side\":\"${k%-*}\",\"round\":$r,/"
             done
         done
@@ -105,7 +112,7 @@ run)
     echo "## stress, not a criterion: $STRESS kept, 1 round of 3 per side and engine"
     for k in before-plain after-plain before-vend after-vend; do
         d="$D/stress-$k"
-        sh_ "mkdir -m 700 $d && ./$k bench $d $STRESS 3; rm -rf $d" \
+        sh_ "mkdir -m 700 $d && SPIKE011_BOUNDARY=$d ./$k bench $d $STRESS 3; rm -rf $d" \
             | tr -d '\r' | sed "s/^{/{\"side\":\"${k%-*}\",\"stress\":true,/"
     done
 
@@ -113,9 +120,9 @@ run)
     for e in plain vend; do
         for c in none clean unclean; do
             d="$D/del-$e-$c"
-            sh_ "mkdir -m 700 $d $d/copy && ./before-$e deletion $d $c" | tr -d '\r' | grep -v '"case":"setup"'
+            sh_ "mkdir -m 700 $d $d/copy && SPIKE011_BOUNDARY=$d ./before-$e deletion $d $c" | tr -d '\r' | grep -v '"case":"setup"'
             if [ $e = vend ]; then
-                sh_ "cp $d/human.sqlite* $d/copy/ && ./before-inspect pages $d/copy/human.sqlite" \
+                sh_ "cp $d/$STORE* $d/copy/ && ./before-inspect pages $d/copy/human.sqlite" \
                     | tr -d '\r' | sed "s/^{/{\"case\":\"$c\",/"
             fi
         done
@@ -123,11 +130,11 @@ run)
 
     echo "## failures, at the pin"
     echo "# a wrong key, on the vendored build's clean store:"
-    "${A[@]}" shell "SPIKE011_KEY=$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n'); export SPIKE011_KEY; cd $D && ./before-vend open-once del-vend-clean/human.sqlite 2>&1" | tr -d '\r' | sed 's/^/  /' || true
+    "${A[@]}" shell "SPIKE011_KEY=$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n'); export SPIKE011_KEY; cd $D && SPIKE011_BOUNDARY=$D/del-vend-clean ./before-vend open-once $D/del-vend-clean/$STORE 2>&1" | tr -d '\r' | sed 's/^/  /' || true
     echo "# the plaintext build (a rollback) on the encrypted store:"
-    sh_ "./before-plain open-once del-vend-clean/human.sqlite 2>&1" | tr -d '\r' | sed 's/^/  /' || true
+    sh_ "SPIKE011_BOUNDARY=$D/del-vend-clean ./before-plain open-once $D/del-vend-clean/$STORE 2>&1" | tr -d '\r' | sed 's/^/  /' || true
     echo "# the vendored build on a plaintext store:"
-    sh_ "./before-vend open-once del-plain-clean/human.sqlite 2>&1" | tr -d '\r' | sed 's/^/  /' || true
+    sh_ "SPIKE011_BOUNDARY=$D/del-plain-clean ./before-vend open-once $D/del-plain-clean/$STORE 2>&1" | tr -d '\r' | sed 's/^/  /' || true
     echo "# end"
     ;;
 *)
