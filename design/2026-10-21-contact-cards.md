@@ -318,9 +318,10 @@ Back with unsaved changes: a dialog `CardDiscardChanges`, actions
 **Continue editing** (`KeepEditing`, default focus) and **Discard**
 (`DiscardChanges`). Back with no change closes at once.
 
-**Two rules every action on an identity keeps**, on both platforms: the
-default is always an identity that is turned on, so peer-only sends
-reach one that can receive them (ADR-0028's endpoint overlay and
+**Two rules every action on an identity keeps**, on both platforms: when
+there is a default, it is an identity that is turned on, so peer-only
+sends reach one that can receive them, and a profile may have none
+(below) (ADR-0028's endpoint overlay and
 ENDPOINTS.md: the default references an enabled endpoint or there is
 none); and no action leaves the profile with no identity turned on,
 which the runtime needs (ADR-0061 d. 7). Where the overlay would clear
@@ -336,15 +337,20 @@ withdrawn when it would.
 one that is off, the page says `IdentityDefaultNeedsOn`: turn it on
 first). It runs at once: the default moves to this identity, the
 line `IdentityIsDefault` appears, and a snackbar `ConfirmDefaultSet`
-with Undo (moves it back), withdrawn — its snackbar closes — as soon
-as the previous default is turned off or removed. A kill inside the
+with Undo (moves it back, to no default when there was none), withdrawn
+— its snackbar closes — as soon as the previous default is turned off
+or removed. A kill inside the
 undo window leaves the new default, as the snackbar said. **No
 default**: a profile can arrive without one (a configuration edited
 outside the app, or the overlay clearing it); then no row in §5.1
 carries Default, the list shows `IdentityNoDefault` above the rows
 (people who write to this device without using a label reach none of
 your identities), and Make default on any identity that is on sets
-one. Its helper on the page says what the default
+one. With one identity held there is no list: the identity's card page
+(§4's Your card) shows `IdentityNoDefault`'s one-identity form under
+its fields, and its overflow holds **Make default** beside Add another
+identity, until a default is set; the word "identity" stays out of it,
+as everywhere with one (ADR-0061 d. 3). Its helper on the page says what the default
 is in the person's terms (`IdentityDefaultHelp`: people who write to
 this device's PeerId without using one of the person's labels reach the
 default; ADR-0061
@@ -1452,11 +1458,13 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
 25. **Turning the first identity off** is offered only once another
     identity is turned on and not on the default; Make default is not
     offered on an identity that is off; on both platforms no sequence of
-    Make default, Turn off, Remove and their Undos leaves the default
-    off or no identity on (the sequence: Make default X, Turn off
+    Make default, Turn off, Remove and their Undos leaves a default that
+    is off or no identity on (the sequence: Make default X, Turn off
     `human`, then Make default `human` is not offered and Remove X is
     not offered); a refused call shows `IdentityChangeFailed` and
-    changes nothing; it deletes nothing,
+    changes nothing; with one identity and no default, its card page
+    shows `IdentityNoDefault` and Make default, and Make default's Undo
+    returns to no default; it deletes nothing,
     lists the identity as off, leaves it in front if it was, refuses
     messages to it while off, and its Undo and Turn on bring it back.
 
@@ -1484,8 +1492,8 @@ note adds:
 - Trust and the store's discard say that they cover every identity;
 - an identity is removed only after a confirmation listing what goes,
   and only an added one: never the first or the default;
-- the default is always an identity that is turned on, and no action
-  leaves no identity turned on.
+- when there is a default it is an identity that is turned on, and no
+  action leaves no identity turned on.
 
 ## 10. Strings
 
@@ -1609,7 +1617,7 @@ and are for them to write.
 | `ConfirmIdentityOff` / `ConfirmIdentityOn` | {identity} turned off / {identity} turned on | snackbars; the first with Undo |
 | `IdentityDefaultNeedsOn` | To make this identity the default, first turn it on. | §5.2, on an identity that is off |
 | `IdentityChangeFailed` | Make default: Could not make {identity} the default. Nothing was changed. Remove: Could not remove {identity}. Nothing was changed. Turn off: Could not turn off {identity}. Nothing was changed. Turn on: Could not turn on {identity}. Nothing was changed. | snackbar when the device refuses Make default, Remove, Turn off or Turn on; one whole text per action, each naming the identity and saying nothing was changed (language-culture-en: a button's words placed into a sentence cannot be translated or reordered) |
-| `IdentityNoDefault` | You have no default identity. People who write to your PeerId without using one of your labels do not reach any of your identities. To set a default, open an identity that is turned on and choose Make default. | §5.1, when the profile has no default; must say who is not reached |
+| `IdentityNoDefault` | You have no default identity. People who write to your PeerId without using one of your labels do not reach any of your identities. To set a default, open an identity that is turned on and choose Make default. | §5.1, when the profile has no default; must say who is not reached; with one identity, a one-identity form on the card page, naming no identity, saying people who write to the PeerId without the label do not reach the person and that Make default in the page's menu fixes it (revised, proposal: one-identity form added) |
 | `IdentityRemoveConfirm` | Remove | dialog primary, in `error` |
 | `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name |
 | `IdentityOthersUnread` | One other identity: 1 unread message in your other identity / {n} unread messages in your other identity. Two or more other identities: 1 unread message in your other identities / {n} unread messages in your other identities. | the switch's badge, accessible; plural rules language-culture's |
