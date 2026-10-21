@@ -655,9 +655,10 @@ fn feed_after_warning(home: &Home, args: &[&str], input: &str) -> Output {
 /// a file (IDENTITY-RECOVERY.md section Restore semantics item 11) -- on
 /// stderr, before the phrase is read, and the restore then goes on: a warning,
 /// not a refusal and not a question. Never on stdout, which carries the
-/// result. The phrase-reading drill, `verify`, writes nothing and
-/// imports nothing, and does not warn: the control that the wait in
-/// [`feed_after_warning`] is for this warning and not any stderr line.
+/// result, which each form's stdout is checked to carry. The
+/// phrase-reading drill, `verify`, goes through the same reader and does
+/// not warn: the warning is the restore's, not the shared reader's, so
+/// the marker [`feed_after_warning`] waits for cannot come from the read.
 #[test]
 fn a_restore_warns_before_it_reads_the_phrase() {
     let home = Home::new();
@@ -669,6 +670,11 @@ fn a_restore_warns_before_it_reads_the_phrase() {
     );
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     assert_eq!(home.stored().as_deref(), Some(incoming.as_str()));
+    assert!(
+        text(&out.stdout).contains("restored "),
+        "{}",
+        text(&out.stdout)
+    );
     for name in WARNING_NAMES {
         assert!(text(&out.stderr).contains(name), "{}", text(&out.stderr));
         assert!(!text(&out.stdout).contains(name), "{}", text(&out.stdout));
@@ -690,6 +696,11 @@ fn a_restore_warns_before_it_reads_the_phrase() {
     );
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     assert_eq!(home.stored().as_deref(), Some(replacement.as_str()));
+    assert!(
+        text(&out.stdout).contains("replaced "),
+        "{}",
+        text(&out.stdout)
+    );
     for name in WARNING_NAMES {
         assert!(text(&out.stderr).contains(name), "{}", text(&out.stderr));
         assert!(!text(&out.stdout).contains(name), "{}", text(&out.stdout));
@@ -715,6 +726,11 @@ fn a_restore_warns_before_it_reads_the_phrase() {
         .expect("runs");
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     assert_eq!(home.stored().as_deref(), Some(from_file.as_str()));
+    assert!(
+        text(&out.stdout).contains("replaced "),
+        "{}",
+        text(&out.stdout)
+    );
     for name in WARNING_NAMES {
         assert!(text(&out.stderr).contains(name), "{}", text(&out.stderr));
         assert!(!text(&out.stdout).contains(name), "{}", text(&out.stdout));

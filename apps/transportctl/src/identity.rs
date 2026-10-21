@@ -261,8 +261,11 @@ this host cannot check that\n";
 /// `a_restore_warns_before_it_reads_the_phrase` and
 /// `on_a_terminal_the_warning_precedes_the_prompt` hold it.
 fn warn_active_elsewhere() {
-    // A stderr that cannot be written cannot carry the prompt either; the
-    // restore goes on and the read says what failed.
+    // Best effort, as a statement and never a gate (item 11): a write that
+    // fails is not reported and the restore goes on, so from a pipe or a
+    // file a stderr that cannot be written loses the warning silently, and
+    // a stderr pointed at nowhere (closed, which the runtime reopens on
+    // /dev/null, or /dev/null itself) loses it on every input path.
     let _ = std::io::stderr().write_all(ACTIVE_ELSEWHERE.as_bytes());
 }
 
