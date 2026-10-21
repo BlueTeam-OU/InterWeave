@@ -132,6 +132,8 @@ There is no standalone CLI requirement. A dedicated local recovery flow stops/lo
 
 Both platforms state prominently what the phrase restores and what it does not: the identity only — contacts, trust, endpoint and connectivity settings and messages are not restored by it. Where the platform has an export of those settings (the desktop's authored `config.yaml` and trust files), the statement adds that they are backed up separately; where it has none (Android in standard v1: no export exists, system backup and device transfer exclude the profile, and profile/config migration is Stage 19's, plan §22), the statement names the fact and asks the person for nothing they cannot do (A 2026-10-19, ux-designer's Q5).
 
+Both platforms, and `transportctl identity restore` on the desktop, warn before the phrase is taken that restoring an identity which may still be running on another device puts one PeerId on two nodes, which ADR-0043 forbids, and that this device cannot check it (ADR-0043, Operational implications: "Recovery UX warns when importing an identity expected to still be active elsewhere"). The warning is a statement in the flow, never a gate: nothing refuses, no flag is added, and on the command line it is a line printed before the prompt (A 2026-10-21: Stage 18's TM-48 row found no surface carried the sentence; `tests/SECURITY-MATRIX.md`).
+
 ## 10. Notifications
 
 A notification names the identity it arrived on and carries nothing of another identity's contacts or content; the Android service's one persistent notification names the active identities and nothing else (A 2026-10-21, ADR-0061 decision 9).

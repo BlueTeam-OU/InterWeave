@@ -121,7 +121,7 @@ explicit settings path        -> LocalAdminPort
 
 Remote event handlers never hold `LocalAdminPort`. Trust/config mutations require explicit local UI intent; security-sensitive operations may require Android user presence. This prevents confused-deputy mistakes but is not a sandbox against arbitrary code execution inside the same APK process.
 
-Identity backup/restore remains an offline/stopped-runtime operation. Recovery phrases never traverse `LocalDataSession` or normal message callbacks.
+Identity backup/restore remains an offline/stopped-runtime operation. The recovery flow carries ADR-0043's warning before it takes the phrase (human-client-ui.md section 9, A 2026-10-21). Recovery phrases never traverse `LocalDataSession` or normal message callbacks.
 
 ## Android network lifecycle
 
