@@ -493,11 +493,25 @@ message in its state (Retry, Cancel), with the same swipes (kind C).
 
 ### 5.6 Naming a contact by hand
 
-The person can also type a name (`human-client-ui.md` §3). In a direct
-conversation whose route is under no contact, Details (§6.4) offers
-**Add as a contact** (`AddAsContact`), which opens the contact page's name
-field empty, for that route; Save creates the contact. The name is a
-local edit from the start (it is never overwritten by a card).
+The person can also type a name (`human-client-ui.md` §3). What Details
+(§6.4) offers depends on the conversation's PeerId, never on its route
+alone, so that a PeerId is never split across two contacts (§5.4.1):
+
+- **no route of the PeerId is under a contact**: **Add as a contact**
+  (`AddAsContact`), which opens the contact page's name field empty, for
+  that route; Save creates the contact. The name is a local edit from
+  the start (it is never overwritten by a card).
+- **another route of the PeerId is under contact X**: **Add this
+  conversation to {X}** (`AddToContact`, the same words as case P's
+  Accept) in its place. It runs at once, adds the route to X and changes
+  none of X's values; snackbar `ConfirmContactUpdated` with Undo, which
+  removes the route again. Add as a contact is not offered.
+
+The command-line client follows the same rule: it refuses to create a
+contact for a route whose PeerId is already under one, and names that
+contact. **Undo of Delete contact** (§6.3) is withdrawn — its snackbar
+closes — as soon as any PeerId the deleted contact held comes under
+another contact, so an undo can never put a PeerId under two.
 
 ## 6. Showing contacts
 
@@ -603,7 +617,8 @@ The conversation's Details dialog (look spec §6) gains, above the
 PeerId:
 
 - the name and its provenance (§6.3), or for a route under no contact
-  **Add as a contact** (§5.6); with a contact, **Open contact**
+  **Add as a contact** or **Add this conversation to {X}**, by §5.6's
+  rule; with a contact, **Open contact**
   (`OpenContact`);
 - `DetailsLastCard`: "The card you last shared here: {label}", or
   `DetailsNoCard` ("You have not shared a card here."), or, if that card
@@ -824,7 +839,11 @@ on the desktop.
    U+00A0 between the words and no surname; "Ａnna" (fullwidth) +
    "Rossi" — each
    shows `CardSameName`. A card from a second endpoint of a contact's
-   PeerId is case P and leaves one contact holding both routes. A card
+   PeerId is case P and leaves one contact holding both routes. The
+   Details of a conversation on {P, "phone"}, while {P, "human"} is
+   under Carol, offers Add this conversation to Carol and no Add as a
+   contact; the command-line client refuses a second contact for P. A
+   card
    naming itself "Anna Rossi" from a new route of contact "Carol"'s
    PeerId (case P), and one from Carol's own route (case U), each show
    `CardSameName` naming the other "Anna Rossi" before Accept.
