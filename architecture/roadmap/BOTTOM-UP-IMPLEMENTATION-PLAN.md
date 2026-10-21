@@ -150,6 +150,7 @@ Spikes are **just-in-time implementation gates**, not a large front-loaded phase
 | SPIKE-001 | Stage 16 Claude bridge | **CLOSED 2026-10-03, PASS for implementation against Claude Code 2.1.285** — the handshake era, the development-flag delivery condition, the `plugin.json` `channels` manifest, the tag rendering and escaping, deferred tools, SIGINT shutdown; four architecture sentences amended on the verdict (SPIKES.md's record); eight things not established, carried into §19 |
 | SPIKE-005 | admin hardening when enabled | stronger same-user local admin boundary |
 | SPIKE-007 | optional encrypted key-at-rest feature | selected audited envelope/KDF/AEAD behavior |
+| SPIKE-011 | the §29 store work, and any §22 release that ships a human store | the page-cipher store build for Linux and Android, its open/commit/read cost against the plaintext baseline the spike itself defines (none exists today) under ADR-0060 decision 4's criterion, RETENTION.md's deletion property on the encrypted file, the licence and vendored-advisory consequences; its Result pins the mechanism within ADR-0060 decision 4 or records the fallback |
 | SPIKE-008 | Stage 17 Android lifecycle/packaging | foreground service, secure recovery UI, backup/D2D behavior, store policy |
 | SPIKE-009 | Stage 17 Android key custody | Android Keystore wrapping/invalidation and exact-PeerId preservation |
 
@@ -4625,7 +4626,8 @@ revisit); a standalone administrative "forget this peer's directory"
 command (B9 reaches `DirectoryCache::forget` only through a trust
 revocation); endpoint narrowing (`EndpointTrustPolicy`) through
 administration; a new conversation by PeerId, with the
-contacts UX and the owner's privacy review (11); client autostart of
+contacts UX and the owner's privacy review (11 — ADR-0059's work since
+2026-10-21, carried under §29); client autostart of
 the daemon, the owner's with packaging (9); the persistence of
 `admin.trust.*` and `admin.endpoints.*` changes beyond the runtime
 overlay (ADR-0028, the owner's); the Windows binding behind the
@@ -5892,3 +5894,126 @@ the durations of the two burst cases are samples that depend on the
 client's retry step and the bucket's refill, not promises, as decision
 2 says; the cases assert the delivered counts and the bound, nothing of
 the timing.
+
+## 29. Stage 21 — contacts, cards and the encrypted store
+
+Recorded 2026-10-21 on the owner's direction of that day; the decisions
+are ADR-0059 (a contact is built from a card the counterparty sends and
+the person accepts) and ADR-0060 (the human store is encrypted at rest
+under a key the platform seals). **This section opens nothing by
+itself; the owner's word of 2026-10-21 opens the stage when Stage 17
+closes** ("open stage 21 after 17 closes"): from the landing of Stage
+17's closing record (§20) the stage runs beside Stage 18 and Stage 19
+as §19's Stage 16 ran beside Stage 15, the closing record names it as
+opened, and the status value stays the lowest open stage, Stage 18's
+slug once Stage 17 has closed. It is numbered after §28 so that no citation of
+§23–§28 moves. It takes over Stage 15's carry 11 (§18: a new conversation
+by PeerId, the contacts UX and the owner's privacy review); ADR-0059
+decisions 2, 3 and 6 are input to that review, which the owner answers
+at the exit gate's (d).
+
+### Objective
+
+A conversation shows the counterparty's name because the counterparty
+sent it and the person accepted it; every contact, route, conversation
+and retained message is ciphertext on disk; and neither client can
+reach the platform's address book. Nothing of this touches the daemon,
+the transport or the wire below the chat envelope.
+
+### Prerequisites
+
+Stage 14's store (schema v5's `contacts`, `contact_routes`,
+`conversation_index`) and chat protocol on `main`; the Android custody
+seam of ADR-0042 (§20 step 6) for the Android half of ADR-0060;
+**SPIKE-011 closed** before step 3, with the mechanism pinned within
+ADR-0060 decision 4. ADR-0038's SPIKE-007 is not a prerequisite: the v1
+desktop seals the store key at `filesystem-only` and joins the envelope
+when it lands (ADR-0060 decision 3).
+
+### Activate
+
+No new crate. The work lands in `crates/human/chat-protocol`,
+`crates/human/store`, `crates/human/app-core`, `crates/human/ui-model`
+and `crates/human/ui-slint`, the two graphical clients under `apps/`, a
+command-line human client under `apps/` on the same crates (ADR-0059
+decision 9; the one new application of the stage, named by its
+implementer), and `tools/checks/` for the manifest check of ADR-0059
+decision 6.
+`spikes/spike-011/` is the spike's home, under SPIKES.md's regime.
+
+### Implement in order
+
+1. **The card on the wire** (rust-ui-dev): `contact_card` in
+   `chat-protocol` with HUMAN-CHAT.md §Contact card's bounds and
+   malformed cases, the fixture cases named there, and the parser's
+   rule "not a known kind is malformed".
+2. **The proposal and the acceptance** (rust-ui-dev): the person's own
+   cards in settings (several, each under a local label); "Share a
+   card" on one conversation, choosing which, the last shared offered
+   first, never automatic; the received card held as inbound content under
+   RETENTION.md, shown as a proposal with the PeerId beside it and the
+   same-name note; Accept writing `contacts` and `contact_routes`,
+   Decline discarding; the photo decoded only after Accept with a
+   memory-safe decoder at a fixed size; a local edit never overwritten.
+   The conversation title takes the contact's name (`human-client-ui.md`
+   §4). The manifest and dependency check of ADR-0059 decision 6, with
+   its self-test, lands here, and pins ADR-0060 decision 8's
+   declarations too: `allowBackup="false"` and extraction rules that
+   exclude every domain from `cloud-backup` and `device-transfer`
+   (the retention conformance suite's item 13, unprovable there).
+3. **The encrypted store** (rust-ui-dev, after SPIKE-011): the store
+   key, its versioned sealed file, the Android sealing in its own
+   alias namespace apart from the seed custody under
+   `background-compatible`, the desktop sealed file
+   `<state_dir>/human-store.key`, the plaintext-to-encrypted rewrite at first
+   open and the rollback refusal by name, the invalidated-key condition with
+   discard-and-recreate offered directly, and recovery mode's confirmed
+   Discard and recreate on both clients' recovery screens (ADR-0060
+   decision 6), RETENTION.md's deletion property measured on the
+   encrypted file, and §22's upgrade and rollback rows learning the case.
+4. **Desktop and Android screens, and the command-line client**
+   (rust-ui-dev): the same `ui-model` on both; every action of steps
+   2 and 3 as a command, with no display (ADR-0059 decision 9); `human-client-ui.md` §13 acceptance criteria for steps 2 and 3,
+   proposed by rust-ui-dev and ruled by architect-cto.
+
+### Exit gate
+
+(a) Steps 1–4 landed with their tests green on `main`; (b) the
+conformance cases, by name: a valid card accepted creates the contact
+and names the conversation; a card from an unknown kind or over a bound
+is rejected locally with no network effect; a card over broadcast is
+ignored; a second card from the same route is a new proposal and
+overwrites no local edit; two same-name cards from two PeerIds are two
+proposals; a declined card leaves nothing in the store; two own cards shared to two
+conversations, each counterparty holding only its own and nothing
+sent naming the other; a confirmed discard during a stalled rewrite
+removing the plaintext and keeping the key and the complete copy,
+which the next open promotes, the screen listing the plaintext alone;
+the same discard with the copy unopenable (no key, an invalidated
+key, a key that does not open it, a damaged copy) removing the
+plaintext, the copy and the key in one step, the screen listing the
+full loss, and no second screen; the command-line discard refused
+without its confirmation flag; every action
+of steps 2 and 3 driven from the command-line client in a shell with
+no display; the photo is not
+decoded before Accept; no contacts permission, no contacts library,
+`allowBackup="false"` and total extraction rules in the Android build
+(the tree check, broken on purpose once per declaration); the
+store file, its log and its journal contain no plaintext of a contact
+name, a route or a retained message after a clean close and after an
+unclean one; a store whose key is missing opens nothing, reaches recovery mode
+with the confirmed Discard and recreate, and that action leaves the
+identity and trust untouched; an invalidated key (Android) is offered
+discard-and-recreate directly; the plaintext-to-encrypted rewrite killed at each step
+(after the export, after the mark, during the scrub, after the
+unlinks) loses no row on the next open, and a plaintext store with a
+damaged header reaches recovery mode, not discard; (c) SPIKE-011's Result cited with its figures; (d) the
+owner's privacy review of Stage 15's carry 11 answered in the record —
+over the card (what it still discloses: ADR-0059, Security
+implications) and over `read_pairs`, `conversation_index` and
+`contact_routes.last_seen`, which STATE.md puts in the same review.
+
+### Record
+
+The closing record lands here when the owner closes the stage, with
+the figures and the carried limits, as §28's does.

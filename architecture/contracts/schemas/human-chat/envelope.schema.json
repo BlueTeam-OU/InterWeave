@@ -2,21 +2,23 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:human-chat:envelope",
   "title": "HumanChatV2 envelope",
-  "description": "The first-party human message envelope, carried as an opaque payload by a transport that stays payload-agnostic. It is an APPLICATION protocol and versions independently of transport v2. This schema describes the RAW (decompressed) JSON form; the `;ce=br` media-type parameter marks the same envelope brotli-compressed whole, decoded above transport under the 196,608-byte decompressed ceiling of ADR-0050 before this shape applies.\n\nNOTE THE DELIBERATE ASYMMETRY WITH THE TRANSPORT SCHEMAS: this one does NOT set `additionalProperties: false`. HumanChatV2 specifies that unknown fields are ignored for forward compatibility within v2 bounds, so a receiver must accept an envelope carrying fields it has never heard of. Closing it here would turn a forward-compatible message into a validation failure and break the property the version number exists to provide. Where the transport schemas close the object to make an omission enforceable, this one is open because openness is the specified behaviour — the difference is intentional in both directions.\n\nNo field here can influence retention. There is no sender-controlled persistence field, and `from_endpoint`, `reply_to`, unknown extensions, or the text itself cannot request or force the receiver to keep anything (ADR-0044).",
+  "description": "The first-party human message envelope, carried as an opaque payload by a transport that stays payload-agnostic. It is an APPLICATION protocol and versions independently of transport v2. This schema describes the RAW (decompressed) JSON form; the `;ce=br` media-type parameter marks the same envelope brotli-compressed whole, decoded above transport under the 196,608-byte decompressed ceiling of ADR-0050 before this shape applies.\n\nNOTE THE DELIBERATE ASYMMETRY WITH THE TRANSPORT SCHEMAS: this one does NOT set `additionalProperties: false`. HumanChatV2 specifies that unknown fields are ignored for forward compatibility within v2 bounds, so a receiver must accept an envelope carrying fields it has never heard of. Closing it here would turn a forward-compatible message into a validation failure and break the property the version number exists to provide. Where the transport schemas close the object to make an omission enforceable, this one is open because openness is the specified behaviour — the difference is intentional in both directions.\n\nTwo kinds since 2.1.0 (ADR-0059, 2026-10-21): `text`, the message, and `contact_card`, the sender's own card. The `if`/`then` pair below gives each kind its required and forbidden members; the `kind` enum is closed, so an envelope of any other kind is malformed, as clients/human/HUMAN-CHAT.md says.\n\nNo field here can influence retention. There is no sender-controlled persistence field, and `from_endpoint`, `reply_to`, unknown extensions, or the text itself cannot request or force the receiver to keep anything (ADR-0044).",
   "type": "object",
   "required": [
     "v",
     "kind",
-    "app_message_id",
-    "text"
+    "app_message_id"
   ],
   "properties": {
     "v": {
       "const": 2
     },
     "kind": {
-      "const": "text",
-      "description": "The only v2 kind. Attachments, edits, reactions, typing indicators, delivery/read receipts, and multi-device sync are explicitly not part of HumanChatV2; artifact/attachment references await their own ADR (ADR-0050 rule 9)."
+      "enum": [
+        "text",
+        "contact_card"
+      ],
+      "description": "`text` is the message (`text` required); `contact_card` is the sender's own card (`card` required, `text` and `reply_to` forbidden; HUMAN-CHAT.md §Contact card, ADR-0059). The set is closed: any other value is malformed. `contact_card` is on the wire from plan §29 step 1, which lands its parser and its frozen vectors together: until then the current clients reject a card as an unknown kind, and the schema-agreement test holds because no card vector exists yet — the status stays `active` because the envelope is the current wire and the kind is one value of it, recorded here rather than as a second document. Attachments, edits, reactions, typing indicators, delivery/read receipts, and multi-device sync are explicitly not part of HumanChatV2; artifact/attachment references await their own ADR (ADR-0050 rule 9)."
     },
     "app_message_id": {
       "type": "string",
@@ -25,7 +27,7 @@
     },
     "text": {
       "type": "string",
-      "description": "UTF-8 markdown: CommonMark plus the table and strikethrough extensions, under the CLOSED subset of ADR-0050 — raw HTML renders as literal text, link schemes are allowlisted (https, mailto), remote images are never auto-fetched, block nesting <= 16 and tables <= 256x32 (bounds in clients/human/HUMAN-CHAT.md). A construct outside the subset falls back to plain-text display; it does not reject the envelope, so the subset is a RENDERING contract, not a shape constraint this schema could express. Bounded in practice by the transport payload ceiling (after compression when compression is used) rather than by a field limit here. REQUIRED. The canonical envelope marks optional fields with `?` and this is not one of them; leaving it out of `required` let an object carrying only v/kind/app_message_id validate as a text message with no text, which no client can render as the envelope it claims to be."
+      "description": "UTF-8 markdown: CommonMark plus the table and strikethrough extensions, under the CLOSED subset of ADR-0050 — raw HTML renders as literal text, link schemes are allowlisted (https, mailto), remote images are never auto-fetched, block nesting <= 16 and tables <= 256x32 (bounds in clients/human/HUMAN-CHAT.md). A construct outside the subset falls back to plain-text display; it does not reject the envelope, so the subset is a RENDERING contract, not a shape constraint this schema could express. Bounded in practice by the transport payload ceiling (after compression when compression is used) rather than by a field limit here. REQUIRED for `kind: text` and FORBIDDEN for `kind: contact_card` (the `if`/`then` pair below). The canonical envelope marks optional fields with `?` and this is not one of them; leaving it out of `required` let an object carrying only v/kind/app_message_id validate as a text message with no text, which no client can render as the envelope it claims to be."
     },
     "reply_to": {
       "type": "string",
@@ -46,15 +48,103 @@
       "description": "AN UNAUTHENTICATED DISPLAY HINT. Direct transport metadata is authoritative for source_peer and the peer-asserted source_endpoint; a conflicting value here is ignored for routing and authority. On broadcast it is unauthenticated by construction, because transport broadcast origin is PeerId-only (ADR-0030) — so a UI that renders this as identity is asserting something the transport never verified."
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "text"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "contact_card"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "card"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "text"
+              ]
+            },
+            {
+              "required": [
+                "reply_to"
+              ]
+            }
+          ]
+        },
+        "properties": {
+          "card": {
+            "type": "object",
+            "description": "The sender's own contact card (HUMAN-CHAT.md §Contact card, ADR-0059): what they say their name is, bound at the receiver to the authenticated source_peer of the direct message it arrived in — so it carries NO identifier of its own, and a member that looks like one is ignored like any unknown member. It is a PROPOSAL at the receiver: nothing reaches the contact store until the person accepts it. Open to unknown members for the same forward-compatibility reason the envelope is. Defined inside the contact_card branch below and nowhere else: on a `text` envelope a `card` member is an unknown member, ignored like any other, which is what the parser does — the negative-conformance test holds the schema and the parser to the same verdict on every mutant of a text message.",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "1 to 64 Unicode scalar values after NFC normalisation, no control, format or separator character; `minLength` counts code points as JSON Schema does, the 64 bound and the character classes are HUMAN-CHAT.md's and are checked above the schema. Displayed as plain text, never markdown."
+              },
+              "surname": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Same grammar and bounds as `name`; optional."
+              },
+              "photo": {
+                "type": "object",
+                "required": [
+                  "media_type",
+                  "data"
+                ],
+                "properties": {
+                  "media_type": {
+                    "enum": [
+                      "image/png",
+                      "image/jpeg"
+                    ],
+                    "description": "The only two types; anything else makes the card malformed."
+                  },
+                  "data": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+                    "description": "RFC 4648 §4 standard base64 with padding and no whitespace, of at most 24,576 decoded bytes (the byte bound and the 256 × 256 pixel bound are HUMAN-CHAT.md's, checked above the schema). Decoded only after the person accepts the card, never before, and never fetched: the photo is bytes in the envelope."
+                  }
+                },
+                "description": "Optional, bounded; a photo that fails to decode or exceeds the pixel bound is discarded and the card kept without it (HUMAN-CHAT.md)."
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "x-contract": {
     "name": "human-chat.envelope",
     "status": "active",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "adr": [
       "0039",
       "0044",
       "0047",
-      "0050"
+      "0050",
+      "0059"
     ],
     "specification": "architecture/clients/human/HUMAN-CHAT.md"
   }
