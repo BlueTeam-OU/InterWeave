@@ -668,3 +668,8 @@ the authored `human` identity stops being advertised without
 asked for the embedded runtime's lease endpoint to be enabled and now
 asks for one enabled identity, authored or added, so that an authored
 identity can be disabled once another is enabled (ADR-0061 decision 7).
+Round 15 (F52, F56) named the writers: `admin.endpoints.set_advertise`
+on the desktop, the embedded host on Android (its member list gains
+`advertise`), the human client asserting the delta at every open rather
+than once, and `advertise` described as a second authored field beside
+`enabled`, not the only one.

@@ -6090,11 +6090,13 @@ the client writes once into the endpoint overlay at its first Stage 22
 open (ADR-0028 A 2026-10-21), `config.yaml` unrewritten and the upgrade
 test's expectation kept; an identity the person creates on either platform lands in the
 endpoint overlay's `added` member, never in the authored file), the overlay's
-`added` member in the runtime's loader — its normalisation and the 64
-bound over authored and added together (ADR-0028 A 2026-10-21) — and — in
+`added` and `advertise` members in the runtime's loader — their
+normalisation and the 64 bound over authored and added together
+(ADR-0028 A 2026-10-21) — and — in
 p2p-network-dev's lane, its own PR under ADR-0017's minor rule — the
-administrative methods that add a configured endpoint and remove an
-added one (`admin.endpoints.*`, LOCAL-IPC.md), with `ENDPOINTS.md`'s registration
+administrative methods that add a configured endpoint, remove an
+added one and set an endpoint's `advertise` (`admin.endpoints.*`,
+LOCAL-IPC.md), with `ENDPOINTS.md`'s registration
 sentence gaining the administrative path in the same change.
 
 ### Implement in order
@@ -6103,7 +6105,7 @@ sentence gaining the administrative path in the same change.
    (rust-ui-dev): an identity is an endpoint with its card; the client
    holds one data session and one lease per identity it presents; create,
    rename, set the card, set the default and remove through the admin
-   connection (editing the desktop profile's configuration until p2p-network-dev's add-endpoint method under Activate lands; on Android no second identity exists until it does, ADR-0061 decision 2);
+   connection (editing the desktop profile's configuration until p2p-network-dev's add, remove and set_advertise methods under Activate land; the desktop upgrade test's no-rewrite assertion (tests/desktop-e2e release.rs) widened in this step to allow exactly the `advertise` delta in the endpoint overlay; on Android no second identity exists until it does, ADR-0061 decision 2);
    a new conversation speaking as the identity in front, named before
    the first send, and the identity shown on every conversation; the identity verbs of the command-line client
    (ADR-0061 decision 7).
@@ -6126,7 +6128,7 @@ sentence gaining the administrative path in the same change.
 ### Exit gate
 
 (a) Steps 1–4 landed with their tests green on `main`, and the
-administrative add and remove methods on `main` with their contract rows
+administrative add, remove and set_advertise methods on `main` with their contract rows
 (p2p-network-dev's PR); (b) the conformance cases, by name: a
 conversation cannot change identity, and every message and card it sends
 carries that identity's `source_endpoint` and no other, measured at the
@@ -6140,8 +6142,10 @@ message reaching identity B from a route only A holds as a contact is
 titled by the short PeerId, and B's Accept on that route creates B's own
 contact with A's unchanged; an identity's endpoint is created with
 advertise off, the authored `human` endpoint's advertise is off after
-provisioning and the migration, and the endpoint directory lists no
-identity to a trusted peer; Remove, after one confirmation listing what
+provisioning and, on an existing profile, after the client's `advertise`
+delta in the endpoint overlay (ADR-0028 A 2026-10-21), re-asserted at
+every open, and the endpoint directory lists no identity to a trusted
+peer; Remove, after one confirmation listing what
 goes, deletes an added identity's endpoint and only disables an authored
 one saying so (on Android once another identity is enabled, the
 composed-profile check passing with the authored entry disabled), removes its conversations, its pending outbound (attempted

@@ -140,8 +140,8 @@ A notification names the identity it arrived on, except the redacted form a lock
 
 Notification content is generated only from messages already accepted into the human application/session.
 
-- notification previews are user-configurable;
-- sensitive previews may be hidden on lock screens; a lock screen shows only the redacted form, which names no identity (ADR-0061 decision 9), whatever preview setting applies after the unlock;
+- notification previews are user-configurable after the unlock;
+- a lock screen shows only the redacted form, which names no identity and no sender, on every client whatever the number of identities it holds (ADR-0061 decision 9, A 2026-10-21);
 - a notification tap opens local conversation context only;
 - notification action buttons, if added later, must not perform trust/admin/recovery operations;
 - a notification never proves the sender is a human merely because the route endpoint is named `human`.
