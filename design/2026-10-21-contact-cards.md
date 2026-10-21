@@ -182,71 +182,97 @@ A direct conversation's overflow (⋮) gains **Share a card**
 
 ## 5. Flows
 
-### 5.1 Your cards (list)
+### 5.1 Your identities (list)
 
-What is visible, top to bottom:
+Shown while two or more identities are held; with one, the menu opens
+§5.2 for it (§4). What is visible, top to bottom:
 
-- the app bar: back arrow, title "Your cards";
-- one line of explanation (`OwnCardsIntro`): a card is what a person
-  sees when you share it; the label is seen only by you;
-- the cards, one row each, in the order they were created: a 40 dp
-  avatar (the card's photo, or the initials of its name, §6.1), the
-  label in title medium, and under it the name and surname as they
-  will be sent, in body medium. A card without a label shows the name
-  in the label's place and nothing under it;
-- **Add a card** (`AddCard`), a filled button at the bottom, above the
-  gesture inset, the one primary action.
+- the app bar: back arrow, title "Your identities";
+- the shared-device statement (`IdentitiesShareDevice`), always, not
+  behind a link (ADR-0061 d. 5): your identities use this device's one
+  PeerId and its network addresses, so someone who knows two of them
+  can tell they are on the same device, as can the network; keeping two
+  identities fully apart needs a separate profile, which the desktop
+  can run and this phone cannot (the Android text says only the last
+  part that is true there);
+- the identities, one row each, in the order they were created: a 40 dp
+  avatar (the card's photo, or its initials, §6.1, on the hue of the
+  identity's EndpointId, so two identities of one PeerId do not look
+  alike), the card's name and family name in title medium, and under it
+  in body medium the route label (the EndpointId as `DirectTitle`
+  shows a route, `IdentityRouteLabel`) and, on one row only, **Default**
+  (`IdentityDefault`); the identity in front carries a check mark and
+  `IdentityInFront` in its accessible description. An identity whose
+  card has no name yet shows its route label in the name's place;
+- **Add an identity** (`AddIdentity`), a filled button at the bottom,
+  above the gesture inset, the one primary action.
 
 States:
 
-- **Empty**: no rows; the explanation, then `OwnCardsEmpty` (you have no
-  cards yet; a card lets a person you share it with see your name
-  instead of a PeerId), then Add a card.
 - **Loading**: the store read is local and fast; nothing is drawn until
-  it answers, and the page never shows "empty" before it has read.
+  it answers.
 - **Store degraded** (`StorageDegraded` already shown by the app): the
-  list shows what it read; Add, Save and Delete are disabled with the
+  list shows what it read; Add, Save and Remove are disabled with the
   existing degraded notice above them, since a card that cannot be
   stored cannot be kept.
+- **At the bound**: with 64 endpoints configured (ENDPOINTS.md), Add an
+  identity opens nothing and `IdentityLimit` shows under it, focused.
 
-A row opens the editor (§5.2) for that card. Each row also has a menu
-button (⋮, labelled `CardMenu` with the label in it) with **Edit** and
-**Delete**: delete is reached without opening the card, and never by a
-swipe.
+A row opens that identity's page (§5.2). The list is the one place where
+identities are shown side by side, and it shows nothing of their
+conversations or contacts: it is a list of who the person can be, not of
+what each holds. Opening an identity's page does not switch to it; a
+page for an identity not in front says so in its app bar (§5.7.2).
 
-**Delete** removes the card at once (`own_cards` row deleted) and shows a
-snackbar, `ConfirmCardDeleted` with Undo. Undo writes the same card back
-under the same `card_id`, so a conversation whose `last_shared_card`
-named it names it again. A kill inside the undo window leaves the card
-deleted, which is what the snackbar said. The undo is offered only while
-the session holds the deleted card's values. A deleted card does not
-reach back to anyone who received it: the editor's note (§5.2) says so
-before the person ever deletes.
+**Add an identity** opens §5.2 empty, with one field more: the route
+label (`IdentityRouteField`), required, under the name. The label is the
+EndpointId; every person this identity talks to sees it beside its
+PeerId (`human-client-ui.md` §4: two identities of one device are told
+apart by it), so its helper (`IdentityRouteHelp`) says so, and it is
+fixed once saved (§12 Q1). It takes ENDPOINTS.md's grammar: lowercase
+letters, digits, `.`, `_` and `-`, starting with a letter, at most 64;
+typed capitals become lowercase as typed, and a space becomes `-`, so
+the person never meets an error for a key they could not avoid. Errors,
+on Save, inline: `IdentityRouteNeeded`, `IdentityRouteBadCharacters`,
+`IdentityRouteTaken` (another identity, or an endpoint the profile
+already has, uses it). Save creates the endpoint and its card together
+(ADR-0061 d. 2: through the admin connection on the desktop, the
+embedded host's configuration path on Android; rust-ui-dev's), with a
+progress indicator on Save while it runs; a refusal writes nothing and
+shows `IdentityAddFailed` above Save. A new identity is not put in front:
+the list returns with the new row focused, and switching is the
+person's act (§5.7.3).
 
-### 5.2 The card editor
+### 5.2 An identity's card
 
-Opened from Add a card (empty) or from a row (filled). App bar: back
-arrow, title `CardNew` or `CardEdit`.
+Opened from a row of §5.1, from Add an identity (empty, §5.1), from the
+menu's Your card while one identity is held (§4), or from Share when the
+identity's card has no name yet (§5.3). App bar: back arrow, title
+`CardEdit` ("Your card"), and, while two or more identities are held,
+the identity's name as the subtitle, so an edit is never made to one
+identity while the person believes it is another's. The overflow, with
+two or more identities held, has **Make default** (`MakeDefault`) and
+**Remove this identity** (`RemoveIdentity`); with one, it has **Add
+another identity** (`AddIdentity`), the way to a second.
 
 Fields, in order:
 
 1. **Photo**: a 96 dp circle (accessible label `CardPhotoLabel`, or
    `CardPhotoNone` without a photo) showing exactly what will be sent (the
    prepared photo, below), or the initials of the name as typed so far
-   on the hue of the person's own PeerId (look spec §5.1's pick: all of
-   a person's cards travel under that one PeerId); under it **Add a photo** (`AddPhoto`) or, with
+   on the identity's hue (§5.1); under it **Add a photo** (`AddPhoto`) or, with
    one, **Change photo** (`ChangePhoto`) and **Remove photo**
    (`RemovePhoto`).
 2. **Name** (`CardName`), required.
 3. **Family name** (`CardSurname`), optional, marked as optional in its
    label.
-4. **Label** (`CardLabel`), optional, with the helper `CardLabelHelp`:
-   only you see it; it tells your cards apart. Empty, the list shows the
-   name.
+4. With two or more identities, the **route label**, read-only, with
+   `IdentityRouteHelp`; and the default line: `IdentityIsDefault` on the
+   default identity, else nothing.
 
 Then the note `CardSharedStays` (a card already shared stays with the
-person who has it; a change here reaches them only when you share this
-card again), and **Save** (`Save`), filled, at the bottom.
+person who has it; a change here reaches them only when you share it
+again), and **Save** (`Save`), filled, at the bottom.
 
 Input rules, checked on Save and shown inline:
 
@@ -256,8 +282,6 @@ Input rules, checked on Save and shown inline:
   pasted value with a line break has it replaced by a space on paste,
   since the person cannot see why it would be refused.
 - A name of only spaces counts as empty.
-- The label: at most 64 scalar values (the same bound, so one rule to
-  learn); no other rule. It never leaves the device.
 
 On Save with an invalid field: nothing is written, each invalid field
 shows its error (`CardNameNeeded`, `CardNameTooLong`,
@@ -265,13 +289,38 @@ shows its error (`CardNameNeeded`, `CardNameTooLong`,
 first invalid field. Save is never disabled: a disabled button does not
 say what is missing.
 
-On a valid Save: the row is written, the page closes back to the list
-(or to the share chooser that opened it, §5.3), and focus goes to the
-saved card's row there. No snackbar: the row is the confirmation.
+On a valid Save: the `own_cards` row of this identity is written, the
+page closes back to where it was opened from (the list, the Chats
+screen, or the share sheet, §5.3), and focus goes to the identity's row
+in the list, else to the control that opened the page. No snackbar: the
+row, or the sheet's preview, is the confirmation. A card has no Delete
+of its own: it is the identity's, and goes only with the identity.
 
 Back with unsaved changes: a dialog `CardDiscardChanges`, actions
 **Continue editing** (`KeepEditing`, default focus) and **Discard**
 (`DiscardChanges`). Back with no change closes at once.
+
+**Make default** runs at once: the default moves to this identity, the
+line `IdentityIsDefault` appears, and a snackbar `ConfirmDefaultSet`
+with Undo (moves it back). Its helper on the page says what the default
+is in the person's terms (`IdentityDefaultHelp`: people who write to
+this device without naming an identity reach the default; ADR-0061
+Operational implications). It does not put the identity in front.
+
+**Remove this identity** is not offered on the default identity (the
+page says `IdentityRemoveDefault`: make another identity the default
+first), nor while it is the only one. Elsewhere it opens a confirmation
+dialog, `IdentityRemoveTitle` naming the identity, listing what goes
+(`IdentityRemoveLoses`: its conversations and their messages, unread,
+kept and waiting to be sent; its contacts; its card; and that people
+who write to this identity are no longer reached), with **Cancel**
+(default focus) and **Remove** (`IdentityRemoveConfirm`, filled in
+`error`). Enter on the initial focus cancels; Escape and Back cancel.
+Remove has no Undo: the endpoint and every row under it go together,
+and an Undo would have to bring back messages the transport may already
+have refused for it (§12 Q5). When the removed identity was in front,
+the default comes in front, by §5.7.3's switch, visibly. The list
+returns with focus on the next row, else the previous.
 
 **The photo.** Add a photo opens Android's Photo Picker (images only,
 one item) or the desktop's file dialog filtered to PNG and JPEG. The
