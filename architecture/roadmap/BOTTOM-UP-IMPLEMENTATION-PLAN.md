@@ -5076,7 +5076,19 @@ what a harness can measure; the client-side clauses of this sentence
 tests, named in the closing record; (b) every step of "Implement in order" has a test named for it in
 the closing record and green — host Rust tests for the session and
 domain logic, instrumented tests on a real device (API level recorded)
-for each line of "Platform tests", process death and restart included;
+for each line of "Platform tests", process death and restart included
+— **amended 2026-10-21 on the owner's word, for this close, on
+architect-cto's recommendation ("go as your recommendation for clause
+b")**: a Platform-tests line is met by an instrumented test on a device,
+or by a dated device-run record under `apps/human-android/device-runs/`
+naming the device, its API level, the build and the commands, run by a
+person; the instrumented cases not built at the close are carried by
+name to the owner's release gate in the closing record — at the close
+the Keystore user-presence case, which needs a person's biometric, and
+the network-callback case, which needs the Wi-Fi toggle — and the
+TalkBack items travel with the release gate's TalkBack carry (Decided
+2026-10-18); a line with neither an instrumented test nor a record is
+not met;
 step 10 by the release metadata and the dependency check (ADR-0057); (c)
 `tests/android-e2e` proves Android ↔ desktop interoperability through a
 direct and a relayed path, HumanChatV2 both directions, plain and
@@ -5962,7 +5974,17 @@ decision 6.
    MalformedCard, never NotCard — and a Card carries the photo's
    decoded length as the parser measured it; the card's `identity_key`
    and `signature` (ADR-0063), the canonical bytes, the three malformed
-   cases and the frozen fixture vector with its test-only key pair.
+   cases, held to the fixture vectors frozen on #343 ahead of
+   the parser (`fixtures/human-chat-v2/human-chat-v2-contact-card.json`,
+   with their test-only key pair), and the small-order-R and
+   non-canonical-S vectors HUMAN-CHAT.md's fixture list owes to this
+   step added to that file with the parser, each guarded against being
+   misbuilt: the R vector shown to verify under the crate's non-strict
+   `verify`, which lacks only the small-order check; the S vector
+   shown to be the valid signature with S raised by the group order
+   and still below 2^253, since the scalar check is in the decoding
+   every verify of the crate shares, the vector failing whenever the
+   verifier's `legacy_compatibility` feature is on in the build.
 2. **The proposal and the acceptance** (rust-ui-dev): the identity key
    pair generated with the identity and sealed as the store key is
    (ADR-0063, ADR-0060 decision 3: its own IDK1 envelope and alias

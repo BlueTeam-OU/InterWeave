@@ -121,7 +121,7 @@ explicit settings path        -> LocalAdminPort
 
 Remote event handlers never hold `LocalAdminPort`. Trust/config mutations require explicit local UI intent; security-sensitive operations may require Android user presence. This prevents confused-deputy mistakes but is not a sandbox against arbitrary code execution inside the same APK process.
 
-The provisioned profile holds no bootstrap entry: a person's first address is added in the app (ADR-0062, human-client-ui.md section 2 step 3 and section 3), written by the embedded host into the bootstrap-peers overlay (ADR-0028 A 2026-10-21 (ii)); a deployment that knows its peers provisions them into the same overlay. Identity backup/restore remains an offline/stopped-runtime operation. The recovery flow carries ADR-0043's warning before it takes the phrase (human-client-ui.md section 9, A 2026-10-21). Recovery phrases never traverse `LocalDataSession` or normal message callbacks.
+The provisioned profile holds no bootstrap entry: a person's first address is added in the app (ADR-0062, human-client-ui.md section 2 step 3 and section 3), written by the embedded host into the bootstrap-peers overlay (ADR-0028 A 2026-10-21 (ii)); a deployment that knows its peers provisions them into the same overlay. Identity backup/restore remains an offline/stopped-runtime operation. The recovery flow carries ADR-0043's warning before it takes the phrase and, on fresh state, the statement that every identity gets a new key (human-client-ui.md section 9, IDENTITY-RECOVERY.md items 11 and 12; A 2026-10-21). Recovery phrases never traverse `LocalDataSession` or normal message callbacks.
 
 ## Android network lifecycle
 

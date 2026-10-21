@@ -47,8 +47,9 @@ fn payload(text: &str) -> Payload {
     .expect("a payload")
 }
 
-/// How long a refused dial is given: a NAT that drops answers nothing,
-/// so the probe ends on this.
+/// How long a refused dial is given: the NAT drops it and answers
+/// nothing, so the probe ends on this (asserted, beside the NAT's drop
+/// counter).
 const DIAL: Duration = Duration::from_secs(3);
 
 fn tcp_port(address: &str) -> u16 {
@@ -215,18 +216,39 @@ async fn two_daemons_behind_their_own_nats_cannot_dial_each_other_and_talk_throu
         );
     }
     // The property: neither daemon's listen address is dialable from
-    // the other side -- nor through the other's NAT.
-    assert!(
-        !netns::tcp_reaches(Net::A, at(netns::B, b_port), DIAL),
-        "A dialled B's listen address directly"
-    );
-    assert!(
-        !netns::tcp_reaches(Net::B, at(netns::A, a_port), DIAL),
-        "B dialled A's listen address directly"
-    );
+    // the other side. The core carries each dial as far as the far NAT
+    // (it routes both private ranges), so the refusal is that NAT's: it
+    // answers nothing -- the dial ends on DIAL, not on an unreachable
+    // network -- and its forward chain counts the drop.
+    for (from, to, nat, what) in [
+        (
+            Net::A,
+            at(netns::B, b_port),
+            Net::NatB,
+            "A dialled B's listen address directly",
+        ),
+        (
+            Net::B,
+            at(netns::A, a_port),
+            Net::NatA,
+            "B dialled A's listen address directly",
+        ),
+    ] {
+        let before = netns::inward_drops(nat);
+        let started = std::time::Instant::now();
+        assert!(!netns::tcp_reaches(from, to, DIAL), "{what}\n{}", logs());
+        assert!(
+            started.elapsed() >= DIAL && netns::inward_drops(nat) > before,
+            "{what}: refused in {:?}, not by {nat:?}'s drop ({} dropped before)",
+            started.elapsed(),
+            before
+        );
+    }
+    // And NAT-B maps no port to B: B's port on NAT-B's own address is
+    // NAT-B's to answer, which it refuses.
     assert!(
         !netns::tcp_reaches(Net::A, at(netns::NAT_B, b_port), DIAL),
-        "A reached B through NAT-B uninvited"
+        "NAT-B forwards B's port uninvited"
     );
 
     // A -> B, then B -> A, over the relay.
