@@ -5997,8 +5997,9 @@ decision 6.
    (loader, normalisation, the shared bound of 64, FATAL above it at
    start), the composition building the static-bootstrap provider from
    the overlay when none is authored and the provider taking adds and
-   removals live, the add's class floor (ADR-0052 rule 2) and
-   typed-only DNS rule at the client and the embedded host,
+   removals live, the add's class floor (ADR-0052 rule 2) in the
+   method itself and the embedded host's function, the typed-only DNS
+   rule at the client,
    `admin.peers.add_address`, `remove_address` and `list_addresses` and
    their schemas under one IPC minor, the embedded host's function on
    Android, `transportctl`'s add, remove and list; rust-ui-dev — the add
@@ -6056,7 +6057,11 @@ restart, with no static-bootstrap entry authored; a string outside the
 grammar is refused by name and nothing is stored; the 65th entry is
 refused, and a profile whose authored and added entries exceed 64 fails
 to start naming the overlay; every special-use class of ADR-0052 rule 2
-is refused at the add and a private-range address is admitted; a DNS
+is refused by the method itself, `transportctl` as the caller, and a
+private-range address is admitted; an add under an authored
+`enabled: false` provider is refused by name, and overlay entries
+already present under one raise the load-time diagnostic and list as
+not dialled; a DNS
 name is admitted typed and refused from a scan; a scanned QR made by a
 hostile party adds its addresses and nothing else, the trust set
 unchanged, and one refused line refuses the whole scan; the shown QR
