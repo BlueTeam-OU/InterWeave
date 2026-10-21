@@ -109,16 +109,21 @@ From the contracts, listed so a reviewer can check each screen:
 
 ## 4. Where things are
 
-The Chats screen's top app bar today has the title and one icon button,
-Trust settings (shield). It gains an overflow button after it,
-**More options** (⋮, `MoreOptions`, the label the conversation's
-overflow already uses), whose menu holds, in order:
+The Chats screen's top app bar is look spec §5's: one overflow button
+(⋮, labelled `AppOptions`, never "More options", Android review F12)
+whose menu holds "Trust". On main the shield of an earlier revision is
+still drawn (`app.slint`); this spec builds on the look spec, not on
+that. The menu gains two items after "Trust", in order:
 
-1. **Contacts** (`ContactsTitle`) → §6.2
-2. **Your cards** (`OwnCardsTitle`) → §5.1
+1. **Trust** (as today) → the Trust page
+2. **Contacts** (`ContactsTitle`) → §6.2
+3. **Your cards** (`OwnCardsTitle`) → §5.1
 
-Trust settings stays where it is: moving it would change a path people
-already use for no gain here. On the desktop the same bar heads the list
+The menu's focus and closing rules stay look spec §5's. The Chats ⋮
+keeps its own accessible name, so that on a wide layout, where it and a
+conversation's "More options" are on screen together, a screen-reader
+user can tell them apart (WCAG 2.4.6, the reason F12 gave). On the
+desktop the same bar heads the list
 pane, so the same menu is there. Each opens a full-screen page on a
 narrow layout and takes the conversation pane's place on a wide one,
 with the same back arrow the Trust page uses ("Back to conversations",
@@ -889,7 +894,8 @@ and no string calls a card an "identity" (§1).
 | `StoreRestored` | Your data was restored from the complete copy. | Chats notice after a partial discard |
 | `StoreDiscardFailed` | The stored data could not be deleted. Try again. | R/K after a failure |
 
-Existing keys reused unchanged: `MoreOptions`, `BackToConversations`,
+Existing keys reused unchanged: `AppOptions` (look spec §9; the Chats
+⋮), `MoreOptions` (the conversation's ⋮ only), `BackToConversations`,
 `Cancel`, `Close`, `Undo`, `TryAgain`, `Details`, `DirectTitle`,
 `ShortPeer`, `StorageDegraded`.
 
