@@ -151,6 +151,7 @@ Spikes are **just-in-time implementation gates**, not a large front-loaded phase
 | SPIKE-005 | admin hardening when enabled | stronger same-user local admin boundary |
 | SPIKE-007 | optional encrypted key-at-rest feature | selected audited envelope/KDF/AEAD behavior |
 | SPIKE-011 | the §29 store work, and any §22 release that ships a human store | the page-cipher store build for Linux and Android, its open/commit/read cost against the plaintext baseline the spike itself defines (none exists today) under ADR-0060 decision 4's criterion, RETENTION.md's deletion property on the encrypted file, the licence and vendored-advisory consequences; its Result pins the mechanism within ADR-0060 decision 4 or records the fallback |
+| SPIKE-012 | the §30 Android step | two embedded runtimes in one foreground service on the reference device: ports and listeners apart, network-change handling per runtime, memory and battery over a measured window, two seeds under two custody alias sets, one notification; its Result confirms or moves ADR-0061 decision 2's bound of four active identities |
 | SPIKE-008 | Stage 17 Android lifecycle/packaging | foreground service, secure recovery UI, backup/D2D behavior, store policy |
 | SPIKE-009 | Stage 17 Android key custody | Android Keystore wrapping/invalidation and exact-PeerId preservation |
 
@@ -6017,3 +6018,76 @@ implications) and over `read_pairs`, `conversation_index` and
 
 The closing record lands here when the owner closes the stage, with
 the figures and the carried limits, as §28's does.
+
+## 30. Stage 22 — several network identities in one client
+
+Recorded 2026-10-21 on the owner's direction of that day ("a user should
+have multiple network identities"); the decision is ADR-0061. **This
+section opens nothing by itself**: the stage opens on the owner's word,
+after §29 or beside it, and the status value stays the lowest open
+stage. It is numbered after §29 so that no citation of §23–§29 moves.
+
+### Objective
+
+A person holds several identities, each a whole profile; one client
+attaches to several; every conversation speaks as exactly one of them
+and says which; contacts never cross identities unless the person
+copies them; a phone runs a bounded number of identities at once under
+one notification. Nothing of this touches the transport or the wire.
+
+### Prerequisites
+
+§29's steps 1–2 on `main` (the card and the contact flows, which gain
+the identity dimension here rather than being built twice);
+**SPIKE-012 closed** before step 3, confirming or moving the bound of
+ADR-0061 decision 2.
+
+### Activate
+
+No new crate. The work lands in `crates/human/app-core`,
+`crates/human/ui-model`, `crates/human/ui-slint`, `crates/human/store`
+(the identity as a dimension of the client's own state, never of a
+profile's store, which stays per profile), the two graphical clients
+and the command-line client under `apps/`, and `profile-config` for the
+active-identity bound and the "this client presents this profile"
+choice. `spikes/spike-012/` is the spike's home.
+
+### Implement in order
+
+1. **The desktop client of several daemons** (rust-ui-dev): the client
+   attaches to every profile placed under it, each over its own data
+   and admin connections; the identity chooser on a new conversation;
+   the identity shown on every conversation; contacts per identity;
+   the identity verbs of the command-line client (ADR-0061 decision 7).
+2. **The conversation and contact model** (rust-ui-dev, shared crates):
+   `{local PeerId, remote route}` as the conversation key, the
+   per-identity contact lists, the explicit route copy, the recovery
+   flow per identity, `human-client-ui.md` §3 and §4 as amended.
+3. **The Android host of several runtimes** (rust-ui-dev, after
+   SPIKE-012): one embedded runtime per active identity in the one
+   foreground service, the active/dormant switch per identity, the
+   bound refused above it, the notification naming the active ones,
+   ADR-0041's "owns the human EndpointId" amended to "each active
+   identity's" when this lands.
+4. **Acceptance criteria** (`human-client-ui.md` §13) for steps 1–3,
+   proposed by rust-ui-dev and ruled by architect-cto.
+
+### Exit gate
+
+(a) Steps 1–4 landed with their tests green on `main`; (b) the
+conformance cases, by name: a conversation cannot change identity and
+every message and card it sends travels under that identity's PeerId
+and no other; with two identities active a new conversation asks and a
+client with one asks nothing; no row of any store names two
+identities; a contact of identity A is unknown to identity B until B's
+own trust and store hold it, and the explicit copy creates nothing in
+B's trust set; the bound on active identities refused above it; two
+identities' custody apart (no identity's unlock opens another); the
+identity settings state the network-observer limit of ADR-0061
+decision 5; every action of steps 1–3 driven from the command-line
+client in a shell with no display; (c) SPIKE-012's Result cited with
+its figures.
+
+### Record
+
+The closing record lands here when the owner closes the stage.

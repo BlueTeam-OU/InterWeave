@@ -65,6 +65,7 @@ Authority order is unchanged (`CLAUDE.md` §2): accepted ADRs → normative cont
 | Android runtime, foreground service, background reachability, LocalDataSession | **0041** (+ 0032, 0042) |
 | Android Keystore, key wrapping, unlock policy, user-presence | **0042** (+ 0033 the portable seed it wraps) |
 | identity recovery, 24-word mnemonic, BIP-39, expected_peer_id, verify drill | **0033** (+ 0038 at-rest encryption, 0043 multi-device) |
+| several identities, multiple profiles in one client, identity per conversation, which identity speaks, active or dormant identity, unlinkable identities | **0061** (+ 0016 one PeerId per profile, 0043 distinct PeerIds, 0059 cards are not identities) |
 | encrypted key at rest, passphrase, SPIKE-007 | **0038** |
 | multiple devices, same person on phone and desktop, cloning identity | **0043** (distinct PeerIds — not account sync) |
 | human message retention, unread, keep-after-read, pending outbound, backup | **0044** (+ 0020, 0018) |
@@ -378,6 +379,12 @@ The owner's word of 2026-10-19: no store for now, the project's own release page
 ### 0043 — Concurrent human devices use distinct transport PeerIds (Accepted)
 - Rules: each concurrently active device/profile has its **own** PeerId; the 24-word phrase restores or migrates one identity after loss or retirement and is **not** multi-device account synchronization; a client may group several PeerId/EndpointId routes under one person locally, but that association is not transport-authenticated.
 - Keywords: multi-device, distinct peerids, not account sync, contact grouping is local
+
+### 0061 — A person holds several network identities: each is a whole profile, one client attaches to several, and every conversation speaks as exactly one of them (Accepted)
+Decided 2026-10-21 on the owner's direction ("a user should have multiple network identities"); the shape is architect-cto's.
+- Rules: an identity is a transport profile and nothing less — own seed and PeerId, own phrase, own trust set and endpoints, own custody (seed and store key), own store with its own contacts, conversations and cards, own listeners and daemon or embedded runtime; nothing shared across identities by transport or application. One client attaches to several: the desktop to each identity's own daemon over its own IPC connections; the Android service hosts one embedded runtime per **active** identity (dormant ones run nothing), the active count bounded (**four** by the record, read from configuration, SPIKE-012 confirms or moves it), one notification naming them. A conversation belongs to one identity for life, keyed `{local PeerId, remote route}`, and shows which identity speaks; starting one asks when several are active; a card shared is that identity's. Contacts per identity, never merged; one explicit copy of routes allowed. Unlinkable against a counterparty; a network observer, a shared relay and the LAN see one device, said in the identity settings. Recovery per identity; every action a command (0059 decision 9); automated clients unchanged (one profile per agent).
+- Security: separation by construction (separate directories, sockets, custody aliases); the client's own state is the new risk — a send under the wrong identity (answered by the conversation's fixed identity, shown) and a cross-identity leak through a cache, notification, crash report or index (nothing of one identity where another reads).
+- Keywords: several identities, profiles in one client, active, dormant, identity per conversation, no cross-identity merge, spike-012, bound four
 
 ---
 
