@@ -15,7 +15,9 @@
 #             JDK_SHA256, unpacked under $RUNNER_TEMP; JAVA_HOME points at it
 #   sdk       every PKG_<n>=<package>@<revision> into the runner's SDK
 #             ($ANDROID_HOME) by sdkmanager, each then held to its pinned
-#             revision by its own source.properties. sdkmanager installs
+#             revision by its own source.properties; the install is tried
+#             SDK_INSTALL_ATTEMPTS times (default 3, SDK_RETRY_DELAY seconds
+#             apart, default 15), its downloads cleared between. sdkmanager installs
 #             the newest revision of a package, so a revision Google
 #             replaced fails here, by name, rather than building with it.
 #             Never a HOST_PKG_<n>: those are for other projects' builds on
@@ -28,7 +30,8 @@
 # the JDK's bin on PATH.
 #
 # Seams for the self-test: ANDROID_TOOLCHAIN_PINS, SDKMANAGER, FETCH (a
-# command run as `$FETCH <url> <out>`), RUSTUP, CARGO.
+# command run as `$FETCH <url> <out>`), RUSTUP, CARGO, SDK_INSTALL_ATTEMPTS,
+# SDK_RETRY_DELAY.
 #
 # Exit codes: 0 installed; 1 an install or a pin check failed; 2 usage,
 # environment or pins problem.
@@ -102,7 +105,29 @@ install_sdk() {
     # Licences answered from a process substitution, not a pipe: under
     # pipefail, `yes | sdkmanager` fails on yes's SIGPIPE when sdkmanager
     # stops reading, however the install went.
-    "$sdkm" --install "${names[@]}" < <(yes 2>/dev/null) >/dev/null || fail "sdkmanager could not install ${names[*]}"
+    #
+    # Retried: one bad download of a package archive ("Error on ZipFile
+    # unknown archive", the NDK on runs of #327 and #343's merge group)
+    # failed a required job and evicted a reviewed PR from the queue.
+    # Before each retry the download staging sdkmanager keeps under the
+    # SDK root (.temp, .downloadIntermediates: named in its installer,
+    # repository-core's AbstractPackageOperation) is cleared, and so is
+    # every pinned package not yet at its revision, so the retry fetches
+    # afresh rather than reusing the corrupt archive. What decides is
+    # still the revision check below; the last attempt's failure is red.
+    local attempts="${SDK_INSTALL_ATTEMPTS:-3}" delay="${SDK_RETRY_DELAY:-15}" try=1
+    [[ "$attempts" =~ ^[1-9][0-9]*$ ]] || die "SDK_INSTALL_ATTEMPTS '$attempts' is not a positive count"
+    until "$sdkm" --install "${names[@]}" < <(yes 2>/dev/null) >/dev/null; do
+        (( try < attempts )) || fail "sdkmanager could not install ${names[*]} (attempt $try of $attempts)"
+        echo "::warning::$me: sdkmanager failed installing ${names[*]} (attempt $try of $attempts); clearing its downloads and retrying in ${delay}s" >&2
+        rm -rf "${ANDROID_HOME:?}/.temp" "${ANDROID_HOME:?}/.downloadIntermediates"
+        for line in "${pkgs[@]}"; do
+            pkg="${line%|*}"; rev="${line#*|}"; dir="$ANDROID_HOME/${pkg//;//}"
+            [[ "$(revision "$dir")" == "$rev" ]] || rm -rf "$dir"
+        done
+        sleep "$delay"
+        try=$((try+1))
+    done
     for line in "${pkgs[@]}"; do
         pkg="${line%|*}"; rev="${line#*|}"
         dir="$ANDROID_HOME/${pkg//;//}"

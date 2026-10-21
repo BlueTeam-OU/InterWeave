@@ -53,7 +53,20 @@ F
 cat > "$S/sdkmanager" <<'M'
 #!/usr/bin/env bash
 echo "$*" > "$FAKE_DIR/sdkm.args"
+echo call >> "$FAKE_DIR/sdkm.calls"
 [ -z "${FAKE_SDKM_FAIL:-}" ] || exit 1
+# FAKE_SDKM_FAIL_FIRST=<n>: the first n calls fail as a corrupt download
+# does, leaving a staged archive and a half-written NDK behind.
+if [ "$(wc -l < "$FAKE_DIR/sdkm.calls")" -le "${FAKE_SDKM_FAIL_FIRST:-0}" ]; then
+    for d in .temp .downloadIntermediates; do mkdir -p "$ANDROID_HOME/$d"; echo corrupt > "$ANDROID_HOME/$d/ndk.zip"; done
+    mkdir -p "$ANDROID_HOME/ndk/28.2.13676358"; echo partial > "$ANDROID_HOME/ndk/28.2.13676358/half"
+    for p in "$ANDROID_HOME"/.temp "$ANDROID_HOME"/.downloadIntermediates "$ANDROID_HOME"/ndk/28.2.13676358; do
+        find "$p" -type f >> "$FAKE_DIR/sdkm.seen"; done
+    echo "Error on ZipFile unknown archive" >&2; exit 1
+fi
+[ -e "$ANDROID_HOME/.temp" ] && echo "staged archive still there" >> "$FAKE_DIR/sdkm.leftover"
+[ -e "$ANDROID_HOME/.downloadIntermediates" ] && echo "intermediates still there" >> "$FAKE_DIR/sdkm.leftover"
+[ -e "$ANDROID_HOME/ndk/28.2.13676358/half" ] && echo "half-written NDK still there" >> "$FAKE_DIR/sdkm.leftover"
 head -c 64 >/dev/null  # some licence answers; it stops reading, as sdkmanager does
 shift
 for pkg in "$@"; do
@@ -81,11 +94,11 @@ run() {  # [VAR=value...] -- <component>...
     local envs=()
     while (( $# )) && [[ "$1" != -- ]]; do envs+=("$1"); shift; done; shift
     rm -rf "$S/sdk" "$S/runner"; mkdir -p "$S/sdk" "$S/runner"
-    : > "$S/runner/env"; : > "$S/runner/path"; rm -f "$S"/*.args
+    : > "$S/runner/env"; : > "$S/runner/path"; rm -f "$S"/*.args "$S"/sdkm.calls "$S"/sdkm.leftover "$S"/sdkm.seen; : > "$S/sdkm.calls"
     env -u ANDROID_NDK_HOME ANDROID_TOOLCHAIN_PINS="${PINS:-$S/pins}" PINS_FOR_FAKE="${PINS:-$S/pins}" \
         FETCH="$S/fetch" SDKMANAGER="$S/sdkmanager" RUSTUP="$S/rustup" CARGO="$S/cargo" \
         FAKE_DIR="$S" ANDROID_HOME="$S/sdk" RUNNER_TEMP="$S/runner" \
-        GITHUB_ENV="$S/runner/env" GITHUB_PATH="$S/runner/path" "${envs[@]}" \
+        GITHUB_ENV="$S/runner/env" GITHUB_PATH="$S/runner/path" SDK_RETRY_DELAY=0 "${envs[@]}" \
         bash "$SUT" "$@" 2>&1
 }
 
@@ -117,7 +130,16 @@ out="$(run FAKE_STALE_PKG='platforms;android-30' -- sdk)"; rc=$?
 [[ $rc -eq 1 && "$out" == *"platforms;android-30 is revision '0.0.1'"*"not the pinned 3"* ]] \
     && ok "a package sdkmanager installed at another revision: exit 1, named" || bad "rc $rc" "$out"
 out="$(run FAKE_SDKM_FAIL=1 -- sdk)"; rc=$?
-[[ $rc -eq 1 && "$out" == *"sdkmanager could not install"* ]] && ok "sdkmanager failing: exit 1" || bad "rc $rc" "$out"
+[[ $rc -eq 1 && "$out" == *"sdkmanager could not install"*"(attempt 3 of 3)"* ]] && ok "sdkmanager failing every time: exit 1 after the third attempt, named" || bad "rc $rc" "$out"
+[[ "$(wc -l < "$S/sdkm.calls")" -eq 3 ]] && ok "  and it was called three times, no more" || bad "calls" "$(wc -l < "$S/sdkm.calls")"
+out="$(run FAKE_SDKM_FAIL_FIRST=1 -- sdk)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"3 SDK package(s) at their pinned revisions"* ]] && ok "one corrupt download, then a good one: exit 0, every package held to its revision" || bad "rc $rc" "$out"
+[[ "$out" == *"::warning::android_ci_toolchain: sdkmanager failed"*"(attempt 1 of 3)"* ]] && ok "  the failed attempt is a warning in the log, numbered" || bad "no warning" "$out"
+[[ -s "$S/sdkm.seen" && ! -s "$S/sdkm.leftover" ]] && ok "  the staged archive, the intermediates and the half-written NDK were cleared before the retry" || bad "leftover" "seen: $(cat "$S/sdkm.seen" 2>/dev/null) left: $(cat "$S/sdkm.leftover" 2>/dev/null)"
+out="$(run FAKE_SDKM_FAIL_FIRST=2 SDK_INSTALL_ATTEMPTS=2 -- sdk)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"(attempt 2 of 2)"* ]] && ok "SDK_INSTALL_ATTEMPTS bounds the tries: two failures of two is exit 1" || bad "rc $rc" "$out"
+out="$(run SDK_INSTALL_ATTEMPTS=0 -- sdk)"; rc=$?
+[[ $rc -eq 2 && "$out" == *"not a positive count"* ]] && ok "SDK_INSTALL_ATTEMPTS=0: exit 2, never a run that tries nothing" || bad "rc $rc" "$out"
 out="$(env -u ANDROID_HOME bash -c "ANDROID_TOOLCHAIN_PINS='$S/pins' SDKMANAGER='$S/sdkmanager' bash '$SUT' sdk" 2>&1)"; rc=$?
 [[ $rc -eq 2 && "$out" == *"ANDROID_HOME is not set"* ]] && ok "no ANDROID_HOME: exit 2" || bad "rc $rc" "$out"
 grep -v '^PKG_' "$S/pins" > "$S/pins-nopkg"
