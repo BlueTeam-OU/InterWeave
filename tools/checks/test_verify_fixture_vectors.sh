@@ -523,6 +523,31 @@ json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
 out="$(run "$R")"
 [ "$(run_code "$R")" = "1" ] && [[ "$out" == *"signer names neither"* ]] && ok "a vector with no signer is refused" || bad "a vector with no signer is refused: $out"
 
+R="$TMP/card-construct"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['signature-small-order-r']['signer']['constructed']='something-else'
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"is not a construction this verifier knows"* ]] && ok "an unknown signature construction is refused" || bad "an unknown signature construction is refused: $out"
+R="$TMP/card-construct-lax"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['signature-small-order-r']['signer']['lax_verifies']=False
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"OpenSSL's verify says True"* ]] && ok "a constructed card's lax verification is recomputed" || bad "a constructed card's lax verification is recomputed: $out"
+R="$TMP/card-construct-swap"; make_card "$R"
+python3 -c "
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); v={x['name']:x for x in d['vectors']}
+v['signature-non-canonical-s']['signer']['constructed']='small-order-r'
+json.dump(d, open(p,'w'))" "$R/fixtures/human-chat-v2/card.json"
+out="$(run "$R")"
+[ "$(run_code "$R")" = "1" ] && [[ "$out" == *"not the test-only key's over the bytes signed_over names"* ]] && ok "a constructed signature that is not its construction is refused" || bad "a constructed signature that is not its construction is refused: $out"
+
 # ── usage ────────────────────────────────────────────────────────────────
 [ "$(run_code "$TMP/nothing-here")" = "2" ] && ok "a missing fixtures/ exits 2" || bad "missing tree should exit 2"
 help_out="$(python3 "$CHECK" --help 2>/dev/null)"

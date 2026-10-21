@@ -724,8 +724,43 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
             over.get("peer_id", ctx["peer_id"]),
             over.get("source_endpoint", ctx["source_endpoint"]),
         )
-        if card.get("signature") != base64.b64encode(sk.sign(signed)).decode("ascii"):
+        honest = sk.sign(signed)
+        constructed = signer.get("constructed")
+        if constructed is None:
+            expected = honest
+        elif constructed == "small-order-r":
+            # R the identity point, S = H(R || A || M) * a mod l with a the
+            # clamped scalar: the cofactorless equation holds, so only a
+            # small-order-R check refuses it. A replaced R with the honest
+            # S fails every verifier and would pin nothing.
+            h = bytearray(hashlib.sha512(bytes.fromhex(signer["test_only_seed_hex"])).digest()[:32])
+            h[0] &= 248
+            h[31] &= 127
+            h[31] |= 64
+            r_bytes = (1).to_bytes(32, "little")
+            k = int.from_bytes(hashlib.sha512(r_bytes + pub + signed).digest(), "little") % _ED_L
+            s = (k * int.from_bytes(h, "little")) % _ED_L
+            expected = r_bytes + s.to_bytes(32, "little")
+        elif constructed == "s-plus-order":
+            # The honest signature with S raised by l: the same signature
+            # modulo l, refused only by the canonical-S check. Below 2^253
+            # so the top three bits stay clear and no other check sees it.
+            s = int.from_bytes(honest[32:], "little") + _ED_L
+            if s >= 2**253:
+                raise ValueError("S plus the group order reaches 2^253, so a top-bits check would refuse it too")
+            expected = honest[:32] + s.to_bytes(32, "little")
+        else:
+            raise ValueError(f"signer.constructed '{constructed}' is not a construction this verifier knows")
+        if card.get("signature") != base64.b64encode(expected).decode("ascii"):
             raise ValueError("the card's signature is not the test-only key's over the bytes signed_over names")
+        if constructed is not None:
+            try:
+                Ed25519PublicKey.from_public_bytes(pub).verify(expected, message or b"")
+                lax = True
+            except InvalidSignature:
+                lax = False
+            if signer.get("lax_verifies") is not lax:
+                raise ValueError(f"lax_verifies is {signer.get('lax_verifies')}, OpenSSL's verify says {lax}")
     elif "small_order_public_key_hex" in signer:
         key = bytes.fromhex(signer["small_order_public_key_hex"])
         pt = _ed_decode(key)
