@@ -562,8 +562,8 @@ PeerId:
 stored data…** (`DiscardStore`, an outlined button in `error`, at the
 start side, apart from the others), then at the end **Close** and **Try
 again** (filled). The ellipsis says a further step follows.
-`RefusalStoreRecovery`'s text ("The file was not changed, moved or
-deleted…") stays true until the person confirms; its sentence on
+`RefusalStoreRecovery`'s text ("Nothing was changed…") stays
+true until the person confirms; its sentence on
 replacing the file with a backup copy no longer fits an encrypted
 store; §10 gives what the new text must say (architect-cto, §12 A5).
 
@@ -571,7 +571,7 @@ store; §10 gives what the new text must say (architect-cto, §12 A5).
 refusal to code −5; nothing presents it as a page). This spec gives it
 one, built on the identity screens' frame
 (`design/2026-10-19-android-identity.md` §3): heading `StoreRecoveryTitle`,
-the reason (`StoreRecoveryBody`), and at the bottom **Try again** (filled), then **Delete stored
+the reason, and at the bottom **Try again** (filled), then **Delete stored
 data…** (outlined, `error`), then **Close** (text; closes the app's
 task). No file path: the person cannot reach it. **K** has heading
 `StoreKeyLostTitle`, body `StoreKeyLostBody` (the phone no longer accepts
@@ -902,8 +902,7 @@ and no string calls a card an "identity" (§1).
 | `DeleteContact` | Delete contact | contact overflow |
 | `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo |
 | `StoreRecoveryTitle` | InterWeave cannot read its stored data | Android R heading |
-| `RefusalStoreRecovery` (revised) | This version of InterWeave cannot read the file below, where it stores your messages and contacts. The file may be damaged, the key that protects it may be lost, or a newer version of InterWeave may have written it. The file was not changed, moved or deleted, and nothing is deleted unless you choose Delete stored data. If a newer version wrote the file, install and start the newest version of InterWeave that you have used, or a newer one. | desktop R body (Android R has its own, `StoreRecoveryBody`): its backup-copy sentence assumes a plaintext file a person can swap; the store is now encrypted and a copy opens only with its key. Must still say the file was not changed until the person chooses. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). The Text column predates A5 and is language-culture's to revise |
-| `StoreRecoveryBody` | InterWeave cannot read the data it stored on this phone: your messages, contacts and cards. The data may be damaged, or the key that protects it may be lost. Nothing was changed or deleted, and nothing is deleted unless you choose Delete stored data. | Android R body (new key): Android cannot install an older version over a newer one, so the desktop's newer-version advice is not true here, and Android shows no path. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). The Text column predates A5 and is language-culture's to revise |
+| `RefusalStoreRecovery` (revised) | InterWeave cannot read its stored data: your messages, contacts and cards. Nothing was changed. The data opens only with its key on this device, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. Restoring your identity does not bring back this data. | desktop R and Android R body. Must say: the file was not changed; the stored data opens only with its key on this device, and a copy of the file without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Discard and recreate, which loses what it lists; the recovery phrase restores the identity alone, never this data. Must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (architect-cto, §12 A5; ADR-0060 d. 8). **Desktop only**, one more sentence (a desktop variant, language-culture's to write): if a newer version of InterWeave wrote the data, install and start the newest version you have used — a store a newer version wrote still reaches R on the desktop through a failed migration (STATE.md §Migrations); Android cannot install an older version over a newer one, so its text has no such sentence |
 | `StoreKeyLostTitle` | The key to your stored data no longer works | K heading |
 | `StoreKeyLostBody` | This phone no longer accepts the key that protects InterWeave's stored data. This can happen after some changes to the screen lock. The data cannot be read again. Your identity is not affected. | K body |
 | `DiscardStore` | Delete stored data… | R, K action |
