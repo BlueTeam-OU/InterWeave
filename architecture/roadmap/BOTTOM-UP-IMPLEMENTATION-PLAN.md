@@ -5974,9 +5974,11 @@ decision 6.
    MalformedCard, never NotCard — and a Card carries the photo's
    decoded length as the parser measured it; the card's `identity_key`
    and `signature` (ADR-0063), the canonical bytes, the three malformed
-   cases, held to the frozen fixture vectors frozen on #343 ahead of
+   cases, held to the fixture vectors frozen on #343 ahead of
    the parser (`fixtures/human-chat-v2/human-chat-v2-contact-card.json`,
-   with their test-only key pair).
+   with their test-only key pair), and the small-order-R vector
+   HUMAN-CHAT.md's fixture list owes to this step added to that file
+   with the parser.
 2. **The proposal and the acceptance** (rust-ui-dev): the identity key
    pair generated with the identity and sealed as the store key is
    (ADR-0063, ADR-0060 decision 3: its own IDK1 envelope and alias
