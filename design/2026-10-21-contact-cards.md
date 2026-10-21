@@ -594,6 +594,13 @@ App bar: back arrow, the name as title, overflow with **Delete contact**
   included, so that the PeerId stays under one contact (§5.6), and, when the move
   deleted the contact, writes it back with its values and their
   sources; a kill inside the window leaves the move done, as said.
+  The Undo is withdrawn — its snackbar closes — as soon as a card from
+  that PeerId is accepted, since the Accept may have written its name
+  and photo to the target, which no Move undo can tell apart from the
+  target's own; the Accept's own Undo is then the way back. A snackbar
+  shown on the Contacts list or a contact page closes when the person
+  leaves those pages, as a conversation's closes when they leave it
+  (message-swipe §6: one at a time, a new one replaces the old).
   After Move the moved-to contact's page opens, and its Back goes to
   the Contacts list, since the source page may no longer exist. Undo
   opens the source contact's page again, its Back to the Contacts list.
