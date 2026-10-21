@@ -232,7 +232,11 @@ Back with unsaved changes: a dialog `CardDiscardChanges`, actions
 one item) or the desktop's file dialog filtered to PNG and JPEG. The
 client prepares what will be sent from the picked image:
 
-- crops the largest centred square, scales it to at most 256 × 256,
+- first turns the pixels upright by the image's own orientation (an
+  EXIF Orientation tag, as a camera writes it), since the tag goes with
+  the rest of the metadata below and a photo stripped of it unturned
+  would arrive sideways;
+- then crops the largest centred square, scales it to at most 256 × 256,
   and encodes it as JPEG (or PNG for an image with transparency) at the
   highest quality that fits 24,576 bytes (HUMAN-CHAT.md);
 - the preview shows the prepared bytes, decoded, not the original, so
@@ -761,7 +765,9 @@ on the desktop.
     format character, HUMAN-CHAT.md).
 11. The photo sent is at most 256 × 256 and 24,576 bytes, and carries no
     metadata block (EXIF, XMP, text chunks), checked on the bytes a test
-    captures before send.
+    captures before send; a JPEG fixture with Orientation 6 and a marker
+    in its top-left corner arrives with the marker where the original
+    showed it.
 12. A card too large for a low-limit profile is offered "Share without
     the photo" and nothing is sent before the person presses it.
 13. R shows Delete stored data… as a third action on both clients; K
