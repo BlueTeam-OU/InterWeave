@@ -726,11 +726,19 @@ Starting the app otherwise, opening a contact, Your identities or an
 identity's page, adding an identity and Make default change nothing.
 A switch, by any of these, changes everything shown together, at once: the Chats list becomes the
 new identity's conversations, the switch shows its name, and on a wide
-layout an open conversation closes and its pane shows the new
-identity's empty-pane placeholder, since the conversation belongs to the
-identity that was in front. Contacts, a contact page and the share sheet
-are not open at that moment (the switch is on Chats, and a sheet or a
-dialog covers it). What the person had in hand stays with its
+layout, where the switch stays on screen beside the second pane (§4),
+whatever that pane holds of one identity closes — a conversation,
+Contacts, a contact page, an identity's page — and the pane shows the
+new identity's empty-pane placeholder. Two pages there belong to no
+identity and stay: Trust (the device's) and Your identities, whose check
+mark moves. On a narrow layout those pages cover Chats, so the switcher
+is reached only from Chats; a sheet or a dialog covers the switch on
+either layout. **An unsaved card edit** (an identity's page with changes,
+§5.2) is asked about before any switch: `CardDiscardChanges` opens
+first; Discard lets the switch go on, and Continue editing cancels it,
+leaving everything as it was — for a notification's switch too, whose
+conversation the person then finds in Chats once they switch. What
+the person had in hand stays with its
 identity: a draft stays in its conversation's composer, sends in
 progress go on under their own lease, and nothing of the old identity's
 is carried into the new one's screens.
@@ -867,7 +875,7 @@ conversations") only when there is more than one. A row opens the contact page.
   list or a contact page lives while the person moves between those
   two, and one shown on an identity's page lives while they stay on it;
   each closes when the person leaves its pages or switches identity
-  (§5.7.3), as a conversation's
+  (§5.7.3, which closes the pages too on a wide layout), as a conversation's
   closes when they leave it (message-swipe §6: one at a time, a new one
   replaces the old).
 
@@ -1168,7 +1176,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | Your identities / Your card / Contacts opened from the menu | the page title (focusable heading) | keyboard |
    | a card saved | the identity's row in the list, else the control that opened the page (the sheet's Edit your card or Add your name) | keyboard |
    | a card's Save with an invalid field | the first invalid field | keyboard |
-   | unsaved-changes dialog opens / closes on Continue editing | Continue editing / the field that had focus | keyboard |
+   | unsaved-changes dialog opens / closes on Continue editing (also when a switch asked it) | Continue editing / the field that had focus | keyboard |
    | an identity added | its new row in the list | keyboard |
    | Add an identity at the bound | `IdentityLimit` | keyboard |
    | Make default, and its Undo | stays on the overflow button | keyboard |
@@ -1288,8 +1296,12 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     five acts switches and names the identity right after; choosing
     another identity in the switcher changes the
     list, the switch's name and every "As" line at once and shows
-    `ConfirmIdentitySwitched`; Switch back returns. On a wide layout an
-    open conversation closes on a switch.
+    `ConfirmIdentitySwitched`; Switch back returns. On a wide layout a
+    switch closes an open conversation, Contacts, a contact page and an
+    identity's page to the placeholder, and leaves Trust and Your
+    identities open; with a card's unsaved changes, the
+    unsaved-changes dialog comes first and Continue editing cancels the
+    switch.
 21. **A conversation never changes identity.** Messages and a card sent
     from a `work` conversation all carry `source_endpoint` `work`,
     measured at the counterparty, before and after any switch; nothing
