@@ -850,3 +850,62 @@ fn uninstall_refuses_a_running_manager_it_cannot_reach() {
         "nothing removed"
     );
 }
+
+/// A `systemctl` stand-in for a manager that answers `show-environment`
+/// and then fails `fails` (`list-units` or `show`), saying every
+/// instance inactive otherwise; `is-active` fails as a failed query does.
+fn failing_manager(account: &Unmanaged, fails: &str) {
+    let stub = account.stub.join("systemctl");
+    std::fs::write(
+        &stub,
+        format!(
+            "#!/bin/sh\nfor a; do case \"$a\" in\n\
+             {fails}) exit 1 ;;\n\
+             show-environment|list-units) exit 0 ;;\n\
+             show) echo inactive; exit 0 ;;\n\
+             is-active) exit 4 ;;\n\
+             esac; done\nexit 0\n"
+        ),
+    )
+    .expect("a systemctl stand-in");
+    std::fs::set_permissions(&stub, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("executable");
+}
+
+/// A manager that answers and then fails to list its instances, or to say
+/// whether one still runs, is not one with nothing running: uninstall
+/// removes nothing and fails, rather than deleting the files of an
+/// instance it could not see stopped. The control is the same stand-in
+/// failing neither, which uninstalls and removes the links.
+#[test]
+fn uninstall_refuses_a_manager_whose_query_fails() {
+    for fails in ["list-units", "show"] {
+        let account = Unmanaged::new("e2e-failing-query");
+        let links = account.enabled_links("p");
+        failing_manager(&account, fails);
+        let out = account.script("uninstall.sh", &[]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{fails} failing refused: {stderr}"
+        );
+        assert!(
+            account.package_present() && links.iter().all(|l| l.is_symlink()),
+            "{fails} failing: nothing removed\n{stderr}"
+        );
+    }
+    let account = Unmanaged::new("e2e-failing-query");
+    let links = account.enabled_links("p");
+    failing_manager(&account, "no-such-verb");
+    let out = account.script("uninstall.sh", &[]);
+    assert!(
+        out.status.success(),
+        "the control: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !account.package_present() && links.iter().all(|l| !l.is_symlink()),
+        "the control removed the package and the links"
+    );
+}

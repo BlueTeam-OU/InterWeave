@@ -42,17 +42,15 @@ esac
 bin_dest="$HOME/.local/bin"
 unit_dest="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
-# The instances: every one the manager has loaded, running or not (none
-# when no manager answers), and
+# The instances: every one in $1, the manager's list of the units it has
+# loaded, running or not (empty when no manager runs), and
 # every one enabled -- persistently or for this boot only -- that it has
 # not loaded, found by the wants links `enable` makes. Sorted, so every
 # client comes before every daemon and none is restarted by its daemon's
 # stop.
 instances() {
     {
-        systemctl --user list-units --all --plain --no-legend --full \
-            'interweave-client@*.service' 'interweave-daemon@*.service' \
-            2>/dev/null | awk '{ print $1 }'
+        printf '%s\n' "$1" | awk 'NF { print $1 }'
         for wants in "$unit_dest"/*.wants \
             "${XDG_RUNTIME_DIR:-/nonexistent}"/systemd/user/*.wants; do
             [ -d "$wants" ] || continue
@@ -102,15 +100,31 @@ else
 fi
 
 if [ "$manager" = yes ]; then
-    for unit in $(instances); do
+    # A manager that answered and then fails a query is not one with
+    # nothing running: a failed list, or a failed question about one
+    # instance, removes nothing more, where an unchecked one would read as
+    # no instance, or as one stopped (`is-active` fails both ways alike).
+    if ! loaded="$(systemctl --user list-units --all --plain --no-legend \
+        --full 'interweave-client@*.service' 'interweave-daemon@*.service')"; then
+        echo "uninstall.sh: this account's systemd user manager did not list its instances, so none could be stopped; nothing was removed" >&2
+        exit 1
+    fi
+    for unit in $(instances "$loaded"); do
         # Stopped whether or not it was enabled -- a stop of an instance the
         # manager has not loaded fails, and is judged by what is active
         # after it -- then disabled, persistent and runtime.
         systemctl --user stop "$unit" 2>/dev/null || true
-        if systemctl --user is-active --quiet "$unit"; then
-            echo "uninstall.sh: $unit could not be stopped; nothing more was removed" >&2
+        if ! state="$(systemctl --user show -p ActiveState --value "$unit")"; then
+            echo "uninstall.sh: the manager did not say whether $unit still runs; nothing more was removed" >&2
             exit 1
         fi
+        case "$state" in
+        inactive | failed) ;;
+        *)
+            echo "uninstall.sh: $unit could not be stopped ($state); nothing more was removed" >&2
+            exit 1
+            ;;
+        esac
         systemctl --user disable "$unit" >/dev/null 2>&1 || true
         systemctl --user disable --runtime "$unit" >/dev/null 2>&1 || true
         remove_links "$unit"
@@ -120,7 +134,7 @@ else
     # No manager runs for this account, so no instance runs under one; what
     # is left of an enable is its links.
     echo "uninstall.sh: no systemd user manager is running for this account" >&2
-    for unit in $(instances); do
+    for unit in $(instances ""); do
         remove_links "$unit"
     done
 fi
