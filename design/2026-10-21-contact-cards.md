@@ -79,8 +79,8 @@ gives it that swipe. §12 O1 asks the owner one narrowing of it.
   mix them up." Most people will have one identity and never see the
   word. Some want a work identity and a private one. They need to know,
   at every moment they can send or act, which one they are, and that
-  nothing done as one is done as the other. They do not think of an
-  EndpointId as anything; they think of a name and a face.
+  nothing done as one is done as the other. An EndpointId means
+  nothing to them; they think of a name and a face.
 - **Share:** "Tell this person who I am." They are in a conversation
   that shows the other side as `…x6gY6Eri` and want it to show their
   name instead. They need to see what goes before it goes, and that only
@@ -93,7 +93,7 @@ gives it that swipe. §12 O1 asks the owner one narrowing of it.
   list and the title, and a way to tell two Annas apart.
 - **Recover the store:** "Get the app working again." The app cannot
   read its own stored data. The person did nothing wrong. They need to
-  know what they lose before they lose it, and that their identity and
+  know what they lose before they lose it, and that their PeerId and
   trust are not part of it.
 
 ## 3. Rules every screen here keeps
@@ -191,10 +191,11 @@ Shown while two or more identities are held; with one, the menu opens
 - the shared-device statement (`IdentitiesShareDevice`), always, not
   behind a link (ADR-0061 d. 5): your identities use this device's one
   PeerId and its network addresses, so someone who knows two of them
-  can tell they are on the same device, as can the network; keeping two
-  identities fully apart needs a separate profile, which the desktop
-  can run and this phone cannot (the Android text says only the last
-  part that is true there); and, in the same block, that an identity's
+  can tell they are on the same device, as can the network; to stop the
+  people they talk to from linking two identities, the person needs a
+  separate profile, which the desktop can run and this phone cannot,
+  and even then the network sees one computer (ADR-0061 d. 5; the
+  Android text ends with what is true there); and, in the same block, that an identity's
   label is no secret from the peers this device trusts: one that learns
   or guesses it can write to that identity, unless the identity is
   limited to some of them (§5.2, Who can reach this identity) (ADR-0061
@@ -218,7 +219,7 @@ States:
 - **Store degraded** (`StorageDegraded` already shown by the app): the
   list shows what it read; Add, Save and Remove are disabled with the
   existing degraded notice above them, since a card that cannot be
-  stored cannot be kept.
+  stored cannot be saved.
 - **At the bound**: with 64 endpoints configured (ENDPOINTS.md), Add an
   identity opens nothing and `IdentityLimit` shows under it, focused.
 
@@ -278,8 +279,8 @@ Fields, in order:
    default identity, else nothing.
 
 Then the note `CardSharedStays` (a card already shared stays with the
-person who has it; a change here reaches them only when you share it
-again), and **Save** (`Save`), filled, at the bottom.
+person who has it; a change here reaches them only when the person
+shares it again), and **Save** (`Save`), filled, at the bottom.
 
 Input rules, checked on Save and shown inline:
 
@@ -311,7 +312,8 @@ Back with unsaved changes: a dialog `CardDiscardChanges`, actions
 line `IdentityIsDefault` appears, and a snackbar `ConfirmDefaultSet`
 with Undo (moves it back). Its helper on the page says what the default
 is in the person's terms (`IdentityDefaultHelp`: people who write to
-this device without naming an identity reach the default; ADR-0061
+this device's PeerId without using one of the person's labels reach the
+default; ADR-0061
 Operational implications). It does not put the identity in front.
 
 **Who can reach this identity** (`IdentityReach`), with two or more
@@ -328,7 +330,7 @@ Save the policy is written at once, the row's value changes, and a
 snackbar `ConfirmReachChanged` offers Undo (writes the previous set
 back). A peer left out is not told: what it sees is the coarse
 `no_route` of any unreachable endpoint (CLAUDE.md §5), and the page
-says so (`IdentityReachNote`: people you leave out cannot write to this
+says so (`IdentityReachNote`: peers that you do not select cannot write to this
 identity, and are not told why). Unchecking every peer is allowed and
 reads `IdentityReachNone`; the identity then receives from no one.
 The policy's shape and its writer are plan §30's (Stage 22); this is
@@ -403,8 +405,8 @@ closes it). It holds:
 - **What {title} will see** (`ShareCardPreview`): the card's photo and
   name and family name, as the counterparty's client will show them
   after they accept;
-- the line `ShareCardNote`: the person will see this name and photo, and
-  can save them; a card cannot be removed from their device once it arrives;
+- the line `ShareCardNote`: the counterparty will see this name and
+  photo, and can save them; a card cannot be removed from their device once it arrives;
 - actions: **Cancel** (`Cancel`), **Edit your card** (`EditCard`, a text
   button, which opens §5.2 for this identity and returns to the sheet)
   and **Share** (`ShareCardAction`), filled, at the end.
@@ -477,14 +479,14 @@ never looks like a message the app wrote:
   full PeerId under it in the code font, wrapping, selectable, with
   **Copy PeerId** (`CopyPeerId`);
 - the **context line**, exactly one of (§5.4.1);
-- `CardGoesAtClose`, in body small: if you do not accept it, it goes when
-  InterWeave closes;
+- `CardGoesAtClose`, in body small: if you do not accept it, it is removed
+  when InterWeave stops;
 - actions at the end: **Decline** (`Decline`, text button) and **Accept**
   (`Accept`, filled; its label changes by case, §5.4.1).
 
 The row carries the time and the status words of any received item
 (Unread, Read) under `human-client-ui.md` §5–§6. It has no Keep: Accept
-is how a card is kept, and keeping an unanswered claim would add a state
+is how a card is saved, and saving an unanswered claim would add a state
 the person cannot use (architect-cto confirmed, §12 A2).
 
 #### 5.4.1 What Accept will do, said before it is done
@@ -547,7 +549,7 @@ decoded only now, with the memory-safe decoder, to the fixed display
 size. The proposal row is replaced in place by a short confirmation row
 (`CardAccepted`: "You saved {name} as a contact." in cases N, D and P;
 `CardUpdated` in cases U and E; each with the name as saved and the new
-avatar), so the conversation keeps a trace of what
+avatar), so the conversation holds a trace of what
 happened in this session. The title and the list take the name (§6.1).
 
 Snackbar with Undo: `ConfirmContactSaved` in cases N, D and P,
@@ -586,8 +588,8 @@ neither direction moves (Close is not a swipe action). The buttons are
 the non-gesture equivalent, always present.
 
 **A difference from message-swipe §7, on purpose.** There, as revised by
-Android review F2, a row at rest shows no buttons and keeps its actions
-in a menu. A proposal keeps Accept and Decline visible at rest, because
+Android review F2, a row at rest shows no buttons and puts its actions
+in a menu. A proposal shows Accept and Decline at rest, because
 it exists to be answered: a claim whose answer is hidden in a menu reads
 as a message, and the case's label (§5.4.1) is what tells the person what
 Accept will do before they do it. The row also has §7's menu (long
@@ -605,7 +607,7 @@ whether case D should take no right swipe.
   which contact holds a route or what a contact's values are** — an
   Accept and its Undo, Details' Add as a contact, a Move and its Undo,
   a Delete and its Undo, a name edit, Remove photo — so an older card under a just-accepted newer one reads as
-  case U, E or S against the new values, and a row never keeps a label
+  case U, E or S against the new values, and a row never shows a label
   whose case no longer holds.
 - A card that arrives while the conversation is not shown is unread
   content: it counts in the unread badge and survives a restart as any
@@ -707,7 +709,7 @@ choosing the row already chosen closes it with nothing changed.
 | a conversation | send, share a card, accept or decline a card, delete messages | `ComposerAs` ("As {identity}"), one line in body small at the end side directly above the send control, with the 24 dp avatar; the send control's accessible name is `SendAs` ("Send as {identity}"); Details' `DetailsIdentity` (§6.4). Where the conversation has no composer, the line stands where the composer would |
 | the share sheet | share | `ShareCardAs` (§5.3) |
 | Contacts, a contact | delete, move, rename, remove a photo | the identity as the app bar's subtitle (§6.2, §6.3) |
-| an identity's card | save, make default, remove | that identity as the subtitle (§5.2); when it is not the identity in front, `IdentityNotInFront` under the app bar ("You are using {front}. This page changes {identity}.") |
+| an identity's card | save, make default, remove | that identity as the subtitle (§5.2); when it is not the identity in front, `IdentityNotInFront` under the app bar ("You are using {front}. What you change on this page applies to {identity}.") |
 | Trust | trust, untrust | not an identity: trust is the device's, held for every identity (ADR-0061 d. 1); `TrustAllIdentities` says so under the title, so no one trusts a peer for "this identity only" by mistake |
 | recovery, discard (§7) | delete stored data | not an identity: the dialog says it is every identity's data (§7.2) |
 
@@ -736,7 +738,7 @@ kill inside its window would leave it.
 
 Feedback: the list cross-fades (under reduced motion it changes at
 once); the snackbar `ConfirmIdentitySwitched` ("You are now
-{identity}") with **Switch back** (`SwitchBack`), which switches to the
+using {identity}") with **Switch back** (`SwitchBack`), which switches to the
 previous identity by the same rule; its text is announced. Focus goes to
 the switch, which now names the new identity. A switch is not a
 destructive act, so it is not confirmed beforehand; its result is named
@@ -762,7 +764,8 @@ moves a conversation, a contact or a card from one identity to another.
 The new-conversation flow is plan §18 carry 11's, not designed here
 (§11); what it must do, while two or more identities are held, is name
 the identity in front at its top before anything can be sent
-(`NewConversationAs`, "You start this conversation as {identity}"),
+(`NewConversationAs`, "You are starting this conversation as
+{identity}"),
 and ask nothing: no choice of identity, since a chooser that could pick
 another identity while this one is in front is the confusion the
 owner's rule forbids (ADR-0061 d. 3). To start as another identity, the
@@ -890,11 +893,12 @@ subtitle while two or more are held, overflow with **Delete contact**
   holds a message, as any conversation is; a row expands to the full PeerId
   with Copy PeerId;
 - **Shares a device**: under a route whose PeerId also holds a route
-  of another contact of this identity, `ContactSharesDevice`: "{other}
-  uses the same device (PeerId)", each other contact a link to its page,
+  of another contact of this identity, `ContactSharesDevice`: "Same device
+  as your contact {name}", one line for each other contact, each a
+  link to its page,
   and once on the page the plain statement `ContactSharesDeviceNote`:
   one device can hold several identities, so these contacts may be one
-  person; InterWeave keeps them apart and never joins them (ADR-0061
+  person; InterWeave never combines them (ADR-0061
   d. 4 and d. 5). Only the identity in front's contacts are named.
 - **Move to another contact** on a route row (`MoveRoute`) when there
   are other contacts that hold no route of this route's PeerId. Move
@@ -949,8 +953,8 @@ are recomputed (§5.4.5).
 The conversation's Details dialog (look spec §6) gains, above the
 PeerId:
 
-- with two or more identities held, `DetailsIdentity`: "You speak here
-  as {identity}", with its avatar and route label: the conversation's
+- with two or more identities held, `DetailsIdentity`: "You write as
+  {identity} in this conversation", with its avatar and route label: the conversation's
   identity, fixed for its life (ADR-0061 d. 3);
 - the name and its provenance (§6.3), or for a route under no contact
   **Add as a contact**, with `DetailsSharesDevice` above it by §5.6's
@@ -1044,7 +1048,8 @@ discard cannot be left). It is short; it is not cancellable.
 
 - **Done**: the app opens as on any start. Chats shows a notice banner
   (the existing notice slot) `StoreDiscarded` ("The stored data
-  was deleted. Your identity and the peers you trust did not change.") after a full
+  was deleted. This device's PeerId and the peers you trust did not
+  change.") after a full
   discard, or `StoreRestored` ("Your data was restored from the complete
   copy.") after the partial one, with **Close** to dismiss it; it is
   shown once and not stored.
@@ -1364,11 +1369,11 @@ and are for them to write.
 | `KeepEditing` / `DiscardChanges` | Continue editing / Discard | its actions |
 | `PhotoUnusable` | This photo cannot be used. Choose another one. | editor, under the circle |
 | `ShareCard` | Share a card | conversation overflow, empty-conversation offer |
-| `ShareCardTitle` | Share your card with {title} | share sheet title (new text, proposal) |
+| `ShareCardTitle` | Share your card with {title} | share sheet title |
 | `ShareCardPreview` | What {title} will see | share sheet preview heading |
 | `ShareCardNote` | They will see this name and photo, and they can save them. You cannot remove a card from their device after it arrives. | share sheet note |
 | `ShareCardAction` | Share | share sheet primary |
-| `CreateCard` | Add your name | share sheet primary when the identity's card has no name (new text, proposal) |
+| `CreateCard` | Add your name | share sheet primary when the identity's card has no name |
 | `ShareCardNoPhoto` | The photo is too large to send in this conversation. | share sheet, over the limit |
 | `ShareCardWithoutPhoto` | Share without the photo | share sheet primary, over the limit |
 | `ShareCardTooLarge` | This card is too large to send in this conversation. | share sheet, nothing fits |
@@ -1383,7 +1388,7 @@ and are for them to write.
 | `UpdateContact` | Update contact | cases U, E |
 | `ShareCardPreviewSpoken` | {title} will see the name {name}. | share sheet preview, accessible description, no photo |
 | `ShareCardPreviewSpokenPhoto` | {title} will see the name {name} and your photo. | the same, with the photo |
-| `MoveRoutePickerTitle` | Move this conversation to which contact? | the move-route picker's title. One route moves, this conversation's (ADR-0061 d. 4); the text must say what the person picks a contact for (revised, proposal) |
+| `MoveRoutePickerTitle` | Choose a contact for this conversation | the move-route picker's title. One route moves, this conversation's (ADR-0061 d. 4); the text must say what the person picks a contact for |
 | `CardPhotoLabel` | Photo for this card | editor photo circle, accessible label |
 | `CardPhotoNone` | No photo for this card | the same, with no photo |
 | `CardSameName` | One of your contacts is named {name} and has a different PeerId. Compare the two PeerIds before you accept. | case D, and cases P, U and E when Accept would write a name that clashes with a contact on another PeerId (§5.4.1); `{name}` the other contact's name; must name both facts |
@@ -1401,10 +1406,10 @@ and are for them to write.
 | `CardPreviewReceived` / `CardPreviewSent` | Contact card / You shared a card | list previews |
 | `CardNotification` | You received a contact card. | notification body; never the name |
 | `AnnounceCard` | New contact card | live announcement |
-| `CardSentLabel` | You shared your card | own card row (new text, proposal) |
+| `CardSentLabel` | You shared your card | own card row |
 | `AddAsContact` / `OpenContact` | Add as a contact / Open contact | Details |
-| `DetailsNoCard` | You have not shared your card here. | Details (revised, proposal) |
-| `ContactsEmpty` | You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty; with two or more identities it is this identity's list that is empty, and the text must not suggest the person has no contacts at all (language-culture to judge whether it needs saying) |
+| `DetailsNoCard` | You have not shared your card here. | Details |
+| `ContactsEmpty` | One identity: You have no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. Two or more: {front} has no contacts yet. Someone becomes a contact when you accept a card they share, or when you use Add as a contact in a conversation's Details. | §6.2 empty; with two or more identities it is this identity's list that is empty, and the text must not suggest the person has no contacts at all (language-culture to judge whether it needs saying) |
 | `ContactRoutes` | {n} routes | contact row, n ≥ 2 (plural rules language-culture's) |
 | `ContactTitleTwin` | {name} ({peer}) | title of a contact sharing a name: `{peer}` the short PeerId across devices, the route label within one device (§6.1) |
 | `ContactName` | Name | contact page field |
@@ -1413,80 +1418,80 @@ and are for them to write.
 | `ContactRouteTrusted` / `ContactRouteNotTrusted` | Trusted / Not trusted | route trust in words |
 | `OpenConversation` | Open conversation | route row |
 | `MoveRoute` | Move to another contact | route row |
-| `MoveRouteConfirm` | Move this conversation from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name; must say one conversation moves and trust does not follow (revised, proposal) |
-| `MoveRouteLast` | {name} has no other conversations, so moving this one deletes the contact {name}. | dialog addition, when the route is all {name} has; must say moving it deletes the contact (revised, proposal) |
-| `ConfirmRouteMoved` | Conversation moved to {other} | snackbar after Move, with Undo (revised, proposal) |
+| `MoveRouteConfirm` | Move this conversation from {name} to {other}? Moving does not change whether you trust {peer}. | dialog; `{other}` the target contact's name; must say one conversation moves and trust does not follow |
+| `MoveRouteLast` | {name} has no other conversations, so moving this one deletes the contact {name}. | dialog addition, when the route is all {name} has; must say moving it deletes the contact |
+| `ConfirmRouteMoved` | Conversation moved to {other} | snackbar after Move, with Undo |
 | `Move` | Move | dialog primary |
 | `DeleteContact` | Delete contact | contact overflow |
 | `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo |
-| `IdentitiesTitle` | Your identities | menu item, page title, the switcher's link (new, proposal) |
-| `OwnCardTitle` | Your card | menu item with one identity (new, proposal) |
-| `IdentitiesShareDevice` | Your identities use this device's PeerId and network addresses. Someone who knows two of them can tell that they are on the same device, and so can the network. To keep two identities fully apart, use a separate profile on a computer. The peers you trust can write to any identity whose label they know, unless you limit who can reach it. | §5.1; Android ends instead: "This phone cannot keep two identities fully apart." Must state the shared PeerId and addresses, who can see it, the separation that exists, and that a label is no secret from a trusted peer (ADR-0061 d. 5) (new, proposal) |
-| `IdentityRouteLabel` | Seen by others as {route} | §5.1 row, under the name (new, proposal) |
-| `IdentityDefault` | Default | §5.1 row (new, proposal) |
-| `IdentityInFront` | In use | §5.1 row's accessible description; the check mark's meaning (new, proposal) |
-| `AddIdentity` | Add an identity | §5.1 primary; one identity's overflow as "Add another identity" (new, proposal) |
-| `IdentityLimit` | This device has the most identities it can hold. | §5.1 at 64 endpoints (new, proposal) |
-| `IdentityRouteField` | Label others see | §5.1 new identity's field (new, proposal) |
-| `IdentityRouteHelp` | Everyone you talk to as this identity sees this label next to your PeerId. You cannot change it later. | under that field and on §5.2; must say who sees it and that it is fixed (new, proposal) |
-| `IdentityRouteNeeded` / `IdentityRouteBadCharacters` / `IdentityRouteTaken` | Enter a label. / Use lowercase letters, digits, dots, dashes and underscores, and start with a letter. / This label is already used on this device. | field errors (new, proposal) |
-| `IdentityAddFailed` | The identity could not be added. Try again. | §5.1 above Save (new, proposal) |
-| `MakeDefault` | Make default | §5.2 overflow (new, proposal) |
-| `IdentityIsDefault` | Default identity | §5.2 line (new, proposal) |
-| `IdentityDefaultHelp` | People who write to this device without choosing an identity reach your default identity. | §5.2 helper; ADR-0061: "which identity a stranger reaches" (new, proposal) |
-| `ConfirmDefaultSet` | {identity} is now the default | snackbar, with Undo (new, proposal) |
-| `IdentityReach` | Who can reach this identity | §5.2 row and page title (new, proposal) |
-| `IdentityReachAll` / `IdentityReachSome` / `IdentityReachNone` | All the peers you trust / {n} of the peers you trust / No one | its value; plural rules language-culture's (new, proposal) |
-| `IdentityReachNote` | People you leave out cannot write to this identity, and are not told why. | its page (new, proposal) |
-| `ConfirmReachChanged` | Changed who can reach {identity} | snackbar, with Undo (new, proposal) |
-| `IdentityRemoveAuthored` | The label {route} stays in this device's settings, turned off. | Remove dialog, for an identity the configuration file authors; must say it is turned off, not deleted (new, proposal) |
-| `RemoveIdentity` | Remove this identity | §5.2 overflow (new, proposal) |
-| `IdentityRemoveDefault` | To remove this identity, first make another identity the default. | §5.2, on the default identity (new, proposal) |
-| `IdentityRemoveTitle` | Remove {identity}? | dialog title (new, proposal) |
-| `IdentityRemoveLoses` | This deletes from this device: the conversations of {identity} and their messages, unread, kept and waiting to be sent; its contacts; its name and photo. People who write to {identity} will no longer reach you. This cannot be undone. | dialog list, one item per line; must list exactly §5.2's items and say there is no undo (new, proposal) |
-| `IdentityRemoveConfirm` | Remove | dialog primary, in `error` (new, proposal) |
-| `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name (new, proposal) |
-| `IdentityOthersUnread` | {n} unread in your other identities | the switch's badge, accessible; plural rules language-culture's (new, proposal) |
-| `IdentitySwitchTitle` | Switch identity | switcher title (new, proposal) |
-| `IdentityNotSent` | Not sent | switcher row, when a message of that identity was not sent (new, proposal) |
-| `ConfirmIdentitySwitched` | You are now {identity} | snackbar after a switch; must say which identity is now in use, not only that it changed (new, proposal) |
-| `SwitchBack` | Switch back | that snackbar's action (new, proposal) |
-| `SwitchingTo` | Opening as {identity} | §5.7.5 transition (new, proposal) |
-| `ComposerAs` | As {identity} | the line above the send control (new, proposal) |
-| `SendAs` | Send as {identity} | the send control's accessible name with two or more identities (new, proposal) |
-| `ShareCardAs` | as {identity} | share sheet, under the title (new, proposal) |
-| `EditCard` | Edit your card | share sheet (new, proposal) |
-| `ShareCardNoName` | Your card has no name yet. Add your name, then share it. | share sheet, no name (new, proposal) |
-| `IdentityNotInFront` | You are using {front}. This page changes {identity}. | §5.2 when the page's identity is not in front (new, proposal) |
-| `TrustAllIdentities` | Trust applies to all your identities on this device. | Trust page with two or more identities (new, proposal) |
-| `NewConversationAs` | You start this conversation as {identity} | new-conversation flow, when built (new, proposal) |
-| `IdentityUnavailable` | {identity} cannot send or receive right now | §5.7.6 (new, proposal) |
-| `CardSharesDevice` | This card comes from the same device as your contact {name}. | case P (new, proposal) |
-| `CardSharesDeviceMany` | This card comes from the same device as your contact {name} and {n} other contacts. | case P, several (new, proposal) |
-| `CardSharesDeviceNote` | One device can hold several identities. You can save this one as a separate contact. | case P, under it (new, proposal) |
-| `DetailsSharesDevice` | Your contact {name} uses the same device. | Details, a route under no contact (new, proposal) |
-| `DetailsIdentity` | You speak here as {identity} | Details (new, proposal) |
-| `DetailsCardShared` | You shared your card here on {date}. | Details, from `card_shared_at` (new, proposal) |
-| `ContactSharesDevice` | {name} uses the same device (PeerId) | contact page, under a route (new, proposal) |
-| `ContactSharesDeviceNote` | One device can hold several identities, so these contacts may be one person. InterWeave keeps them as separate contacts. | contact page (new, proposal) |
-| `MoveRouteNoneSameDevice` | Contacts on the same device as this conversation are not listed: a contact holds one conversation per device. | Move picker (new, proposal) |
+| `IdentitiesTitle` | Your identities | menu item, page title, the switcher's link |
+| `OwnCardTitle` | Your card | menu item with one identity |
+| `IdentitiesShareDevice` | Desktop: Your identities use this device's PeerId and network addresses. Someone who talks to two of your identities can see that these identities are on the same device. Anyone who sees your network traffic can also see this. To stop the people you talk to from linking two identities, use a separate InterWeave profile for each. The network can still see that both profiles are on this device. Any peer you trust who knows an identity's label can write to that identity, unless you limit who can reach it. Android: Your identities use this device's PeerId and network addresses. Someone who talks to two of your identities can see that these identities are on the same device. Anyone who sees your network traffic can also see this. On this phone, any two of your identities can be linked in this way. Any peer you trust who knows an identity's label can write to that identity, unless you limit who can reach it. | §5.1; Android ends instead: "This phone cannot keep two identities fully apart." Must state the shared PeerId and addresses, who can see it, the separation that exists, and that a label is no secret from a trusted peer (ADR-0061 d. 5) |
+| `IdentityRouteLabel` | Seen by others as {route} | §5.1 row, under the name |
+| `IdentityDefault` | Default | §5.1 row |
+| `IdentityInFront` | In use | §5.1 row's accessible description; the check mark's meaning |
+| `AddIdentity` | Add an identity / Add another identity | §5.1 primary; one identity's overflow as "Add another identity" |
+| `IdentityLimit` | You cannot add more identities on this device. | §5.1 at 64 endpoints |
+| `IdentityRouteField` | Label that others see | §5.1 new identity's field |
+| `IdentityRouteHelp` | Everyone you talk to as this identity sees this label next to your PeerId. You cannot change the label after the identity is created. | under that field and on §5.2; must say who sees it and that it is fixed |
+| `IdentityRouteNeeded` / `IdentityRouteBadCharacters` / `IdentityRouteTaken` | Enter a label. / Use only lowercase letters, digits, dots (.), hyphens (-) and underscores (_), and start with a letter. / Another identity on this device already uses this label. | field errors |
+| `IdentityAddFailed` | The identity could not be added. Try again. | §5.1 above Save |
+| `MakeDefault` | Make default | §5.2 overflow |
+| `IdentityIsDefault` | This is your default identity. | §5.2 line |
+| `IdentityDefaultHelp` | People who write to your PeerId without using one of your labels reach your default identity. | §5.2 helper; ADR-0061: "which identity a stranger reaches" |
+| `ConfirmDefaultSet` | {identity} is now your default identity | snackbar, with Undo |
+| `IdentityReach` | Who can reach this identity | §5.2 row and page title |
+| `IdentityReachAll` / `IdentityReachSome` / `IdentityReachNone` | All the peers you trust / {n} of the peers you trust / No one | its value; plural rules language-culture's |
+| `IdentityReachNote` | Peers that you do not select cannot write to this identity. They are not told why. | its page |
+| `ConfirmReachChanged` | Changed who can reach {identity} | snackbar, with Undo |
+| `IdentityRemoveAuthored` | The label {route} is not deleted. It stays in this device's settings, turned off. | Remove dialog, for an identity the configuration file authors; must say it is turned off, not deleted |
+| `RemoveIdentity` | Remove this identity | §5.2 overflow |
+| `IdentityRemoveDefault` | To remove this identity, first make another identity the default. | §5.2, on the default identity |
+| `IdentityRemoveTitle` | Remove {identity}? | dialog title |
+| `IdentityRemoveLoses` | This deletes from this device: the conversations of {identity}, with their unread and kept messages and the messages waiting to be sent; the contacts of {identity}; the card of {identity}, with its name and photo. People who write to {identity} will no longer reach you. This cannot be undone. | dialog list, one item per line; must list exactly §5.2's items and say there is no undo |
+| `IdentityRemoveConfirm` | Remove | dialog primary, in `error` |
+| `IdentitySwitch` | Identity: {identity}. Switch identity | the switch's accessible name |
+| `IdentityOthersUnread` | One other identity: 1 unread message in your other identity / {n} unread messages in your other identity. Two or more other identities: 1 unread message in your other identities / {n} unread messages in your other identities. | the switch's badge, accessible; plural rules language-culture's |
+| `IdentitySwitchTitle` | Switch identity | switcher title |
+| `IdentityNotSent` | A message was not sent | switcher row, when a message of that identity was not sent |
+| `ConfirmIdentitySwitched` | You are now using {identity} | snackbar after a switch; must say which identity is now in use, not only that it changed |
+| `SwitchBack` | Switch back | that snackbar's action |
+| `SwitchingTo` | Opening as {identity} | §5.7.5 transition |
+| `ComposerAs` | As {identity} | the line above the send control |
+| `SendAs` | Send as {identity} | the send control's accessible name with two or more identities |
+| `ShareCardAs` | as {identity} | share sheet, under the title |
+| `EditCard` | Edit your card | share sheet |
+| `ShareCardNoName` | Your card has no name yet. Add your name, then share the card. | share sheet, no name |
+| `IdentityNotInFront` | You are using {front}. What you change on this page applies to {identity}. | §5.2 when the page's identity is not in front |
+| `TrustAllIdentities` | When you trust a peer, you trust them for all your identities on this device. | Trust page with two or more identities |
+| `NewConversationAs` | You are starting this conversation as {identity} | new-conversation flow, when built |
+| `IdentityUnavailable` | {identity} cannot send or receive right now | §5.7.6 |
+| `CardSharesDevice` | This card comes from the same device as your contact {name}. | case P |
+| `CardSharesDeviceMany` | This card comes from the same device as your contact {name} and 1 other contact. / This card comes from the same device as your contact {name} and {n} other contacts. | case P, several |
+| `CardSharesDeviceNote` | One device can hold several identities. You can save this card as a separate contact. | case P, under it |
+| `DetailsSharesDevice` | The person in this conversation uses the same device as your contact {name}. | Details, a route under no contact |
+| `DetailsIdentity` | You write as {identity} in this conversation. | Details |
+| `DetailsCardShared` | You shared your card here on {date}. | Details, from `card_shared_at` |
+| `ContactSharesDevice` | Same device as your contact {name} | contact page, under a route |
+| `ContactSharesDeviceNote` | One device can hold several identities, so these contacts may be one person. InterWeave does not combine them. | contact page |
+| `MoveRouteNoneSameDevice` | Contacts that already have a conversation with this conversation's device are not listed. A contact can have only one conversation with each device. | Move picker |
 | `StoreRecoveryTitle` | InterWeave cannot read its stored data | Android R heading |
-| `RefusalStoreRecovery` (revised) | InterWeave cannot read its stored data: your messages, contacts and cards. Nothing was changed. The data opens only with its key on this device, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. If a newer version of InterWeave wrote this data, install and start the newest version that you have used, or a newer one. Restoring your identity does not bring back this data. | desktop R body (Android R has its own, `StoreRecoveryBody`): its backup-copy sentence assumes a plaintext file a person can swap; the store is now encrypted and a copy opens only with its key. Must still say the file was not changed until the person chooses. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). **L1**: "Restoring your identity" means the recovery phrase's identity, the device's |
-| `StoreRecoveryBody` | InterWeave cannot read its stored data: your messages, contacts and cards. Nothing was changed. The data opens only with its key on this phone, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. Restoring your identity does not bring back this data. | Android R body (new key): Android cannot install an older version over a newer one, so the desktop's newer-version advice is not true here, and Android shows no path. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). **L1**: "Restoring your identity" means the recovery phrase's identity, the device's |
+| `RefusalStoreRecovery` (revised) | InterWeave cannot read its stored data, which includes your messages and contacts. Nothing was changed. The data opens only with its key on this device, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. If a newer version of InterWeave wrote this data, install and start the newest version that you have used, or a newer one. Restoring this device's PeerId from its recovery phrase does not bring back this data. | desktop R body (Android R has its own, `StoreRecoveryBody`): its backup-copy sentence assumes a plaintext file a person can swap; the store is now encrypted and a copy opens only with its key. Must still say the file was not changed until the person chooses. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). **L1**: "Restoring your identity" means the recovery phrase's identity, the device's |
+| `StoreRecoveryBody` | InterWeave cannot read its stored data, which includes your messages and contacts. Nothing was changed. The data opens only with its key on this phone, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. Restoring this device's PeerId from its recovery phrase does not bring back this data. | Android R body (new key): Android cannot install an older version over a newer one, so the desktop's newer-version advice is not true here, and Android shows no path. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). **L1**: "Restoring your identity" means the recovery phrase's identity, the device's |
 | `StoreKeyLostTitle` | The key to your stored data no longer works | K heading |
-| `StoreKeyLostBody` | This phone no longer accepts the key that protects InterWeave's stored data. This can happen after some changes to the screen lock. The data cannot be read again. Your identity is not affected. | K body; **L1**: its "Your identity is not affected" means the PeerId |
+| `StoreKeyLostBody` | This phone no longer accepts the key that protects InterWeave's stored data. This can happen after some changes to the screen lock. The data cannot be read again. This device's PeerId and recovery phrase are not affected. | K body; **L1**: its "Your identity is not affected" means the PeerId |
 | `DiscardStore` | Delete stored data… | R, K action |
 | `StoreChecking` | Checking the stored data… | §7.2 progress |
 | `DiscardStoreTitle` | Delete all stored data? | full dialog title |
-| `DiscardStoreLoses` | This deletes from this device, for all your identities: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; the names and photos of your identities; the app's settings, other than your network settings. A message you already received may show again. | full dialog list; one item per line; must list exactly these, and say it is every identity's (§7.2); with one identity, no "for all your identities" and "your name and photo" (revised, proposal) |
-| `DiscardStoreKeeps` | This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. Your identities stay, without their names and photos. | full dialog; **L1**: the first-round text said "Your identity" for the PeerId; with one identity the second sentence is left out (revised, proposal) |
+| `DiscardStoreLoses` | Two or more identities: This deletes from this device, for all your identities: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; the names and photos of your identities; the app's settings, other than your network settings. A message you already received may show again. One identity: This deletes from this device: your contacts and their routes; messages waiting to be sent; unread and kept messages; your conversation list; the name and photo on your card; the app's settings, other than your network settings. A message you already received may show again. | full dialog list; one item per line; must list exactly these, and say it is every identity's (§7.2); with one identity, no "for all your identities" and "your name and photo" |
+| `DiscardStoreKeeps` | Two or more identities: This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. Your identities are not deleted, but they lose their names and photos. One identity: This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. | full dialog; **L1**: the first-round text said "Your identity" for the PeerId; with one identity the second sentence is left out |
 | `DiscardStoreRemains` | Earlier copies that your device made outside InterWeave may still be on it. | full dialog |
 | `DiscardStoreConfirm` | Delete stored data | full dialog primary |
 | `DiscardPartialTitle` | Delete the unfinished file? | partial dialog title |
 | `DiscardPartialBody` | An update to how your data is protected was interrupted. A complete copy of your data exists. This deletes only the unfinished file, and InterWeave opens with your data. | partial dialog |
 | `DiscardPartialConfirm` | Delete the unfinished file | partial dialog primary |
 | `StoreDiscarding` | Deleting… | §7.3 progress |
-| `StoreDiscarded` | The stored data was deleted. This device's PeerId and the peers you trust did not change. | Chats notice after a full discard; **L1** (revised, proposal) |
+| `StoreDiscarded` | The stored data was deleted. This device's PeerId and the peers you trust did not change. | Chats notice after a full discard; **L1** |
 | `StoreRestored` | Your data was restored from the complete copy. | Chats notice after a partial discard |
 | `StoreDiscardFailed` | The stored data could not be deleted. Try again. | R/K after a failure |
 
