@@ -853,8 +853,8 @@ fn uninstall_refuses_a_running_manager_it_cannot_reach() {
 
 /// A `systemctl` stand-in for a manager that answers `show-environment`
 /// and then fails `fails` (`list-units` or `show`), saying every
-/// instance inactive otherwise; `is-active` fails as a failed query does.
-fn failing_manager(account: &Unmanaged, fails: &str) {
+/// instance `state` otherwise; `is-active` fails as a failed query does.
+fn failing_manager(account: &Unmanaged, fails: &str, state: &str) {
     let stub = account.stub.join("systemctl");
     std::fs::write(
         &stub,
@@ -862,7 +862,7 @@ fn failing_manager(account: &Unmanaged, fails: &str) {
             "#!/bin/sh\nfor a; do case \"$a\" in\n\
              {fails}) exit 1 ;;\n\
              show-environment|list-units) exit 0 ;;\n\
-             show) echo inactive; exit 0 ;;\n\
+             show) echo {state}; exit 0 ;;\n\
              is-active) exit 4 ;;\n\
              esac; done\nexit 0\n"
         ),
@@ -875,14 +875,19 @@ fn failing_manager(account: &Unmanaged, fails: &str) {
 /// A manager that answers and then fails to list its instances, or to say
 /// whether one still runs, is not one with nothing running: uninstall
 /// removes nothing and fails, rather than deleting the files of an
-/// instance it could not see stopped. The control is the same stand-in
+/// instance it could not see stopped -- as it does for one the manager
+/// says is still active after its stop. The control is the same stand-in
 /// failing neither, which uninstalls and removes the links.
 #[test]
 fn uninstall_refuses_a_manager_whose_query_fails() {
-    for fails in ["list-units", "show"] {
+    for (fails, state) in [
+        ("list-units", "inactive"),
+        ("show", "inactive"),
+        ("no-such-verb", "active"),
+    ] {
         let account = Unmanaged::new("e2e-failing-query");
         let links = account.enabled_links("p");
-        failing_manager(&account, fails);
+        failing_manager(&account, fails, state);
         let out = account.script("uninstall.sh", &[]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert_eq!(
@@ -897,7 +902,7 @@ fn uninstall_refuses_a_manager_whose_query_fails() {
     }
     let account = Unmanaged::new("e2e-failing-query");
     let links = account.enabled_links("p");
-    failing_manager(&account, "no-such-verb");
+    failing_manager(&account, "no-such-verb", "inactive");
     let out = account.script("uninstall.sh", &[]);
     assert!(
         out.status.success(),
