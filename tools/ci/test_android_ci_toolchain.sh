@@ -94,6 +94,9 @@ run() {  # [VAR=value...] -- <component>...
     local envs=()
     while (( $# )) && [[ "$1" != -- ]]; do envs+=("$1"); shift; done; shift
     rm -rf "$S/sdk" "$S/runner"; mkdir -p "$S/sdk" "$S/runner"
+    if [[ " ${envs[*]} " == *" FAKE_PLANT_SDKM=1 "* ]]; then
+        mkdir -p "$S/sdk/cmdline-tools/latest/bin"; cp "$S/sdkmanager" "$S/sdk/cmdline-tools/latest/bin/sdkmanager"
+    fi
     : > "$S/runner/env"; : > "$S/runner/path"; rm -f "$S"/*.args "$S"/sdkm.calls "$S"/sdkm.leftover "$S"/sdkm.seen; : > "$S/sdkm.calls"
     env -u ANDROID_NDK_HOME ANDROID_TOOLCHAIN_PINS="${PINS:-$S/pins}" PINS_FOR_FAKE="${PINS:-$S/pins}" \
         FETCH="$S/fetch" SDKMANAGER="$S/sdkmanager" RUSTUP="$S/rustup" CARGO="$S/cargo" \
@@ -138,6 +141,19 @@ out="$(run FAKE_SDKM_FAIL_FIRST=1 -- sdk)"; rc=$?
 [[ -s "$S/sdkm.seen" && ! -s "$S/sdkm.leftover" ]] && ok "  the staged archive, the intermediates and the half-written NDK were cleared before the retry" || bad "leftover" "seen: $(cat "$S/sdkm.seen" 2>/dev/null) left: $(cat "$S/sdkm.leftover" 2>/dev/null)"
 out="$(run FAKE_SDKM_FAIL_FIRST=2 SDK_INSTALL_ATTEMPTS=2 -- sdk)"; rc=$?
 [[ $rc -eq 1 && "$out" == *"(attempt 2 of 2)"* ]] && ok "SDK_INSTALL_ATTEMPTS bounds the tries: two failures of two is exit 1" || bad "rc $rc" "$out"
+for bad_pin in 'PKG_9=@1' 'PKG_9=platforms' 'PKG_9=ndk;28.2@' 'PKG_9=../x@1'; do
+    { cat "$S/pins"; echo "$bad_pin"; } > "$S/pins-badform"
+    out="$(PINS="$S/pins-badform" run FAKE_SDKM_FAIL=1 -- sdk)"; rc=$?
+    [[ $rc -eq 2 && "$out" == *"pin '$bad_pin'"*"is not <package>@<revision>"* && ! -s "$S/sdkm.calls" ]] \
+        && ok "a malformed pin ($bad_pin): exit 2, named, sdkmanager never run, nothing removed (#347 F1)" || bad "rc $rc calls $(wc -l < "$S/sdkm.calls")" "$out"
+done
+# The sdkmanager in use inside a pinned package that is not at its revision:
+# the retry keeps that directory, so the next attempt still has a binary.
+{ cat "$S/pins"; echo 'PKG_9=cmdline-tools;latest@99'; } > "$S/pins-tools"
+out="$(PINS="$S/pins-tools" run FAKE_SDKM_FAIL_FIRST=1 FAKE_STALE_PKG='cmdline-tools;latest' \
+    SDKMANAGER="$S/sdk/cmdline-tools/latest/bin/sdkmanager" FAKE_PLANT_SDKM=1 -- sdk)"; rc=$?
+[[ "$(wc -l < "$S/sdkm.calls")" -eq 2 && "$out" != *"No such file"* ]] \
+    && ok "a stale package holding the sdkmanager in use is not removed: the retry runs it again" || bad "calls $(wc -l < "$S/sdkm.calls")" "$out"
 out="$(run SDK_INSTALL_ATTEMPTS=0 -- sdk)"; rc=$?
 [[ $rc -eq 2 && "$out" == *"not a positive count"* ]] && ok "SDK_INSTALL_ATTEMPTS=0: exit 2, never a run that tries nothing" || bad "rc $rc" "$out"
 out="$(env -u ANDROID_HOME bash -c "ANDROID_TOOLCHAIN_PINS='$S/pins' SDKMANAGER='$S/sdkmanager' bash '$SUT' sdk" 2>&1)"; rc=$?

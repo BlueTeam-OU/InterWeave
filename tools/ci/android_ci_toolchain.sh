@@ -97,6 +97,12 @@ install_sdk() {
     [[ -x "$sdkm" ]] || die "no sdkmanager at $sdkm"
     local line pkg rev dir got pkgs=() n=0
     while IFS= read -r line; do
+        # The host installer's own form (android-toolchain.sh's valid_pin):
+        # the value names a directory the retry below may remove, so an
+        # empty or category-only name (`@1`, `platforms`) is refused here,
+        # exit 2, before sdkmanager runs (#347 review F1).
+        [[ "${line#*=}" =~ ^[A-Za-z0-9._-]+(\;[A-Za-z0-9._-]+)*@[0-9]+(\.[0-9]+)*$ ]] \
+            || die "pin '${line}' in $PINS is not <package>@<revision>"
         pkg="${line#*=}"; rev="${pkg##*@}"; pkg="${pkg%@*}"
         pkgs+=("$pkg|$rev")
     done < <(grep -E '^PKG_[0-9]+=' "$PINS")
@@ -123,7 +129,12 @@ install_sdk() {
         rm -rf "${ANDROID_HOME:?}/.temp" "${ANDROID_HOME:?}/.downloadIntermediates"
         for line in "${pkgs[@]}"; do
             pkg="${line%|*}"; rev="${line#*|}"; dir="$ANDROID_HOME/${pkg//;//}"
-            [[ "$(revision "$dir")" == "$rev" ]] || rm -rf "$dir"
+            [[ "$(revision "$dir")" == "$rev" ]] && continue
+            # Never the directory that holds the sdkmanager being run: the
+            # next attempt would fail on a missing binary and say the
+            # packages could not be installed.
+            [[ "$sdkm" == "$dir"/* ]] && continue
+            rm -rf "$dir"
         done
         sleep "$delay"
         try=$((try+1))
