@@ -2,7 +2,7 @@
 # phone-run <command> [args...] — one run on the shared Pixel 9a, under the
 # pixel-9a lease, on an adb server of this login's own (the rust-ui-dev and
 # ux-designer remits). It exits with the run's status, and leaves no adb
-# process of this login behind on any path.
+# process of this login, and no part of the run, behind on any path.
 #
 # Why each piece is here, so a later tidy-up does not undo it:
 # - every login on the host shares adb's default port 5037, so a
@@ -13,9 +13,16 @@
 #   which no group signal reaches: the readiness wait is a bare TCP connect,
 #   and a final kill-server, after the run has stopped, ends one a run's
 #   teardown forked;
+# - the run is stopped as our whole process group, never as the pid we
+#   started: cargo does not pass a TERM on to its test binary, and a
+#   script's background job ignores SIGINT;
 # - fabric-lease runs us in a process group of our own and cannot forward a
 #   SIGKILL it receives, so the lease can free while we run: the watcher
-#   ends the run within a second of the wrapper's death.
+#   TERMs the group within a second of the wrapper's death, and ends the
+#   group itself if this script is gone too;
+# - every adb call that can follow a signal runs under `timeout -s KILL`: a
+#   wedged server can leave kill-server waiting for a reply, and the TERM
+#   `timeout` sends by default is one we ignore and adb inherits ignored.
 set -u
 if [ $# -lt 1 ]; then
   echo "usage: phone-run <command> [args...]" >&2
@@ -24,23 +31,67 @@ fi
 if [ "${PHONE_RUN_HELD:-}" != 1 ]; then
   exec fabric-lease pixel-9a -- env PHONE_RUN_HELD=1 "$0" "$@"
 fi
+# The run never inherits it: a phone-run inside a run would take no lease
+# of its own and kill-server the outer run's port.
+unset PHONE_RUN_HELD
+# The variable alone proves nothing. Under the lease we lead our own group
+# and our parent is fabric-lease on pixel-9a; anything else is refused, so
+# the lease is never bypassed in silence and the group we stop is ours.
+read -r _ _ _ _ pgrp _ < /proc/$$/stat
+case "$pgrp $(ps -o args= -p "$PPID" 2>/dev/null)" in
+  "$$ "*"/fabric-lease pixel-9a -- "*) ;;
+  *) echo "phone-run: not under the pixel-9a lease; run .agent-fabric/bin/phone-run without PHONE_RUN_HELD, and never from inside a run" >&2
+     exit 2 ;;
+esac
 
 export ANDROID_ADB_SERVER_PORT=$((15037 + $(id -u) % 1000))
 wrapper=$PPID
-run=
 server=
 watcher=
 
+# others [with kill_them=1]: true while a process of our group other than
+# this script, the watcher and the watcher's own children is alive; with
+# kill_them=1, SIGKILLs each, the watcher's children included. Those are
+# its sleeps, which inherit its ignored TERM: waited for, they would hold
+# every stop to the full deadline.
+# It reads /proc in this shell: a forked helper would be a member itself.
+others() {
+  local f s pid found=1
+  for f in /proc/[0-9]*/stat; do
+    { read -r s < "$f"; } 2>/dev/null || continue
+    pid=${s%% *}
+    # The fields after the command name, which may hold spaces and ")".
+    set -- ${s##*') '}
+    [ "$3" = "$$" ] && [ "$1" != Z ] || continue
+    [ "$pid" = "$$" ] || [ "$pid" = "$watcher" ] && continue
+    [ "$2" = "$watcher" ] && [ "${kill_them:-}" != 1 ] && continue
+    found=0
+    [ "${kill_them:-}" = 1 ] && kill -KILL "$pid" 2>/dev/null
+  done
+  return "$found"
+}
+
+# until_gone <seconds> <test...>: poll the test every 0.1 s until it fails
+# or the seconds pass. A deadline, not a count: one scan of /proc takes a
+# good part of the interval on a busy host, which a count would multiply.
+until_gone() {
+  local end=$(( ${EPOCHREALTIME/[.,]/} + $1 * 1000000 ))
+  shift
+  while "$@" 2>/dev/null && (( ${EPOCHREALTIME/[.,]/} < end )); do sleep 0.1; done
+}
+
+# TERM the group, give it 5 s, KILL what is left, then end any daemon a
+# run's teardown forked. Further signals are ignored from here on, so a
+# second TERM from the wrapper cannot cut it short. The watcher goes
+# before the KILL pass: alive, it would fork a sleep the pass never saw.
 stop() {
-  trap - EXIT TERM INT HUP
-  if [ -n "$run" ]; then
-    kill -TERM "$run" 2>/dev/null
-    for _ in $(seq 50); do kill -0 "$run" 2>/dev/null || break; sleep 0.1; done
-    kill -KILL "$run" 2>/dev/null
-  fi
-  [ -n "$server" ] && kill "$server" 2>/dev/null
-  adb kill-server >/dev/null 2>&1
+  trap '' TERM INT HUP
+  trap - EXIT
+  kill -TERM 0 2>/dev/null
+  until_gone 5 others
   [ -n "$watcher" ] && kill -KILL "$watcher" 2>/dev/null
+  kill_them=1 others
+  timeout -s KILL 5 adb kill-server >/dev/null 2>&1
 }
 trap 'stop; exit 143' TERM
 trap 'stop; exit 130' INT
@@ -48,20 +99,25 @@ trap 'stop; exit 129' HUP
 trap stop EXIT
 
 # A server this login left by an older command, on its own port only.
-adb kill-server >/dev/null 2>&1
+timeout -s KILL 5 adb kill-server >/dev/null 2>&1
 adb nodaemon server >/dev/null 2>&1 &
 server=$!
 
-# Outlives this script if it is SIGKILLed alone: then it clears the server
-# itself and ends the whole group.
+# The wrapper's death frees the lease: TERM the group at once. While this
+# script lives it is in its stop, which ends within about 11 s and kills
+# the watcher; if it is gone (SIGKILLed alone), the watcher gives the run
+# 2 s, then KILLs it, ends the server and the group, itself included.
 (
   trap '' TERM INT HUP
+  watcher=$BASHPID
   while kill -0 "$wrapper" 2>/dev/null; do sleep 1; done
-  kill -TERM $$ 2>/dev/null
-  sleep 6
-  adb kill-server >/dev/null 2>&1
+  kill -TERM 0 2>/dev/null
+  until_gone 15 kill -0 $$
+  until_gone 2 others
+  kill_them=1 others
+  timeout -s KILL 5 adb kill-server >/dev/null 2>&1
   kill -KILL 0
-) &
+) 2>/dev/null &
 watcher=$!
 
 for _ in $(seq 100); do
@@ -73,8 +129,5 @@ done
   || { echo "phone-run: adb server not listening after 10 s" >&2; exit 1; }
 
 "$@" &
-run=$!
-wait "$run"
-status=$?
-run=
-exit "$status"
+wait "$!"
+exit "$?"
