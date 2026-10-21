@@ -61,6 +61,7 @@ echo "# after:     $AFTER (store schema v$(git -C "$HERE" show "$AFTER:crates/hu
 echo "# toolchain: $(cargo --version), $(rustc --version)"
 echo "# host:      $(uname -srm), $(nproc) cpu, $(findmnt -no FSTYPE --target "$WORK") under WORK"
 echo "# cpu:       $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')"
+echo "# load:      $(cut -d' ' -f1-3 /proc/loadavg) at the start (a shared host; the sides interleave by round)"
 
 declare -A BIN
 for side in before after; do
