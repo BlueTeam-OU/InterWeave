@@ -618,8 +618,9 @@ On the Pixel 9a, dark and light scheme, at 100 % and 200 % font size:
     ring measures 3:1 or more against it.
 14. The selected conversation on a wide screen shows its start bar as
     well as its fill.
-15. The snackbar is Material's (§7), sits above the composer, or at the
-    bottom on the Chats list, and in an RTL locale has its text at the
+15. The snackbar is Material's (§7), sits above the composer, or 12 dp
+    above the bottom of the safe area on the Chats list and in a
+    conversation with network access withheld, and in an RTL locale has its text at the
     start and Undo at the end.
 16. At 200 % font size nothing overlaps or is cut, apart from the
     one-line subtitles' ellipsis.
