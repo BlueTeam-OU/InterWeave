@@ -1775,7 +1775,10 @@ struct PullFigures {
 /// `keepalive` is given it replaces the example's keepalive block.
 ///
 /// B sends direct messages one at a time to the bridge's endpoint for the
-/// whole pause. An `Overloaded` refusal is retried. A refusal for want of
+/// whole pause, timed from the first send accepted. Before that the pair
+/// may not be connected yet: a `PeerUnreachable` refusal is retried, and
+/// the test fails if no send is accepted within PATIENCE, whatever the
+/// refusals were. An `Overloaded` refusal is retried. A refusal for want of
 /// the endpoint is counted: the daemon closed the bridge as wedged
 /// (LOCAL-IPC.md §Disconnect/reconnect). Status is read meanwhile for
 /// `paused` and the pull queue's depth. Then the host drains with
@@ -1821,6 +1824,13 @@ async fn pull_mode_under_load(queue: u32, pause: Duration, keepalive: Option<&st
     let mut next_status = connecting;
     let mut n = 1;
     while started.is_none_or(|at| at.elapsed() < pause) {
+        assert!(
+            started.is_some() || connecting.elapsed() < PATIENCE,
+            "no send accepted within {PATIENCE:?}: {} Overloaded, {} endpoint-unavailable\n{}",
+            figures.overloaded,
+            figures.unavailable,
+            logs(&daemons)
+        );
         match b_claude
             .send_direct(
                 DirectDestination {
@@ -1837,11 +1847,8 @@ async fn pull_mode_under_load(queue: u32, pause: Duration, keepalive: Option<&st
                 figures.accepted.push(n);
                 n += 1;
             }
-            Err(TransportError::PeerUnreachable) if started.is_none() => assert!(
-                connecting.elapsed() < PATIENCE,
-                "the pair never connected\n{}",
-                logs(&daemons)
-            ),
+            // Bounded by the deadline at the top of the loop.
+            Err(TransportError::PeerUnreachable) if started.is_none() => {}
             Err(TransportError::Overloaded) => figures.overloaded += 1,
             Err(TransportError::RemoteEndpointUnavailable) => figures.unavailable += 1,
             Err(e) => panic!("pull {n}: {e:?}\n{}", logs(&daemons)),
