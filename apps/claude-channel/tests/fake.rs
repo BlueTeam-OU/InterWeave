@@ -768,6 +768,126 @@ async fn the_daemon_away_and_back() {
     );
 }
 
+/// The daemon away, at a time the bridge's clock knows, and back later.
+async fn away_and_back(w: &mut World, away_ms: u64, back_ms: u64) {
+    w.clock.store(away_ms, Ordering::SeqCst);
+    w.record.down.store(true, Ordering::SeqCst);
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while w.status().await["endpoint_lease_state"] != json!("daemon unavailable") {
+        assert!(tokio::time::Instant::now() < deadline, "never saw it go");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    w.clock.store(back_ms, Ordering::SeqCst);
+    w.record.down.store(false, Ordering::SeqCst);
+    w.wait_connected().await;
+}
+
+/// A regained lease reports the gap as state (CHANNEL-EVENT.md
+/// §Delivery): absent until a loss, then the lost and the new epoch and
+/// the two instants; cleared by the next loss; never a notification.
+#[tokio::test]
+async fn a_regained_lease_reports_its_gap_in_status_until_the_next_loss() {
+    let mut w = World::start().await;
+    let first = w.status().await;
+    assert!(first.get("lease_gap").is_none(), "never lost: {first}");
+    let lost_epoch = first["endpoint_lease_epoch"].clone();
+
+    away_and_back(&mut w, NOW_MS + 1_000, NOW_MS + 61_000).await;
+    let after = w.status().await;
+    let gap = &after["lease_gap"];
+    assert_eq!(gap["lost_epoch"], lost_epoch, "{after}");
+    assert_eq!(gap["epoch"], after["endpoint_lease_epoch"], "{after}");
+    assert_ne!(gap["epoch"], gap["lost_epoch"]);
+    assert_eq!(
+        gap["since"],
+        json!("2026-10-05T19:07:03.497Z"),
+        "the loss, RFC3339 UTC"
+    );
+    assert_eq!(
+        gap["until"],
+        json!("2026-10-05T19:08:03.497Z"),
+        "the regain"
+    );
+
+    w.record.down.store(true, Ordering::SeqCst);
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        let status = w.status().await;
+        if status["endpoint_lease_state"] == json!("daemon unavailable") {
+            assert!(
+                status.get("lease_gap").is_none(),
+                "the next loss clears it: {status}"
+            );
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never saw it go");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// A lease the daemon revokes inside a live session is a loss like a
+/// closed session: the gap, once the lease is regained, names the revoked
+/// epoch and the revocation's instant, not the later close.
+#[tokio::test]
+async fn a_lease_revoked_in_session_is_the_gap_once_regained() {
+    use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+    let mut w = World::start().await;
+    w.wait_connected().await;
+    let revoked = w.status().await["endpoint_lease_epoch"].clone();
+
+    w.clock.store(NOW_MS + 1_000, Ordering::SeqCst);
+    let admin =
+        w.a.admin([AdminCapability::Endpoints].into())
+            .await
+            .expect("admin port");
+    admin
+        .revoke_endpoint(endpoint("claude"))
+        .await
+        .expect("revoked");
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while w.status().await["endpoint_lease_state"] != json!("not held") {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the revocation never reached the bridge"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        w.status().await.get("lease_gap").is_none(),
+        "not regained yet"
+    );
+
+    away_and_back(&mut w, NOW_MS + 31_000, NOW_MS + 61_000).await;
+    let after = w.status().await;
+    let gap = &after["lease_gap"];
+    assert_eq!(gap["lost_epoch"], revoked, "the revoked epoch: {after}");
+    assert_eq!(
+        gap["since"],
+        json!("2026-10-05T19:07:03.497Z"),
+        "the revocation's instant, not the close's"
+    );
+    assert_eq!(gap["epoch"], after["endpoint_lease_epoch"]);
+}
+
+/// Pull mode: the first `receive` after the regain carries the same gap,
+/// and only the first; `status` keeps it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_first_receive_after_a_regain_carries_the_gap_once() {
+    let mut w = World::start_pull().await;
+    w.wait_connected().await;
+    assert!(
+        w.receive(None).await.get("lease_gap").is_none(),
+        "never lost"
+    );
+    away_and_back(&mut w, NOW_MS + 1_000, NOW_MS + 61_000).await;
+    let status = w.status().await;
+    let first = w.receive(None).await;
+    assert_eq!(first["lease_gap"], status["lease_gap"], "{first}");
+    assert!(first["lease_gap"].is_object());
+    assert!(w.receive(None).await.get("lease_gap").is_none(), "once");
+    assert!(w.status().await["lease_gap"].is_object(), "status keeps it");
+}
+
 /// A re-join the daemon refuses leaves the joins and is a status row
 /// until the next join or leave (LIFECYCLE.md step 6).
 #[tokio::test]
