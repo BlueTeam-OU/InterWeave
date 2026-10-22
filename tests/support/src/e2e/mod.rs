@@ -33,6 +33,7 @@ use interweave_profile_config::{ProfilePaths, XdgRoots};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
+pub mod netns;
 pub mod relay;
 
 /// How long a harness waits for a daemon, a socket or an event before it
@@ -258,6 +259,20 @@ impl Home {
     pub fn start(&self, extra: &[&str]) -> Daemon {
         let mut command = Command::new(daemon_binary());
         command
+            .args(["--profile", self.paths.profile()])
+            .args(extra);
+        self.spawn(command)
+    }
+
+    /// [`start`](Self::start), the daemon placed in `net` of the second
+    /// network ([`netns`]) by `nsenter`, which execs it in its place: its
+    /// sockets are `net`'s, its IPC sockets this home's as ever.
+    pub fn start_in(&self, net: netns::Net, extra: &[&str]) -> Daemon {
+        let mut command = Command::new("nsenter");
+        command
+            .arg(format!("--net={}", net.path().display()))
+            .arg("--")
+            .arg(daemon_binary())
             .args(["--profile", self.paths.profile()])
             .args(extra);
         self.spawn(command)
