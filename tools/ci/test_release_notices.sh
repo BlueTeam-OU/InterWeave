@@ -170,7 +170,7 @@ MITHDR='// Copyright 2017 Example Ltd.
 
 pub fn f() {}'
 src hdr src/lib.rs "$MITHDR"
-src hdrtext src/lib.rs '// Copyright 2022 The Example Authors. All rights reserved.
+src hdrtext src/lib.rs '// Copyright 2022 The Example Authors.
 // Licensed under the MIT license (found in the LICENSE-MIT file).
 
 pub fn f() {}'
@@ -318,9 +318,10 @@ assert list(d) == ["crate_notices"], d
 sys.stdout.write(d["crate_notices"])
 PY
     S="$SANDBOX/section.md"
-    ! grep -q '^# Third-party notices' "$S" && grep -qx '### Licence texts' "$S" && grep -qx '#### T1' "$S" \
+    ! grep -q '^# Third-party notices' "$S" && ! grep -q 'These programs' "$S" \
+        && [[ "$(head -c 3 "$S")" == '- `' ]] && grep -qx '### Licence texts' "$S" && grep -qx '#### T1' "$S" \
         && grep -qF -- '- `shared` 1.0.0: MIT — text T' "$S" \
-        && pass "--json writes the notices under its key, the title dropped and every heading a level down" \
+        && pass "--json writes the notices under its key from the list on, its title and opening paragraph dropped, every heading a level down" \
         || fail "--json's section is not the page one level down" "$(cat "$S")"
     grep -qx '# a line of a licence text that starts with a hash' "$S" \
         && pass "--json leaves a line inside a fenced licence text as it is" \

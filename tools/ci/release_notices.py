@@ -12,7 +12,8 @@
 #   tools/ci/release_notices.py [--json KEY] <metadata.json> <compiled.txt> <out> <package>...
 #
 # With --json KEY, <out> is {"KEY": the notices} for release_page.py: the
-# page's own title line dropped and every heading one level down, so the
+# page's own title and opening paragraph dropped (the release page
+# introduces the list in its own words) and every heading one level down, so the
 # text sits under a section of the release page (ADR-0058 decision 5, the
 # APK's notices); a line inside a fenced licence text is never touched.
 #
@@ -349,10 +350,14 @@ def render(third: list, derived: dict) -> tuple:
 
 
 def as_section(page: str) -> str:
-    """The page without its title line, each heading one level down,
-    fenced text left as it is."""
+    """The page from its list on -- without its title and the paragraph
+    under it, which speak of "these programs" where the release page
+    says in its own sentence whose crates these are -- each heading one
+    level down, fenced text left as it is."""
+    lines = page.splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith("- `"))
     out, fenced = [], False
-    for line in page.splitlines()[1:]:
+    for line in lines[start:]:
         if line.startswith("```"):
             fenced = not fenced
         elif not fenced and line.startswith("#"):
