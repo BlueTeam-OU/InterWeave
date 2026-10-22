@@ -15,7 +15,18 @@ names an unpublished file ships whole followed by the standard text of
 the term decision 4 selects, with no invented copyright line, recorded
 as the case header+text; a header carrying a full permission notice
 ships alone. Decision 3's list records the three cases and is keyed by
-name and version. Propagation: decisions 2 and 3; this note; the log
+name and version. The same day the review of the derivation's PR
+found a P1 in the shape the first text allowed: "the leading comment
+block of its root module, or of any of its source files" had been
+read as the first header found, and nine crates carry other holders'
+notices in other compiled files — three of them a BSD-style header
+naming a file the crate does not publish, whose binary clause the
+shipped notice then failed. So 2.ii is every distinct header of the
+compiled files (`src/`, `build.rs`; not `tests/`, `examples/` or
+`benches/`), deduplicated by text, root first; a header naming a
+licence the notice does not otherwise carry gets that licence's
+standard text, recorded in the list per crate; and the list carries
+the header count so an added header is looked at again. Propagation: decisions 2 and 3; this note; the log
 row; the digest entry.
 
 ### Amendment 2026-10-22 — The APK page's crate notices have a placeholder of their own, `{crate_notices}`
