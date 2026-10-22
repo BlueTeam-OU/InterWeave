@@ -4,7 +4,9 @@ From the three programs to a running `interweave-daemon@<profile>` unit
 for one account, with that account's own privileges and nothing installed
 system-wide. One account runs one profile here; a host with many profiles
 runs one account per profile (ADR-0055 decision 5), and repeats this for
-each. The recorded run is `evidence/` (named at the end).
+each. The recorded run is
+[`evidence/2026-10-22-deployment-run.md`](evidence/2026-10-22-deployment-run.md),
+in one account under a scratch home, not a second one.
 
 Every command runs **as the account that will run the profile, in that
 account's own login session** -- an SSH login or a console, which starts
