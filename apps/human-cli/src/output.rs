@@ -7,10 +7,12 @@
 //!
 //! Text from a peer reaches a terminal, so nothing a peer wrote is
 //! printed raw: in text output a control character other than a newline
-//! or a tab becomes U+FFFD, and in JSON every control character is
-//! escaped, C1 included, which `serde_json` leaves raw. Either way a peer
-//! cannot move the cursor, retitle the window or rewrite what was printed
-//! before (`text_from_a_peer_reaches_no_terminal_as_a_control`).
+//! or a tab -- or a line separator, or a bidirectional control -- becomes
+//! U+FFFD, and in JSON each of those is escaped, C1 included, which
+//! `serde_json` leaves raw. Either way a peer cannot move the cursor,
+//! retitle the window, break a line a reader splits on, reorder what is
+//! shown, or rewrite what was printed before
+//! (`text_from_a_peer_reaches_no_terminal_as_a_control`).
 
 use interweave_human_client_api::{
     Connectivity, OutboundStatus, SendError, SendProblem, SessionProblem, SessionState,
@@ -101,12 +103,29 @@ pub(crate) const fn status(status: &ItemStatus) -> &'static str {
     }
 }
 
-/// `text` safe to print to a terminal: every control character other
-/// than a newline or a tab replaced.
+/// A character no peer's text may carry raw to a terminal or a reader
+/// that splits lines: a control (Cc), a line or paragraph separator, or a
+/// bidirectional control that reorders what is shown.
+const fn unsafe_char(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{2028}'
+                | '\u{2029}'
+                | '\u{061C}'
+                | '\u{200E}'
+                | '\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2066}'..='\u{2069}'
+        )
+}
+
+/// `text` safe to print to a terminal: every [`unsafe_char`] other than a
+/// newline or a tab replaced.
 pub(crate) fn printable(text: &str) -> String {
     text.chars()
         .map(|c| {
-            if c.is_control() && c != '\n' && c != '\t' {
+            if unsafe_char(c) && c != '\n' && c != '\t' {
                 '\u{FFFD}'
             } else {
                 c
@@ -115,15 +134,15 @@ pub(crate) fn printable(text: &str) -> String {
         .collect()
 }
 
-/// One JSON line: `value` with every control character escaped, C1 and
-/// DEL included, then a newline.
+/// One JSON line: `value` with every [`unsafe_char`] escaped, C1 and DEL
+/// included, then a newline.
 pub(crate) fn json_line(value: &Value) -> String {
     let raw = value.to_string();
     let mut out = String::with_capacity(raw.len() + 1);
     for c in raw.chars() {
         // `serde_json` escapes below U+0020 already; what is left can only
         // be inside a string, where an escape means the same character.
-        if c.is_control() {
+        if unsafe_char(c) {
             let _ = write!(out, "\\u{:04x}", u32::from(c));
         } else {
             out.push(c);
@@ -234,18 +253,29 @@ mod tests {
 
     #[test]
     fn text_from_a_peer_reaches_no_terminal_as_a_control() {
-        let hostile = "a\u{1b}]0;owned\u{7}b\u{9b}2Jc\u{7f}\nd\te";
+        let hostile = "a\u{1b}]0;owned\u{7}b\u{9b}2Jc\u{7f}\u{202e}rev\u{2066}i\u{2028}x\nd\te";
         let text = printable(hostile);
-        assert!(
-            !text
-                .chars()
-                .any(|c| c.is_control() && c != '\n' && c != '\t')
-        );
+        for c in [
+            '\u{1b}', '\u{7}', '\u{9b}', '\u{7f}', '\u{202e}', '\u{2066}', '\u{2028}',
+        ] {
+            assert!(!text.contains(c), "{c:?} printed raw");
+        }
         assert!(text.contains("\nd\te"), "a newline and a tab stay");
         let line = json_line(&json!({ "text": hostile }));
-        assert!(!line.trim_end().chars().any(char::is_control), "{line:?}");
+        for c in [
+            '\u{1b}', '\u{9b}', '\u{7f}', '\u{202e}', '\u{2066}', '\u{2028}',
+        ] {
+            assert!(!line.contains(c), "{c:?} raw in {line:?}");
+        }
+        assert_eq!(line.matches('\n').count(), 1, "one line: {line:?}");
         let back: Value = serde_json::from_str(&line).expect("still JSON");
         assert_eq!(back["text"], hostile, "the escapes mean the same text");
+    }
+
+    #[test]
+    fn unknown_connectivity_is_never_offline() {
+        assert_eq!(connectivity(Connectivity::Unknown), "unknown");
+        assert_eq!(connectivity(Connectivity::Offline), "offline");
     }
 
     #[test]
