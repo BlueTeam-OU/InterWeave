@@ -140,8 +140,8 @@ rust-services-dev, plan §22): marketplace distribution works with the
 development flag only.** Read off `spikes/spike-001/README.md` §S19
 (facts 20–23, runs `s19-*`). The plugin was the bridge's own package,
 assembled by `packaging/claude-plugin/build.sh` from the release build.
-A local marketplace of it is added, and the plugin installs from it,
-enabled at user scope. Installed, its server is
+A local marketplace of it is added, and the plugin installs from it
+at user scope. Installed, its server is
 `plugin:interweave:interweave` and its flag value is
 `plugin:interweave@interweave`. The development flag registers the
 channel from that install as it does from `--plugin-dir`. `--channels`
