@@ -14,10 +14,10 @@ What this repository already holds: CLAUDE.md §8 forbids stripping an upstream 
 
 2. **The notice is read from the crate's own publication, in this order, all from the registry copy the build compiled** — the tarball whose checksum `Cargo.lock` pins, so what is shipped is what was built:
    1. the licence files the crate publishes (`LICENSE*`, `LICENCE*`, `COPYING*`, `NOTICE*`, `COPYRIGHT*`, `UNLICENSE*`, a `LICENSES/` directory, or its `license-file`), as today;
-   2. failing any, **a copyright and permission notice in the crate's own source headers** — the leading comment block of its root module, or of any of its source files — extracted whole. A header is the crate's own publication under the same pinned checksum as a file would be, and counts as the same evidence;
+   2. failing any, **a copyright and permission notice in the crate's own source headers** — the leading comment block of its root module, or of any of its source files — extracted whole. A header is the crate's own publication under the same pinned checksum as a file would be, and counts as the same evidence. A header counts here only when it carries a copyright line (A 2026-10-22, the first derivation: a lone `SPDX-License-Identifier` tag is a declaration, not a notice, and falls to 2.iii). A header that carries the copyright line and names its licence without carrying its text — "licensed under X, found in the LICENSE file", the file unpublished — ships whole and is followed by the standard text of the term decision 4 selects, no copyright line invented since the header has one; the list records it as the case header+text. A header carrying a full permission notice ships alone;
    3. failing both, **the standard text of the licence the crate declares**, under a copyright line built from the crate's `authors` metadata — or, when that is empty, "the `<crate>` authors" — followed by one sentence saying the crate publishes no notice of its own. This is the honest maximum: a notice the author never wrote cannot be copied, and a release withheld over it serves the author no better.
 
-3. **A crate whose notice is derived (2.ii or 2.iii) is named in a committed, reviewed list** in `tools/ci/`, with its licence expression and which of the two cases it is. A compiled crate that falls into either case and is not listed fails the artifact; a listed crate that now publishes a file is reported and its entry removed. The derivation is mechanical; the list is where a person has looked once at each crate it applies to, and it is an allow-list for the reason `deny.toml`'s licence list is one.
+3. **A crate whose notice is derived (2.ii or 2.iii) is named in a committed, reviewed list** in `tools/ci/`, with its licence expression and which of the cases it is (2.ii, header+text, or 2.iii; A 2026-10-22), keyed by name and version so a version bump is looked at again. A compiled crate that falls into either case and is not listed fails the artifact; a listed crate that now publishes a file is reported and its entry removed. The derivation is mechanical; the list is where a person has looked once at each crate it applies to, and it is an allow-list for the reason `deny.toml`'s licence list is one.
 
 4. **No licence election is recorded.** An `OR` expression is satisfied by the term whose text the crate publishes (both, when it publishes both); under 2.iii, by the first term the expression lists. This record relicenses nothing and widens `deny.toml` by nothing.
 
@@ -51,3 +51,9 @@ The release run fails at the notices step with the crate named when a new file-l
 ## Revisit conditions
 
 A crate of 2.iii publishing a notice upstream (its entry moves or goes); a tool such as `cargo-about` adopted for the whole derivation, which would retire the tool and keep the list; a store or distributor with its own notice format.
+
+## Amendments
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-22 | A header without a copyright line is no notice; a header naming an unpublished licence file ships with the standard text | Decision 2.ii: a lone SPDX tag falls to 2.iii; the case header+text (the header whole, then the elected term's standard text, no invented copyright line); decision 3's list records three cases, keyed by name and version. |
