@@ -44,7 +44,7 @@ body; the first derivation measured them at about 790,000 characters
 against a release body of about 125,000 (ADR-0058's history note of
 the same day). Decision 5 now reads: the crate notices are a Markdown
 file attached to the release beside the APK, its SHA-256 in the page's
-hash list, `{crate_notices}` holding the link and hash; the native
+hash list, `{crate_notices}` holding the link and `{crate_notices_sha256}` the hash; the native
 libraries' notices stay in the body. The template's sentence is
 rust-ui-dev-02's and language-culture-en's; the upload is
 devex-tooling's `release.yml`. Propagation: decision 5; this note; the
