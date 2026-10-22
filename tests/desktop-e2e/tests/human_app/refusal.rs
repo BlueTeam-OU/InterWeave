@@ -235,3 +235,156 @@ async fn try_again_opens_the_app_once_the_store_is_put_right() {
     assert!(client.terminate().success(), "{}", client.log());
     assert!(daemon.terminate().await.success(), "{}", daemon.log());
 }
+
+/// Every file under `dir`, recursively, with its bytes: what a discard
+/// must leave as it was.
+fn tree(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+    let mut out = BTreeMap::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(tree(&path));
+        } else if let Ok(bytes) = std::fs::read(&path) {
+            out.insert(path.display().to_string(), bytes);
+        }
+    }
+    out
+}
+
+/// ADR-0060 decision 6 on the desktop, through the screen a person sees:
+/// a store whose key file is gone opens nothing and reaches recovery mode;
+/// Delete stored data… asks first, Cancel removes nothing, and the
+/// confirmed discard recreates the store and opens the app with its
+/// notice -- the identity, the identity's own key, the profile and the
+/// trust all as they were (plan §29 (b); human-client-ui.md §13).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_store_whose_key_is_lost_is_discarded_and_recreated_on_the_persons_word() {
+    use interweave_human_store::{identity_key, store_key};
+    let _focus = display::exclusive().await;
+    let home = home();
+    let mut daemon = home.start(&[]);
+    daemon.serving(&home).await;
+    let bus = Bus::connect().await;
+    let mut client = app::start(&home);
+    until_lease(&home.binding(), true, &client).await;
+    assert!(client.terminate().success(), "{}", client.log());
+    // A trust change, so the trust overlay exists to be compared.
+    crate::package::transportctl_ok(&home, &["trust", "allow", stranger().as_str()], "");
+
+    std::fs::remove_file(store_key::key_path(&home.paths)).expect("the key file goes");
+    let store = app_store(&home);
+    let kept = |home: &Home| {
+        let mut kept = tree(
+            home.paths
+                .config_file()
+                .parent()
+                .expect("the profile's folder"),
+        );
+        kept.extend(tree(
+            &home.paths.state_dir().join(identity_key::IDENTITY_KEYS_DIR),
+        ));
+        for overlay in [
+            interweave_profile_config::trust_overlay::TRUST_OVERLAY_FILE,
+            interweave_profile_config::endpoint_overlay::ENDPOINT_OVERLAY_FILE,
+            interweave_profile_config::profile_format::PROFILE_FORMAT_FILE,
+        ] {
+            let path = home.paths.state_dir().join(overlay);
+            if let Ok(bytes) = std::fs::read(&path) {
+                kept.insert(path.display().to_string(), bytes);
+            }
+        }
+        kept.insert(
+            "identity".to_owned(),
+            std::fs::read(home.paths.identity_file()).expect("the identity"),
+        );
+        kept
+    };
+    let before = kept(&home);
+    assert!(
+        before
+            .keys()
+            .any(|k| k.ends_with(interweave_profile_config::trust_overlay::TRUST_OVERLAY_FILE)),
+        "the control: the trust overlay is there to compare"
+    );
+    // The store's files: the folder without the single-instance lock,
+    // which each start rewrites with its own process.
+    let store_files = |store: &Path| {
+        let mut files = folder(store);
+        files.retain(|name, _| name != interweave_profile_config::lock::HUMAN_CLIENT_LOCK_FILE);
+        files
+    };
+    let human_before = store_files(&store);
+
+    let mut client = app::start(&home);
+    let screen = bus.window_of(client.child.id(), || client.log()).await;
+    screen
+        .until("why", named(text(UiText::RefusalStoreRecovery)), || {
+            client.log()
+        })
+        .await;
+    assert!(
+        human_lease(&home.binding()).await.is_none(),
+        "the store opened nothing"
+    );
+    let discard = screen
+        .until(
+            "Delete stored data…",
+            button(text(UiText::DiscardStore)),
+            || client.log(),
+        )
+        .await;
+    screen.activate(&discard, "click").await;
+    screen
+        .until(
+            "the loss",
+            named(text(UiText::DiscardLosesContacts)),
+            || client.log(),
+        )
+        .await;
+    let cancel = screen
+        .until("Cancel", button(text(UiText::Cancel)), || client.log())
+        .await;
+    screen.activate(&cancel, "click").await;
+    let discard = screen
+        .until(
+            "Delete stored data…",
+            button(text(UiText::DiscardStore)),
+            || client.log(),
+        )
+        .await;
+    assert!(
+        store_files(&store) == human_before,
+        "Cancel removed nothing"
+    );
+
+    screen.activate(&discard, "click").await;
+    let confirm = screen
+        .until(
+            "Delete stored data",
+            button(text(UiText::DiscardStoreConfirm)),
+            || client.log(),
+        )
+        .await;
+    screen.activate(&confirm, "click").await;
+    until_lease(&home.binding(), true, &client).await;
+    let window = bus.window_of(client.child.id(), || client.log()).await;
+    window
+        .until("the notice", named(text(UiText::StoreDiscarded)), || {
+            client.log()
+        })
+        .await;
+    assert!(client.running(), "the app runs: {}", client.log());
+    assert!(
+        store_key::exists(&home.paths).expect("readable"),
+        "a new key"
+    );
+    assert!(
+        kept(&home) == before,
+        "the identity, its key, the profile and the trust are as they were"
+    );
+    assert!(client.terminate().success(), "{}", client.log());
+    assert!(daemon.terminate().await.success(), "{}", daemon.log());
+}
