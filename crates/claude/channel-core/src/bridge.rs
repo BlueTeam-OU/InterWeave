@@ -18,7 +18,8 @@ use interweave_local_client_api::{
 use interweave_transport_api::{ChannelId, EndpointId, Payload, TransportError, base64url};
 
 use crate::card::{self, CardDrop};
-use crate::content::{Undecodable, channel_content};
+use crate::content::{PayloadEncoding, Undecodable, channel_content};
+use crate::host_event::{MAX_HOST_EVENT_BYTES, host_event_bytes};
 use crate::meta::{ChannelMeta, MetaError, MetaKey};
 use crate::received_at::rfc3339_utc;
 use crate::reply_token::{
@@ -221,7 +222,7 @@ impl BridgeState {
             let count = &mut self.dropped_cards[reason.index()];
             *count = count.saturating_add(1);
         }
-        let (mut meta, content, route) = converted?;
+        let (mut meta, (content, encoding), route) = converted?;
         if let Some(route) = route {
             let token = base64url::encode(&entropy);
             meta.set(MetaKey::ReplyToken, token.clone())?;
@@ -229,6 +230,7 @@ impl BridgeState {
                 .mint(token, route, now_ms)
                 .map_err(ConvertError::Token)?;
         }
+        let content = bounded(content, encoding, &mut meta)?;
         Ok(Some(ChannelNotification { content, meta }))
     }
 
@@ -243,7 +245,7 @@ impl BridgeState {
     fn direct(
         message: &ReceivedDirect,
         lease: Option<&(EndpointId, Generation)>,
-    ) -> Result<(ChannelMeta, String, Option<ReplyRoute>), ConvertError> {
+    ) -> Result<Converted, ConvertError> {
         let mut meta = ChannelMeta::new();
         meta.set(MetaKey::DeliveryMode, "direct")?;
         meta.set(MetaKey::SourcePeer, message.source_peer.as_str())?;
@@ -295,9 +297,7 @@ impl BridgeState {
     }
 }
 
-fn broadcast(
-    message: &ReceivedBroadcast,
-) -> Result<(ChannelMeta, String, Option<ReplyRoute>), ConvertError> {
+fn broadcast(message: &ReceivedBroadcast) -> Result<Converted, ConvertError> {
     let mut meta = ChannelMeta::new();
     meta.set(MetaKey::DeliveryMode, "broadcast")?;
     meta.set(MetaKey::SourcePeer, message.source_peer.as_str())?;
@@ -313,6 +313,34 @@ fn broadcast(
         channel: message.channel.clone(),
     };
     Ok((meta, content, Some(route)))
+}
+
+/// A message's `meta`, its content with the representation chosen, and
+/// the route a reply to it takes.
+type Converted = (ChannelMeta, (String, PayloadEncoding), Option<ReplyRoute>);
+
+/// `content` within the host line's bound (CHANNEL-EVENT.md §Content,
+/// A 2026-10-22): a text whose event would pass [`MAX_HOST_EVENT_BYTES`]
+/// once escaped goes as the base64url of its bytes, `meta` saying so.
+/// Measured with every `meta` key set, the reply token included, so the
+/// event measured is the event written. A base64url content is never
+/// re-measured: it escapes nothing, and the largest -- the decoded cap's
+/// 262,144 characters -- is under the bound with every key at its own
+/// (`the_largest_base64url_event_is_under_the_bound`).
+fn bounded(
+    content: String,
+    encoding: PayloadEncoding,
+    meta: &mut ChannelMeta,
+) -> Result<String, MetaError> {
+    if encoding == PayloadEncoding::Utf8 && host_event_bytes(&content, meta) > MAX_HOST_EVENT_BYTES
+    {
+        meta.set(
+            MetaKey::PayloadEncoding,
+            PayloadEncoding::Base64url.as_str(),
+        )?;
+        return Ok(base64url::encode(content.as_bytes()));
+    }
+    Ok(content)
 }
 
 /// Where a message came from, as the card parser needs it.
@@ -335,7 +363,7 @@ fn common(
     received_at_ms: u64,
     payload: &Payload,
     origin: Origin<'_>,
-) -> Result<String, ConvertError> {
+) -> Result<(String, PayloadEncoding), ConvertError> {
     let content = channel_content(payload).map_err(ConvertError::Content)?;
     let card = if is_human_chat(payload) {
         match origin {
@@ -363,9 +391,9 @@ fn common(
     match card {
         Some(card) => {
             card::set_meta(meta, &card)?;
-            Ok(String::new())
+            Ok((String::new(), content.encoding))
         }
-        None => Ok(content.text),
+        None => Ok((content.text, content.encoding)),
     }
 }
 
@@ -688,5 +716,27 @@ mod tests {
             bridge.reply_route(&token, NOW + ttl),
             Err(TransportError::InvalidArgument)
         );
+    }
+
+    /// A base64url content is not re-measured, so the largest one must be
+    /// under the bound however `meta` is filled: the decoded cap's
+    /// 262,144 characters beside every key at its longest value, of the
+    /// character that escapes to the most a meta value may hold (a quote:
+    /// four bytes in the pull event).
+    #[test]
+    fn the_largest_base64url_event_is_under_the_bound() {
+        let largest =
+            base64url::encode(&vec![
+                0;
+                interweave_human_chat_protocol::MAX_DECOMPRESSED_BYTES
+            ]);
+        assert_eq!(largest.len(), 262_144);
+        let mut meta = ChannelMeta::new();
+        for key in MetaKey::ALL {
+            meta.set(key, "\"".repeat(crate::MAX_META_VALUE_BYTES))
+                .expect("a quote is a legal value");
+        }
+        let bytes = host_event_bytes(&largest, &meta);
+        assert!(bytes <= MAX_HOST_EVENT_BYTES, "{bytes}");
     }
 }
