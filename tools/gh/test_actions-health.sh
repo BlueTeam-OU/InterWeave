@@ -37,6 +37,7 @@ pass() { echo "  ok   $1"; }
 fail() { echo "  FAIL $1"; [[ -n "${2:-}" ]] && printf '%s\n' "$2" | sed 's/^/       /'; failures=$((failures+1)); }
 
 SANDBOX="$(mktemp -d)"
+[[ -n "$SANDBOX" && -d "$SANDBOX" ]] || { echo "test_actions-health: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 printf '#!/bin/sh\nexec bash "$@"\n' > "$SANDBOX/fake-python"; chmod +x "$SANDBOX/fake-python"
 export AGENT_FABRIC_PYTHON="$SANDBOX/fake-python"
