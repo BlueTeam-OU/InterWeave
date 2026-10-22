@@ -426,7 +426,10 @@ fn a_lost_add_answer_is_decided_on_the_list_read_back() {
 
     let mut unread = start();
     unread.addresses_read(Err(AddressProblem::Unavailable));
-    assert_eq!(unread.peers().add_page_note(), Some(&AddNote::Unknown));
+    assert_eq!(
+        unread.peers().add_page_note(),
+        Some(&AddNote::Unknown { lines: 1 })
+    );
     assert_eq!(focus(&unread), Some(PeersFocus::AddButton));
 }
 
@@ -591,6 +594,12 @@ fn a_failed_or_lost_removal_is_said_truly() {
         unread.peers().snack().0,
         Some(&PeersSnack::RemoveUnknown { address: at(&a) })
     );
+    assert_eq!(
+        unread.peers().list(),
+        Some(&list(&[added(&a)])),
+        "the row stays as last read"
+    );
+    assert_eq!(unread.peers().list_problem(), None);
 }
 
 /// Rows read newest added first, then the configuration's, each in its
@@ -797,6 +806,10 @@ fn an_unknown_removal_is_read_again_when_its_snackbar_leaves() {
     assert_eq!(m.peers_turn(), None, "not while the snackbar is up");
     let _ = input(&mut m, PeersInput::SnackClosed);
     assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    // That read failing too: Peers unreadable, focus on why.
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(m.peers().list_problem(), Some(ListProblem::Unavailable));
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem));
 }
 
 /// A Trust whose answer was lost is checked on the trust list read
@@ -830,8 +843,7 @@ fn a_lost_trust_answer_read_back_unlisted_is_not_made() {
     let _ = m.peers_turn();
     assert_eq!(
         m.peers().blocks(m.trust_settings())[0].state,
-        BlockState::Trusting,
-        "checking"
+        BlockState::Checking
     );
     assert_eq!(
         m.trust_settings_mut().take_reread(),

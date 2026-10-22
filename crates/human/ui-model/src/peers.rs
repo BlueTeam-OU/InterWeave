@@ -105,7 +105,10 @@ pub enum AddNote {
     Checking,
     /// The answer was lost and the list could not be read back. Add
     /// again is safe: an address already stored answers unchanged.
-    Unknown,
+    Unknown {
+        /// How many lines the add carried.
+        lines: usize,
+    },
     /// A runtime with the one-address add only (IPC 2.7 or 2.8) did not
     /// take an add of several lines: nothing added.
     SeveralIncompatible {
@@ -144,8 +147,10 @@ pub enum AddResult {
 pub enum BlockState {
     /// Trust or Not now still to choose.
     Undecided,
-    /// Trust on its way, or its lost answer being checked.
+    /// Trust on its way.
     Trusting,
+    /// Trust's answer was lost: the trust list is being read back.
+    Checking,
     /// The peer is trusted.
     Trusted,
     /// Not now.
@@ -190,7 +195,9 @@ impl TrustBlock {
     fn state(&self, trust: &TrustSettings) -> BlockState {
         if trust_allows(trust, &self.peer) {
             BlockState::Trusted
-        } else if self.trusting || self.checking {
+        } else if self.checking {
+            BlockState::Checking
+        } else if self.trusting {
             BlockState::Trusting
         } else if self.later {
             BlockState::Later
@@ -787,7 +794,7 @@ impl Peers {
         let waiting = page
             .blocks
             .iter()
-            .any(|b| b.state(trust) == BlockState::Trusting);
+            .any(|b| matches!(b.state(trust), BlockState::Trusting | BlockState::Checking));
         match next {
             Some(peer) => self.ask_focus(PeersFocus::Block(peer)),
             None if waiting => {}
@@ -899,19 +906,26 @@ impl Peers {
                     self.checked(check, trust);
                 }
             }
+            // A lost answer's read back failing leaves the list as last
+            // read: the change is unknown, said where it was made.
+            Err(_) if check.is_some() => {
+                if let Some(check) = check {
+                    self.unknown(check);
+                }
+            }
             Err(problem) => {
                 // An unreadable list is unknown, never empty: the list on
-                // show goes, so nothing reads its emptiness.
-                self.list = None;
+                // show goes, so nothing reads its emptiness, and focus
+                // that was in it goes to the line that says why.
+                if self.list.take().is_some() {
+                    self.ask_focus(PeersFocus::ListProblem);
+                }
                 self.list_problem = Some(match problem {
                     AddressProblem::Unavailable => ListProblem::Unavailable,
                     AddressProblem::Internal => ListProblem::Failed,
                     AddressProblem::NotPermitted => ListProblem::Barred(Barred::NotPermitted),
                     AddressProblem::Incompatible => ListProblem::Barred(Barred::Incompatible),
                 });
-                if let Some(check) = check {
-                    self.unknown(check);
-                }
             }
         }
     }
@@ -1214,7 +1228,12 @@ impl Peers {
     /// A lost answer whose list could not be read back either.
     fn unknown(&mut self, check: Check) {
         match check {
-            Check::Add(_) => self.page_note(AddNote::Unknown, PeersFocus::AddButton),
+            Check::Add(lines) => self.page_note(
+                AddNote::Unknown {
+                    lines: lines.len(),
+                },
+                PeersFocus::AddButton,
+            ),
             Check::Undo(address) => self.say(PeersSnack::UndoUnknown { address }),
             Check::Remove { address, .. } => self.say(PeersSnack::RemoveUnknown { address }),
         }
