@@ -5,9 +5,9 @@
 #
 # Self-test for check_android_target.sh, with cargo and the NDK faked: the
 # target, NDK and API level come from the pins (the LOWEST platform), the
-# linker, CC and AR reach cargo for that target, the default packages are
-# checked only when the workspace has them, and every missing input is a
-# loud exit 2 — a cargo check failure exit 1.
+# linker, CC, AR and RANLIB reach cargo for that target, the default
+# packages are checked only when the workspace has them, and every
+# missing input is a loud exit 2 — a cargo check failure exit 1.
 set -uo pipefail
 HERE="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
 SUT="$HERE/check_android_target.sh"
@@ -20,7 +20,7 @@ mkdir -p "$S/repo"
 fake_ndk() {  # <dir> <revision> [no-clang]
     mkdir -p "$1/toolchains/llvm/prebuilt/linux-x86_64/bin"
     printf 'Pkg.Desc = Android NDK\nPkg.Revision = %s\n' "$2" > "$1/source.properties"
-    for b in aarch64-linux-android30-clang llvm-ar; do
+    for b in aarch64-linux-android30-clang llvm-ar llvm-ranlib; do
         [[ "$b" != *clang || -z "${3:-}" ]] || continue
         printf '#!/bin/sh\n' > "$1/toolchains/llvm/prebuilt/linux-x86_64/bin/$b"
         chmod +x "$1/toolchains/llvm/prebuilt/linux-x86_64/bin/$b"
@@ -30,6 +30,8 @@ fake_ndk "$S/ndk" 28.2.13676358                   # the pin, as ANDROID_NDK_HOME
 fake_ndk "$S/sdk/ndk/28.2.13676358" 28.2.13676358 # the pin, inside an SDK
 fake_ndk "$S/image-ndk" 27.3.13750724             # a runner image's default
 fake_ndk "$S/noclang" 28.2.13676358 no-clang
+fake_ndk "$S/noranlib" 28.2.13676358
+rm "$S/noranlib/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib"
 cat > "$S/pins" <<'P'
 PKG_2=platforms;android-36@2
 PKG_3=platforms;android-30@3
@@ -37,13 +39,15 @@ PKG_6=ndk;28.2.13676358@28.2.13676358
 RUST_ANDROID_TARGET=aarch64-linux-android
 P
 # The fake cargo: metadata lists $FAKE_PKGS; check records its argv and
-# the three variables, and fails when FAKE_CHECK_FAIL is set.
+# the target's LINKER, CC, AR, RANLIB and ANDROID_JAR, and fails when
+# FAKE_CHECK_FAIL is set.
 cat > "$S/cargo" <<'C'
 #!/usr/bin/env bash
 case "$1" in
   metadata) printf '{"packages":['; sep=""; for p in $FAKE_PKGS; do printf '%s{"name":"%s"}' "$sep" "$p"; sep=","; done; printf ']}\n' ;;
   check) { echo "ARGS $*"; echo "LINKER $CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER";
            echo "CC $CC_aarch64_linux_android"; echo "AR $AR_aarch64_linux_android";
+           echo "RANLIB ${RANLIB_aarch64_linux_android:-}";
            echo "ANDROID_JAR ${ANDROID_JAR:-}"; } > "$FAKE_LOG"
          [ -z "${FAKE_CHECK_FAIL:-}" ] ;;
 esac
@@ -61,6 +65,7 @@ grep -q '^ARGS check --locked --target aarch64-linux-android -p interweave-profi
 grep -q "^LINKER $S/ndk/.*/aarch64-linux-android30-clang$" "$S/log" && ok "the linker is the NDK clang at the LOWEST platform (30, not 36)" || bad "linker" "$(cat "$S/log")"
 grep -q "^CC $S/ndk/.*/aarch64-linux-android30-clang$" "$S/log" && ok "CC for the target is the same clang" || bad "CC" "$(cat "$S/log")"
 grep -q "^AR $S/ndk/.*/llvm-ar$" "$S/log" && ok "AR for the target is the NDK's llvm-ar" || bad "AR" "$(cat "$S/log")"
+grep -q "^RANLIB $S/ndk/.*/llvm-ranlib$" "$S/log" && ok "RANLIB for the target is the NDK's llvm-ranlib (openssl-src's make runs it)" || bad "RANLIB" "$(cat "$S/log")"
 grep -q "interweave-transport-embedded is not in the workspace yet" <<<"$out" && ok "says the embedded crate is not checked yet" || bad "silent about the absent crate" "$out"
 grep -qE "NDK 28.2.13676358 at [^,]+, API 30" <<<"$out" && ok "names the NDK and API it used" || bad "versions not named" "$out"
 
@@ -80,6 +85,8 @@ out="$(FAKE_PKGS="interweave-profile-config" NDK="" run)"; rc=$?
 [[ $rc -eq 2 && "$out" == *"neither ANDROID_NDK_HOME nor ANDROID_HOME"* ]] && ok "no NDK location" || bad "rc $rc" "$out"
 out="$(FAKE_PKGS="interweave-profile-config" NDK="ANDROID_NDK_HOME=$S/noclang" run)"; rc=$?
 [[ $rc -eq 2 && "$out" == *"without API 30's clang"* ]] && ok "the pinned NDK without the API's clang" || bad "rc $rc" "$out"
+out="$(FAKE_PKGS="interweave-profile-config" NDK="ANDROID_NDK_HOME=$S/noranlib" run)"; rc=$?
+[[ $rc -eq 2 && "$out" == *"llvm-ranlib in NDK"* ]] && ok "the pinned NDK without llvm-ranlib" || bad "rc $rc" "$out"
 
 echo "check_android_target: only the PINNED NDK is used, whatever the environment points at"
 rm -f "$S/log"; out="$(FAKE_PKGS="interweave-profile-config" NDK="ANDROID_NDK_HOME=$S/image-ndk" SDK="$S/sdk" run)"; rc=$?
