@@ -345,25 +345,39 @@ def id_tokens(text: str, block: str) -> list:
 
 def spdx_expression(line: str) -> list:
     """The ids of the SPDX expression that opens `line`: an id, then an
-    operator (AND, OR, WITH, in any case) before each further id,
-    parentheses aside. It ends where an operator is due and another word
-    stands ("MIT -- see LICENSE", "MIT. See the notice above"). A word that
-    is not a clean id ("MIT/Frob"), and an expression cut where an id is
-    due ("MIT OR" at the line's end, its id wrapped onto the next line),
-    are returned as they stand, so the lookup refuses them rather than
-    reading less than the line names."""
-    ids, want_id = [], True
-    for word in line.split():
-        word = word.strip("()")
-        if not word:
-            continue
+    operator (AND, OR, WITH in any case, or the legacy "/", "|", "+")
+    before each further id, parentheses aside. Where an operator is due,
+    it ends only at a word with no letter or digit ("MIT -- see LICENSE",
+    "MIT */") or after an id that ends a sentence ("MIT. See the notice");
+    any other word there is read as an id, so an unknown one refuses the
+    run rather than being dropped. A word that is not a clean id
+    ("MIT/Frob"), and an expression cut where an id is due ("MIT OR" at
+    the line's end, its id wrapped onto the next line), are returned as
+    they stand, so the lookup refuses them rather than reading less than
+    the line names; and after the expression ends, any id-shaped word left
+    on the line ("MIT -- EPL-2.0 for x.c") is read too."""
+    ids, want_id, ended = [], True, False
+    words = line.split()
+    for at, word in enumerate(words):
+        bare = word.rstrip(".").strip("()").rstrip(".")
         if want_id:
-            ids.append(word if re.fullmatch(r"[A-Za-z0-9.+-]+", word.rstrip(".")) else f"{word} (not an SPDX id)")
-            want_id = False
-        elif word.upper() in ("AND", "OR", "WITH"):
+            if not bare:
+                continue
+            ids.append(bare if re.fullmatch(r"[A-Za-z0-9.+-]+", bare) else f"{word} (not an SPDX id)")
+            want_id, ended = False, word.endswith(".")
+        elif bare.upper() in ("AND", "OR", "WITH") or word in ("/", "|", "+"):
             want_id = True
-        else:
+        elif ended or not re.search(r"[A-Za-z0-9]", word):
+            ids += [
+                w.rstrip(".").strip("()").rstrip(".")
+                for w in words[at:]
+                if re.fullmatch(r"[A-Za-z][A-Za-z0-9.+]*-[A-Za-z0-9.+-]*\d[A-Za-z0-9.+-]*",
+                                w.rstrip(".").strip("()").rstrip(".").rstrip(",;:"))
+            ]
             break
+        else:
+            ids.append(bare if re.fullmatch(r"[A-Za-z0-9.+-]+", bare) else f"{word} (not an SPDX id)")
+            ended = word.endswith(".")
     if want_id:
         ids.append("an SPDX expression cut short")
     return ids

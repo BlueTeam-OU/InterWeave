@@ -565,6 +565,19 @@ drefused "an SPDX expression cut at the line's end" "names a licence this tool d
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT/LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drefused "an SPDX word that is not a clean id" "MIT/LicenseRef-Frob (not an SPDX id)"
+# A legacy separator is an operator, never an end: the licence after it
+# is read, and an unknown one refuses.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT / LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "a licence after a legacy / separator" "names a licence this tool does not recognise (LicenseRef-Frob)"
+# Where prose ends the expression, an id-shaped word after it is read.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT -- Frob-2.0 for x.c\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an id after the prose that ends an expression" "names a licence this tool does not recognise (Frob-2.0)"
+# A parenthesised expression ending a sentence reads as its ids.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: (MIT OR Apache-2.0).\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "a parenthesised expression ending in a stop" || fail "a parenthesised expression ending in a stop was refused" "$(cat "$SANDBOX/err")"
 
 # --- The digest gate (ADR-0058 A 2026-10-22 (iii)) --------------------------
 # A header no one has listed is refused by its digest, whatever words it
