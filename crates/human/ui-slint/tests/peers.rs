@@ -500,6 +500,20 @@ fn an_unread_trust_list_draws_its_line_and_no_row_state() {
 
     press(&view, text(UiText::TryAgain));
     assert_eq!(intents(&mut view, &mut model), vec![Intent::ReadTrust]);
+    model
+        .trust_settings_mut()
+        .read(Err(interweave_human_client_api::TrustProblem::Unavailable));
+    let _ = model.peers_turn();
+    view.render(&model);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "trust-retry",
+        "failed again: focus stays on Try again"
+    );
+    press(&view, text(UiText::TryAgain));
+    let _ = intents(&mut view, &mut model);
     model.trust_settings_mut().read(Ok(TrustList {
         local_peer: Some(me),
         allowed: vec![TrustRow::added_here(t)],
@@ -509,4 +523,44 @@ fn an_unread_trust_list_draws_its_line_and_no_row_state() {
     assert_eq!(view.window().get_peers_trust_line(), "");
     let row = view.window().get_peer_rows().row_data(0).expect("a row");
     assert_eq!(row.state, text(UiText::PeerStateTrusted));
+}
+
+/// A removal whose outcome is unknown puts keyboard focus on the
+/// snackbar's Try again (design section 8), not where the row's menu was.
+#[test]
+fn an_unknown_removal_focuses_the_snackbars_try_again() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a)]);
+    let _ = model.peers_input(interweave_human_ui_model::PeersInput::Remove(at(&a)));
+    model.address_removed(
+        &at(&a),
+        Err(
+            interweave_human_client_api::AddressChangeFailure::Unconfirmed(
+                interweave_human_client_api::AddressProblem::Unavailable,
+            ),
+        ),
+    );
+    assert_eq!(model.peers_turn(), Some(Intent::ReadAddresses));
+    model.addresses_read(Err(
+        interweave_human_client_api::AddressProblem::Unavailable,
+    ));
+    view.render(&model);
+    // A focus moves on a timer's turn and is reported a turn later.
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    assert!(view.window().get_peers_snack_shown());
+    assert!(
+        view.window().get_peers_snack_action_shown(),
+        "{:?}",
+        view.window().get_peers_snack_text()
+    );
+    assert_eq!(
+        view.window().get_focus_target().as_str(),
+        "peers-snack-action"
+    );
+    // A render after it, as the root's turn makes: the id stands.
+    view.render(&model);
+    assert_eq!(view.window().get_focus_id().as_str(), "peers-snack-action");
 }

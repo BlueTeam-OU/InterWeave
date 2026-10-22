@@ -936,6 +936,12 @@ component Snackbar inherits Rectangle {
     in property <string> undo-label;
     in property <int> snack-id;
     in property <int> focus-seq;
+    // The action is where a focus request wants to go (Peers' Try
+    // again on an outcome not known, design section 8), and the key it
+    // reports. The conversation's Undo is "undo", which the view clears
+    // once no conversation snackbar is up, so Peers' action has its own.
+    in property <bool> action-focus-wanted;
+    in property <string> action-key: "undo";
     // A right-to-left layout: the Undo sits at the line's end, the left
     // (swipe spec section 3).
     in property <bool> rtl;
@@ -992,7 +998,9 @@ component Snackbar inherits Rectangle {
             text-button: true;
             ink: Palette.inverse-primary;
             on-inverse: true;
-            focus-key: "undo";
+            focus-key: root.action-key;
+            focus-seq: root.focus-seq;
+            focus-wanted: root.action-focus-wanted;
             pressed => { root.undo-pressed(root.snack-id); }
             focused(k) => { root.focused(k); }
         }
@@ -3342,6 +3350,8 @@ export component AppWindow inherits Window {
                 undo-label: root.peers-snack-action;
                 snack-id: root.peers-snack-id;
                 focus-seq: root.focus-seq;
+                action-focus-wanted: root.focus-target == "peers-snack-action";
+                action-key: "peers-snack-action";
                 rtl: root.rtl;
                 undo-pressed(id) => { root.peers-snack-pressed(id); }
                 dismissed(id) => { root.peers-snack-closed(id); }

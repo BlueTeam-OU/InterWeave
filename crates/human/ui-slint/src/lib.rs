@@ -2436,6 +2436,30 @@ impl View {
         });
     }
 
+    /// Focus `target`, a control made by the same render that asks for
+    /// it -- a snackbar's action. Its `changed focus-seq` handler sees no
+    /// change on the first value it reads (measured: the first bump after
+    /// the snackbar was made focused nothing, a second one did), so the
+    /// target is set and bumped on the next turn as [`Self::focus_key`]
+    /// does, and bumped once more on the turn after. A request scheduled
+    /// before it is dropped, so this one wins.
+    fn focus_key_after_draw(&self, target: String) {
+        self.focus_wanted.borrow_mut().take();
+        let window = swipe::weak(&self.window);
+        defer(move || {
+            let Some(shown) = window.upgrade() else {
+                return;
+            };
+            shown.set_focus_target(target.into());
+            shown.set_focus_seq(shown.get_focus_seq().wrapping_add(1));
+            defer(move || {
+                if let Some(window) = window.upgrade() {
+                    window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
+                }
+            });
+        });
+    }
+
     /// Wake the root after `delay`, so it renders again: a leaving row
     /// is dropped once its space has closed.
     fn wake_after(&self, delay: Duration) {

@@ -248,7 +248,12 @@ impl View {
             self.peer_lists.focus_seen = focuses;
             if let Some(focus) = focus {
                 let target = self.focus_target(focus, peers.field());
-                self.focus_key(target);
+                // The snackbar's action is made by this render.
+                if *focus == PeersFocus::SnackAction {
+                    self.focus_key_after_draw(target);
+                } else {
+                    self.focus_key(target);
+                }
             }
         }
         said
@@ -541,6 +546,7 @@ impl View {
             PeersFocus::AddAddressNote => "add-address-note".to_owned(),
             PeersFocus::ListProblem => "peers-problem".to_owned(),
             PeersFocus::TrustRetry => "trust-retry".to_owned(),
+            PeersFocus::SnackAction => "peers-snack-action".to_owned(),
         }
     }
 }
