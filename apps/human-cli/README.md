@@ -10,7 +10,7 @@ It is the desktop client's composition with no display: the same store, facade (
 
 - **Batch 1 (on main, #368):** `status`, `conversations`, `messages`, `read [--keep]`, `send`, `cancel`, `retry`, `unkeep`, `listen`, `trust list|allow|revoke`, `identities list|enable|disable|default`, `store health`.
 - **Batch 2:** `card show|set|share`, `proposals`, `proposals read [--accept|--decline]`, `contacts`, `contacts show|rename|photo|delete`.
-- **Store discard and recreate** (ADR-0060) wait on the store's action landing (plan section 29 step 3).
+- **Store at rest** (ADR-0060): `store health` reports the key and the files, and `store discard` discards and recreates a store that needs recovery.
 - **Batch 3:** `peers`, `peers add|remove <address>` (ADR-0062), on the daemon's `admin.peers` methods. Showing this node's own addresses (ADR-0062 decision 4) waits on a method that reports them: none on the admin or data socket does yet.
 - Creating, renaming and removing an identity (ADR-0061's display name and photo per endpoint), and moving a route between contacts, are Stage 22's.
 
@@ -34,7 +34,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 
 ### Output
 
-- `--json` is accepted by every verb that reads (`status`, `conversations`, `messages`, `read`, `listen`, `trust list`, `identities list`, `store health`, `card show`, `proposals`, `proposals read`, `contacts`, `contacts show`, `peers`) and by `send`, `cancel`, `retry`, `unkeep` and `card share`. It prints one JSON object per line. Every control character, line separator and bidirectional control in a string is escaped, so a line is always one line.
+- `--json` is accepted by every verb that reads (`status`, `conversations`, `messages`, `read`, `listen`, `trust list`, `identities list`, `store health`, `card show`, `proposals`, `proposals read`, `contacts`, `contacts show`, `peers`) and by `send`, `cancel`, `retry`, `unkeep`, `card share` and `store discard`. It prints one JSON object per line. Every control character, line separator and bidirectional control in a string is escaped, so a line is always one line.
 - `send`, `retry`, `cancel` and `unkeep` print `<id> <status>`, or `{"id": ..., "status": ...}` with `--json`. `send` and `retry` print it also when they fail with exit 1 or 6, so a script holds the id to retry or cancel.
 - Every status and state is a fixed token, never a translated label:
   - a message's `status` is one of `sending`, `not-confirmed`, `needs-attention`, `accepted`, `published`, `cancelled`, `unread`, `read`, `kept`;
@@ -71,11 +71,14 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 - **`contacts delete`** deletes the contact, its routes and their recorded keys. They leave the store's files before it returns, unless another process is reading the store's log at that moment, in which case they leave it at the next write that releases content, or the next open or close. The next card from one of its routes is a new proposal, its key `new`. The trust allowlist is separate and is not changed.
 - **`listen`** prints a card that arrives as a `proposal` event, and leaves it unread.
 - **`peers add <address>`** sends the address as typed, and the daemon judges it against the configuration's grammar and the special-use floor. It prints `added` or `unchanged`. A refusal is exit 1 naming the rule (`grammar`, `special_use`, `bound`, `provider_disabled`, `authored`); the daemon's detail is not shown. An address added is dialled only for a peer this profile trusts: adding one grants no trust. `peers remove` prints `removed` or `unchanged`, and refuses an authored address. `peers --json` lists `{address, source: authored|added, dialled}`.
+- **`store health`** prints `health` (`healthy`, `degraded`, `needs-recovery`, `not-private`, `unavailable`), `protection` (`filesystem-only` on the desktop), `key` (`present`, `absent`, `invalidated`, `unusable`), `files` (`none`, `plaintext`, `encrypted`, `export-unfinished`, `scrub-unfinished`, `rename-unfinished`, `unlisted`), and the pending, unread and kept counts when the store opens (`null` in JSON when it does not). Anything but `healthy` is exit 5. It never prints a byte of the key.
+- **`store discard`** acts only on a store that needs recovery; one that opens is refused with exit 1. Without `--confirm` it lists what it would remove (`discard`: `everything` or `unfinished-plaintext`, the files, whether the key goes) and what is lost, removes nothing, and exits 1. `--confirm <scope>` must name the scope it lists, or nothing is removed and it exits 1, so a script that confirmed one loss never takes a larger one. `everything` loses every contact and its routes, pending, unread and kept messages, the conversation list, the record of messages already shown, the client's settings and the person's own cards, and the store's key; never an identity, its key, trust or the transport's configuration. `unfinished-plaintext` removes the half-scrubbed plaintext only, and the next open takes the complete encrypted copy. After a discard the store is opened again, which recreates it (`done`, `recreated` in JSON); the ids of the old store name nothing.
 - **`trust allow` and `trust revoke`** of a peer already in that state exit 0, printing `(already)`.
 
 ## Tests
 
 - `src/verbs_tests.rs` and `src/cards_tests.rs`: each verb through the model and the facade, against the in-memory node pair app-core's own tests use, over a file store where the next run is the claim.
+- `src/store.rs`: `store health` and `store discard` over a real profile directory and the desktop's key custody: a discard refused without its scope removes nothing, a confirmed one recreates an empty store under a new key, a store that opens is never discarded.
 - `tests/process.rs`: the binary's `--help`, a usage error and a refused profile.
 - `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1, 2 and 3 run as the binary against two real daemons; `card set --photo <file>` and `contacts photo <file>` are not run with an image anywhere in this crate: the file read and its bound are tested here (`a_photo_file_past_the_bound_is_refused_unread`), and what the facade does with the bytes is app-core's.
 
