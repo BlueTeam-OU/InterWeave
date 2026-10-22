@@ -1469,3 +1469,54 @@ fn a_parked_restored_row_gives_way_to_the_lists_try_again() {
     m.addresses_read(Ok(list(&[added(&a), added(&b)])));
     assert_eq!(focus(&m), Some(PeersFocus::Title));
 }
+
+/// The add page's one closing snackbar says what step one did (§5.3):
+/// an add that added nothing closes on its own unchanged line, with no
+/// step two or after Not now; an add read back as checked closes on the
+/// checked line; never "added" unless it read so.
+#[test]
+fn the_closing_snackbar_says_what_the_add_did() {
+    let (me, t, u) = (peer(), peer(), peer());
+    // Every line already there, its peer trusted: no step two.
+    let mut m = opened(&me, std::slice::from_ref(&t), &[added(&t)]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&t)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&t)], answer(AddressOutcome::Unchanged, &[added(&t)]));
+    assert!(!m.peers().add_open());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::AddedUnchanged { lines: 1 })
+    );
+
+    // Already there, its peer not trusted: Not now closes on the same.
+    let mut m = opened(&me, &[], &[added(&u)]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&u)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&u)], answer(AddressOutcome::Unchanged, &[added(&u)]));
+    let _ = input(&mut m, PeersInput::NotNow(u.clone()));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::AddedUnchanged { lines: 1 })
+    );
+
+    // A lost answer read back as listed: checked, not "added".
+    let mut m = opened(&me, std::slice::from_ref(&t), &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&t)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&t)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Ok(list(&[added(&t)])));
+    assert!(!m.peers().add_open());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::AddedChecked { lines: 1 })
+    );
+}

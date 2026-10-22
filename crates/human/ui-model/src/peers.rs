@@ -355,6 +355,18 @@ pub enum PeersSnack {
     },
     /// The add page closed with an address added.
     Added,
+    /// The add page closed on an add that added nothing: every line
+    /// was already there (§5.3).
+    AddedUnchanged {
+        /// How many lines the add carried.
+        lines: usize,
+    },
+    /// The add page closed on an add read back as checked: the device
+    /// has these addresses, which the read cannot show this add made.
+    AddedChecked {
+        /// How many lines the add carried.
+        lines: usize,
+    },
     /// The add page closed with every block trusted.
     PeerTrusted,
 }
@@ -504,8 +516,6 @@ struct AddPage {
     scanning: bool,
     /// Opened from this row's Trust, not from Add an address.
     from_row: Option<String>,
-    /// Some address was added: the closing snackbar says so.
-    added: bool,
 }
 
 /// The Peers page and its add page, as a view renders them.
@@ -934,10 +944,20 @@ impl Peers {
                 .blocks
                 .iter()
                 .all(|b| b.state(trust) == BlockState::Trusted);
+        // One snackbar: Trusted when every block was; else step one's
+        // own word on the add -- "added" only when it read so (§5.3). A
+        // row's trust step, with no add, closes with none.
         if all_trusted {
             self.say(PeersSnack::PeerTrusted);
-        } else if page.added {
-            self.say(PeersSnack::Added);
+        } else {
+            match page.result {
+                Some(AddResult::Added { .. }) => self.say(PeersSnack::Added),
+                Some(AddResult::Unchanged { lines }) => {
+                    self.say(PeersSnack::AddedUnchanged { lines });
+                }
+                Some(AddResult::Checked { lines }) => self.say(PeersSnack::AddedChecked { lines }),
+                None => {}
+            }
         }
         match page.from_row {
             Some(row) => self.ask_focus(PeersFocus::Row(row)),
@@ -1179,11 +1199,11 @@ impl Peers {
                     lines: lines.len(),
                     peers: peers.clone(),
                 };
-                self.accepted(result, &peers, true, trust);
+                self.accepted(result, &peers, trust);
             }
             AddressOutcome::Unchanged => {
                 let result = AddResult::Unchanged { lines: lines.len() };
-                self.accepted(result, &peers_of(&lines), false, trust);
+                self.accepted(result, &peers_of(&lines), trust);
             }
             AddressOutcome::Refused(why) => {
                 let why = match why {
@@ -1221,18 +1241,11 @@ impl Peers {
     /// per peer of the add not trusted -- every peer while the trust list
     /// is not the daemon's word (unread, or kept after a failed read), since a needless block costs a tap and a missing one
     /// leaves a peer untrusted unprompted.
-    fn accepted(
-        &mut self,
-        result: AddResult,
-        peers: &[TransportIdentity],
-        added: bool,
-        trust: &TrustSettings,
-    ) {
+    fn accepted(&mut self, result: AddResult, peers: &[TransportIdentity], trust: &TrustSettings) {
         let Some(page) = self.page.as_mut() else {
             return;
         };
         page.result = Some(result);
-        page.added |= added;
         page.field.clear();
         page.note = None;
         let own = trust.list().and_then(|l| l.local_peer.as_ref());
@@ -1364,7 +1377,7 @@ impl Peers {
             Check::Add(lines) => {
                 if lines.iter().all(|l| listed(&list, l)) {
                     let result = AddResult::Checked { lines: lines.len() };
-                    self.accepted(result, &peers_of(&lines), true, trust);
+                    self.accepted(result, &peers_of(&lines), trust);
                 } else {
                     self.page_note(AddNote::Failed, PeersFocus::AddButton);
                 }
