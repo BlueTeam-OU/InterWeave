@@ -395,6 +395,12 @@ mod tests {
     #[test]
     fn two_daemons_preparing_one_run_directory_both_succeed() {
         const RACERS: usize = 8;
+        // `effective_uid` makes a tokio socket, so each racer enters a
+        // runtime; the racing itself is the threads'.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .build()
+            .expect("runtime");
         for _ in 0..50 {
             let root = tempfile::tempdir().expect("tempdir");
             let run_dir = root.path().join("interweave");
@@ -403,7 +409,9 @@ mod tests {
                 let racers: Vec<_> = (0..RACERS)
                     .map(|i| {
                         let (run_dir, barrier) = (&run_dir, &barrier);
+                        let handle = runtime.handle().clone();
                         scope.spawn(move || {
+                            let _runtime = handle.enter();
                             let paths = SocketPaths {
                                 data: run_dir.join(format!("{i}.sock")),
                                 admin: run_dir.join(format!("{i}.admin.sock")),
