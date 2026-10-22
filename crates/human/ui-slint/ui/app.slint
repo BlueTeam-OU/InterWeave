@@ -162,6 +162,41 @@ export struct TrustRow {
     origin: string,
 }
 
+// One address on Peers (design/2026-10-22-add-a-peer.md section 5.2): its
+// peer in short, the host and port in the code font, its state and origin
+// in words, and what its row offers.
+export struct PeerAddressRow {
+    handle: int,
+    peer: string,
+    host: string,
+    // The whole address, which Copy address copies.
+    address: string,
+    state: string,
+    origin: string,
+    // Not trusted: the row offers Trust.
+    needs-trust: bool,
+    // Added here: the menu offers Remove; a configuration row says why not.
+    removable: bool,
+    menu-label: string,
+}
+
+// One step-two block of the add page (section 5.3): one PeerId of the add
+// not trusted yet.
+export struct PeerTrustBlock {
+    handle: int,
+    title: string,
+    // The full PeerId, exact, for the person to compare.
+    peer: string,
+    // Trust or Not now still to choose.
+    undecided: bool,
+    // Trust is offered: not after a problem no retry mends.
+    trust-offered: bool,
+    // Its state once decided, or its Trust on its way.
+    state: string,
+    // Why its last Trust did not trust it.
+    problem: string,
+}
+
 // The platform's touch slop, which Rust sets from the system's
 // (swipe spec section 4).
 // The identity screens (design/2026-10-19-android-identity.md): one page
@@ -495,6 +530,55 @@ component FocusHeading inherits FocusScope {
                 horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
                 accessible-role: none;
             }
+        }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        shown: root.has-focus;
+    }
+}
+
+// A line that takes focus, as FocusHeading does, and wraps where a
+// heading elides: a note a person must read whole, whatever its length --
+// a refusal naming an address, a problem in place of a list. Its minimum
+// width is nothing, so one long address in it never widens the page.
+component FocusNote inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
+    in property <string> text;
+    in property <string> focus-key;
+    in property <color> ink: Palette.on-surface;
+    in property <length> font-size: Type.body-medium;
+    in property <int> font-weight: 400;
+    in property <bool> rtl;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    callback focused(string);
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    // The layout is the only child counted for the note's size, as the
+    // heading's; the ring is placed.
+    VerticalLayout {
+        Text {
+            text: root.text;
+            font-size: root.font-size;
+            font-weight: root.font-weight;
+            color: root.ink;
+            wrap: word-wrap;
+            min-width: 0;
+            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+            accessible-role: none;
         }
     }
     FocusRing {
@@ -1690,7 +1774,7 @@ export component AppWindow inherits Window {
     in property <string> show-phrase-label;
     // The Chats bar's overflow (#304 F12): the app's options, named apart
     // from a conversation's "More options" since both show side by side
-    // on a wide window. Trust is its one entry today.
+    // on a wide window. Trust and Peers are its entries.
     in property <string> app-options-label;
     // The list pane's width, which the app's options menu is placed by.
     property <length> list-width: root.list-aside ? 0px
@@ -1731,6 +1815,77 @@ export component AppWindow inherits Window {
     // The last outcome, shown where it happened; announced through the
     // window's one announcement.
     in property <string> trust-outcome;
+
+    // Peers by address (design/2026-10-22-add-a-peer.md): shown in place of
+    // the conversation as the trust settings are, every string from Rust
+    // and every press back to it.
+    in property <bool> peers-page;
+    in property <string> peers-title;
+    // In place of the list: why it cannot be read, and whether Try again
+    // is offered.
+    in property <string> peers-problem;
+    in property <bool> peers-problem-retry;
+    in property <string> try-again-label;
+    // The list has been read: only then are the rows and Add shown.
+    in property <bool> peers-list-read;
+    in property <string> add-address-label;
+    // Under Add an address: why it opened nothing.
+    in property <string> peers-add-note;
+    in property <string> peers-no-trust;
+    in property <string> peers-empty;
+    in property <[PeerAddressRow]> peer-rows;
+    in property <string> copy-address-label;
+    in property <string> remove-address-label;
+    in property <string> not-removable-label;
+    in property <string> trust-this-label;
+    // A row's menu open, by handle, or -1.
+    in-out property <int> peer-menu: -1;
+    // What Copy address copies, set by the press. Never shown.
+    in-out property <string> copy-text;
+    // The add page (section 5.3), in Peers' place.
+    in property <bool> peers-add-open;
+    in property <string> add-title;
+    in property <string> address-field-label;
+    in property <string> address-help;
+    in-out property <string> address-text;
+    // The field's lines to select, as character offsets, applied at each
+    // new sequence once the field has focus: a refused line.
+    in property <int> address-select-from;
+    in property <int> address-select-to;
+    in property <int> address-select-seq;
+    // The scan controls this platform offers: the camera on Android,
+    // an image file or a pasted one on the desktop.
+    in property <bool> scan-camera;
+    in property <bool> scan-images;
+    in property <string> scan-code-label;
+    in property <string> open-image-label;
+    in property <string> paste-image-label;
+    in property <string> add-action-label;
+    // The page's one note: under the field, under the scan controls, or
+    // under Add, by what it is about.
+    in property <string> field-note;
+    in property <string> scan-note;
+    in property <string> add-note;
+    // Step one's result, once done: the field and its controls give way to
+    // it, and step two appears under it.
+    in property <string> add-result;
+    in property <[PeerTrustBlock]> trust-blocks;
+    in property <string> trust-step-body;
+    in property <string> trust-step-both;
+    in property <string> not-now-label;
+    in property <string> copy-peer-id-label;
+    in property <bool> blocks-done-shown;
+    in property <string> done-label;
+    // Peers' snackbar: one at a time, its action Undo or Try again.
+    in property <bool> peers-snack-shown;
+    in property <int> peers-snack-id;
+    in property <string> peers-snack-text;
+    in property <bool> peers-snack-action-shown;
+    in property <string> peers-snack-action;
+    // Chats' no-reach notice (section 5.6): a state, not news, so it has
+    // no Close; its action opens Peers.
+    in property <bool> no-reach-shown;
+    in property <string> no-reach-text;
 
     callback select(int);
     callback action(int, int);
@@ -1781,6 +1936,23 @@ export component AppWindow inherits Window {
     callback trust-remove(int);
     callback trust-confirm();
     callback trust-cancel();
+    callback open-peers();
+    callback close-peers();
+    callback peers-read-again();
+    callback peers-open-add();
+    callback peers-add-closed();
+    callback address-edited(string);
+    callback peers-add();
+    callback peers-scan();
+    callback peers-open-image();
+    callback peers-paste-image();
+    callback block-trust(int);
+    callback block-not-now(int);
+    callback peers-done();
+    callback row-trust(int);
+    callback row-remove(int);
+    callback peers-snack-pressed(int);
+    callback peers-snack-closed(int);
     // A row's swipe: the press and the current position, in window
     // coordinates, and the row's width; then its end or its cancel.
     callback swipe-moved(string, length, length, length, length, length, length);
@@ -1864,6 +2036,16 @@ export component AppWindow inherits Window {
         root.list-shown = false;
         root.open-trust();
     }
+    function open-peers-page() {
+        root.list-shown = false;
+        root.open-peers();
+    }
+    function close-peers-page() {
+        root.peer-menu = -1;
+        root.list-shown = true;
+        root.close-peers();
+        root.chats-menu-closed-seq += 1;
+    }
     // The platform's Back (Android's gesture or key), from the Rust side:
     // it reaches the window even when no control has focus, which a key
     // handler never sees. True when a screen took it; false means there
@@ -1893,6 +2075,22 @@ export component AppWindow inherits Window {
             root.close-settings();
             return true;
         }
+        if (root.peers-page && root.peer-menu >= 0) {
+            root.focus-target = "row-menu:" + root.peer-menu;
+            root.peer-menu = -1;
+            root.focus-seq += 1;
+            return true;
+        }
+        // Back on the add page is its Close: step one discards what was
+        // typed, step two is Done (section 5.3).
+        if (root.peers-page && root.peers-add-open) {
+            root.peers-add-closed();
+            return true;
+        }
+        if (root.peers-page) {
+            root.close-peers-page();
+            return true;
+        }
         if (root.narrow && !root.list-shown) {
             root.list-shown = true;
             root.left-conversation();
@@ -1906,6 +2104,18 @@ export component AppWindow inherits Window {
         root.chats-menu-closed-seq += 1;
     }
 
+    // What Peers' Copy copies, through the platform's clipboard as a
+    // field's copy would. Never shown.
+    peers-copy := TextInput {
+        x: 0;
+        y: 0;
+        width: 0;
+        height: 0;
+        visible: false;
+        read-only: true;
+        text: root.copy-text;
+        accessible-role: none;
+    }
     // The announcement, for a screen reader only: a sighted
     // person sees each change where it happened. Clipped to a
     // point rather than hidden, which would take it out of the
@@ -2031,6 +2241,20 @@ export component AppWindow inherits Window {
                         pressed => { root.chats-menu-open = true; }
                         focused(k) => { root.focus-id = k; }
                     }
+                }
+            }
+            // The no-reach notice (section 5.6), in reading order after the
+            // app bar, on Chats at every width: it is about this device,
+            // not a conversation.
+            if root.no-reach-shown: HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                NoticeCard {
+                    message: root.no-reach-text;
+                    has-action: true;
+                    action: root.peers-title;
+                    pressed => { root.open-peers-page(); }
+                    focused(k) => { root.focus-id = k; }
                 }
             }
             // A phone shows Chats or a conversation, never both, so the
@@ -2567,7 +2791,534 @@ export component AppWindow inherits Window {
                 accessible-label: self.text;
             }
         }
-        if !root.trust-page: VerticalLayout {
+        if root.peers-page: peers-pane := VerticalLayout {
+            visible: root.pane-shown;
+            padding: 12px;
+            spacing: 8px;
+            // The top app bar, as Trust's: the back arrow at the line's
+            // start and the screen's title, which takes focus when Peers
+            // opens. The add page's back arrow is its Close.
+            HorizontalLayout {
+                min-height: 64px;
+                spacing: 8px;
+                if !root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.back;
+                        rtl: root.rtl;
+                        ink: Palette.on-surface;
+                        label: root.back-label;
+                        focus-key: "close-peers";
+                        pressed => {
+                            if (root.peers-add-open) { root.peers-add-closed(); } else { root.close-peers-page(); }
+                        }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    FocusHeading {
+                        text: root.peers-add-open ? root.add-title : root.peers-title;
+                        font-size: Type.title-large;
+                        font-weight: 400;
+                        rtl: root.rtl;
+                        focus-key: "peers-title";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "peers-title";
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                if root.rtl: VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.back;
+                        rtl: root.rtl;
+                        ink: Palette.on-surface;
+                        label: root.back-label;
+                        focus-key: "close-peers";
+                        pressed => {
+                            if (root.peers-add-open) { root.peers-add-closed(); } else { root.close-peers-page(); }
+                        }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+            Flickable {
+                vertical-stretch: 1;
+                content-height: peers-column.preferred-height;
+            peers-column := VerticalLayout {
+                width: parent.width;
+                // Room for a control's focus ring, which the list would clip.
+                padding: 5px;
+                spacing: 12px;
+                alignment: start;
+                // The list unreadable (section 5.7): its line and, where a
+                // retry can mend it, Try again; no Add, no rows.
+                if !root.peers-add-open && root.peers-problem != "": FocusNote {
+                    text: root.peers-problem;
+                    rtl: root.rtl;
+                    focus-key: "peers-problem";
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "peers-problem";
+                    focused(k) => { root.focus-id = k; }
+                }
+                if !root.peers-add-open && root.peers-problem != "" && root.peers-problem-retry: HorizontalLayout {
+                    alignment: start;
+                    ActionButton {
+                        text: root.try-again-label;
+                        target: 48px;
+                        focus-key: "peers-retry";
+                        pressed => { root.peers-read-again(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                if !root.peers-add-open && root.peers-list-read: HorizontalLayout {
+                    alignment: start;
+                    ActionButton {
+                        text: root.add-address-label;
+                        filled: true;
+                        target: 48px;
+                        focus-key: "add-address";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "add-address";
+                        pressed => { root.peers-open-add(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                // At the bound, or with the list off: why Add an address
+                // opened nothing, focus on it.
+                if !root.peers-add-open && root.peers-add-note != "": FocusNote {
+                    text: root.peers-add-note;
+                    rtl: root.rtl;
+                    focus-key: "add-address-note";
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "add-address-note";
+                    focused(k) => { root.focus-id = k; }
+                }
+                if !root.peers-add-open && root.peers-list-read: Text {
+                    text: root.peers-no-trust;
+                    wrap: word-wrap;
+                    min-width: 0;
+                    color: Palette.on-surface-variant;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if !root.peers-add-open && root.peers-empty != "": Text {
+                    text: root.peers-empty;
+                    wrap: word-wrap;
+                    min-width: 0;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if !root.peers-add-open: VerticalLayout {
+                    spacing: 12px;
+                for row[index] in root.peer-rows: VerticalLayout {
+                    spacing: 4px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        // Read as one item, its peer first: who, where, and
+                        // what this device does with it.
+                        peer-row := FocusScope {
+                            horizontal-stretch: 1;
+                            focus-gained(reason) => {
+                                if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+                                if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+                            }
+                            property <int> focus-seq: root.focus-seq;
+                            changed focus-seq => {
+                                if (root.focus-target == "row:" + row.handle) { self.focus(); }
+                            }
+                            changed has-focus => {
+                                if (self.has-focus) { root.focus-id = "row:" + row.handle; }
+                            }
+                            accessible-role: text;
+                            accessible-label: row.peer;
+                            accessible-description: row.host + ". " + row.state + ". " + row.origin;
+                            VerticalLayout {
+                                spacing: 2px;
+                                Text {
+                                    text: row.peer;
+                                    font-size: Type.title-small;
+                                    font-weight: 500;
+                                    accessible-role: none;
+                                }
+                                Text {
+                                    text: row.host;
+                                    font-family: root.code-font;
+                                    font-size: Type.body-medium;
+                                    wrap: char-wrap;
+                                    color: Palette.on-surface-variant;
+                                    accessible-role: none;
+                                }
+                                Text {
+                                    text: row.state;
+                                    font-size: Type.body-medium;
+                                    wrap: word-wrap;
+                                    min-width: 0;
+                                    accessible-role: none;
+                                }
+                                Text {
+                                    text: row.origin;
+                                    font-size: Type.body-small;
+                                    wrap: word-wrap;
+                                    min-width: 0;
+                                    color: Palette.on-surface-variant;
+                                    accessible-role: none;
+                                }
+                            }
+                            FocusRing {
+                                x: -5px;
+                                y: -5px;
+                                width: peer-row.width + 10px;
+                                height: peer-row.height + 10px;
+                                shown: peer-row.has-focus;
+                            }
+                        }
+                        if row.needs-trust: VerticalLayout {
+                            alignment: center;
+                            ActionButton {
+                                text: root.trust-this-label;
+                                detail: row.peer;
+                                text-button: true;
+                                target: 48px;
+                                focus-key: "row-trust:" + row.handle;
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "row-trust:" + row.handle;
+                                pressed => { root.row-trust(row.handle); }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                glyph: Glyph.more;
+                                label: row.menu-label;
+                                focus-key: "row-menu:" + row.handle;
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "row-menu:" + row.handle;
+                                pressed => {
+                                    root.peer-menu = root.peer-menu == row.handle ? -1 : row.handle;
+                                }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                        }
+                    }
+                    // The row's menu, under it: Copy address, and Remove on
+                    // an added row or why not on a configuration row.
+                    if root.peer-menu == row.handle: VerticalLayout {
+                        MenuItem {
+                            text: root.copy-address-label;
+                            detail: row.peer;
+                            focus-key: "row-copy:" + row.handle;
+                            first: true;
+                            rtl: root.rtl;
+                            pressed => {
+                                root.copy-text = row.address;
+                                peers-copy.select-all();
+                                peers-copy.copy();
+                                peers-copy.clear-selection();
+                                root.peer-menu = -1;
+                                root.focus-target = "row-menu:" + row.handle;
+                                root.focus-seq += 1;
+                            }
+                            closed => {
+                                root.peer-menu = -1;
+                                root.focus-target = "row-menu:" + row.handle;
+                                root.focus-seq += 1;
+                            }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                        if row.removable: MenuItem {
+                            text: root.remove-address-label;
+                            detail: row.peer;
+                            focus-key: "row-remove:" + row.handle;
+                            rtl: root.rtl;
+                            pressed => {
+                                root.peer-menu = -1;
+                                root.row-remove(row.handle);
+                            }
+                            closed => {
+                                root.peer-menu = -1;
+                                root.focus-target = "row-menu:" + row.handle;
+                                root.focus-seq += 1;
+                            }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                        if !row.removable: Text {
+                            text: root.not-removable-label;
+                            wrap: word-wrap;
+                            min-width: 0;
+                            color: Palette.on-surface-variant;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                    }
+                }
+                }
+                // The add page, step one: the field, its helper, the scan
+                // controls this platform offers, Add, and the page's note
+                // where it is about.
+                if root.peers-add-open && root.add-result == "": Text {
+                    text: root.address-field-label;
+                    font-size: Type.body-small;
+                    font-weight: 700;
+                    accessible-role: none;
+                }
+                if root.peers-add-open && root.add-result == "": address-box := Rectangle {
+                    height: max(96px, address-input.preferred-height + 24px);
+                    border-width: address-input.has-focus || root.field-note != "" ? 2px : 1px;
+                    border-color: root.field-note != "" ? Palette.error
+                        : address-input.has-focus ? Palette.primary : Palette.outline;
+                    border-radius: 4px;
+                    address-input := TextInput {
+                        x: 16px;
+                        y: 12px;
+                        width: parent.width - 32px;
+                        height: parent.height - 24px;
+                        // A pasted list of lines is a list: line breaks are
+                        // kept, each line checked on its own (section 5.3).
+                        single-line: false;
+                        wrap: char-wrap;
+                        font-family: root.code-font;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface;
+                        text <=> root.address-text;
+                        accessible-label: root.address-field-label;
+                        accessible-description: root.field-note;
+                        edited => { root.address-edited(self.text); }
+                        changed has-focus => {
+                            if (self.has-focus) { root.focus-id = "address-field"; }
+                        }
+                        property <int> focus-seq: root.focus-seq;
+                        changed focus-seq => {
+                            if (root.focus-target == "address-field") { self.focus(); }
+                        }
+                        property <int> select-seq: root.address-select-seq;
+                        changed select-seq => {
+                            self.set-selection-offsets(root.address-select-from, root.address-select-to);
+                        }
+                    }
+                    FocusRing {
+                        x: -5px;
+                        y: -5px;
+                        width: address-box.width + 10px;
+                        height: address-box.height + 10px;
+                        shown: address-input.has-focus;
+                    }
+                }
+                if root.peers-add-open && root.add-result == "" && root.field-note != "": Text {
+                    text: root.field-note;
+                    color: Palette.error;
+                    font-size: Type.body-small;
+                    wrap: word-wrap;
+                    min-width: 0;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.peers-add-open && root.add-result == "": Text {
+                    text: root.address-help;
+                    font-size: Type.body-small;
+                    wrap: word-wrap;
+                    min-width: 0;
+                    color: Palette.on-surface-variant;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.peers-add-open && root.add-result == "" && (root.scan-camera || root.scan-images): HorizontalLayout {
+                    alignment: start;
+                    spacing: 8px;
+                    if root.scan-camera: ActionButton {
+                        text: root.scan-code-label;
+                        target: 48px;
+                        focus-key: "scan-code";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "scan-code";
+                        pressed => { root.peers-scan(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    if root.scan-images: ActionButton {
+                        text: root.open-image-label;
+                        target: 48px;
+                        focus-key: "open-image";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "open-image";
+                        pressed => { root.peers-open-image(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    if root.scan-images: ActionButton {
+                        text: root.paste-image-label;
+                        target: 48px;
+                        focus-key: "paste-image";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "paste-image";
+                        pressed => { root.peers-paste-image(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                // About the scan controls: read after them, focus on it.
+                if root.peers-add-open && root.add-result == "" && root.scan-note != "": FocusNote {
+                    text: root.scan-note;
+                    rtl: root.rtl;
+                    focus-key: "add-page-note";
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "add-page-note";
+                    focused(k) => { root.focus-id = k; }
+                }
+                if root.peers-add-open && root.add-result == "": HorizontalLayout {
+                    alignment: start;
+                    ActionButton {
+                        text: root.add-action-label;
+                        filled: true;
+                        target: 48px;
+                        focus-key: "add-action";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "add-action";
+                        pressed => { root.peers-add(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                if root.peers-add-open && root.add-result == "" && root.add-note != "": Text {
+                    text: root.add-note;
+                    font-size: Type.body-medium;
+                    wrap: word-wrap;
+                    min-width: 0;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                    accessible-live-region: polite;
+                }
+                // Step one done: one line naming what was added, then step
+                // two, one block per PeerId not trusted yet.
+                if root.peers-add-open && root.add-result != "": Text {
+                    text: root.add-result;
+                    wrap: word-wrap;
+                    min-width: 0;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.peers-add-open: VerticalLayout {
+                    spacing: 16px;
+                for block[index] in root.trust-blocks: VerticalLayout {
+                    spacing: 8px;
+                    FocusNote {
+                        text: block.title;
+                        font-size: Type.title-medium;
+                        font-weight: 700;
+                        rtl: root.rtl;
+                        focus-key: "block:" + block.handle;
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "block:" + block.handle;
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    // The full PeerId in the code font, whole, never cut:
+                    // the characters the person compares.
+                    Text {
+                        text: block.peer;
+                        font-family: root.code-font;
+                        font-size: Type.body-medium;
+                        wrap: char-wrap;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        ActionButton {
+                            text: root.copy-peer-id-label;
+                            detail: block.peer;
+                            text-button: true;
+                            target: 48px;
+                            focus-key: "block-copy:" + block.handle;
+                            pressed => {
+                                root.copy-text = block.peer;
+                                peers-copy.select-all();
+                                peers-copy.copy();
+                                peers-copy.clear-selection();
+                            }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                    Text {
+                        text: root.trust-step-body;
+                        wrap: word-wrap;
+                        min-width: 0;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    Text {
+                        text: root.trust-step-both;
+                        wrap: word-wrap;
+                        min-width: 0;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    if block.undecided: HorizontalLayout {
+                        alignment: start;
+                        spacing: 8px;
+                        if block.trust-offered: ActionButton {
+                            text: root.trust-this-label;
+                            detail: block.peer;
+                            filled: true;
+                            target: 48px;
+                            focus-key: "block-trust:" + block.handle;
+                            pressed => { root.block-trust(block.handle); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                        ActionButton {
+                            text: root.not-now-label;
+                            detail: block.peer;
+                            text-button: true;
+                            target: 48px;
+                            focus-key: "block-later:" + block.handle;
+                            pressed => { root.block-not-now(block.handle); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                    if block.problem != "": FocusNote {
+                        text: block.problem;
+                        rtl: root.rtl;
+                        focus-key: "block-problem:" + block.handle;
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "block-problem:" + block.handle;
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    if block.state != "": Text {
+                        text: block.state;
+                        font-weight: 500;
+                        wrap: word-wrap;
+                        min-width: 0;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                        accessible-live-region: polite;
+                    }
+                }
+                }
+                if root.peers-add-open && root.blocks-done-shown: HorizontalLayout {
+                    alignment: start;
+                    ActionButton {
+                        text: root.done-label;
+                        target: 48px;
+                        focus-key: "peers-done";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "peers-done";
+                        pressed => { root.peers-done(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+            }
+            }
+            if root.peers-snack-shown: Snackbar {
+                text: root.peers-snack-text;
+                undo: root.peers-snack-action-shown;
+                undo-label: root.peers-snack-action;
+                snack-id: root.peers-snack-id;
+                focus-seq: root.focus-seq;
+                rtl: root.rtl;
+                undo-pressed(id) => { root.peers-snack-pressed(id); }
+                dismissed(id) => { root.peers-snack-closed(id); }
+                focused(k) => { root.focus-id = k; }
+            }
+        }
+        if !root.trust-page && !root.peers-page: VerticalLayout {
             visible: root.pane-shown;
             padding: 12px;
             // With the app bar aside, the list begins at the pane's top: the
@@ -3437,6 +4188,19 @@ export component AppWindow inherits Window {
                 pressed => {
                     root.chats-menu-open = false;
                     root.open-settings();
+                }
+                closed => { root.close-chats-menu(); }
+                focused(k) => { root.focus-id = k; }
+            }
+            // After Trust (section 4): the addresses are their own
+            // decision, apart from trust.
+            MenuItem {
+                text: root.peers-title;
+                focus-key: "app-peers";
+                rtl: root.rtl;
+                pressed => {
+                    root.chats-menu-open = false;
+                    root.open-peers-page();
                 }
                 closed => { root.close-chats-menu(); }
                 focused(k) => { root.focus-id = k; }

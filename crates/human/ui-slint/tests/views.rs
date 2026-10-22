@@ -1973,7 +1973,7 @@ fn the_apps_options_name_trust_and_hand_focus_back() {
     assert_eq!(
         labelled(&view, text(UiText::TrustHeading)).len(),
         1,
-        "the menu's one entry"
+        "Trust is one of the menu's entries"
     );
     // The first entry takes focus once it is in the window.
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(2));
