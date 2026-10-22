@@ -182,6 +182,8 @@ def load_derived(path: Path) -> dict:
             )
         if header_case and not (isinstance(e["headers"], int) and e["headers"] >= 1):
             raise ValueError(f"{path.name}: {key[0]} {key[1]}'s header count is not a positive number")
+        if "extra_texts" in e and not header_case:
+            raise ValueError(f"{path.name}: {key[0]} {key[1]} has extra_texts, which only a header case ships")
         for t in e.get("extra_texts", []):
             if t not in STANDARD:
                 raise ValueError(f"{path.name}: {key[0]} {key[1]} asks for {t}, whose standard text is not committed")
@@ -193,10 +195,14 @@ def load_derived(path: Path) -> dict:
 # grant and the disclaimer. A header-case entry must, a header+text one
 # must not (that is what the appended standard text is for).
 CARRIES = {
-    "MIT": ("Permission is hereby granted", "AS IS"),
-    "BSD-2-Clause": ("Redistribution and use", "AS IS"),
-    "BSD-3-Clause": ("Redistribution and use", "AS IS"),
-    "ISC": ("Permission to use, copy, modify", "AS IS"),
+    "MIT": ("Permission is hereby granted",
+            "The above copyright notice and this permission notice shall be included",
+            "AS IS", "IN NO EVENT SHALL"),
+    "BSD-2-Clause": ("Redistribution and use", "Redistributions of source code must retain",
+                     "AS IS", "IN NO EVENT SHALL"),
+    "BSD-3-Clause": ("Redistribution and use", "Redistributions of source code must retain",
+                     "AS IS", "IN NO EVENT SHALL"),
+    "ISC": ("Permission to use, copy, modify", "AS IS", "IN NO EVENT SHALL"),
 }
 
 
@@ -268,7 +274,8 @@ def comment_block(source: str):
     block = "\n".join(out).strip()
     # A copyright LINE, not the word: "preserves copyright notices" or a
     # CC0 dedication is no notice.
-    return block if re.search(r"^\s*(copyright\b|\(c\)|\u00a9)", block, re.I | re.M) else None
+    line = r"^\s*(copyright\b|\(c\)|\u00a9|spdx-filecopyrighttext:|portions copyright\b)"
+    return block if re.search(line, block, re.I | re.M) else None
 
 
 def headers(package: dict) -> list:
@@ -320,25 +327,36 @@ def derived_notices(package: dict, entry: dict) -> list:
                 f" {entry['headers']}: look at them again"
             )
         term = elected(expr)
-        carried = any(carries_text(text, term) for _, text in found)
+        # Decision 4: an OR is satisfied by any term whose text the crate
+        # publishes whole; failing every one, header+text adds the first.
+        own = [t.strip("()") for t in expr.split(" OR ")]
+        carried = {t for t in own for _, text in found if carries_text(text, t)}
         if entry["case"] == "header" and not carried:
             raise ValueError(
-                f"{name} {version}'s headers do not carry the {term} text: list it as header+text"
+                f"{name} {version}'s headers carry no whole text of {expr}: list it as header+text"
             )
         if entry["case"] == "header+text" and carried:
             raise ValueError(
-                f"{name} {version}'s headers carry the {term} text already: list it as header"
+                f"{name} {version}'s headers carry the {sorted(carried)[0]} text already: list it as header"
             )
         extra = entry.get("extra_texts", [])
-        # A licence a header names that is not one of the crate's own
-        # terms is answered by a text the header carries or one the entry
-        # attaches; otherwise its text would never ship.
-        own = set(re.findall(r"[A-Za-z0-9.+-]+", expr)) - {"OR", "AND", "WITH"}
+        # Every licence a header names must have its text in what ships --
+        # carried by a header, the standard text header+text adds, or an
+        # extra text -- whether or not it is one of the crate's own terms
+        # (a second holder's header binds by its own licence). A header
+        # naming several (an "at your option" header) is answered by any.
+        shipped = carried | set(extra) | ({term} if entry["case"] == "header+text" else set())
         for path, text in found:
-            for words, answers in NAMED:
-                if not words.search(text) or own & set(answers):
-                    continue
-                if not (set(answers) & set(extra) or any(carries_text(text, a) for a in answers)):
+            named = [answers for words, answers in NAMED if words.search(text)]
+            if named and not any(set(a) & shipped or any(carries_text(text, x) for x in a) for a in named):
+                raise ValueError(
+                    f"{name} {version}'s header in {path} names {named[0][-1]}, whose text it does not carry:"
+                    f" add it to the entry's extra_texts"
+                )
+            for answers in named:
+                if not set(answers) & set(own) and not (
+                    set(answers) & shipped or any(carries_text(text, x) for x in answers)
+                ):
                     raise ValueError(
                         f"{name} {version}'s header in {path} names {answers[-1]}, whose text it does not carry:"
                         f" add it to the entry's extra_texts"
