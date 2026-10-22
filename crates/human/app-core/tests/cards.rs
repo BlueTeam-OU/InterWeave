@@ -824,3 +824,28 @@ async fn a_keep_of_a_card_that_no_longer_verifies_is_refused_by_its_kind() {
         "nothing kept"
     );
 }
+
+#[tokio::test]
+async fn a_deleted_contact_is_gone_and_the_next_card_from_its_route_is_a_new_contact() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let row = bob.model().proposals(&direct(a.peer()))[0].row;
+    bob.will(Intent::AcceptCard(row));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+    let delete = bob.model().delete_contact(&contact_id).expect("offered");
+    bob.will(delete);
+    bob.pump(6).await;
+    assert!(bob.model().contacts().is_empty(), "deleted");
+    assert!(bob.model().delete_contact(&contact_id).is_none());
+
+    shared(&mut alice, &mut bob, &b).await;
+    let proposal = bob.model().proposals(&direct(a.peer()))[0].clone();
+    assert_eq!(proposal.accept, AcceptLine::Creates, "a new contact");
+    assert_eq!(proposal.key, KeyView::New, "no key survived the delete");
+}

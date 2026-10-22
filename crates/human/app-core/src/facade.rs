@@ -318,6 +318,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             Command::SetContactPhoto { contact_id, photo } => {
                 self.set_contact_photo(contact_id, photo, &mut updates)
             }
+            Command::DeleteContact(contact_id) => self.delete_contact(contact_id, &mut updates),
         };
         updates.push(match outcome {
             Ok(()) => Update::Done(command),
@@ -517,6 +518,26 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         let view = cards::identity_view(self.client.store_mut(), identity, peer.as_ref(), at)
             .map_err(|e| store_failure(&e))?;
         updates.push(Update::IdentityShown(view));
+        Ok(())
+    }
+
+    /// Delete a contact (ADR-0059 decision 3): the store deletes it, its
+    /// routes and their keys, and the contacts are listed again.
+    fn delete_contact(
+        &mut self,
+        contact_id: &str,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
+        let store = self.client.store_mut();
+        if !store
+            .delete_contact(contact_id)
+            .map_err(|e| store_failure(&e))?
+        {
+            return Err(Failure::NoSuchRow);
+        }
+        updates.push(Update::ContactsListed(
+            cards::contact_views(store).map_err(|e| store_failure(&e))?,
+        ));
         Ok(())
     }
 
