@@ -112,6 +112,10 @@ export struct MessageRow {
     // this client's own.
     author-id: string,
     status: string,
+    // Why a pending message needs the person, an error class's sentence,
+    // drawn above its status; empty for one that does not (look spec
+    // section 6, Composer: Android review F16).
+    reason: string,
     // Sent by this client: the bubble sits on the end side (section 6).
     outbound: bool,
     // The bubble opens with its author: a channel's received message,
@@ -3086,6 +3090,20 @@ export component AppWindow inherits Window {
                                             pressed => { root.link(row.handle, link.index); }
                                             focused(k) => { root.focus-id = k; }
                                         }
+                                    }
+                                    // The reason above the status, so the status
+                                    // and time stay the bubble's last line; only
+                                    // drawn when there is one, so an empty line
+                                    // takes no room (#304 F9 step 5).
+                                    if row.reason != "": Text {
+                                        text: row.reason;
+                                        font-size: Type.body-small;
+                                        color: Palette.error;
+                                        wrap: word-wrap;
+                                        min-width: 0px;
+                                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.left : TextHorizontalAlignment.right;
+                                        accessible-role: text;
+                                        accessible-label: self.text;
                                     }
                                     // The status with its icon, then the time, at
                                     // the bubble's end (section 6). Not a live

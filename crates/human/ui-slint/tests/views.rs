@@ -2426,6 +2426,137 @@ fn arrivals_and_own_status_changes_are_one_announcement() {
     );
 }
 
+/// Android review F16, look spec acceptance 23: a send the runtime
+/// refused for trust becomes a pending row whose status says to send
+/// again or cancel AND says why -- the reason drawn, in the row's label
+/// and in the announcement -- so the person learns that Trust is what to
+/// change, not that another try might work.
+#[test]
+fn a_send_refused_for_trust_shows_the_not_trusted_reason() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    let id = sent(&mut model, 7, &bob, "to bob");
+    view.render(&model);
+    open(&mut view, &mut model, &direct(&bob));
+    update(
+        &mut model,
+        7,
+        &id,
+        OutboundStatus::NeedsAttention {
+            problem: SendProblem::PeerUntrusted,
+            may_have_reached: false,
+        },
+    );
+    view.render(&model);
+    let status = placeholder_en::label(interweave_human_ui_model::LabelKey::NeedsAttention);
+    let reason = placeholder_en::error(
+        RuntimeHost::Daemon,
+        interweave_human_ui_model::ErrorClass::PeerNotTrusted,
+    );
+    assert_eq!(
+        announced(&view).expect("announced"),
+        fill(
+            UiText::AnnounceOwnStatusReason,
+            &[("status", status), ("reason", reason)]
+        )
+    );
+    let row = view.window().get_messages().row_data(0).expect("a row");
+    assert_eq!(row.status.as_str(), status, "control: the status as before");
+    assert_eq!(row.reason.as_str(), reason);
+    assert_eq!(labelled(&view, reason).len(), 1, "the reason is drawn once");
+    let label = fill(
+        UiText::ItemWithReason,
+        &[
+            ("author", text(UiText::You)),
+            ("body", "to bob"),
+            ("status", status),
+            ("time", row.time.as_str()),
+            ("reason", reason),
+        ],
+    );
+    assert_eq!(row.label.as_str(), label, "the label reads the reason last");
+}
+
+/// The rule behind F16, not its instance: every problem the facade
+/// leaves for the person draws its class's reason, and a row that is not
+/// waiting on the person draws none and keeps the plain label.
+#[test]
+fn every_needs_attention_problem_draws_its_reason_and_no_other_row_does() {
+    use interweave_human_ui_model::{ErrorClass, send_problem_class};
+    // A problem added later fails to compile here until it is listed.
+    const fn listed(problem: SendProblem) -> SendProblem {
+        match problem {
+            SendProblem::PeerUntrusted
+            | SendProblem::RouteUnavailable
+            | SendProblem::NoNetworkPath
+            | SendProblem::Busy
+            | SendProblem::ServiceUnavailable
+            | SendProblem::Incompatible
+            | SendProblem::TooLarge
+            | SendProblem::NotConfigured
+            | SendProblem::Internal => problem,
+        }
+    }
+    let problems = [
+        SendProblem::PeerUntrusted,
+        SendProblem::RouteUnavailable,
+        SendProblem::NoNetworkPath,
+        SendProblem::Busy,
+        SendProblem::ServiceUnavailable,
+        SendProblem::Incompatible,
+        SendProblem::TooLarge,
+        SendProblem::NotConfigured,
+        SendProblem::Internal,
+    ]
+    .map(listed);
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    let id = sent(&mut model, 7, &bob, "to bob");
+    view.render(&model);
+    open(&mut view, &mut model, &direct(&bob));
+    for problem in problems {
+        for may_have_reached in [false, true] {
+            update(
+                &mut model,
+                7,
+                &id,
+                OutboundStatus::NeedsAttention {
+                    problem,
+                    may_have_reached,
+                },
+            );
+            view.render(&model);
+            let row = view.window().get_messages().row_data(0).expect("a row");
+            let class: ErrorClass = send_problem_class(problem);
+            assert_eq!(
+                row.reason.as_str(),
+                placeholder_en::error(RuntimeHost::Daemon, class),
+                "{problem:?} {may_have_reached}"
+            );
+        }
+    }
+    update(
+        &mut model,
+        7,
+        &id,
+        OutboundStatus::Sending {
+            attempts: 1,
+            next_retry_at: Some(1_000),
+            last_problem: Some(SendProblem::Busy),
+        },
+    );
+    view.render(&model);
+    let row = view.window().get_messages().row_data(0).expect("a row");
+    assert_eq!(row.reason.as_str(), "", "a waiting row has no reason line");
+    assert!(
+        row.label.as_str().ends_with(row.time.as_str()),
+        "and keeps the plain label: {}",
+        row.label
+    );
+}
+
 /// #304 F10: a waiting message is announced when its wait or its last
 /// problem changes, never at a retry, so a screen reader is not told
 /// "Sending" at each attempt.

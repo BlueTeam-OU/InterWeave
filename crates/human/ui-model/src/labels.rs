@@ -245,6 +245,10 @@ ui_texts! {
     /// `{time}`, the clock time it reached this app, as the bubble shows
     /// it; the day is said once per run by the day separator.
     Item => "{author}: {body}. {status}, {time}",
+    /// The same for a message that needs the person and says why:
+    /// `{reason}` is its error class's text, a full sentence, read last
+    /// so the status and time keep `Item`'s order (Android review F16).
+    ItemWithReason => "{author}: {body}. {status}, {time}. {reason}", // PLACEHOLDER (en)
     /// A link's control, after the message body: `{destination}` is the
     /// link's full destination as `visible_destination` shows it -- every
     /// character as sent, a hidden one as its code point -- so the person
@@ -272,6 +276,9 @@ ui_texts! {
     /// One of this client's messages in the open conversation changed
     /// status. `{status}` is the status's text.
     AnnounceOwnStatus => "Your message: {status}.",
+    /// The same for a status that comes with a reason: `{reason}` is its
+    /// error class's text, a full sentence with its own period.
+    AnnounceOwnStatusReason => "Your message: {status}. {reason}", // PLACEHOLDER (en)
     /// More than one of them changed status at once. `{count}` is a
     /// number.
     AnnounceOwnStatuses => "Your messages changed status: {count}.",
@@ -1071,6 +1078,18 @@ pub const fn send_problem_class(problem: SendProblem) -> ErrorClass {
         SendProblem::TooLarge => ErrorClass::TooLarge,
         SendProblem::NotConfigured => ErrorClass::NotConfigured,
         SendProblem::Internal => ErrorClass::Internal,
+    }
+}
+
+/// Why a pending row needs the person, or `None` for a row that does
+/// not: a needs-attention row shows its problem's class beside its status
+/// (design/2026-10-16-android-look.md section 6, Composer), since the
+/// facade will not retry it and the status alone does not say what to fix.
+#[must_use]
+pub const fn attention_class(status: &OutboundStatus) -> Option<ErrorClass> {
+    match status {
+        OutboundStatus::NeedsAttention { problem, .. } => Some(send_problem_class(*problem)),
+        _ => None,
     }
 }
 
