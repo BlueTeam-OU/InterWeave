@@ -43,7 +43,9 @@
 #                followed by the standard text of the licence's first term;
 # and, beside either, the standard text of every licence a header names
 # that the notice does not otherwise carry, as the entry's extra_texts
-# list it (a header naming BSD with no BSD text attached is refused).
+# list it (a header naming BSD with no BSD text attached is refused, and
+# so is one naming a licence the tool does not recognise, or one whose
+# text is not committed under tools/ci/licence_texts/).
 # Each header-case entry also names the root header's file and the count
 # of distinct headers, so a header a version adds is looked at again.
 #   standard     no copyright header anywhere: the standard text of the
@@ -174,7 +176,10 @@ def load_derived(path: Path) -> dict:
             raise ValueError(
                 f"{path.name}: {key[0]} {key[1]} names a file and a header count exactly when its case is a header"
             )
-        if header_case and not (isinstance(e["headers"], int) and e["headers"] >= 1):
+        # bool is an int to isinstance: `true` is not a count.
+        if header_case and not (
+            isinstance(e["headers"], int) and not isinstance(e["headers"], bool) and e["headers"] >= 1
+        ):
             raise ValueError(f"{path.name}: {key[0]} {key[1]}'s header count is not a positive number")
         if "extra_texts" in e and not header_case:
             raise ValueError(f"{path.name}: {key[0]} {key[1]} has extra_texts, which only a header case ships")
@@ -187,35 +192,65 @@ def load_derived(path: Path) -> dict:
 
 # A header carries its licence's text only when it holds the committed
 # standard text whole, from where the grant begins (the copyright line
-# above it is the header's own), compared with whitespace and case
-# folded: a notice cut anywhere, even after its last marker, does not
-# count. A term with no committed text, or a header that rewords it (a
-# BSD header naming its organisation), is header+text -- the standard
-# text ships beside it.
-BODY_STARTS = {"MIT": "Permission is hereby granted", "BSD-3-Clause": "Redistribution and use"}
+# above it is the header's own; Apache's title is its start) to where
+# the terms end (Apache's appendix, a how-to with its own placeholder,
+# is not the terms),
+# compared with whitespace and case folded: a notice cut anywhere, even
+# after its last marker, does not count. A term with no committed text,
+# or a header that rewords it (a BSD header naming its organisation), is
+# header+text -- the standard text ships beside it.
+BODY = {
+    "MIT": ("Permission is hereby granted", None),
+    "BSD-3-Clause": ("Redistribution and use", None),
+    "Apache-2.0": ("Apache License", "END OF TERMS AND CONDITIONS"),
+}
 
 
 def folded(text: str) -> str:
     return " ".join(text.split()).lower()
 
 
-# A licence a header may name, by the words it is named with, and the
-# standard texts any one of which answers it (decision 2.ii: a header
-# naming a licence the notice does not otherwise carry brings its text).
-NAMED = (
-    (re.compile(r"\bBSD\b"), ("BSD-2-Clause", "BSD-3-Clause")),
-    (re.compile(r"\bApache License\b|\bApache-2\.0\b"), ("Apache-2.0",)),
-    (re.compile(r"\bMIT\b"), ("MIT",)),
-    (re.compile(r"\bISC\b"), ("ISC",)),
-    (re.compile(r"\bCC0\b|Public Domain Dedication"), ("CC0-1.0",)),
+# A licence a header may name, by the words it is named with in any
+# case, and the standard texts any one of which answers it (decision
+# 2.ii: a header naming a licence the notice does not otherwise carry
+# brings its text). A licence with no committed text is listed too: its
+# name is recognised, and since extra_texts holds only committed texts,
+# a header naming it refuses the run until its text is committed.
+NAMED = tuple(
+    (re.compile(words, re.I), answers)
+    for words, answers in (
+        (r"\bBSD\b", ("BSD-2-Clause", "BSD-3-Clause")),
+        (r"\bApache\b", ("Apache-2.0",)),
+        (r"\bMIT\b", ("MIT",)),
+        (r"\bISC\b", ("ISC",)),
+        (r"\bCC0\b|\bpublic domain dedication\b", ("CC0-1.0",)),
+        (r"\bzlib\b", ("Zlib",)),
+        (r"\bMPL\b|\bMozilla Public License\b", ("MPL-2.0",)),
+        (r"\b(?:L|A)?GPL\b|\bGeneral Public License\b", ("GPL",)),
+        (r"\bUnlicense\b", ("Unlicense",)),
+        (r"\bBoost Software License\b|\bBSL-1\.0\b", ("BSL-1.0",)),
+        (r"\bUnicode License\b|\bUnicode-(?:DFS-2016|3\.0)\b", ("Unicode-3.0",)),
+    )
+)
+
+# Words that say a header names SOME licence. A header that says so and
+# names none NAMED recognises is refused rather than read as naming
+# nothing: the list is closed, and what it does not know is never
+# waved through (`a header naming an unrecognised licence is refused`).
+LICENCE_WORDS = re.compile(
+    r"\blicen[cs](?:e|ed|es|ing)\b|\bpublic domain\b|\bSPDX-License-Identifier\b", re.I
 )
 
 
 def carries_text(block: str, term: str) -> bool:
-    if term not in BODY_STARTS:
+    if term not in BODY:
         return False
     text = standard_text(term)[0]
-    return folded(text[text.index(BODY_STARTS[term]):]) in folded(block)
+    start, end = BODY[term]
+    body = text[text.index(start):]
+    if end:
+        body = body[: body.index(end) + len(end)]
+    return folded(body) in folded(block)
 
 
 def elected(expr: str) -> str:
@@ -346,7 +381,13 @@ def derived_notices(package: dict, entry: dict) -> list:
         # so it asks for every one; a text too many costs nothing.
         shipped = carried | set(extra) | ({term} if entry["case"] == "header+text" else set())
         for path, text in found:
-            for answers in (a for words, a in NAMED if words.search(text)):
+            named = [a for words, a in NAMED if words.search(text)]
+            if not named and LICENCE_WORDS.search(text):
+                raise ValueError(
+                    f"{name} {version}'s header in {path} names a licence this tool does not recognise:"
+                    f" add its words to NAMED and its text under {TEXTS.name}/"
+                )
+            for answers in named:
                 if not (set(answers) & shipped or any(carries_text(text, x) for x in answers)):
                     raise ValueError(
                         f"{name} {version}'s header in {path} names {answers[-1]}, whose text it does not carry:"

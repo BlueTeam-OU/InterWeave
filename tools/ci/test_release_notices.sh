@@ -250,6 +250,20 @@ src zbsd src/z.rs '// Copyright 2018 The Browser Authors.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE.browser file.
 pub fn h() {}'
+# Names written otherwise than the list once spelled them -- "Apache
+# 2.0", a lowercase cc0 -- name their licences all the same.
+src cased src/lib.rs "$MITHDR"
+src cased src/sp.rs '// Copyright 2016 Spaced Holder. Licensed under the Apache 2.0 license.
+pub fn s() {}'
+src cased src/lc.rs '// Copyright 2015 Lower Holder; dedicated to the public domain under cc0.
+pub fn l() {}'
+# The whole Apache License, title to the end of its terms, in a header:
+# Apache-2.0 carried, a header case.
+APBODY="$(sed -n '/^Apache License/,/END OF TERMS AND CONDITIONS/p' "$SCRIPT_DIR/licence_texts/Apache-2.0.txt" | sed 's|^|// |; s| *$||')"
+src apwhole src/lib.rs "// Copyright 2020 Whole Holder.
+//
+$APBODY
+pub fn f() {}"
 python3 - "$D" > "$D/metadata.json" <<'PY'
 import json, sys
 root = sys.argv[1] + "/crates"
@@ -265,7 +279,8 @@ derived = [pkg("hdr", "MIT"), pkg("hdrtext", "MIT OR Apache-2.0"),
            pkg("trunc", "MIT"), pkg("apfirst", "Apache-2.0 OR MIT"),
            pkg("apx", "MIT OR Apache-2.0"), pkg("reusehdr", "MIT"),
            pkg("trunc2", "MIT"), pkg("mixed", "MIT"), pkg("portions", "MIT"),
-           pkg("combo", "MIT OR Apache-2.0"), pkg("cczero", "MIT")]
+           pkg("combo", "MIT OR Apache-2.0"), pkg("cczero", "MIT"), pkg("cased", "MIT"),
+           pkg("apwhole", "Apache-2.0 OR MIT")]
 app = {"id": "app-id", "name": "app", "version": "1.0.0", "license": "Apache-2.0",
        "license_file": None, "manifest_path": f"{root}/app/Cargo.toml", "targets": []}
 normal = [{"kind": None, "target": None}]
@@ -273,7 +288,7 @@ nodes = [{"id": "app-id", "deps": [{"name": p["name"], "pkg": p["id"], "dep_kind
 nodes += [{"id": p["id"], "deps": []} for p in derived]
 print(json.dumps({"packages": [app] + derived, "workspace_members": ["app-id"], "resolve": {"nodes": nodes}}))
 PY
-printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\ncore v1.0.0\nzbsd v1.0.0\ntrunc v1.0.0\napfirst v1.0.0\napx v1.0.0\nreusehdr v1.0.0\ntrunc2 v1.0.0\nmixed v1.0.0\nportions v1.0.0\ncombo v1.0.0\ncczero v1.0.0\n' > "$D/compiled.txt"
+printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\ncore v1.0.0\nzbsd v1.0.0\ntrunc v1.0.0\napfirst v1.0.0\napx v1.0.0\nreusehdr v1.0.0\ntrunc2 v1.0.0\nmixed v1.0.0\nportions v1.0.0\ncombo v1.0.0\ncczero v1.0.0\ncased v1.0.0\napwhole v1.0.0\n' > "$D/compiled.txt"
 # list <json lines>: the derived list, one crate object per argument.
 list() {
     local IFS=,
@@ -298,7 +313,9 @@ GOOD=("$(entry hdr MIT header src/lib.rs)" "$(entry hdrtext 'MIT OR Apache-2.0' 
       "$(entry mixed MIT header src/lib.rs 2 '["BSD-3-Clause"]')"
       "$(entry portions MIT header+text src/lib.rs)"
       "$(entry combo 'MIT OR Apache-2.0' header src/lib.rs 1 '["Apache-2.0"]')"
-      "$(entry cczero MIT header src/lib.rs 2 '["CC0-1.0"]')")
+      "$(entry cczero MIT header src/lib.rs 2 '["CC0-1.0"]')"
+      "$(entry cased MIT header src/lib.rs 3 '["Apache-2.0", "CC0-1.0"]')"
+      "$(entry apwhole 'Apache-2.0 OR MIT' header src/lib.rs)")
 drun() {
     NOTICE_DERIVED_JSON="$D/list.json" python3 "$D/tool/release_notices.py" "$D/metadata.json" \
         "$D/compiled.txt" "$SANDBOX/n.md" app >"$SANDBOX/stdout" 2>"$SANDBOX/err"
@@ -361,6 +378,14 @@ if drun; then
         && grep -qx 'SPDX-FileCopyrightText: 2024 Jane Doe' "$N" \
         && pass "a truncated MIT notice and a REUSE header each ship with the MIT text" \
         || fail "a truncated or REUSE header was not shipped with its text" "$(grep -n 'trunc\|reusehdr\|Jane' "$N")"
+    grep -F 'Used by ' "$N" | grep -qF 'cased 1.0.0 (standard Apache-2.0 text)' \
+        && grep -F 'Used by ' "$N" | grep -qF 'cased 1.0.0 (standard CC0-1.0 text)' \
+        && pass "a licence named in another spelling or case brings its text" \
+        || fail "a differently written licence name did not bring its text" "$(grep -n cased "$N")"
+    grep -qF -- '- `apwhole` 1.0.0: Apache-2.0 OR MIT (derived: header)' "$N" \
+        && ! grep -qF 'apwhole 1.0.0 (standard' "$N" \
+        && pass "a header carrying the whole Apache License is a header case" \
+        || fail "a whole Apache header was not a header case" "$(grep -n apwhole "$N")"
     grep -qF 'prose 1.0.0 publishes no notice of its own: this is the standard text of MIT' "$N" \
         && pass "a comment that mentions copyright without a copyright line is not a header" \
         || fail "a prose comment was taken for a header" "$(cat "$N")"
@@ -426,8 +451,36 @@ list "${GOOD[@]:0:15}" "$(entry portions MIT standard)" "${GOOD[@]:16}"
 drefused "a Portions Copyright header listed as standard" "portions 1.0.0 has a copyright header in src/lib.rs"
 list "${GOOD[@]:0:16}" "$(entry combo 'MIT OR Apache-2.0' header src/lib.rs 1)" "${GOOD[@]:17}"
 drefused "one block holding a whole MIT notice and another holder's Apache line, without the Apache text" "combo 1.0.0's header in src/lib.rs names Apache-2.0, whose text it does not carry"
-list "${GOOD[@]:0:17}" "$(entry cczero MIT header src/lib.rs 2)"
+list "${GOOD[@]:0:17}" "$(entry cczero MIT header src/lib.rs 2)" "${GOOD[@]:18}"
 drefused "a CC0 dedication header without the CC0 text" "cczero 1.0.0's header in src/old.rs names CC0-1.0, whose text it does not carry"
+list "${GOOD[@]:0:18}" "$(entry cased MIT header src/lib.rs 3 '["CC0-1.0"]')" "${GOOD[@]:19}"
+drefused "\"Apache 2.0\" without the Apache text" "cased 1.0.0's header in src/sp.rs names Apache-2.0, whose text it does not carry"
+list "${GOOD[@]:0:18}" "$(entry cased MIT header src/lib.rs 3 '["Apache-2.0"]')" "${GOOD[@]:19}"
+drefused "a lowercase cc0 without the CC0 text" "cased 1.0.0's header in src/lc.rs names CC0-1.0, whose text it does not carry"
+list "${GOOD[@]:0:19}" "$(entry apwhole 'Apache-2.0 OR MIT' header+text src/lib.rs)"
+drefused "header+text for a header carrying the whole Apache License" "apwhole 1.0.0's headers carry the Apache-2.0 text already: list it as header"
+# The same Apache header with one line of its terms cut is not the whole
+# text: refused as header, accepted as header+text (the control).
+cp "$D/crates/apwhole/src/lib.rs" "$D/apwhole.keep"
+grep -v 'Derivative Works a copy of this License' "$D/apwhole.keep" > "$D/crates/apwhole/src/lib.rs"
+list "${GOOD[@]}"
+drefused "an Apache License cut inside its terms listed as header" "apwhole 1.0.0's headers carry no whole text of Apache-2.0 OR MIT: list it as header+text"
+list "${GOOD[@]:0:19}" "$(entry apwhole 'Apache-2.0 OR MIT' header+text src/lib.rs)"
+drun && pass "the cut Apache License ships as header+text" || fail "the cut Apache License was refused as header+text" "$(cat "$SANDBOX/err")"
+cp "$D/apwhole.keep" "$D/crates/apwhole/src/lib.rs"
+# A header naming a licence the list knows without a committed text, and
+# one naming a licence it does not know: both refused. The same header
+# naming MIT is the control.
+printf '// Copyright 2012 Extra Holder. Licensed under the MIT license.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+list "$(entry hdr MIT header src/lib.rs 2)" "${GOOD[@]:1}"
+drun && pass "the control: a second header naming MIT" || fail "a second header naming MIT was refused" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2012 Extra Holder. Licensed under the zlib License.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+drefused "a header naming zlib, whose text is not committed" "hdr 1.0.0's header in src/x.rs names Zlib, whose text it does not carry"
+printf '// Copyright 2012 Extra Holder. Licensed under the Frobnicate License 1.0.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+drefused "a header naming an unrecognised licence" "hdr 1.0.0's header in src/x.rs names a licence this tool does not recognise"
+rm "$D/crates/hdr/src/x.rs"
+list "$(entry hdr MIT header src/lib.rs true)" "${GOOD[@]:1}"
+drefused "a header count of true" "hdr 1.0.0's header count is not a positive number"
 # A file-less crate now publishing a file: its entry must go.
 printf 'the MIT text\n' > "$D/crates/hdr/LICENSE"
 list "${GOOD[@]}"
