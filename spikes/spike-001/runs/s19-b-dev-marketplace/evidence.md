@@ -1,6 +1,6 @@
 # s19-b-dev-marketplace
 
-Claude Code binary 2.1.286; versions named in the debug log: 2.1.286.
+Claude Code version, as the session's debug log names it: 2.1.286.
 
 ## Command
 
@@ -20,26 +20,20 @@ $ claude plugin install interweave@interweave   # exit 0
 Installing plugin "interweave@interweave"...✔ Successfully installed plugin: interweave@interweave (scope: user)
 ```
 
-```text
-$ claude plugin list   # exit 0
-Installed plugins:
-
-  ❯ interweave@interweave
-    Version: 0.0.0
-    Scope: user
-    Status: ✔ enabled
-```
-
 ## Screens answered
 
-```json
-[
-  {
-    "screen": "dev-warning",
-    "option": "1",
-    "at_s": 3.1
-  }
-]
+dev-warning, answered with option 1 at 3.0 s:
+
+```text
+WARNING:Loadingdevelopmentchannels
+--dangerously-load-development-channelsisforlocalchanneldevelopment
+only.Donotusethisoptiontorunchannelsyouhavedownloadedoffthe
+internet.
+Pleaseuse--channelstorunalistofapprovedchannels.
+Channels:plugin:interweave@interweave
+❯1.Iamusingthisforlocaldevelopment
+2.Exit
+Entertoconfirm·Esctocancel
 ```
 
 Channel decision logged after: 10.2 s. Session wait status: 0.
@@ -55,44 +49,37 @@ Environment passed (names only): CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR, COL
 ## Screen, last lines
 
 ```text
-▐█
-▐
-▝▝
-█▌
-█▌
-▘ ▘
-▐█
-▐█
-▝▝▝▝
-█▌
-▝█▛
-▘▘ ▘▘
-▐█
-▝▜█▀
-▝▝ ▝▝
- ▌
- ▝▛
- ▘▘▘▘
-▐
- ▐
-▝▝▝▝
- ▌
- ▌
- ▘ ▘
-▐
-▐
-▝▝
-▛▌
-█▌
-▘ ▘
-▐▜▛█
-▐█
-▝▝▝▝
-▛██▛▌
-▝█▛
-▘▘ ▘▘
-▐█▜█
-▝▜█▀
-▝▝ ▝▝
-▛ [<u[>4m[>4m[<u78[>4m[<u78
+────────────────────────────────────────────────────────────────────────────────
+WARNING:Loadingdevelopmentchannels
+--dangerously-load-development-channelsisforlocalchanneldevelopment
+only.Donotusethisoptiontorunchannelsyouhavedownloadedoffthe
+internet.
+Pleaseuse--channelstorunalistofapprovedchannels.
+Channels:plugin:interweave@interweave
+❯1.Iamusingthisforlocaldevelopment
+2.Exit
+Entertoconfirm·Esctocancel
+ ▐▛███▛█Claude Codev2.1.286
+▝▜██████▀Sonnet 5.5 · Claude API
+ ▝▝   ▝▝ $SCRATCH/work
+▎Auto mode is now Claude Code's default permission mode.
+▎Auto mode lets Claude handle permission prompts automatically. Claude checks
+▎each tool call for risky actions and prompt injection before executing, runs
+▎the ones it assesses as lower-risk, and blocks the rest.
+▎https://code.claude.com/docs/en/permission-modes
+3 more notices hidden
+◐ medium · /effort
+────────────────────────────────────────────────────────────────────────────────
+❯ Try "fix typecheck errors"
+────────────────────────────────────────────────────────────────────────────────
+⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+ ▐▂▂█
+·▜██████·
+~~
+ ▐▟███▟█
+▝▜███▀
+ ▝▝   ▝▝
+▛▛
+▂▂
+▛▛
 ```

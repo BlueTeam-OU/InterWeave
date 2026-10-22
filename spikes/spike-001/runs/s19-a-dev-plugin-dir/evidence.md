@@ -1,6 +1,6 @@
 # s19-a-dev-plugin-dir
 
-Claude Code binary 2.1.286; versions named in the debug log: 2.1.286.
+Claude Code version, as the session's debug log names it: 2.1.286.
 
 ## Command
 
@@ -10,24 +10,23 @@ claude --plugin-dir $MARKETPLACE/interweave --debug-file $RAW/debug.txt --danger
 
 ## Setup (no session)
 
-```text
-$ claude plugin list   # exit 0
-No plugins installed. Use `claude plugin install` to install a plugin.
-```
-
 ## Screens answered
 
-```json
-[
-  {
-    "screen": "dev-warning",
-    "option": "1",
-    "at_s": 3.1
-  }
-]
+dev-warning, answered with option 1 at 3.7 s:
+
+```text
+WARNING:Loadingdevelopmentchannels
+--dangerously-load-development-channelsisforlocalchanneldevelopment
+only.Donotusethisoptiontorunchannelsyouhavedownloadedoffthe
+internet.
+Pleaseuse--channelstorunalistofapprovedchannels.
+Channels:plugin:interweave@inline
+❯1.Iamusingthisforlocaldevelopment
+2.Exit
+Entertoconfirm·Esctocancel
 ```
 
-Channel decision logged after: 10.6 s. Session wait status: 0.
+Channel decision logged after: 10.1 s. Session wait status: 0.
 
 Environment passed (names only): CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR, COLUMNS, DISABLE_AUTOUPDATER, HOME, LANG, LINES, LOGNAME, PATH, SHELL, TERM, TMPDIR, USER, XDG_RUNTIME_DIR.
 
@@ -40,9 +39,6 @@ Environment passed (names only): CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR, COL
 ## Screen, last lines
 
 ```text
-78
-────────────────────────────────────────────────────────────────────────────────
-WARNING:Loadingdevelopmentchannels
 --dangerously-load-development-channelsisforlocalchanneldevelopment
 only.Donotusethisoptiontorunchannelsyouhavedownloadedoffthe
 internet.
@@ -51,10 +47,9 @@ Channels:plugin:interweave@inline
 ❯1.Iamusingthisforlocaldevelopment
 2.Exit
 Entertoconfirm·Esctocancel
-[>0q[>4m[<u
- ▐▛███▛█Claude Codev2.1.286
-▝▜██████▀Sonnet 5.5 · Claude API
- ▝▝   ▝▝ $SCRATCH/work
+Claude Codev2.1.286
+Sonnet 5.5 · Claude API
+$SCRATCH/work
 ▎Auto mode is now Claude Code's default permission mode.
 ▎Auto mode lets Claude handle permission prompts automatically. Claude checks
 ▎each tool call for risky actions and prompt injection before executing, runs
@@ -63,9 +58,25 @@ Entertoconfirm·Esctocancel
 3 more notices hidden
 ◐ medium · /effort
 ────────────────────────────────────────────────────────────────────────────────
-❯ Try "edit <filepath> to..."
+❯ Try "fix typecheck errors"
 ────────────────────────────────────────────────────────────────────────────────
-⏵⏵ auto mode on (shift+tab to cycle) · ← for agents[>0q
-▂
-▛[<u[>4m[>4m[<u78[>4m[<u78
+⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+█▟
+██▀
+▝▝
+██▟
+███▀
+ ▝▝
+█▛█▄
+███▘
+  ▝▝
+▗▟▛██▛█▄
+ ▜████▘
+▝▝  ▝▝
+▐▛▛█
+·▜██████·
+~~
+ ▐▛███▛█
+▝▜███▀
+ ▝▝   ▝▝
 ```
