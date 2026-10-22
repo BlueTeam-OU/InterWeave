@@ -52,11 +52,19 @@ while IFS= read -r -d '' f; do tracked+=("$f"); done \
     < <(git -C "$here" ls-files -z -- .claude-plugin/marketplace.json interweave)
 [[ ${#tracked[@]} -gt 0 ]] || { echo "$0: git tracks no package files under $here" >&2; exit 1; }
 
-mkdir -p "$out"
+# Assembled beside <out-dir> and renamed into place only once complete, so a
+# failed run -- a tracked file deleted from the working tree, a failed
+# install -- leaves no partial <out-dir> to be refused as existing next time.
+# -P: a tracked symlink is copied as the link, never as what it points at.
+stage="$(mktemp -d "$parent/.$(basename "$out").XXXXXX")"
+trap 'rm -rf "$stage"' EXIT
+chmod 0755 "$stage"
 for f in "${tracked[@]}"; do
-    mkdir -p "$out/$(dirname "$f")"
-    cp -p "$here/$f" "$out/$f"
+    mkdir -p "$stage/$(dirname "$f")"
+    cp -pP "$here/$f" "$stage/$f"
 done
-mkdir -p "$out/interweave/bin"
-install -m 0755 "$binary" "$out/interweave/bin/claude-channel"
+mkdir -p "$stage/interweave/bin"
+install -m 0755 "$binary" "$stage/interweave/bin/claude-channel"
+mv "$stage" "$out"
+trap - EXIT
 echo "$out"
