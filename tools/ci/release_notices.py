@@ -40,11 +40,18 @@
 # A crate that publishes none has its notice DERIVED (ADR-0058 decision 2,
 # A 2026-10-22), as tools/ci/notice_derived.json lists it by name and
 # version (NOTICE_DERIVED_JSON names another list):
-#   header       the leading comment block, with a copyright line, of its
-#                root module or else of the first of its source files in
-#                sorted order -- a full permission notice, shipped whole;
-#   header+text  that header, which names its licence without its text,
+#   header       every distinct leading comment block with a copyright
+#                line among the files compiled in (the root module's
+#                first, then src/ and build.rs in sorted order; tests/,
+#                examples/ and benches/ are not read), shipped whole --
+#                among them a full permission notice of its licence;
+#   header+text  those headers, which name its licence without its text,
 #                followed by the standard text of the licence's first term;
+# and, beside either, the standard text of every licence a header names
+# that the notice does not otherwise carry, as the entry's extra_texts
+# list it (a header naming BSD with no BSD text attached is refused).
+# Each header-case entry also names the root header's file and the count
+# of distinct headers, so a header a version adds is looked at again.
 #   standard     no copyright header anywhere: the standard text of the
 #                first term, under the crate's `authors` (or "the <crate>
 #                authors"), after one sentence saying so.
@@ -59,7 +66,8 @@
 # name it (an MIT or BSD crate's copyright notice must travel with every
 # copy, so a crate is never listed by its licence expression alone), or a
 # listed crate disagrees with its entry: a different licence expression, a
-# header case whose header is missing or in another file, a standard case
+# header case whose header is missing, in another file or counted
+# otherwise, a licence a header names with no text for it, a standard case
 # whose crate has a copyright header after all, a licence file it now
 # publishes (remove the entry), or a standard text that is not its pin.
 #
@@ -167,8 +175,16 @@ def load_derived(path: Path) -> dict:
             raise ValueError(f"{path.name} lists {key[0]} {key[1]} twice")
         if e["case"] not in CASES:
             raise ValueError(f"{path.name}: {key[0]} {key[1]} has case {e['case']!r}, not one of {', '.join(CASES)}")
-        if (e["case"] == "standard") == ("file" in e):
-            raise ValueError(f"{path.name}: {key[0]} {key[1]} names a file exactly when its case is a header")
+        header_case = e["case"] != "standard"
+        if header_case != ("file" in e) or header_case != ("headers" in e):
+            raise ValueError(
+                f"{path.name}: {key[0]} {key[1]} names a file and a header count exactly when its case is a header"
+            )
+        if header_case and not (isinstance(e["headers"], int) and e["headers"] >= 1):
+            raise ValueError(f"{path.name}: {key[0]} {key[1]}'s header count is not a positive number")
+        for t in e.get("extra_texts", []):
+            if t not in STANDARD:
+                raise ValueError(f"{path.name}: {key[0]} {key[1]} asks for {t}, whose standard text is not committed")
         derived[key] = e
     return derived
 
@@ -182,6 +198,17 @@ CARRIES = {
     "BSD-3-Clause": ("Redistribution and use", "AS IS"),
     "ISC": ("Permission to use, copy, modify", "AS IS"),
 }
+
+
+# A licence a header may name, by the words it is named with, and the
+# standard texts any one of which answers it (decision 2.ii: a header
+# naming a licence the notice does not otherwise carry brings its text).
+NAMED = (
+    (re.compile(r"\bBSD\b"), ("BSD-2-Clause", "BSD-3-Clause")),
+    (re.compile(r"\bApache License\b|\bApache-2\.0\b"), ("Apache-2.0",)),
+    (re.compile(r"\bMIT\b"), ("MIT",)),
+    (re.compile(r"\bISC\b"), ("ISC",)),
+)
 
 
 def carries_text(block: str, term: str) -> bool:
@@ -244,21 +271,34 @@ def comment_block(source: str):
     return block if re.search(r"^\s*(copyright\b|\(c\)|\u00a9)", block, re.I | re.M) else None
 
 
-def header(package: dict):
-    """(path, text) of the first copyright header: the root module's,
-    then every source file's in sorted order (decision 2.ii)."""
+def headers(package: dict) -> list:
+    """[(path, text)] of every distinct copyright header among the files
+    compiled in -- the root module, src/ and build.rs; tests/, examples/
+    and benches/ are not -- deduplicated by text, the root module's
+    first and the rest in sorted order (decision 2.ii, A 2026-10-22)."""
     root = Path(package["manifest_path"]).parent
     lib = next(
         (Path(t["src_path"]) for t in package["targets"]
          if set(t["kind"]) & {"lib", "rlib", "dylib", "proc-macro"}),
         None,
     )
-    candidates = ([lib] if lib else []) + sorted(f for f in root.rglob("*.rs") if f != lib)
+    compiled = set((root / "src").rglob("*.rs")) | ({root / "build.rs"} if (root / "build.rs").is_file() else set())
+    candidates = ([lib] if lib else []) + sorted(f for f in compiled if f != lib)
+    found, seen = [], set()
     for f in candidates:
         block = comment_block(f.read_text(errors="replace"))
-        if block:
-            return f.relative_to(root).as_posix(), block
-    return None
+        if block and block not in seen:
+            seen.add(block)
+            found.append((f.relative_to(root).as_posix(), block))
+    return found
+
+
+def without_placeholder(text: str, placeholder) -> str:
+    """A standard text under a header that has its own copyright line:
+    the text's placeholder line goes rather than shipping unfilled."""
+    if not placeholder:
+        return text
+    return "\n".join(l for l in text.splitlines() if placeholder not in l).lstrip("\n") + "\n"
 
 
 def derived_notices(package: dict, entry: dict) -> list:
@@ -268,35 +308,52 @@ def derived_notices(package: dict, entry: dict) -> list:
     expr = package.get("license") or ""
     if entry["license"] != expr:
         raise ValueError(f"{name} {version} declares {expr!r}; notice_derived.json lists {entry['license']!r}")
-    found = header(package)
+    found = headers(package)
     if entry["case"] in ("header", "header+text"):
         if not found:
             raise ValueError(f"{name} {version} is listed as {entry['case']} but has no copyright header")
-        if found[0] != entry["file"]:
-            raise ValueError(f"{name} {version}'s header is in {found[0]}; notice_derived.json names {entry['file']}")
+        if found[0][0] != entry["file"]:
+            raise ValueError(f"{name} {version}'s header is in {found[0][0]}; notice_derived.json names {entry['file']}")
+        if len(found) != entry["headers"]:
+            raise ValueError(
+                f"{name} {version} has {len(found)} distinct copyright header(s); notice_derived.json says"
+                f" {entry['headers']}: look at them again"
+            )
         term = elected(expr)
-        carried = carries_text(found[1], term)
+        carried = any(carries_text(text, term) for _, text in found)
         if entry["case"] == "header" and not carried:
             raise ValueError(
-                f"{name} {version}'s header in {found[0]} does not carry the {term} text: list it as header+text"
+                f"{name} {version}'s headers do not carry the {term} text: list it as header+text"
             )
         if entry["case"] == "header+text" and carried:
             raise ValueError(
-                f"{name} {version}'s header in {found[0]} carries the {term} text already: list it as header"
+                f"{name} {version}'s headers carry the {term} text already: list it as header"
             )
-        notices = [(found[1] + "\n", f"header of {found[0]}")]
+        extra = entry.get("extra_texts", [])
+        # A licence a header names that is not one of the crate's own
+        # terms is answered by a text the header carries or one the entry
+        # attaches; otherwise its text would never ship.
+        own = set(re.findall(r"[A-Za-z0-9.+-]+", expr)) - {"OR", "AND", "WITH"}
+        for path, text in found:
+            for words, answers in NAMED:
+                if not words.search(text) or own & set(answers):
+                    continue
+                if not (set(answers) & set(extra) or any(carries_text(text, a) for a in answers)):
+                    raise ValueError(
+                        f"{name} {version}'s header in {path} names {answers[-1]}, whose text it does not carry:"
+                        f" add it to the entry's extra_texts"
+                    )
+        notices = [(text + "\n", f"header of {path}") for path, text in found]
         if entry["case"] == "header+text":
-            # The header carries the copyright line, so the text's own
-            # placeholder line goes rather than shipping unfilled.
-            term = elected(expr)
             text, placeholder = standard_text(term)
-            if placeholder:
-                text = "\n".join(l for l in text.splitlines() if placeholder not in l).lstrip("\n") + "\n"
-            notices.append((text, f"standard {term} text"))
+            notices.append((without_placeholder(text, placeholder), f"standard {term} text"))
+        for t in extra:
+            text, placeholder = standard_text(t)
+            notices.append((without_placeholder(text, placeholder), f"standard {t} text"))
         return notices
     if found:
         raise ValueError(
-            f"{name} {version} has a copyright header in {found[0]}: list it as header or header+text"
+            f"{name} {version} has a copyright header in {found[0][0]}: list it as header or header+text"
         )
     term = elected(expr)
     text, placeholder = standard_text(term)

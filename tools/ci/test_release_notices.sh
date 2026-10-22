@@ -183,6 +183,28 @@ src docc src/lib.rs '//! Copyright 2020 Doc Writer: a doc comment, not a header.
 pub fn f() {}'
 src prose src/lib.rs '// This module preserves copyright notices when it rewrites files.
 pub fn f() {}'
+# A header-free crate whose example carries one: examples/ is not
+# compiled in, so it stays standard.
+src std examples/demo.rs "$MITHDR"
+# Shaped like libp2p-core: the root module's header, a second holder's
+# in a file that sorts before it, and one in tests/ that is not compiled.
+src core src/lib.rs "$MITHDR"
+src core src/a_first.rs '// Copyright 2023 Second Holder Labs.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software, to deal in the Software without restriction.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+pub fn g() {}'
+src core tests/smoke.rs '// Copyright 2019 Test Writer.
+fn main() {}'
+# An MIT crate with a second holder's BSD-style header that only names
+# its licence: the BSD text is owed beside it.
+src bsdx src/lib.rs "$MITHDR"
+src bsdx src/z.rs '// Copyright 2018 The Browser Authors.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE.browser file.
+pub fn h() {}'
 python3 - "$D" > "$D/metadata.json" <<'PY'
 import json, sys
 root = sys.argv[1] + "/crates"
@@ -194,7 +216,7 @@ def pkg(name, licence, authors=()):
 derived = [pkg("hdr", "MIT"), pkg("hdrtext", "MIT OR Apache-2.0"),
            pkg("std", "MIT", ["Ann Author <ann@example.invalid>"]),
            pkg("spdxonly", "CC0-1.0"), pkg("deep", "MIT"), pkg("docc", "BSD-3-Clause"),
-           pkg("prose", "MIT")]
+           pkg("prose", "MIT"), pkg("core", "MIT"), pkg("bsdx", "MIT")]
 app = {"id": "app-id", "name": "app", "version": "1.0.0", "license": "Apache-2.0",
        "license_file": None, "manifest_path": f"{root}/app/Cargo.toml", "targets": []}
 normal = [{"kind": None, "target": None}]
@@ -202,15 +224,16 @@ nodes = [{"id": "app-id", "deps": [{"name": p["name"], "pkg": p["id"], "dep_kind
 nodes += [{"id": p["id"], "deps": []} for p in derived]
 print(json.dumps({"packages": [app] + derived, "workspace_members": ["app-id"], "resolve": {"nodes": nodes}}))
 PY
-printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\n' > "$D/compiled.txt"
+printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\ncore v1.0.0\nbsdx v1.0.0\n' > "$D/compiled.txt"
 # list <json lines>: the derived list, one crate object per argument.
 list() {
     local IFS=,
     printf '{"crates": [%s]}\n' "$*" > "$D/list.json"
 }
-entry() {  # entry <name> <licence> <case> [file]
+entry() {  # entry <name> <licence> <case> [file [headers [extra-texts-json]]]
     if [[ -n "${4-}" ]]; then
-        printf '{"name": "%s", "version": "1.0.0", "license": "%s", "case": "%s", "file": "%s"}' "$1" "$2" "$3" "$4"
+        printf '{"name": "%s", "version": "1.0.0", "license": "%s", "case": "%s", "file": "%s", "headers": %s%s}' \
+            "$1" "$2" "$3" "$4" "${5:-1}" "${6:+, \"extra_texts\": $6}"
     else
         printf '{"name": "%s", "version": "1.0.0", "license": "%s", "case": "%s"}' "$1" "$2" "$3"
     fi
@@ -218,7 +241,8 @@ entry() {  # entry <name> <licence> <case> [file]
 GOOD=("$(entry hdr MIT header src/lib.rs)" "$(entry hdrtext 'MIT OR Apache-2.0' header+text src/lib.rs)"
       "$(entry std MIT standard)" "$(entry spdxonly CC0-1.0 standard)"
       "$(entry deep MIT header src/inner/mod.rs)" "$(entry docc BSD-3-Clause standard)"
-      "$(entry prose MIT standard)")
+      "$(entry prose MIT standard)" "$(entry core MIT header src/lib.rs 2)"
+      "$(entry bsdx MIT header src/lib.rs 2 '["BSD-3-Clause"]')")
 drun() {
     NOTICE_DERIVED_JSON="$D/list.json" python3 "$D/tool/release_notices.py" "$D/metadata.json" \
         "$D/compiled.txt" "$SANDBOX/n.md" app >"$SANDBOX/stdout" 2>"$SANDBOX/err"
@@ -230,7 +254,7 @@ if drun; then
         && grep -qx 'Permission is hereby granted, free of charge, to any person obtaining a' "$N" \
         && pass "a full notice in the root module's header ships as the header" \
         || fail "the header notice is missing" "$(cat "$N")"
-    grep -qF 'Used by deep 1.0.0 (header of src/inner/mod.rs); hdr 1.0.0 (header of src/lib.rs).' "$N" \
+    grep -F 'Used by ' "$N" | grep -F 'deep 1.0.0 (header of src/inner/mod.rs)' | grep -qF 'hdr 1.0.0 (header of src/lib.rs)' \
         && pass "a header found in another source file is the same notice, named by its file" \
         || fail "the header of a nested source file was not found" "$(grep -n 'Used by' "$N")"
     grep -qF -- '- `hdrtext` 1.0.0: MIT OR Apache-2.0 (derived: header+text) — text T' "$N" \
@@ -252,6 +276,20 @@ if drun; then
         && grep -qx 'Copyright (c) the docc authors. ' "$N" \
         && pass "a doc comment is not a header" \
         || fail "a doc comment was taken for a header" "$(cat "$N")"
+    grep -qF 'Used by core 1.0.0 (header of src/a_first.rs).' "$N" \
+        && [[ "$(grep -n 'Copyright 2017 Example Ltd.' "$N" | head -1 | cut -d: -f1)" -lt \
+              "$(grep -n 'Copyright 2023 Second Holder Labs.' "$N" | head -1 | cut -d: -f1)" ]] \
+        && ! grep -qF 'Test Writer' "$N" \
+        && pass "every distinct header of the compiled files ships, the root module's first; tests/ is not read" \
+        || fail "a crate's several headers did not ship as decision 2.ii says" "$(grep -n 'core\|Holder\|Test Writer' "$N")"
+    grep -qF 'Used by bsdx 1.0.0 (header of src/z.rs).' "$N" \
+        && grep -qF 'Used by bsdx 1.0.0 (standard BSD-3-Clause text).' "$N" \
+        && ! grep -qF '<year> <owner>' "$N" \
+        && pass "a second holder's header naming BSD ships with the BSD text, no placeholder line" \
+        || fail "the BSD-style header did not bring its text" "$(grep -n 'bsdx' "$N")"
+    grep -qF 'std 1.0.0 publishes no notice of its own' "$N" \
+        && pass "a header under examples/ is not compiled in and leaves the crate standard" \
+        || fail "an example's header changed the crate's case" "$(grep -n 'std 1.0.0' "$N")"
     grep -qF 'prose 1.0.0 publishes no notice of its own: this is the standard text of MIT' "$N" \
         && pass "a comment that mentions copyright without a copyright line is not a header" \
         || fail "a prose comment was taken for a header" "$(cat "$N")"
@@ -282,15 +320,23 @@ list "${GOOD[@]}" "$(entry hdr MIT header src/lib.rs)"
 drefused "a crate listed twice" "lists hdr 1.0.0 twice"
 # The two header cases, checked against what the header carries.
 list "$(entry hdr MIT header+text src/lib.rs)" "${GOOD[@]:1}"
-drefused "header+text for a header carrying its licence's text" "hdr 1.0.0's header in src/lib.rs carries the MIT text already: list it as header"
+drefused "header+text for a header carrying its licence's text" "hdr 1.0.0's headers carry the MIT text already: list it as header"
 list "${GOOD[@]:0:1}" "$(entry hdrtext 'MIT OR Apache-2.0' header src/lib.rs)" "${GOOD[@]:2}"
-drefused "header for a header that only names its licence" "hdrtext 1.0.0's header in src/lib.rs does not carry the MIT text: list it as header+text"
-list "${GOOD[@]:0:6}" "$(entry prose MIT header src/lib.rs)"
+drefused "header for a header that only names its licence" "hdrtext 1.0.0's headers do not carry the MIT text: list it as header+text"
+list "${GOOD[@]:0:6}" "$(entry prose MIT header src/lib.rs)" "${GOOD[@]:7}"
 drefused "a header entry for a comment with no copyright line" "prose 1.0.0 is listed as header but has no copyright header"
 list "$(entry hdr MIT headers src/lib.rs)" "${GOOD[@]:1}"
 drefused "an unknown case" "has case 'headers'"
 list "$(entry hdr MIT header)" "${GOOD[@]:1}"
-drefused "a header entry without its file" "names a file exactly when its case is a header"
+drefused "a header entry without its file" "names a file and a header count exactly when its case is a header"
+list "${GOOD[@]:0:7}" "$(entry core MIT header src/lib.rs 1)" "${GOOD[@]:8}"
+drefused "a header count that is not the crate's" "core 1.0.0 has 2 distinct copyright header(s); notice_derived.json says 1"
+list "${GOOD[@]:0:7}" "$(entry core MIT header src/a_first.rs 2)" "${GOOD[@]:8}"
+drefused "a header file that is not the root module's" "core 1.0.0's header is in src/lib.rs; notice_derived.json names src/a_first.rs"
+list "${GOOD[@]:0:8}" "$(entry bsdx MIT header src/lib.rs 2)"
+drefused "a header naming BSD without the BSD text" "bsdx 1.0.0's header in src/z.rs names BSD-3-Clause, whose text it does not carry: add it to the entry's extra_texts"
+list "${GOOD[@]:0:8}" "$(entry bsdx MIT header src/lib.rs 2 '["ISC"]')"
+drefused "an extra text that is not committed" "bsdx 1.0.0 asks for ISC, whose standard text is not committed"
 # A file-less crate now publishing a file: its entry must go.
 printf 'the MIT text\n' > "$D/crates/hdr/LICENSE"
 list "${GOOD[@]}"
