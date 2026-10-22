@@ -139,6 +139,24 @@ pub enum Table {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ItemKey(Table, RowId);
 
+/// An item's key as text: its table's letter and its row, `p12` for a
+/// pending row, `u7` unread, `k3` kept. A process that lists the store
+/// afresh shows each item under the row it holds now, so the text names
+/// the same item to the next process while the row stays in its table --
+/// what a command line or a script hands back (`apps/human-cli`), and
+/// [`UiModel::item_named`] finds again. Nothing parses it into a row: a
+/// row id comes only from the store.
+impl std::fmt::Display for ItemKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let letter = match self.0 {
+            Table::Pending => 'p',
+            Table::Unread => 'u',
+            Table::Kept => 'k',
+        };
+        write!(f, "{letter}{}", self.1.get())
+    }
+}
+
 /// An inbound message's retention state (`human-client-ui.md` §6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Retention {
@@ -915,6 +933,24 @@ impl UiModel {
             .filter(|(_, keys)| keys.len() > 1)
             .map(|(peer, _)| peer)
             .collect()
+    }
+
+    /// The item a text from [`ItemKey`]'s `Display` names: one of the
+    /// rows the model holds now under that table letter and row -- an
+    /// item that moved table answers to its new row too -- else the key
+    /// it was first shown under. `None` for a text naming nothing held.
+    #[must_use]
+    pub fn item_named(&self, text: &str) -> Option<ItemKey> {
+        self.by_row
+            .iter()
+            .find(|((table, row), _)| ItemKey(*table, *row).to_string() == text)
+            .map(|(_, key)| *key)
+            .or_else(|| {
+                self.items
+                    .keys()
+                    .find(|key| key.to_string() == text)
+                    .copied()
+            })
     }
 
     /// A conversation's messages, in LOCAL time order (A3). Replies are
