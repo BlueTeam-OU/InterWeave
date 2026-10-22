@@ -15,7 +15,7 @@ use std::rc::{Rc, Weak};
 
 use interweave_human_android_platform::{ServiceHost, StoreRefusal};
 use interweave_human_store::at_rest::{DiscardPlan, DiscardScope};
-use interweave_human_ui_model::{DiscardKind, StoreEffect, StoreRecovery, StoreScreen};
+use interweave_human_ui_model::{DiscardKind, StoreEffect, StorePhase, StoreRecovery, StoreScreen};
 use interweave_human_ui_slint::{
     IdentityInput, StoreOutcome, View, apply_store, defer, store_page,
 };
@@ -57,7 +57,12 @@ pub(crate) fn follow(view: &Rc<RefCell<View>>, refused: Option<StoreRefusal>) {
     SHOWN.with(|shown| {
         let mut shown = shown.borrow_mut();
         match (refused, shown.as_ref()) {
-            (Some(refused), Some(s)) if s.flow.screen() == screen(refused) => {}
+            // The same screen, still in use. A finished flow (its discard
+            // done) under a refusal is a restart refused again: it starts
+            // over, or every action would stay inert (#377 review, risk 2).
+            (Some(refused), Some(s))
+                if s.flow.screen() == screen(refused)
+                    && !matches!(s.flow.phase(), StorePhase::Done(_)) => {}
             (Some(refused), _) => {
                 // The desktop and the phone hold one identity until Stage 22.
                 *shown = Some(Shown {
