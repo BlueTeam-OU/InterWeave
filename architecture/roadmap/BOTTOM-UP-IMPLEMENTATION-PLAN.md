@@ -5332,17 +5332,18 @@ device-to-device and B5 Smart Switch, duplicate suppression and the
 byte search across a reboot, a power loss mid-truncate, L2 with the
 screen off or unplugged, R2 on other launchers and API levels, freed
 pages after `VACUUM` or reuse, the one-time rewrite's cost on a large
-store (SPIKE-007's row when the store is re-sealed) and media
-remanence, API 33+'s `POST_NOTIFICATIONS` grant (above); B2 and the Play items are closed by
+store (the `secure_delete` rewrite of SPIKE-008's record, measured
+here on a large store) and media remanence, API 33+'s `POST_NOTIFICATIONS` grant (above); B2 and the Play items are closed by
 ADR-0057 (no store, no backup on Google). Of SPIKE-009's items carried
 to steps 7–8: the restart diagnostic is split — the person-visible
 Unlock prompt on a cold launch and after process death under the
 default `foreground-only` profile is closed by record (gate-b's by-hand
 table, the A40), while `background_restart_requires_user_authentication`
 after a `stay-reachable` service restart, the case SPIKE-009 named, was
-not read before the phone was handed back (gate-b's own words) and has
-no host test, so it is carried to the release gate with the
-user-presence case; the picker's host tests are step 8's above and its
+not read before the phone was handed back (gate-b's own words); its
+predicate is unit-tested in `profile-config`'s `runtime.rs`, but
+nothing emits the diagnostic yet and no device read exists, so it is
+carried to the release gate with the user-presence case; the picker's host tests are step 8's above and its
 instrumented tests, `FLAG_SECURE` around it, the IME-free path and the
 clipboard refusal on a device are carried to the release gate with the
 user-presence case; StrongBox reporting and API 34+ behaviour on another
