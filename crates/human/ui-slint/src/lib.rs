@@ -2925,7 +2925,12 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::OpenLink(_)
         | Intent::Restore(_)
         | Intent::ReadTrust
-        | Intent::SetTrust(_) => return None,
+        | Intent::SetTrust(_)
+        // Edits come from the settings and the contact page's own
+        // controls, never an item's.
+        | Intent::SetOwnCard { .. }
+        | Intent::RenameContact { .. }
+        | Intent::SetContactPhoto { .. } => return None,
     };
     Some(placeholder_en::text(text))
 }

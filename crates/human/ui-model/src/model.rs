@@ -372,6 +372,31 @@ pub enum Intent {
     /// Send this conversation's identity's own card to its route. Only
     /// [`UiModel::share_card`] makes one, for a direct conversation.
     ShareCard(ConversationKey),
+    /// The person's edit of their identity's own card, from its settings.
+    SetOwnCard {
+        /// The name.
+        name: String,
+        /// The surname, if any.
+        surname: Option<String>,
+        /// What happens to the photo.
+        photo: cards::PhotoEdit,
+    },
+    /// The person's own name for a contact: theirs from now on, and no
+    /// card replaces it.
+    RenameContact {
+        /// The contact.
+        contact_id: String,
+        /// The name.
+        name: String,
+    },
+    /// The person's own photo for a contact, or its removal: theirs from
+    /// now on, and no card replaces it.
+    SetContactPhoto {
+        /// The contact.
+        contact_id: String,
+        /// What happens to the photo.
+        photo: cards::PhotoEdit,
+    },
     /// Make a trust change the person confirmed in the trust settings,
     /// which showed its exact `PeerId` and scope (`human-client-ui.md` §8).
     /// Only [`crate::TrustSettings::confirm`] makes one.

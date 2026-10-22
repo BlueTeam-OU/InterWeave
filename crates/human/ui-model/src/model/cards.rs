@@ -25,6 +25,18 @@ use interweave_transport_api::{EndpointId, TransportIdentity};
 
 use super::{ConversationKey, Intent, RouteLabel, UiModel};
 
+/// What an edit does to a photo.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PhotoEdit {
+    /// Leave it as it is.
+    Keep,
+    /// Remove it.
+    Remove,
+    /// The image the person chose, as its file holds it: re-encoded and
+    /// stripped of every metadata block before anything keeps it.
+    Chosen(Vec<u8>),
+}
+
 /// A contact named in a proposal's context.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContactRef {
@@ -176,6 +188,9 @@ pub(super) struct Cards {
     proposals: BTreeMap<RowId, Proposal>,
     contacts: Vec<ContactView>,
     identity: Option<IdentityView>,
+    /// When each conversation last shared its identity's card, this
+    /// session: what the conversation's details show.
+    shared: BTreeMap<ConversationKey, u64>,
 }
 
 impl Cards {
@@ -216,6 +231,17 @@ impl UiModel {
     /// conversation, whatever the store did.
     pub fn card_resolved(&mut self, row: RowId) {
         self.cards.proposals.remove(&row);
+    }
+
+    /// This identity's card was shared on `key` at `at`.
+    pub fn card_shared(&mut self, key: ConversationKey, at: u64) {
+        self.cards.shared.insert(key, at);
+    }
+
+    /// When this identity's card was last shared on `key`, this session.
+    #[must_use]
+    pub fn card_shared_at(&self, key: &ConversationKey) -> Option<u64> {
+        self.cards.shared.get(key).copied()
     }
 
     /// The contacts, as the facade listed them after a change.
