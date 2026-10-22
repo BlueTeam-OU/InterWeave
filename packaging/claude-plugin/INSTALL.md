@@ -1,0 +1,130 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+# Installing the Claude Code Channel bridge on a Linux host
+
+This takes a Linux account that has nothing of InterWeave on it to a Claude Code session whose InterWeave channel is registered. It covers the transport daemon, the profile, its trust, and the plugin.
+
+**Run every step as the account that will run Claude Code.** The bridge reads the profile's configuration and connects to the daemon's socket. Both live under that account's own home and runtime directory. Nothing is installed system-wide, and no step needs root.
+
+What each step was checked against is in [`evidence/`](evidence/), named by date. What a production host still lacks is in [What this does not give you](#what-this-does-not-give-you).
+
+## 0. Before you start
+
+- **Linux x86_64, with a systemd user manager for the account.** Log in to the account, or turn on lingering (`loginctl enable-linger <account>`, which an administrator runs). The daemon and the bridge both need `XDG_RUNTIME_DIR`, the directory the user manager provides; `echo "$XDG_RUNTIME_DIR"` must print a path. With it unset, the bridge exits as soon as Claude Code starts it, and Claude Code does not start it again (SPIKE-001 fact 19). There is no fallback directory, on purpose.
+- **Claude Code**, installed for this account and signed in with this account's own credential. The session that loads the channel is an interactive one.
+- **The release archive** `interweave-<version>-x86_64-unknown-linux-gnu.tar.gz` and its `.sha256` file, from the project's release page. It holds the three programs, the two user units, the install scripts, and `claude-plugin/`, the plugin marketplace with the bridge inside it.
+- **One profile name and one TCP port per profile.** Below, the profile is `claude`, the port is `4001`, and the bridge's endpoint is `claude`. The plugin starts the bridge with `--profile default --endpoint claude` unless you change that (step 6).
+
+## 1. Check and unpack the archive
+
+```sh
+sha256sum -c interweave-<version>-x86_64-unknown-linux-gnu.tar.gz.sha256
+tar -xzf interweave-<version>-x86_64-unknown-linux-gnu.tar.gz
+cd interweave-<version>-x86_64-unknown-linux-gnu
+```
+
+## 2. Install the daemon and its tools
+
+```sh
+./install.sh
+```
+
+This installs `transport-daemon`, `transportctl` and `human-desktop` into `~/.local/bin`, and the two unit templates into `~/.config/systemd/user`. It enables nothing, and it does not install the bridge: the bridge ships only inside the plugin (step 6). `packaging/linux/README.md` covers this step and uninstalling.
+
+## 3. Create the profile
+
+```sh
+transportctl identity init --profile claude      # prints this profile's PeerId, once
+```
+
+Keep the printed PeerId: it is what other peers trust (step 4). The key never leaves this account.
+
+Write `~/.config/interweave/profiles/claude/config.yaml`. The bridge's endpoint is declared under `endpoints.entries`. In the file below, it is also the default endpoint, so a message a peer sends without naming an endpoint reaches the bridge. The example `architecture/config/examples/human-and-claude.yaml` shows the same endpoint beside a human one.
+
+```yaml
+schema_version: 2
+profile: { name: claude }
+transport:
+  backend: libp2p
+  listen: { addresses: ["/ip4/0.0.0.0/tcp/4001"] }
+identity: {}
+trust:
+  policy: static-allowlist
+  allowed_peers: []          # filled in step 4
+endpoints:
+  registration_policy: configured-only
+  default_direct_endpoint: claude
+  entries:
+    - id: claude
+      enabled: true
+      advertise: true
+      allowed_client_kinds: [claude-channel]
+      inbound: inherit_profile_trust
+      outbound: inherit_profile_trust
+```
+
+The configuration directory and the file must be this account's and not writable by anyone else. The daemon and the bridge both refuse a configuration that is.
+
+## 4. Trust the peers the bridge talks to
+
+Trust is deny by default: with an empty allowlist, no message reaches the bridge and the bridge can send to no one. Either list the peers' PeerIds in `trust.allowed_peers` before the daemon starts, or add them to the running daemon:
+
+```sh
+transportctl --profile claude trust allow <PeerId>
+transportctl --profile claude trust list
+```
+
+`trust allow` takes effect at once and is kept across restarts. Trust is per direction and per side. The other peer's daemon must also trust this profile's PeerId before anything it sends arrives here, and before a reply from here reaches it.
+
+## 5. Start the daemon
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now interweave-daemon@claude
+transportctl --profile claude status
+journalctl --user -u interweave-daemon@claude -n 20
+```
+
+`enable` makes the daemon start with the account's user manager, at login or at boot with lingering. A changed `config.yaml` is applied by `systemctl --user restart interweave-daemon@claude`. A restart ends the bridge's endpoint lease. The bridge reconnects by itself and joins its channels again, but nothing sent meanwhile is replayed.
+
+## 6. Install the plugin
+
+Copy the marketplace somewhere it stays, then add and install it at user scope:
+
+```sh
+mkdir -p ~/.local/share/interweave
+cp -R claude-plugin ~/.local/share/interweave/claude-plugin
+claude plugin marketplace add ~/.local/share/interweave/claude-plugin
+claude plugin install interweave@interweave
+claude plugin list
+```
+
+**Profile name:** the plugin starts the bridge with `--profile default --endpoint claude --delivery push`. For a profile named other than `default`, as in this procedure, edit the `args` in `~/.local/share/interweave/claude-plugin/interweave/.mcp.json` before `marketplace add`: set `--profile` to `claude`, and `--endpoint` to the endpoint from step 3. Keep `--delivery push`, which Claude Code needs.
+
+## 7. Start a session with the channel
+
+```sh
+claude --dangerously-load-development-channels plugin:interweave@interweave
+```
+
+Claude Code shows "WARNING: Loading development channels", naming `plugin:interweave@interweave`. Choose "1. I am using this for local development". Then:
+
+- in the session, the bridge's `status` tool reports this profile's PeerId, the endpoint and a lease epoch;
+- with `--debug-file <path>`, the debug log has `MCP server "plugin:interweave:interweave": Channel notifications registered`.
+
+`--channels plugin:interweave@interweave` without the development flag is refused: the plugin is not on Claude Code's approved channels allowlist (SPIKE-001 S19). The flag is how this plugin is used today.
+
+## Removing it
+
+```sh
+claude plugin uninstall interweave@interweave
+claude plugin marketplace remove interweave
+systemctl --user disable --now interweave-daemon@claude
+./uninstall.sh                     # from the unpacked archive; keeps every profile
+```
+
+`uninstall.sh` leaves the profile, its key and its state under `~/.config/interweave` and `~/.local/share/interweave`. Remove them yourself if the profile is to go too.
+
+## What this does not give you
+
+- **A channel without the development flag.** `--channels` needs the plugin on Anthropic's remotely served allowlist, or an organisation's `allowedChannelPlugins` with `channelsEnabled: true`. Both are read from the 2.1.286 binary, not measured (SPIKE-001 fact 23), and neither is asked for or tried.
+- **A headless session.** Channel events reach the model only in an interactive session (SPIKE-001 fact 4), and the development warning is answered by a person.
