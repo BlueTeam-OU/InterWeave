@@ -574,6 +574,11 @@ drefused "a licence after a legacy / separator" "names a licence this tool does 
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT -- Frob-2.0 for x.c\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drefused "an id after the prose that ends an expression" "names a licence this tool does not recognise (Frob-2.0)"
+# An id that ends a sentence ends the expression: the prose after it is
+# not read as ids.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT. See the notice above.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drun && pass "prose after an expression's full stop" || fail "prose after an expression's full stop was refused" "$(cat "$SANDBOX/err")"
 # A parenthesised expression ending a sentence reads as its ids.
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: (MIT OR Apache-2.0).\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist '["Apache-2.0"]'
