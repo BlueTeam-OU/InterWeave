@@ -156,6 +156,21 @@
       "name": "peer-list",
       "file": "peer-list.schema.json",
       "status": "approved"
+    },
+    {
+      "name": "peers-address-params",
+      "file": "peers-address-params.schema.json",
+      "status": "approved"
+    },
+    {
+      "name": "peers-address-result",
+      "file": "peers-address-result.schema.json",
+      "status": "approved"
+    },
+    {
+      "name": "peers-address-list",
+      "file": "peers-address-list.schema.json",
+      "status": "approved"
     }
   ]
 }

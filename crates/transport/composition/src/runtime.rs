@@ -16,9 +16,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use interweave_local_client_api::{Generation, TrustAdminView, TrustSource, TrustedPeer};
+use interweave_local_client_api::{
+    AddressChange, AddressRefusal, AddressSource, BootstrapAddress, Generation, TrustAdminView,
+    TrustSource, TrustedPeer,
+};
 #[cfg(feature = "test-hooks")]
 use interweave_profile_config::PersistError;
+use interweave_profile_config::bootstrap_overlay::{
+    BootstrapOverlay, BootstrapOverlayError, MoveRefusal,
+};
 use interweave_profile_config::endpoint_overlay::{EndpointOverlay, EndpointOverlayError};
 use interweave_profile_config::trust_overlay::{OverlayError, TrustOverlay};
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
@@ -40,7 +46,9 @@ use crate::discovery::{Discovery, DiscoveryDiagnostics};
 use crate::gate::{LastOutcome, LastOutcomes, PeerGateRow, ReconnectRefusals, Who};
 use crate::notices::{PeerNoticeDiagnostics, SessionNotices};
 use crate::session::InProcessBinding;
-use crate::translate::{CompositionError, translate};
+use crate::translate::{
+    CompositionError, StaticAuthoring, static_authoring, static_entry, translate,
+};
 
 /// How a runtime is composed beyond what the profile says.
 ///
@@ -67,6 +75,12 @@ pub struct CompositionOptions {
     /// supplies one; without one -- a test construction -- a set lasts
     /// until the runtime stops and every row reads `persisted: false`.
     pub endpoint_overlay_file: Option<PathBuf>,
+    /// The bootstrap-peers overlay's file (`BootstrapOverlay::path_for`):
+    /// the addresses `admin.peers.add_address` added, kept across
+    /// restarts (ADR-0062, ADR-0028 A 2026-10-21 (ii)). Every production
+    /// binding supplies one; without one -- a test construction -- an add
+    /// lasts until the runtime stops.
+    pub bootstrap_overlay_file: Option<PathBuf>,
     /// Where the overlay files' directory walk stops (ADR-0028 A
     /// 2026-10-08): the profile paths' boundary -- `/` on the desktop,
     /// the app's data directory with its runtime root for an embedded
@@ -92,6 +106,7 @@ impl CompositionOptions {
             peer_cache_file: Some(paths.peer_cache_file()),
             trust_overlay_file: Some(TrustOverlay::path_for(paths)),
             endpoint_overlay_file: Some(EndpointOverlay::path_for(paths)),
+            bootstrap_overlay_file: Some(BootstrapOverlay::path_for(paths)),
             trust_boundary: paths.boundary().clone(),
             queue_bound: usize::try_from(profile.ipc.client_event_queue).unwrap_or(usize::MAX),
             ..Self::default()
@@ -106,6 +121,7 @@ impl Default for CompositionOptions {
             peer_cache_file: None,
             trust_overlay_file: None,
             endpoint_overlay_file: None,
+            bootstrap_overlay_file: None,
             trust_boundary: TrustBoundary::root(),
             queue_bound: 256,
             event_capacity: 1024,
@@ -197,6 +213,18 @@ pub(crate) enum Request {
         Option<EndpointId>,
         oneshot::Sender<Result<(), TransportError>>,
     ),
+    /// Add a bootstrap address (`admin.peers.add_address`).
+    AddBootstrap(
+        String,
+        oneshot::Sender<Result<AddressChange, TransportError>>,
+    ),
+    /// Remove a bootstrap address (`admin.peers.remove_address`).
+    RemoveBootstrap(
+        String,
+        oneshot::Sender<Result<AddressChange, TransportError>>,
+    ),
+    /// Every bootstrap address (`admin.peers.list_addresses`).
+    Bootstrap(oneshot::Sender<Vec<BootstrapAddress>>),
     /// A path change posted as if the substrate had reported it, through
     /// the same handling (`Driver::post_path_change`): how a test between
     /// real runtimes reaches it without a relay. Test builds only.
@@ -210,6 +238,10 @@ pub(crate) enum Request {
     /// were gone. Test builds only.
     #[cfg(feature = "test-hooks")]
     FailPublishes(usize, oneshot::Sender<()>),
+    /// Whether the operator's door holds a bootstrap address. Test
+    /// builds only.
+    #[cfg(feature = "test-hooks")]
+    OperatorHolds(String, oneshot::Sender<bool>),
     /// End the driver as if its substrate had gone: how a test reaches
     /// a runtime that ends on its own. Test builds only.
     #[cfg(feature = "test-hooks")]
@@ -393,8 +425,53 @@ impl ComposedRuntime {
             return Err(CompositionError::EndpointOverlayConflicts(conflicts));
         }
         let profile = &profile;
+        // THE BOOTSTRAP OVERLAY BEFORE THE SUBSTRATE, as its siblings:
+        // its entries are emitted by the static-bootstrap provider and
+        // put through the operator's door at start, and a present
+        // overlay that cannot be trusted, holds an entry outside the
+        // grammar or composes past 64 stops the start naming it
+        // (ADR-0062, ADR-0028 A 2026-10-21 (ii)).
+        let (static_how, static_authored) = static_authoring(profile);
+        let bootstrap = match &options.bootstrap_overlay_file {
+            Some(path) => {
+                BootstrapOverlay::load_within(path, &static_authored, &options.trust_boundary)
+                    .map_err(CompositionError::BootstrapOverlay)?
+            }
+            None => BootstrapOverlay::default(),
+        };
+        // THE LOAD-TIME DIAGNOSTIC (ADR-0062 decision 2): entries an
+        // authored `enabled: false` provider emits to nobody load, are
+        // listed as not dialled, and are named here.
+        if let (StaticAuthoring::Disabled, Some(path)) =
+            (static_how, options.bootstrap_overlay_file.as_ref())
+            && !bootstrap.peers().is_empty()
+        {
+            tracing::warn!(
+                overlay = %path.display(),
+                "the bootstrap overlay holds {} address(es) that nothing dials: config.yaml \
+                 authors the static-bootstrap provider enabled: false",
+                bootstrap.peers().len()
+            );
+        }
         let composition = translate(profile, &local, options.queue_bound)?
-            .with_allowed(allowed.clone(), &local)?;
+            .with_allowed(allowed.clone(), &local)?
+            .with_added_bootstrap(static_how, bootstrap.peers())?;
+        // The operator inputs besides the bootstrap entries: a removed
+        // bootstrap address keeps its place in the operator set while one
+        // of these names the same route (ADR-0052 rule 9).
+        let operator_inputs: Vec<String> = composition
+            .substrate
+            .relay_client
+            .iter()
+            .flat_map(|c| c.static_relays.iter().map(|r| r.address.clone()))
+            .chain(
+                composition
+                    .substrate
+                    .autonat_client
+                    .iter()
+                    .flat_map(|c| c.static_servers.iter().map(|s| s.address.clone())),
+            )
+            .collect();
         // A WALL-CLOCK ANCHOR ADVANCED BY THE MONOTONIC CLOCK. The peer
         // cache persists these timestamps and compares them against its
         // TTL after a restart, so the origin must survive the process:
@@ -501,6 +578,12 @@ impl ComposedRuntime {
             authored,
             endpoint_overlay,
             endpoint_overlay_file: options.endpoint_overlay_file.clone(),
+            bootstrap,
+            bootstrap_file: options.bootstrap_overlay_file.clone(),
+            static_how,
+            static_authored,
+            operator_inputs,
+            pending_forget: Vec::new(),
             trust_boundary: options.trust_boundary.clone(),
             #[cfg(feature = "test-hooks")]
             overlay_faults: std::collections::VecDeque::new(),
@@ -672,6 +755,17 @@ impl ComposedRuntime {
             .await
     }
 
+    /// Whether the operator's door holds `address` (a bootstrap entry, as
+    /// typed): what a removal left at the door. TEST BUILDS ONLY.
+    ///
+    /// # Errors
+    /// `BackendUnavailable` once the runtime has stopped.
+    #[cfg(feature = "test-hooks")]
+    pub async fn operator_holds(&self, address: &str) -> Result<bool, TransportError> {
+        self.ask(|reply| Request::OperatorHolds(address.to_owned(), reply))
+            .await
+    }
+
     /// Make the next `count` trust or endpoint publishes fail as if the
     /// substrate were gone, after their overlay was written: how a test reaches the
     /// restore after a failed publish. TEST BUILDS ONLY.
@@ -780,6 +874,20 @@ struct Driver {
     /// (test builds).
     #[cfg(feature = "test-hooks")]
     publish_faults: usize,
+    /// The bootstrap-peers overlay as it is in force (ADR-0062).
+    bootstrap: BootstrapOverlay,
+    bootstrap_file: Option<PathBuf>,
+    /// Whether and how `config.yaml` authors the static-bootstrap
+    /// provider, and its entries.
+    static_how: StaticAuthoring,
+    static_authored: Vec<String>,
+    /// The static relays' and AutoNAT servers' addresses: with the
+    /// authored and the overlay's entries, every operator input a removal
+    /// is checked against.
+    operator_inputs: Vec<String>,
+    /// Removed addresses the book could not let go yet (a live quarantine
+    /// the table had no room for), asked again each round.
+    pending_forget: Vec<(TransportIdentity, String)>,
     /// Each allowlisted peer's last dial outcome (`CONNECTIVITY.md` §19).
     outcomes: LastOutcomes,
     /// Each allowlisted peer's last reconnect refusal, logged on change.
@@ -1159,11 +1267,31 @@ impl Driver {
                 };
                 let _ = reply.send(self.set_endpoints("set_default", moved, publish).await);
             }
+            Request::AddBootstrap(address, reply) => {
+                let _ = reply.send(self.add_bootstrap(address).await);
+            }
+            Request::RemoveBootstrap(address, reply) => {
+                let _ = reply.send(self.remove_bootstrap(address).await);
+            }
+            Request::Bootstrap(reply) => {
+                let _ = reply.send(self.bootstrap_rows());
+            }
             #[cfg(feature = "test-hooks")]
             Request::InjectPathChange(peer, previous, current, reply) => {
                 self.post_path_change(peer, previous, current, PathChange::HolePunched)
                     .await;
                 let _ = reply.send(());
+            }
+            #[cfg(feature = "test-hooks")]
+            Request::OperatorHolds(address, reply) => {
+                let held = match (
+                    interweave_profile_config::split_peer_multiaddr(&address),
+                    address.parse(),
+                ) {
+                    (Ok((_, peer)), Ok(parsed)) => self.swarm.operator_holds(&peer, &parsed),
+                    _ => false,
+                };
+                let _ = reply.send(held);
             }
             #[cfg(feature = "test-hooks")]
             Request::FailOverlayWrites(faults, reply) => {
@@ -1317,6 +1445,190 @@ impl Driver {
             self.endpoint_overlay = overlay;
         }
         Ok(answer)
+    }
+
+    /// Add a bootstrap address (ADR-0062 decision 1). Each refusal is an
+    /// answer naming its rule, nothing written: the configuration's
+    /// grammar; an authored `enabled: false` provider; ADR-0052 rule 2's
+    /// special-use floor, applied HERE whoever the caller, since the
+    /// operator set the address enters is admitted at every store door
+    /// whatever its class; the provider's bound. An address already
+    /// present changes nothing. An accepted one is written to the overlay
+    /// before it reaches the running provider and the operator's door,
+    /// and before the answer.
+    async fn add_bootstrap(&mut self, address: String) -> Result<AddressChange, TransportError> {
+        let refused = |reason, detail: String| Ok(AddressChange::Refused { reason, detail });
+        if let Err(why) = interweave_profile_config::split_peer_multiaddr(&address) {
+            return refused(AddressRefusal::Grammar, why.to_owned());
+        }
+        if self.static_how == StaticAuthoring::Disabled {
+            return refused(
+                AddressRefusal::ProviderDisabled,
+                "config.yaml authors the static-bootstrap provider enabled: false".to_owned(),
+            );
+        }
+        if let Some(ip) = interweave_transport_runtime::reachability::special_use_host(&address) {
+            return refused(
+                AddressRefusal::SpecialUse,
+                format!("{ip} is in a special-use range (ADR-0052 rule 2)"),
+            );
+        }
+        let moved = match self.bootstrap.add(&self.static_authored, &address) {
+            Ok(Some(moved)) => moved,
+            Ok(None) => return Ok(AddressChange::Unchanged),
+            Err(MoveRefusal::Grammar(why)) => {
+                return refused(AddressRefusal::Grammar, why.to_owned());
+            }
+            Err(MoveRefusal::Bound) => {
+                return refused(
+                    AddressRefusal::Bound,
+                    "authored and added entries would pass 64".to_owned(),
+                );
+            }
+            Err(MoveRefusal::Authored) => return Err(TransportError::Internal),
+        };
+        self.commit_bootstrap(moved)?;
+        // A REMOVAL STILL PENDING FOR IT IS WITHDRAWN: retried, it would
+        // take the address off the door and out of the book after this
+        // answer said it was in force.
+        self.pending_forget
+            .retain(|(_, pending)| pending != &address);
+        let (_, peer) = interweave_profile_config::split_peer_multiaddr(&address)
+            .map_err(|_| TransportError::Internal)?;
+        let parsed = address.parse().map_err(|_| TransportError::Internal)?;
+        // The operator's door, beside the provider: the book takes the
+        // address now, and every store door admits it (ADR-0052 rule 9).
+        self.swarm
+            .add_address(peer, parsed)
+            .await
+            .map_err(|_| TransportError::BackendUnavailable)?;
+        Ok(AddressChange::Added)
+    }
+
+    /// Remove a bootstrap address: an authored one is refused by name, an
+    /// absent one changes nothing, and a removed one leaves the overlay,
+    /// the running provider, the operator's door and the book, so it is
+    /// dialled no more without a restart (ADR-0062 decision 2).
+    async fn remove_bootstrap(&mut self, address: String) -> Result<AddressChange, TransportError> {
+        let moved = match self.bootstrap.remove(&self.static_authored, &address) {
+            Ok(Some(moved)) => moved,
+            Ok(None) => return Ok(AddressChange::Unchanged),
+            Err(MoveRefusal::Authored) => {
+                return Ok(AddressChange::Refused {
+                    reason: AddressRefusal::Authored,
+                    detail: "the address is config.yaml's; edit config.yaml to remove it"
+                        .to_owned(),
+                });
+            }
+            Err(_) => return Err(TransportError::Internal),
+        };
+        self.commit_bootstrap(moved)?;
+        // Under an authored `enabled: false` nothing of the overlay reached
+        // the door or the book this run (`with_added_bootstrap`), so there
+        // is nothing of its to undo; a route another source taught the
+        // book stays (#367 re-review F7).
+        if self.static_how == StaticAuthoring::Disabled {
+            return Ok(AddressChange::Removed);
+        }
+        if let Ok((_, peer)) = interweave_profile_config::split_peer_multiaddr(&address)
+            && !self.forget(&peer, &address).await
+        {
+            self.pending_forget.push((peer, address));
+        }
+        Ok(AddressChange::Removed)
+    }
+
+    /// Take `address` out of the operator's door and the book; `false`
+    /// while the book keeps it (a live quarantine it cannot hand over).
+    async fn forget(&mut self, peer: &TransportIdentity, address: &str) -> bool {
+        let Ok(parsed) = address.parse() else {
+            return true;
+        };
+        // Every operator input that remains, the overlay already without
+        // this address: the door closes only if none of them names the
+        // route (`OperatorSet::remove_unless_named`).
+        let still_named: Vec<String> = self
+            .operator_inputs
+            .iter()
+            .chain(&self.static_authored)
+            .chain(self.bootstrap.peers())
+            .cloned()
+            .collect();
+        self.swarm
+            .forget_address(peer.clone(), parsed, &still_named)
+            .await
+            .unwrap_or(true)
+    }
+
+    /// `moved` written, then given to the running provider; on a failed
+    /// write -- or a provider that refuses the entries -- the previous
+    /// overlay is put back where the new one may be on disk, and the
+    /// change is answered `Internal` with nothing changed (written before
+    /// published, ADR-0028).
+    fn commit_bootstrap(&mut self, moved: BootstrapOverlay) -> Result<(), TransportError> {
+        if let Some(path) = self.bootstrap_file.clone()
+            && let Err(e) = self.write_bootstrap(&moved, &path)
+        {
+            if e.installed() {
+                let previous = self.bootstrap.clone();
+                let _ = self.write_bootstrap(&previous, &path);
+            }
+            tracing::warn!("admin.peers: the bootstrap overlay could not be written: {e}");
+            return Err(TransportError::Internal);
+        }
+        // NO PROVIDER RUNS under an authored `enabled: false`: the add is
+        // refused before this, and a removal of an entry that provider
+        // emits to nobody changes the overlay alone (ADR-0062 decision 2;
+        // `a_disabled_provider_refuses_the_add_and_lists_the_overlay_as_not_dialled`).
+        let published = if self.static_how == StaticAuthoring::Disabled {
+            Ok(())
+        } else {
+            moved
+                .composed(&self.static_authored)
+                .iter()
+                .map(|peer| static_entry(peer))
+                .collect::<Result<Vec<_>, _>>()
+                .and_then(|entries| self.discovery.set_static_entries(entries, (self.clock)()))
+        };
+        if let Err(e) = published {
+            if let Some(path) = self.bootstrap_file.clone() {
+                let previous = self.bootstrap.clone();
+                let _ = self.write_bootstrap(&previous, &path);
+            }
+            tracing::warn!("admin.peers: the static-bootstrap provider refused the change: {e}");
+            return Err(TransportError::Internal);
+        }
+        self.bootstrap = moved;
+        Ok(())
+    }
+
+    fn write_bootstrap(
+        &self,
+        overlay: &BootstrapOverlay,
+        path: &std::path::Path,
+    ) -> Result<(), BootstrapOverlayError> {
+        overlay.write_within(path, &self.trust_boundary)
+    }
+
+    /// Every bootstrap address, authored first, then added, each marked
+    /// dialled unless an authored `enabled: false` provider emits nothing.
+    fn bootstrap_rows(&self) -> Vec<BootstrapAddress> {
+        let dialled = self.static_how != StaticAuthoring::Disabled;
+        self.static_authored
+            .iter()
+            .map(|a| (a, AddressSource::Authored))
+            .chain(
+                self.bootstrap
+                    .peers()
+                    .iter()
+                    .map(|a| (a, AddressSource::Added)),
+            )
+            .map(|(address, source)| BootstrapAddress {
+                address: address.clone(),
+                source,
+                dialled,
+            })
+            .collect()
     }
 
     /// Write `overlay` to `path`: the overlay's own write, or -- test
@@ -1508,6 +1820,14 @@ impl Driver {
     /// what changed -- through `learn`, the peer's door.
     async fn discovery_round(&mut self) {
         let now = (self.clock)();
+        // A REMOVED ADDRESS IS ASKED AGAIN until the book lets it go: a
+        // live quarantine leaves only into room the table can give it
+        // (`ConnectionManager::forget_address`).
+        for (peer, address) in std::mem::take(&mut self.pending_forget) {
+            if !self.forget(&peer, &address).await {
+                self.pending_forget.push((peer, address));
+            }
+        }
         for command in self.discovery.kademlia_commands(now) {
             let _ = self.swarm.kademlia(command).await;
         }

@@ -357,6 +357,46 @@ mod tests {
         harness.stop().await;
     }
 
+    /// The `admin.peers` address methods are 2.7's: below it an unknown
+    /// name; at it answered from the port on a connection granted
+    /// `admin.peers`, and refused `CapabilityDenied` on one that was not --
+    /// the control that the grant, not the minor, admits it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_address_methods_are_admitted_at_two_seven_under_admin_peers() {
+        let fake = Fake::default();
+        let harness = Harness::start(&fake, config());
+        let request = r#"{"type":"request","id":"a","method":"admin.peers.add_address","params":{"address":"x"}}"#;
+        let peers_hello = ADMIN.replace(r#""admin.status""#, r#""admin.status","admin.peers""#);
+        for (hello, minor, answer) in [
+            (ADMIN, 6, "ProtocolUnsupported"),
+            (ADMIN, 7, "CapabilityDenied"),
+            (peers_hello.as_str(), 7, r#""ok":true"#),
+        ] {
+            let mut client = Client::connect(&harness.paths.admin).await;
+            client
+                .hello(&hello.replace(r#""minor":0"#, &format!(r#""minor":{minor}"#)))
+                .await;
+            client.send(request).await;
+            let response = client.response().await;
+            assert!(
+                response.body.contains(answer),
+                "2.{minor}: {}",
+                response.body
+            );
+            drop(client);
+        }
+        assert_eq!(
+            fake.script()
+                .calls
+                .iter()
+                .filter(|c| c.starts_with("add_address"))
+                .count(),
+            1,
+            "only the granted 2.7 request reached the port"
+        );
+        harness.stop().await;
+    }
+
     /// `admin.trust.list` answers the row its connection negotiated: the
     /// 2.1 row (`persisted` false, no `source`) on a 2.2 connection, the
     /// 2.3 row (`persisted` true with its `source`) on a 2.3 one -- from
@@ -676,13 +716,20 @@ mod tests {
     async fn an_answered_probe_keeps_the_connection() {
         let fake = Fake::default();
         let mut config = config();
-        config.keepalive.interval = Duration::from_millis(50);
-        config.keepalive.response_timeout = Duration::from_millis(100);
+        config.keepalive.interval = Duration::from_millis(100);
+        // A WINDOW A LOADED HOST CAN MEET, IN A RUN LONGER THAN IT: 100 ms
+        // closed the connection once before the client's pong was read
+        // (BrokenPipe, rust-ui-dev's observation 01a162d8), and a window
+        // longer than the whole run would pass on a server that ignored
+        // every pong. Answering for three windows keeps the claim: a pong
+        // not taken closes the connection inside the run.
+        config.keepalive.response_timeout = Duration::from_secs(1);
         config.keepalive.max_missed = 1;
         let harness = Harness::start(&fake, config);
         let mut client = Client::connect(&harness.paths.data).await;
         client.hello(DATA).await;
-        for _ in 0..3 {
+        let until = tokio::time::Instant::now() + Duration::from_secs(3);
+        while tokio::time::Instant::now() < until {
             let Some(Frame::Ping(ping)) = client.next_reply().await else {
                 panic!("a ping")
             };

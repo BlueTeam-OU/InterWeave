@@ -20,6 +20,13 @@
 //! caller that opens a private directory -- the human store's opener
 //! included -- so a directory outside the root, the platform's `files/`
 //! among them, is refused whoever asks.
+//!
+//! A PERSON'S BOOTSTRAP ADDRESS (ADR-0062) is added, removed and listed
+//! through the binding, as a trust change is: an admin port holding
+//! `AdminCapability::Peers` reaches the very function the daemon's
+//! `admin.peers.*` methods serve, its special-use floor included, and
+//! the overlay it writes lies under this root
+//! (`the_host_adds_an_address_through_its_binding_and_keeps_it_under_its_root`).
 
 use std::path::PathBuf;
 use std::time::Duration;

@@ -225,17 +225,66 @@
           "$ref": "urn:interweave:schemas:ipc:peer-list-params"
         }
       }
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "admin.peers.add_address"
+        },
+        "params": {
+          "$ref": "urn:interweave:schemas:ipc:peers-address-params"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "admin.peers.remove_address"
+        },
+        "params": {
+          "$ref": "urn:interweave:schemas:ipc:peers-address-params"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "admin.peers.list_addresses"
+        },
+        "params": {
+          "$ref": "urn:interweave:schemas:ipc:empty-result"
+        }
+      }
     }
   ],
   "x-contract": {
     "name": "ipc.request",
     "status": "active",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "adr": [
       "0017",
       "0037",
       "0030",
-      "0032"
+      "0032",
+      "0062"
     ],
     "specification": "architecture/contracts/LOCAL-IPC.md"
   }

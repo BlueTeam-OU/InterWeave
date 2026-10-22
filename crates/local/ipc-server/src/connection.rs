@@ -368,7 +368,10 @@ where
             Port::Admin(port) => (
                 AuthorityDomain::Admin,
                 std::collections::BTreeSet::default(),
-                admin_grants(port.port()),
+                // The port's set whole: a list of the capabilities that
+                // existed when it was written once refused `admin.peers`
+                // to a connection that held it.
+                port.port().capabilities().clone(),
             ),
         };
         let admitted = frame.admit(&Admission {
@@ -632,16 +635,6 @@ fn command_deadline(deadline_ms: Option<u64>, config: &ServerConfig) -> Duration
     deadline_ms
         .map_or(config.command_deadline, Duration::from_millis)
         .clamp(MIN_DEADLINE, MAX_DEADLINE)
-}
-
-fn admin_grants(
-    port: &interweave_local_client_api::LocalAdminPort,
-) -> std::collections::BTreeSet<interweave_local_client_api::AdminCapability> {
-    use interweave_local_client_api::AdminCapability as C;
-    [C::Status, C::Endpoints, C::Shutdown, C::Trust]
-        .into_iter()
-        .filter(|c| port.holds(*c))
-        .collect()
 }
 
 async fn sleep_until(at: Option<tokio::time::Instant>) {

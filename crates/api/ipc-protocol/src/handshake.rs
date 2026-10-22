@@ -182,6 +182,9 @@ pub enum RequestedCapability {
     /// Read and change the peer trust policy (2.1).
     #[serde(rename = "admin.trust")]
     AdminTrust,
+    /// Add, remove and list the bootstrap addresses (2.7, ADR-0062).
+    #[serde(rename = "admin.peers")]
+    AdminPeers,
 }
 
 impl RequestedCapability {
@@ -192,9 +195,11 @@ impl RequestedCapability {
             Self::Events => Some(DataCapability::Events),
             Self::Commands => Some(DataCapability::Commands),
             Self::EndpointsQuery => Some(DataCapability::EndpointsQuery),
-            Self::AdminStatus | Self::AdminEndpoints | Self::AdminShutdown | Self::AdminTrust => {
-                None
-            }
+            Self::AdminStatus
+            | Self::AdminEndpoints
+            | Self::AdminShutdown
+            | Self::AdminTrust
+            | Self::AdminPeers => None,
         }
     }
 
@@ -206,6 +211,7 @@ impl RequestedCapability {
             Self::AdminEndpoints => Some(AdminCapability::Endpoints),
             Self::AdminShutdown => Some(AdminCapability::Shutdown),
             Self::AdminTrust => Some(AdminCapability::Trust),
+            Self::AdminPeers => Some(AdminCapability::Peers),
             Self::Events | Self::Commands | Self::EndpointsQuery => None,
         }
     }
@@ -221,6 +227,7 @@ impl RequestedCapability {
             | Self::AdminEndpoints
             | Self::AdminShutdown => 0,
             Self::AdminTrust => 1,
+            Self::AdminPeers => 7,
         }
     }
 

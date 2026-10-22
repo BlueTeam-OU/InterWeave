@@ -273,6 +273,20 @@ pub(super) fn learn_route(
     manager.learn_address(peer, &canonical_dial_address(peer, address), now_ms)
 }
 
+/// Forget a route an operator removed (ADR-0062), under the one spelling
+/// [`learn_route`] keyed it by. The caller holds what the person typed --
+/// a bootstrap entry ending in `/p2p/<peer>` -- while the book holds the
+/// canonical form, so a raw removal would find nothing and leave the
+/// route dialable (`a_route_forgotten_by_its_suffixed_spelling_leaves_the_book`).
+pub(super) fn forget_route(
+    manager: &mut ConnectionManager,
+    peer: &TransportIdentity,
+    address: &str,
+    now_ms: u64,
+) -> bool {
+    manager.forget_address(peer, &canonical_dial_address(peer, address), now_ms)
+}
+
 /// Settle an admission that could not be turned into a dial, and say why.
 ///
 /// PERMANENT, not transient. Every way `AdmittedDial::from_ticket`
@@ -1967,7 +1981,7 @@ mod tests {
     use super::{
         AdvertisedBoundary, Held, OpenConnection, PathSample, PolicyClosed, announce_path,
         best_path, book_origin, canonical_dial_address, closed_outright, command_origin,
-        commit_path, connections_to_close, flush_held_paths, is_permanent_dial_error,
+        commit_path, connections_to_close, flush_held_paths, forget_route, is_permanent_dial_error,
         learn_advertised, learn_route, path_events, retirable, settle_established_inbound,
         settle_established_outbound, settle_failed_dial, settle_path, settle_undialable,
         sweep_policy_closed,
@@ -4342,6 +4356,28 @@ mod tests {
         );
     }
 
+    /// THE CALLER HOLDS THE SUFFIXED SPELLING: a bootstrap entry the
+    /// person typed. Learned under either spelling, forgotten under the
+    /// suffixed one, the route leaves the book. The control: the same
+    /// suffixed string handed to the manager raw finds nothing.
+    #[test]
+    fn a_route_forgotten_by_its_suffixed_spelling_leaves_the_book() {
+        let peer = ident(RELAY);
+        let bare = "/ip4/192.0.2.1/tcp/1";
+        let suffixed = format!("{bare}/p2p/{RELAY}");
+        for learned in [bare.to_owned(), suffixed.clone()] {
+            let mut m = admitting_manager();
+            assert!(learn_route(&mut m, &peer, &learned, 0));
+            assert!(
+                m.forget_address(&peer, &suffixed, 0),
+                "raw: nothing to take"
+            );
+            assert_eq!(m.known_addresses(&peer), 1, "the control: raw misses it");
+            assert!(forget_route(&mut m, &peer, &suffixed, 0));
+            assert_eq!(m.known_addresses(&peer), 0, "learned as {learned}");
+        }
+    }
+
     #[test]
     fn learning_both_spellings_of_one_route_spends_one_slot() {
         // Consequence 3 of the same defect: `record_failure` and
@@ -4978,7 +5014,7 @@ mod tests {
             // one of the existing sites passes -- no count here, because
             // this one has now been restated four times and been wrong
             // twice. Said rather than assumed. Review findings on PR #86.
-            let routes: [(&str, usize); 12] = [
+            let routes: [(&str, usize); 13] = [
                 // `learn_route`, the only direct caller.
                 ("learn_address(", 1),
                 // `settle_failed_dial`'s non-structural arm for the extra
@@ -4993,11 +5029,16 @@ mod tests {
                 // addresses: removes the route from the book rather than
                 // scoring it, which is why it is keyed and not scored.
                 ("record_permanent_address_failure_unadmitted(", 1),
+                // An operator's removal (ADR-0062): `forget_route`, which
+                // canonicalizes as `learn_route` does. With the dot: a
+                // listener-side function of the same name in `commands.rs`
+                // keys no book.
+                (".forget_address(", 1),
                 // THE CANONICALIZATION, which is the thing this whole branch
                 // is for: `attempt_dial`'s use of it, its own declaration,
-                // and `learn_route`'s. Dropping any one of the three fails
+                // `learn_route`'s and `forget_route`'s. Dropping any one fails
                 // here, which is what the audit found nothing else did.
-                ("canonical_dial_address(", 3),
+                ("canonical_dial_address(", 4),
                 // And the function it wraps, which is where the key actually
                 // gets computed: its declaration, the wrapper's call, and
                 // `settle_failed_dial`'s `strip` closure. The FOURTH site is

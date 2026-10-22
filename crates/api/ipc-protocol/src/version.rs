@@ -23,9 +23,11 @@ pub const IPC_MAJOR: u64 = 2;
 /// ([`crate::event::ROUTE_NOTICE_SINCE_MINOR`], A 2026-10-09), and the
 /// persisted endpoint row brought 2.5
 /// ([`crate::ENDPOINT_PERSISTED_SINCE_MINOR`], ADR-0028 A 2026-10-11),
-/// and the peer row's route hold brought 2.6
-/// ([`crate::ROUTE_HELD_SINCE_MINOR`], ADR-0011 A 2026-10-21).
-pub const IPC_MAX_MINOR: u64 = 6;
+/// the peer row's route hold brought 2.6
+/// ([`crate::ROUTE_HELD_SINCE_MINOR`], ADR-0011 A 2026-10-21), and the
+/// `admin.peers` capability with its three address methods brought 2.7
+/// (ADR-0062).
+pub const IPC_MAX_MINOR: u64 = 7;
 
 /// A version pair as it crosses the wire.
 ///
@@ -150,7 +152,8 @@ mod tests {
             (4, 4),
             (5, 5),
             (6, 6),
-            (7, 6),
+            (7, 7),
+            (8, 7),
             (u64::MAX, IPC_MAX_MINOR),
         ] {
             assert_eq!(
