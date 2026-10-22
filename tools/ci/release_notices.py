@@ -347,7 +347,8 @@ def spdx_expression(line: str) -> list:
     """The ids of the SPDX expression that opens `line`: an id, then an
     operator (AND, OR, WITH in any case, or the legacy "/", "|", "+")
     before each further id, parentheses aside. Where an operator is due,
-    it ends only at a word with no letter or digit ("MIT -- see LICENSE",
+    it ends only at a word with no letter or digit, a parenthesis standing
+    alone excepted ("MIT -- see LICENSE",
     "MIT */") or after an id that ends a sentence ("MIT. See the notice");
     any other word there is read as an id, so an unknown one refuses the
     run rather than being dropped. A word that is not a clean id
@@ -361,6 +362,10 @@ def spdx_expression(line: str) -> list:
     ids, want_id, ended = [], True, False
     words = line.split()
     for at, word in enumerate(words):
+        # A parenthesis standing alone groups, wherever it stands: it is
+        # neither an id nor the prose that ends the expression ("( MIT ) OR X").
+        if re.fullmatch(r"[()]+", word):
+            continue
         bare = word.rstrip(".").strip("()").rstrip(".")
         if want_id:
             if not bare:
