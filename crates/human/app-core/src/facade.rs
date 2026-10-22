@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{
     AddressChangeFailure, AddressProblem, ClientEvent, Destination, Diagnostics, Inbound,
-    OutboundUpdate, RowError, SendError,
+    OutboundUpdate, RowError, SendError, SessionState,
 };
 use interweave_human_store::identity_key::IdentityKey;
 use interweave_human_store::{ReadEphemeral, RowId, StoreError};
@@ -168,6 +168,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             } else {
                 self.outbound.insert(update.row, update.clone());
             }
+        }
+        if matches!(event, ClientEvent::Session(SessionState::Ready { .. }))
+            && let Some(peer) = self.client.local_peer()
+        {
+            updates.push(Update::ThisDevice(peer.clone()));
         }
         updates.push(Update::Client(event));
         if relist {

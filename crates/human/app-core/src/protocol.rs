@@ -16,6 +16,7 @@ use interweave_human_ui_model::{
     ContactView, ConversationKey, IdentityView, ItemKey, ListedInbound, ListedOutbound, PhotoEdit,
     Proposal, ProposalContext, Table, TrustChange,
 };
+use interweave_transport_api::TransportIdentity;
 
 /// A person's intent, resolved by the model, for the facade side to carry
 /// out against the facade and the store.
@@ -171,6 +172,10 @@ pub enum Update {
     Client(ClientEvent),
     /// The facade's counters changed.
     Diagnostics(Diagnostics),
+    /// This node's `PeerId`, once a session is ready and the facade
+    /// knows it: Peers reads an address naming it as this device's own,
+    /// whether or not the trust list was ever read (design section 5.2).
+    ThisDevice(TransportIdentity),
     /// A send was committed as `row`.
     Sent {
         /// The conversation it was sent from.

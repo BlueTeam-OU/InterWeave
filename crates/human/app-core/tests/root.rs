@@ -1688,7 +1688,8 @@ async fn a_step_two_trust_answer_is_drawn_by_the_turn_that_takes_it() {
 
 /// A session that becomes ready again -- a reconnection, the runtime
 /// perhaps restarted with other lists -- reads both lists again, once,
-/// though both were read before.
+/// though both were read before; and the facade names this node's
+/// `PeerId` with it, for Peers' own row.
 #[tokio::test]
 async fn a_new_session_reads_both_lists_again() {
     use interweave_human_client_api::{ClientEvent, SessionState};
@@ -1697,6 +1698,12 @@ async fn a_new_session_reads_both_lists_again() {
     for now in 0..4 {
         root.pump(now).await;
     }
+    assert!(
+        root.updates
+            .iter()
+            .any(|u| matches!(u, Update::ThisDevice(p) if p == a.peer())),
+        "the session's PeerId sent with Ready"
+    );
     // Both lists read: the fake answers the address read as from an
     // older runtime, so it is given here as read and empty.
     root.model.apply(Update::AddressesRead(Ok(

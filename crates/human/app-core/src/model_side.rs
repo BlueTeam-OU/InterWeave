@@ -223,6 +223,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 self.model.client_event(event);
             }
             Update::Diagnostics(diagnostics) => self.model.diagnostics_updated(diagnostics),
+            Update::ThisDevice(peer) => self.model.this_device(peer),
             Update::Sent {
                 row,
                 destination,
