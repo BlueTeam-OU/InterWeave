@@ -47,10 +47,14 @@ fn named(label: &'static str) -> impl Fn(&Element) -> bool {
     move |e: &Element| e.name == label
 }
 
-/// Write `version` into the store's header, the WAL folded in first so
-/// the header is the one read.
-fn set_store_version(path: &Path, version: i64) {
-    let conn = rusqlite::Connection::open(path).expect("the store opens");
+/// Write `version` into the store's header under its key (ADR-0060), the
+/// WAL folded in first so the header is the one read.
+fn set_store_version(home: &Home, version: i64) {
+    let conn = interweave_human_store::at_rest::open_writable_for_tests(
+        &home.paths,
+        &interweave_human_store::key_custody::FilesystemCustody,
+    )
+    .expect("the store opens under its key");
     conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
         .expect("checkpointed");
     conn.pragma_update(None, "user_version", version)
@@ -149,7 +153,7 @@ async fn try_again_opens_the_app_once_the_store_is_put_right() {
     until_lease(&home.binding(), true, &client).await;
     assert!(client.terminate().success(), "{}", client.log());
     let store = app_store(&home);
-    set_store_version(&store, SCHEMA_VERSION + 1);
+    set_store_version(&home, SCHEMA_VERSION + 1);
 
     let mut client = app::start(&home);
     let screen = bus.window_of(client.child.id(), || client.log()).await;
@@ -221,7 +225,7 @@ async fn try_again_opens_the_app_once_the_store_is_put_right() {
         second.log()
     );
 
-    set_store_version(&store, SCHEMA_VERSION);
+    set_store_version(&home, SCHEMA_VERSION);
     let retry = screen
         .until("Try again", button(text(UiText::TryAgain)), || client.log())
         .await;
