@@ -20,7 +20,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use interweave_human_chat_protocol::{
-    HumanChatV2, decode_envelope_bytes, encode_outbound, parse_media_type,
+    CardRoute, Classified, HumanChatV2, classify, decode_envelope_bytes, encode_outbound,
+    encode_raw_envelope, is_card, parse_media_type,
 };
 use interweave_human_store::{
     AppMessageId, Cursor, HumanStore, InboundOrigin, NewInbound, NewOutbound, OutboundDestination,
@@ -43,9 +44,9 @@ use crate::problem::{
 };
 use crate::queue::{Capped, EventQueue};
 use interweave_human_client_api::{
-    ClientEvent, Connectivity, Destination, Diagnostics, Origin, OutboundStatus, OutboundUpdate,
-    Received, RowError, SendError, SendProblem, SessionProblem, SessionState, TrustList,
-    TrustOrigin, TrustProblem, TrustRow, TrustSetFailure,
+    ClientEvent, Connectivity, Destination, Diagnostics, Inbound, Origin, OutboundStatus,
+    OutboundUpdate, Received, ReceivedCard, RowError, SendError, SendProblem, SessionProblem,
+    SessionState, TrustList, TrustOrigin, TrustProblem, TrustRow, TrustSetFailure,
 };
 
 /// How many committed messages wait for hand-over at most: one session
@@ -182,7 +183,7 @@ pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     /// Inbound already committed but not yet handed over, because the
     /// facade took what a session held before closing it. Durable
     /// already; capped at [`HELD_CAP`].
-    held: Capped<Received>,
+    held: Capped<Inbound>,
     queue: EventQueue,
     diagnostics: Diagnostics,
 }
@@ -347,6 +348,70 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             .map_err(|_| SendError::InvalidEnvelope)?;
         let encoded = encode_outbound(envelope, self.config.max_payload_bytes)
             .map_err(|_| SendError::TooLarge)?;
+        self.commit_send(destination, app_message_id, encoded, now)
+            .await
+    }
+
+    /// Send a contact card, the JSON `build_card` made, to one direct
+    /// route: committed pending and attempted as a message is.
+    ///
+    /// What the receiver will run on it is run here first: a card that
+    /// does not verify as [`Classified::Card`] on this node's own route
+    /// (its `PeerId` and the endpoint it is sent from) would arrive
+    /// malformed, and is refused before any row exists.
+    ///
+    /// # Errors
+    /// [`SendError::InvalidEnvelope`] for such a card or with no session
+    /// to say this node's `PeerId`; otherwise as [`Self::send`].
+    pub async fn send_card(
+        &mut self,
+        peer: TransportIdentity,
+        endpoint: EndpointId,
+        card: &str,
+        now: u64,
+    ) -> Result<RowId, SendError> {
+        let (Some(own), Some(from)) = (self.local_peer().cloned(), self.endpoint().cloned()) else {
+            return Err(SendError::InvalidEnvelope);
+        };
+        let Classified::Card(parsed) = classify(
+            card,
+            CardRoute {
+                source_peer: &own,
+                source_endpoint: &from,
+            },
+        ) else {
+            return Err(SendError::InvalidEnvelope);
+        };
+        let app_message_id =
+            AppMessageId::parse(parsed.app_message_id).map_err(|_| SendError::InvalidEnvelope)?;
+        let encoded = encode_raw_envelope(card.as_bytes().to_vec(), self.config.max_payload_bytes)
+            .map_err(|_| SendError::TooLarge)?;
+        self.commit_send(
+            Destination::Direct {
+                peer,
+                endpoint: Some(endpoint),
+            },
+            app_message_id,
+            encoded,
+            now,
+        )
+        .await
+    }
+
+    /// This node's `PeerId`, as the open session learned it; `None` while
+    /// no session holds.
+    #[must_use]
+    pub fn local_peer(&self) -> Option<&TransportIdentity> {
+        self.session.as_ref().map(|s| s.session().local_peer())
+    }
+
+    async fn commit_send(
+        &mut self,
+        destination: Destination,
+        app_message_id: AppMessageId,
+        encoded: interweave_human_chat_protocol::Encoded,
+        now: u64,
+    ) -> Result<RowId, SendError> {
         let media_type =
             MediaType::parse(encoded.media_type).map_err(|_| SendError::InvalidEnvelope)?;
         let destination = match destination {
@@ -508,8 +573,8 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// in one read; up to [`HELD_CAP`] of it is handed over on this and
     /// later calls, and the rest stays unread in the store
     /// ([`ClientEvent::UnreadInStore`]).
-    pub async fn drain(&mut self, max: usize, now: u64) -> Vec<Received> {
-        let mut received: Vec<Received> = Vec::new();
+    pub async fn drain_inbound(&mut self, max: usize, now: u64) -> Vec<Inbound> {
+        let mut received: Vec<Inbound> = Vec::new();
         while received.len() < max {
             let Some(r) = self.held.pop() else {
                 break;
@@ -544,6 +609,20 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             self.lose_session(now).await;
         }
         received
+    }
+
+    /// [`Self::drain_inbound`], messages only: for a caller that shows no
+    /// card proposals. A card handed over here is committed unread in the
+    /// store all the same, so it is not lost: a card-aware root lists it.
+    pub async fn drain(&mut self, max: usize, now: u64) -> Vec<Received> {
+        Box::pin(self.drain_inbound(max, now))
+            .await
+            .into_iter()
+            .filter_map(|inbound| match inbound {
+                Inbound::Message(received) => Some(received),
+                Inbound::Card(_) => None,
+            })
+            .collect()
     }
 
     /// Leave [`SessionState::Refused`]: the person's "try again". Re-open
@@ -928,7 +1007,7 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// Commit what `events` carries, in order. Returns what was committed,
     /// whether the lease was lost, and whether the store failed (after
     /// which the rest is dropped and counted: the handoff window).
-    fn take(&mut self, events: Vec<SessionEvent>) -> (Vec<Received>, bool, bool) {
+    fn take(&mut self, events: Vec<SessionEvent>) -> (Vec<Inbound>, bool, bool) {
         let mut received = Vec::new();
         let mut lease_lost = false;
         let mut degraded = false;
@@ -982,7 +1061,7 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
                         channel: None,
                     };
                     match self.commit(&direct.payload, origin, stored) {
-                        Committed::Yes(r) => received.push(r),
+                        Committed::Yes(r) => received.push(*r),
                         Committed::Skipped => {}
                         Committed::StoreFailed => degraded = true,
                     }
@@ -998,7 +1077,7 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
                         channel: Some(broadcast.channel),
                     };
                     match self.commit(&broadcast.payload, origin, stored) {
-                        Committed::Yes(r) => received.push(r),
+                        Committed::Yes(r) => received.push(*r),
                         Committed::Skipped => {}
                         Committed::StoreFailed => degraded = true,
                     }
@@ -1035,10 +1114,14 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
     }
 
     fn commit(&mut self, payload: &Payload, origin: Origin, stored: InboundOrigin) -> Committed {
-        let Some(envelope) = self.decode(payload) else {
+        let Some(decoded) = self.decode(payload, &origin) else {
             return Committed::Skipped;
         };
-        let Ok(app_message_id) = AppMessageId::parse(envelope.app_message_id.clone()) else {
+        let id = match &decoded {
+            Decoded::Message(envelope) => envelope.app_message_id.clone(),
+            Decoded::Card(card) => card.app_message_id.clone(),
+        };
+        let Ok(app_message_id) = AppMessageId::parse(id) else {
             self.diagnostics.malformed_invalid_envelope += 1;
             return Committed::Skipped;
         };
@@ -1051,12 +1134,27 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             received_at,
         };
         match self.store.commit_unread_inbound(&new) {
-            Ok(row) => Committed::Yes(Received {
-                row,
-                origin,
-                envelope,
-                received_at,
-            }),
+            Ok(row) => Committed::Yes(Box::new(match decoded {
+                Decoded::Message(envelope) => Inbound::Message(Received {
+                    row,
+                    origin,
+                    envelope,
+                    received_at,
+                }),
+                Decoded::Card(card) => {
+                    // A card is decoded only from a direct origin.
+                    let Origin::Direct { peer, endpoint } = origin else {
+                        return Committed::Skipped;
+                    };
+                    Inbound::Card(ReceivedCard {
+                        row,
+                        peer,
+                        endpoint,
+                        card,
+                        received_at,
+                    })
+                }
+            })),
             Err(e) if e.is_duplicate() => Committed::Skipped,
             Err(_) => {
                 self.diagnostics.dropped_unstored += 1;
@@ -1065,9 +1163,17 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
         }
     }
 
-    /// The envelope, or `None` having counted why (`HUMAN-CHAT.md`
-    /// §Consumers: store nothing, present nothing, count it).
-    fn decode(&mut self, payload: &Payload) -> Option<HumanChatV2> {
+    /// The envelope or the card, or `None` having counted why
+    /// (`HUMAN-CHAT.md` §Consumers: store nothing, present nothing,
+    /// count it).
+    ///
+    /// A direct text is asked first whether it is a card: any top-level
+    /// `kind` of `contact_card` makes it one, so a card that is malformed
+    /// is counted as a card and never reaches the message parser, which
+    /// would refuse it as an unknown kind. A card over broadcast is
+    /// ignored: broadcast is not the channel a card is sent on, and its
+    /// route has no endpoint to verify the signature over.
+    fn decode(&mut self, payload: &Payload, origin: &Origin) -> Option<Decoded> {
         let Some(info) = payload
             .media_type()
             .and_then(|m| parse_media_type(m.as_str()).ok())
@@ -1079,11 +1185,33 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             self.diagnostics.malformed_undecodable += 1;
             return None;
         };
+        match origin {
+            Origin::Direct { peer, endpoint } => match classify(
+                &text,
+                CardRoute {
+                    source_peer: peer,
+                    source_endpoint: endpoint,
+                },
+            ) {
+                Classified::Card(card) => return Some(Decoded::Card(card)),
+                Classified::MalformedCard(_) => {
+                    self.diagnostics.malformed_card += 1;
+                    return None;
+                }
+                Classified::NotCard => {}
+            },
+            Origin::Channel { .. } => {
+                if is_card(&text) {
+                    self.diagnostics.card_over_broadcast += 1;
+                    return None;
+                }
+            }
+        }
         let Ok(envelope) = HumanChatV2::parse(&text) else {
             self.diagnostics.malformed_invalid_envelope += 1;
             return None;
         };
-        Some(envelope)
+        Some(Decoded::Message(envelope))
     }
 
     // --- session transitions -----------------------------------------------
@@ -1143,8 +1271,15 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
     }
 }
 
+/// What a decoded inbound text is.
+enum Decoded {
+    Message(HumanChatV2),
+    Card(interweave_human_chat_protocol::Card),
+}
+
 enum Committed {
-    Yes(Received),
+    // Boxed: a card is far larger than the other two answers.
+    Yes(Box<Inbound>),
     Skipped,
     StoreFailed,
 }

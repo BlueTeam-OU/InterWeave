@@ -2953,13 +2953,21 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         Intent::RecheckStorage => UiText::RecheckStorage,
         Intent::AllowNetwork => UiText::AllowNetwork,
         Intent::Authenticate => UiText::Authenticate,
+        Intent::AcceptCard(_) => UiText::CardAccept,
+        Intent::DeclineCard(_) => UiText::CardDecline,
+        Intent::ShareCard(_) => UiText::ShareCard,
         // A restore is an Undo's, never a button of its own.
         Intent::MarkRead(_)
         | Intent::Send { .. }
         | Intent::OpenLink(_)
         | Intent::Restore(_)
         | Intent::ReadTrust
-        | Intent::SetTrust(_) => return None,
+        | Intent::SetTrust(_)
+        // Edits come from the settings and the contact page's own
+        // controls, never an item's.
+        | Intent::SetOwnCard { .. }
+        | Intent::RenameContact { .. }
+        | Intent::SetContactPhoto { .. } => return None,
     };
     Some(placeholder_en::text(text))
 }

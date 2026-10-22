@@ -37,6 +37,18 @@ interweave-profile-config = { path = "../../config/profile-config" }
 # host rather than of the release. `default-features = false` drops the
 # WASM shim the 0.40 default pulls in.
 rusqlite = { workspace = true }
+# Each identity's own key pair (ADR-0063, identity_key.rs): signing, and
+# its secret zeroized on drop. `legacy_compatibility` stays off here as in
+# chat-protocol, whose S-plus-order card fails the moment it is on.
+ed25519-dalek = { workspace = true, features = ["zeroize"] }
+base64 = { workspace = true }
+# `SysRng`: the key's 32 bytes come from the system's CSPRNG directly.
+rand = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { version = "1", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# A software stand-in for the Keystore's AES-256-GCM key in
+# tests/identity_key.rs; the version the embedded host's tests use.
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"] }

@@ -26,15 +26,15 @@ pub mod envelope;
 pub mod render;
 
 pub use card::{
-    CARD_BYTES_PREFIX, CARD_PHOTO_MEDIA_TYPES, CONTACT_CARD_KIND, Card, CardFault, CardPhoto,
-    CardRoute, Classified, MAX_CARD_NAME_SCALARS, MAX_CARD_PHOTO_BYTES, canonical_card_bytes,
-    classify,
+    CARD_BYTES_PREFIX, CARD_PHOTO_MEDIA_TYPES, CONTACT_CARD_KIND, Card, CardBuildError, CardDraft,
+    CardFault, CardPhoto, CardRoute, Classified, MAX_CARD_NAME_SCALARS, MAX_CARD_PHOTO_BYTES,
+    build_card, canonical_card_bytes, check_draft, classify, is_card,
 };
 pub use decode::{
     CONTENT_ENCODING_BROTLI, ContentEncoding, DecodeError, MAX_DECOMPRESSED_BYTES, MEDIA_TYPE_V2,
     MediaTypeInfo, decode_envelope_bytes, parse_media_type, sender_may_compress,
 };
-pub use encode::{EncodeError, Encoded, encode_outbound};
+pub use encode::{EncodeError, Encoded, encode_outbound, encode_raw_envelope};
 pub use envelope::{
     ALLOWED_LINK_SCHEMES, COMMONMARK_VERSION, EnvelopeError, GFM_VERSION, HumanChatV2,
     MAX_BLOCK_NESTING, MAX_INLINE_NESTING, MAX_SENT_AT_MS, MAX_TABLE_COLUMNS, MAX_TABLE_ROWS,

@@ -32,6 +32,10 @@ pub use labels::{
     visible_destination,
 };
 pub use look::{Avatar, AvatarHue, Day, LocalTime, Weekday, local_time};
+pub use model::cards::{
+    AcceptLine, ContactRef, ContactView, IdentityView, KeyView, PhotoEdit, Proposal,
+    ProposalContext, ProposalItem, ProposalNote, READ_PROPOSAL_CAP, RouteView,
+};
 pub use model::{
     Announce, Composer, Confirmation, ConversationKey, ConversationSummary, DEDUP_CAP, Direction,
     FocusTarget, HELD_UPDATE_CAP, Intent, ItemDiagnostics, ItemKey, ItemStatus, LastMessage,
