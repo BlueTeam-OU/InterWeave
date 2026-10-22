@@ -400,6 +400,18 @@ impl SwarmRuntime {
         answer.await.map_err(|_| SubstrateError::Stopped)
     }
 
+    /// Whether the operator's door holds `address` as a route to `peer`
+    /// -- asked as the store doors ask it. A read, for a caller judging
+    /// what a removal left in place.
+    #[must_use]
+    pub fn operator_holds(&self, peer: &TransportIdentity, address: &Multiaddr) -> bool {
+        let record = peer.as_str().parse::<libp2p::PeerId>().map_or_else(
+            |_| address.clone(),
+            |owner| crate::operator_set::probe_for(address, &owner),
+        );
+        self.operator.contains(&record)
+    }
+
     /// Undo [`Self::add_address`] for an address the operator removed
     /// (ADR-0062: a removed bootstrap address is dialled no more, without
     /// a restart): out of the operator set unless an input in
