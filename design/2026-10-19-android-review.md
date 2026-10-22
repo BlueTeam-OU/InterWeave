@@ -769,8 +769,9 @@ Not run in round 4, and why:
 - F16's second half (acceptance 23): it needs a send to a peer Trust
   does not list.
 
-**Ranking of what remains for the close**, by what a person notices
-first (for architect-cto-01 to put to the owner):
+**Order of what remains for the close**, by what a person notices
+first (for architect-cto-01 to put to the owner; an order, not §5's
+ranks):
 1. F9 step 5's last part: the newest message's text out of view with the
    keyboard up in landscape, which hides what a status refers to;
 2. F17: a row drawn as selected on a phone, where nothing is open;
@@ -796,6 +797,15 @@ as found.
 | F17 | Pass: after the app bar's Back from …x6gY6Eri, no Chats row is drawn as selected on a phone-wide window. |
 | F10 | Unchanged: both earlier pending rows read "May have reached the peer, send again or cancel" at 01:14; a retry in progress, which the new waiting status is for, was not on screen. |
 
+Not re-walked on 177170bf: F1, F2, F3, F4, F5, F7, F8, F11, F12, F13
+and F14, which passed on earlier builds (the close table cites each
+round). #358 changed F17's selection and F9's landscape layout, per
+rust-ui-dev-01's INFO 01a161c7, and this round walked what it changed
+and what was still open. The owner's date change (round 4) is
+specified on this branch and not yet built: the build still reads
+"Saturday" in the separator and the list, as `labels.rs` and
+`clock.rs` do on main.
+
 Also seen: one long-press on the new pending row opened its menu and
 a second, minutes later, did not (the drag left then worked); not
 reproduced, so not filed.
@@ -807,12 +817,12 @@ reproduced, so not filed.
 | 1 | F1 Back | built, re-reviewed: pass (round 1) |
 | 1 | F2 actions as buttons | built, re-reviewed: pass (round 1) |
 | 1 | F3 composer | built and passed as ranked (round 2); its insertion handle after Back is Slint 1.18.1's Android backend: carried by name to the release gate, toolkit-limited (architect-cto-01, INFO 01a15914) |
-| 1 | F4 Trust's look and PeerIds | built, re-reviewed: pass (rounds 3 and 4) |
+| 1 | F4 Trust's look and PeerIds | built, re-reviewed: partly. Met except Trust at 200 % font in light theme, which no round walked (Trust dark at 1.0 in round 3, Details at 200 % and light in round 4); carried by name to a person's check or the next window |
 | 1 | F8 status bar in light theme | built, re-reviewed: pass (round 1) |
 | 1 | F9 landscape keyboard | built, re-reviewed: pass (round 5) |
 | 1 | F16 composer focus and untrusted send | first half pass (round 3); second half not met (round 5): the not-trusted reason is not shown |
 | 2 | F5 focus ring on touch | built: pass (round 2) |
-| 2 | F6 "/ human" in titles | built: titles show the PeerId fragment alone (rounds 3-5) |
+| 2 | F6 "/ human" in titles | built: round 5 saw the titles "…x6gY6Eri" and "…5eQhFJG4" in the list and the app bar, with no "/ human"; F6's truncation at 200 % was not re-checked |
 | 2 | F7 app bar subtitle | built: pass (round 2) |
 | 2 | F10 pending status over hours | built (62312ee5); not seen on the phone, since no retry was in progress in any window: carried by name |
 | 2 | F11 Details | built: pass (round 2) |
@@ -820,6 +830,7 @@ reproduced, so not filed.
 | 3 | F12 Trust's entry | built: pass (round 2) |
 | 3 | F13 font scale keeps the conversation | built: pass (round 1) |
 | 3 | F17 selected row on a phone | built: pass (round 5) |
+| — | the owner's dates (round 4) | specified in the look spec on this branch; not built |
 
 Not reviewed on the phone, and why: the identity screens' own
 acceptance (`design/2026-10-19-android-identity.md` §10). S2 and its
