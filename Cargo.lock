@@ -3624,11 +3624,17 @@ dependencies = [
 name = "interweave-human-store"
 version = "0.0.0"
 dependencies = [
+ "aes-gcm",
+ "base64 0.23.1",
+ "ed25519-dalek",
  "interweave-human-core",
  "interweave-profile-config",
  "interweave-transport-api",
+ "rand 0.10.3",
  "rusqlite",
+ "sha2 0.10.9",
  "tempfile",
+ "zeroize",
 ]
 
 [[package]]

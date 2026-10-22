@@ -31,7 +31,9 @@
 //! bucket, relay reservation, AutoNAT evidence, direct dedup record, or
 //! endpoint-directory cache. This database is application state: it is
 //! safe to delete, and deleting it changes no `PeerId` and no trust
-//! policy.
+//! policy. Each identity's own key pair is this crate's too, and it is
+//! kept BESIDE the database in a file of its own and never in it
+//! ([`identity_key`]), so deleting the database leaves every key.
 //!
 //! # Degradation is not optional
 //!
@@ -43,6 +45,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod identity_key;
 pub mod records;
 pub mod schema;
 pub mod store;
