@@ -196,9 +196,15 @@ EOF
     X="$SANDBOX/x"
     mkdir -p "$X" "$SANDBOX/home"
     tar -xzf "$A" -C "$X"
-    if HOME="$SANDBOX/home" XDG_CONFIG_HOME="$SANDBOX/home/.config" PATH="$BIN:$PATH" \
-        sh "$X/$NAME/install.sh" >"$SANDBOX/install.out" 2>&1 \
-        && [[ "$("$SANDBOX/home/.local/bin/transportctl")" == transportctl ]] \
+    installed=0
+    HOME="$SANDBOX/home" XDG_CONFIG_HOME="$SANDBOX/home/.config" PATH="$BIN:$PATH" \
+        sh "$X/$NAME/install.sh" >"$SANDBOX/install.out" 2>&1 && installed=1
+    # Every program the archive ships is placed: each stand-in prints its
+    # own name.
+    for p in transport-daemon transportctl human-desktop interweave-human; do
+        [[ "$("$SANDBOX/home/.local/bin/$p" 2>/dev/null)" == "$p" ]] || installed=0
+    done
+    if (( installed )) \
         && [[ -f "$SANDBOX/home/.config/systemd/user/interweave-daemon@.service" ]] \
         && [[ ! -e "$X/$NAME/bin/claude-channel" ]]; then
         pass "the unpacked archive's install.sh installs its programs and units, and bin/ holds no bridge"

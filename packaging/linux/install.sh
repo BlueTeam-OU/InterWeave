@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Andrea Benetton
 #
-# Install InterWeave for the account that runs this: the three executables
+# Install InterWeave for the account that runs this: the four programs
 # into ~/.local/bin and the two systemd user-unit templates into
 # ${XDG_CONFIG_HOME:-~/.config}/systemd/user. Nothing system-wide, no root.
 # See README.md (plan section 22, packaging/linux).
@@ -14,7 +14,8 @@
 # person's, before an install and after an uninstall alike.
 #
 # Usage: install.sh [BIN_DIR]
-#   BIN_DIR holds transport-daemon, transportctl and human-desktop; it
+#   BIN_DIR holds transport-daemon, transportctl, human-desktop and
+#   interweave-human (the command-line human client); it
 #   defaults to the bin/ directory beside this script, as the release
 #   archive lays it out. The unit templates are read from the systemd/
 #   directory beside this script.
@@ -37,13 +38,15 @@ esac
 here=$(cd "$(dirname "$0")" && pwd)
 bin_dir=${1:-"$here/bin"}
 unit_src="$here/systemd"
+# The programs, as the release archive's bin/ carries them.
+programs="transport-daemon transportctl human-desktop interweave-human"
 # The units name %h/.local/bin, so this is the one place they look.
 bin_dest="$HOME/.local/bin"
 unit_dest="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
 # Everything is checked before anything is written, so a missing file
 # leaves no half install behind.
-for exe in transport-daemon transportctl human-desktop; do
+for exe in $programs; do
     if [ ! -f "$bin_dir/$exe" ] || [ ! -x "$bin_dir/$exe" ]; then
         echo "install.sh: no executable $bin_dir/$exe" >&2
         exit 1
@@ -68,7 +71,7 @@ refuse_directory() {
         exit 1
     fi
 }
-for exe in transport-daemon transportctl human-desktop; do
+for exe in $programs; do
     refuse_directory "$bin_dest/$exe"
     refuse_directory "$bin_dest/.$exe.install"
 done
@@ -79,7 +82,7 @@ done
 
 umask 077
 mkdir -p "$bin_dest" "$unit_dest"
-for exe in transport-daemon transportctl human-desktop; do
+for exe in $programs; do
     # Copied to a temporary name and renamed over the old one, so a daemon
     # running the old binary keeps its inode and an upgrade never leaves a
     # half-written executable at the name a unit starts.
