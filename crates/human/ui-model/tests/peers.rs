@@ -15,7 +15,7 @@ use interweave_human_client_api::{
 use interweave_human_ui_model::{
     AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES, Intent,
     LineSelection, ListProblem, PeersFocus, PeersInput, PeersSnack, Refusal, RowState, ScanVerdict,
-    TYPED_LINES, TrustChange, UiModel,
+    TYPED_LINES, TrustChange, TrustLine, UiModel,
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::TransportIdentity;
@@ -1089,4 +1089,120 @@ fn a_trust_made_but_not_read_back_is_decided_on_the_list_read_again() {
             assert!(!m.peers().add_open(), "trusted at last, the page closes");
         }
     }
+}
+
+/// With the address list read and the trust list not the daemon's word,
+/// no row claims a trust state and one line says why, with Try again
+/// where a retry can mend it (§5.2's trust unread): Try again that
+/// succeeds shows the states and puts focus on the title; one that fails
+/// keeps the line and focus on Try again. A Remove there claims no
+/// trust, and Not now on a block claims none either.
+#[test]
+fn an_unread_trust_list_is_said_and_no_row_guesses_its_trust() {
+    let (me, t) = (peer(), peer());
+    let states = |m: &UiModel| -> Vec<RowState> {
+        m.peers()
+            .rows(m.trust_settings())
+            .into_iter()
+            .map(|r| r.state)
+            .collect()
+    };
+    let unread = || {
+        let mut m = UiModel::new();
+        let _ = input(&mut m, PeersInput::Opened);
+        m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+        m.addresses_read(Ok(list(&[added(&t)])));
+        m
+    };
+
+    let mut m = unread();
+    assert_eq!(states(&m), vec![RowState::TrustUnknown]);
+    assert_eq!(
+        m.peers().trust_line(m.trust_settings()),
+        Some(TrustLine::Unread { retry: true })
+    );
+    assert_eq!(
+        input(&mut m, PeersInput::TrustReadAgain),
+        vec![Intent::ReadTrust]
+    );
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    let _ = m.peers_turn();
+    assert_eq!(focus(&m), Some(PeersFocus::TrustRetry), "failed: kept");
+    let _ = input(&mut m, PeersInput::TrustReadAgain);
+    m.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me.clone()),
+        allowed: vec![TrustRow::added_here(t.clone())],
+    }));
+    let _ = m.peers_turn();
+    assert_eq!(focus(&m), Some(PeersFocus::Title), "read: as on opening");
+    assert_eq!(m.peers().trust_line(m.trust_settings()), None);
+    assert_eq!(states(&m), vec![RowState::Trusted]);
+
+    // Refused: its own line, no Try again.
+    let mut m = UiModel::new();
+    let _ = input(&mut m, PeersInput::Opened);
+    m.trust_settings_mut().read(Err(TrustProblem::NotPermitted));
+    m.addresses_read(Ok(list(&[added(&t)])));
+    assert_eq!(
+        m.peers().trust_line(m.trust_settings()),
+        Some(TrustLine::NotPermitted)
+    );
+
+    // A Trust made but not read back: the kept list is no fact either.
+    let mut m = opened(&me, &[], &[added(&t)]);
+    assert_eq!(states(&m), vec![RowState::NeedsTrust]);
+    m.trust_settings_mut().set(
+        TrustChange {
+            peer: t.clone(),
+            allowed: true,
+        },
+        Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Unavailable)),
+    );
+    assert_eq!(states(&m), vec![RowState::TrustUnknown]);
+    assert_eq!(
+        m.peers().trust_line(m.trust_settings()),
+        Some(TrustLine::Unread { retry: true })
+    );
+
+    // A Remove while trust is unread claims no trust, though the list as
+    // last read held the peer.
+    let mut m = opened(&me, std::slice::from_ref(&t), &[added(&t)]);
+    let _ = input(&mut m, PeersInput::Opened);
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    let _ = input(&mut m, PeersInput::Remove(at(&t)));
+    m.address_removed(&at(&t), answer(AddressOutcome::Removed, &[]));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::Removed {
+            address: at(&t),
+            trusted: false,
+            undo: true
+        })
+    );
+
+    // Not now on a block whose peer's trust is not known: two peers, so
+    // the page stays open on the decided block.
+    let mut m = unread();
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let (u, v) = (peer(), peer());
+    let two = vec![at(&u), at(&v)];
+    let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
+    m.addresses_added(
+        &two,
+        answer(
+            AddressOutcome::Added { peer: None },
+            &[added(&t), added(&u), added(&v)],
+        ),
+    );
+    let _ = input(&mut m, PeersInput::NotNow(u.clone()));
+    let blocks = m.peers().blocks(m.trust_settings());
+    assert_eq!(blocks[0].peer, u);
+    assert_eq!(blocks[0].state, BlockState::LaterUnknown);
+
+    // The address list unreadable too: its line stands alone.
+    let mut m = UiModel::new();
+    let _ = input(&mut m, PeersInput::Opened);
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(m.peers().trust_line(m.trust_settings()), None);
 }

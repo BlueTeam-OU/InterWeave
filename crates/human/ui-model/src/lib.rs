@@ -48,7 +48,7 @@ pub use model::{
 pub use peers::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES,
     LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus, PeersInput, PeersSnack,
-    Refusal, RowState, ScanVerdict, TYPED_LINES, lines_of,
+    Refusal, RowState, ScanVerdict, TYPED_LINES, TrustLine, lines_of,
 };
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};

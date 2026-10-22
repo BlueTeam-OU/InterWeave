@@ -791,6 +791,9 @@ ui_texts! {
     ShowMyAddress => "Show my address",
     /// Under Peers' two actions: an address is not trust.
     PeersNoTrust => "An address lets this device reach a peer. Adding an address does not mean that you trust the peer. Trust is a separate step.",
+    /// In `PeersNoTrust`'s place while the trust list is unread or not
+    /// confirmed, with or without Try again: no row's trust is claimed.
+    PeersTrustUnread => "The list of trusted peers could not be read, so this page does not show whether each peer is trusted.",
     /// A row's state: its peer is trusted, so this device dials it --
     /// never that the peer is reachable.
     PeerStateTrusted => "Trusted: this device tries to connect to this address",
@@ -871,6 +874,9 @@ ui_texts! {
     TrustStepDone => "Trusted",
     /// A block's state after Not now.
     TrustStepLater => "Not trusted yet",
+    /// A block's state after Not now or Done while its peer's trust is
+    /// not known: claims no trust state.
+    TrustStepLaterUnknown => "You did not choose Trust. InterWeave could not check whether this peer is already trusted.",
     /// The snackbar when every block was trusted.
     ConfirmPeerTrusted => "Peer trusted",
     /// The snackbar when an address was added.
@@ -983,6 +989,12 @@ host_texts! {
     PeersNotPermitted => {
         daemon: "This app is not allowed to read or change the list of addresses on this transport daemon.",
         embedded: "This app is not allowed to read or change the list of addresses.",
+    },
+    /// In `PeersNoTrust`'s place: this app may not read the trust list, so
+    /// no row's trust is shown; no Try again.
+    PeersTrustNotPermitted => {
+        daemon: "This app is not allowed to read the list of trusted peers on this transport daemon, so this page does not show whether each peer is trusted.",
+        embedded: "This app is not allowed to read the list of trusted peers, so this page does not show whether each peer is trusted.",
     },
     /// Peers and the add page: the runtime predates the methods.
     PeersIncompatible => {

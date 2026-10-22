@@ -168,6 +168,9 @@ pub enum BlockState {
     Trusted,
     /// Not now.
     Later,
+    /// Not now, while the trust list is not the daemon's word: Trust was
+    /// not chosen, and no trust state is claimed (§5.3).
+    LaterUnknown,
 }
 
 /// Why a block's Trust did not trust its peer: shown in the block, which
@@ -213,7 +216,11 @@ impl TrustBlock {
         } else if self.trusting {
             BlockState::Trusting
         } else if self.later {
-            BlockState::Later
+            if trust.confirmed_list().is_some() {
+                BlockState::Later
+            } else {
+                BlockState::LaterUnknown
+            }
         } else {
             BlockState::Undecided
         }
@@ -254,6 +261,24 @@ pub enum RowState {
     NeedsTrust,
     /// The configuration turns the list off: nothing dials it.
     ProviderOff,
+    /// The trust list is not the daemon's word (unread, refused, or a
+    /// Trust not read back): neither Trusted nor not is claimed, and
+    /// Trust stays offered (§5.2's trust unread).
+    TrustUnknown,
+}
+
+/// Why the rows show no trust state while the list is on show: in place
+/// of the line on what trust means (§5.2's trust unread).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TrustLine {
+    /// The trust list could not be read, or a change left it unread;
+    /// `retry` unless no retry can mend it (an incompatible read).
+    Unread {
+        /// Whether Try again is offered.
+        retry: bool,
+    },
+    /// This app may not read the trust list here.
+    NotPermitted,
 }
 
 /// Why the list is not on show (§5.7).
@@ -351,6 +376,8 @@ pub enum PeersFocus {
     AddAddress,
     /// Peers' unreadable line, in place of the list.
     ListProblem,
+    /// Try again on the trust-unread line.
+    TrustRetry,
     /// The note under Add an address (at the bound, or list off).
     AddAddressNote,
 }
@@ -364,6 +391,8 @@ pub enum PeersInput {
     Opened,
     /// Try again on an unread list.
     ReadAgain,
+    /// Try again on the trust-unread line: the trust list read again.
+    TrustReadAgain,
     /// Add an address pressed.
     OpenAdd,
     /// The field now reads this.
@@ -417,6 +446,13 @@ enum InFlight {
     Remove(String),
 }
 
+/// Whose Try again a read on its way answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Again {
+    List,
+    Trust,
+}
+
 /// A change whose answer was lost: what to decide once the list is read
 /// back.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -448,9 +484,9 @@ pub struct Peers {
     list: Option<AddressList>,
     list_problem: Option<ListProblem>,
     reading: bool,
-    /// The read on its way is Try again's: once it succeeds, focus goes as
-    /// when Peers opens.
-    read_again: bool,
+    /// The read on its way is a Try again's: the list's, which once it
+    /// succeeds sends focus as when Peers opens, or the trust line's.
+    again: Option<Again>,
     reread: bool,
     /// A change may have reached the runtime since the list was last
     /// read: its rows stay on show as last read (§5.7), but its
@@ -542,9 +578,16 @@ impl Peers {
                 self.ask_focus(PeersFocus::Title);
                 intents
             }
+            PeersInput::TrustReadAgain => {
+                let read = trust.opened();
+                if read.is_some() {
+                    self.again = Some(Again::Trust);
+                }
+                read.into_iter().collect()
+            }
             PeersInput::ReadAgain => {
                 let read = self.read();
-                self.read_again = read.is_some();
+                self.again = read.is_some().then_some(Again::List);
                 read.into_iter().collect()
             }
             PeersInput::OpenAdd => {
@@ -921,7 +964,7 @@ impl Peers {
     ) {
         self.reading = false;
         let check = self.check.take();
-        let again = std::mem::take(&mut self.read_again);
+        let again = self.again.take_if(|a| *a == Again::List).is_some();
         match answer {
             Ok(list) => {
                 self.list = Some(list);
@@ -1217,9 +1260,10 @@ impl Peers {
 
     fn removed(&mut self, address: &str, before: &AddressList, trust: &TrustSettings) {
         let row = before.addresses.iter().find(|a| a.address == address);
+        // "You still trust this peer" only on the daemon's word.
         let trusted = row
             .and_then(|r| r.peer.as_ref())
-            .is_some_and(|p| trust_allows(trust, p));
+            .is_some_and(|p| trust.confirmed_list().is_some_and(|l| l.allows(p)));
         let undo = row.is_none_or(|r| r.dialled);
         self.say(PeersSnack::Removed {
             address: address.to_owned(),
@@ -1315,6 +1359,16 @@ impl Peers {
     /// owed, and step two's blocks once trust answered.
     pub fn turn(&mut self, trust: &TrustSettings) -> Option<Intent> {
         self.trust_answers(trust);
+        // The trust line's Try again answered: the rows with their states
+        // and focus on the title, or the line again and focus kept on Try
+        // again (§8).
+        if self.again == Some(Again::Trust) && !trust.reading() {
+            self.again = None;
+            match self.trust_line(trust) {
+                None => self.ask_focus(PeersFocus::Title),
+                Some(_) => self.ask_focus(PeersFocus::TrustRetry),
+            }
+        }
         if !self.reread || self.reading || self.in_flight.is_some() {
             return None;
         }
@@ -1420,12 +1474,11 @@ impl Peers {
             address: a.address.clone(),
             peer: a.peer.clone(),
             origin: a.origin,
-            state: if !a.dialled {
-                RowState::ProviderOff
-            } else if a.peer.as_ref().is_some_and(|p| trust_allows(trust, p)) {
-                RowState::Trusted
-            } else {
-                RowState::NeedsTrust
+            state: match trust.confirmed_list() {
+                _ if !a.dialled => RowState::ProviderOff,
+                None => RowState::TrustUnknown,
+                Some(l) if a.peer.as_ref().is_some_and(|p| l.allows(p)) => RowState::Trusted,
+                Some(_) => RowState::NeedsTrust,
             },
         };
         shown(list).map(row).collect()
@@ -1510,6 +1563,27 @@ impl Peers {
     #[must_use]
     pub const fn focus(&self) -> (Option<&PeersFocus>, u64) {
         (self.focus.as_ref(), self.focuses)
+    }
+
+    /// Why the rows show no trust state, while the list is on show and
+    /// the trust list is not the daemon's word (§5.2's trust unread):
+    /// none while the list itself is unreadable, whose line stands alone,
+    /// and none while the first trust read is still on its way.
+    #[must_use]
+    pub fn trust_line(&self, trust: &TrustSettings) -> Option<TrustLine> {
+        self.list.as_ref()?;
+        if trust.confirmed_list().is_some() {
+            return None;
+        }
+        match trust.outcome().0 {
+            Some(TrustOutcome::Problem(p) | TrustOutcome::NotReadAgain(p)) => Some(match p {
+                TrustProblem::NotPermitted => TrustLine::NotPermitted,
+                TrustProblem::Incompatible => TrustLine::Unread { retry: false },
+                _ => TrustLine::Unread { retry: true },
+            }),
+            _ if trust.list().is_none() && trust.reading() => None,
+            _ => Some(TrustLine::Unread { retry: true }),
+        }
     }
 
     /// ADR-0062 decision 8's condition: the list read and empty, and
