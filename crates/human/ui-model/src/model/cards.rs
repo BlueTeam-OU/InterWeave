@@ -38,7 +38,7 @@ pub enum PhotoEdit {
 }
 
 /// A contact named in a proposal's context.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ContactRef {
     /// The store's id for it.
     pub contact_id: String,
@@ -47,7 +47,7 @@ pub struct ContactRef {
 }
 
 /// How a card's identity key stands against its route's record.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum KeyView {
     /// The route records no key: the first card on it, or a typed one.
     New,
@@ -61,7 +61,9 @@ pub enum KeyView {
 }
 
 /// What a received card would do, as the facade read it from the store.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Accept carries the one the person was shown, and the facade refuses it
+/// when the store no longer agrees, so no Accept writes what was not shown.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProposalContext {
     /// The contact holding the card's route, which Accept updates.
     pub updates: Option<ContactRef>,
@@ -182,6 +184,11 @@ pub struct IdentityView {
     pub peer: Option<TransportIdentity>,
 }
 
+/// How many proposals shown and read the model holds: as many as the
+/// facade holds read copies of (app-core's `READ_COPY_CAP`, which a test
+/// there holds equal), since past it an Accept could only fail.
+pub const READ_PROPOSAL_CAP: usize = 256;
+
 /// The model's card state.
 #[derive(Debug, Clone, Default)]
 pub(super) struct Cards {
@@ -190,6 +197,8 @@ pub(super) struct Cards {
     /// they last until the session ends unless the person acts
     /// (RETENTION.md: unread until shown, gone at exit once shown).
     read: std::collections::BTreeSet<RowId>,
+    /// The order they were read in, oldest first: the cap's eviction order.
+    read_order: std::collections::VecDeque<RowId>,
     contacts: Vec<ContactView>,
     identity: Option<IdentityView>,
     /// When each conversation last shared its identity's card, this
@@ -208,9 +217,24 @@ impl Cards {
     }
 
     /// A row was marked read: if it is a proposal's, it is shown now.
+    /// Past [`READ_PROPOSAL_CAP`], the oldest read one goes: the store no
+    /// longer holds it, and the facade no longer holds its copy either.
     pub(super) fn read(&mut self, row: RowId) {
-        if self.proposals.contains_key(&row) {
-            self.read.insert(row);
+        if self.proposals.contains_key(&row) && self.read.insert(row) {
+            self.read_order.push_back(row);
+        }
+        while self.read_order.len() > READ_PROPOSAL_CAP {
+            if let Some(oldest) = self.read_order.pop_front() {
+                self.read.remove(&oldest);
+                self.proposals.remove(&oldest);
+            }
+        }
+    }
+
+    fn resolved(&mut self, row: RowId) {
+        self.proposals.remove(&row);
+        if self.read.remove(&row) {
+            self.read_order.retain(|r| *r != row);
         }
     }
 
@@ -276,8 +300,7 @@ impl UiModel {
     /// A proposal the person accepted or declined, or whose copy is gone: it is gone from the
     /// conversation, whatever the store did.
     pub fn card_resolved(&mut self, row: RowId) {
-        self.cards.proposals.remove(&row);
-        self.cards.read.remove(&row);
+        self.cards.resolved(row);
     }
 
     /// This identity's card was shared on `key` at `at`.
@@ -299,6 +322,12 @@ impl UiModel {
     /// The identity in front, as the facade read it.
     pub fn identity_shown(&mut self, identity: IdentityView) {
         self.cards.identity = Some(identity);
+    }
+
+    /// The context a proposal was shown with: what its Accept carries.
+    #[must_use]
+    pub fn proposal_context(&self, row: RowId) -> Option<&ProposalContext> {
+        self.cards.proposals.get(&row).map(|p| &p.context)
     }
 
     /// A conversation's proposals, oldest first.
@@ -473,6 +502,31 @@ mod tests {
             received_at: u64::try_from(n).expect("small"),
             context,
         }
+    }
+
+    #[test]
+    fn proposals_shown_and_read_are_held_up_to_the_cap_oldest_going_first() {
+        let mut model = UiModel::new();
+        let total = READ_PROPOSAL_CAP + 2;
+        for n in 1..=i64::try_from(total).expect("small") {
+            model.card_received(proposal(n, P, "Ada", context()));
+            model.read(row(n));
+        }
+        let held = model.proposals(&direct(P, "human"));
+        assert_eq!(held.len(), READ_PROPOSAL_CAP);
+        assert_eq!(held[0].row, row(3), "the two read first are gone");
+        assert!(model.proposal_context(row(1)).is_none());
+        // An unread proposal is the store's to bound: it is never evicted.
+        model.card_received(proposal(10_000, P, "Ada", context()));
+        model.card_received(proposal(10_001, P, "Ada", context()));
+        model.read(row(10_001));
+        assert!(model.proposal_context(row(10_000)).is_some());
+        // A resolved one leaves the order, so it does not count twice.
+        model.card_resolved(row(10_001));
+        assert_eq!(
+            model.proposals(&direct(P, "human")).len(),
+            READ_PROPOSAL_CAP
+        );
     }
 
     fn contact(id: &str, name: &str, p: &str) -> ContactView {
