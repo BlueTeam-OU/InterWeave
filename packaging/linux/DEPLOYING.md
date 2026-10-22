@@ -42,6 +42,49 @@ have no safe place to live (`NoRuntimeDir`).
   none of the daemon, `transportctl identity init|show` or the bridge
   asks for one.
 
+### The account's directories
+
+The daemon and `transportctl` refuse a profile that another account
+could change, before reading or writing anything in it. On an account
+made by `useradd` with a user-private group (`USERGROUPS_ENAB yes` in
+`/etc/login.defs`, as on the Fedora host the recorded run used) and a
+home no other account can write to, nothing here needs doing: every directory below the home that is missing is
+created owner-only (0700), the key and the state files 0600. The rules,
+for an account set up otherwise:
+
+- **Every directory above the profile**, up to `/` -- the home and the
+  XDG roots included -- is owned by root or by the account, and no other
+  account can write to it: not writable by others unless sticky (like
+  `/tmp`), and group-writable only when the group is the account's own
+  private group (named as the account, with no other members, no ACL on
+  the directory). A 0775 home in a shared group such as `users`, or XDG
+  roots under a directory another non-root account owns, are refused.
+- **The state and data directories** of the profile
+  (`~/.local/state/interweave/profiles/<profile>`,
+  `~/.local/share/interweave/profiles/<profile>`) are owned by the
+  account and owner-only (0700); one made by hand with `mkdir -p` at
+  0755 is refused. Let `identity init` create them.
+- **The config directory and `config.yaml`**: owned by root or the
+  account and writable by no other account; `config.yaml` is a regular
+  file, not a symbolic link (a dotfiles manager that links it is
+  refused), at most 1 MiB.
+- **The key** (`identity.key`) and every file in the state directory
+  are owner-only (0600); one restored from a backup with wider modes, or
+  owned by another uid, stops the daemon.
+- **`$XDG_RUNTIME_DIR/interweave`**, the sockets' directory, is the
+  account's and exactly 0700; the daemon creates it so.
+- **A profile name** is 1 to 64 characters of `A-Z a-z 0-9 _ -`, not
+  starting with a dot.
+
+A refusal names the path, its owner, its mode and the rule, and the
+daemon exits 1 (its unit retries every 5 s). Two wordings mislead, so
+read past them: a directory "must be owner-only before key-equivalent
+material is written into it" means it must not be writable by another
+account (a 0755 home is fine); and from an `identity` command, "lock is
+held -- stop its daemon first" is printed for any refusal of the
+profile's lock, a directory's mode included -- the reason in brackets
+is the one that counts.
+
 ## 1. The programs
 
 From a release archive, once one exists for the version (the release run
