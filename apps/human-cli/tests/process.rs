@@ -44,6 +44,7 @@ fn help_names_every_verb_and_every_exit_code() {
         "identities enable|disable",
         "identities default",
         "store health",
+        "store discard",
         "card show",
         "card set",
         "card share",
