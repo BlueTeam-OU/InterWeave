@@ -6,7 +6,8 @@
      component's licence text, both read from the sources the build used,
      and {crate_notices} the link to THIRD-PARTY-NOTICES-android.md, the
      release asset holding the notice of every Rust crate compiled into
-     the native library, with its SHA-256 (ADR-0058 decision 5 and its
+     the native library, its SHA-256 in {crate_notices_sha256} in the
+     Android hash list beside the APK's (ADR-0058 decision 5 and its
      amendment of 2026-10-22 (ii): those notices are too long for the
      page's body; tools/ci/release_notices.py);
      {cert_sha256} is printed as apksigner prints it, lowercase hex with
@@ -41,6 +42,10 @@ Use these two values to check that the file is the one published here:
 - SHA-256 of the file: `{apk_sha256}`
 - SHA-256 of the signing certificate, the same for every release:
   `{cert_sha256}`
+
+The notices of the Rust libraries in the app are in a file of their
+own, attached to this release (see "Third-party notices for the
+Android app" below). SHA-256 of that file: `{crate_notices_sha256}`
 
 ### Installing and updating on Android
 
@@ -175,8 +180,8 @@ licence. Their notices are in a separate file, attached to this
 release. The file begins with a list: each line names a crate, its
 version and its licence, and gives the labels of its licence texts
 (T1, T2 and so on). The licence texts follow the list, under the
-heading "Licence texts". The link to the file and its SHA-256 are
-below. Use the SHA-256 to check that the file is the one published
-here.
+heading "Licence texts". The link to the file is below. Its SHA-256
+is in the Android section, under the values for the app. Use it to
+check that the file is the one published here.
 
 {crate_notices}
