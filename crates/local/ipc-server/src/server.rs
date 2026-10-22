@@ -357,6 +357,46 @@ mod tests {
         harness.stop().await;
     }
 
+    /// The `admin.peers` address methods are 2.7's: below it an unknown
+    /// name; at it answered from the port on a connection granted
+    /// `admin.peers`, and refused `CapabilityDenied` on one that was not --
+    /// the control that the grant, not the minor, admits it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_address_methods_are_admitted_at_two_seven_under_admin_peers() {
+        let fake = Fake::default();
+        let harness = Harness::start(&fake, config());
+        let request = r#"{"type":"request","id":"a","method":"admin.peers.add_address","params":{"address":"x"}}"#;
+        let peers_hello = ADMIN.replace(r#""admin.status""#, r#""admin.status","admin.peers""#);
+        for (hello, minor, answer) in [
+            (ADMIN, 6, "ProtocolUnsupported"),
+            (ADMIN, 7, "CapabilityDenied"),
+            (peers_hello.as_str(), 7, r#""ok":true"#),
+        ] {
+            let mut client = Client::connect(&harness.paths.admin).await;
+            client
+                .hello(&hello.replace(r#""minor":0"#, &format!(r#""minor":{minor}"#)))
+                .await;
+            client.send(request).await;
+            let response = client.response().await;
+            assert!(
+                response.body.contains(answer),
+                "2.{minor}: {}",
+                response.body
+            );
+            drop(client);
+        }
+        assert_eq!(
+            fake.script()
+                .calls
+                .iter()
+                .filter(|c| c.starts_with("add_address"))
+                .count(),
+            1,
+            "only the granted 2.7 request reached the port"
+        );
+        harness.stop().await;
+    }
+
     /// `admin.trust.list` answers the row its connection negotiated: the
     /// 2.1 row (`persisted` false, no `source`) on a 2.2 connection, the
     /// 2.3 row (`persisted` true with its `source`) on a 2.3 one -- from
