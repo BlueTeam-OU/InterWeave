@@ -183,3 +183,43 @@ fn a_removal_of_an_authored_entry_is_refused_and_of_an_absent_one_changes_nothin
         .expect("a change");
     assert!(removed.peers().is_empty());
 }
+
+/// AN ENTRY THE CONFIGURATION REFUSES IS REFUSED HERE, by name, before
+/// anything is written (#367 review F3): a DNS name the grammar takes
+/// whose address half passes `MAX_ADDRESS_BYTES`, refused at the add and
+/// at the load. The control: the same shape within the bound is taken.
+#[test]
+fn an_entry_the_configuration_refuses_is_refused_here() {
+    let name = |labels: usize| {
+        let mut parts = vec!["a".repeat(63); labels];
+        parts.push("b".repeat(61));
+        parts.join(".")
+    };
+    let long = format!("/dns4/{}/tcp/4001/p2p/{PEER}", name(3));
+    let fits = format!("/dns4/{}/tcp/4001/p2p/{PEER}", name(1));
+    assert!(
+        interweave_profile_config::split_peer_multiaddr(&long).is_ok(),
+        "the grammar takes it"
+    );
+
+    assert!(matches!(
+        BootstrapOverlay::default().add(&[], &long),
+        Err(MoveRefusal::Grammar(_))
+    ));
+    assert!(
+        BootstrapOverlay::default()
+            .add(&[], &fits)
+            .expect("the control")
+            .is_some()
+    );
+
+    let (_dir, path) = state();
+    put(&path, &file(&[fits.clone(), long]));
+    let err = load(&path, &[]).expect_err("an oversize entry on disk");
+    assert!(
+        matches!(err, BootstrapOverlayError::InvalidEntry { index: 1, .. }),
+        "{err:?}"
+    );
+    put(&path, &file(&[fits]));
+    load(&path, &[]).expect("the control loads");
+}

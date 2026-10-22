@@ -29,6 +29,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::private_read::{self, PrivateReadError};
+use interweave_discovery_api::MAX_ADDRESS_BYTES;
+
 use crate::{
     MAX_STATIC_BOOTSTRAP_PEERS, MAX_STATIC_PEER_BYTES, PersistError, ProfilePaths, TrustBoundary,
     persist, split_peer_multiaddr,
@@ -157,6 +159,26 @@ impl BootstrapOverlayError {
     }
 }
 
+/// The configuration's rule for one static-bootstrap entry, whole: the
+/// grammar, the entry and its address half each within their bounds,
+/// and a host this build can dial -- what `config.yaml`'s validator
+/// applies, so an entry it would refuse is refused here by name, before
+/// anything is written, rather than at wiring where it names nothing
+/// (#367 review F3, `an_entry_the_configuration_refuses_is_refused_here`).
+fn entry_grammar(entry: &str) -> Result<(), &'static str> {
+    if entry.len() > MAX_STATIC_PEER_BYTES {
+        return Err("the entry is longer than a static-bootstrap entry may be");
+    }
+    let (address, _) = split_peer_multiaddr(entry)?;
+    if address.len() > MAX_ADDRESS_BYTES {
+        return Err("the address is longer than a candidate address may be");
+    }
+    if crate::host_this_build_cannot_dial(address).is_some() {
+        return Err("the address names a host this build cannot dial");
+    }
+    Ok(())
+}
+
 impl BootstrapOverlay {
     /// The overlay's path for `paths`' profile.
     #[must_use]
@@ -195,7 +217,7 @@ impl BootstrapOverlay {
         let mut overlay: Self =
             private_read::object_only(&text).map_err(BootstrapOverlayError::Parse)?;
         for (index, entry) in overlay.peers.iter().enumerate() {
-            split_peer_multiaddr(entry)
+            entry_grammar(entry)
                 .map_err(|reason| BootstrapOverlayError::InvalidEntry { index, reason })?;
         }
         if overlay.normalise(authored) {
@@ -232,7 +254,7 @@ impl BootstrapOverlay {
     /// [`MoveRefusal::Grammar`] outside the configuration's grammar,
     /// [`MoveRefusal::Bound`] at the provider's bound.
     pub fn add(&self, authored: &[String], address: &str) -> Result<Option<Self>, MoveRefusal> {
-        split_peer_multiaddr(address).map_err(MoveRefusal::Grammar)?;
+        entry_grammar(address).map_err(MoveRefusal::Grammar)?;
         if authored
             .iter()
             .chain(&self.peers)
