@@ -18,7 +18,8 @@ use interweave_local_client_api::{
 use interweave_transport_api::{ChannelId, EndpointId, Payload, TransportError, base64url};
 
 use crate::card::{self, CardDrop};
-use crate::content::{Undecodable, channel_content};
+use crate::content::{PayloadEncoding, Undecodable, channel_content};
+use crate::host_event::{MAX_HOST_EVENT_BYTES, host_event_bytes};
 use crate::meta::{ChannelMeta, MetaError, MetaKey};
 use crate::received_at::rfc3339_utc;
 use crate::reply_token::{
@@ -186,7 +187,8 @@ impl BridgeState {
     ///
     /// # Errors
     /// [`ConvertError`], with nothing minted: the content is converted
-    /// before the token, so a dropped message leaves no route behind.
+    /// and its representation chosen before the token is minted, so a
+    /// dropped message leaves no route behind.
     pub fn notification(
         &mut self,
         event: &SessionEvent,
@@ -221,10 +223,16 @@ impl BridgeState {
             let count = &mut self.dropped_cards[reason.index()];
             *count = count.saturating_add(1);
         }
-        let (mut meta, content, route) = converted?;
-        if let Some(route) = route {
-            let token = base64url::encode(&entropy);
+        let (mut meta, (content, encoding), route) = converted?;
+        // The token is in `meta` before the representation is chosen, so
+        // the event measured is the event written, and minted last, so
+        // nothing fallible follows the mint.
+        let token = route.as_ref().map(|_| base64url::encode(&entropy));
+        if let Some(token) = &token {
             meta.set(MetaKey::ReplyToken, token.clone())?;
+        }
+        let content = bounded(content, encoding, &mut meta)?;
+        if let (Some(route), Some(token)) = (route, token) {
             self.tokens
                 .mint(token, route, now_ms)
                 .map_err(ConvertError::Token)?;
@@ -243,7 +251,7 @@ impl BridgeState {
     fn direct(
         message: &ReceivedDirect,
         lease: Option<&(EndpointId, Generation)>,
-    ) -> Result<(ChannelMeta, String, Option<ReplyRoute>), ConvertError> {
+    ) -> Result<Converted, ConvertError> {
         let mut meta = ChannelMeta::new();
         meta.set(MetaKey::DeliveryMode, "direct")?;
         meta.set(MetaKey::SourcePeer, message.source_peer.as_str())?;
@@ -295,9 +303,7 @@ impl BridgeState {
     }
 }
 
-fn broadcast(
-    message: &ReceivedBroadcast,
-) -> Result<(ChannelMeta, String, Option<ReplyRoute>), ConvertError> {
+fn broadcast(message: &ReceivedBroadcast) -> Result<Converted, ConvertError> {
     let mut meta = ChannelMeta::new();
     meta.set(MetaKey::DeliveryMode, "broadcast")?;
     meta.set(MetaKey::SourcePeer, message.source_peer.as_str())?;
@@ -313,6 +319,35 @@ fn broadcast(
         channel: message.channel.clone(),
     };
     Ok((meta, content, Some(route)))
+}
+
+/// A message's `meta`, its content with the representation chosen, and
+/// the route a reply to it takes.
+type Converted = (ChannelMeta, (String, PayloadEncoding), Option<ReplyRoute>);
+
+/// `content` within the host line's bound (CHANNEL-EVENT.md §Content,
+/// A 2026-10-22): a text whose event would pass [`MAX_HOST_EVENT_BYTES`]
+/// once escaped goes as the base64url of its bytes, `meta` saying so.
+/// Measured with every `meta` key set, the reply token included, so the
+/// event measured is the event written
+/// (`a_text_that_fits_only_without_its_token_is_base64url`). A base64url content is never
+/// re-measured: it escapes nothing, and the largest -- the decoded cap's
+/// 262,144 characters -- is under the bound with every key at its own
+/// (`the_largest_base64url_event_is_under_the_bound`).
+fn bounded(
+    content: String,
+    encoding: PayloadEncoding,
+    meta: &mut ChannelMeta,
+) -> Result<String, MetaError> {
+    if encoding == PayloadEncoding::Utf8 && host_event_bytes(&content, meta) > MAX_HOST_EVENT_BYTES
+    {
+        meta.set(
+            MetaKey::PayloadEncoding,
+            PayloadEncoding::Base64url.as_str(),
+        )?;
+        return Ok(base64url::encode(content.as_bytes()));
+    }
+    Ok(content)
 }
 
 /// Where a message came from, as the card parser needs it.
@@ -335,7 +370,7 @@ fn common(
     received_at_ms: u64,
     payload: &Payload,
     origin: Origin<'_>,
-) -> Result<String, ConvertError> {
+) -> Result<(String, PayloadEncoding), ConvertError> {
     let content = channel_content(payload).map_err(ConvertError::Content)?;
     let card = if is_human_chat(payload) {
         match origin {
@@ -363,9 +398,9 @@ fn common(
     match card {
         Some(card) => {
             card::set_meta(meta, &card)?;
-            Ok(String::new())
+            Ok((String::new(), content.encoding))
         }
-        None => Ok(content.text),
+        None => Ok((content.text, content.encoding)),
     }
 }
 
@@ -688,5 +723,66 @@ mod tests {
             bridge.reply_route(&token, NOW + ttl),
             Err(TransportError::InvalidArgument)
         );
+    }
+
+    /// A base64url content is not re-measured, so the largest one must be
+    /// under the bound however `meta` is filled: the decoded cap's
+    /// 262,144 characters beside every key at its longest value, of the
+    /// character that escapes to the most a meta value may hold (a quote:
+    /// four bytes in the pull event).
+    #[test]
+    fn the_largest_base64url_event_is_under_the_bound() {
+        let largest = base64url::encode(&vec![
+                0;
+                interweave_human_chat_protocol::MAX_DECOMPRESSED_BYTES
+            ]);
+        assert_eq!(largest.len(), 262_144);
+        let mut meta = ChannelMeta::new();
+        for key in MetaKey::ALL {
+            meta.set(key, "\"".repeat(crate::MAX_META_VALUE_BYTES))
+                .expect("a quote is a legal value");
+        }
+        let bytes = host_event_bytes(&largest, &meta);
+        assert!(bytes <= MAX_HOST_EVENT_BYTES, "{bytes}");
+    }
+
+    /// The reply token is measured: a text whose event is one byte over
+    /// the bound with its token goes as base64url, one byte shorter stays
+    /// text, and the same text with no token (no lease held) fits. Within
+    /// a legal 48 KiB payload: control characters to near the bound, then
+    /// plain bytes to the exact byte.
+    #[test]
+    fn a_text_that_fits_only_without_its_token_is_base64url() {
+        let with_text = |mut state: BridgeState, text: &str| {
+            let SessionEvent::Direct(mut message) = direct("claude") else {
+                unreachable!("a direct event")
+            };
+            message.payload = Payload::new(None, text.as_bytes().to_vec(), MAX_PAYLOAD_BYTES)
+                .expect("a legal payload");
+            state
+                .notification(&SessionEvent::Direct(message), [7; 16], NOW)
+                .expect("converted")
+                .expect("a notification")
+        };
+        let meta = with_text(leased(), "a").meta;
+        assert!(
+            meta.get(MetaKey::ReplyToken).is_some(),
+            "the control: a token"
+        );
+        let controls = "\u{1}".repeat((MAX_HOST_EVENT_BYTES - 1024) / 7);
+        let fill = MAX_HOST_EVENT_BYTES + 1 - host_event_bytes(&controls, &meta);
+        let over = controls + &"a".repeat(fill);
+        assert_eq!(host_event_bytes(&over, &meta), MAX_HOST_EVENT_BYTES + 1);
+        let at = &over[..over.len() - 1];
+        let encoding =
+            |n: &ChannelNotification| n.meta.get(MetaKey::PayloadEncoding).map(str::to_owned);
+        assert_eq!(
+            encoding(&with_text(leased(), &over)).as_deref(),
+            Some("base64url")
+        );
+        assert_eq!(encoding(&with_text(leased(), at)).as_deref(), Some("utf8"));
+        let untokened = with_text(BridgeState::new(), &over);
+        assert_eq!(untokened.meta.get(MetaKey::ReplyToken), None);
+        assert_eq!(encoding(&untokened).as_deref(), Some("utf8"));
     }
 }
