@@ -10,18 +10,19 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use interweave_ipc_protocol::{
-    AdminStatusResult, AuthorityDomain, Cancel, ChannelParams, ClientInfo, Close, DirectoryResult,
-    EmptyResult, EndpointList, EndpointParams, Event, EventType, Frame, GrantedLease,
-    HandshakeOutcome, Hello, HelloResponse, HelloTag, IPC_MAJOR, IpcVersion, MAX_BODY_BYTES,
-    MAX_REQUESTED, Method, Nonce, PeerList, PeerListParams, Ping, PublishParams, QueryParams,
-    Request, RequestId, RequestedCapability, ResponseFrame, SendParams, SendResult, ServerCounters,
-    ServerState, SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams, TrustList,
-    TrustListParams, TrustSetParams, UnsupportedMajor, encode_frame, supported,
+    AddressList, AddressParams, AddressResult, AdminStatusResult, AuthorityDomain, Cancel,
+    ChannelParams, ClientInfo, Close, DirectoryResult, EmptyResult, EndpointList, EndpointParams,
+    Event, EventType, Frame, GrantedLease, HandshakeOutcome, Hello, HelloResponse, HelloTag,
+    IPC_MAJOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED, Method, Nonce, PeerList, PeerListParams,
+    Ping, PublishParams, QueryParams, Request, RequestId, RequestedCapability, ResponseFrame,
+    SendParams, SendResult, ServerCounters, ServerState, SetDefaultParams, SetEnabledParams,
+    SetEnabledResult, ShutdownParams, TrustList, TrustListParams, TrustSetParams, UnsupportedMajor,
+    encode_frame, supported,
 };
 use interweave_local_client_api::{
-    AdminCapability, AdminStatus, DataCapability, EndpointAdminView, Generation, LeaseRecord,
-    LocalSessionEvent, PeerGateView, PeerOutcome, ReceivedBroadcast, ReceivedDirect, SessionEvent,
-    TrustAdminView,
+    AddressChange, AddressRefusal, AddressSource, AdminCapability, AdminStatus, BootstrapAddress,
+    DataCapability, EndpointAdminView, Generation, LeaseRecord, LocalSessionEvent, PeerGateView,
+    PeerOutcome, ReceivedBroadcast, ReceivedDirect, SessionEvent, TrustAdminView,
 };
 use interweave_transport_api::{
     ChannelId, ConnectivitySummary, DirectInboundState, EndpointDirectoryV1, EndpointId, Health,
@@ -713,6 +714,13 @@ fn every_request() -> Vec<Request> {
         Request::AdminPeersList(PeerListParams {
             after: Some(peer()),
         }),
+        Request::AdminPeersAddAddress(AddressParams {
+            address: format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", peer().as_str()),
+        }),
+        Request::AdminPeersRemoveAddress(AddressParams {
+            address: format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", peer().as_str()),
+        }),
+        Request::AdminPeersListAddresses,
     ];
     assert_eq!(
         requests.iter().map(Request::method).collect::<Vec<_>>(),
@@ -1177,7 +1185,9 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
             }
             Method::DirectSend => "architecture/contracts/schemas/ipc/send-params.schema.json",
             Method::EndpointsQuery => "architecture/contracts/schemas/ipc/query-params.schema.json",
-            Method::AdminStatus | Method::AdminEndpointsList => return None,
+            Method::AdminStatus | Method::AdminEndpointsList | Method::AdminPeersListAddresses => {
+                return None;
+            }
             Method::AdminEndpointsRevoke => {
                 "architecture/contracts/schemas/ipc/endpoint-params.schema.json"
             }
@@ -1198,6 +1208,9 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
             }
             Method::AdminPeersList => {
                 "architecture/contracts/schemas/ipc/peer-list-params.schema.json"
+            }
+            Method::AdminPeersAddAddress | Method::AdminPeersRemoveAddress => {
+                "architecture/contracts/schemas/ipc/peers-address-params.schema.json"
             }
         })
     };
@@ -1776,4 +1789,76 @@ fn the_peers_address_shapes_hold_what_the_contract_says() {
         list,
         serde_json::json!({ "addresses": [row("scanned", true)] }),
     );
+
+    // THE RUST MIRROR: what the server builds validates, and what the
+    // schema refuses a client refuses too.
+    let changes = [
+        AddressChange::Added,
+        AddressChange::Removed,
+        AddressChange::Unchanged,
+        AddressChange::Refused {
+            reason: AddressRefusal::SpecialUse,
+            detail: "d".repeat(600),
+        },
+    ];
+    for change in changes {
+        let wire = serde_json::to_value(AddressResult::from(change.clone())).expect("ser");
+        assert_valid(result, &wire);
+        let back: AddressChange = serde_json::from_value::<AddressResult>(wire)
+            .expect("parses")
+            .into();
+        match (&change, back) {
+            (
+                AddressChange::Refused { reason, .. },
+                AddressChange::Refused { reason: r, detail },
+            ) => {
+                assert_eq!(*reason, r);
+                assert_eq!(
+                    detail.chars().count(),
+                    512,
+                    "a long detail is cut to the bound"
+                );
+            }
+            (change, back) => assert_eq!(*change, back),
+        }
+    }
+    for wrong in [
+        serde_json::json!({ "outcome": "refused" }),
+        serde_json::json!({ "outcome": "added", "refused": "bound" }),
+        serde_json::json!({ "outcome": "refused", "refused": "dns" }),
+        serde_json::json!({ "outcome": "moved" }),
+        serde_json::json!({ "outcome": "refused", "refused": "bound", "detail": "d".repeat(513) }),
+    ] {
+        refuses(result, wrong.clone());
+        assert!(serde_json::from_value::<AddressResult>(wrong).is_err());
+    }
+    let views = vec![
+        BootstrapAddress {
+            address: address.clone(),
+            source: AddressSource::Authored,
+            dialled: true,
+        },
+        BootstrapAddress {
+            address: address.clone(),
+            source: AddressSource::Added,
+            dialled: false,
+        },
+    ];
+    let wire =
+        serde_json::to_value(AddressList::from_views(views.clone()).expect("rows")).expect("ser");
+    assert_valid(list, &wire);
+    let back: Vec<BootstrapAddress> = serde_json::from_value::<AddressList>(wire)
+        .expect("parses")
+        .addresses
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    assert_eq!(back, views);
+    assert!(AddressList::from_views(vec![views[0].clone(); 65]).is_err());
+    for wrong in [
+        serde_json::json!({ "addresses": vec![row("added", true); 65] }),
+        serde_json::json!({ "addresses": [row("scanned", true)] }),
+    ] {
+        assert!(serde_json::from_value::<AddressList>(wrong).is_err());
+    }
 }

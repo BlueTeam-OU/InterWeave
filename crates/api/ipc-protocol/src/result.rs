@@ -13,8 +13,9 @@
 use std::collections::BTreeSet;
 
 use interweave_local_client_api::{
-    AdminStatus, EndpointAdminView, Generation, IngressCounts, LeaseRecord, MAX_CLIENT_KIND_CHARS,
-    PeerGateView, PeerOutcome, PreAuthCounts, TrustAdminView, TrustSource,
+    AddressChange, AddressRefusal, AddressSource, AdminStatus, BootstrapAddress, EndpointAdminView,
+    Generation, IngressCounts, LeaseRecord, MAX_CLIENT_KIND_CHARS, PeerGateView, PeerOutcome,
+    PreAuthCounts, TrustAdminView, TrustSource,
 };
 use interweave_transport_api::{
     ConnectivitySummary, EndpointDirectoryV1, EndpointId, Health, MAX_DIRECTORY_ENTRIES,
@@ -61,6 +62,15 @@ pub const ROUTE_HELD_SINCE_MINOR: u64 = 6;
 /// 2026-10-07, LOCAL-IPC.md `admin.peers.list`).
 /// `a_full_page_of_the_largest_rows_fits_the_body`.
 pub const MAX_PEER_PAGE_ROWS: usize = 512;
+
+/// The most rows `admin.peers.list_addresses` carries
+/// (`ipc/peers-address-list.schema.json` `maxItems`): the static-bootstrap
+/// provider's bound, authored and added together (ADR-0062).
+pub const MAX_BOOTSTRAP_ADDRESS_ROWS: usize = 64;
+
+/// The most characters an `admin.peers` answer's `detail` carries
+/// (`ipc/peers-address-result.schema.json` `maxLength`).
+pub const MAX_ADDRESS_DETAIL_CHARS: usize = 512;
 
 /// `ipc/empty-result`: the `{}` of a method with nothing to say.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -840,6 +850,217 @@ fn absent_or_generation<'de, D: serde::Deserializer<'de>>(
     Generation::deserialize(d).map(Some)
 }
 
+/// `ipc/peers-address-result`: what an `admin.peers.add_address` or
+/// `admin.peers.remove_address` did. A refusal is an ANSWER naming its
+/// rule, never an error (ADR-0062).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AddressResult {
+    outcome: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refused: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+impl From<AddressChange> for AddressResult {
+    /// A `detail` past [`MAX_ADDRESS_DETAIL_CHARS`] is cut there: it is
+    /// for a log, and the reason a client renders is `refused`.
+    fn from(change: AddressChange) -> Self {
+        let (outcome, refused, detail) = match change {
+            AddressChange::Added => ("added", None, None),
+            AddressChange::Removed => ("removed", None, None),
+            AddressChange::Unchanged => ("unchanged", None, None),
+            AddressChange::Refused { reason, detail } => (
+                "refused",
+                Some(reason.as_str()),
+                Some(detail.chars().take(MAX_ADDRESS_DETAIL_CHARS).collect()),
+            ),
+        };
+        Self {
+            outcome,
+            refused,
+            detail,
+        }
+    }
+}
+
+impl From<AddressResult> for AddressChange {
+    fn from(result: AddressResult) -> Self {
+        match (result.outcome, result.refused) {
+            ("added", _) => Self::Added,
+            ("removed", _) => Self::Removed,
+            ("refused", Some(reason)) => Self::Refused {
+                reason: refusal_named(reason).unwrap_or(AddressRefusal::Grammar),
+                detail: result.detail.unwrap_or_default(),
+            },
+            _ => Self::Unchanged,
+        }
+    }
+}
+
+fn refusal_named(name: &str) -> Option<AddressRefusal> {
+    [
+        AddressRefusal::Grammar,
+        AddressRefusal::SpecialUse,
+        AddressRefusal::Bound,
+        AddressRefusal::ProviderDisabled,
+        AddressRefusal::Authored,
+    ]
+    .into_iter()
+    .find(|reason| reason.as_str() == name)
+}
+
+impl<'de> Deserialize<'de> for AddressResult {
+    /// The schema's closed sets, and `refused` present exactly when the
+    /// outcome is `refused`.
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            outcome: String,
+            #[serde(default)]
+            refused: Option<String>,
+            #[serde(default)]
+            detail: Option<String>,
+        }
+        let wire = Wire::deserialize(d)?;
+        let outcome = ["added", "removed", "unchanged", "refused"]
+            .into_iter()
+            .find(|o| *o == wire.outcome)
+            .ok_or_else(|| serde::de::Error::custom("an unknown outcome"))?;
+        let refused = match (outcome, wire.refused.as_deref()) {
+            ("refused", Some(name)) => Some(
+                refusal_named(name)
+                    .ok_or_else(|| serde::de::Error::custom("an unknown refusal"))?
+                    .as_str(),
+            ),
+            ("refused", None) => return Err(serde::de::Error::custom("a refusal names its rule")),
+            (_, Some(_)) => {
+                return Err(serde::de::Error::custom("only a refusal names a rule"));
+            }
+            (_, None) => None,
+        };
+        if wire
+            .detail
+            .as_ref()
+            .is_some_and(|detail| detail.chars().count() > MAX_ADDRESS_DETAIL_CHARS)
+        {
+            return Err(serde::de::Error::custom(
+                "a detail is at most 512 characters",
+            ));
+        }
+        Ok(Self {
+            outcome,
+            refused,
+            detail: wire.detail,
+        })
+    }
+}
+
+/// `ipc/peers-address-list`: every bootstrap address, authored first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AddressList {
+    /// At most [`MAX_BOOTSTRAP_ADDRESS_ROWS`].
+    pub addresses: Vec<AddressRow>,
+}
+
+impl AddressList {
+    /// The port's rows.
+    ///
+    /// # Errors
+    /// [`TransportError::Internal`] for more rows than the contract
+    /// carries: a port that answered that broke its own bound, and the
+    /// server answers so rather than truncating.
+    pub fn from_views(views: Vec<BootstrapAddress>) -> Result<Self, TransportError> {
+        if views.len() > MAX_BOOTSTRAP_ADDRESS_ROWS {
+            return Err(TransportError::Internal);
+        }
+        Ok(Self {
+            addresses: views.into_iter().map(AddressRow::from).collect(),
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for AddressList {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            addresses: Vec<AddressRow>,
+        }
+        let wire = Wire::deserialize(d)?;
+        if wire.addresses.len() > MAX_BOOTSTRAP_ADDRESS_ROWS {
+            return Err(serde::de::Error::custom(format!(
+                "at most {MAX_BOOTSTRAP_ADDRESS_ROWS} addresses"
+            )));
+        }
+        Ok(Self {
+            addresses: wire.addresses,
+        })
+    }
+}
+
+/// One `peers-address-list` row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AddressRow {
+    /// The address, as the provider holds it.
+    #[serde(deserialize_with = "crate::request::bounded_address")]
+    pub address: String,
+    /// `authored` or `added`.
+    pub source: RowSource,
+    /// Whether the provider emits it.
+    pub dialled: bool,
+    /// Why not, present exactly when `dialled` is false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_dialled: Option<NotDialled>,
+}
+
+/// Where a row's address comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RowSource {
+    /// `config.yaml`'s.
+    Authored,
+    /// The overlay's.
+    Added,
+}
+
+/// Why a row's address is not dialled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotDialled {
+    /// The profile authors the static-bootstrap provider `enabled: false`.
+    ProviderDisabled,
+}
+
+impl From<BootstrapAddress> for AddressRow {
+    fn from(view: BootstrapAddress) -> Self {
+        Self {
+            address: view.address,
+            source: match view.source {
+                AddressSource::Authored => RowSource::Authored,
+                AddressSource::Added => RowSource::Added,
+            },
+            dialled: view.dialled,
+            not_dialled: (!view.dialled).then_some(NotDialled::ProviderDisabled),
+        }
+    }
+}
+
+impl From<AddressRow> for BootstrapAddress {
+    fn from(row: AddressRow) -> Self {
+        Self {
+            address: row.address,
+            source: match row.source {
+                RowSource::Authored => AddressSource::Authored,
+                RowSource::Added => AddressSource::Added,
+            },
+            dialled: row.dialled,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1267,9 +1488,8 @@ mod tests {
             json!(1_791_329_960_227_u64),
             "the control: from 2.6 the hold is served"
         );
-        assert_eq!(
-            ROUTE_HELD_SINCE_MINOR,
-            crate::IPC_MAX_MINOR,
+        assert!(
+            ROUTE_HELD_SINCE_MINOR <= crate::IPC_MAX_MINOR,
             "this build speaks it"
         );
     }
