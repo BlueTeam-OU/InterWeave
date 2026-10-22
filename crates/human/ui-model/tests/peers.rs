@@ -740,6 +740,11 @@ fn a_failed_or_lost_removal_is_said_truly() {
         Some(&PeersSnack::RemoveUnknown { address: at(&a) })
     );
     assert_eq!(
+        focus(&unread),
+        Some(PeersFocus::SnackAction),
+        "on the snackbar's Try again"
+    );
+    assert_eq!(
         unread.peers().list(),
         Some(&list(&[added(&a)])),
         "the row stays as last read"
@@ -1341,4 +1346,28 @@ fn a_second_failed_undo_keeps_its_focus() {
         Some(PeersFocus::Row(at(&a))),
         "failed again: as the first"
     );
+}
+
+/// An Undo whose answer is lost and whose read back fails is unknown:
+/// its snackbar offers Try again, and focus goes there (section 8).
+#[test]
+fn an_unknown_undo_focuses_its_try_again() {
+    let (me, a) = (peer(), peer());
+    let mut m = opened(&me, &[], &[added(&a)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[]));
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::UndoUnknown { address: at(&a) })
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::SnackAction));
 }

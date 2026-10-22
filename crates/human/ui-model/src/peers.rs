@@ -402,6 +402,9 @@ pub enum PeersFocus {
     ListProblem,
     /// Try again on the trust-unread line.
     TrustRetry,
+    /// The snackbar's action: Try again on a removal or Undo whose
+    /// outcome is unknown (§8).
+    SnackAction,
     /// The note under Add an address (at the bound, or list off).
     AddAddressNote,
 }
@@ -1358,8 +1361,16 @@ impl Peers {
                 AddNote::Unknown { lines: lines.len() },
                 PeersFocus::AddButton,
             ),
-            Check::Undo(address) => self.say(PeersSnack::UndoUnknown { address }),
-            Check::Remove { address, .. } => self.say(PeersSnack::RemoveUnknown { address }),
+            // Unknown, the snackbar's Try again is where to go next: the
+            // row menu that opened it may be gone (§8).
+            Check::Undo(address) => {
+                self.say(PeersSnack::UndoUnknown { address });
+                self.ask_focus(PeersFocus::SnackAction);
+            }
+            Check::Remove { address, .. } => {
+                self.say(PeersSnack::RemoveUnknown { address });
+                self.ask_focus(PeersFocus::SnackAction);
+            }
         }
     }
 
