@@ -100,11 +100,13 @@ Copy the marketplace somewhere it stays, then add and install it at user scope:
 mkdir -p ~/.local/share/interweave
 cp -R claude-plugin ~/.local/share/interweave/claude-plugin
 claude plugin marketplace add ~/.local/share/interweave/claude-plugin
-claude plugin install interweave@interweave
+claude plugin install interweave@interweave --config profile=claude --config endpoint=claude
 claude plugin list
 ```
 
-**Profile name:** the plugin starts the bridge with `--profile default --endpoint claude --delivery push`. For a profile named other than `default`, as in this procedure, edit the `args` in `~/.local/share/interweave/claude-plugin/interweave/.mcp.json` before `marketplace add`: set `--profile` to `claude`, and `--endpoint` to the endpoint from step 3. Keep `--delivery push`, which Claude Code needs.
+`profile` and `endpoint` are the plugin's two settings: the profile from step 3 and the endpoint its `config.yaml` declares. Unset, they are `default` and `claude`. They are kept in Claude Code's user settings, and `claude plugin configure interweave@interweave` shows or changes them.
+
+The copy under `~/.local/share/interweave/claude-plugin` is what Claude Code runs: with a marketplace added from a directory, the plugin runs from that directory, not from a copy of its own (SPIKE-001 S20). Do not delete it. To upgrade, replace it with the newer archive's `claude-plugin/` and start a new session.
 
 ## 7. Start a session with the channel
 
@@ -135,8 +137,7 @@ systemctl --user disable --now interweave-daemon@claude
 - **A channel without the development flag.** `--channels` needs the plugin on Anthropic's remotely served allowlist, or an organisation's `allowedChannelPlugins` with `channelsEnabled: true`. Both are read from the 2.1.286 binary, not measured (SPIKE-001 fact 23), and neither is asked for or tried.
 - **A headless session.** Channel events reach the model only in an interactive session (SPIKE-001 fact 4), and the development warning is answered by a person.
 - **A channel after a bad start.** Claude Code starts the bridge once per session (SPIKE-001 fact 19). Once it runs, daemon trouble is a state: a daemon that is away, restarting, or holding the endpoint for another session is retried with a backoff up to 30 s. A wrong start is not retried: `XDG_RUNTIME_DIR` unset, a profile name that is not valid, or a usage error in `.mcp.json`'s `args` gives a session with no channel, whose `status` says `bridge refused` and why. Fix the cause and start a new session. A session started outside a login, from `cron` or `su` for example, has no `XDG_RUNTIME_DIR` unless the caller sets it.
-- **The profile and endpoint as settings.** They are fixed in `.mcp.json`'s `args`, so a profile other than `default` means editing the plugin's copy before it is added (step 6). The plugin declares no `userConfig`, and how Claude Code substitutes one is not established (SPIKE-001's carried measurements).
 - **More than one session per endpoint.** The endpoint takes one lease. A second session on the same account and profile gets "endpoint refused" from its bridge's `status` and keeps retrying. It never takes another endpoint. Run one profile, or one endpoint, per session.
 - **Logs of the bridge's own.** The bridge writes its few lines to stderr, which Claude Code keeps. It has no log file and no log level. Its lines carry no message content and no peer or endpoint identifier. The daemon logs to the account's journal (`journalctl --user -u interweave-daemon@<profile>`), at the profile's `observability.log_level`, and never logs a payload.
 - **What a missed message was.** A daemon restart ends the bridge's lease. The bridge reconnects and joins its channels again, but nothing sent meanwhile is replayed, and a reply token from before the restart is refused.
-- **An upgrade path for the plugin.** The plugin's version is `0.0.0` in every release. Whether `claude plugin install` replaces an installed copy of the same version from a newer archive is not yet measured.
+- **An upgrade Claude Code reports.** The plugin's version is `0.0.0` in every release, so `claude plugin update` reports nothing to update. That does not stop an upgrade: a replaced marketplace directory runs at the next session (SPIKE-001 S20).
