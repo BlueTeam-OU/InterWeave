@@ -47,9 +47,13 @@ import sys
 import tempfile
 import time
 
-from spike_common import CLAUDE, REPO, child_env, claude_version, raw_dir
+from spike_common import CLAUDE, REPO, child_env, raw_dir
 
-ANSI = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][0-9A-Za-z]|\x1b[=>]")
+# Every escape the TUI sends, private-parameter CSI (ESC[<u, ESC[>4m) and
+# ESC7/ESC8 included, then any other C0 control but newline, CR and tab:
+# what is left is the text the screen showed.
+ANSI = re.compile(rb"\x1b\[[0-9;?<=>]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b[=>78]"
+                  rb"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 MARKETPLACE = "interweave"
 PLUGIN = "interweave"
 DEV = "--dangerously-load-development-channels"
@@ -124,10 +128,10 @@ def main() -> int:
         source = []
     else:
         source = ["--plugin-dir", str(built / PLUGIN)]
-    setup.append(cli(config, "plugin", "list"))
+    # No other claude command runs: the version is the one the session's
+    # own debug log names, and the install's output says where it went.
     seed_config(config, workdir)
 
-    version = claude_version()
     debug = out / "debug.txt"
     cmd = [CLAUDE, *source, "--debug-file", str(debug), *spec["flags"]]
 
@@ -171,7 +175,12 @@ def main() -> int:
         if "".join(DEV_WARNING.split()) in squeezed() and not any(a["screen"] == "dev-warning" for a in answered):
             pump(1)
             number = option_number(text(), DEV_ACCEPT)
-            answered.append({"screen": "dev-warning", "option": number, "at_s": round(time.time() - started, 1)})
+            # The screen as it was answered, from its heading on, so the
+            # evidence shows what the warning named.
+            shown = text()
+            shown = shown[shown.rfind("WARNING"):] if "WARNING" in shown else shown[-1500:]
+            answered.append({"screen": "dev-warning", "option": number, "at_s": round(time.time() - started, 1),
+                             "text": [l.strip() for l in shown.splitlines() if l.strip()][:20]})
             if number is None:
                 break
             os.write(fd, number.encode())
@@ -195,7 +204,6 @@ def main() -> int:
     debug_text = debug.read_text(errors="replace") if debug.exists() else ""
     record = {
         "run": name,
-        "claude_binary_version": version,
         "versions_in_debug_log": sorted(set(re.findall(r"\b2\.\d+\.\d+\b", debug_text))),
         "command": ["claude", *(["--plugin-dir", "$MARKETPLACE/interweave"] if source else []),
                     "--debug-file", "$RAW/debug.txt", *spec["flags"]],
@@ -211,7 +219,8 @@ def main() -> int:
     (out / "run.json").write_text(json.dumps(record, indent=2) + "\n")
     shutil.rmtree(scratch, ignore_errors=True)
     distil(out, name, str(scratch), str(built))
-    print(f"s19-{name}: binary={version} decided={decided} answered={answered} raw={out}")
+    print(f"s19-{name}: versions={record['versions_in_debug_log']} decided={decided} "
+          f"answered={[a['option'] for a in answered]} raw={out}")
     return 0
 
 
@@ -231,14 +240,19 @@ def distil(out, name, *scratch_paths):
         return re.sub(r"^\S*\d{4}-\d\d-\d\dT[\d:.]+Z\s*", "", s)
 
     lines = [f"# s19-{name}", "",
-             f"Claude Code binary {record['claude_binary_version']}; versions named in the debug log: "
+             "Claude Code version, as the session's debug log names it: "
              f"{', '.join(record['versions_in_debug_log']) or 'none'}.", "",
              "## Command", "", "```text", " ".join(record["command"]), "```", "",
              "## Setup (no session)", ""]
     for step in record["setup"]:
         lines += ["```text", "$ " + " ".join(redact(a) for a in step["command"]) + f"   # exit {step['exit']}",
                   redact(step["output"]), "```", ""]
-    lines += ["## Screens answered", "", "```json", json.dumps(record["screens_answered"], indent=2), "```", "",
+    lines += ["## Screens answered", ""]
+    for a in record["screens_answered"]:
+        lines += [f"{a['screen']}, answered with option {a['option']} at {a['at_s']} s:", "", "```text",
+                  *[redact(l) for l in a["text"]], "```", ""]
+    lines += ["(none)", ""] if not record["screens_answered"] else []
+    lines += [
               f"Channel decision logged after: {record['channel_decided_in_s']} s. "
               f"Session wait status: {record['wait_status']}.", "",
               "Environment passed (names only): " + ", ".join(record["env_passed"]) + ".", "",
