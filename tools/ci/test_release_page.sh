@@ -105,6 +105,32 @@ fi
 
 # The release run's values come in several files: merged, and a key
 # two of them give is refused.
+# The notices file's link and hash are bound like the APK's hash.
+cat > "$SANDBOX/cn.md.in" <<'EOF'
+# InterWeave {version}
+
+{crate_notices}
+
+SHA-256: `{crate_notices_sha256}`
+EOF
+for case in \
+    'no check|{"version": "1.2.3", "crate_notices": "[f](u)", "crate_notices_sha256": "ab"}|crate_notices comes with no check:crate_notices_version' \
+    'another release|{"version": "1.2.3", "crate_notices": "[f](u)", "crate_notices_sha256": "ab", "check:crate_notices_version": "1.2.2"}|made for '"'"'1.2.2'"'"''; do
+    IFS='|' read -r what json needle <<<"$case"
+    printf '%s' "$json" > "$SANDBOX/cv.json"
+    if run "$SANDBOX/cn.md.in" "$SANDBOX/out.md" "$SANDBOX/cv.json"; then
+        fail "the notices file's link and hash with $what: accepted"
+    elif grep -qF -- "$needle" "$SANDBOX/err"; then
+        pass "the notices file's link and hash with $what: refused"
+    else
+        fail "the notices file's link and hash with $what: refused without saying $needle" "$(cat "$SANDBOX/err")"
+    fi
+done
+printf '{"version": "1.2.3", "crate_notices": "[f](u)", "crate_notices_sha256": "ab", "check:crate_notices_version": "1.2.3"}' > "$SANDBOX/cv.json"
+run "$SANDBOX/cn.md.in" "$SANDBOX/out.md" "$SANDBOX/cv.json" && grep -qx 'SHA-256: `ab`' "$SANDBOX/out.md" \
+    && pass "the notices file's link and hash bound to this release are filled" \
+    || fail "the bound notices link and hash were refused" "$(cat "$SANDBOX/err")"
+
 printf '{"version": "1.2.3"}' > "$SANDBOX/v1.json"
 printf '{"apk_sha256": "ab12", "check:apk_version": "1.2.3", "notices": "n"}' > "$SANDBOX/v2.json"
 if run "$T" "$SANDBOX/out.md" "$SANDBOX/v1.json" "$SANDBOX/v2.json" && grep -qx '# InterWeave 1.2.3' "$SANDBOX/out.md"; then
@@ -150,7 +176,7 @@ EOF
                 if [[ "$n" == version ]]; then printf '"version":"0.1.0"'
                 else printf '"%s":"value-of-%s"' "$n" "$n"; fi
             done
-            printf ',"check:apk_version":"0.1.0","check:linux_version":"0.1.0"}'
+            printf ',"check:apk_version":"0.1.0","check:linux_version":"0.1.0","check:crate_notices_version":"0.1.0"}'
         }
         all_values "" > "$SANDBOX/v.json"
         if run "$REAL" "$SANDBOX/out.md" "$SANDBOX/v.json" \

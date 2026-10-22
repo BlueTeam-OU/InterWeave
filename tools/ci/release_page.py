@@ -28,7 +28,10 @@
 #   - a hash that is not bound to this release: release_android_apk.sh
 #     writes `check:apk_version` beside apk_sha256 and cert_sha256, and
 #     release_linux_archive.sh `check:linux_version` beside linux_sha256,
-#     each the version it built. A hash on the page whose check is
+#     and release_crate_notices.sh `check:crate_notices_version` beside
+#     crate_notices and crate_notices_sha256 (the link to the release's
+#     notices file and its hash, ADR-0058 decision 5), each the version
+#     it built. A hash on the page whose check is
 #     missing, or names another version, is refused, so a values file
 #     left from another release cannot put its hash under this
 #     release's file name. A `check:` key is not a placeholder.
@@ -58,6 +61,8 @@ BOUND = {
     "apk_sha256": "check:apk_version",
     "cert_sha256": "check:apk_version",
     "linux_sha256": "check:linux_version",
+    "crate_notices": "check:crate_notices_version",
+    "crate_notices_sha256": "check:crate_notices_version",
 }
 
 
