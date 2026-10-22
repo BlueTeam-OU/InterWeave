@@ -566,12 +566,19 @@ libp2p-identity = { version = "0.3.0", default-features = false, features = ["ed
 # derivation it also offers is the wallet convention and is never called
 # (ADR-0033, fixtures/identity/ed25519-bip39-entropy-v1.json).
 bip39 = { version = "2", default-features = false, features = ["std"] }
-# SQLite for the human store (STATE.md). `bundled` compiles the amalgamation
-# rather than linking whatever the host provides: desktop and Android must
-# agree on the storage engine, and a retention invariant that depends on the
-# distribution's SQLite version is not an invariant. `default-features =
-# false` drops the WASM shim that 0.40 enables by default.
-rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
+# SQLCipher for the human store (STATE.md, ADR-0060): the store is encrypted
+# at rest, every page, its log and its journal, under the store key
+# (`crates/human/store/src/store_key.rs`). SPIKE-011 selected this build
+# (its Result in architecture/roadmap/SPIKES.md): the amalgamation compiled
+# here rather than whatever the host provides, so desktop and Android run
+# the same engine, and OpenSSL built from source and linked statically for
+# its cipher primitives, the one build that links on `aarch64-linux-android`
+# (the NDK carries no libcrypto an app may load). SQLCipher with no key is
+# SQLite, which is what the plaintext tests and the rewrite's read of a
+# plaintext store use. Only the human crates depend on rusqlite, so no
+# other binary links OpenSSL. `default-features = false` drops the WASM
+# shim that 0.40 enables by default.
+rusqlite = { version = "0.40", default-features = false, features = ["bundled-sqlcipher-vendored-openssl"] }
 # Temporary directories for storage tests. A retention test that never
 # touches a real file cannot prove anything survives a restart.
 tempfile = "3"
