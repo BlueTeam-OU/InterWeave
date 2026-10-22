@@ -176,10 +176,11 @@ jobs:
       # No build needed: cargo resolves the library's graph from the lock.
       - name: The native library's crate notices
         env:
+          VERSION: ${{ needs.tag.outputs.version }}
           BASE: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}
         run: |
           bash tools/ci/release_crate_notices.sh aarch64-linux-android interweave-human-android \
-            "$RUNNER_TEMP/out" "$BASE"
+            "$VERSION" "$RUNNER_TEMP/out" "$BASE"
 
       # One directory for the artifact: given paths in two, upload-artifact
       # roots it at their common ancestor, and the files arrive nested
