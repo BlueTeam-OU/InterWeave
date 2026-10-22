@@ -172,6 +172,8 @@ pub fn f() {}"
 src hdr src/lib.rs "$MITHDR"
 src hdrtext src/lib.rs '// Copyright 2022 The Example Authors.
 // Licensed under the MIT license (found in the LICENSE-MIT file).
+// A copy is included in the software as LICENSE-MIT, and at
+// https://opensource.org/licenses/MIT.
 
 pub fn f() {}'
 src std src/lib.rs 'pub fn f() {}'
@@ -492,7 +494,8 @@ drefused "an unrecognised SPDX id beside MIT" "hdr 1.0.0's header in src/x.rs na
 for bad in 'Licensed under the MIT license and the frobnicate license.:frobnicate License' \
            'Licensed under the MIT license and the FROBNICATE LICENSE.:FROBNICATE License' \
            'Licensed under the MIT license; portions are BSD-4-Clause.:BSD-4-Clause' \
-           'spdx-license-''identifier MIT OR Frob:(Frob)'; do
+           'spdx-license-''identifier MIT OR Frob:(Frob)' \
+           'SPDX-License-''Identifier: MIT OR LicenseRef-MIT-Frob:LicenseRef-MIT-Frob'; do
     printf '// Copyright 2012 Extra Holder. %s\npub fn x() {}\n' "${bad%:*}" > "$D/crates/hdr/src/x.rs"
     drefused "an unrecognised name beside MIT: ${bad%:*}" "names a licence this tool does not recognise" 
     grep -qF -- "${bad##*:}" "$SANDBOX/err" && pass "  and names ${bad##*:}" || fail "  the refusal does not name ${bad##*:}" "$(cat "$SANDBOX/err")"

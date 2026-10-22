@@ -311,8 +311,7 @@ def unrecognised_names(block: str) -> list:
             if w.lower() in CONNECTIVES or not w:
                 break
             run.insert(0, w)
-        # "an irrevocable copyright license" is a grant, not a licence's name.
-        if not run or all(w.lower() in GENERIC for w in run) or run[-1].lower() in ("copyright", "patent"):
+        if not run or all(w.lower() in GENERIC for w in run):
             continue
         if not any(n.search(" ".join(run) + " License") for n, _ in NAMED):
             found.append(" ".join(run) + " License")
