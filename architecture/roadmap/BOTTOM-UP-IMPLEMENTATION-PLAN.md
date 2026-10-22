@@ -4899,9 +4899,14 @@ reply-after-leave case (a broadcast reply token after `leave` fails
 `ChannelNotJoined`, in the integration tests above).
 
 Carried by name, from SPIKE-001 (not established, 2026-10-03):
-marketplace distribution and `--channels` with a published plugin — the
-release path, Stage 19's with the bridge's packaging (§22 carries it;
-PACKAGING.md says the same); `userConfig`
+marketplace distribution — measured 2026-10-22 for the development-flag
+path only (S19: a local-marketplace install registers the channel under
+the flag) — and `--channels` with a published plugin, which stays
+carried: read from the 2.1.286 binary, not measured (fact 23), it needs
+the plugin on the organisation's `allowedChannelPlugins` with
+`channelsEnabled: true` or on Anthropic's remotely served allowlist,
+neither asked for nor tried (§22 carries it; PACKAGING.md says the
+same); `userConfig`
 substitution; organisation-policy gating (`channelsEnabled`,
 `allowedChannelPlugins`); permission relay (not declared, by design);
 size limits on `content` and `meta` and behaviour under load; a server
@@ -5542,7 +5547,7 @@ Carried here from Stage 15 (§18): client autostart of the daemon (§18 (9),
 the owner's with packaging — the service/autostart lifecycle row,
 p2p-network-dev's in the split above, is where it is met or re-carried); the Slint Royalty-free 2.0 attribution — the Slint badge on the public page the desktop binaries are downloaded from (the in-app `AboutSlint` widget was declined for Stage 15 because it needs a Slint image feature the owner's graph does not carry; if no download page exists when the first binary ships, that route returns with its graph delta measured).
 
-Android's release is the project's own (ADR-0057): the tagged release run, the signed APK, its SHA-256 and the Slint attribution on the project's release page, updates by hand; no store listing exists and none is planned; whether the release run builds Skia from source or pins the bindings' prebuilt archive by checksum is decided here before the first release. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release — rust-services-dev's since 2026-10-20 (remit #320), the bridge, its package and SPIKE-001's carried measurements with it.
+Android's release is the project's own (ADR-0057): the tagged release run, the signed APK, its SHA-256 and the Slint attribution on the project's release page, updates by hand; no store listing exists and none is planned; whether the release run builds Skia from source or pins the bindings' prebuilt archive by checksum is decided here before the first release. Carried here from Stage 16 (§19): marketplace distribution of the Claude Channel plugin and `--channels` with a published plugin — SPIKE-001 established only the development-flag path (2026-10-03), and a non-Anthropic channel needs that flag during the research preview; measured with the bridge's packaging before release — rust-services-dev's since 2026-10-20 (remit #320), the bridge, its package and SPIKE-001's carried measurements with it. Measured 2026-10-22 by rust-services-dev (SPIKES.md, SPIKE-001's carried measurement S19, Claude Code 2.1.286): the bridge's package, installed from the local marketplace `packaging/claude-plugin/build.sh` assembles, registers as a channel with the development flag only, and `--channels` refuses it as not on the approved channels allowlist. So marketplace distribution is met for the development-flag path. `--channels` with a published plugin stays carried. Read from the binary, not measured (SPIKE-001 fact 23): it needs Anthropic's remotely served allowlist to name the plugin for its marketplace, or an organisation's `allowedChannelPlugins` with `channelsEnabled: true`. Publishing is architect-cto's question, and nothing was published.
 
 Carried here from Stage 18 (§21, the owner's word 2026-10-11): the Windows binding — the named pipe behind the non-Unix stub, its ACL model and peer identity (§16 (9), §18 (12)) — with its socket-spoofing tests, and the BSL-1.0 decision that waits for it (`clipboard-win` and `error-code` through `arboard`, admitted nowhere until Windows is built). Until a Windows runner exists and the binding is built, the standard-v1 release matrix is Linux, macOS and Android, and `packaging/windows` above is conditional on both. macOS is IN that matrix and owes this stage two things before it ships, neither decided yet: a macOS runtime-directory rule (`ProfilePaths::resolve` fails without `XDG_RUNTIME_DIR` by design — §16 (9), `LOCAL-IPC.md` §Platform scope of the v1 build) and a macOS runner, the v1 build claim being Linux until both exist. `human-client-packaging.md` §9's release-candidate rows read with this paragraph: its Windows rows are conditional on the carry above.
 
