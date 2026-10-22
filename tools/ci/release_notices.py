@@ -44,8 +44,12 @@
 # and, beside either, the standard text of every licence a header names
 # that the notice does not otherwise carry, as the entry's extra_texts
 # list it (a header naming BSD with no BSD text attached is refused, and
-# so is one naming a licence the tool does not recognise, or one whose
-# text is not committed under tools/ci/licence_texts/).
+# so is one naming a licence whose text is not committed under
+# tools/ci/licence_texts/, or a name the scan reads and does not
+# recognise: a "<name> license" phrase in any case, an SPDX id, an
+# id-shaped variant such as BSD-4-Clause). The scan cannot read a licence
+# named without the word, or a version written apart from its name; the
+# reviewed list's reading of each header is what covers those.
 # Each header-case entry also names the root header's file and the count
 # of distinct headers, so a header a version adds is looked at again.
 #   standard     no copyright header anywhere: the standard text of the
@@ -245,15 +249,42 @@ LICENCE_WORDS = re.compile(
 )
 
 
-# A licence named in a header beside one NAMED knows is checked too: each
-# capitalised "<Name> License" phrase and each SPDX id must be a name
-# NAMED recognises, once the committed texts the header carries whole are
-# set aside (their own "Grant of Copyright License" names no licence).
-# Generic words before "License" name none. What is phrased otherwise
-# ("the Frobnicate Agreement") is beyond the words this can read.
-NAME_PHRASE = re.compile(r"((?:[A-Z][\w.+-]*\s+){1,4})[Ll]icen[cs]e\b")
-GENERIC = {"A", "Any", "Copyright", "Grant", "No", "Patent", "Public", "Such", "The", "This", "Your"}
-SPDX_LINE = re.compile(r"SPDX-License-Identifier:\s*([^\n]*)")
+# A licence named in a header beside one NAMED knows is checked too, once
+# the committed texts the header carries whole are set aside (their own
+# "Grant of Copyright License" names no licence):
+#   - the words next before each "license" or "licence", in any case,
+#     must name a licence NAMED knows, unless they are generic ("found in
+#     the LICENSE file", "Grant of Patent License");
+#   - each SPDX id, on an SPDX-License-Identifier line in any case, and
+#     each id-shaped variant of a known name in prose ("BSD-4-Clause",
+#     "MIT-0", "Apache-1.1"), must be an id NAMED answers exactly.
+# A word scan cannot close this: a licence named with no licence word
+# ("and Frob", "GPLv3"), or a version written apart from its name
+# ("Apache License, Version 1.1"), is beyond what it can read, and the
+# reviewed list's reading of each header is what covers them.
+# Not a file's or a URL's "LICENSE": LICENSE-APACHE, LICENSE.chromium,
+# .../licenses/MIT.
+NAME_PHRASE = re.compile(r"((?:[\w.+/-]+\s+){1,4})(?<![/\w])licen[cs]es?\b(?![-./]\w)", re.I)
+CONNECTIVES = {
+    "a", "additional", "all", "an", "and", "any", "applicable", "by", "compatible", "different",
+    "each", "entire", "following", "for", "found", "from", "full", "in", "its", "of", "or",
+    "original", "other", "our", "permissive", "respective", "same", "see", "separate", "such",
+    "that", "the", "their", "these", "this", "to", "under", "with", "your",
+    # A grant's adjectives: "a perpetual, irrevocable, unconditional License".
+    "irrevocable", "limited", "non-exclusive", "non-sublicensable", "non-transferable",
+    "perpetual", "royalty-free", "unconditional", "worldwide",
+}
+# Words that, standing alone before "License", name no licence.
+GENERIC = {"copyright", "patent", "public", "software", "grant", "no"}
+SPDX_LINE = re.compile(r"spdx-license-identifier\s*:?[ \t]*([^\n]*)", re.I)
+# A variant carries a number (BSD-4-Clause, MIT-0); "BSD-style" names none.
+ID_SHAPED = re.compile(r"\b(?:A?GPL|LGPL|BSD|MIT|Apache|CC0|MPL|ISC|Zlib|BSL|Unicode)-[\w.+-]*\d[\w.+-]*", re.I)
+
+
+def known_ids() -> dict:
+    """Every id NAMED answers with, and every committed text, by lower case."""
+    ids = {t for _, answers in NAMED for t in answers} | set(STANDARD)
+    return {t.lower(): t for t in ids}
 
 
 def unrecognised_names(block: str) -> list:
@@ -272,17 +303,39 @@ def unrecognised_names(block: str) -> list:
     for m in NAME_PHRASE.finditer(text):
         words = m.group(1).split()
         # A name does not run across a sentence: "Trademarks. This License".
-        while any(w[-1] in ".:;," for w in words[:-1]):
+        while any(w[-1] in ".:;,(" for w in words[:-1]):
             words = words[1:]
-        while words and words[0] in GENERIC:
-            words = words[1:]
-        if words and not any(w.search(" ".join(words) + " License") for w, _ in NAMED):
-            found.append(" ".join(words) + " License")
+        words = [w.strip("\"'(),.:;") for w in words]
+        run = []
+        for w in reversed(words):
+            if w.lower() in CONNECTIVES or not w:
+                break
+            run.insert(0, w)
+        # "an irrevocable copyright license" is a grant, not a licence's name.
+        if not run or all(w.lower() in GENERIC for w in run) or run[-1].lower() in ("copyright", "patent"):
+            continue
+        if not any(n.search(" ".join(run) + " License") for n, _ in NAMED):
+            found.append(" ".join(run) + " License")
+    ids = known_ids()
     for m in SPDX_LINE.finditer(block):
         for token in re.findall(r"[A-Za-z0-9.+-]+", m.group(1)):
-            if token not in ("AND", "OR", "WITH") and not any(w.search(token) for w, _ in NAMED):
+            if token.upper() not in ("AND", "OR", "WITH") and token.lower() not in ids:
                 found.append(token)
+    for m in ID_SHAPED.finditer(text):
+        if m.group(0).lower() not in ids:
+            found.append(m.group(0))
     return found
+
+
+def spdx_ids(block: str) -> list:
+    """The licence ids the header's SPDX lines name, each owed its own text."""
+    ids = known_ids()
+    return [
+        ids[t.lower()]
+        for m in SPDX_LINE.finditer(block)
+        for t in re.findall(r"[A-Za-z0-9.+-]+", m.group(1))
+        if t.lower() in ids
+    ]
 
 
 def carries_text(block: str, term: str) -> bool:
@@ -432,7 +485,9 @@ def derived_notices(package: dict, entry: dict) -> list:
                     f"{name} {version}'s header in {path} names a licence this tool does not recognise{said}:"
                     f" add its words to NAMED and its text under {TEXTS.name}/"
                 )
-            for answers in named:
+            # An SPDX id is owed its own text, never a sibling's: BSD-2-Clause
+            # is not answered by the BSD-3-Clause text.
+            for answers in named + [(t,) for t in spdx_ids(text)]:
                 if not (set(answers) & shipped or any(carries_text(text, x) for x in answers)):
                     if not set(answers) & set(STANDARD):
                         # extra_texts takes committed texts only, so the

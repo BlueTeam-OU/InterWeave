@@ -486,6 +486,23 @@ printf '// Copyright 2012 Extra Holder.\n//\n%s\n//\n// Portions licensed under 
 drefused "an unrecognised licence beside a whole MIT notice" "hdr 1.0.0's header in src/x.rs names a licence this tool does not recognise (Frobnicate License)"
 printf '// Copyright 2012 Extra Holder.\n// SPDX-License-''Identifier: MIT OR LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 drefused "an unrecognised SPDX id beside MIT" "hdr 1.0.0's header in src/x.rs names a licence this tool does not recognise (LicenseRef-Frob)"
+# In any case, beside MIT; a variant written as an id; an SPDX line in
+# lower case without its colon; an SPDX id another licence's text would
+# have answered. The control above (a second header naming MIT) passes.
+for bad in 'Licensed under the MIT license and the frobnicate license.:frobnicate License' \
+           'Licensed under the MIT license and the FROBNICATE LICENSE.:FROBNICATE License' \
+           'Licensed under the MIT license; portions are BSD-4-Clause.:BSD-4-Clause' \
+           'spdx-license-''identifier MIT OR Frob:(Frob)'; do
+    printf '// Copyright 2012 Extra Holder. %s\npub fn x() {}\n' "${bad%:*}" > "$D/crates/hdr/src/x.rs"
+    drefused "an unrecognised name beside MIT: ${bad%:*}" "names a licence this tool does not recognise" 
+    grep -qF -- "${bad##*:}" "$SANDBOX/err" && pass "  and names ${bad##*:}" || fail "  the refusal does not name ${bad##*:}" "$(cat "$SANDBOX/err")"
+done
+printf '// Copyright 2012 Extra Holder.\n// SPDX-License-''Identifier: MIT OR Apache-1.1\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+list "$(entry hdr MIT header src/lib.rs 2 '["Apache-2.0"]')" "${GOOD[@]:1}"
+drefused "Apache-1.1 with the Apache-2.0 text attached" "names a licence this tool does not recognise (Apache-1.1"
+printf '// Copyright 2012 Extra Holder.\n// SPDX-License-''Identifier: MIT OR BSD-2-Clause\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+list "$(entry hdr MIT header src/lib.rs 2 '["BSD-3-Clause"]')" "${GOOD[@]:1}"
+drefused "an SPDX BSD-2-Clause with the BSD-3-Clause text attached" "names BSD-2-Clause, whose standard text is not committed"
 rm "$D/crates/hdr/src/x.rs"
 list "$(entry hdr MIT header src/lib.rs true)" "${GOOD[@]:1}"
 drefused "a header count of true" "hdr 1.0.0's header count is not a positive number"
