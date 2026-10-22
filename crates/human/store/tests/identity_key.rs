@@ -416,3 +416,59 @@ fn a_key_file_refused_as_a_downgrade_is_left_as_it_was() {
         "no wrapping key made for it"
     );
 }
+
+/// A platform keystore whose retire fails, noting first whether the key
+/// file was still there when it was asked.
+struct RetireFails {
+    inner: SoftKeystore,
+    file: std::path::PathBuf,
+    file_there_at_retire: RefCell<Option<bool>>,
+}
+
+impl IdentityKeyCipher for RetireFails {
+    fn custody(&self) -> Custody {
+        self.inner.custody()
+    }
+
+    fn seal(&self, alias: &str, aad: &[u8], secret: &[u8; 32]) -> Result<Vec<u8>, CipherFailure> {
+        self.inner.seal(alias, aad, secret)
+    }
+
+    fn open(
+        &self,
+        alias: &str,
+        aad: &[u8],
+        sealed: &[u8],
+    ) -> Result<Zeroizing<[u8; 32]>, CipherFailure> {
+        self.inner.open(alias, aad, sealed)
+    }
+
+    fn retire(&self, _alias: &str) -> Result<(), CipherFailure> {
+        *self.file_there_at_retire.borrow_mut() = Some(self.file.exists());
+        Err(CipherFailure::Platform("retire".to_owned()))
+    }
+}
+
+#[test]
+fn remove_deletes_the_file_before_it_retires_the_platform_key() {
+    // A retire that fails leaves a platform key that opens no record,
+    // never a record whose platform key is gone.
+    let (_dir, paths) = desktop_paths();
+    let work = endpoint("work");
+    let cipher = RetireFails {
+        inner: SoftKeystore::default(),
+        file: identity_key::key_path(&paths, &work),
+        file_there_at_retire: RefCell::new(None),
+    };
+    identity_key::create(&paths, &work, &cipher).expect("created");
+    assert!(
+        identity_key::remove(&paths, &work, &cipher).is_err(),
+        "the failed retire is said"
+    );
+    assert_eq!(
+        *cipher.file_there_at_retire.borrow(),
+        Some(false),
+        "the file went first"
+    );
+    assert!(!cipher.file.exists());
+}

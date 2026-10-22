@@ -77,8 +77,9 @@ pub struct Contact {
     pub name_at: Option<u64>,
     /// Where the photo came from, if there is one.
     pub photo_source: Option<ValueSource>,
-    /// The photo's encoded bytes as accepted or set, decoded only at
-    /// display.
+    /// The photo's encoded bytes as accepted or set. The store never
+    /// decodes them: Accept passes a card's photo only when it decodes
+    /// within 256 × 256, and the view decodes it again to show it.
     pub photo: Option<Vec<u8>>,
     /// Its routes.
     pub routes: Vec<ContactRoute>,
@@ -97,7 +98,8 @@ pub struct AcceptedCard<'a> {
     pub surname: Option<&'a str>,
     /// The card's identity key.
     pub identity_key: [u8; 32],
-    /// The card's photo as received, if it carried one.
+    /// The card's photo as received, if it carried one its caller found
+    /// decodes within the card's bounds; the store writes it as given.
     pub photo: Option<&'a [u8]>,
 }
 

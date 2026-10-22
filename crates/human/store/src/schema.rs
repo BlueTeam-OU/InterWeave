@@ -162,7 +162,8 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
 ///   says which is which. NULL on every contact from before: those were
 ///   typed, and a typed value is the person's.
 /// - `contacts.photo`: the accepted card's encoded photo as received,
-///   within the card's 24,576-byte bound, decoded only at display; and
+///   within the card's 24,576-byte bound, kept only when it decodes
+///   within 256 × 256 at Accept and decoded again at display; and
 ///   `avatar_ref` dropped, since a photo is bytes and never a reference
 ///   (ADR-0059 A 2026-10-22 (iv)). No writer ever set it.
 /// - `contact_routes.identity_key`: the 32-byte key the first accepted
