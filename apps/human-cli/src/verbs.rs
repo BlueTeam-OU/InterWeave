@@ -134,6 +134,13 @@ fn problems<B: DataSessionBinding, A: AdminBinding>(s: &mut Session<B, A>) -> Re
         Why::Refused => Failure::Refused(format!("{what}: the message store refused it")),
         Why::Corrupt => Failure::Store(format!("{what}: a stored row could not be read back")),
         Why::TooMany => Failure::Refused(format!("{what}: too many on their way")),
+        Why::NotACard => Failure::Refused(format!("{what}: no card this build verifies")),
+        Why::NoIdentityKey => Failure::Refused(format!("{what}: the identity has no key")),
+        Why::CardNotSent => Failure::Refused(format!("{what}: the card could not be sent")),
+        Why::OutOfBounds => Failure::Refused(format!("{what}: outside a card's bounds")),
+        Why::ProposalChanged => {
+            Failure::Refused(format!("{what}: the proposal changed since it was shown"))
+        }
     })
 }
 
@@ -151,6 +158,12 @@ const fn command_name(command: &Command) -> &'static str {
         Command::RecheckStorage => "re-checking storage",
         Command::ReadTrust => "reading trust",
         Command::SetTrust(_) => "changing trust",
+        Command::AcceptCard { .. } => "accepting a card",
+        Command::DeclineCard(_) => "declining a card",
+        Command::ShareCard(_) => "sharing the card",
+        Command::SetOwnCard { .. } => "editing the own card",
+        Command::RenameContact { .. } => "renaming a contact",
+        Command::SetContactPhoto { .. } => "setting a contact's photo",
     }
 }
 
