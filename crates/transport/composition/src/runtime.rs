@@ -452,10 +452,10 @@ impl ComposedRuntime {
         let composition = translate(profile, &local, options.queue_bound)?
             .with_allowed(allowed.clone(), &local)?
             .with_added_bootstrap(static_how, bootstrap.peers())?;
-        // Addresses another operator input names: a removed bootstrap
-        // address that is also a static relay or AutoNAT server keeps its
-        // place in the operator set (ADR-0052 rule 9).
-        let keep_operator: BTreeSet<String> = composition
+        // The operator inputs besides the bootstrap entries: a removed
+        // bootstrap address keeps its place in the operator set while one
+        // of these names the same route (ADR-0052 rule 9).
+        let operator_inputs: Vec<String> = composition
             .substrate
             .relay_client
             .iter()
@@ -578,7 +578,7 @@ impl ComposedRuntime {
             bootstrap_file: options.bootstrap_overlay_file.clone(),
             static_how,
             static_authored,
-            keep_operator,
+            operator_inputs,
             pending_forget: Vec::new(),
             trust_boundary: options.trust_boundary.clone(),
             #[cfg(feature = "test-hooks")]
@@ -866,9 +866,10 @@ struct Driver {
     /// provider, and its entries.
     static_how: StaticAuthoring,
     static_authored: Vec<String>,
-    /// Addresses a static relay or AutoNAT server also names: a removal
-    /// leaves them in the operator set.
-    keep_operator: BTreeSet<String>,
+    /// The static relays' and AutoNAT servers' addresses: with the
+    /// authored and the overlay's entries, every operator input a removal
+    /// is checked against.
+    operator_inputs: Vec<String>,
     /// Removed addresses the book could not let go yet (a live quarantine
     /// the table had no room for), asked again each round.
     pending_forget: Vec<(TransportIdentity, String)>,
@@ -1461,6 +1462,11 @@ impl Driver {
             Err(MoveRefusal::Authored) => return Err(TransportError::Internal),
         };
         self.commit_bootstrap(moved)?;
+        // A REMOVAL STILL PENDING FOR IT IS WITHDRAWN: retried, it would
+        // take the address off the door and out of the book after this
+        // answer said it was in force.
+        self.pending_forget
+            .retain(|(_, pending)| pending != &address);
         let (_, peer) = interweave_profile_config::split_peer_multiaddr(&address)
             .map_err(|_| TransportError::Internal)?;
         let parsed = address.parse().map_err(|_| TransportError::Internal)?;
@@ -1505,9 +1511,18 @@ impl Driver {
         let Ok(parsed) = address.parse() else {
             return true;
         };
-        let keep = self.keep_operator.contains(address);
+        // Every operator input that remains, the overlay already without
+        // this address: the door closes only if none of them names the
+        // route (`OperatorSet::remove_unless_named`).
+        let still_named: Vec<String> = self
+            .operator_inputs
+            .iter()
+            .chain(&self.static_authored)
+            .chain(self.bootstrap.peers())
+            .cloned()
+            .collect();
         self.swarm
-            .forget_address(peer.clone(), parsed, keep)
+            .forget_address(peer.clone(), parsed, &still_named)
             .await
             .unwrap_or(true)
     }
@@ -1528,13 +1543,20 @@ impl Driver {
             tracing::warn!("admin.peers: the bootstrap overlay could not be written: {e}");
             return Err(TransportError::Internal);
         }
-        let entries = moved
-            .composed(&self.static_authored)
-            .iter()
-            .map(|peer| static_entry(peer))
-            .collect::<Result<Vec<_>, _>>();
-        let published =
-            entries.and_then(|entries| self.discovery.set_static_entries(entries, (self.clock)()));
+        // NO PROVIDER RUNS under an authored `enabled: false`: the add is
+        // refused before this, and a removal of an entry that provider
+        // emits to nobody changes the overlay alone (ADR-0062 decision 2;
+        // `a_disabled_provider_refuses_the_add_and_lists_the_overlay_as_not_dialled`).
+        let published = if self.static_how == StaticAuthoring::Disabled {
+            Ok(())
+        } else {
+            moved
+                .composed(&self.static_authored)
+                .iter()
+                .map(|peer| static_entry(peer))
+                .collect::<Result<Vec<_>, _>>()
+                .and_then(|entries| self.discovery.set_static_entries(entries, (self.clock)()))
+        };
         if let Err(e) = published {
             if let Some(path) = self.bootstrap_file.clone() {
                 let previous = self.bootstrap.clone();

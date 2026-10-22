@@ -238,8 +238,8 @@ impl Discovery {
     ///
     /// # Errors
     /// [`CompositionError::Discovery`] when no provider runs -- one is
-    /// always built unless the profile authors it `enabled: false`, where
-    /// nothing is to change -- or it refuses the entries.
+    /// always built unless the profile authors it `enabled: false`, whose
+    /// caller publishes nothing -- or it refuses the entries.
     pub(crate) fn set_static_entries(
         &mut self,
         entries: Vec<interweave_discovery_static::StaticEntry>,

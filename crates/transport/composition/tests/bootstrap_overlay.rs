@@ -153,6 +153,22 @@ fn row(address: &str, source: AddressSource, dialled: bool) -> BootstrapAddress 
     }
 }
 
+/// Every event up to `peer`'s disconnect: what a shutdown of the far end
+/// left queued -- a late connect included -- is read here, not by the
+/// assertion that follows.
+async fn wait_disconnected(runtime: &mut ComposedRuntime, peer: &TransportIdentity) {
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(remaining, runtime.next_event()).await {
+            Ok(Some(TransportEvent::PeerDisconnected { peer: got, .. })) if &got == peer => return,
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("the runtime stopped"),
+            Err(elapsed) => panic!("no PeerDisconnected within {PATIENCE:?} ({elapsed})"),
+        }
+    }
+}
+
 async fn wait_connected(runtime: &mut ComposedRuntime, peer: &TransportIdentity) {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     loop {
@@ -370,6 +386,18 @@ async fn a_disabled_provider_refuses_the_add_and_lists_the_overlay_as_not_dialle
             row(&at(2, &b), AddressSource::Added, false),
         ]
     );
+    // A REMOVAL STILL WORKS there: nothing to publish to, the overlay
+    // alone changes (#367 review F1).
+    assert_eq!(remove(&runtime, &at(2, &b)).await, AddressChange::Removed);
+    assert_eq!(
+        rows(&runtime).await,
+        vec![row(&authored[0], AddressSource::Authored, false)]
+    );
+    assert!(
+        !std::fs::read_to_string(&path)
+            .expect("the overlay")
+            .contains(&at(2, &b))
+    );
     runtime.shutdown().await.expect("clean shutdown");
     // THE LOAD-TIME DIAGNOSTIC names the overlay and the disabled
     // provider, once for the one start that loaded entries under it.
@@ -384,6 +412,13 @@ async fn a_disabled_provider_refuses_the_add_and_lists_the_overlay_as_not_dialle
     };
     assert_eq!(named(&logged()), 1, "{}", logged());
 
+    // The entry put back, for the control.
+    std::fs::write(
+        &path,
+        serde_json::json!({ "peers": [at(2, &b)] }).to_string(),
+    )
+    .expect("written");
+    chmod(&path, 0o600);
     let runtime = ComposedRuntime::start(
         &identity,
         &profile(&[&b], Provider::Enabled(&authored)),
@@ -526,6 +561,7 @@ async fn a_removed_address_is_dialled_no_more_without_a_restart() {
     // THE CONTROL: the far end leaves and returns; the held address is
     // redialled.
     target.shutdown().await.expect("clean shutdown");
+    wait_disconnected(&mut subject, &b).await;
     let target = start_target(bound.clone()).await;
     let returned = tokio::time::Instant::now();
     wait_connected(&mut subject, &b).await;
@@ -533,6 +569,7 @@ async fn a_removed_address_is_dialled_no_more_without_a_restart() {
 
     assert_eq!(remove(&subject, &b_addr).await, AddressChange::Removed);
     target.shutdown().await.expect("clean shutdown");
+    wait_disconnected(&mut subject, &b).await;
     let target = start_target(bound).await;
     // A SEND TO THE PEER is what reads the book (`DialPeer`): with the
     // route still there it would dial and connect.
