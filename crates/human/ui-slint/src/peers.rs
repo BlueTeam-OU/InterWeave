@@ -545,6 +545,7 @@ impl View {
             PeersFocus::AddAddressNote => "add-address-note".to_owned(),
             PeersFocus::ListProblem => "peers-problem".to_owned(),
             PeersFocus::TrustRetry => "trust-retry".to_owned(),
+            PeersFocus::TrustLine => "trust-line".to_owned(),
             PeersFocus::SnackAction => "peers-snack-action".to_owned(),
         }
     }
