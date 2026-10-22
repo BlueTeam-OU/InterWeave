@@ -454,11 +454,24 @@ async fn a_card_shared_accepted_edited_and_deleted_across_two_daemons() {
     );
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     assert_eq!(lines(&out)[0]["status"], "declined", "{}", said(&out));
+    let out = human(&b, &["proposals", "--json"], "");
+    assert!(
+        lines(&out).is_empty(),
+        "the declined card is gone: {}",
+        said(&out)
+    );
+    let out = human(&b, &["contacts", "--json"], "");
+    assert_eq!(
+        lines(&out).len(),
+        1,
+        "declining made no contact: {}",
+        said(&out)
+    );
     let out = human(&b, &["contacts", "show", &contact, "--json"], "");
     assert_eq!(
-        lines(&out)[0]["name"],
-        "Countess",
-        "declining wrote nothing: {}",
+        lines(&out)[0]["routes"][0]["fingerprint"],
+        fingerprint.as_str(),
+        "nor changed the route: {}",
         said(&out)
     );
 
