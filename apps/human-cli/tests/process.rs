@@ -52,6 +52,7 @@ fn help_names_every_verb_and_every_exit_code() {
         "contacts rename",
         "contacts photo",
         "contacts delete",
+        "peers add|remove",
     ] {
         assert!(help.contains(verb), "{verb} in --help");
     }
