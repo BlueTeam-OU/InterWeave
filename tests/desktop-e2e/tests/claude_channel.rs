@@ -1525,29 +1525,24 @@ async fn a_direct_payload_at_the_ceiling_reaches_the_model_whole() {
 /// (A 2026-10-22).
 const EVENT_LINE_BOUND: usize = 320 * 1024;
 
-/// The largest line a legal event makes. JSON escapes a control character
-/// to six bytes (`\u0001`), so the worst content is all of them:
+/// The worst case for the host line, and the bound that now holds it.
+/// JSON escapes a control character to six bytes (`\u0001`), and seven
+/// in `receive`'s pulled form, where the event is escaped a second time
+/// as tool-result text. So the worst content is all control characters:
 /// - plain: the payload ceiling's worth;
 /// - `;ce=br`: a `HumanChatV2` payload the bridge decodes to the decoded
 ///   ceiling and forwards unparsed, since it is not an envelope.
 ///
-/// Both lines are measured and their length pinned to that arithmetic.
-/// The plain one is under the host-line ceiling. The decoded one is not.
-/// That ceiling bounds what the bridge READS from its host (#330), not
-/// what it writes.
-///
-/// CHANNEL-EVENT.md has since bounded one event on the host line at 320
-/// KiB (A 2026-10-22). A UTF-8 payload whose escaped line would exceed
-/// that goes as base64url instead. The bridge does not do this yet; #376
-/// builds it, per event, in both forms. This test pins today's
-/// lines, so it fails when that change lands. By the contract's measure,
-/// the larger of the push line and the pulled form, both cases are over
-/// the bound today: the plain one in its pulled form (seven bytes a
-/// character), and the decoded one in both. Both then arrive as
-/// base64url, and the content and length assertions turn around into
-/// the 320 KiB bound.
+/// CHANNEL-EVENT.md bounds one event on the host line at 320 KiB,
+/// measured as the larger of its two host forms (A 2026-10-22). A text
+/// whose escaped form would pass the bound is carried as base64url of
+/// its bytes instead (#376). Before #376 the plain case was 295,309 bytes
+/// pushed and 344,452 pulled, and the decoded case 1,180,109 and 1,376,712
+/// (this test's own figures, recorded in the contract). Now both arrive as
+/// base64url, whole, and both forms keep the bound. Base64url needs no
+/// JSON escape, so its two forms differ only by the frame.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_longest_host_line_a_legal_event_makes_is_measured() {
+async fn the_longest_host_line_a_legal_event_keeps_the_bound() {
     use interweave_human_chat_protocol::{MAX_DECOMPRESSED_BYTES, encode_raw_envelope};
     let (a, a_daemon, a_peer, b, b_daemon, _b_peer) = two_daemons().await;
     let daemons = [&a_daemon, &b_daemon];
@@ -1570,7 +1565,6 @@ async fn the_longest_host_line_a_legal_event_makes_is_measured() {
         MAX_PAYLOAD_BYTES,
     )
     .expect("payload");
-    let mut lines = Vec::new();
     for (payload, decoded) in [
         (plain, MAX_PAYLOAD_BYTES),
         (compressed, MAX_DECOMPRESSED_BYTES),
@@ -1578,49 +1572,36 @@ async fn the_longest_host_line_a_legal_event_makes_is_measured() {
         send_payload_until_accepted(&b_claude, &a_peer, claude(), &payload, &daemons).await;
         let (n, line) = bridge.notification_line().await;
         assert_eq!(
-            n["content"].as_str().map(str::len),
-            Some(decoded),
-            "the whole text reached the model"
+            n["meta"]["payload_encoding"],
+            json!("base64url"),
+            "{decoded}: carried by size"
         );
-        // Six bytes a character, plus the frame and the meta.
-        let overhead = line.len() - 6 * decoded;
-        assert!(
-            line.len() > 6 * decoded && overhead < 4096,
-            "{} for {decoded}",
-            line.len()
+        assert_eq!(
+            n["content"],
+            json!(interweave_transport_api::base64url::encode(&vec![
+                0x01_u8;
+                decoded
+            ])),
+            "{decoded}: the whole text, as base64url of its bytes"
         );
-        // The event's other host form (CHANNEL-EVENT.md §Content's
-        // measure): `receive`'s event serialised, then escaped a second
-        // time as its tool-result text, the quotes around it not counted.
-        // Each control character is seven bytes there.
+        // The event's other host form: `receive`'s event serialised, then
+        // escaped a second time as its tool-result text, the quotes around
+        // it not counted.
         let event = serde_json::to_string(
             &json!({"kind": "direct", "content": n["content"], "meta": n["meta"]}),
         )
         .expect("serializes");
         let pulled = serde_json::to_string(&event).expect("serializes").len() - 2;
-        assert!(pulled > 7 * decoded, "{pulled} for {decoded}");
         eprintln!(
-            "size: {decoded} control characters made a {}-byte push line ({overhead} bytes of frame and meta) and a {pulled}-byte pulled form; the bound is {EVENT_LINE_BOUND}, the inbound ceiling {}",
-            line.len(),
-            host_line_ceiling()
+            "size: {decoded} control characters made a {}-byte push line and a {pulled}-byte pulled form as base64url; the bound is {EVENT_LINE_BOUND}",
+            line.len()
         );
-        lines.push((line.len(), pulled));
+        assert!(
+            line.len() <= EVENT_LINE_BOUND && pulled <= EVENT_LINE_BOUND,
+            "{decoded}: push {} and pulled {pulled} within {EVENT_LINE_BOUND}",
+            line.len()
+        );
     }
-    // The plain case's push line keeps the contract's bound; its pulled
-    // form does not, so by the contract's measure (the larger of the two)
-    // it is over the bound today, and the decoded case is over it in both
-    // forms, past even the inbound ceiling.
-    assert!(lines[0].0 <= EVENT_LINE_BOUND, "plain push: {:?}", lines[0]);
-    assert!(
-        lines[0].1 > EVENT_LINE_BOUND,
-        "plain pulled: {:?}",
-        lines[0]
-    );
-    assert!(
-        lines[1].0 > host_line_ceiling(),
-        "the decoded case is past the inbound ceiling, which bounds nothing outbound: {:?}",
-        lines[1]
-    );
 }
 
 /// N, for a text content `prefix N`.
