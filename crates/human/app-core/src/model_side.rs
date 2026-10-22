@@ -464,6 +464,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Intent::SetContactPhoto { contact_id, photo } => {
                 Command::SetContactPhoto { contact_id, photo }
             }
+            Intent::DeleteContact { contact_id } => Command::DeleteContact(contact_id),
         };
         if !self.in_flight.insert(InFlight::of(&command)) {
             return None;

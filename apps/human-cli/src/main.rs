@@ -15,6 +15,9 @@
 #![forbid(unsafe_code)]
 
 mod admin;
+mod cards;
+#[cfg(test)]
+mod cards_tests;
 mod cli;
 mod output;
 mod session;
@@ -125,7 +128,16 @@ fn facade(
         Box::new(wall_ms),
         0,
     )?;
-    Ok(FacadeSide::new(client, wall_ms))
+    let mut facade = FacadeSide::new(client, wall_ms);
+    // The identity's own key, by the desktop's rule: a file this build
+    // refuses is said by class and left as it is, and the client runs
+    // with no key, so nothing is signed and no card is shared.
+    match interweave_human_app_core::identity_key(&profile.paths, &profile.endpoints) {
+        Ok(Some(key)) => facade.set_identity_key(key),
+        Ok(None) => {}
+        Err(e) => eprintln!("interweave-human: the identity's key is not usable: {e}"),
+    }
+    Ok(facade)
 }
 
 /// `store health`: re-checked now, as the window's re-check does, with

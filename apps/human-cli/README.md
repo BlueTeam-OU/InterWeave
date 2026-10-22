@@ -8,11 +8,11 @@ It is the desktop client's composition with no display: the same store, facade (
 
 ## Batches
 
-- **Batch 1 (this crate today):** `status`, `conversations`, `messages`, `read [--keep]`, `send`, `cancel`, `retry`, `unkeep`, `listen`, `trust list|allow|revoke`, `identities list|enable|disable|default`, `store health`.
+- **Batch 1 (on main, #368):** `status`, `conversations`, `messages`, `read [--keep]`, `send`, `cancel`, `retry`, `unkeep`, `listen`, `trust list|allow|revoke`, `identities list|enable|disable|default`, `store health`.
+- **Batch 2:** `card show|set|share`, `proposals`, `proposals read [--accept|--decline]`, `contacts`, `contacts show|rename|photo|delete`.
 - **Store discard and recreate** (ADR-0060) wait on the store's action landing (plan section 29 step 3).
-- **Batch 2** waits on batch 1 landing; what it builds on is on main (#359): the own card and its fingerprint, sharing a card, proposals (list, accept, decline), contacts (list, edit, delete, routes).
 - **Batch 3** waits on the daemon's `admin.peers` address methods (p2p-network-dev's step 5): peers add, remove and list by address, and this profile's own address.
-- Creating, renaming and removing an identity (ADR-0061's display name and photo per endpoint) is Stage 22's.
+- Creating, renaming and removing an identity (ADR-0061's display name and photo per endpoint), and moving a route between contacts, are Stage 22's.
 
 ## What a script can rely on
 
@@ -34,13 +34,13 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 
 ### Output
 
-- `--json` is accepted by every verb that reads (`status`, `conversations`, `messages`, `read`, `listen`, `trust list`, `identities list`, `store health`) and by `send`, `cancel`, `retry` and `unkeep`. It prints one JSON object per line. Every control character, line separator and bidirectional control in a string is escaped, so a line is always one line.
+- `--json` is accepted by every verb that reads (`status`, `conversations`, `messages`, `read`, `listen`, `trust list`, `identities list`, `store health`, `card show`, `proposals`, `proposals read`, `contacts`, `contacts show`) and by `send`, `cancel`, `retry`, `unkeep` and `card share`. It prints one JSON object per line. Every control character, line separator and bidirectional control in a string is escaped, so a line is always one line.
 - `send`, `retry`, `cancel` and `unkeep` print `<id> <status>`, or `{"id": ..., "status": ...}` with `--json`. `send` and `retry` print it also when they fail with exit 1 or 6, so a script holds the id to retry or cancel.
 - Every status and state is a fixed token, never a translated label:
   - a message's `status` is one of `sending`, `not-confirmed`, `needs-attention`, `accepted`, `published`, `cancelled`, `unread`, `read`, `kept`;
   - `session` is one of `ready`, `opening`, `reconnecting`, `no-daemon`, `refused`, `storage-degraded`, `closed`;
   - `connectivity` is one of `online-direct`, `online-relay`, `online-partial`, `offline`, `unknown`. `unknown` never means `offline`;
-  - `listen`'s `event` is one of `message`, `outbound`, `session`, `connectivity`, `path`, `disconnected`.
+  - `listen`'s `event` is one of `message`, `proposal`, `outbound`, `session`, `connectivity`, `path`, `disconnected`.
 - `accepted` means the remote endpoint's bounded queue admitted the message (`AcceptedV2`). It does not mean a person read it.
 - Times are Unix milliseconds in JSON (`local_at_ms`, `sent_at_ms`, `last_activity_ms`). `sent_at_ms` is what the sender asserts: shown, never an order.
 - Text output is for a person and may change. Text from a peer is printed with every control character but newline and tab replaced, and every line separator and bidirectional control, so a message cannot drive the terminal or reorder what it shows.
@@ -62,13 +62,21 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 - **`listen`** prints until SIGINT or SIGTERM, then exits 0, its lease released. What it prints as a `message` stays unread in the store.
 - **`send <conversation> -`** reads the message from stdin, without the one trailing newline a shell adds.
 - **`identities default --none`** clears the profile's default endpoint only when it is a human one; another client's default is `transportctl`'s to clear. It reads the default, then clears it: two admin calls, so a `transportctl` change between them is not seen. `identities default <endpoint>` makes one of this client's endpoints the default, whichever endpoint held it before.
+- **The identity's key.** Every run opens the key of the profile's first human endpoint, or makes it on the first run, by the desktop client's rule. A key file this build refuses is named on stderr and left as it is; the run goes on with no key, and `card show` and `card share` are refused.
+- **A card proposal is decided in the run that shows it.** `proposals` lists every proposal held and reads none. `proposals read <conversation>` shows that conversation's proposals, which reads them (RETENTION.md: a card is unread content until shown), and accepts or declines the ones named with `--accept` and `--decline` in the same run. A proposal shown and not decided is gone when the run ends; the sender can share the card again. Every id is checked before anything is read, and what was shown is printed whatever fails after.
+- **A proposal's id** is its card's unread row, `u<row>`, as `proposals` prints it.
+- **What a proposal says is the sender's claim**, except the `PeerId`, the route and the key's fingerprint. `key.state` is `new`, `same` or `changed`; a `changed` key is shown with the fingerprint the route recorded, and accepting it replaces the key on that route alone.
+- **`card set <name> [<surname>]`** sets the whole own card. `--photo <file>` reads at most 32 MiB, which the client re-encodes to the card's bound; `--no-photo` removes it; with neither, the photo stays as it is.
+- **A contact's name or photo set with `contacts rename` or `contacts photo`** is the person's: no later card replaces it.
+- **`contacts delete`** deletes the contact, its routes and their recorded keys. They leave the store's files before it returns, unless another process is reading the store's log at that moment, in which case they leave it at the next write that releases content, or the next open or close. The next card from one of its routes is a new proposal, its key `new`. The trust allowlist is separate and is not changed.
+- **`listen`** prints a card that arrives as a `proposal` event, and leaves it unread.
 - **`trust allow` and `trust revoke`** of a peer already in that state exit 0, printing `(already)`.
 
 ## Tests
 
-- `src/verbs_tests.rs`: each verb through the model and the facade, against the in-memory node pair app-core's own tests use, over a file store where the next run is the claim.
+- `src/verbs_tests.rs` and `src/cards_tests.rs`: each verb through the model and the facade, against the in-memory node pair app-core's own tests use, over a file store where the next run is the claim.
 - `tests/process.rs`: the binary's `--help`, a usage error and a refused profile.
-- `tests/desktop-e2e/tests/human_cli.rs`: every batch-1 verb run as the binary against two real daemons.
+- `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1 and 2 run as the binary against two real daemons; `card set --photo <file>` and `contacts photo <file>` are not run with an image anywhere in this crate: the file read and its bound are tested here (`a_photo_file_past_the_bound_is_refused_unread`), and what the facade does with the bytes is app-core's.
 
 ## Not yet
 

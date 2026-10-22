@@ -27,13 +27,25 @@ usage:
   interweave-human --profile <name> identities enable|disable <endpoint>
   interweave-human --profile <name> identities default <endpoint>|--none
   interweave-human --profile <name> store health [--json]
+  interweave-human --profile <name> card show [--json]
+  interweave-human --profile <name> card set <name> [<surname>] [--photo <file>|--no-photo]
+  interweave-human --profile <name> card share <conversation> [--json]
+  interweave-human --profile <name> proposals [--json]
+  interweave-human --profile <name> proposals read <conversation>
+                   [--accept <id>]... [--decline <id>]... [--json]
+  interweave-human --profile <name> contacts [--json]
+  interweave-human --profile <name> contacts show <contact> [--json]
+  interweave-human --profile <name> contacts rename <contact> <name>
+  interweave-human --profile <name> contacts photo <contact> <file>|--none
+  interweave-human --profile <name> contacts delete <contact>
 
   --wait <ms>   how long to wait for the session and for an answer
                 (default 5000)
 
 A <conversation> is <peer> (its default endpoint), <peer>/<endpoint>, or
 #<channel>. An <id> is a message's as messages and read print it: p<row>
-pending, u<row> unread, k<row> kept. `send ... -` reads the text from
+pending, u<row> unread, k<row> kept; a proposal's is its card's u<row>,
+as proposals prints it. A <contact> is its id, as contacts prints it. `send ... -` reads the text from
 stdin. `--` ends the flags.
 
 Exit codes:
@@ -111,6 +123,52 @@ pub(crate) enum Verb {
     SetDefault(Option<EndpointId>),
     /// The store's health.
     StoreHealth,
+    /// The identity in front's own card and key.
+    CardShow,
+    /// Set the own card: name, surname, and what happens to the photo.
+    CardSet {
+        /// The name.
+        name: String,
+        /// The surname, if any.
+        surname: Option<String>,
+        /// The photo.
+        photo: PhotoArg,
+    },
+    /// Share the own card in a direct conversation.
+    CardShare(ConversationKey),
+    /// Every card proposal held, showing none of them read.
+    Proposals,
+    /// One conversation's proposals, shown and so read, and the named ones
+    /// accepted or declined in the same run.
+    ProposalsRead {
+        /// The conversation.
+        conversation: ConversationKey,
+        /// The proposals to accept, by id.
+        accept: Vec<String>,
+        /// The proposals to decline, by id.
+        decline: Vec<String>,
+    },
+    /// Every contact.
+    Contacts,
+    /// One contact, with its routes.
+    ContactShow(String),
+    /// The person's own name for a contact.
+    ContactRename(String, String),
+    /// The person's own photo for a contact, or its removal.
+    ContactPhoto(String, PhotoArg),
+    /// Delete a contact, its routes and their keys.
+    ContactDelete(String),
+}
+
+/// What a photo argument asks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PhotoArg {
+    /// Leave it.
+    Keep,
+    /// Remove it.
+    Remove,
+    /// The image in this file.
+    File(std::path::PathBuf),
 }
 
 /// The default `--wait`.
@@ -125,6 +183,10 @@ struct Flags {
     none: bool,
     wait: Option<String>,
     keep: Vec<String>,
+    photo: Option<String>,
+    no_photo: bool,
+    accept: Vec<String>,
+    decline: Vec<String>,
 }
 
 /// Parse a conversation's text: `<peer>`, `<peer>/<endpoint>` or
@@ -196,6 +258,15 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
                 }
             }
             "--keep" => flags.keep.push(value("--keep")?),
+            "--accept" => flags.accept.push(value("--accept")?),
+            "--decline" => flags.decline.push(value("--decline")?),
+            "--photo" => {
+                let v = value("--photo")?;
+                if flags.photo.replace(v).is_some() {
+                    return Err("--photo given twice".to_owned());
+                }
+            }
+            "--no-photo" => flags.no_photo = true,
             "--json" => flags.json = true,
             "--none" => flags.none = true,
             // A lone "-" is send's stdin marker, a word.
@@ -261,13 +332,57 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         }
         ["identities", "default", id] => (Verb::SetDefault(Some(endpoint(id)?)), false),
         ["store", "health"] => (Verb::StoreHealth, true),
+        ["card", "show"] => (Verb::CardShow, true),
+        ["card", "set", name, rest @ ..] if rest.len() <= 1 => {
+            let photo = match (flags.photo.take(), std::mem::take(&mut flags.no_photo)) {
+                (Some(_), true) => {
+                    return Err("--photo and --no-photo together".to_owned());
+                }
+                (Some(file), false) => PhotoArg::File(file.into()),
+                (None, true) => PhotoArg::Remove,
+                (None, false) => PhotoArg::Keep,
+            };
+            (
+                Verb::CardSet {
+                    name: (*name).to_owned(),
+                    surname: rest.first().map(|s| (*s).to_owned()),
+                    photo,
+                },
+                false,
+            )
+        }
+        ["card", "share", c] => (Verb::CardShare(conversation(c)?), true),
+        ["proposals"] => (Verb::Proposals, true),
+        ["proposals", "read", c] => (
+            Verb::ProposalsRead {
+                conversation: conversation(c)?,
+                accept: std::mem::take(&mut flags.accept),
+                decline: std::mem::take(&mut flags.decline),
+            },
+            true,
+        ),
+        ["contacts"] => (Verb::Contacts, true),
+        ["contacts", "show", id] => (Verb::ContactShow((*id).to_owned()), true),
+        ["contacts", "rename", id, name] => (
+            Verb::ContactRename((*id).to_owned(), (*name).to_owned()),
+            false,
+        ),
+        ["contacts", "photo", id] if std::mem::take(&mut flags.none) => (
+            Verb::ContactPhoto((*id).to_owned(), PhotoArg::Remove),
+            false,
+        ),
+        ["contacts", "delete", id] => (Verb::ContactDelete((*id).to_owned()), false),
+        ["contacts", "photo", id, file] => (
+            Verb::ContactPhoto((*id).to_owned(), PhotoArg::File((*file).into())),
+            false,
+        ),
         ["send", ..] => return Err("send takes a conversation and one text, or -".to_owned()),
         _ => return Err("an unknown command (see --help)".to_owned()),
     };
     let json = std::mem::take(&mut flags.json);
     if json && !json_allowed {
         return Err(
-            "--json applies to the verbs that read, and to send, cancel, retry and unkeep"
+            "--json applies to the verbs that read, and to send, cancel, retry, unkeep and card share"
                 .to_owned(),
         );
     }
@@ -275,7 +390,13 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         return Err("--keep applies to read only".to_owned());
     }
     if flags.none {
-        return Err("--none applies to identities default only".to_owned());
+        return Err("--none applies to identities default and contacts photo only".to_owned());
+    }
+    if !flags.accept.is_empty() || !flags.decline.is_empty() {
+        return Err("--accept and --decline apply to proposals read only".to_owned());
+    }
+    if flags.photo.is_some() || flags.no_photo {
+        return Err("--photo and --no-photo apply to card set only".to_owned());
     }
     Ok(Command::Run {
         profile,
@@ -329,6 +450,37 @@ mod tests {
             &["--profile", "p", "identities", "default", "human"],
             &["--profile", "p", "identities", "default", "--none"],
             &["--profile", "p", "store", "health", "--json"],
+            &["--profile", "p", "card", "show", "--json"],
+            &[
+                "--profile",
+                "p",
+                "card",
+                "set",
+                "Ada",
+                "Lovelace",
+                "--photo",
+                "a.jpg",
+            ],
+            &["--profile", "p", "card", "set", "Ada", "--no-photo"],
+            &["--profile", "p", "card", "share", &c, "--json"],
+            &["--profile", "p", "proposals", "--json"],
+            &[
+                "--profile",
+                "p",
+                "proposals",
+                "read",
+                &c,
+                "--accept",
+                "u3",
+                "--decline",
+                "u4",
+            ],
+            &["--profile", "p", "contacts", "--json"],
+            &["--profile", "p", "contacts", "show", "c1", "--json"],
+            &["--profile", "p", "contacts", "rename", "c1", "Ada"],
+            &["--profile", "p", "contacts", "photo", "c1", "a.jpg"],
+            &["--profile", "p", "contacts", "photo", "c1", "--none"],
+            &["--profile", "p", "contacts", "delete", "c1"],
         ];
         for args in cases {
             assert!(matches!(run(args), Ok(Command::Run { .. })), "{args:?}");
@@ -352,6 +504,14 @@ mod tests {
             "identities enable|disable",
             "identities default",
             "store health",
+            "card show",
+            "card set",
+            "card share",
+            "proposals read",
+            "contacts show",
+            "contacts rename",
+            "contacts photo",
+            "contacts delete",
         ] {
             assert!(USAGE.contains(word), "{word} in the usage");
         }
@@ -395,6 +555,19 @@ mod tests {
         let c = format!("{PEER}/human");
         for args in [
             vec!["--profile", "p", "trust", "allow", PEER, "--json"],
+            vec![
+                "--profile",
+                "p",
+                "card",
+                "set",
+                "A",
+                "--photo",
+                "x",
+                "--no-photo",
+            ],
+            vec!["--profile", "p", "card", "set", "A", "B", "C"],
+            vec!["--profile", "p", "read", &c, "--accept", "u1"],
+            vec!["--profile", "p", "status", "--photo", "x"],
             vec!["--profile", "p", "messages", &c, "--keep", "u1"],
             vec!["--profile", "p", "status", "--none"],
             vec!["--profile", "p", "status", "--wait", "soon"],
@@ -412,7 +585,7 @@ mod tests {
         assert_eq!(
             run(&["--profile", "p", "trust", "allow", PEER, "--json"]),
             Err(
-                "--json applies to the verbs that read, and to send, cancel, retry and unkeep"
+                "--json applies to the verbs that read, and to send, cancel, retry, unkeep and card share"
                     .to_owned()
             )
         );

@@ -232,6 +232,7 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::ShareCard(_) => "share card",
         Command::SetOwnCard { .. } => "set own card",
         Command::RenameContact { .. } => "rename contact",
+        Command::DeleteContact(_) => "delete contact",
         Command::SetContactPhoto { .. } => "set contact photo",
     }
 }
