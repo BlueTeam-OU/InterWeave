@@ -35,6 +35,10 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
+# The store key's custody (src/keystore.rs) and the store's screens
+# (src/store.rs): the store's KeyCipher seam and its at-rest actions.
+interweave-human-store = { path = "../../crates/human/store" }
+zeroize = { version = "1", default-features = false, features = ["alloc"] }
 # The Service's hold on the runtime, store and facade, and the hub the
 # Activity's view attaches to: android-platform, in [dependencies].
 interweave-human-app-core = { path = "../../crates/human/app-core" }

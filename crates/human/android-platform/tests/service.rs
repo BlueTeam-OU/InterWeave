@@ -52,6 +52,7 @@ fn launch(app: &App) -> ServiceLaunch {
         app_data_dir: app.dir.clone(),
         profile: PROFILE.to_owned(),
         identity: interweave_profile_identity::ProfileIdentity::generate(),
+        store_cipher: Box::new(interweave_human_store::key_custody::FilesystemCustody),
     }
 }
 
@@ -537,7 +538,11 @@ fn without_network_the_store_opens_and_no_runtime_runs() {
     stand_in::provision(&app.dir, PROFILE).expect("provisioned");
     let service = ServiceHost::new();
     service
-        .start_without_network(&app.dir, PROFILE)
+        .start_without_network(
+            &app.dir,
+            PROFILE,
+            &interweave_human_store::key_custody::FilesystemCustody,
+        )
         .expect("the posture starts");
     assert!(service.is_running());
     assert!(service.is_network_denied());
@@ -548,7 +553,11 @@ fn without_network_the_store_opens_and_no_runtime_runs() {
         "no runtime to wait on"
     );
     assert_eq!(
-        service.start_without_network(&app.dir, PROFILE),
+        service.start_without_network(
+            &app.dir,
+            PROFILE,
+            &interweave_human_store::key_custody::FilesystemCustody
+        ),
         Ok(()),
         "a second start changes nothing"
     );
@@ -596,7 +605,11 @@ fn without_network_the_store_opens_and_no_runtime_runs() {
 fn without_network_a_missing_profile_is_refused_and_nothing_runs() {
     let app = app();
     let service = ServiceHost::new();
-    let refused = service.start_without_network(&app.dir, PROFILE);
+    let refused = service.start_without_network(
+        &app.dir,
+        PROFILE,
+        &interweave_human_store::key_custody::FilesystemCustody,
+    );
     assert!(
         matches!(
             refused,
@@ -629,12 +642,20 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     // is then seeded with two unread messages while nothing holds it.
     let service = ServiceHost::new();
     service
-        .start_without_network(&app.dir, PROFILE)
+        .start_without_network(
+            &app.dir,
+            PROFILE,
+            &interweave_human_store::key_custody::FilesystemCustody,
+        )
         .expect("the posture starts");
     service.stop(GRACE).expect("it ran");
     {
-        let mut store =
-            HumanStore::open_profile(&paths, StoreOptions::default()).expect("the store");
+        let mut store = HumanStore::open_profile(
+            &paths,
+            &interweave_human_store::key_custody::FilesystemCustody,
+            StoreOptions::default(),
+        )
+        .expect("the store");
         let peer = interweave_profile_identity::ProfileIdentity::generate()
             .transport_identity()
             .expect("a PeerId");
@@ -672,7 +693,11 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     }
 
     service
-        .start_without_network(&app.dir, PROFILE)
+        .start_without_network(
+            &app.dir,
+            PROFILE,
+            &interweave_human_store::key_custody::FilesystemCustody,
+        )
         .expect("the posture starts again");
     let mut link = attach(&service);
     let mut held = Vec::new();
@@ -726,7 +751,12 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     );
     service.stop(GRACE).expect("it ran");
 
-    let store = HumanStore::open_profile(&paths, StoreOptions::default()).expect("the store");
+    let store = HumanStore::open_profile(
+        &paths,
+        &interweave_human_store::key_custody::FilesystemCustody,
+        StoreOptions::default(),
+    )
+    .expect("the store");
     assert!(
         store.unread_inbound().expect("unread").is_empty(),
         "a read deletes the unread row"
@@ -795,4 +825,119 @@ fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
     };
     assert!(told, "the row's status came with the listing");
     service.stop(GRACE).expect("it ran");
+}
+
+/// A stand-in for the Keystore's store key, sealing nothing (the secret
+/// is the body) so it can be told to refuse as invalidated: what the
+/// Service does with that refusal, not the Keystore, is what is tested
+/// here (the Keystore is the device row's).
+struct StoreKeystore {
+    invalidated: std::sync::atomic::AtomicBool,
+}
+
+impl interweave_human_store::key_custody::KeyCipher for StoreKeystore {
+    fn custody(&self) -> interweave_human_store::key_custody::Custody {
+        interweave_human_store::key_custody::Custody::Keystore
+    }
+
+    fn seal(
+        &self,
+        _: &str,
+        _: &[u8],
+        secret: &[u8; 32],
+    ) -> Result<Vec<u8>, interweave_human_store::key_custody::CipherFailure> {
+        self.invalidated
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        Ok(secret.to_vec())
+    }
+
+    fn open(
+        &self,
+        _: &str,
+        _: &[u8],
+        sealed: &[u8],
+    ) -> Result<zeroize::Zeroizing<[u8; 32]>, interweave_human_store::key_custody::CipherFailure>
+    {
+        if self.invalidated.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(interweave_human_store::key_custody::CipherFailure::KeyInvalidated);
+        }
+        let secret: [u8; 32] = sealed
+            .try_into()
+            .map_err(|_| interweave_human_store::key_custody::CipherFailure::Unauthentic)?;
+        Ok(zeroize::Zeroizing::new(secret))
+    }
+
+    fn retire(&self, _: &str) -> Result<(), interweave_human_store::key_custody::CipherFailure> {
+        Ok(())
+    }
+}
+
+/// ADR-0060 decision 6 on Android: an invalidated store key is its own
+/// refusal, never recovery mode and never an identity condition; Discard
+/// and recreate is refused while the client holds the store and, once it
+/// is stopped and the person confirmed, removes the store and its key so
+/// the next start recreates it.
+#[test]
+fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() {
+    use interweave_human_store::at_rest::DiscardScope;
+    let app = app();
+    stand_in::provision(&app.dir, PROFILE).expect("provisioned");
+    let keystore = StoreKeystore {
+        invalidated: std::sync::atomic::AtomicBool::new(false),
+    };
+    let service = ServiceHost::new();
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("the first start makes the store and its key");
+    assert!(matches!(
+        service.plan_store_discard(&app.dir, PROFILE, &keystore),
+        Err(interweave_human_android_platform::StoreActionRefused::Running)
+    ));
+    let _ = service.stop(GRACE);
+
+    keystore
+        .invalidated
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        service.start_without_network(&app.dir, PROFILE, &keystore),
+        Err(StartRefused::StoreKeyInvalidated)
+    );
+    assert!(!service.is_running());
+    // A view attached now hears which screen the refusal calls for.
+    let mut link = service.hub().attach(Arc::new(|| {}));
+    assert!(
+        link.take().iter().any(|m| matches!(
+            m,
+            ToView::StoreRefused(Some(
+                interweave_human_android_platform::StoreRefusal::KeyLost
+            ))
+        )),
+        "the key-lost screen"
+    );
+    let health = service
+        .store_health(&app.dir, PROFILE, &keystore)
+        .expect("health");
+    assert_eq!(
+        health.key,
+        interweave_human_store::at_rest::KeyPresence::Invalidated
+    );
+
+    let plan = service
+        .plan_store_discard(&app.dir, PROFILE, &keystore)
+        .expect("a plan");
+    assert_eq!(plan.scope(), DiscardScope::Everything);
+    assert!(plan.removes_key());
+    service
+        .discard_store(&app.dir, PROFILE, &keystore, plan.confirm())
+        .expect("discarded");
+    service
+        .start_without_network(&app.dir, PROFILE, &keystore)
+        .expect("the store is recreated under a new key");
+    assert!(
+        link.take()
+            .iter()
+            .any(|m| matches!(m, ToView::StoreRefused(None))),
+        "the screen goes once a start opened the store"
+    );
+    let _ = service.stop(GRACE);
 }

@@ -35,7 +35,7 @@ fn failed(case: &str, detail: &str) -> String {
 fn run(env: &mut Env<'_>, case: &str, args: &str, app_data_dir: &str) -> String {
     let dir = Path::new(app_data_dir).to_owned();
     let cipher = match KeystoreCipher::new(env) {
-        Ok(cipher) => cipher,
+        Ok(cipher) => Arc::new(cipher),
         Err(e) => return failed(case, &format!("the Keystore cipher: {e}")),
     };
     // The host's provisioning: config.yaml replaced, under the app's
@@ -69,7 +69,7 @@ fn run(env: &mut Env<'_>, case: &str, args: &str, app_data_dir: &str) -> String 
         };
         return interweave_android_e2e_cases::run(case, args, ctx);
     }
-    let identity = match start_identity(&dir, PROFILE, &cipher, FirstRun::Create) {
+    let identity = match start_identity(&dir, PROFILE, &*cipher, FirstRun::Create) {
         Ok(identity) => identity,
         Err(why) => return failed(case, &format!("no identity: {why:?}")),
     };
@@ -78,10 +78,13 @@ fn run(env: &mut Env<'_>, case: &str, args: &str, app_data_dir: &str) -> String 
         Err(e) => return failed(case, &format!("the identity's PeerId: {e}")),
     };
     let service = ServiceHost::global();
+    // The store key under the same Keystore bridge, at its own alias and
+    // background-compatible (ADR-0060 decision 3).
     let launch = ServiceLaunch {
         app_data_dir: dir.clone(),
         profile: PROFILE.to_owned(),
         identity,
+        store_cipher: Box::new(crate::keystore::StoreKeystore(Arc::clone(&cipher))),
     };
     let mut client: Option<Box<dyn interweave_android_e2e_cases::AppClient>> = None;
     let started = crate::platform_log::around_start(service, &dir, PROFILE, || {

@@ -73,6 +73,11 @@ pub(crate) mod ask {
     /// presence window holds back: its title says it unlocks the app, not
     /// that it shows the phrase. Answered by `Native.prompted`.
     pub(crate) const UNLOCK: jint = 8;
+    /// The store's screens: start the network service again -- R's Try
+    /// again, and after a confirmed discard, which recreates the store
+    /// (ADR-0060 decision 6). Unlike [`ONLINE`], not tied to Show my
+    /// phrase's hold.
+    pub(crate) const RESTART: jint = 9;
 }
 
 /// The asks, in order, for one waiting Kotlin thread.
@@ -214,6 +219,22 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         user_presence,
     });
     code
+}
+
+/// The app's data directory and the Keystore bridge `Native.identityState`
+/// made, for the store's screens on the window's thread; `None` before it
+/// answered.
+pub(crate) fn platform() -> Option<(PathBuf, Arc<KeystoreCipher>)> {
+    PLATFORM
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .map(|p| (p.app_data_dir.clone(), Arc::clone(&p.cipher)))
+}
+
+/// Ask the Activity's Kotlin side for `ask` (an [`ask`] code).
+pub(crate) fn ask_activity(ask: jni::sys::jint) {
+    ASKS.push(ask);
 }
 
 /// `Native.identityState` returned, on any path: wake the window's wait.

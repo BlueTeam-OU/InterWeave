@@ -3779,3 +3779,39 @@ fn the_trust_dialog_names_its_act_and_hands_focus_back() {
         assert_eq!(focus(&view), next, "after {}", gone.as_str());
     }
 }
+
+/// After a discard of the store the app opens with its notice in Chats,
+/// shown once with Close (design/2026-10-21-contact-cards.md section 7.3):
+/// under a session notice while one is shown, gone from every render
+/// after its Close, and no intent reaches the model.
+#[test]
+fn the_discard_notice_shows_once_under_session_notices_and_goes_on_close() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.show_once(UiText::StoreDiscarded);
+    model.authentication_needed(true);
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::StoreDiscarded)).is_empty(),
+        "a session notice goes first"
+    );
+    model.authentication_needed(false);
+    model.client_event(ClientEvent::Session(SessionState::Ready {
+        endpoint: Some(human()),
+    }));
+    view.render(&model);
+    let notice = the(&view, text(UiText::StoreDiscarded));
+    assert!(notice.size().width > 0.0, "the notice is laid out");
+    the(&view, text(UiText::Close)).invoke_accessible_default_action();
+    assert!(
+        intents(&mut view, &mut model).is_empty(),
+        "nothing for the model"
+    );
+    assert!(labelled(&view, text(UiText::StoreDiscarded)).is_empty());
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::StoreDiscarded)).is_empty(),
+        "never again"
+    );
+}

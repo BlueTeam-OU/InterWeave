@@ -3408,3 +3408,23 @@ fn the_card_columns_and_keys_are_part_of_the_verified_shape() {
         );
     }
 }
+
+/// The store's engine is `SQLCipher`, compiled with the release (ADR-0060,
+/// SPIKE-011): a build that fell back to plain SQLite -- the `bundled`
+/// feature, or a system library -- would accept a key pragma silently and
+/// encrypt nothing, so the engine is asked for its cipher by name.
+#[test]
+fn the_engine_is_sqlcipher_with_its_crypto_built_in() {
+    let conn = rusqlite::Connection::open_in_memory().expect("open");
+    let version: String = conn
+        .query_row("PRAGMA cipher_version", [], |r| r.get(0))
+        .expect("SQLCipher answers cipher_version; plain SQLite returns no row");
+    assert!(version.starts_with("4."), "{version}");
+    // The provider is reported for a keyed database only. A test-only key.
+    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", "00".repeat(32)))
+        .expect("keyed");
+    let provider: String = conn
+        .query_row("PRAGMA cipher_provider", [], |r| r.get(0))
+        .expect("a provider");
+    assert_eq!(provider, "openssl");
+}

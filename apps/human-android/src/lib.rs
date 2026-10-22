@@ -16,6 +16,17 @@ mod jni;
 mod keystore;
 #[cfg(target_os = "android")]
 mod onboard;
+#[cfg(target_os = "android")]
+mod store;
+// On every target, so the host tests the decision the phone takes.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; store.rs uses it on Android"
+    )
+)]
+mod store_follow;
 // On every target, so the host tests the filter the phone writes with.
 #[cfg_attr(
     not(target_os = "android"),

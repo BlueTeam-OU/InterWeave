@@ -201,3 +201,150 @@ impl SeedCipher for KeystoreCipher {
         }
     }
 }
+
+use interweave_human_store::key_custody::CipherFailure as StoreFailure;
+
+/// The store key's custody on the phone (ADR-0060 decision 3): the same
+/// `KeystoreCipher.kt`, under the store's own alias
+/// (`interweave.store.<profile>`, never a seed's nor an identity's), and
+/// ALWAYS at `background-compatible` whatever the seed's policy: the store
+/// must open when the service restarts unattended to commit unread
+/// content, and the store key opens the store, not the identity.
+impl interweave_human_store::key_custody::KeyCipher for KeystoreCipher {
+    fn custody(&self) -> interweave_human_store::key_custody::Custody {
+        interweave_human_store::key_custody::Custody::Keystore
+    }
+
+    fn seal(&self, alias: &str, aad: &[u8], secret: &[u8; 32]) -> Result<Vec<u8>, StoreFailure> {
+        let answer = self.call(
+            jni_str!("seal"),
+            &jni_sig!("(Ljava/lang/String;Z[B[B)[B"),
+            |env| {
+                Ok(vec![
+                    JString::from_str(env, alias)?.into(),
+                    // background-compatible: no user presence, ever.
+                    JValueOwned::Bool(false),
+                    env.byte_array_from_slice(aad)?.into(),
+                    env.byte_array_from_slice(secret)?.into(),
+                ])
+            },
+            |env, array, len| {
+                let bytes = env
+                    .convert_byte_array(array)
+                    .map_err(|e| CipherFailure::Unavailable(format!("jni: {e}")))?;
+                if len != 1 + IV_LEN + SEALED_LEN {
+                    return Err(shape("a seal"));
+                }
+                Ok(Answer::Sealed(Sealed {
+                    iv: bytes[1..=IV_LEN].to_vec(),
+                    sealed: bytes[1 + IV_LEN..].to_vec(),
+                }))
+            },
+        );
+        match answer.map_err(store_failure)? {
+            Answer::Sealed(Sealed { iv, sealed }) => Ok([iv, sealed].concat()),
+            _ => Err(store_failure(shape("a seal"))),
+        }
+    }
+
+    fn open(
+        &self,
+        alias: &str,
+        aad: &[u8],
+        sealed: &[u8],
+    ) -> Result<zeroize::Zeroizing<[u8; 32]>, StoreFailure> {
+        // The body seal() wrote: the IV, then the ciphertext and its tag.
+        if sealed.len() != IV_LEN + SEALED_LEN {
+            return Err(StoreFailure::Unauthentic);
+        }
+        let (iv, body) = sealed.split_at(IV_LEN);
+        let answer = self.call(
+            jni_str!("open"),
+            &jni_sig!("(Ljava/lang/String;[B[B[B)[B"),
+            |env| {
+                Ok(vec![
+                    JString::from_str(env, alias)?.into(),
+                    env.byte_array_from_slice(iv)?.into(),
+                    env.byte_array_from_slice(body)?.into(),
+                    env.byte_array_from_slice(aad)?.into(),
+                ])
+            },
+            |env, array, len| {
+                if len != 1 + SEED_LEN {
+                    return Err(shape("a key"));
+                }
+                let jni = |e: jni::errors::Error| CipherFailure::Unavailable(format!("jni: {e}"));
+                let mut buf = [0_i8; SEED_LEN];
+                array.get_region(env, 1, &mut buf).map_err(jni)?;
+                let mut key = [0_u8; SEED_LEN];
+                for (to, from) in key.iter_mut().zip(&mut buf) {
+                    *to = from.cast_unsigned();
+                    *from = 0;
+                }
+                array
+                    .set_region(env, 0, &[0_i8; 1 + SEED_LEN])
+                    .map_err(jni)?;
+                Ok(Answer::Seed(Seed::new(key)))
+            },
+        );
+        match answer.map_err(store_failure)? {
+            Answer::Seed(key) => Ok(zeroize::Zeroizing::new(*key.expose())),
+            _ => Err(store_failure(shape("a key"))),
+        }
+    }
+
+    fn retire(&self, alias: &str) -> Result<(), StoreFailure> {
+        match self
+            .call(
+                jni_str!("retire"),
+                &jni_sig!("(Ljava/lang/String;)[B"),
+                |env| Ok(vec![JString::from_str(env, alias)?.into()]),
+                |_, _, _| Ok(Answer::Done),
+            )
+            .map_err(store_failure)?
+        {
+            Answer::Done => Ok(()),
+            _ => Err(store_failure(shape("a retire"))),
+        }
+    }
+}
+
+/// The Keystore's refusal in the store's terms: an invalidation stays an
+/// invalidation (ADR-0060 decision 6 offers discard directly for it), a
+/// missing key is a missing key, a tag that does not verify is
+/// unauthentic, and the rest is the platform's.
+fn store_failure(failure: CipherFailure) -> StoreFailure {
+    match failure {
+        CipherFailure::KeyInvalidated => StoreFailure::KeyInvalidated,
+        CipherFailure::KeyMissing => StoreFailure::KeyUnavailable,
+        CipherFailure::Authentication => StoreFailure::Unauthentic,
+        other => StoreFailure::Platform(format!("{other:?}")),
+    }
+}
+
+/// The store's custody as an owned value the Service holds: the one
+/// Keystore bridge, shared (a launch takes its cipher by value).
+pub(crate) struct StoreKeystore(pub(crate) std::sync::Arc<KeystoreCipher>);
+
+impl interweave_human_store::key_custody::KeyCipher for StoreKeystore {
+    fn custody(&self) -> interweave_human_store::key_custody::Custody {
+        interweave_human_store::key_custody::KeyCipher::custody(&*self.0)
+    }
+
+    fn seal(&self, alias: &str, aad: &[u8], secret: &[u8; 32]) -> Result<Vec<u8>, StoreFailure> {
+        interweave_human_store::key_custody::KeyCipher::seal(&*self.0, alias, aad, secret)
+    }
+
+    fn open(
+        &self,
+        alias: &str,
+        aad: &[u8],
+        sealed: &[u8],
+    ) -> Result<zeroize::Zeroizing<[u8; 32]>, StoreFailure> {
+        interweave_human_store::key_custody::KeyCipher::open(&*self.0, alias, aad, sealed)
+    }
+
+    fn retire(&self, alias: &str) -> Result<(), StoreFailure> {
+        interweave_human_store::key_custody::KeyCipher::retire(&*self.0, alias)
+    }
+}

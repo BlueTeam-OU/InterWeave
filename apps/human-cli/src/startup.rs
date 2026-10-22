@@ -114,29 +114,38 @@ pub(crate) fn lock(profile: &Profile) -> Result<HumanClientLock, Failure> {
 /// [`Failure::Store`] saying which.
 pub(crate) fn open_store(profile: &Profile) -> Result<HumanStore, Failure> {
     let path = profile.store_path();
-    HumanStore::open_profile(&profile.paths, StoreOptions::default()).map_err(|error| {
-        Failure::Store(if error.needs_recovery() {
-            format!(
-                "the message store at {} cannot be read by this version and needs recovery; \
+    // The store key at the v1 desktop's custody (ADR-0060 decision 3), as
+    // the desktop's: a filesystem custody reports no invalidation.
+    HumanStore::open_profile(
+        &profile.paths,
+        &interweave_human_store::key_custody::FilesystemCustody,
+        StoreOptions::default(),
+    )
+    .map_err(|error| {
+        Failure::Store(
+            if error.needs_recovery() || matches!(error, StoreError::KeyInvalidated) {
+                format!(
+                    "the message store at {} cannot be read by this version and needs recovery; \
                  it was not renamed, moved or deleted",
-                path.display()
-            )
-        } else if matches!(
-            error,
-            StoreError::NotAFile { .. }
-                | StoreError::PermissionsTooOpen { .. }
-                | StoreError::DirectoryNotPrivate { .. }
-        ) {
-            format!(
-                "the message store at {} or its directory is not private to this user; \
+                    path.display()
+                )
+            } else if matches!(
+                error,
+                StoreError::NotAFile { .. }
+                    | StoreError::PermissionsTooOpen { .. }
+                    | StoreError::DirectoryNotPrivate { .. }
+            ) {
+                format!(
+                    "the message store at {} or its directory is not private to this user; \
                  refusing to use it: {error}",
-                path.display()
-            )
-        } else {
-            format!(
-                "the message store at {} could not be opened now: {error}",
-                path.display()
-            )
-        })
+                    path.display()
+                )
+            } else {
+                format!(
+                    "the message store at {} could not be opened now: {error}",
+                    path.display()
+                )
+            },
+        )
     })
 }
