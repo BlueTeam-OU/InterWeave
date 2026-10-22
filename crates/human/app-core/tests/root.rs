@@ -80,6 +80,8 @@ struct Scripted {
     renders: usize,
     /// Whether each render was shown a trust change to confirm.
     pending_shown: Vec<bool>,
+    /// Peers as the last render was shown it.
+    peers_shown: Option<interweave_human_ui_model::Peers>,
 }
 
 impl Scripted {
@@ -93,6 +95,7 @@ impl Surface for Scripted {
         self.renders += 1;
         self.pending_shown
             .push(model.trust_settings().pending().is_some());
+        self.peers_shown = Some(model.peers().clone());
     }
 
     fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
@@ -1603,4 +1606,82 @@ fn the_address_bound_in_the_words_is_the_configurations() {
         interweave_human_ui_model::ADDRESS_BOUND,
         interweave_profile_config::MAX_STATIC_BOOTSTRAP_PEERS
     );
+}
+
+/// A step-two Trust's answer reaches Peers only at the turn's end, after
+/// its render, and asks the facade nothing: the turn that takes it draws
+/// it all the same -- a refused Trust's problem line in its block, and a
+/// made one's decided page closing -- with no other wake.
+#[tokio::test]
+async fn a_step_two_trust_answer_is_drawn_by_the_turn_that_takes_it() {
+    use interweave_human_client_api::{
+        AddressAnswer, AddressList, AddressOrigin, AddressOutcome, PeerAddress, TrustList,
+        TrustProblem, TrustRow, TrustSetFailure,
+    };
+    use interweave_human_ui_model::{BlockProblem, PeersInput};
+    for made in [false, true] {
+        // A peer the pair's trust lists do not hold, so its add has a block.
+        let (a, _) = FakeNetwork::pair(node(), node());
+        let stranger = ProfileIdentity::generate()
+            .transport_identity()
+            .expect("a peer");
+        let line = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", stranger.as_str());
+        let (mut root, _) = Root::new(facade(&a, memory()));
+        root.settled(0).await;
+        root.will(vec![
+            ViewEvent::Peers(PeersInput::OpenAdd),
+            ViewEvent::Peers(PeersInput::FieldChanged(line.clone())),
+            ViewEvent::Peers(PeersInput::Add),
+        ]);
+        let _ = root.model.turn();
+        root.model.apply(Update::AddressesAdded {
+            lines: vec![line.clone()],
+            answer: Ok(AddressAnswer {
+                outcome: AddressOutcome::Added {
+                    peer: Some(stranger.clone()),
+                },
+                list: Ok(AddressList {
+                    addresses: vec![PeerAddress {
+                        address: line.clone(),
+                        peer: Some(stranger.clone()),
+                        origin: AddressOrigin::AddedHere,
+                        dialled: true,
+                    }],
+                }),
+            }),
+        });
+        root.will(vec![ViewEvent::Peers(PeersInput::Trust(stranger.clone()))]);
+        let commands = root.model.turn();
+        assert!(
+            commands.iter().any(|c| matches!(c, Command::SetTrust(_))),
+            "{commands:?}"
+        );
+        let change = TrustChange {
+            peer: stranger.clone(),
+            allowed: true,
+        };
+        root.model.apply(Update::TrustSet {
+            change,
+            answer: if made {
+                Ok(TrustList {
+                    local_peer: Some(a.peer().clone()),
+                    allowed: vec![TrustRow::added_here(stranger.clone())],
+                })
+            } else {
+                Err(TrustSetFailure::NotMade(TrustProblem::NotPermitted))
+            },
+        });
+        let _ = root.model.turn();
+        let shown = root.model.surface().peers_shown.clone().expect("rendered");
+        if made {
+            assert!(!shown.add_open(), "the decided page closed, drawn");
+        } else {
+            let trust = root.model().trust_settings();
+            assert_eq!(
+                shown.blocks(trust)[0].problem,
+                Some(BlockProblem::Trust(TrustProblem::NotPermitted)),
+                "the refusal drawn in its block"
+            );
+        }
+    }
 }

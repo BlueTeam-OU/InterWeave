@@ -335,11 +335,18 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     commands.push(command);
                 }
                 // The same for the addresses, and step two's blocks once
-                // trust answered them.
+                // trust answered them. A trust answer reaches Peers only
+                // here, after this turn's render, and may ask the facade
+                // nothing -- a block's problem, a decided page closing,
+                // focus moving -- so a Peers that changed is drawn again.
+                let before = self.model.peers().clone();
                 if let Some(intent) = self.model.peers_turn()
                     && let Some(command) = self.command_for(intent)
                 {
                     commands.push(command);
+                }
+                if *self.model.peers() != before {
+                    unrendered = true;
                 }
                 if std::mem::take(&mut unrendered) {
                     self.surface.render(&self.model);
