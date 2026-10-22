@@ -36,7 +36,9 @@
 #     variant manifest setting it, which would merge over main's, fails;
 #   - the extraction-rules file the main manifest names, in main and in
 #     every other non-test source set that has one (a variant's res/xml
-#     replaces main's at the resource merge): <cloud-backup> and
+#     replaces main's at the resource merge), in res/xml and in every
+#     qualified res/xml-* directory (xml-v31 is the copy the platform
+#     picks where the rules are read): <cloud-backup> and
 #     <device-transfer> each present, each excluding every domain at the
 #     path ".", and no <include> anywhere;
 #   - permissions: no <uses-permission>, <uses-permission-sdk-23> or
@@ -237,7 +239,14 @@ def main(argv: list[str]) -> int:
         for d in sorted(p for p in sets.iterdir() if p.is_dir()):
             if d.name in TEST_SOURCE_SETS:
                 continue
-            check_extraction_rules(d / "res" / "xml" / rules, root, d.name == "main")
+            # Every res/xml* directory: a qualified one (xml-v31) is the
+            # copy the platform picks on the devices that read the rules.
+            res = d / "res"
+            dirs = sorted(x for x in res.iterdir() if x.is_dir() and (x.name == "xml" or x.name.startswith("xml-"))) if res.is_dir() else []
+            if d.name == "main" and not any(x.name == "xml" for x in dirs):
+                dirs.insert(0, res / "xml")
+            for x in dirs:
+                check_extraction_rules(x / rules, root, d.name == "main" and x.name == "xml")
 
     # Raw scans: a provider name anywhere the Android client is built from,
     # and a contacts coordinate anywhere the Gradle dependency list is.

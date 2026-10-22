@@ -147,8 +147,9 @@ and ships no contacts library; its manifest sets
 the extraction rules, the Gradle lockfiles and scripts, and the Kotlin
 and Rust sources of the app (run by `cargo xtask checks` and CI). The
 rules are declared in the main manifest alone, and every shipped source
-set's copy of the rules file is read, since a variant's replaces main's
-at the resource merge.
+set's copy of the rules file is read, in `res/xml` and in each qualified
+`res/xml-*` directory, since a variant's replaces main's at the resource
+merge and a qualified one is the copy the platform picks.
 
 ## SPIKE-008's target-SDK half
 
