@@ -2054,12 +2054,29 @@ export component AppWindow inherits Window {
                             duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
                             easing: ease-out;
                         }
-                        // The selection is a fill and a bar at the start
-                        // edge: the fill alone measures under 3:1 against
-                        // the pane (section 5).
-                        background: conversation.shown-selected ? Palette.primary-container
-                            : root.narrow ? Palette.surface : Palette.surface-container;
+                        background: root.narrow ? Palette.surface : Palette.surface-container;
                         border-radius: 12px;
+                        // The selection is a fill and a bar at the start
+                        // edge, the fill alone measuring under 3:1 against
+                        // the pane (section 5). One element under the row's
+                        // content, placed so it takes no part in the row's
+                        // size: what is drawn is what
+                        // `a_phone_wide_list_shows_no_row_selected` reads.
+                        if conversation.shown-selected: selection := Rectangle {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: parent.height;
+                            background: Palette.primary-container;
+                            border-radius: 12px;
+                            Rectangle {
+                                x: root.rtl ? parent.width - self.width : 0px;
+                                y: 0px;
+                                width: 4px;
+                                height: parent.height;
+                                background: Palette.primary;
+                            }
+                        }
                         summary := HorizontalLayout {
                             padding-left: 16px;
                             padding-right: 16px;
@@ -2145,13 +2162,6 @@ export component AppWindow inherits Window {
                                     hue: row.avatar-hue;
                                 }
                             }
-                        }
-                        if conversation.shown-selected: Rectangle {
-                            x: root.rtl ? parent.width - self.width : 0px;
-                            y: 0px;
-                            width: 4px;
-                            height: parent.height;
-                            background: Palette.primary;
                         }
                         TapArea {
                             radius: 12px;

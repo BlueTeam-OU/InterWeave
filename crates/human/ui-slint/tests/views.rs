@@ -3185,7 +3185,7 @@ fn a_resize_back_from_the_list_reads_what_it_shows() {
 }
 
 /// Whether the list shows a conversation row as selected, as a screen
-/// reader hears it; the fill and the bar follow the same property.
+/// reader hears it.
 fn listed_selected(view: &View) -> Vec<bool> {
     i_slint_backend_testing::ElementQuery::from_root(view.window())
         .match_accessible_role(i_slint_backend_testing::AccessibleRole::ListItem)
@@ -3217,10 +3217,26 @@ fn a_phone_wide_list_shows_no_row_selected() {
         vec![false],
         "nothing open beside it"
     );
+    assert_eq!(drawn_selections(&view), 0, "no fill and bar drawn");
 
     resize(&view, 1000.0);
     view.render(&model);
     assert_eq!(listed_selected(&view), vec![true], "control: side by side");
+    assert_eq!(
+        drawn_selections(&view),
+        1,
+        "control: its fill and bar drawn"
+    );
+}
+
+/// How many rows draw the selection's fill and bar, the one element
+/// `selection` in app.slint.
+fn drawn_selections(view: &View) -> usize {
+    i_slint_backend_testing::ElementQuery::from_root(view.window())
+        .find_all()
+        .into_iter()
+        .filter(|e| e.id().as_deref() == Some("AppWindow::selection"))
+        .count()
 }
 
 /// Read is a retention act (RETENTION.md): a conversation the trust
