@@ -347,7 +347,7 @@ def spdx_expression(line: str) -> list:
     """The ids of the SPDX expression that opens `line`: an id, then an
     operator (AND, OR, WITH, in any case) before each further id,
     parentheses aside. It ends where an operator is due and another word
-    stands ("MIT -- see LICENSE", "MIT. All rights reserved"). A word that
+    stands ("MIT -- see LICENSE", "MIT. See the notice above"). A word that
     is not a clean id ("MIT/Frob"), and an expression cut where an id is
     due ("MIT OR" at the line's end, its id wrapped onto the next line),
     are returned as they stand, so the lookup refuses them rather than
