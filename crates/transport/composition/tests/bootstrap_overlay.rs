@@ -731,6 +731,10 @@ async fn a_list_is_added_whole_or_not_at_all_naming_the_refused_line() {
         vec![row(&authored[0], AddressSource::Authored, true)],
         "no line of a refused list is in force"
     );
+    assert!(
+        !runtime.operator_holds(&at(2, &b)).await.expect("answered"),
+        "nor at the operator's door"
+    );
     for bad in [Vec::new(), vec![at(2, &b); 17]] {
         assert_eq!(
             add_all(&runtime, &bad).await,
@@ -756,6 +760,12 @@ async fn a_list_is_added_whole_or_not_at_all_naming_the_refused_line() {
     );
     let on_disk = std::fs::read_to_string(&path).expect("the overlay");
     assert!(on_disk.contains(&at(2, &b)) && on_disk.contains(&at(3, &b)));
+    for line in [at(2, &b), at(3, &b)] {
+        assert!(
+            runtime.operator_holds(&line).await.expect("answered"),
+            "every added line is at the operator's door: {line}"
+        );
+    }
     assert_eq!(
         add(&runtime, &at(3, &b)).await,
         AddressChange::Unchanged,
@@ -828,11 +838,13 @@ async fn a_disabled_provider_refuses_the_list_whole() {
     runtime.shutdown().await.expect("clean shutdown");
 }
 
-/// EVERY line of an added list reaches the operator's door, not only the
-/// first: the reachable address is the list's SECOND line, behind one
-/// nobody listens on. The control: nothing connects before the add.
+/// A line of an added list is dialled though it is not the first: the
+/// reachable address is the list's SECOND line, behind one nobody
+/// listens on (the operator's door holding every line is
+/// `a_list_is_added_whole_or_not_at_all_naming_the_refused_line`'s). The
+/// control: nothing connects before the add.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn every_line_of_an_added_list_is_dialled() {
+async fn a_later_line_of_an_added_list_is_dialled() {
     let ip = interweave_test_support::net::require_private_interface_v4();
     let listen = CompositionOptions {
         listen: vec![format!("/ip4/{ip}/tcp/0")],
