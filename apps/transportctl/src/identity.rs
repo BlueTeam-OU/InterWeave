@@ -8,7 +8,9 @@ use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use interweave_profile_config::{LoadError, ProfileConfig, ProfileLock, ProfilePaths, XdgRoots};
+use interweave_profile_config::{
+    LoadError, PersistError, ProfileConfig, ProfileLock, ProfilePaths, XdgRoots,
+};
 use interweave_profile_identity::{IdentityError, ProfileIdentity, RecoveryRecord};
 use zeroize::Zeroizing;
 
@@ -70,7 +72,10 @@ fn profile_for_init(name: &str) -> Result<(ProfilePaths, PathBuf), Failure> {
             let key_file = paths.identity_file();
             Ok((paths, key_file))
         }
-        Err(e) => Err(refused("the profile", &e)),
+        Err(e) => Err(refused(
+            &format!("the profile {}", paths.config_file().display()),
+            &e,
+        )),
     }
 }
 
@@ -114,11 +119,15 @@ fn show(name: &str) -> Result<String, Failure> {
 /// daemon or another identity command, and the key is not touched under
 /// it (plan §16 (6), (10)).
 fn lock(paths: &ProfilePaths) -> Result<ProfileLock, Failure> {
-    ProfileLock::acquire(paths, Duration::ZERO).map_err(|e| {
-        Failure::Refused(format!(
+    ProfileLock::acquire(paths, Duration::ZERO).map_err(|e| match e {
+        PersistError::ProfileLocked { .. } => Failure::Refused(format!(
             "profile {:?}'s lock is held -- stop its daemon first ({e})",
             paths.profile()
-        ))
+        )),
+        e => Failure::Refused(format!(
+            "profile {:?}'s lock cannot be taken: {e}",
+            paths.profile()
+        )),
     })
 }
 

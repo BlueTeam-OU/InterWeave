@@ -1129,6 +1129,50 @@ fn init_without_a_configuration_writes_the_default_key_file() {
     assert!(!broken.paths.identity_file().exists(), "nothing minted");
 }
 
+/// A lock refused for another reason than a holder -- a state directory
+/// another account can read -- says so, and does not send the operator to
+/// stop a daemon that is not running; the held lock is the control.
+#[test]
+fn a_lock_refused_for_its_directory_does_not_say_it_is_held() {
+    let home = Home::new();
+    home.write_key();
+    let held = ProfileLock::acquire(&home.paths, Duration::ZERO).expect("the lock");
+    let out = home.run(&["--profile", "p", "identity", "show"]);
+    assert!(
+        text(&out.stderr).contains("lock is held -- stop its daemon first"),
+        "the control: {}",
+        text(&out.stderr)
+    );
+    drop(held);
+
+    std::fs::set_permissions(
+        home.paths.state_dir(),
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
+    )
+    .expect("chmod");
+    let out = home.run(&["--profile", "p", "identity", "show"]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = text(&out.stderr);
+    assert!(stderr.contains("lock cannot be taken"), "{stderr}");
+    assert!(stderr.contains("mode is 0755"), "the reason: {stderr}");
+    assert!(!stderr.contains("lock is held"), "{stderr}");
+    assert!(!stderr.contains("must be owner-only"), "{stderr}");
+}
+
+/// A profile document past its size bound is refused naming the
+/// document's path, which its own error does not carry.
+#[test]
+fn an_oversized_profile_is_refused_by_its_path() {
+    let home = Home::new();
+    home.write_config(&format!("# {}\n", "x".repeat(1024 * 1024)));
+    let out = home.run(&["--profile", "p", "identity", "show"]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = text(&out.stderr);
+    assert!(stderr.contains("larger than"), "{stderr}");
+    let path = home.paths.config_file();
+    assert!(stderr.contains(path.to_str().expect("utf-8")), "{stderr}");
+}
+
 /// Held, the lock is a running daemon or another identity command: `init`
 /// mints nothing and `show` reads nothing under it, and both work once it
 /// is released (the control).
