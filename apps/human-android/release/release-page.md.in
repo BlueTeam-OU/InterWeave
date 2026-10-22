@@ -166,7 +166,10 @@ The credit that FreeType asks for, and the licence texts, follow.
 
 {third_party_notice_texts}
 
-The app's native library is also built from the Rust crates below, each
-under its own licence. Their notices follow, as the build used them.
+The Android app also contains the Rust libraries (called crates)
+listed below, in the versions used to build this release. Each of them
+is under its own licence. Each line names a crate, its version and its
+licence, and gives the label of its licence text (T1, T2 and so on).
+The licence texts follow the list.
 
 {crate_notices}
