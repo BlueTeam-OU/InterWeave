@@ -1488,10 +1488,7 @@ mod tests {
             json!(1_791_329_960_227_u64),
             "the control: from 2.6 the hold is served"
         );
-        assert!(
-            ROUTE_HELD_SINCE_MINOR <= crate::IPC_MAX_MINOR,
-            "this build speaks it"
-        );
+        const { assert!(ROUTE_HELD_SINCE_MINOR <= crate::IPC_MAX_MINOR) };
     }
 
     #[test]
