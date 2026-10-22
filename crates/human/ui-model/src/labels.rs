@@ -884,41 +884,40 @@ ui_texts! {
     AddressNeeded => "The field is empty, so nothing was added. Type or paste an address, then choose Add.",
     /// Under Add: the call failed, nothing was changed.
     AddFailed => "The address could not be saved. Nothing was changed. Try again.",
-    // From here to `AddSeveralIncompatible`, the texts are ux-designer-01's
-    // proposals in the note's §9 (d8fa7c18, §5.7's states), which
-    // language-culture-en has not read yet.
     /// Under Add: the answer was lost and the list could not be read back;
-    /// adding again is safe.
-    AddUnknown => "This device could not check whether the address was saved. Choose Add to try again. An address that is already saved is not added twice.", // PLACEHOLDER (en)
+    /// adding again is safe. One line.
+    AddUnknownOne => "InterWeave could not check whether the address was saved. Choose Add to try again. If an address is already saved, it is not saved again.",
+    /// The same, several lines.
+    AddUnknownOther => "InterWeave could not check whether the addresses were saved. Choose Add to try again. If an address is already saved, it is not saved again.",
     /// The snackbar after a removal not made, with Try again.
-    RemoveFailed => "The address could not be removed. It is still in the list.", // PLACEHOLDER (en)
+    RemoveFailed => "The address could not be removed. It is still in the list.",
     /// The snackbar after a removal whose answer was lost and whose list
     /// could not be read back, with Try again: says neither.
-    RemoveUnknown => "This device could not check whether the address was removed.", // PLACEHOLDER (en)
+    RemoveUnknown => "InterWeave could not check whether the address was removed. Removing it again does no harm.",
     /// The snackbar after an Undo likewise.
-    UndoUnknown => "This device could not check whether the address was added back.", // PLACEHOLDER (en)
+    UndoUnknown => "InterWeave could not check whether the address was added back. Adding it back again does no harm.",
     /// Step one's result after a read back that lists one line: never
     /// that this add made it.
-    AddedCheckedOne => "This device has this address.", // PLACEHOLDER (en)
+    AddedCheckedOne => "This device has this address.",
     /// The same, `{n}` lines.
-    AddedCheckedOther => "This device has these {n} addresses.", // PLACEHOLDER (en)
+    AddedCheckedOther => "This device has these {n} addresses.",
     /// Step one's result for several peers; `{count}` the peers.
-    AddedLineSeveral => "Added {n} addresses for {count} peers.", // PLACEHOLDER (en)
+    AddedLineSeveral => "Added {n} addresses in total, for {count} peers.",
     /// Under the field: typed lines past the bound; `{n}` the lines,
     /// `{max}` the bound.
-    RefusedTooManyLines => "This list has {n} addresses. Add at most {max} at a time.", // PLACEHOLDER (en)
+    RefusedTooManyLines => "The field has {n} addresses. You can add at most {max} at one time. Delete some from the field, then choose Add.",
     /// Peers, in place of the list: anything but the runtime unreachable.
-    PeersReadFailed => "The list of addresses could not be read.", // PLACEHOLDER (en)
+    PeersReadFailed => "The list of addresses could not be read.",
     /// A step-two block: the trust answer was lost and could not be
     /// checked; `{peer}` the short `PeerId`.
-    TrustStepUnknown => "This device could not check whether {peer} is trusted. Choose Trust to try again.", // PLACEHOLDER (en)
+    TrustStepUnknown => "InterWeave could not check whether {peer} is trusted. Choose Trust to try again. Trusting a peer twice does no harm.",
     /// A step-two block: the trust read back after a lost answer does not
-    /// list the peer. (PR #380's proposal, 4e6562f6.)
-    TrustStepNotMade => "{peer} is not trusted yet. Choose Trust to try again.", // PLACEHOLDER (en)
+    /// list the peer.
+    TrustStepNotMade => "{peer} is still not trusted. Your choice of Trust was not saved. Choose Trust to try again.",
     /// Under Add: a daemon with the one-address add only did not take
     /// several lines; `{n}` the lines. Daemon only: the embedded runtime
     /// is this app's own version.
-    AddSeveralIncompatible => "The transport daemon is an older version that adds one address at a time, so these {n} addresses were not added. Update InterWeave and the transport daemon to the same version, or add the addresses one by one.", // PLACEHOLDER (en)
+    AddSeveralIncompatible => "The transport daemon is an older version that can add only one address at a time, so these {n} addresses were not added. Put one address in the field, then choose Add. Or update InterWeave and the transport daemon to the same version.",
     /// Desktop: an image with no code in it.
     ImageNoCode => "No code was found in this image.",
     /// A code that carries no address.
@@ -974,21 +973,21 @@ macro_rules! host_texts {
 }
 
 host_texts! {
-    /// PEERS BY ADDRESS, in place of the list: the runtime cannot be
-    /// reached. ux-designer-01's proposal (the note's §9, d8fa7c18).
+    /// PEERS BY ADDRESS (design/2026-10-22-add-a-peer.md §9), in place of
+    /// the list: the runtime cannot be reached.
     PeersReadUnavailable => {
-        daemon: "The list of addresses cannot be read, because the transport daemon cannot be reached.", // PLACEHOLDER (en)
-        embedded: "The list of addresses cannot be read, because the network service is not running.", // PLACEHOLDER (en)
+        daemon: "The list of addresses cannot be read, because the transport daemon cannot be reached.",
+        embedded: "The list of addresses cannot be read, because the network service is not running.",
     },
     /// Peers and the add page: this app may not administer the addresses.
     PeersNotPermitted => {
-        daemon: "This app is not allowed to read or change addresses on this transport daemon.", // PLACEHOLDER (en)
-        embedded: "This app is not allowed to read or change addresses.", // PLACEHOLDER (en)
+        daemon: "This app is not allowed to read or change the list of addresses on this transport daemon.",
+        embedded: "This app is not allowed to read or change the list of addresses.",
     },
     /// Peers and the add page: the runtime predates the methods.
     PeersIncompatible => {
-        daemon: "The transport daemon is a different version from this app, so addresses cannot be read or added here. To use Peers, update InterWeave and the transport daemon to the same version.", // PLACEHOLDER (en)
-        embedded: "This version of the app cannot read or add addresses.", // PLACEHOLDER (en)
+        daemon: "The transport daemon is a different version from this app, so the list of addresses cannot be read or changed here. To use Peers, update InterWeave and the transport daemon to the same version.",
+        embedded: "This version of the app cannot read or change the list of addresses.",
     },
     /// Nothing runs the transport for this profile; the window connects
     /// once it starts. On the desktop the person starts the daemon; on
