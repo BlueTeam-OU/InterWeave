@@ -134,6 +134,19 @@ classpath. On every change it is held by
 ADR-0057 decision 2 names (run by `cargo xtask checks` and CI); this
 section is the reading of 2026-10-19.
 
+## No address book, and no platform backup
+
+ADR-0059 decision 6's Android half and ADR-0060 decision 8: the app
+declares none of `READ_CONTACTS`, `WRITE_CONTACTS` or `GET_ACCOUNTS`
+(the permissions row above), reaches no contacts provider or picker
+and ships no contacts library; its manifest sets
+`android:allowBackup="false"` with no backup agent, and
+`res/xml/data_extraction_rules.xml` excludes every domain from both
+`cloud-backup` and `device-transfer`. On every change it is held by
+`tools/checks/check_android_contacts_and_backup.py`, over the manifests,
+the extraction rules, the Gradle lockfiles and scripts, and the Kotlin
+and Rust sources of the app (run by `cargo xtask checks` and CI).
+
 ## SPIKE-008's target-SDK half
 
 ADR-0041's condition is that half alone (ADR-0057 decision 6): the
