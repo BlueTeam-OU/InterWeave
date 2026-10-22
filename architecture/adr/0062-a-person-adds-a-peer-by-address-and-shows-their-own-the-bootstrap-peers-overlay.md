@@ -24,7 +24,7 @@ Today only an operator who edits `config.yaml` can set one, and `config.yaml` is
 
 7. **Provisioning ships defaults into the overlay, never into the authored file's silence.** A deployment that knows its bootstrap peers (the fleet's one-host deployment, ADR-0055) writes them into the overlay at provisioning through the same function; the Android provisioned profile stays as it is — the provider comes into being with the overlay's first entry (decision 2) — and the person's first screen offers the add.
 
-8. **Onboarding's third step is this screen.** `human-client-ui.md` §2 step 3 ("configure or import trust/bootstrap/connectivity settings") becomes "add a peer by address or show your own, then trust"; a client with no address and no LAN peer says plainly that it can reach no one yet and what to do, instead of showing an empty, silent list.
+8. **Onboarding's third step is this screen.** `human-client-ui.md` §2 step 3 ("configure or import trust/bootstrap/connectivity settings") becomes "add a peer by address or show your own, then trust"; a client with no address added and no trusted peer reachable says plainly that it can reach no one yet and what to do, instead of showing an empty, silent list — "no LAN peer" in the first wording meant this: discovery's own state (an mDNS candidate seen) reaches no client session, since `ServerState` carries health and the `ConnectivitySummary` only, so the notice keys on the overlay, the trust set and the summary and on nothing discovery knows (A 2026-10-22, ux-designer's question on the flows). **How a scan reaches the app (A 2026-10-22, the owner's choice of that day):** on Android the app's own camera, opened on the Scan screen alone, the `CAMERA` permission asked at the first Scan and never at install or in the background, declared without a required `uses-feature` so a phone with no camera installs and offers typing; on the desktop an image file or a pasted image, no webcam. The manifest check that pins the app's declarations (plan §29 step 2, ADR-0060 decision 8's rules) admits `CAMERA` by this record and nothing else new.
 
 ## Alternatives considered
 
@@ -53,3 +53,9 @@ p2p-network-dev: the overlay in `profile-config` (loader, normalisation, the sha
 ## Revisit conditions
 
 When a transport other than TCP is added (the grammar widens); when a deployment wants a signed bootstrap list (a provider of its own, not this overlay); when the QR should carry an introduction beyond the address (ADR-0059's revisit on a third-party introduction); when the peer cache's persistence makes the first address a one-time act.
+
+## Amendments
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-22 | How a scan reaches the app, and what "no LAN peer" means | Decision 8: the app's own camera on Android (asked at the first Scan, no required `uses-feature`), a file or a pasted image on the desktop, `CAMERA` admitted to the manifest check's pinned set; the no-reach notice keys on the overlay, the trust set and the connectivity summary, since discovery's state reaches no client session. |
