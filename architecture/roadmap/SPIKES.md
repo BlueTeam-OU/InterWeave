@@ -154,6 +154,23 @@ or, without one, on the allowlist Anthropic serves remotely. So
 `--channels` with a published plugin needs Anthropic to list it, and
 that, like the organisation path, stays not established.
 
+**Carried measurement, S20 (2026-10-22, Claude Code 2.1.286,
+rust-services-dev): the plugin's settings and upgrades, measured
+without a session.** Read off `spikes/spike-001/README.md` §S20
+(facts 24–26, `runs/s20-plugin-config`). A `userConfig` option's
+default reaches the server's arguments when nothing is set, and
+`claude plugin install --config KEY=VALUE` sets one, kept in the user
+settings across an update; so the plugin declares its profile and
+endpoint as `userConfig`. With a marketplace added from a directory,
+the plugin runs from that directory, a rebuild at an equal version
+included, and `plugin update` reports only a higher version. Not
+established: `userConfig` inside a session started with a channel flag,
+and the interactive `/plugin configure` prompt. S21 (the same day, the same way, `runs/s21-refused-start`): a
+start with `XDG_RUNTIME_DIR` unset, which Claude Code reported as
+"Failed to connect" while the bridge exited on it, is "Connected" since
+the bridge serves the refusal; and Claude Code keeps a plugin server's
+stderr in `~/.cache/claude-cli-nodejs/<working directory>/mcp-logs-plugin-<plugin>-<server>/`.
+
 ---
 
 ## SPIKE-002 — transport wire/race and GossipSub cache behavior

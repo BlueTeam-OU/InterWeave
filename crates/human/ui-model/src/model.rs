@@ -415,6 +415,13 @@ pub enum Intent {
         /// What happens to the photo.
         photo: cards::PhotoEdit,
     },
+    /// Delete a contact, its routes and their recorded keys: the only way
+    /// a contact goes (ADR-0059 decision 3). Only [`UiModel::delete_contact`]
+    /// makes one, for a contact the model holds.
+    DeleteContact {
+        /// The contact.
+        contact_id: String,
+    },
     /// Make a trust change the person confirmed in the trust settings,
     /// which showed its exact `PeerId` and scope (`human-client-ui.md` §8).
     /// Only [`crate::TrustSettings::confirm`] makes one.
@@ -1088,6 +1095,10 @@ impl UiModel {
                 self.by_row.get(&(Table::Pending, *row)).copied()
             }
             Intent::HideConversation(key) => return self.conversation_hide_offered(key),
+            // Destructive: offered only while the contact is still held,
+            // so a delete of a contact already gone is not issued. Two in
+            // one take are one command by the root's in-flight set.
+            Intent::DeleteContact { contact_id } => return self.contact(contact_id).is_some(),
             _ => return true,
         };
         key.is_some_and(|key| match intent {

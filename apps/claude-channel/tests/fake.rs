@@ -768,6 +768,126 @@ async fn the_daemon_away_and_back() {
     );
 }
 
+/// The daemon away, at a time the bridge's clock knows, and back later.
+async fn away_and_back(w: &mut World, away_ms: u64, back_ms: u64) {
+    w.clock.store(away_ms, Ordering::SeqCst);
+    w.record.down.store(true, Ordering::SeqCst);
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while w.status().await["endpoint_lease_state"] != json!("daemon unavailable") {
+        assert!(tokio::time::Instant::now() < deadline, "never saw it go");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    w.clock.store(back_ms, Ordering::SeqCst);
+    w.record.down.store(false, Ordering::SeqCst);
+    w.wait_connected().await;
+}
+
+/// A regained lease reports the gap as state (CHANNEL-EVENT.md
+/// §Delivery): absent until a loss, then the lost and the new epoch and
+/// the two instants; cleared by the next loss; never a notification.
+#[tokio::test]
+async fn a_regained_lease_reports_its_gap_in_status_until_the_next_loss() {
+    let mut w = World::start().await;
+    let first = w.status().await;
+    assert!(first.get("lease_gap").is_none(), "never lost: {first}");
+    let lost_epoch = first["endpoint_lease_epoch"].clone();
+
+    away_and_back(&mut w, NOW_MS + 1_000, NOW_MS + 61_000).await;
+    let after = w.status().await;
+    let gap = &after["lease_gap"];
+    assert_eq!(gap["lost_epoch"], lost_epoch, "{after}");
+    assert_eq!(gap["epoch"], after["endpoint_lease_epoch"], "{after}");
+    assert_ne!(gap["epoch"], gap["lost_epoch"]);
+    assert_eq!(
+        gap["since"],
+        json!("2026-10-05T19:07:03.497Z"),
+        "the loss, RFC3339 UTC"
+    );
+    assert_eq!(
+        gap["until"],
+        json!("2026-10-05T19:08:03.497Z"),
+        "the regain"
+    );
+
+    w.record.down.store(true, Ordering::SeqCst);
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    loop {
+        let status = w.status().await;
+        if status["endpoint_lease_state"] == json!("daemon unavailable") {
+            assert!(
+                status.get("lease_gap").is_none(),
+                "the next loss clears it: {status}"
+            );
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never saw it go");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// A lease the daemon revokes inside a live session is a loss like a
+/// closed session: the gap, once the lease is regained, names the revoked
+/// epoch and the revocation's instant, not the later close.
+#[tokio::test]
+async fn a_lease_revoked_in_session_is_the_gap_once_regained() {
+    use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+    let mut w = World::start().await;
+    w.wait_connected().await;
+    let revoked = w.status().await["endpoint_lease_epoch"].clone();
+
+    w.clock.store(NOW_MS + 1_000, Ordering::SeqCst);
+    let admin =
+        w.a.admin([AdminCapability::Endpoints].into())
+            .await
+            .expect("admin port");
+    admin
+        .revoke_endpoint(endpoint("claude"))
+        .await
+        .expect("revoked");
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while w.status().await["endpoint_lease_state"] != json!("not held") {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the revocation never reached the bridge"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        w.status().await.get("lease_gap").is_none(),
+        "not regained yet"
+    );
+
+    away_and_back(&mut w, NOW_MS + 31_000, NOW_MS + 61_000).await;
+    let after = w.status().await;
+    let gap = &after["lease_gap"];
+    assert_eq!(gap["lost_epoch"], revoked, "the revoked epoch: {after}");
+    assert_eq!(
+        gap["since"],
+        json!("2026-10-05T19:07:03.497Z"),
+        "the revocation's instant, not the close's"
+    );
+    assert_eq!(gap["epoch"], after["endpoint_lease_epoch"]);
+}
+
+/// Pull mode: the first `receive` after the regain carries the same gap,
+/// and only the first; `status` keeps it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_first_receive_after_a_regain_carries_the_gap_once() {
+    let mut w = World::start_pull().await;
+    w.wait_connected().await;
+    assert!(
+        w.receive(None).await.get("lease_gap").is_none(),
+        "never lost"
+    );
+    away_and_back(&mut w, NOW_MS + 1_000, NOW_MS + 61_000).await;
+    let status = w.status().await;
+    let first = w.receive(None).await;
+    assert_eq!(first["lease_gap"], status["lease_gap"], "{first}");
+    assert!(first["lease_gap"].is_object());
+    assert!(w.receive(None).await.get("lease_gap").is_none(), "once");
+    assert!(w.status().await["lease_gap"].is_object(), "status keeps it");
+}
+
 /// A re-join the daemon refuses leaves the joins and is a status row
 /// until the next join or leave (LIFECYCLE.md step 6).
 #[tokio::test]
@@ -2038,5 +2158,105 @@ async fn a_contact_card_at_the_photo_bound_reaches_the_host_as_meta_alone() {
     for (reason, count) in reasons {
         let expected = u64::from(reason == "photo_size");
         assert_eq!(count, &json!(expected), "{reason}: {dropped}");
+    }
+}
+
+/// One event's bytes as the host reads them (CHANNEL-EVENT.md §Content,
+/// A 2026-10-22): a push line whole, and a pulled event as its JSON takes
+/// inside the tool result's text, escaped a second time there.
+async fn host_event(w: &mut World, payload: Payload) -> (Value, usize) {
+    w.peer
+        .send_direct(
+            DirectDestination {
+                peer: w.a.peer().clone(),
+                endpoint: Some(endpoint("claude")),
+            },
+            MessageId::from_bytes([31; 16]),
+            payload,
+        )
+        .await
+        .expect("accepted");
+    if w.pull {
+        w.wait_depth(1).await;
+        let event = w.receive(None).await["events"][0].clone();
+        let once = event.to_string();
+        let twice = Value::String(once).to_string();
+        // The quotes around it belong to the tool result, not the event.
+        (event, twice.len() - 2)
+    } else {
+        let line = w.notification_text().await;
+        let value: Value = serde_json::from_str(&line).expect("JSON");
+        (value["params"].clone(), line.len())
+    }
+}
+
+/// A `;ce=br` payload decoding to 196,608 bytes of control characters --
+/// about 1.18 MB escaped once -- reaches the host as the base64url of
+/// those bytes, the event under 320 KiB in either mode, `meta` saying
+/// base64url and the type without its encoding (j60's measurement).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_decode_of_control_characters_is_base64url_under_the_bound() {
+    use interweave_claude_channel_core::{Delivery, MAX_HOST_EVENT_BYTES};
+    use interweave_human_chat_protocol::{
+        MAX_DECOMPRESSED_BYTES, MEDIA_TYPE_V2, encode_raw_envelope,
+    };
+    let controls = vec![0x01; MAX_DECOMPRESSED_BYTES];
+    let encoded = encode_raw_envelope(controls.clone(), MAX_PAYLOAD_BYTES).expect("compresses");
+    assert!(
+        encoded.media_type.ends_with(";ce=br"),
+        "the control: compressed"
+    );
+    for delivery in [Delivery::Push, Delivery::Pull] {
+        let mut w = World::start_in(delivery).await;
+        let payload = Payload::new(
+            Some(interweave_transport_api::MediaType::parse(&encoded.media_type).expect("a type")),
+            encoded.bytes.clone(),
+            MAX_PAYLOAD_BYTES,
+        )
+        .expect("a payload");
+        let (event, bytes) = host_event(&mut w, payload).await;
+        assert!(bytes <= MAX_HOST_EVENT_BYTES, "{delivery:?}: {bytes} bytes");
+        assert_eq!(
+            event["meta"]["payload_encoding"],
+            json!("base64url"),
+            "{delivery:?}"
+        );
+        assert_eq!(
+            event["meta"]["content_type"],
+            json!(MEDIA_TYPE_V2),
+            "{delivery:?}"
+        );
+        let content = event["content"].as_str().expect("a string");
+        assert_eq!(
+            interweave_transport_api::base64url::decode(content).expect("base64url"),
+            controls,
+            "{delivery:?}: the decoded bytes, whole"
+        );
+    }
+}
+
+/// The control: a plain text payload at the transport's 48 KiB limit is
+/// far under the bound and stays its own text in either mode.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_48_kib_text_payload_stays_utf8() {
+    use interweave_claude_channel_core::{Delivery, MAX_HOST_EVENT_BYTES};
+    let text = "a plain line of text.\n".repeat(MAX_PAYLOAD_BYTES / 22);
+    let text = &text[..MAX_PAYLOAD_BYTES.min(text.len())];
+    for delivery in [Delivery::Push, Delivery::Pull] {
+        let mut w = World::start_in(delivery).await;
+        let payload = Payload::new(
+            Some(interweave_transport_api::MediaType::parse("text/plain").expect("a type")),
+            text.as_bytes().to_vec(),
+            MAX_PAYLOAD_BYTES,
+        )
+        .expect("a payload");
+        let (event, bytes) = host_event(&mut w, payload).await;
+        assert!(bytes <= MAX_HOST_EVENT_BYTES, "{delivery:?}: {bytes} bytes");
+        assert_eq!(
+            event["meta"]["payload_encoding"],
+            json!("utf8"),
+            "{delivery:?}"
+        );
+        assert_eq!(event["content"], json!(text), "{delivery:?}");
     }
 }

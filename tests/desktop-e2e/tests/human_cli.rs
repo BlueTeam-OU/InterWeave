@@ -359,3 +359,127 @@ async fn every_batch_one_verb_against_two_daemons() {
     let _ = a_peer;
     b_daemon.terminate().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_card_shared_accepted_edited_and_deleted_across_two_daemons() {
+    let (a, mut a_daemon, a_peer, b, mut b_daemon, b_peer) = two_daemons().await;
+    let to_b = format!("{}/human", b_peer.as_str());
+    let to_a = format!("{}/human", a_peer.as_str());
+
+    // A's own card, its key made at A's first run.
+    let out = human(&a, &["card", "set", "Ada", "Lovelace"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&a, &["card", "show", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let card = &lines(&out)[0];
+    assert_eq!(card["name"], "Ada Lovelace");
+    let fingerprint = card["fingerprint"]
+        .as_str()
+        .expect("fingerprint")
+        .to_owned();
+
+    // Shared while B listens: B hears it as a proposal, unread.
+    let listener = Listener::start(&b);
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        let out = human(
+            &a,
+            &["--wait", "3000", "card", "share", &to_b, "--json"],
+            "",
+        );
+        if code(&out) == Some(0) {
+            assert_eq!(lines(&out)[0]["status"], "accepted", "{}", said(&out));
+            break;
+        }
+        assert_eq!(code(&out), Some(6), "{}", said(&out));
+        let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+        assert_eq!(code(&human(&a, &["cancel", &id], "")), Some(0));
+        assert!(Instant::now() < deadline, "never accepted: {}", said(&out));
+    }
+    let heard = listener.until("the proposal", |l| l["event"] == "proposal");
+    assert_eq!(heard["name"], "Ada Lovelace");
+    assert_eq!(heard["peer"], a_peer.as_str());
+    assert_eq!(heard["fingerprint"], fingerprint.as_str());
+    listener.stop();
+
+    // Listed without being read, then read and accepted in one run.
+    let out = human(&b, &["proposals", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    let out = human(
+        &b,
+        &["proposals", "read", &to_a, "--accept", &id, "--json"],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["status"], "accepted", "{}", said(&out));
+    let out = human(&b, &["proposals", "--json"], "");
+    assert!(lines(&out).is_empty(), "decided: {}", said(&out));
+
+    // The contact, its route and key; renamed, then deleted.
+    let out = human(&b, &["contacts", "--json"], "");
+    let contact = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    let shown = &lines(&out)[0];
+    assert_eq!(shown["name"], "Ada Lovelace");
+    assert_eq!(shown["routes"][0]["peer"], a_peer.as_str());
+    assert_eq!(shown["routes"][0]["fingerprint"], fingerprint.as_str());
+    let out = human(&b, &["contacts", "rename", &contact, "Countess"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(lines(&out)[0]["name_from"], "own", "{}", said(&out));
+    let out = human(&b, &["contacts", "photo", &contact, "--none"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(lines(&out)[0]["photo_from"], "own", "{}", said(&out));
+
+    // A second card, declined: nothing written.
+    let listener = Listener::start(&b);
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    let out = human(&a, &["--wait", "15000", "card", "share", &to_b], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    listener.until("the second proposal", |l| l["event"] == "proposal");
+    listener.stop();
+    let out = human(&b, &["proposals", "--json"], "");
+    let second = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    let out = human(
+        &b,
+        &["proposals", "read", &to_a, "--decline", &second, "--json"],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["status"], "declined", "{}", said(&out));
+    let out = human(&b, &["proposals", "--json"], "");
+    assert!(
+        lines(&out).is_empty(),
+        "the declined card is gone: {}",
+        said(&out)
+    );
+    let out = human(&b, &["contacts", "--json"], "");
+    assert_eq!(
+        lines(&out).len(),
+        1,
+        "declining made no contact: {}",
+        said(&out)
+    );
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["routes"][0]["fingerprint"],
+        fingerprint.as_str(),
+        "nor changed the route: {}",
+        said(&out)
+    );
+
+    let out = human(&b, &["contacts", "delete", &contact], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&b, &["contacts", "--json"], "");
+    assert!(lines(&out).is_empty(), "deleted: {}", said(&out));
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}

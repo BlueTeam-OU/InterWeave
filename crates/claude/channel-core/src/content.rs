@@ -10,6 +10,11 @@
 //! model as the text it is rather than as opaque base64url. Decoding says
 //! what the bytes are; nothing here reads what they mean.
 //!
+//! This chooses by the bytes alone. The bridge may still carry a text as
+//! base64url by size, once the whole event is known: one event on the
+//! host line is at most 320 KiB (CHANNEL-EVENT.md §Content, A 2026-10-22;
+//! `bridge.rs`'s `bounded`).
+//!
 //! The text is the body of the host's `<channel>` tag, which the host
 //! escapes only for a closing `</channel>` (SPIKE-001 fact 14): whatever a
 //! peer put in a payload reaches the model inside the real tag, and

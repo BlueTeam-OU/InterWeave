@@ -29,8 +29,8 @@ use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
     HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
     RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, TrustSettings,
-    UiModel, UiText, announced_change, fill, next_age_change, placeholder_en, short_peer,
-    visible_destination, waiting_text,
+    UiModel, UiText, announced_change, attention_class, fill, next_age_change, placeholder_en,
+    short_peer, visible_destination, waiting_text,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -1769,7 +1769,10 @@ impl View {
                     format!("m:{handle}"),
                     swipe::Swipeable::Item(item.key, offer),
                 );
-                let status = status_text(item, now_ms, self.host);
+                let status = RowStatus {
+                    text: status_text(item, now_ms, self.host),
+                    reason: reason_text(item, self.host),
+                };
                 if let Some(next) = waiting_age_change(item, now_ms) {
                     age_due = Some(age_due.map_or(next, |due: u64| due.min(next)));
                 }
@@ -2626,7 +2629,7 @@ fn message_row(
     drawn: &DrawnBody,
     offer: interweave_human_ui_model::SwipeOffer,
     placed: Placement,
-    status: &str,
+    status: &RowStatus,
 ) -> MessageRow {
     let (author, author_id) = match (&item.direction, &item.author) {
         (Direction::Inbound, Some(peer)) => (short_peer(peer.as_str()), peer.as_str().to_owned()),
@@ -2638,21 +2641,27 @@ fn message_row(
         Some(Reply::Unavailable(_)) => placeholder_en::text(UiText::ReplyUnavailable),
         None => "",
     };
-    let label = fill(
-        placeholder_en::text(UiText::Item),
-        &[
-            ("author", &author),
-            ("status", status),
-            ("body", &drawn.plain),
-            ("time", &placed.time),
-        ],
-    );
+    let mut values = vec![
+        ("author", author.as_str()),
+        ("status", status.text.as_str()),
+        ("body", drawn.plain.as_str()),
+        ("time", placed.time.as_str()),
+    ];
+    let template = match status.reason {
+        Some(reason) => {
+            values.push(("reason", reason));
+            UiText::ItemWithReason
+        }
+        None => UiText::Item,
+    };
+    let label = fill(placeholder_en::text(template), &values);
     MessageRow {
         handle,
         label: label.into(),
         author: author.into(),
         author_id: author_id.into(),
-        status: status.into(),
+        status: status.text.as_str().into(),
+        reason: status.reason.unwrap_or_default().into(),
         outbound: item.direction == Direction::Outbound,
         hand_over: false,
         show_author: placed.show_author,
@@ -2689,6 +2698,8 @@ struct SeenItem {
     status: ItemStatus,
     /// The status as the item shows it.
     status_text: String,
+    /// Why it needs the person, as the item shows it beside its status.
+    reason: Option<&'static str>,
     /// An inbound item's short author.
     author: Option<String>,
 }
@@ -2721,6 +2732,7 @@ impl Seen {
                     let seen = SeenItem {
                         direction: item.direction,
                         status_text: status_text(&item, now_ms, host),
+                        reason: reason_text(&item, host),
                         author: item.author.as_ref().map(|p| short_peer(p.as_str())),
                         status: item.status,
                     };
@@ -2792,10 +2804,16 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
             .collect();
         match changed.as_slice() {
             [] => {}
-            [item] => parts.push(fill(
-                placeholder_en::text(UiText::AnnounceOwnStatus),
-                &[("status", &item.status_text)],
-            )),
+            [item] => parts.push(match item.reason {
+                Some(reason) => fill(
+                    placeholder_en::text(UiText::AnnounceOwnStatusReason),
+                    &[("status", &item.status_text), ("reason", reason)],
+                ),
+                None => fill(
+                    placeholder_en::text(UiText::AnnounceOwnStatus),
+                    &[("status", &item.status_text)],
+                ),
+            }),
             many => parts.push(fill(
                 placeholder_en::text(UiText::AnnounceOwnStatuses),
                 &[("count", &many.len().to_string())],
@@ -2842,6 +2860,25 @@ fn status_text(item: &MessageItem, now_ms: u64, host: RuntimeHost) -> String {
         ItemStatus::Outbound(status) => waiting_text(status, item.local_at, now_ms, host)
             .unwrap_or_else(|| placeholder_en::label(item.label).to_owned()),
         ItemStatus::Inbound(_) => placeholder_en::label(item.label).to_owned(),
+    }
+}
+
+/// What a row says of its status: the words, and why it needs the
+/// person when it does.
+struct RowStatus {
+    text: String,
+    reason: Option<&'static str>,
+}
+
+/// Why an item needs the person, drawn beside its status: its error
+/// class's text, as it reads where the runtime runs; `None` for an item
+/// that does not need them.
+fn reason_text(item: &MessageItem, host: RuntimeHost) -> Option<&'static str> {
+    match &item.status {
+        ItemStatus::Outbound(status) => {
+            attention_class(status).map(|class| placeholder_en::error(host, class))
+        }
+        ItemStatus::Inbound(_) => None,
     }
 }
 
@@ -2930,7 +2967,8 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         // controls, never an item's.
         | Intent::SetOwnCard { .. }
         | Intent::RenameContact { .. }
-        | Intent::SetContactPhoto { .. } => return None,
+        | Intent::SetContactPhoto { .. }
+        | Intent::DeleteContact { .. } => return None,
     };
     Some(placeholder_en::text(text))
 }

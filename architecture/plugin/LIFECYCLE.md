@@ -2,7 +2,7 @@
 
 ## Startup
 
-1. An MCP host launches the bridge over stdio with `--delivery push|pull` (required; the Claude Code plugin passes `push`, A 2026-10-07): a process started without it refuses to start and names both values.
+1. An MCP host launches the bridge over stdio with `--delivery push|pull` (required; the Claude Code plugin passes `push`, A 2026-10-07): a process started without it refuses to start and names both values. A refused start is served, not exited (A 2026-10-22): the bridge answers as an MCP server with no `claude/channel` capability and reports the refusal from `status` (`TOOL-SURFACE.md`, `refused`), since the host does not start it again.
 2. Bridge loads plugin-local non-secret routing config: profile name/data-socket + configured local EndpointId.
 3. Bridge connects only to daemon IPC v2 data socket.
 4. Hello requests non-admin capabilities and claims the configured EndpointId.
