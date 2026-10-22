@@ -22,9 +22,18 @@
 # Steps 2-7 are run in the README's order within a job; the page that
 # consumes them is filled only once every one has finished.
 #
-# Not part of CI's required contexts: this workflow runs on a tag, never
-# on a pull request or the merge queue, so nothing here gates main and
-# check_required_contexts.sh has nothing to hold it to.
+# A DRY RUN is a workflow_dispatch on main with a version: tag and linux
+# run, at that version and the dispatched commit, and the archive is the
+# run's artifact. apk, sign and publish do not run, so a dry run reads no
+# secret, holds no write token and publishes nothing; it is how a host
+# procedure is tested against a real archive before a tag exists.
+#   gh workflow run release.yml --ref main -f version=0.0.0
+# then `gh run download <run id> -n linux` for the archive, its .sha256
+# and linux-values.json, kept seven days.
+#
+# Not part of CI's required contexts: this workflow runs on a tag or a
+# dispatch, never on a pull request or the merge queue, so nothing here
+# gates main and check_required_contexts.sh has nothing to hold it to.
 #
 # What stays the owner's, in the `release` environment:
 #   secrets   INTERWEAVE_RELEASE_KEYSTORE_BASE64 (the keystore file,
@@ -49,6 +58,12 @@ name: Release
 on:
   push:
     tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'MAJOR.MINOR.PATCH to build as, without the v (a dry run: nothing is signed or published)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -60,8 +75,9 @@ defaults:
 
 concurrency:
   # One run per tag, never cancelled: a half-published release is worse
-  # than a second run refused by gh release create.
-  group: release-${{ github.ref }}
+  # than a second run refused by gh release create. The trigger is in the
+  # group, so a dry run never queues behind, or displaces, a tag's run.
+  group: release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -72,7 +88,11 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     env:
-      TAG: ${{ github.ref_name }}
+      # A dispatch's version is checked as a tag would be; it reaches the
+      # script through the environment, never into the script's text.
+      TAG: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
+      EVENT: ${{ github.event_name }}
+      REF: ${{ github.ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,18 +103,28 @@ jobs:
       # The trigger's glob admits v1.2.3-rc1 and v01.2.3; the scripts take
       # MAJOR.MINOR.PATCH and refuse the rest, but a tag off main would
       # pass them. Both are refused here, and every other job needs this.
+      # A dry run is held to the same, and is dispatched from main itself:
+      # a branch whose head is on main's history would pass the ancestry
+      # check alone. A refused version is printed %q-quoted, since a
+      # dispatched one is typed text and a newline in it would otherwise
+      # start a workflow command of its own in the log.
       - name: The tag is v<MAJOR>.<MINOR>.<PATCH> and on main
         id: version
         run: |
+          if [[ "$EVENT" == workflow_dispatch && "$REF" != refs/heads/main ]]; then
+            printf '::error::a dry run is dispatched from main, not %q\n' "$REF"; exit 1
+          fi
           [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
-            || { echo "::error::tag $TAG is not v<MAJOR>.<MINOR>.<PATCH>"; exit 1; }
+            || { printf '::error::tag %q is not v<MAJOR>.<MINOR>.<PATCH>\n' "$TAG"; exit 1; }
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
-            || { echo "::error::tag $TAG ($GITHUB_SHA) is not on main"; exit 1; }
+            || { printf '::error::tag %q (%s) is not on main\n' "$TAG" "$GITHUB_SHA"; exit 1; }
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
   apk:
     name: release apk build (arm64-v8a)
     needs: tag
+    # Never on a dry run: it builds only what a host install reads.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -158,6 +188,8 @@ jobs:
     # (the Linux archive's notices, say) leaves no signed APK, not even as
     # a run artifact.
     needs: [tag, apk, linux]
+    # Never on a dry run: the job that reads the key runs only for a tag.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: release
     timeout-minutes: 20
@@ -242,7 +274,7 @@ jobs:
 
       # Step 6. The archive script also writes the archive's
       # THIRD-PARTY-NOTICES.md: it runs tools/ci/release_notices.py over
-      # `cargo tree --locked` of the three shipped packages and `cargo
+      # `cargo tree --locked` of the packages it ships and `cargo
       # metadata --locked`, and a failure there fails this step with no
       # archive left behind. Not a step of its own: the notices are a file
       # inside the archive, built from the archive's own scratch.
@@ -264,6 +296,8 @@ jobs:
   publish:
     name: publish the release
     needs: [tag, apk, sign, linux]
+    # Never on a dry run, which publishes nothing.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

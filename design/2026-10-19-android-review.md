@@ -720,6 +720,126 @@ person's walk of S2 on a4b40c99 with the flag read while the words
 show and the Recents card after. Whether the close carries any of
 them by name, as F3, is architect-cto-01's to decide.
 
+Round 4, 2026-10-21, by script through `phone-run`, guarded on the
+window in focus before every tap, in two windows of the same evening:
+
+- **4a** (20:36–20:48 phone time) on the build round 3 used, #313 at
+  a4b40c99 (APK sha256 beginning 338cbf0e), though main was the target:
+  the phone had not been reinstalled. Dark theme at font 1.0, then font
+  scale 2.0 in light theme for F4, set back to 1.0 and dark (checked).
+- **4b** (21:12–21:14) on main 4c916aa2 (APK 5ec3da27, installed by
+  rust-ui-dev-01 at 18:51 UTC, data kept), with Do Not Disturb on for
+  the run and set back: in 4a a personal notification of the owner's
+  arrived during a tap and took it (nothing was sent; the capture was
+  deleted, so nothing of it is kept here). Rotation set to landscape
+  for F9 and set back to automatic.
+
+| finding | result |
+|---|---|
+| F4 | Pass on 4a for the Details dialog at 200 % font in light theme: the PeerId is monospace, wraps over three lines, nothing is clipped; the route line and both actions fit. With round 3 (Trust, dark, 1.0), F4's acceptance is met except Trust at 200 % and light, which was not walked. |
+| F9 | Step 5 partly on 4b: in landscape with the keyboard up (`mInputShown=true`) in …x6gY6Eri, the newest message's status and time are in view, their bottom about 18 dp above the composer's top; the message's text above them is not, so a person sees "May have reached the peer…" without the words it belongs to. On 4a not walked. |
+| F10 | Unchanged on 4a and 4b: both pending rows read "May have reached the peer, send again or cancel" at their written time, 01:14; no retry state was on screen to judge the new waiting status. |
+| F16 | Second half not walked: no message was sent. |
+| F17 | Still seen on 4a and 4b: after the app bar's Back from …x6gY6Eri, its Chats row keeps the selected fill and bar on a phone-wide window. In landscape's two panes the same row is selected beside its open conversation, as look spec §5 gives it. |
+
+Also seen on 4b: the Chats menu holds Trust alone, and the identity
+screens start from Trust's "Show recovery phrase", which needs the
+phone's unlock and was not opened; the insertion handle stays on the
+composer after the tap that opens the keyboard (F3, carried as
+toolkit-limited).
+
+**The owner, at the phone, 2026-10-21**, two changes, specified where
+they live:
+- dates: "my opnion, not simply "Saturday" but "Saturday, 17 October
+  2026"", and, asked where, a short form on a Chats row with the full
+  date in the day separator, "Today" and "Yesterday" kept (look spec
+  §5.2 and §6);
+- the contact photo: "my advice for the contact image is to resize
+  exactly to the use we do before sending it over transport base64
+  encoded", read as one fixed 256 × 256 px and confirmed
+  (`design/2026-10-21-contact-cards.md` §5.2).
+
+Not run in round 4, and why:
+- the identity screens' own acceptance
+  (`design/2026-10-19-android-identity.md` §10): S2 and the Recents card
+  need the owner's unlock, a person's check; a first launch, create,
+  restore and the process-death items need the app's data wiped, which
+  this phone's identity and conversations rule out without the owner's
+  word; they want a fresh install or a second device;
+- F16's second half (acceptance 23): it needs a send to a peer Trust
+  does not list.
+
+**Order of what remains for the close**, by what a person notices
+first (for architect-cto-01 to put to the owner; an order, not §5's
+ranks):
+1. F9 step 5's last part: the newest message's text out of view with the
+   keyboard up in landscape, which hides what a status refers to;
+2. F17: a row drawn as selected on a phone, where nothing is open;
+3. the owner's date change, which a person meets on every screen;
+4. F16's second half, seen only when sending to an untrusted peer;
+5. the identity screens' person and fresh-install checks, which no
+   script can do on this phone;
+6. F10's waiting status, which needs a retry in progress to be seen;
+7. F3's handle, carried as toolkit-limited.
+
+Round 5, 2026-10-22 (10:57-11:03 phone time), the re-review for the
+close, on #358's build: rust-ui-dev-01's afb4466b, merged as
+fbca15e6, debug APK sha256 beginning 177170bf (read from the phone;
+installed 03:50 UTC with the app's data kept). By script through
+`phone-run` at the phone's new address, with Do Not Disturb on for
+each run and set back; dark theme, font 1.0, rotation automatic, all
+as found.
+
+| finding | result |
+|---|---|
+| F9 | Pass, step 5 included: in landscape with the keyboard up (`mInputShown=true`) in …x6gY6Eri, the newest message, its text ("w2 another pending one"), status and time, is wholly in view above the composer. |
+| F16 | Second half not met: a send to …x6gY6Eri, whose peer Trust does not list, becomes a pending row ("Not sent, send again or cancel", 11:00), as `RETENTION.md` §2 orders, but neither the row nor its menu (Send again, Cancel, Show source) gives the not-trusted reason look spec acceptance 23 asks for (`PeerNotTrusted`: "This peer is not trusted for this profile."). The row was cancelled at once by a drag left ("Sending canceled", the undo window let run out), so the phone holds nothing of the check. The first half passed in round 3. |
+| F17 | Pass: after the app bar's Back from …x6gY6Eri, no Chats row is drawn as selected on a phone-wide window. |
+| F10 | Unchanged: both earlier pending rows read "May have reached the peer, send again or cancel" at 01:14; a retry in progress, which the new waiting status is for, was not on screen. |
+| F6 | Seen in passing: the titles "…x6gY6Eri" (the list and the app bar) and "…5eQhFJG4" (the list) carry no "/ human". F6's truncation at 200 % was not re-checked. |
+
+Not re-walked on 177170bf: F1, F2, F5, F7, F8, F11, F12, F13 and F14,
+which passed on earlier builds, and F3 and F4, carried as the close
+table states (it cites each round). #358 changed F17's selection and F9's landscape layout, per
+rust-ui-dev-01's INFO 01a161c7, and this round walked what it changed
+and what was still open. The owner's date change (round 4) is
+specified on this branch and not yet built: the build still reads
+"Saturday" in the separator and the list, as `labels.rs` and
+`clock.rs` do on main.
+
+Also seen: one long-press on the new pending row opened its menu and
+a second, minutes later, did not (the drag left then worked); not
+reproduced, so not filed.
+
+**State of every ranked finding for the close** (plan §20 clause (j)):
+
+| rank | finding | state |
+|---|---|---|
+| 1 | F1 Back | built, re-reviewed: pass (round 1) |
+| 1 | F2 actions as buttons | built, re-reviewed: pass (round 1) |
+| 1 | F3 composer | built and passed as ranked (round 2); its insertion handle after Back is Slint 1.18.1's Android backend: carried by name to the release gate, toolkit-limited (architect-cto-01, INFO 01a15914) |
+| 1 | F4 Trust's look and PeerIds | built, re-reviewed: partly. Met except Trust at 200 % font in light theme, which no round walked (Trust dark at 1.0 in round 3, Details at 200 % and light in round 4); carried by name to a person's check or the next window |
+| 1 | F8 status bar in light theme | built, re-reviewed: pass (round 1) |
+| 1 | F9 landscape keyboard | built, re-reviewed: pass (round 5) |
+| 1 | F16 composer focus and untrusted send | first half pass (round 3); second half not met (round 5): the not-trusted reason is not shown |
+| 2 | F5 focus ring on touch | built: pass (round 2) |
+| 2 | F6 "/ human" in titles | built: no "/ human" in the titles round 5 saw (its F6 row); F6's truncation at 200 % was not re-checked |
+| 2 | F7 app bar subtitle | built: pass (round 2) |
+| 2 | F10 pending status over hours | built (62312ee5); not seen on the phone, since no retry was in progress in any window: carried by name |
+| 2 | F11 Details | built: pass (round 2) |
+| 2 | F14 Show recovery phrase button | built: pass (round 2) |
+| 3 | F12 Trust's entry | built: pass (round 2) |
+| 3 | F13 font scale keeps the conversation | built: pass (round 1) |
+| 3 | F17 selected row on a phone | built: pass (round 5) |
+| — | the owner's dates (round 4) | specified in the look spec on this branch; not built |
+
+Not reviewed on the phone, and why: the identity screens' own
+acceptance (`design/2026-10-19-android-identity.md` §10). S2 and its
+Recents card need the owner's unlock; a first launch, create, restore
+and process death need the app's data wiped, which this phone's
+identity and conversations rule out. They are a person's check and a
+fresh-install run.
+
 ## 8. The swipe spec's acceptance on the same build
 
 `design/2026-10-16-message-swipe.md` §11, walked on the same build and

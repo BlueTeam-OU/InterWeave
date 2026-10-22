@@ -10,13 +10,15 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use interweave_human_app_core::leasable_endpoints;
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
 use interweave_profile_config::{LoadError, PersistError, ProfileConfig, ProfilePaths, XdgRoots};
 use interweave_transport_api::{ChannelId, EndpointId};
 
 /// The client kind this app presents, and the one the profile must allow
-/// on an endpoint for it to be one this client may lease.
-pub const CLIENT_KIND: &str = "human-client";
+/// on an endpoint for it to be one this client may lease: app-core's, the
+/// rule the command-line client shares.
+pub use interweave_human_app_core::CLIENT_KIND;
 
 /// What the command line asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,17 +186,7 @@ pub fn resolve(launch: &Launch, roots: &XdgRoots) -> Result<Profile, StartError>
         error,
         paths: Box::new(paths.clone()),
     })?;
-    let endpoints: Vec<EndpointId> = config
-        .endpoints
-        .entries
-        .iter()
-        .filter(|e| {
-            e.allowed_client_kinds
-                .iter()
-                .any(|k| k.as_str() == CLIENT_KIND)
-        })
-        .map(|e| e.id.clone())
-        .collect();
+    let endpoints = leasable_endpoints(&config);
     if endpoints.is_empty() {
         return Err(StartError::NoHumanEndpoint {
             paths: Box::new(paths),
