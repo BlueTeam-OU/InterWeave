@@ -7,12 +7,14 @@
 #
 # The guard reads `cargo metadata`, so these cases drive it through a stub
 # `cargo` on PATH that prints a hand-built graph, and a sandbox workspace
-# whose Cargo.toml carries the planned_members list. Each of the five rules
-# has a case that must FAIL, and each carve-out (a dev-dependency, rusqlite
-# outside ui-model and client-api, an app reaching Slint through ui-slint,
-# app-core reaching rusqlite through store) one that must
-# pass — the carve-outs are where a guard written too wide would go red on
-# the tree, and too narrow would miss the breach next to them.
+# whose Cargo.toml carries the planned_members list. Each of the seven
+# rules has a case that must FAIL, and each carve-out (a dev-dependency,
+# rusqlite outside ui-model and client-api, an app reaching Slint through
+# ui-slint, app-core reaching rusqlite through store, an optional test
+# crate outside the Android library's own build, the CLI on tokio and the
+# store) one that must pass — the carve-outs are where a guard written
+# too wide would go red on the tree, and too narrow would miss the breach
+# next to them.
 #
 # Exit codes:
 #   0  all assertions passed
