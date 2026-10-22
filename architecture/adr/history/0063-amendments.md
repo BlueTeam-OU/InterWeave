@@ -28,7 +28,11 @@ against the secret) hold on every platform, the AEAD on top where a
 wrapping key exists; a platform that holds a wrapping key refuses a
 filesystem-only record at open as a downgrade, named, and the person
 creates a new key (a key change, decision 5); a desktop refuses a sealed
-record as unreadable here; nothing re-seals between custodies silently.
+record as unreadable here; the one re-seal is upward and at adoption —
+the desktop re-sealing its own key files when it joins the SPIKE-007
+envelope, as the store key does (ADR-0060 decision 3), never at open,
+never downward, never for a record that arrived from elsewhere — and a
+custody this build does not know is refused at open with the version.
 The reason is the copy: a key file moved to a weaker platform must not
 quietly become as weak as that platform. Propagation: decision 2; this
 note; the log row; the digest entry.
