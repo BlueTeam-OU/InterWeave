@@ -13,7 +13,8 @@ use interweave_human_client_api::{
 };
 use interweave_human_store::RowId;
 use interweave_human_ui_model::{
-    ConversationKey, ItemKey, ListedInbound, ListedOutbound, Table, TrustChange,
+    ContactView, ConversationKey, IdentityView, ItemKey, ListedInbound, ListedOutbound, PhotoEdit,
+    Proposal, Table, TrustChange,
 };
 
 /// A person's intent, resolved by the model, for the facade side to carry
@@ -60,6 +61,36 @@ pub enum Command {
     ReadTrust,
     /// Make a trust change the person confirmed.
     SetTrust(TrustChange),
+    /// Accept the card an unread row holds: the row is read, the card
+    /// verified again, and the contact written as its proposal said.
+    AcceptCard(RowId),
+    /// Decline it: the row is read, and nothing more is written.
+    DeclineCard(RowId),
+    /// Send this identity's own card on a direct conversation's route.
+    ShareCard(ConversationKey),
+    /// Write the identity's own card as the person edited it.
+    SetOwnCard {
+        /// The name.
+        name: String,
+        /// The surname, if any.
+        surname: Option<String>,
+        /// What happens to the photo.
+        photo: PhotoEdit,
+    },
+    /// The person's own name for a contact.
+    RenameContact {
+        /// The contact.
+        contact_id: String,
+        /// The name.
+        name: String,
+    },
+    /// The person's own photo for a contact, or its removal.
+    SetContactPhoto {
+        /// The contact.
+        contact_id: String,
+        /// What happens to the photo.
+        photo: PhotoEdit,
+    },
 }
 
 /// The store's rows at start, decoded for the model.
@@ -76,6 +107,12 @@ pub struct Listing {
     pub undecodable_unread: usize,
     /// Pending and kept rows likewise.
     pub undecodable_other: usize,
+    /// Unread rows that hold a card: proposals, with what Accept would do.
+    pub unread_cards: Vec<Proposal>,
+    /// The contacts.
+    pub contacts: Vec<ContactView>,
+    /// The identity in front, when the root holds its key.
+    pub identity: Option<IdentityView>,
 }
 
 /// What the facade side did, for the model side to apply.
@@ -97,6 +134,24 @@ pub enum Update {
     UnreadNotListed(Failure),
     /// A message committed unread and handed over.
     Received(Received),
+    /// A contact card committed unread and handed over: a proposal, which
+    /// nothing writes to the contacts before the person accepts it.
+    ReceivedCard(Box<Proposal>),
+    /// A proposal was accepted or declined: it is gone.
+    CardResolved(RowId),
+    /// The contacts, after a change to them.
+    ContactsListed(Vec<ContactView>),
+    /// The identity in front, after its own card changed.
+    IdentityShown(IdentityView),
+    /// This identity's card was shared on `key` as pending `row`.
+    CardShared {
+        /// The conversation.
+        key: ConversationKey,
+        /// Its pending row.
+        row: RowId,
+        /// When, on the wall clock.
+        at: u64,
+    },
     /// An event from the facade.
     Client(ClientEvent),
     /// The facade's counters changed.
@@ -191,4 +246,17 @@ pub enum Failure {
     /// Too many of the same action are still on their way: the cancels
     /// whose records an Undo may need ([`crate::CANCELLED_CAP`]).
     TooMany,
+    /// The row held no card this build verifies on its route: nothing was
+    /// written to the contacts.
+    NotACard,
+    /// The identity has no key to sign its card with, or no session says
+    /// this node's `PeerId`: nothing was sent.
+    NoIdentityKey,
+    /// The card could not be sent: too large for the route, or refused
+    /// before any row was made.
+    CardNotSent,
+    /// An edit outside a card's bounds: a name or surname too long, empty
+    /// or holding a control character, or a photo that cannot be read or
+    /// made to fit. Nothing was written.
+    OutOfBounds,
 }

@@ -182,6 +182,13 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 self.model.kept_listed(listing.kept);
                 self.hidden_unread = listing.undecodable_unread;
                 self.hidden_other = listing.undecodable_other;
+                for proposal in listing.unread_cards {
+                    self.model.card_received(proposal);
+                }
+                self.model.contacts_listed(listing.contacts);
+                if let Some(identity) = listing.identity {
+                    self.model.identity_shown(identity);
+                }
             }
             Update::UnreadListed { rows, undecodable } => {
                 self.model.unread_listed(rows);
@@ -191,6 +198,11 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             }
             Update::UnreadNotListed(why) => self.problem(Problem::UnreadNotListed(why)),
             Update::Received(received) => self.model.received(received),
+            Update::ReceivedCard(proposal) => self.model.card_received(*proposal),
+            Update::CardResolved(row) => self.model.card_resolved(row),
+            Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
+            Update::IdentityShown(identity) => self.model.identity_shown(identity),
+            Update::CardShared { key, at, .. } => self.model.card_shared(key, at),
             Update::Client(event) => self.model.client_event(event),
             Update::Diagnostics(diagnostics) => self.model.diagnostics_updated(diagnostics),
             Update::Sent {
@@ -421,6 +433,24 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Intent::RecheckStorage => Command::RecheckStorage,
             Intent::ReadTrust => Command::ReadTrust,
             Intent::SetTrust(change) => Command::SetTrust(change),
+            Intent::AcceptCard(row) => Command::AcceptCard(row),
+            Intent::DeclineCard(row) => Command::DeclineCard(row),
+            Intent::ShareCard(key) => Command::ShareCard(key),
+            Intent::SetOwnCard {
+                name,
+                surname,
+                photo,
+            } => Command::SetOwnCard {
+                name,
+                surname,
+                photo,
+            },
+            Intent::RenameContact { contact_id, name } => {
+                Command::RenameContact { contact_id, name }
+            }
+            Intent::SetContactPhoto { contact_id, photo } => {
+                Command::SetContactPhoto { contact_id, photo }
+            }
         };
         if !self.in_flight.insert(InFlight::of(&command)) {
             return None;

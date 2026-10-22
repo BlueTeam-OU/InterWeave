@@ -1,0 +1,473 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Andrea Benetton
+//! Contact cards through the root, both sides and the loop between them,
+//! over two fake nodes (plan §29 step 2 and its exit gate (b);
+//! `human-client-ui.md` §13): Share sends the conversation's identity's
+//! card and nothing else; the card arrives as a proposal; Accept writes
+//! the contact and names the conversation; Decline leaves nothing; an
+//! unread card is a proposal again after a restart; a changed key is a
+//! key change; a local edit stands; and the identity's private key is in
+//! no file of the store.
+
+#![allow(clippy::expect_used, clippy::panic)]
+
+mod common;
+
+use std::collections::VecDeque;
+
+use base64::Engine as _;
+use interweave_human_app_core::{Command, FacadeSide, Failure, ModelSide, Opener, Surface, Update};
+use interweave_human_store::identity_key::{self, FilesystemCustody, IdentityKey};
+use interweave_human_store::{HumanStore, StoreOptions};
+use interweave_human_transport_client::{ClientConfig, TransportClient};
+use interweave_human_ui_model::{
+    AcceptLine, ConversationKey, Intent, KeyView, PhotoEdit, UiModel, ViewEvent,
+};
+use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
+use interweave_profile_config::TrustBoundary;
+use interweave_profile_config::paths::ProfilePaths;
+use interweave_profile_identity::ProfileIdentity;
+use interweave_transport_api::{EndpointId, TransportIdentity};
+
+const WALL: u64 = 1_786_600_000_000;
+
+fn human() -> EndpointId {
+    EndpointId::parse("human").expect("valid")
+}
+
+fn node() -> FakeConfig {
+    FakeConfig {
+        peer: ProfileIdentity::generate()
+            .transport_identity()
+            .expect("peer id"),
+        endpoints: vec![FakeEndpoint::open(human(), false)],
+        default_endpoint: Some(human()),
+        queue_bound: 16,
+    }
+}
+
+/// One profile on disk: its paths and its directory.
+struct Profile {
+    _dir: tempfile::TempDir,
+    paths: ProfilePaths,
+}
+
+fn profile() -> Profile {
+    let dir = common::private_tempdir();
+    let paths = ProfilePaths::resolve_embedded(
+        "default",
+        TrustBoundary::new(dir.path()).expect("boundary"),
+    )
+    .expect("paths");
+    Profile { _dir: dir, paths }
+}
+
+fn facade(
+    node: &FakeNode,
+    profile: &Profile,
+    key: Option<IdentityKey>,
+) -> FacadeSide<FakeNode, FakeNode> {
+    let store = HumanStore::open_profile(&profile.paths, StoreOptions::default()).expect("store");
+    let client = TransportClient::new(
+        node.clone(),
+        node.clone(),
+        store,
+        ClientConfig {
+            client_kind: "human-client".to_owned(),
+            endpoints: vec![human()],
+            channels: vec![],
+            max_payload_bytes: 49_152,
+        },
+        Box::new(|| WALL),
+        0,
+    )
+    .expect("facade");
+    let mut side = FacadeSide::new(client, || WALL);
+    if let Some(key) = key {
+        side.set_identity_key(key);
+    }
+    side
+}
+
+fn key_of(profile: &Profile) -> IdentityKey {
+    identity_key::open(&profile.paths, &human(), &FilesystemCustody)
+        .expect("opens")
+        .unwrap_or_else(|| {
+            identity_key::create(&profile.paths, &human(), &FilesystemCustody).expect("created")
+        })
+}
+
+#[derive(Default)]
+struct Scripted {
+    batches: VecDeque<Vec<ViewEvent>>,
+}
+
+impl Surface for Scripted {
+    fn render(&mut self, _model: &UiModel) {}
+
+    fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+        self.batches.pop_front().unwrap_or_default()
+    }
+}
+
+#[derive(Default)]
+struct NoOpener;
+
+impl Opener for NoOpener {
+    fn open(&mut self, _destination: &str) {}
+    fn ask_network_access(&mut self) {}
+    fn authenticate(&mut self) {}
+}
+
+struct Root {
+    facade: FacadeSide<FakeNode, FakeNode>,
+    model: ModelSide<Scripted, NoOpener>,
+    updates: Vec<Update>,
+}
+
+impl Root {
+    fn new(facade: FacadeSide<FakeNode, FakeNode>) -> Self {
+        let mut root = Self {
+            facade,
+            model: ModelSide::new(Scripted::default(), NoOpener),
+            updates: Vec::new(),
+        };
+        let listing = root.facade.listing().expect("listing");
+        root.model.apply(Update::Listed(listing));
+        root
+    }
+
+    async fn pump(&mut self, now: u64) {
+        self.facade_turn(now).await;
+        let commands = self.model.turn();
+        let any = !commands.is_empty();
+        for command in commands {
+            for update in self.facade.execute(command, now).await {
+                self.updates.push(update.clone());
+                self.model.apply(update);
+            }
+        }
+        if any {
+            self.facade_turn(now).await;
+        }
+    }
+
+    async fn facade_turn(&mut self, now: u64) {
+        for update in self.facade.turn(now).await {
+            self.updates.push(update.clone());
+            self.model.apply(update);
+        }
+    }
+
+    fn will(&mut self, intent: Intent) {
+        self.model
+            .surface_mut()
+            .batches
+            .push_back(vec![ViewEvent::Intent(intent)]);
+    }
+
+    fn model(&self) -> &UiModel {
+        self.model.model()
+    }
+
+    fn failed(&self) -> Vec<(Command, Failure)> {
+        self.updates
+            .iter()
+            .filter_map(|u| match u {
+                Update::Failed { command, why } => Some((command.clone(), *why)),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+fn direct(to: &TransportIdentity) -> ConversationKey {
+    ConversationKey::Direct {
+        peer: to.clone(),
+        endpoint: Some(human()),
+    }
+}
+
+/// Alice names her card, shares it with Bob, and Bob's loop runs.
+async fn shared(alice: &mut Root, bob: &mut Root, b: &FakeNode) {
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: Some("Lovelace".to_owned()),
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(1).await;
+    alice.will(
+        alice
+            .model()
+            .share_card(&direct(b.peer()))
+            .expect("offered"),
+    );
+    alice.pump(2).await;
+    alice.pump(3).await;
+    bob.pump(4).await;
+}
+
+#[tokio::test]
+async fn a_valid_card_accepted_creates_the_contact_and_names_the_conversation() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, Some(key_of(&pb))));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+
+    let from_alice = direct(a.peer());
+    let proposals = bob.model().proposals(&from_alice);
+    assert_eq!(proposals.len(), 1, "a proposal, {:?}", bob.updates);
+    let proposal = &proposals[0];
+    assert_eq!(proposal.name, "Ada Lovelace");
+    assert_eq!(&proposal.peer, a.peer(), "beside the full PeerId");
+    assert_eq!(proposal.accept, AcceptLine::Creates);
+    assert_eq!(proposal.key, KeyView::New);
+    assert_eq!(proposal.fingerprint, key_of(&pa).fingerprint().to_string());
+    assert!(
+        bob.model().contacts().is_empty(),
+        "nothing written before Accept"
+    );
+
+    bob.will(Intent::AcceptCard(proposal.row));
+    bob.pump(5).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    assert!(
+        bob.model().proposals(&from_alice).is_empty(),
+        "the proposal is gone"
+    );
+    let contacts = bob.model().contacts();
+    assert_eq!(contacts.len(), 1);
+    assert_eq!(contacts[0].name, "Ada Lovelace");
+    assert!(contacts[0].name_from_card);
+    assert_eq!(
+        contacts[0].routes[0].fingerprint.as_deref(),
+        Some(key_of(&pa).fingerprint().to_string().as_str()),
+        "the contact page shows the key's fingerprint beside the PeerId"
+    );
+    assert_eq!(
+        bob.model().title(&from_alice),
+        "Ada Lovelace",
+        "the conversation takes the name"
+    );
+    let store = HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("reopen");
+    assert!(
+        store.unread_inbound().expect("read").is_empty(),
+        "the card has no Keep"
+    );
+}
+
+#[tokio::test]
+async fn a_declined_card_leaves_nothing_in_the_store() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let row = bob.model().proposals(&direct(a.peer()))[0].row;
+    bob.will(Intent::DeclineCard(row));
+    bob.pump(5).await;
+    assert!(bob.model().proposals(&direct(a.peer())).is_empty());
+    let store = HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("reopen");
+    assert!(store.contacts().expect("read").is_empty(), "no contact");
+    assert!(
+        store.unread_inbound().expect("read").is_empty(),
+        "no unread copy"
+    );
+    assert!(
+        store.kept_inbound().expect("read").is_empty(),
+        "no kept copy"
+    );
+}
+
+#[tokio::test]
+async fn an_unread_card_is_a_proposal_again_after_a_restart() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    assert_eq!(bob.model().proposals(&direct(a.peer())).len(), 1);
+    Box::pin(bob.facade.close()).await;
+    drop(bob);
+    let bob = Root::new(facade(&b, &pb, None));
+    let again = bob.model().proposals(&direct(a.peer()));
+    assert_eq!(again.len(), 1, "listed again from the store");
+    assert_eq!(again[0].name, "Ada Lovelace");
+}
+
+#[tokio::test]
+async fn share_without_a_key_sends_nothing() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let mut alice = Root::new(facade(&a, &pa, None));
+    alice.pump(0).await;
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(1).await;
+    assert_eq!(
+        alice.failed(),
+        vec![(Command::ShareCard(direct(b.peer())), Failure::NoIdentityKey)]
+    );
+    let store = HumanStore::open_profile(&pa.paths, StoreOptions::default()).expect("reopen");
+    assert!(store.pending_outbound().expect("read").is_empty());
+}
+
+#[tokio::test]
+async fn the_card_shared_to_two_conversations_is_the_identitys_each_time() {
+    // The fake joins two nodes at a time, so the identity is held by two
+    // of its roots, one per pair, with one key: what this shows is that
+    // each card carries the identity's key and own card, not that one node
+    // serves two conversations (the desktop e2e's).
+    let (a1, b) = FakeNetwork::pair(node(), node());
+    let (a2, c) = FakeNetwork::pair(node(), node());
+    let (pa1, pa2, pb, pc) = (profile(), profile(), profile(), profile());
+    let fingerprint = key_of(&pa1).fingerprint().to_string();
+    let mut to_bob = Root::new(facade(&a1, &pa1, Some(key_of(&pa1))));
+    let mut to_carol = Root::new(facade(&a2, &pa2, Some(key_of(&pa1))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    let mut carol = Root::new(facade(&c, &pc, None));
+    for root in [&mut to_bob, &mut to_carol, &mut bob, &mut carol] {
+        root.pump(0).await;
+    }
+    shared(&mut to_bob, &mut bob, &b).await;
+    shared(&mut to_carol, &mut carol, &c).await;
+    for (who, root, from) in [("bob", &bob, &a1), ("carol", &carol, &a2)] {
+        let got = root.model().proposals(&direct(from.peer()));
+        assert_eq!(got.len(), 1, "{who}");
+        assert_eq!(got[0].name, "Ada Lovelace", "{who}");
+        assert_eq!(
+            got[0].fingerprint, fingerprint,
+            "{who}: the conversation's identity's key"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_changed_key_on_a_known_route_is_a_key_change_and_a_local_edit_stands() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let row = bob.model().proposals(&direct(a.peer()))[0].row;
+    bob.will(Intent::AcceptCard(row));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+    bob.will(Intent::RenameContact {
+        contact_id: contact_id.clone(),
+        name: "Countess".to_owned(),
+    });
+    bob.pump(6).await;
+    let old = key_of(&pa).fingerprint().to_string();
+
+    // Alice's identity gets a new key (a reinstall, say) and shares again.
+    identity_key::remove(&pa.paths, &human(), &FilesystemCustody).expect("removed");
+    let new_key = key_of(&pa);
+    let new = new_key.fingerprint().to_string();
+    alice.facade.set_identity_key(new_key);
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(7).await;
+    alice.pump(8).await;
+    bob.pump(9).await;
+    let proposal = bob.model().proposals(&direct(a.peer()))[0].clone();
+    assert_eq!(
+        proposal.key,
+        KeyView::Changed { recorded: old },
+        "shown as a key change"
+    );
+    assert_eq!(proposal.fingerprint, new);
+    assert_eq!(proposal.accept, AcceptLine::Updates("Countess".to_owned()));
+    // Accepted only by the person: until then the route keeps the old key.
+    assert_ne!(
+        bob.model().contacts()[0].routes[0].fingerprint.as_deref(),
+        Some(new.as_str())
+    );
+    bob.will(Intent::AcceptCard(proposal.row));
+    bob.pump(10).await;
+    let contact = &bob.model().contacts()[0];
+    assert_eq!(
+        contact.routes[0].fingerprint.as_deref(),
+        Some(new.as_str()),
+        "the accepted key"
+    );
+    assert_eq!(contact.name, "Countess", "the local edit stands");
+    assert!(
+        !contact.name_from_card,
+        "and the page says it is the person's"
+    );
+}
+
+#[tokio::test]
+async fn the_identity_key_never_enters_the_store() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, Some(key_of(&pb))));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let row = bob.model().proposals(&direct(a.peer()))[0].row;
+    bob.will(Intent::AcceptCard(row));
+    bob.pump(5).await;
+    for root in [&mut alice, &mut bob] {
+        Box::pin(root.facade.close()).await;
+    }
+    drop((alice, bob));
+
+    for p in [&pa, &pb] {
+        // The record's last 32 bytes are the secret at the filesystem floor.
+        let line = std::fs::read_to_string(identity_key::key_path(&p.paths, &human()))
+            .expect("the key file");
+        let record = base64::engine::general_purpose::STANDARD
+            .decode(line.trim())
+            .expect("base64");
+        let secret = &record[record.len() - 32..];
+        let forms: [Vec<u8>; 3] = [
+            secret.to_vec(),
+            base64::engine::general_purpose::STANDARD
+                .encode(secret)
+                .into_bytes(),
+            secret
+                .iter()
+                .fold(String::new(), |mut hex, b| {
+                    use std::fmt::Write as _;
+                    let _ = write!(hex, "{b:02x}");
+                    hex
+                })
+                .into_bytes(),
+        ];
+        let mut scanned = Vec::new();
+        for entry in std::fs::read_dir(p.paths.human_dir()).expect("the store's directory") {
+            let path = entry.expect("entry").path();
+            scanned.push(
+                path.file_name()
+                    .expect("a name")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            let bytes = std::fs::read(&path).expect("read");
+            for form in &forms {
+                assert!(
+                    !bytes.windows(form.len()).any(|w| w == form.as_slice()),
+                    "{} holds the identity's private key",
+                    path.display()
+                );
+            }
+        }
+        assert!(
+            scanned
+                .iter()
+                .any(|n| n == interweave_human_store::STORE_FILE),
+            "the control: the store's own file was read, {scanned:?}"
+        );
+    }
+}

@@ -18,6 +18,7 @@
 #![forbid(unsafe_code)]
 
 pub mod card_photo;
+mod cards;
 mod facade;
 mod listing;
 mod model_side;
