@@ -392,6 +392,13 @@ mod tests {
     /// this replaced, the losers failed `AlreadyExists` (seen as one of
     /// two daemons dying at start). The control is the directory it
     /// leaves, judged owner-only like any other.
+    ///
+    /// The race is scheduled, not forced -- forcing it would need a seam
+    /// inside `prepare_run_dir`. Measured on that old shape: on two CPUs
+    /// or more nearly every round loses, while pinned to one CPU about
+    /// one round in thirty does, so the round count is set for one CPU:
+    /// a thousand rounds pass the old shape there with a chance near
+    /// 1e-15.
     #[test]
     fn two_daemons_preparing_one_run_directory_both_succeed() {
         const RACERS: usize = 8;
@@ -401,7 +408,7 @@ mod tests {
             .enable_io()
             .build()
             .expect("runtime");
-        for _ in 0..50 {
+        for _ in 0..1000 {
             let root = tempfile::tempdir().expect("tempdir");
             let run_dir = root.path().join("interweave");
             let barrier = std::sync::Barrier::new(RACERS);
