@@ -14,7 +14,7 @@ use interweave_human_client_api::{AddressOrigin, TrustProblem};
 use interweave_human_ui_model::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, CODE_LINES, HostText,
     LineSelection, ListProblem, Peers, PeersFocus, PeersInput, PeersSnack, Refusal, RowState,
-    RuntimeHost, TrustSettings, UiModel, UiText, fill, placeholder_en, short_peer,
+    RuntimeHost, TYPED_LINES, TrustSettings, UiModel, UiText, fill, placeholder_en, short_peer,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{ModelRc, SharedString, VecModel};
@@ -471,7 +471,7 @@ fn note_text(host: RuntimeHost, note: &AddNote) -> String {
         ),
         AddNote::TooManyLines { lines } => fill(
             text(UiText::RefusedTooManyLines),
-            &[("n", &lines.to_string()), ("max", &CODE_LINES.to_string())],
+            &[("n", &lines.to_string()), ("max", &TYPED_LINES.to_string())],
         ),
         AddNote::Failed => text(UiText::AddFailed).to_owned(),
         // Nothing is said until the list read back says it.
