@@ -56,6 +56,13 @@ run "$SANDBOX/wide.md" \
     && pass "the count is characters, not bytes: $LIMIT two-byte characters pass" \
     || fail "a page of $LIMIT two-byte characters was refused" "$(cat "$SANDBOX/out")"
 
+# CRLF: each line ending counts as the two characters the body carries.
+python3 -c 'import sys; open(sys.argv[1], "w", encoding="utf-8", newline="").write("a\r\n" * (int(sys.argv[2]) // 3 + 1))' "$SANDBOX/crlf.md" "$LIMIT"
+run "$SANDBOX/crlf.md"; status=$?
+[[ $status == 1 ]] && grep -qF "over the release-body limit" "$SANDBOX/out" \
+    && pass "a CRLF counts as two characters: a page over the limit only with its CRs counted is refused" \
+    || fail "a CRLF page over the limit: exit $status" "$(cat "$SANDBOX/out")"
+
 printf 'notes \xff\xfe\n' > "$SANDBOX/binary.md"
 run "$SANDBOX/binary.md"; status=$?
 [[ $status == 1 ]] && grep -qF "is not UTF-8 text" "$SANDBOX/out" \

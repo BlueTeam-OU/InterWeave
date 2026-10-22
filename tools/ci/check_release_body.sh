@@ -11,7 +11,8 @@
 #   tools/ci/check_release_body.sh <page.md>
 #
 # The page is the body `gh release create --notes-file` posts. Its length
-# is counted in characters as decoded UTF-8 text, never in bytes, and held
+# is counted in characters as decoded UTF-8 text, never in bytes and with
+# every line ending as written (a CRLF is two), and held
 # to RELEASE_BODY_LIMIT below. The check runs before gh release create, so
 # an over-long page fails the run with its size and the limit named, rather
 # than leaving a tag whose release the API refused.
@@ -46,7 +47,9 @@ python3 - "$page" "$RELEASE_BODY_LIMIT" <<'PY'
 import sys
 path, limit = sys.argv[1], int(sys.argv[2])
 try:
-    text = open(path, encoding="utf-8").read()
+    # newline="": the body is posted as the file holds it, so a CRLF
+    # counts as the two characters it is, never folded to one.
+    text = open(path, encoding="utf-8", newline="").read()
 except UnicodeDecodeError as e:
     sys.exit(f"check_release_body: {path} is not UTF-8 text ({e})")
 if len(text) > limit:
