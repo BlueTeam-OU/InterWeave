@@ -233,6 +233,12 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     // The content is gone: stop offering what cannot work.
                     self.model.copy_gone(*item);
                 }
+                if let (Command::AcceptCard(row) | Command::DeclineCard(row), Failure::CopyGone) =
+                    (&command, why)
+                {
+                    // The card's copy is gone: so is its proposal.
+                    self.model.card_resolved(*row);
+                }
                 // A refused Undo closes nothing more, but focus goes where
                 // the action itself sent it; a refused Cancel's row, slid
                 // out by its swipe, springs back.

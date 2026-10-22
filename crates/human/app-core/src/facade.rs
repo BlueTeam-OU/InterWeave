@@ -329,9 +329,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// read and nothing else is written.
     fn accept_card(&mut self, row: RowId, updates: &mut Vec<Update>) -> Result<(), Failure> {
         let at = (self.wall)();
-        let store = self.client.store_mut();
-        let held = store.mark_read(row, at).map_err(|e| store_failure(&e))?;
+        let held = self.held_card(row, at)?;
         updates.push(Update::CardResolved(row));
+        let store = self.client.store_mut();
         let (peer, endpoint, card) = cards::card_of(&held).ok_or(Failure::NotACard)?;
         store
             .accept_card(&cards::accepted(&peer, &endpoint, &card), at)
@@ -346,12 +346,24 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// and writes nothing to the contacts.
     fn decline_card(&mut self, row: RowId, updates: &mut Vec<Update>) -> Result<(), Failure> {
         let at = (self.wall)();
-        self.client
-            .store_mut()
-            .mark_read(row, at)
-            .map_err(|e| store_failure(&e))?;
+        self.held_card(row, at)?;
         updates.push(Update::CardResolved(row));
         Ok(())
+    }
+
+    /// The content of a card's row, its durable copy gone: the copy this
+    /// session holds if showing the proposal read it, else read now. A
+    /// proposal shown and past [`READ_COPY_CAP`] is gone, as a message's
+    /// copy is ([`Failure::CopyGone`]).
+    fn held_card(&mut self, row: RowId, at: u64) -> Result<ReadEphemeral, Failure> {
+        if let Some(held) = self.copies.remove(&(Table::Unread, row)) {
+            return Ok(held);
+        }
+        match self.client.store_mut().mark_read(row, at) {
+            Ok(held) => Ok(held),
+            Err(StoreError::NoSuchRow | StoreError::AlreadyRead) => Err(Failure::CopyGone),
+            Err(e) => Err(store_failure(&e)),
+        }
     }
 
     /// Share: the identity's own card, signed by its key for the route it
@@ -629,10 +641,10 @@ impl<V> ReadCopies<V> {
         self.by_row.get(from)
     }
 
-    fn remove(&mut self, from: &(Table, RowId)) {
-        if self.by_row.remove(from).is_some() {
-            self.order.retain(|k| k != from);
-        }
+    fn remove(&mut self, from: &(Table, RowId)) -> Option<V> {
+        let held = self.by_row.remove(from)?;
+        self.order.retain(|k| k != from);
+        Some(held)
     }
 
     #[cfg(test)]

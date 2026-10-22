@@ -304,6 +304,77 @@ async fn an_unread_card_is_a_proposal_again_after_a_restart() {
 }
 
 #[tokio::test]
+async fn a_shown_card_left_undecided_is_gone_after_a_restart() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let shown = bob.model().proposals_viewed(&from_alice, true);
+    assert_eq!(shown.len(), 1, "showing the proposal reads it");
+    assert!(
+        bob.model().proposals_viewed(&from_alice, false).is_empty(),
+        "an unfocused window shows nothing"
+    );
+    bob.model
+        .surface_mut()
+        .batches
+        .push_back(shown.into_iter().map(ViewEvent::Intent).collect());
+    bob.pump(5).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    assert_eq!(
+        bob.model().proposals(&from_alice).len(),
+        1,
+        "still offered this session"
+    );
+    assert!(
+        bob.model().proposals_viewed(&from_alice, true).is_empty(),
+        "read once"
+    );
+    Box::pin(bob.facade.close()).await;
+    drop(bob);
+    let store = HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("reopen");
+    assert!(
+        store.unread_inbound().expect("read").is_empty(),
+        "no durable copy once shown"
+    );
+    drop(store);
+    let bob = Root::new(facade(&b, &pb, None));
+    assert!(
+        bob.model().proposals(&from_alice).is_empty(),
+        "not offered again"
+    );
+}
+
+#[tokio::test]
+async fn a_shown_card_is_still_accepted_from_the_sessions_copy() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let shown = bob.model().proposals_viewed(&from_alice, true);
+    bob.model
+        .surface_mut()
+        .batches
+        .push_back(shown.into_iter().map(ViewEvent::Intent).collect());
+    bob.pump(5).await;
+    let row = bob.model().proposals(&from_alice)[0].row;
+    bob.will(Intent::AcceptCard(row));
+    bob.pump(6).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    assert!(bob.model().proposals(&from_alice).is_empty());
+    assert_eq!(bob.model().contacts().len(), 1, "accepted");
+    assert_eq!(bob.model().title(&from_alice), "Ada Lovelace");
+}
+
+#[tokio::test]
 async fn share_without_a_key_sends_nothing() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let pa = profile();
