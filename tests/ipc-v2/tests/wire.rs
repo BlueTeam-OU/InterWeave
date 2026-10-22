@@ -1044,8 +1044,8 @@ async fn until_ok(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_method_is_answered_ok_and_held_to_its_schemas() {
     use interweave_ipc_protocol::{
-        ChannelParams, EndpointParams, PeerListParams, PublishParams, QueryParams, Request,
-        SendParams, SetDefaultParams, SetEnabledParams, ShutdownParams, TrustListParams,
+        AddressParams, ChannelParams, EndpointParams, PeerListParams, PublishParams, QueryParams,
+        Request, SendParams, SetDefaultParams, SetEnabledParams, ShutdownParams, TrustListParams,
         TrustSetParams,
     };
     use interweave_transport_api::{ChannelId, EndpointId, MessageId, Payload};
@@ -1090,10 +1090,10 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
     let mut admin = Client::connect(&subject.paths.admin).await;
     admin
         .hello(
-            r#"{"type":"hello","ipc_version":{"major":2,"minor":2},
+            r#"{"type":"hello","ipc_version":{"major":2,"minor":7},
             "client":{"kind":"transportctl"},
             "requested_capabilities":["admin.status","admin.endpoints","admin.shutdown",
-                "admin.trust"]}"#,
+                "admin.trust","admin.peers"]}"#,
         )
         .await;
 
@@ -1139,7 +1139,19 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
     })
     .await;
 
-    let admin_requests: [(&str, Request); 10] = [
+    // A bootstrap address for a peer nobody trusts: added, listed and
+    // removed, and never dialled, so the exchange above stays undisturbed.
+    let bootstrap = || AddressParams {
+        address: format!(
+            "/ip4/10.255.255.1/tcp/4001/p2p/{}",
+            ProfileIdentity::generate()
+                .transport_identity()
+                .expect("peer")
+                .as_str()
+        ),
+    };
+    let added = bootstrap();
+    let admin_requests: [(&str, Request); 13] = [
         ("status", Request::AdminStatus),
         ("list", Request::AdminEndpointsList),
         ("trust", Request::AdminTrustList(TrustListParams::default())),
@@ -1180,6 +1192,9 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
                 endpoint: endpoint("agent"),
             }),
         ),
+        ("add", Request::AdminPeersAddAddress(added.clone())),
+        ("addresses", Request::AdminPeersListAddresses),
+        ("remove", Request::AdminPeersRemoveAddress(added)),
         (
             "shutdown",
             Request::AdminShutdown(ShutdownParams {
@@ -1191,6 +1206,15 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         admin.send(&request_body(id, request)).await;
         let answer = admin.response().await;
         assert!(answer.contains(r#""ok":true"#), "{id}: {answer}");
+        // A refusal is ok too; the move itself must have happened.
+        for (move_id, outcome) in [("add", "added"), ("remove", "removed")] {
+            if id == move_id {
+                assert!(
+                    answer.contains(&format!(r#""outcome":"{outcome}""#)),
+                    "{id}: {answer}"
+                );
+            }
+        }
     }
 
     let mut answered = data.audit();
