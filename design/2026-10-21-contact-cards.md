@@ -1433,11 +1433,14 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     tag shows it.
 12. A card too large for a low-limit profile is offered "Share without
     the photo" and nothing is sent before the person presses it.
-13. R shows Delete stored data… as a third action on both clients; K
-    (Android, key invalidated) shows it as the primary with no Try
-    again; both confirm before deleting.
+13. R shows Delete stored data… as a third action on both clients (on
+    the desktop on its own line above Close and Try again at every
+    width, Try again focused at open, Tab running the file path, Delete
+    stored data…, Close, Try again); K (Android, key invalidated) shows
+    it as the primary with no Try again; both confirm before deleting.
 14. The full-discard dialog lists exactly §7.2's items, saying with two
-    identities that it is every identity's data; with a complete
+    identities that it is every identity's data, and with one identity
+    using the plain lead-in and "the name and photo on your card"; with a complete
     `human.sqlite.encrypted` the partial dialog shows instead and the
     data is present after the next open; with that copy unopenable the
     full dialog shows and no second dialog follows.
