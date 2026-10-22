@@ -356,6 +356,11 @@ struct Shared {
     /// conversation is off screen.)
     pane_moved: bool,
     notice: Option<SessionNotice>,
+    /// A notice shown once in Chats' notice slot, under any session notice
+    /// and the offline line, until its Close: what a discard of the store
+    /// came to (design/2026-10-21-contact-cards.md section 7.3). Held by
+    /// the view alone, never stored.
+    once_notice: Option<UiText>,
     /// The trusted peers as rendered, by handle.
     trusted: HashMap<i32, TransportIdentity>,
     /// The trust change the confirmation shows, as rendered: what a press
@@ -846,10 +851,20 @@ impl View {
             }
         });
         let s = Rc::clone(&shared);
+        let weak = slint::ComponentHandle::as_weak(&window);
         window.on_notice_pressed(move || {
             let notice = s.borrow().notice;
             if let Some(notice) = notice {
                 enqueue(&s, Input::Notice(notice));
+            } else if s.borrow_mut().once_notice.take().is_some()
+                && let Some(window) = weak.upgrade()
+            {
+                // Its Close: gone now, and from every later render.
+                window.set_has_notice(false);
+                window.set_has_session_notice(false);
+                window.set_has_notice_action(false);
+                window.set_notice(SharedString::new());
+                window.set_notice_action(SharedString::new());
             }
         });
         let s = Rc::clone(&shared);
@@ -1019,6 +1034,14 @@ impl View {
     /// `now` rather than the system's: for a test, which then steps it.
     pub fn set_monotonic(&mut self, now: impl Fn() -> Instant + 'static) {
         self.monotonic = Rc::new(now);
+    }
+
+    /// Show `text` once in Chats' notice slot, with Close to dismiss it --
+    /// what a discard of the store came to (`StoreDiscarded`,
+    /// `StoreRestored`). A session notice or the offline line goes first;
+    /// it waits under them. Never stored.
+    pub fn show_once(&self, text: UiText) {
+        self.shared.borrow_mut().once_notice = Some(text);
     }
 
     /// The platform's touch values a swipe reads (§4, §6, §7): its touch
@@ -2341,18 +2364,27 @@ impl View {
         // (#304 F7). Unknown shows nothing, never as offline.
         let offline = (notice.is_none() && connectivity == Connectivity::Offline)
             .then(|| placeholder_en::host_text(self.host, HostText::OfflineBanner).to_owned());
-        window.set_has_notice(notice.is_some() || offline.is_some());
-        window.set_has_session_notice(notice.is_some());
+        let once = if notice.is_none() && offline.is_none() {
+            self.shared.borrow().once_notice
+        } else {
+            None
+        };
+        window.set_has_notice(notice.is_some() || offline.is_some() || once.is_some());
+        // The discard's notice is about the whole client, as a session
+        // notice is: Chats shows it too.
+        window.set_has_session_notice(notice.is_some() || once.is_some());
         window.set_notice(
             notice
                 .map(|notice| notice_text(self.host, notice))
                 .or(offline)
+                .or_else(|| once.map(|text| placeholder_en::text(text).to_owned()))
                 .unwrap_or_default()
                 .into(),
         );
         let action = notice
             .and_then(SessionNotice::resolution)
-            .and_then(|i| action_text(&i));
+            .and_then(|i| action_text(&i))
+            .or_else(|| once.map(|_| placeholder_en::text(UiText::Close)));
         window.set_has_notice_action(action.is_some());
         window.set_notice_action(action.unwrap_or_default().into());
 
