@@ -3,8 +3,10 @@
 
 The recorded run of `packaging/linux/DEPLOYING.md`, steps 1 to 6: two
 profiles from the installed programs to running
-`interweave-daemon@<profile>` units that reach each other, then a
-restart by `SIGHUP`, then stop and disable.
+`interweave-daemon@<profile>` units that reach each other, each key
+backed up to its recovery record first (the record's mode and size are
+printed, never its content), then a restart by `SIGHUP`, then stop and
+disable.
 
 **Not a second uid.** It ran in the deploying account's own user manager
 under a scratch `HOME` and XDG roots (architect-cto's decision of
@@ -19,19 +21,24 @@ reason `install.sh` reports no user manager reachable (it looks through
 the scratch `XDG_RUNTIME_DIR`), and the script reaches the manager
 through the account's real one.
 
-- Commit: the run printed `b22a4b2d`. `transport-daemon` and
-  `transportctl` were release builds of `cc8a07f4`, whose code is
-  `b22a4b2d`'s (the commit after it changes only `DEPLOYING.md`);
-  `human-desktop`, installed and not run, of `fbca15e6`.
+- Commit: the run printed the commit it ran at. `transport-daemon` and
+  `transportctl` were release builds of `cc8a07f4`; the commits since
+  change only documentation, the evidence and a test, so the programs'
+  code is the printed commit's. `human-desktop`, installed and not run,
+  of `fbca15e6`.
 - Host: Fedora, `systemd 258 (258.11-1.fc43)`, lingering on.
 - Profiles `a` and `b`, ports 47201 and 47202 on `127.0.0.1`, each the
   other's only allowed peer and static-bootstrap entry: DEPLOYING.md's
   `config.yaml`, verbatim but for the names.
 - Both units were enabled for this boot and started by one `systemctl`
-  call, so they start together: the start race fixed in `bb40c908` (one
-  of two daemons exiting "File exists") would show here.
+  call. That does not exercise the start race fixed in `bb40c908` (one
+  of two daemons exiting "File exists"): the journal below shows one
+  daemon serving before the other began to start, which the old code
+  survived too. The fix's evidence is the race test
+  `two_daemons_preparing_one_run_directory_both_succeed`.
 - What was not shown: a second uid, a host other than this one, a boot
-  with lingering, and `install.sh` writing where the manager looks.
+  with lingering, `install.sh` writing where the manager looks, a
+  restore from the recovery record, and the start race.
 
 ## The script
 
@@ -133,6 +140,11 @@ EOF
         > "$UNITS/interweave-daemon@$p.service.d/scratch.conf"
 done
 
+step "4. back up each key (the record goes to a new file; its content is a secret and is not printed)"
+for p in "${PROFILES[@]}"; do
+    run transportctl --profile "$p" identity backup --to-file "$S/backup-$p.record"
+    run stat -c '%a %s bytes' "$S/backup-$p.record"
+done
 step "4. start it (both enabled for this boot, started together)"
 run sc daemon-reload
 run sc enable --runtime interweave-daemon@a interweave-daemon@b
@@ -189,7 +201,7 @@ degraded
 $ loginctl show-user <account> -p Linger
 Linger=yes
 (exit 0)
-commit: b22a4b2d84075bd73cd56b33130f0559904d13dd
+commit: 7d0aedcd4f447ecb9f5a41081050503273a0d4e7
 
 ### 1. the programs: a release build of the commit above, installed
 $ $REPO/packaging/linux/install.sh $REPO/target/release
@@ -199,24 +211,24 @@ installed into $SCRATCH/home/.local/bin and $SCRATCH/home/.config/systemd/user; 
 $ ls -l $SCRATCH/home/.local/bin $SCRATCH/home/.config/systemd/user
 $SCRATCH/home/.config/systemd/user:
 total 8
--rw-r--r--. 1 <account> <account> 1251 Oct 22 10:19 interweave-client@.service
--rw-r--r--. 1 <account> <account> 1723 Oct 22 10:19 interweave-daemon@.service
+-rw-r--r--. 1 <account> <account> 1251 Oct 22 10:42 interweave-client@.service
+-rw-r--r--. 1 <account> <account> 1723 Oct 22 10:42 interweave-daemon@.service
 
 $SCRATCH/home/.local/bin:
 total 351768
--rwxr-xr-x. 1 <account> <account> 181765688 Oct 22 10:19 human-desktop
--rwxr-xr-x. 1 <account> <account> 157875480 Oct 22 10:19 transport-daemon
--rwxr-xr-x. 1 <account> <account>  20562320 Oct 22 10:19 transportctl
+-rwxr-xr-x. 1 <account> <account> 181765688 Oct 22 10:42 human-desktop
+-rwxr-xr-x. 1 <account> <account> 157875480 Oct 22 10:42 transport-daemon
+-rwxr-xr-x. 1 <account> <account>  20562320 Oct 22 10:42 transportctl
 (exit 0)
 Created symlink '/run/user/1016/systemd/user/interweave-daemon@.service' → '$SCRATCH/home/.config/systemd/user/interweave-daemon@.service'.
 Created symlink '/run/user/1016/systemd/user/interweave-client@.service' → '$SCRATCH/home/.config/systemd/user/interweave-client@.service'.
 
 ### 2. the identities
 $ transportctl --profile a identity init
-12D3KooWP6JKKVGLN6JqUD68icL4L1JP9p3nAfportwLWFeTf4mj
+12D3KooWKPDZvvKUh6YnWDjVmmfQSU1iXCGrELfPDMsBHcHBMmHd
 (exit 0)
 $ transportctl --profile b identity init
-12D3KooWKjUQX5PtHWJDqKMeFbTjvrMUtYoqipr6CXrNJ1tzJLPm
+12D3KooWR8LH6A56xsvxatFG2mDiz8tBgwJUUSPZUFz3hek1pUjv
 (exit 0)
 
 ### 3. config.yaml, per DEPLOYING.md step 3
@@ -225,7 +237,7 @@ schema_version: 2
 profile: { name: a }
 trust:
   policy: static-allowlist
-  allowed_peers: ["12D3KooWKjUQX5PtHWJDqKMeFbTjvrMUtYoqipr6CXrNJ1tzJLPm"]
+  allowed_peers: ["12D3KooWR8LH6A56xsvxatFG2mDiz8tBgwJUUSPZUFz3hek1pUjv"]
 endpoints:
   default_direct_endpoint: claude
   entries:
@@ -237,7 +249,7 @@ discovery:
       enabled: true
       priority: 5
       config:
-        peers: ["/ip4/127.0.0.1/tcp/47202/p2p/12D3KooWKjUQX5PtHWJDqKMeFbTjvrMUtYoqipr6CXrNJ1tzJLPm"]
+        peers: ["/ip4/127.0.0.1/tcp/47202/p2p/12D3KooWR8LH6A56xsvxatFG2mDiz8tBgwJUUSPZUFz3hek1pUjv"]
 transport: { listen: { addresses: ["/ip4/127.0.0.1/tcp/47201"] } }
 observability: { log_level: info }
 --- $SCRATCH/home/.config/interweave/profiles/b/config.yaml
@@ -245,7 +257,7 @@ schema_version: 2
 profile: { name: b }
 trust:
   policy: static-allowlist
-  allowed_peers: ["12D3KooWP6JKKVGLN6JqUD68icL4L1JP9p3nAfportwLWFeTf4mj"]
+  allowed_peers: ["12D3KooWKPDZvvKUh6YnWDjVmmfQSU1iXCGrELfPDMsBHcHBMmHd"]
 endpoints:
   default_direct_endpoint: claude
   entries:
@@ -257,9 +269,23 @@ discovery:
       enabled: true
       priority: 5
       config:
-        peers: ["/ip4/127.0.0.1/tcp/47201/p2p/12D3KooWP6JKKVGLN6JqUD68icL4L1JP9p3nAfportwLWFeTf4mj"]
+        peers: ["/ip4/127.0.0.1/tcp/47201/p2p/12D3KooWKPDZvvKUh6YnWDjVmmfQSU1iXCGrELfPDMsBHcHBMmHd"]
 transport: { listen: { addresses: ["/ip4/127.0.0.1/tcp/47202"] } }
 observability: { log_level: info }
+
+### 4. back up each key (the record goes to a new file; its content is a secret and is not printed)
+$ transportctl --profile a identity backup --to-file $SCRATCH/backup-a.record
+recovery record for 12D3KooWKPDZvvKUh6YnWDjVmmfQSU1iXCGrELfPDMsBHcHBMmHd written to $SCRATCH/backup-a.record
+(exit 0)
+$ stat -c %a %s bytes $SCRATCH/backup-a.record
+600 510 bytes
+(exit 0)
+$ transportctl --profile b identity backup --to-file $SCRATCH/backup-b.record
+recovery record for 12D3KooWR8LH6A56xsvxatFG2mDiz8tBgwJUUSPZUFz3hek1pUjv written to $SCRATCH/backup-b.record
+(exit 0)
+$ stat -c %a %s bytes $SCRATCH/backup-b.record
+600 501 bytes
+(exit 0)
 
 ### 4. start it (both enabled for this boot, started together)
 $ sc daemon-reload
@@ -279,20 +305,20 @@ $ sc --no-pager status interweave-daemon@a interweave-daemon@b
              └─10-timeout-abort.conf
              /run/user/1016/systemd/user/interweave-daemon@a.service.d
              └─scratch.conf
-     Active: active (running) since Thu 2026-10-22 10:19:15 CEST; 3s ago
- Invocation: 1c36ceb52a314cbc8e2de5933d41d659
+     Active: active (running) since Thu 2026-10-22 10:42:17 CEST; 3s ago
+ Invocation: ec33044b062c404bb2f3a9b0c7efcde2
        Docs: https://github.com/BlueTeam-OU/InterWeave/tree/main/packaging/linux
-   Main PID: 4183261 (transport-daemo)
+   Main PID: 822143 (transport-daemo)
       Tasks: 12 (limit: 7680)
-     Memory: 2M (peak: 2.8M)
-        CPU: 16ms
+     Memory: 2M (peak: 2.7M)
+        CPU: 17ms
      CGroup: /user.slice/user-1016.slice/user@1016.service/app.slice/app-interweave\x2ddaemon.slice/interweave-daemon@a.service
-             └─4183261 $SCRATCH/home/.local/bin/transport-daemon --profile a
+             └─822143 $SCRATCH/home/.local/bin/transport-daemon --profile a
 
-Oct 22 10:19:15 develop-qzapp systemd[2354]: Starting interweave-daemon@a.service - InterWeave transport daemon, profile a...
-Oct 22 10:19:15 develop-qzapp systemd[2354]: Started interweave-daemon@a.service - InterWeave transport daemon, profile a.
-Oct 22 10:19:15 develop-qzapp transport-daemon[4183261]: 2026-10-22T08:19:15.936360Z  INFO transport_daemon::daemon: starting profile="a" peer="12D3KooWP6JKKVGLN6JqUD68icL4L1JP9p3nAfportwLWFeTf4mj"
-Oct 22 10:19:15 develop-qzapp transport-daemon[4183261]: 2026-10-22T08:19:15.956579Z  INFO transport_daemon::daemon: serving data=/run/user/1016/iwrec/interweave/a.sock
+Oct 22 10:42:17 develop-qzapp systemd[2354]: Starting interweave-daemon@a.service - InterWeave transport daemon, profile a...
+Oct 22 10:42:17 develop-qzapp systemd[2354]: Started interweave-daemon@a.service - InterWeave transport daemon, profile a.
+Oct 22 10:42:17 develop-qzapp transport-daemon[822143]: 2026-10-22T08:42:17.592577Z  INFO transport_daemon::daemon: starting profile="a" peer="12D3KooWKPDZvvKUh6YnWDjVmmfQSU1iXCGrELfPDMsBHcHBMmHd"
+Oct 22 10:42:17 develop-qzapp transport-daemon[822143]: 2026-10-22T08:42:17.607814Z  INFO transport_daemon::daemon: serving data=/run/user/1016/iwrec/interweave/a.sock
 
 ● interweave-daemon@b.service - InterWeave transport daemon, profile b
      Loaded: loaded (/run/user/1016/systemd/user/interweave-daemon@b.service; enabled-runtime; preset: disabled)
@@ -300,54 +326,54 @@ Oct 22 10:19:15 develop-qzapp transport-daemon[4183261]: 2026-10-22T08:19:15.956
              └─10-timeout-abort.conf
              /run/user/1016/systemd/user/interweave-daemon@b.service.d
              └─scratch.conf
-     Active: active (running) since Thu 2026-10-22 10:19:15 CEST; 3s ago
- Invocation: 031fcc5e81844df78fb1a084fb09026d
+     Active: active (running) since Thu 2026-10-22 10:42:17 CEST; 3s ago
+ Invocation: db3e39aa419548808b4b79eb4b93a9d9
        Docs: https://github.com/BlueTeam-OU/InterWeave/tree/main/packaging/linux
-   Main PID: 4183263 (transport-daemo)
+   Main PID: 822144 (transport-daemo)
       Tasks: 12 (limit: 7680)
-     Memory: 1.9M (peak: 2.9M)
-        CPU: 23ms
+     Memory: 2M (peak: 2.7M)
+        CPU: 18ms
      CGroup: /user.slice/user-1016.slice/user@1016.service/app.slice/app-interweave\x2ddaemon.slice/interweave-daemon@b.service
-             └─4183263 $SCRATCH/home/.local/bin/transport-daemon --profile b
+             └─822144 $SCRATCH/home/.local/bin/transport-daemon --profile b
 
-Oct 22 10:19:15 develop-qzapp systemd[2354]: Starting interweave-daemon@b.service - InterWeave transport daemon, profile b...
-Oct 22 10:19:15 develop-qzapp systemd[2354]: Started interweave-daemon@b.service - InterWeave transport daemon, profile b.
-Oct 22 10:19:15 develop-qzapp transport-daemon[4183263]: 2026-10-22T08:19:15.962457Z  INFO transport_daemon::daemon: starting profile="b" peer="12D3KooWKjUQX5PtHWJDqKMeFbTjvrMUtYoqipr6CXrNJ1tzJLPm"
-Oct 22 10:19:16 develop-qzapp transport-daemon[4183263]: 2026-10-22T08:19:16.031197Z  INFO transport_daemon::daemon: serving data=/run/user/1016/iwrec/interweave/b.sock
+Oct 22 10:42:17 develop-qzapp systemd[2354]: Starting interweave-daemon@b.service - InterWeave transport daemon, profile b...
+Oct 22 10:42:17 develop-qzapp systemd[2354]: Started interweave-daemon@b.service - InterWeave transport daemon, profile b.
+Oct 22 10:42:17 develop-qzapp transport-daemon[822144]: 2026-10-22T08:42:17.634646Z  INFO transport_daemon::daemon: starting profile="b" peer="12D3KooWR8LH6A56xsvxatFG2mDiz8tBgwJUUSPZUFz3hek1pUjv"
+Oct 22 10:42:17 develop-qzapp transport-daemon[822144]: 2026-10-22T08:42:17.654710Z  INFO transport_daemon::daemon: serving data=/run/user/1016/iwrec/interweave/b.sock
 (exit 0)
 
 ### 5. check it
 $ transportctl --profile a status
-peer         12D3KooWP6JKKVGLN6JqUD68icL4L1JP9p3nAfportwLWFeTf4mj
+peer         12D3KooWKPDZvvKUh6YnWDjVmmfQSU1iXCGrELfPDMsBHcHBMmHd
 health       Healthy
 connections  0 data, 1 admin
 leases       0
 inbound      direct Unknown, relay Unavailable (0/0 reservations)
 (exit 0)
 $ transportctl --profile a peers list
-12D3KooWKjUQX5PtHWJDqKMeFbTjvrMUtYoqipr6CXrNJ1tzJLPm  connected  last connected
+12D3KooWR8LH6A56xsvxatFG2mDiz8tBgwJUUSPZUFz3hek1pUjv  connected  last connected
 (exit 0)
 $ transportctl --profile a trust list
-local    12D3KooWP6JKKVGLN6JqUD68icL4L1JP9p3nAfportwLWFeTf4mj
-allowed  12D3KooWKjUQX5PtHWJDqKMeFbTjvrMUtYoqipr6CXrNJ1tzJLPm  configured
+local    12D3KooWKPDZvvKUh6YnWDjVmmfQSU1iXCGrELfPDMsBHcHBMmHd
+allowed  12D3KooWR8LH6A56xsvxatFG2mDiz8tBgwJUUSPZUFz3hek1pUjv  configured
 every other peer is denied
 (exit 0)
 $ transportctl --profile a endpoints list
 claude                   enabled, default
 (exit 0)
 $ transportctl --profile b status
-peer         12D3KooWKjUQX5PtHWJDqKMeFbTjvrMUtYoqipr6CXrNJ1tzJLPm
+peer         12D3KooWR8LH6A56xsvxatFG2mDiz8tBgwJUUSPZUFz3hek1pUjv
 health       Healthy
 connections  0 data, 1 admin
 leases       0
 inbound      direct Unknown, relay Unavailable (0/0 reservations)
 (exit 0)
 $ transportctl --profile b peers list
-12D3KooWP6JKKVGLN6JqUD68icL4L1JP9p3nAfportwLWFeTf4mj  connected  last connected
+12D3KooWKPDZvvKUh6YnWDjVmmfQSU1iXCGrELfPDMsBHcHBMmHd  connected  last connected
 (exit 0)
 $ transportctl --profile b trust list
-local    12D3KooWKjUQX5PtHWJDqKMeFbTjvrMUtYoqipr6CXrNJ1tzJLPm
-allowed  12D3KooWP6JKKVGLN6JqUD68icL4L1JP9p3nAfportwLWFeTf4mj  configured
+local    12D3KooWR8LH6A56xsvxatFG2mDiz8tBgwJUUSPZUFz3hek1pUjv
+allowed  12D3KooWKPDZvvKUh6YnWDjVmmfQSU1iXCGrELfPDMsBHcHBMmHd  configured
 every other peer is denied
 (exit 0)
 $ transportctl --profile b endpoints list
@@ -356,22 +382,22 @@ claude                   enabled, default
 
 ### 6. logs
 $ jc --no-pager -o short-iso -u interweave-daemon@a -u interweave-daemon@b --since -2min
-2026-10-22T10:19:15+02:00 develop-qzapp systemd[2354]: Starting interweave-daemon@a.service - InterWeave transport daemon, profile a...
-2026-10-22T10:19:15+02:00 develop-qzapp systemd[2354]: Starting interweave-daemon@b.service - InterWeave transport daemon, profile b...
-2026-10-22T10:19:15+02:00 develop-qzapp systemd[2354]: Started interweave-daemon@a.service - InterWeave transport daemon, profile a.
-2026-10-22T10:19:15+02:00 develop-qzapp transport-daemon[4183261]: 2026-10-22T08:19:15.936360Z  INFO transport_daemon::daemon: starting profile="a" peer="12D3KooWP6JKKVGLN6JqUD68icL4L1JP9p3nAfportwLWFeTf4mj"
-2026-10-22T10:19:15+02:00 develop-qzapp systemd[2354]: Started interweave-daemon@b.service - InterWeave transport daemon, profile b.
-2026-10-22T10:19:15+02:00 develop-qzapp transport-daemon[4183261]: 2026-10-22T08:19:15.956579Z  INFO transport_daemon::daemon: serving data=/run/user/1016/iwrec/interweave/a.sock
-2026-10-22T10:19:15+02:00 develop-qzapp transport-daemon[4183263]: 2026-10-22T08:19:15.962457Z  INFO transport_daemon::daemon: starting profile="b" peer="12D3KooWKjUQX5PtHWJDqKMeFbTjvrMUtYoqipr6CXrNJ1tzJLPm"
-2026-10-22T10:19:16+02:00 develop-qzapp transport-daemon[4183263]: 2026-10-22T08:19:16.031197Z  INFO transport_daemon::daemon: serving data=/run/user/1016/iwrec/interweave/b.sock
+2026-10-22T10:42:17+02:00 develop-qzapp systemd[2354]: Starting interweave-daemon@a.service - InterWeave transport daemon, profile a...
+2026-10-22T10:42:17+02:00 develop-qzapp systemd[2354]: Starting interweave-daemon@b.service - InterWeave transport daemon, profile b...
+2026-10-22T10:42:17+02:00 develop-qzapp systemd[2354]: Started interweave-daemon@a.service - InterWeave transport daemon, profile a.
+2026-10-22T10:42:17+02:00 develop-qzapp systemd[2354]: Started interweave-daemon@b.service - InterWeave transport daemon, profile b.
+2026-10-22T10:42:17+02:00 develop-qzapp transport-daemon[822143]: 2026-10-22T08:42:17.592577Z  INFO transport_daemon::daemon: starting profile="a" peer="12D3KooWKPDZvvKUh6YnWDjVmmfQSU1iXCGrELfPDMsBHcHBMmHd"
+2026-10-22T10:42:17+02:00 develop-qzapp transport-daemon[822143]: 2026-10-22T08:42:17.607814Z  INFO transport_daemon::daemon: serving data=/run/user/1016/iwrec/interweave/a.sock
+2026-10-22T10:42:17+02:00 develop-qzapp transport-daemon[822144]: 2026-10-22T08:42:17.634646Z  INFO transport_daemon::daemon: starting profile="b" peer="12D3KooWR8LH6A56xsvxatFG2mDiz8tBgwJUUSPZUFz3hek1pUjv"
+2026-10-22T10:42:17+02:00 develop-qzapp transport-daemon[822144]: 2026-10-22T08:42:17.654710Z  INFO transport_daemon::daemon: serving data=/run/user/1016/iwrec/interweave/b.sock
 (exit 0)
 
 ### restart by SIGHUP: stops as on SIGTERM, exit 75, restarted 5 s later
 $ sc kill --kill-whom=main --signal=SIGHUP interweave-daemon@a
 (exit 0)
-MainPID before 4183261, after 4185408; ActiveState active, NRestarts 1
+MainPID before 822143, after 823220; ActiveState active, NRestarts 1
 $ transportctl --profile a peers list
-12D3KooWKjUQX5PtHWJDqKMeFbTjvrMUtYoqipr6CXrNJ1tzJLPm  connected  last connected
+12D3KooWR8LH6A56xsvxatFG2mDiz8tBgwJUUSPZUFz3hek1pUjv  connected  last connected
 (exit 0)
 
 ### stop and disable
