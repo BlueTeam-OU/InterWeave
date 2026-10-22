@@ -30,6 +30,7 @@ interweave-local-client-api = { path = "../../api/local-client-api" }
 interweave-transport-api = { path = "../../api/transport-api" }
 # A sent message's application id: 128 random bits.
 rand = { workspace = true }
+image = { workspace = true }
 
 [dev-dependencies]
 interweave-local-client-fake = { path = "../../../tests/local-client-fake" }
