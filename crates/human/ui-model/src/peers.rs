@@ -1440,11 +1440,14 @@ impl Peers {
         // The trust line's Try again answered: the rows with their states
         // and focus on the title, or the line again and focus kept on Try
         // again (§8).
+        // A trust step opened meanwhile keeps the focus it has.
         if self.again == Some(Again::Trust) && !trust.reading() {
             self.again = None;
-            match self.trust_line(trust) {
-                None => self.ask_focus(PeersFocus::Title),
-                Some(_) => self.ask_focus(PeersFocus::TrustRetry),
+            if self.page.is_none() {
+                match self.trust_line(trust) {
+                    None => self.ask_focus(PeersFocus::Title),
+                    Some(_) => self.ask_focus(PeersFocus::TrustRetry),
+                }
             }
         }
         if !self.reread || self.reading || self.in_flight.is_some() {

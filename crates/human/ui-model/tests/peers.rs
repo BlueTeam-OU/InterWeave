@@ -1465,3 +1465,25 @@ fn an_undo_restored_unread_focuses_its_row_once_read() {
     m.addresses_read(Ok(list(&[added(&a), added(&b)])));
     assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))));
 }
+
+/// A trust step opened while the trust line's Try again is on its way
+/// keeps its focus when that read answers: the title is the page's.
+#[test]
+fn a_trust_retry_answered_under_a_trust_step_keeps_its_focus() {
+    let (me, p) = (peer(), peer());
+    let mut m = UiModel::new();
+    let _ = input(&mut m, PeersInput::Opened);
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    m.addresses_read(Ok(list(&[added(&p)])));
+    assert_eq!(
+        input(&mut m, PeersInput::TrustReadAgain),
+        vec![Intent::ReadTrust]
+    );
+    let _ = input(&mut m, PeersInput::TrustRow(at(&p)));
+    m.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me),
+        allowed: Vec::new(),
+    }));
+    let _ = m.peers_turn();
+    assert_eq!(focus(&m), Some(PeersFocus::Block(p)));
+}
