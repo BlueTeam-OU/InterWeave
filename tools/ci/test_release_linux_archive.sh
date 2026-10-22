@@ -5,7 +5,7 @@
 #
 # Self-test for release_linux_archive.sh and release_notices.py.
 #
-# The three programs are stand-in scripts (--bin-dir) and the dependency
+# The four programs are stand-in scripts (--bin-dir) and the dependency
 # graph a small `cargo metadata` document over sandbox crates, so nothing
 # is compiled. The archive is unpacked and its own install.sh run into a
 # sandbox home -- the positive control that the layout is the one the
@@ -36,7 +36,7 @@ fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2
 
 BIN="$SANDBOX/bin"
 mkdir -p "$BIN"
-for p in transport-daemon transportctl human-desktop; do
+for p in transport-daemon transportctl human-desktop interweave-human; do
     printf '#!/bin/sh\necho %s\n' "$p" > "$BIN/$p"
     chmod 0700 "$BIN/$p"
 done
@@ -55,6 +55,7 @@ crate() {
 crate daemon
 crate ctl
 crate desktop
+crate cli
 crate libfoo LICENSE-MIT LICENSE-APACHE
 crate libbar LICENSE-MIT
 cp "$SANDBOX/crates/libfoo/LICENSE-MIT" "$SANDBOX/crates/libbar/LICENSE-MIT"
@@ -76,6 +77,7 @@ packages = [
     pkg("interweave-transport-daemon", "daemon", "Apache-2.0"),
     pkg("interweave-transportctl", "ctl", "Apache-2.0"),
     pkg("interweave-human-desktop", "desktop", "Apache-2.0"),
+    pkg("interweave-human-cli", "cli", "Apache-2.0"),
     pkg("libfoo", "libfoo", "MIT OR Apache-2.0"),
     pkg("libbar", "libbar", "MIT"),
     pkg("a-macro", "macro", "MIT"),
@@ -91,14 +93,15 @@ nodes = [
     {"id": "interweave-transport-daemon-id", "deps": [dep("libfoo"), dep("buildonly", [{"kind": "build", "target": None}])]},
     {"id": "interweave-transportctl-id", "deps": [dep("libbar"), dep("devonly", [{"kind": "dev", "target": None}])]},
     # unified: reached in the metadata's unified resolve, compiled by no
-    # build of these three (as the Android app's features reach Skia).
+    # build of these four (as the Android app's features reach Skia).
     {"id": "interweave-human-desktop-id", "deps": [dep("a-macro"), dep("bare"), dep("unified")]},
+    {"id": "interweave-human-cli-id", "deps": [dep("libbar")]},
 ] + [{"id": f"{n}-id", "deps": []} for n in ("libfoo", "libbar", "a-macro", "bare", "buildonly", "devonly", "unified")]
-print(json.dumps({"packages": packages, "workspace_members": [p["id"] for p in packages[:3]],
+print(json.dumps({"packages": packages, "workspace_members": [p["id"] for p in packages[:4]],
                   "resolve": {"nodes": nodes}}))
 PY
 
-# What `cargo tree -e normal -p <the three>` prints: the roots, the
+# What `cargo tree -e normal -p <the four>` prints: the roots, the
 # crates their build compiles, a repeat marked (*).
 C="$SANDBOX/compiled.txt"
 cat > "$C" <<'EOF'
@@ -109,6 +112,8 @@ libbar v1.0.0
 interweave-human-desktop v1.0.0 (/somewhere/apps/human-desktop)
 a-macro v1.0.0
 libfoo v1.0.0 (*)
+interweave-human-cli v1.0.0 (/somewhere/apps/human-cli)
+libbar v1.0.0 (*)
 EOF
 
 cat > "$BIN/systemctl" <<'EOF'
@@ -136,6 +141,7 @@ drwxr-xr-x 0/0 $NAME/
 -rw-r--r-- 0/0 $NAME/THIRD-PARTY-NOTICES.md
 drwxr-xr-x 0/0 $NAME/bin/
 -rwxr-xr-x 0/0 $NAME/bin/human-desktop
+-rwxr-xr-x 0/0 $NAME/bin/interweave-human
 -rwxr-xr-x 0/0 $NAME/bin/transport-daemon
 -rwxr-xr-x 0/0 $NAME/bin/transportctl
 -rwxr-xr-x 0/0 $NAME/install.sh
@@ -283,7 +289,7 @@ cat > "$CARGO_STUB/cargo" <<EOF
 case "\$1" in
 build)
     mkdir -p "$BUILT/x86_64-unknown-linux-gnu/release"
-    for p in transport-daemon transportctl human-desktop; do
+    for p in transport-daemon transportctl human-desktop interweave-human; do
         printf '#!/bin/sh\n# fresh %s\n' "\$p" > "$BUILT/x86_64-unknown-linux-gnu/release/\$p"
         chmod 0755 "$BUILT/x86_64-unknown-linux-gnu/release/\$p"
     done ;;
@@ -292,7 +298,7 @@ metadata) printf '{"target_directory": "%s"}\n' "$BUILT" ;;
 esac
 EOF
 chmod +x "$CARGO_STUB/cargo"
-for p in transport-daemon transportctl human-desktop; do
+for p in transport-daemon transportctl human-desktop interweave-human; do
     printf '#!/bin/sh\n# decoy %s\n' "$p" > "$CALLER/target/x86_64-unknown-linux-gnu/release/$p"
     chmod 0755 "$CALLER/target/x86_64-unknown-linux-gnu/release/$p"
 done
@@ -320,8 +326,11 @@ refused "a missing program" "no executable $BIN/human-desktop" 0.3.0 "$OUT"
 mv "$BIN/human-desktop.gone" "$BIN/human-desktop"
 python3 - "$M" <<'PY'
 import json, sys
-m = json.load(open(sys.argv[1])); m["packages"][4]["license"] = None
-import os; os.remove(m["packages"][4]["manifest_path"].replace("Cargo.toml", "LICENSE-MIT"))
+m = json.load(open(sys.argv[1]))
+# By name, not by position: a program added to the list moves the index.
+bar = next(p for p in m["packages"] if p["name"] == "libbar")
+bar["license"] = None
+import os; os.remove(bar["manifest_path"].replace("Cargo.toml", "LICENSE-MIT"))
 json.dump(m, open(sys.argv[1], "w"))
 PY
 refused "a crate with no licence expression and no licence file" "libbar 1.0.0 has no licence" 0.3.0 "$OUT"

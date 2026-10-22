@@ -18,13 +18,14 @@
 # The archive holds one directory of that name, laid out as
 # packaging/linux/install.sh expects to find itself:
 #   bin/transport-daemon  bin/transportctl  bin/human-desktop
+#   bin/interweave-human
 #   systemd/interweave-daemon@.service  systemd/interweave-client@.service
 #   install.sh  uninstall.sh  README.md  LICENSE  THIRD-PARTY-NOTICES.md
 #
-# Without --bin-dir the three programs are built here, `cargo build
+# Without --bin-dir the four programs are built here, `cargo build
 # --release --locked` for x86_64-unknown-linux-gnu; with it, DIR holds
 # them already built (the self-test's stand-ins). THIRD-PARTY-NOTICES.md
-# is release_notices.py over `cargo tree --locked -e normal` of the three
+# is release_notices.py over `cargo tree --locked -e normal` of the four
 # packages for that target (which crates) and `cargo metadata --locked`
 # (what each is), or over the files RELEASE_COMPILED_LIST and
 # RELEASE_METADATA_JSON name.
@@ -52,8 +53,8 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 target=x86_64-unknown-linux-gnu
-packages=(interweave-transport-daemon interweave-transportctl interweave-human-desktop)
-programs=(transport-daemon transportctl human-desktop)
+packages=(interweave-transport-daemon interweave-transportctl interweave-human-desktop interweave-human-cli)
+programs=(transport-daemon transportctl human-desktop interweave-human)
 units=(interweave-daemon@.service interweave-client@.service)
 
 usage() {
