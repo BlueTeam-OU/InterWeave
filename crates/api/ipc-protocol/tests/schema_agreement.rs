@@ -475,7 +475,7 @@ fn the_authority_domain_is_not_a_frame_field() {
 /// covers nothing by itself -- `check_schemas_are_tested.sh` skips
 /// this list and counts only the sites below that read each schema, so a
 /// new schema needs a test that reads it, not only a line here.
-const IPC_SCHEMAS: [&str; 31] = [
+const IPC_SCHEMAS: [&str; 34] = [
     "architecture/contracts/schemas/ipc/admin-status.schema.json",
     "architecture/contracts/schemas/ipc/broadcast-received.schema.json",
     "architecture/contracts/schemas/ipc/capability.schema.json",
@@ -495,6 +495,9 @@ const IPC_SCHEMAS: [&str; 31] = [
     "architecture/contracts/schemas/ipc/payload.schema.json",
     "architecture/contracts/schemas/ipc/peer-list-params.schema.json",
     "architecture/contracts/schemas/ipc/peer-list.schema.json",
+    "architecture/contracts/schemas/ipc/peers-address-list.schema.json",
+    "architecture/contracts/schemas/ipc/peers-address-params.schema.json",
+    "architecture/contracts/schemas/ipc/peers-address-result.schema.json",
     "architecture/contracts/schemas/ipc/publish-params.schema.json",
     "architecture/contracts/schemas/ipc/query-params.schema.json",
     "architecture/contracts/schemas/ipc/request.schema.json",
@@ -1701,4 +1704,76 @@ fn a_schema_only_bound_counts_characters() {
         panic!("a response")
     };
     assert!(response.outcome::<EndpointList>().is_ok());
+}
+
+/// The `admin.peers` address shapes (ADR-0062), `approved` before their
+/// wire: each holds what LOCAL-IPC.md says of it, a refusal tied to its
+/// named reason both ways and a list held to the provider's bound. The
+/// Rust mirror joins this agreement with the batch that serves them.
+#[test]
+fn the_peers_address_shapes_hold_what_the_contract_says() {
+    let params = "architecture/contracts/schemas/ipc/peers-address-params.schema.json";
+    let result = "architecture/contracts/schemas/ipc/peers-address-result.schema.json";
+    let list = "architecture/contracts/schemas/ipc/peers-address-list.schema.json";
+    let refuses = |path: &str, instance: Value| {
+        assert!(
+            !validator(path).is_valid(&instance),
+            "{path} admits {instance}"
+        );
+    };
+    let peer = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+    let address = format!("/ip4/192.168.1.20/tcp/4001/p2p/{peer}");
+
+    assert_valid(params, &serde_json::json!({ "address": address }));
+    refuses(params, serde_json::json!({}));
+    refuses(params, serde_json::json!({ "address": "" }));
+    refuses(params, serde_json::json!({ "address": "x".repeat(1025) }));
+    refuses(
+        params,
+        serde_json::json!({ "address": address, "source": "scan" }),
+    );
+
+    for outcome in ["added", "removed", "unchanged"] {
+        assert_valid(result, &serde_json::json!({ "outcome": outcome }));
+        refuses(
+            result,
+            serde_json::json!({ "outcome": outcome, "refused": "bound" }),
+        );
+    }
+    for reason in [
+        "grammar",
+        "special_use",
+        "bound",
+        "provider_disabled",
+        "authored",
+    ] {
+        assert_valid(
+            result,
+            &serde_json::json!({ "outcome": "refused", "refused": reason, "detail": "why" }),
+        );
+    }
+    refuses(result, serde_json::json!({ "outcome": "refused" }));
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "refused", "refused": "dns" }),
+    );
+
+    let row = |source: &str, dialled: bool| serde_json::json!({ "address": address, "source": source, "dialled": dialled });
+    assert_valid(list, &serde_json::json!({ "addresses": [] }));
+    assert_valid(
+        list,
+        &serde_json::json!({ "addresses": [
+            row("authored", true),
+            { "address": address, "source": "added", "dialled": false,
+              "not_dialled": "provider_disabled" }
+        ] }),
+    );
+    refuses(
+        list,
+        serde_json::json!({ "addresses": vec![row("added", true); 65] }),
+    );
+    refuses(
+        list,
+        serde_json::json!({ "addresses": [row("scanned", true)] }),
+    );
 }
