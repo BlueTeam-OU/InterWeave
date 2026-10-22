@@ -848,13 +848,13 @@ kept), at the phone's address 192.168.100.50:33259. By script through
 
 | finding | result |
 |---|---|
-| F16 | Second half pass: a send in …x6gY6Eri, whose peer Trust does not list, becomes a pending row whose reason reads "This peer is not trusted for this profile." on a line of its own, in the error colour, above "Not sent, send again or cancel · 15:03", the time still on the bubble's last line (look spec acceptance 23's second clause). The two earlier pending rows to the same peer show the same reason above their may-have-reached status. The test row was cancelled at once by a drag left ("Sending canceled", the undo window let run out), so the phone holds nothing of the check. The reason as TalkBack reads it was not checked: TalkBack does not reach the Android app yet (look spec §7). Acceptance 23's third clause, the network-denied state (no composer and no Send drawn, the `NetworkDenied` notice under the app bar), was walked in no round: it needs INTERNET revoked on the owner's phone (`pm revoke … android.permission.INTERNET`), which is expected to end the app's process (`human-client-android.md`, "Revoked while running", still to verify on the device) and was not done without the owner's word. Carried by name to the owner's release gate (architect-cto-01, REPLY 01a163ea). |
+| F16 | Second half pass: a send in …x6gY6Eri, whose peer Trust does not list, becomes a pending row whose reason reads "This peer is not trusted for this profile." on a line of its own, in the error colour, above "Not sent, send again or cancel · 15:03", the time still on the bubble's last line (look spec acceptance 23's second clause). The two earlier pending rows to the same peer show the same reason above their may-have-reached status. The test row was cancelled at once by a drag left ("Sending canceled", the undo window let run out), so the phone holds nothing of the check. The reason as TalkBack reads it was not checked: TalkBack does not reach the Android app yet (look spec §7). Acceptance 23's third clause, the network-denied state (no composer and no Send drawn, nothing in their place, the `NetworkDenied` notice with its action under the app bar), was walked in no round: it needs INTERNET revoked on the owner's phone (`pm revoke … android.permission.INTERNET`), which is expected to end the app's process (`human-client-android.md`, "Revoked while running", still to verify on the device) and was not done without the owner's word. Carried by name to the owner's release gate (architect-cto-01, REPLY 01a163ea). |
 
 With round 6, every rank-1 finding is built and re-reviewed, F3's
 handle and F4's Trust at 200 % in light theme carried by name as the
-close table states, and so is F16's acceptance 23 with the app's
-network access withheld, walked in no round (architect-cto-01, REPLY
-01a163ea).
+close table states, and F16's acceptance 23 with the app's network
+access withheld, walked in no round, is carried by name to the owner's
+release gate (architect-cto-01, REPLY 01a163ea).
 
 ## 8. The swipe spec's acceptance on the same build
 
