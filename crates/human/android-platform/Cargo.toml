@@ -68,3 +68,5 @@ interweave-human-ui-model = { path = "../ui-model" }
 # are: the service is started the way the debug APK starts it.
 interweave-human-android-platform = { path = ".", features = ["dev-stand-ins", "e2e-cases", "test-hooks"] }
 tempfile = { workspace = true }
+# The test stand-in for the store key's Keystore answers a zeroized key.
+zeroize = { version = "1", default-features = false, features = ["alloc"] }

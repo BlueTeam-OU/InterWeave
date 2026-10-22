@@ -54,7 +54,11 @@ fn an_embedded_profiles_store_opens_under_its_boundary_and_not_without_it() {
         "a refusal makes nothing under the app's directory"
     );
 
-    let store = HumanStore::open_profile(&paths, StoreOptions::default());
+    let store = HumanStore::open_profile(
+        &paths,
+        &interweave_human_store::key_custody::FilesystemCustody,
+        StoreOptions::default(),
+    );
     assert!(store.is_ok(), "under its boundary: {:?}", store.err());
     assert!(file.is_file(), "at the profile's human directory");
     assert_eq!(mode(&paths.human_dir()), 0o700, "made owner-only");
@@ -76,6 +80,13 @@ fn a_desktop_profiles_store_is_the_human_directorys_store_file() {
     };
     let paths = ProfilePaths::resolve_offline("default", &roots).expect("desktop paths");
     assert_eq!(paths.boundary(), &TrustBoundary::root());
-    drop(HumanStore::open_profile(&paths, StoreOptions::default()).expect("opens"));
+    drop(
+        HumanStore::open_profile(
+            &paths,
+            &interweave_human_store::key_custody::FilesystemCustody,
+            StoreOptions::default(),
+        )
+        .expect("opens"),
+    );
     assert!(paths.human_dir().join(STORE_FILE).is_file());
 }

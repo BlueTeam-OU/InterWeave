@@ -79,6 +79,6 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 - `tests/process.rs`: the binary's `--help`, a usage error and a refused profile.
 - `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1, 2 and 3 run as the binary against two real daemons; `card set --photo <file>` and `contacts photo <file>` are not run with an image anywhere in this crate: the file read and its bound are tested here (`a_photo_file_past_the_bound_is_refused_unread`), and what the facade does with the bytes is app-core's.
 
-## Not yet
+## Release
 
-- The release lists (`tools/ci/release_linux_archive.sh`, `packaging/linux`) do not carry the binary yet. Adding it is devex-tooling's.
+The Linux release archive carries the binary as `bin/interweave-human`, and `packaging/linux/install.sh` puts it beside `transportctl` in `~/.local/bin` (`uninstall.sh` removes it). It runs as the account the daemon runs under, against the same profile.

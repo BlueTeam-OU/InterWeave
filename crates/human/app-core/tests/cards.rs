@@ -69,7 +69,9 @@ fn facade(
     profile: &Profile,
     key: Option<IdentityKey>,
 ) -> FacadeSide<FakeNode, FakeNode> {
-    let store = HumanStore::open_profile(&profile.paths, StoreOptions::default()).expect("store");
+    let store =
+        HumanStore::open_profile(&profile.paths, &FilesystemCustody, StoreOptions::default())
+            .expect("store");
     let client = TransportClient::new(
         node.clone(),
         node.clone(),
@@ -255,7 +257,8 @@ async fn a_valid_card_accepted_creates_the_contact_and_names_the_conversation() 
         "Ada Lovelace",
         "the conversation takes the name"
     );
-    let store = HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("reopen");
+    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen");
     assert!(
         store.unread_inbound().expect("read").is_empty(),
         "the card has no Keep"
@@ -275,7 +278,8 @@ async fn a_declined_card_leaves_nothing_in_the_store() {
     bob.will(Intent::DeclineCard(row));
     bob.pump(5).await;
     assert!(bob.model().proposals(&direct(a.peer())).is_empty());
-    let store = HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("reopen");
+    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen");
     assert!(store.contacts().expect("read").is_empty(), "no contact");
     assert!(
         store.unread_inbound().expect("read").is_empty(),
@@ -338,7 +342,8 @@ async fn a_shown_card_left_undecided_is_gone_after_a_restart() {
     );
     Box::pin(bob.facade.close()).await;
     drop(bob);
-    let store = HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("reopen");
+    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen");
     assert!(
         store.unread_inbound().expect("read").is_empty(),
         "no durable copy once shown"
@@ -514,7 +519,8 @@ async fn a_keep_of_a_shown_cards_copy_is_refused_and_the_card_stays_decidable() 
     );
     Box::pin(bob.facade.close()).await;
     drop(bob);
-    let store = HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("reopen");
+    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen");
     assert!(
         store.kept_inbound().expect("read").is_empty(),
         "no card kept: nothing else was asked to be"
@@ -529,7 +535,8 @@ fn own_photo(profile: &Profile, width: u32, height: u32) {
         .write_to(&mut bytes, image::ImageFormat::Jpeg)
         .expect("encoded");
     let mut store =
-        HumanStore::open_profile(&profile.paths, StoreOptions::default()).expect("store");
+        HumanStore::open_profile(&profile.paths, &FilesystemCustody, StoreOptions::default())
+            .expect("store");
     store
         .set_own_card(
             &OwnCard {
@@ -580,7 +587,8 @@ async fn share_without_a_key_sends_nothing() {
         alice.failed(),
         vec![(Command::ShareCard(direct(b.peer())), Failure::NoIdentityKey)]
     );
-    let store = HumanStore::open_profile(&pa.paths, StoreOptions::default()).expect("reopen");
+    let store = HumanStore::open_profile(&pa.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen");
     assert!(store.pending_outbound().expect("read").is_empty());
 }
 
@@ -753,7 +761,8 @@ async fn a_keep_of_a_card_that_no_longer_verifies_is_refused_by_its_kind() {
     let pb = profile();
     let row = {
         let mut store =
-            HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("store");
+            HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
+                .expect("store");
         store
             .commit_unread_inbound(&NewInbound {
                 app_message_id: AppMessageId::parse("0000000000000000000000000000000c".to_owned())
@@ -818,7 +827,8 @@ async fn a_keep_of_a_card_that_no_longer_verifies_is_refused_by_its_kind() {
     );
     Box::pin(bob.facade.close()).await;
     drop(bob);
-    let store = HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("reopen");
+    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen");
     assert!(
         store.kept_inbound().expect("read").is_empty(),
         "nothing kept"

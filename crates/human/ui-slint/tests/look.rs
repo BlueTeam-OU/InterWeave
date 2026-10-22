@@ -1965,3 +1965,104 @@ fn with_the_keyboard_up_in_landscape_the_newest_message_ends_at_the_composer() {
         "its time in view: {time_top}..{time_end} in {list_top}..{composer_top}"
     );
 }
+
+/// Android review F16 on a phone-wide window: an untrusted send's reason
+/// sits inside the bubble, above its status, and the time stays whole on
+/// the status's line, the bubble's last.
+#[test]
+fn a_needs_attention_reason_sits_above_the_status_inside_the_bubble() {
+    use interweave_human_client_api::{ClientEvent, OutboundStatus, OutboundUpdate, SendProblem};
+    use interweave_human_core::AppMessageId;
+    use interweave_human_ui_model::ErrorClass;
+    let mut model = UiModel::new();
+    send(&mut model, 1, "w1", NOW);
+    model.client_event(ClientEvent::Outbound(OutboundUpdate {
+        row: RowId::from_stored(1),
+        app_message_id: AppMessageId::parse(format!("{:032x}", 1)).expect("an id"),
+        status: OutboundStatus::NeedsAttention {
+            problem: SendProblem::PeerUntrusted,
+            may_have_reached: false,
+        },
+        last_code: None,
+    }));
+    let view = opened(&model, false);
+    let row = view.window().get_messages().row_data(0).expect("a row");
+    let reason = placeholder_en::error(RuntimeHost::Embedded, ErrorClass::PeerNotTrusted);
+    let one = |label: &str| {
+        let found = labelled(&view, label);
+        assert_eq!(found.len(), 1, "one element labelled {label:?}");
+        (found[0].absolute_position(), found[0].size())
+    };
+    let (why, why_size) = one(reason);
+    let (status, _) = one(row.status.as_str());
+    let (time, time_size) = one(row.time.as_str());
+    assert!(
+        why.y + why_size.height <= status.y + 0.5,
+        "the reason above the status: {why:?} {why_size:?} {status:?}"
+    );
+    assert!(
+        why.x + why_size.width <= 390.0 - 12.0,
+        "the reason inside the bubble: {why:?} {why_size:?}"
+    );
+    assert!(
+        time.x + time_size.width <= 390.0 - 12.0 && time_size.width >= 20.0,
+        "the time whole and inside the bubble: {time:?} {time_size:?}"
+    );
+}
+
+/// A row with no reason draws no reason line, not an empty one: an empty
+/// Slint Text keeps its height and the layout's spacing. Measured as the
+/// gap below the body, to the status on an ordinary row and to the
+/// reason on a row that has one: the same gap, so nothing sits between.
+#[test]
+fn a_row_with_no_reason_draws_no_empty_reason_line() {
+    use interweave_human_client_api::{ClientEvent, OutboundStatus, OutboundUpdate, SendProblem};
+    use interweave_human_core::AppMessageId;
+    use interweave_human_ui_model::{ErrorClass, LabelKey};
+    let mut model = UiModel::new();
+    send(&mut model, 1, "plain", NOW);
+    send(&mut model, 2, "refused", NOW);
+    let update = |row: i64, status| OutboundUpdate {
+        row: RowId::from_stored(row),
+        app_message_id: AppMessageId::parse(format!("{row:032x}")).expect("an id"),
+        status,
+        last_code: None,
+    };
+    model.client_event(ClientEvent::Outbound(update(
+        1,
+        OutboundStatus::Cancelled {
+            may_have_reached: false,
+        },
+    )));
+    model.client_event(ClientEvent::Outbound(update(
+        2,
+        OutboundStatus::NeedsAttention {
+            problem: SendProblem::PeerUntrusted,
+            may_have_reached: false,
+        },
+    )));
+    let view = opened(&model, false);
+    let one = |label: &str| {
+        let found = labelled(&view, label);
+        assert_eq!(found.len(), 1, "one element labelled {label:?}");
+        (found[0].absolute_position().y, found[0].size().height)
+    };
+    let (body, body_height) = one("plain");
+    let (status, _) = one(placeholder_en::label(LabelKey::Cancelled));
+    let (reason, reason_height) = one(placeholder_en::error(
+        RuntimeHost::Embedded,
+        ErrorClass::PeerNotTrusted,
+    ));
+    let (refused_body, refused_height) = one("refused");
+    let (refused_status, _) = one(placeholder_en::label(LabelKey::NeedsAttention));
+    assert!(
+        reason + reason_height <= refused_status + 0.5,
+        "control: the reason line is drawn"
+    );
+    let plain_gap = status - (body + body_height);
+    let reason_gap = reason - (refused_body + refused_height);
+    assert!(
+        (plain_gap - reason_gap).abs() < 0.5,
+        "no line between body and status: {plain_gap} against {reason_gap}"
+    );
+}

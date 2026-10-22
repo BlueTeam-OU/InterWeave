@@ -11,5 +11,19 @@
       "server": "interweave",
       "displayName": "InterWeave"
     }
-  ]
+  ],
+  "userConfig": {
+    "profile": {
+      "type": "string",
+      "title": "InterWeave profile",
+      "description": "The transport profile whose daemon the bridge connects to, as its systemd unit names it.",
+      "default": "default"
+    },
+    "endpoint": {
+      "type": "string",
+      "title": "Bridge endpoint",
+      "description": "The endpoint of that profile the bridge claims; the profile's config.yaml declares it.",
+      "default": "claude"
+    }
+  }
 }

@@ -20,6 +20,7 @@ mod look;
 mod model;
 mod picker;
 mod presence;
+mod store_recovery;
 mod trust;
 mod waiting;
 
@@ -27,8 +28,9 @@ pub use identity_flow::{
     Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, Words,
 };
 pub use labels::{
-    ErrorClass, HostText, LabelKey, RuntimeHost, UiText, fill, outbound_label, placeholder_en,
-    send_error_class, send_problem_class, session_problem_class, short_peer, visible_destination,
+    ErrorClass, HostText, LabelKey, RuntimeHost, UiText, attention_class, fill, outbound_label,
+    placeholder_en, send_error_class, send_problem_class, session_problem_class, short_peer,
+    visible_destination,
 };
 pub use look::{Avatar, AvatarHue, Day, LocalTime, Weekday, local_time};
 pub use model::cards::{
@@ -44,5 +46,9 @@ pub use model::{
 };
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};
+pub use store_recovery::{
+    DiscardConfirmation, DiscardKind, Effect as StoreEffect, Phase as StorePhase, StoreRecovery,
+    StoreScreen,
+};
 pub use trust::{EntryProblem, TrustChange, TrustInput, TrustOutcome, TrustSettings};
 pub use waiting::{age_text, announced_change, next_age_change, waiting_text};

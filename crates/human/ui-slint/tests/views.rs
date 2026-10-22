@@ -2426,6 +2426,138 @@ fn arrivals_and_own_status_changes_are_one_announcement() {
     );
 }
 
+/// Android review F16, look spec acceptance 23: a send the runtime
+/// refused for trust becomes a pending row whose status says to send
+/// again or cancel AND says why -- the reason drawn, in the row's label
+/// and in the announcement -- so the person learns that Trust is what to
+/// change, not that another try might work.
+#[test]
+fn a_send_refused_for_trust_shows_the_not_trusted_reason() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    let id = sent(&mut model, 7, &bob, "to bob");
+    view.render(&model);
+    open(&mut view, &mut model, &direct(&bob));
+    update(
+        &mut model,
+        7,
+        &id,
+        OutboundStatus::NeedsAttention {
+            problem: SendProblem::PeerUntrusted,
+            may_have_reached: false,
+        },
+    );
+    view.render(&model);
+    let status = placeholder_en::label(interweave_human_ui_model::LabelKey::NeedsAttention);
+    let reason = placeholder_en::error(
+        RuntimeHost::Daemon,
+        interweave_human_ui_model::ErrorClass::PeerNotTrusted,
+    );
+    assert_eq!(
+        announced(&view).expect("announced"),
+        fill(
+            UiText::AnnounceOwnStatusReason,
+            &[("status", status), ("reason", reason)]
+        )
+    );
+    let row = view.window().get_messages().row_data(0).expect("a row");
+    assert_eq!(row.status.as_str(), status, "control: the status as before");
+    assert_eq!(row.reason.as_str(), reason);
+    assert_eq!(labelled(&view, reason).len(), 1, "the reason is drawn once");
+    let label = fill(
+        UiText::ItemWithReason,
+        &[
+            ("author", text(UiText::You)),
+            ("body", "to bob"),
+            ("status", status),
+            ("time", row.time.as_str()),
+            ("reason", reason),
+        ],
+    );
+    assert_eq!(row.label.as_str(), label, "the label reads the reason last");
+}
+
+/// The rule behind F16, not its instance: every problem the facade
+/// leaves for the person draws its class's reason, and a row that is not
+/// waiting on the person draws none and keeps the plain label.
+#[test]
+fn every_needs_attention_problem_draws_its_reason_and_no_other_row_does() {
+    use interweave_human_ui_model::{ErrorClass, send_problem_class};
+    // A problem added to the enum fails to compile here until `listed`
+    // names it; the array must gain it too, which nothing enforces.
+    const fn listed(problem: SendProblem) -> SendProblem {
+        match problem {
+            SendProblem::PeerUntrusted
+            | SendProblem::RouteUnavailable
+            | SendProblem::NoNetworkPath
+            | SendProblem::Busy
+            | SendProblem::ServiceUnavailable
+            | SendProblem::Incompatible
+            | SendProblem::TooLarge
+            | SendProblem::NotConfigured
+            | SendProblem::Internal => problem,
+        }
+    }
+    let problems = [
+        SendProblem::PeerUntrusted,
+        SendProblem::RouteUnavailable,
+        SendProblem::NoNetworkPath,
+        SendProblem::Busy,
+        SendProblem::ServiceUnavailable,
+        SendProblem::Incompatible,
+        SendProblem::TooLarge,
+        SendProblem::NotConfigured,
+        SendProblem::Internal,
+    ]
+    .map(listed);
+    let mut view = view();
+    let mut model = UiModel::new();
+    let bob = peer();
+    let id = sent(&mut model, 7, &bob, "to bob");
+    view.render(&model);
+    open(&mut view, &mut model, &direct(&bob));
+    for problem in problems {
+        for may_have_reached in [false, true] {
+            update(
+                &mut model,
+                7,
+                &id,
+                OutboundStatus::NeedsAttention {
+                    problem,
+                    may_have_reached,
+                },
+            );
+            view.render(&model);
+            let row = view.window().get_messages().row_data(0).expect("a row");
+            let class: ErrorClass = send_problem_class(problem);
+            assert_eq!(
+                row.reason.as_str(),
+                placeholder_en::error(RuntimeHost::Daemon, class),
+                "{problem:?} {may_have_reached}"
+            );
+        }
+    }
+    update(
+        &mut model,
+        7,
+        &id,
+        OutboundStatus::Sending {
+            attempts: 1,
+            next_retry_at: Some(1_000),
+            last_problem: Some(SendProblem::Busy),
+        },
+    );
+    view.render(&model);
+    let row = view.window().get_messages().row_data(0).expect("a row");
+    assert_eq!(row.reason.as_str(), "", "a waiting row has no reason line");
+    assert!(
+        row.label.as_str().ends_with(row.time.as_str()),
+        "and keeps the plain label: {}",
+        row.label
+    );
+}
+
 /// #304 F10: a waiting message is announced when its wait or its last
 /// problem changes, never at a retry, so a screen reader is not told
 /// "Sending" at each attempt.
@@ -3646,4 +3778,40 @@ fn the_trust_dialog_names_its_act_and_hands_focus_back() {
         view.render(&model);
         assert_eq!(focus(&view), next, "after {}", gone.as_str());
     }
+}
+
+/// After a discard of the store the app opens with its notice in Chats,
+/// shown once with Close (design/2026-10-21-contact-cards.md section 7.3):
+/// under a session notice while one is shown, gone from every render
+/// after its Close, and no intent reaches the model.
+#[test]
+fn the_discard_notice_shows_once_under_session_notices_and_goes_on_close() {
+    let mut view = view();
+    resize(&view, 390.0);
+    let mut model = UiModel::new();
+    view.show_once(UiText::StoreDiscarded);
+    model.authentication_needed(true);
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::StoreDiscarded)).is_empty(),
+        "a session notice goes first"
+    );
+    model.authentication_needed(false);
+    model.client_event(ClientEvent::Session(SessionState::Ready {
+        endpoint: Some(human()),
+    }));
+    view.render(&model);
+    let notice = the(&view, text(UiText::StoreDiscarded));
+    assert!(notice.size().width > 0.0, "the notice is laid out");
+    the(&view, text(UiText::Close)).invoke_accessible_default_action();
+    assert!(
+        intents(&mut view, &mut model).is_empty(),
+        "nothing for the model"
+    );
+    assert!(labelled(&view, text(UiText::StoreDiscarded)).is_empty());
+    view.render(&model);
+    assert!(
+        labelled(&view, text(UiText::StoreDiscarded)).is_empty(),
+        "never again"
+    );
 }

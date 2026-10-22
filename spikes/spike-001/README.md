@@ -110,6 +110,21 @@ Run on 2026-10-22 against **Claude Code 2.1.286** (the version each session's de
 22. `--channels` names the installed plugin correctly (it passes the marketplace check, which comes before the allowlist in the code below), and is refused because the plugin is not on the approved allowlist (c). No organisation policy refused any run.
 23. Read from the 2.1.286 binary, not measured: the order of the checks, and where the allowlist comes from. The checks run in this order: the server declares `claude/channel`; the legacy protocol era; a first-party provider; the remote `tengu_harbor` switch; the organisation's `channelsEnabled`; the session's channel list; and the installed plugin's marketplace. Only after those does a non-development entry need the allowlist. That allowlist is the organisation's `allowedChannelPlugins` from managed settings when that is set, and otherwise the remote `tengu_harbor_ledger` list of `{plugin, marketplace}` pairs, which Anthropic serves. So for `--channels` to register this plugin without the development flag, either Anthropic must list `interweave` in the marketplace it is installed from, or an organisation must set `channelsEnabled: true` and list it in `allowedChannelPlugins`. Neither path was tried. The first needs a publication. The second needs managed settings, which is host-wide and outside this login.
 
+## S20: the plugin's settings and upgrades, without a session
+
+Run on 2026-10-22 against **Claude Code 2.1.286**, by hand from this login's shell, with no Claude Code session: no model, no channel flag, no credential (`runs/s20-plugin-config/evidence.md`). The plugin's binary was a wrapper that logs the arguments it was given, and `claude mcp get`, which starts a server to check it, was what started it.
+
+24. A `userConfig` option's `default` reaches the server's arguments when nothing is set: `${user_config.profile}` with default `default` gave `--profile default`. `claude plugin install` without a terminal does not prompt. It says "2 userConfig options not yet set — run /plugin configure … or pass --config KEY=VALUE", and the server still starts with the defaults.
+25. `claude plugin install <plugin> --config KEY=VALUE` sets an option: `--config profile=work --config endpoint=bot` gave `--profile work --endpoint bot`. The values are kept in the user settings' `pluginConfigs`, and survive a `plugin update`. `plugin.json` with the two options passes `claude plugin validate --strict`.
+26. With a marketplace added from a directory, the plugin runs from that directory: `$CLAUDE_PLUGIN_ROOT` was the marketplace's own `interweave/`, and a binary changed there ran with no update at all. `installed_plugins.json` keeps a copy per version under the config's `plugins/cache/`, which did not change. `claude plugin update` reports a newer version and records it (`0.0.0` to `0.0.1`). At an equal version it reports "already at the latest version", while the changed binary still ran.
+
+## S21: a refused start, as Claude Code sees it
+
+Run on 2026-10-22 against **Claude Code 2.1.286**, like S20 by hand with no session (`runs/s21-refused-start/evidence.md`). Claude Code started the bridge with every `XDG_*` variable unset.
+
+27. Before 403295e7, the bridge exited on that start: Claude Code reported "Failed to connect", with the connection closed after 26 ms. From 403295e7 the same start is "Connected" in the legacy era, with tools and no prompts or resources, and it ends on Claude Code's SIGINT, "exited cleanly".
+28. Claude Code keeps a plugin server's stderr as `Server stderr:` entries in `~/.cache/claude-cli-nodejs/<working directory>/mcp-logs-plugin-<plugin>-<server>/<timestamp>.jsonl`, one file per start, connected or not.
+
 ## Where the architecture disagrees
 
 The documents are listed by document and sentence. Amending them is architect-cto's (`architecture/plugin/`) and the contract owner's (`contracts/CHANNEL-EVENT.md`, under ADR-0049).
@@ -124,7 +139,7 @@ The documents are listed by document and sentence. Amending them is architect-ct
 ## Not established
 
 - `--channels` with a published plugin. A plugin installed from a local marketplace is refused by `--channels` and registers only with the development flag (S19, facts 20 to 22). A listing on Anthropic's allowlist, or an organisation's `allowedChannelPlugins` with `channelsEnabled: true`, is what would change that (fact 23, read from the binary, not measured), and neither was tried.
-- `userConfig` substitution into the server's environment.
+- `userConfig` in a session started with a channel flag, which S20 did not run (it measured the argv `claude mcp get` starts the server with), and the interactive prompt `/plugin configure` shows.
 - Organisation-policy gating (`channelsEnabled`, `allowedChannelPlugins`): this account has no organisation.
 - Permission relay, which the design does not declare.
 - Size limits on `content` and `meta`, and behaviour under load.

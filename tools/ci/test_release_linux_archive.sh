@@ -5,7 +5,8 @@
 #
 # Self-test for release_linux_archive.sh and release_notices.py.
 #
-# The three programs are stand-in scripts (--bin-dir) and the dependency
+# The four programs and claude-channel are stand-in scripts (--bin-dir),
+# the plugin is the repository's own, assembled by its build.sh, and the dependency
 # graph a small `cargo metadata` document over sandbox crates, so nothing
 # is compiled. The archive is unpacked and its own install.sh run into a
 # sandbox home -- the positive control that the layout is the one the
@@ -36,7 +37,7 @@ fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2
 
 BIN="$SANDBOX/bin"
 mkdir -p "$BIN"
-for p in transport-daemon transportctl human-desktop; do
+for p in transport-daemon transportctl human-desktop interweave-human claude-channel; do
     printf '#!/bin/sh\necho %s\n' "$p" > "$BIN/$p"
     chmod 0700 "$BIN/$p"
 done
@@ -55,6 +56,8 @@ crate() {
 crate daemon
 crate ctl
 crate desktop
+crate bridge
+crate cli
 crate libfoo LICENSE-MIT LICENSE-APACHE
 crate libbar LICENSE-MIT
 cp "$SANDBOX/crates/libfoo/LICENSE-MIT" "$SANDBOX/crates/libbar/LICENSE-MIT"
@@ -76,6 +79,8 @@ packages = [
     pkg("interweave-transport-daemon", "daemon", "Apache-2.0"),
     pkg("interweave-transportctl", "ctl", "Apache-2.0"),
     pkg("interweave-human-desktop", "desktop", "Apache-2.0"),
+    pkg("interweave-claude-channel", "bridge", "Apache-2.0"),
+    pkg("interweave-human-cli", "cli", "Apache-2.0"),
     pkg("libfoo", "libfoo", "MIT OR Apache-2.0"),
     pkg("libbar", "libbar", "MIT"),
     pkg("a-macro", "macro", "MIT"),
@@ -91,14 +96,16 @@ nodes = [
     {"id": "interweave-transport-daemon-id", "deps": [dep("libfoo"), dep("buildonly", [{"kind": "build", "target": None}])]},
     {"id": "interweave-transportctl-id", "deps": [dep("libbar"), dep("devonly", [{"kind": "dev", "target": None}])]},
     # unified: reached in the metadata's unified resolve, compiled by no
-    # build of these three (as the Android app's features reach Skia).
+    # build of these five (as the Android app's features reach Skia).
     {"id": "interweave-human-desktop-id", "deps": [dep("a-macro"), dep("bare"), dep("unified")]},
+    {"id": "interweave-claude-channel-id", "deps": [dep("libfoo")]},
+    {"id": "interweave-human-cli-id", "deps": [dep("libbar")]},
 ] + [{"id": f"{n}-id", "deps": []} for n in ("libfoo", "libbar", "a-macro", "bare", "buildonly", "devonly", "unified")]
-print(json.dumps({"packages": packages, "workspace_members": [p["id"] for p in packages[:3]],
+print(json.dumps({"packages": packages, "workspace_members": [p["id"] for p in packages[:5]],
                   "resolve": {"nodes": nodes}}))
 PY
 
-# What `cargo tree -e normal -p <the three>` prints: the roots, the
+# What `cargo tree -e normal -p <the five>` prints: the roots, the
 # crates their build compiles, a repeat marked (*).
 C="$SANDBOX/compiled.txt"
 cat > "$C" <<'EOF'
@@ -109,6 +116,10 @@ libbar v1.0.0
 interweave-human-desktop v1.0.0 (/somewhere/apps/human-desktop)
 a-macro v1.0.0
 libfoo v1.0.0 (*)
+interweave-claude-channel v1.0.0 (/somewhere/apps/claude-channel)
+libfoo v1.0.0 (*)
+interweave-human-cli v1.0.0 (/somewhere/apps/human-cli)
+libbar v1.0.0 (*)
 EOF
 
 cat > "$BIN/systemctl" <<'EOF'
@@ -136,8 +147,19 @@ drwxr-xr-x 0/0 $NAME/
 -rw-r--r-- 0/0 $NAME/THIRD-PARTY-NOTICES.md
 drwxr-xr-x 0/0 $NAME/bin/
 -rwxr-xr-x 0/0 $NAME/bin/human-desktop
+-rwxr-xr-x 0/0 $NAME/bin/interweave-human
 -rwxr-xr-x 0/0 $NAME/bin/transport-daemon
 -rwxr-xr-x 0/0 $NAME/bin/transportctl
+drwxr-xr-x 0/0 $NAME/claude-plugin/
+drwxr-xr-x 0/0 $NAME/claude-plugin/.claude-plugin/
+-rw-r--r-- 0/0 $NAME/claude-plugin/.claude-plugin/marketplace.json
+drwxr-xr-x 0/0 $NAME/claude-plugin/interweave/
+drwxr-xr-x 0/0 $NAME/claude-plugin/interweave/.claude-plugin/
+-rw-r--r-- 0/0 $NAME/claude-plugin/interweave/.claude-plugin/plugin.json
+-rw-r--r-- 0/0 $NAME/claude-plugin/interweave/.mcp.json
+-rw-r--r-- 0/0 $NAME/claude-plugin/interweave/README.md
+drwxr-xr-x 0/0 $NAME/claude-plugin/interweave/bin/
+-rwxr-xr-x 0/0 $NAME/claude-plugin/interweave/bin/claude-channel
 -rwxr-xr-x 0/0 $NAME/install.sh
 drwxr-xr-x 0/0 $NAME/systemd/
 -rw-r--r-- 0/0 $NAME/systemd/interweave-client@.service
@@ -164,7 +186,7 @@ EOF
         && pass "every entry's mtime is SOURCE_DATE_EPOCH" \
         || fail "the entries' mtimes are $stamps, not SOURCE_DATE_EPOCH alone"
     first="$(sha256sum "$A" | cut -d' ' -f1)"
-    touch "$BIN/transportctl"
+    touch "$BIN/transportctl" "$BIN/claude-channel"
     # The second build under another umask: the builder's is not an input.
     (umask 077 && build 0.3.0 "$OUT")
     [[ "$(sha256sum "$A" | cut -d' ' -f1)" == "$first" ]] \
@@ -174,11 +196,18 @@ EOF
     X="$SANDBOX/x"
     mkdir -p "$X" "$SANDBOX/home"
     tar -xzf "$A" -C "$X"
-    if HOME="$SANDBOX/home" XDG_CONFIG_HOME="$SANDBOX/home/.config" PATH="$BIN:$PATH" \
-        sh "$X/$NAME/install.sh" >"$SANDBOX/install.out" 2>&1 \
-        && [[ "$("$SANDBOX/home/.local/bin/transportctl")" == transportctl ]] \
-        && [[ -f "$SANDBOX/home/.config/systemd/user/interweave-daemon@.service" ]]; then
-        pass "the unpacked archive's install.sh installs its programs and units"
+    installed=0
+    HOME="$SANDBOX/home" XDG_CONFIG_HOME="$SANDBOX/home/.config" PATH="$BIN:$PATH" \
+        sh "$X/$NAME/install.sh" >"$SANDBOX/install.out" 2>&1 && installed=1
+    # Every program the archive ships is placed: each stand-in prints its
+    # own name.
+    for p in transport-daemon transportctl human-desktop interweave-human; do
+        [[ "$("$SANDBOX/home/.local/bin/$p" 2>/dev/null)" == "$p" ]] || installed=0
+    done
+    if (( installed )) \
+        && [[ -f "$SANDBOX/home/.config/systemd/user/interweave-daemon@.service" ]] \
+        && [[ ! -e "$X/$NAME/bin/claude-channel" ]]; then
+        pass "the unpacked archive's install.sh installs its programs and units, and bin/ holds no bridge"
     else
         fail "the unpacked archive's install.sh did not install" "$(cat "$SANDBOX/install.out")"
     fi
@@ -188,6 +217,9 @@ EOF
         '- `a-macro` 1.0.0: MIT — text T'; do
         grep -qF -- "$line" "$N" || { fail "the notices lack: $line"; lacking=1; }
     done
+    [[ "$(cat "$X/$NAME/claude-plugin/interweave/bin/claude-channel")" == "$(cat "$BIN/claude-channel")" ]] \
+        && pass "the plugin carries the bridge the run was given" \
+        || fail "the plugin's claude-channel is not the given one"
     [[ -n "${lacking-}" ]] || pass "the notices list every crate reached by a normal dependency, a proc macro included"
     if grep -qE 'buildonly|devonly|unified|interweave-' "$N"; then
         fail "the notices list a build-only, dev-only, uncompiled or workspace crate" "$(grep -E 'buildonly|devonly|unified|interweave-' "$N")"
@@ -283,7 +315,7 @@ cat > "$CARGO_STUB/cargo" <<EOF
 case "\$1" in
 build)
     mkdir -p "$BUILT/x86_64-unknown-linux-gnu/release"
-    for p in transport-daemon transportctl human-desktop; do
+    for p in transport-daemon transportctl human-desktop interweave-human claude-channel; do
         printf '#!/bin/sh\n# fresh %s\n' "\$p" > "$BUILT/x86_64-unknown-linux-gnu/release/\$p"
         chmod 0755 "$BUILT/x86_64-unknown-linux-gnu/release/\$p"
     done ;;
@@ -292,7 +324,7 @@ metadata) printf '{"target_directory": "%s"}\n' "$BUILT" ;;
 esac
 EOF
 chmod +x "$CARGO_STUB/cargo"
-for p in transport-daemon transportctl human-desktop; do
+for p in transport-daemon transportctl human-desktop interweave-human claude-channel; do
     printf '#!/bin/sh\n# decoy %s\n' "$p" > "$CALLER/target/x86_64-unknown-linux-gnu/release/$p"
     chmod 0755 "$CALLER/target/x86_64-unknown-linux-gnu/release/$p"
 done
@@ -318,10 +350,32 @@ refused "a version that is not MAJOR.MINOR.PATCH" "not MAJOR.MINOR.PATCH" 0.3 "$
 mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
 refused "a missing program" "no executable $BIN/human-desktop" 0.3.0 "$OUT"
 mv "$BIN/human-desktop.gone" "$BIN/human-desktop"
+mv "$BIN/claude-channel" "$BIN/claude-channel.gone"
+refused "a missing bridge" "no executable $BIN/claude-channel" 0.3.0 "$OUT"
+mv "$BIN/claude-channel.gone" "$BIN/claude-channel"
+# build.sh refuses: an `install` on PATH that fails on the bridge's own
+# destination, which is build.sh's last step whatever its version. The
+# control: the stub's line on stderr, so the refusal is the plugin build's.
+INSTSTUB="$SANDBOX/inststub"
+mkdir -p "$INSTSTUB"
+cat > "$INSTSTUB/install" <<INST
+#!/bin/sh
+for last; do :; done
+case "\$last" in */interweave/bin/claude-channel) echo "install: refused by the test" >&2; exit 1 ;; esac
+exec $(command -v install) "\$@"
+INST
+chmod +x "$INSTSTUB/install"
+PATH="$INSTSTUB:$PATH" refused "a plugin build.sh refuses" "build.sh refused the plugin" 0.3.0 "$OUT"
+grep -qF 'install: refused by the test' "$SANDBOX/err" \
+    && pass "the plugin's refusal is build.sh's own" \
+    || fail "the refusal did not come from build.sh" "$(cat "$SANDBOX/err")"
 python3 - "$M" <<'PY'
 import json, sys
-m = json.load(open(sys.argv[1])); m["packages"][4]["license"] = None
-import os; os.remove(m["packages"][4]["manifest_path"].replace("Cargo.toml", "LICENSE-MIT"))
+m = json.load(open(sys.argv[1]))
+# By name, not by position: a program added to the list moves the index.
+bar = next(p for p in m["packages"] if p["name"] == "libbar")
+bar["license"] = None
+import os; os.remove(bar["manifest_path"].replace("Cargo.toml", "LICENSE-MIT"))
 json.dump(m, open(sys.argv[1], "w"))
 PY
 refused "a crate with no licence expression and no licence file" "libbar 1.0.0 has no licence" 0.3.0 "$OUT"
@@ -330,8 +384,12 @@ echo "release_notices.py:"
 cp "$C" "$SANDBOX/c2.txt"
 echo "buildonly v1.0.0" >> "$SANDBOX/c2.txt"
 python3 "$NOTICES" "$M" "$SANDBOX/c2.txt" "$SANDBOX/n.md" interweave-transport-daemon \
-    interweave-transportctl interweave-human-desktop >/dev/null 2>"$SANDBOX/err"
-[[ $? -eq 1 ]] && grep -qF 'compiled but not reached from the packages in the metadata: buildonly 1.0.0' "$SANDBOX/err" \
+    interweave-transportctl interweave-human-desktop interweave-human-cli \
+    interweave-claude-channel >/dev/null 2>"$SANDBOX/err"
+# buildonly is the ONLY stray: the needle ends the message, so a second
+# one (a root left out of this call) fails the case rather than sorting
+# after it.
+[[ $? -eq 1 ]] && grep -qE 'compiled but not reached from the packages in the metadata: buildonly 1\.0\.0$' "$SANDBOX/err" \
     && [[ ! -e "$SANDBOX/n.md" ]] \
     && pass "a compiled crate the metadata's normal walk does not reach is refused" \
     || fail "a compiled crate outside the walk was not refused" "$(cat "$SANDBOX/err")"

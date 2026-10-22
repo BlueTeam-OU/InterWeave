@@ -101,6 +101,18 @@ class NetworkService : Service() {
             }
         }
 
+        /**
+         * The store's screens asked: start the client again, as a launch
+         * does -- after Try again, or a discard that recreates the store.
+         * Not while Show my phrase holds the service offline.
+         */
+        @Synchronized
+        fun restart() {
+            if (held) return
+            mode = UNANSWERED
+            startClient()
+        }
+
         /** The words are gone: start again, as a launch does. */
         @Synchronized
         fun online() {

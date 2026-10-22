@@ -467,6 +467,7 @@ class MainActivity : NativeActivity() {
                 // Unbound since (Home on S2): bind as a launch does.
                 local?.online() ?: connect()
             }
+            Ask.RESTART -> local?.restart() ?: connect()
         }
     }
 

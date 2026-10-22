@@ -29,8 +29,8 @@ use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
     HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
     RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, TrustSettings,
-    UiModel, UiText, announced_change, fill, next_age_change, placeholder_en, short_peer,
-    visible_destination, waiting_text,
+    UiModel, UiText, announced_change, attention_class, fill, next_age_change, placeholder_en,
+    short_peer, visible_destination, waiting_text,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -40,6 +40,7 @@ mod clock;
 mod gesture;
 mod identity;
 mod refusal;
+mod store_screen;
 mod swipe;
 
 pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
@@ -47,6 +48,7 @@ pub use identity::{
     IdentityInput, apply as apply_identity, grouped as grouped_peer, page as identity_page,
 };
 pub use refusal::{RefusalPage, RefusalView};
+pub use store_screen::{StoreOutcome, apply_store, store_page};
 
 #[allow(
     missing_docs,
@@ -356,6 +358,11 @@ struct Shared {
     /// conversation is off screen.)
     pane_moved: bool,
     notice: Option<SessionNotice>,
+    /// A notice shown once in Chats' notice slot, under any session notice
+    /// and the offline line, until its Close: what a discard of the store
+    /// came to (design/2026-10-21-contact-cards.md section 7.3). Held by
+    /// the view alone, never stored.
+    once_notice: Option<UiText>,
     /// The trusted peers as rendered, by handle.
     trusted: HashMap<i32, TransportIdentity>,
     /// The trust change the confirmation shows, as rendered: what a press
@@ -846,10 +853,20 @@ impl View {
             }
         });
         let s = Rc::clone(&shared);
+        let weak = slint::ComponentHandle::as_weak(&window);
         window.on_notice_pressed(move || {
             let notice = s.borrow().notice;
             if let Some(notice) = notice {
                 enqueue(&s, Input::Notice(notice));
+            } else if s.borrow_mut().once_notice.take().is_some()
+                && let Some(window) = weak.upgrade()
+            {
+                // Its Close: gone now, and from every later render.
+                window.set_has_notice(false);
+                window.set_has_session_notice(false);
+                window.set_has_notice_action(false);
+                window.set_notice(SharedString::new());
+                window.set_notice_action(SharedString::new());
             }
         });
         let s = Rc::clone(&shared);
@@ -1019,6 +1036,14 @@ impl View {
     /// `now` rather than the system's: for a test, which then steps it.
     pub fn set_monotonic(&mut self, now: impl Fn() -> Instant + 'static) {
         self.monotonic = Rc::new(now);
+    }
+
+    /// Show `text` once in Chats' notice slot, with Close to dismiss it --
+    /// what a discard of the store came to (`StoreDiscarded`,
+    /// `StoreRestored`). A session notice or the offline line goes first;
+    /// it waits under them. Never stored.
+    pub fn show_once(&self, text: UiText) {
+        self.shared.borrow_mut().once_notice = Some(text);
     }
 
     /// The platform's touch values a swipe reads (§4, §6, §7): its touch
@@ -1769,7 +1794,10 @@ impl View {
                     format!("m:{handle}"),
                     swipe::Swipeable::Item(item.key, offer),
                 );
-                let status = status_text(item, now_ms, self.host);
+                let status = RowStatus {
+                    text: status_text(item, now_ms, self.host),
+                    reason: reason_text(item, self.host),
+                };
                 if let Some(next) = waiting_age_change(item, now_ms) {
                     age_due = Some(age_due.map_or(next, |due: u64| due.min(next)));
                 }
@@ -2341,18 +2369,27 @@ impl View {
         // (#304 F7). Unknown shows nothing, never as offline.
         let offline = (notice.is_none() && connectivity == Connectivity::Offline)
             .then(|| placeholder_en::host_text(self.host, HostText::OfflineBanner).to_owned());
-        window.set_has_notice(notice.is_some() || offline.is_some());
-        window.set_has_session_notice(notice.is_some());
+        let once = if notice.is_none() && offline.is_none() {
+            self.shared.borrow().once_notice
+        } else {
+            None
+        };
+        window.set_has_notice(notice.is_some() || offline.is_some() || once.is_some());
+        // The discard's notice is about the whole client, as a session
+        // notice is: Chats shows it too.
+        window.set_has_session_notice(notice.is_some() || once.is_some());
         window.set_notice(
             notice
                 .map(|notice| notice_text(self.host, notice))
                 .or(offline)
+                .or_else(|| once.map(|text| placeholder_en::text(text).to_owned()))
                 .unwrap_or_default()
                 .into(),
         );
         let action = notice
             .and_then(SessionNotice::resolution)
-            .and_then(|i| action_text(&i));
+            .and_then(|i| action_text(&i))
+            .or_else(|| once.map(|_| placeholder_en::text(UiText::Close)));
         window.set_has_notice_action(action.is_some());
         window.set_notice_action(action.unwrap_or_default().into());
 
@@ -2626,7 +2663,7 @@ fn message_row(
     drawn: &DrawnBody,
     offer: interweave_human_ui_model::SwipeOffer,
     placed: Placement,
-    status: &str,
+    status: &RowStatus,
 ) -> MessageRow {
     let (author, author_id) = match (&item.direction, &item.author) {
         (Direction::Inbound, Some(peer)) => (short_peer(peer.as_str()), peer.as_str().to_owned()),
@@ -2638,21 +2675,27 @@ fn message_row(
         Some(Reply::Unavailable(_)) => placeholder_en::text(UiText::ReplyUnavailable),
         None => "",
     };
-    let label = fill(
-        placeholder_en::text(UiText::Item),
-        &[
-            ("author", &author),
-            ("status", status),
-            ("body", &drawn.plain),
-            ("time", &placed.time),
-        ],
-    );
+    let mut values = vec![
+        ("author", author.as_str()),
+        ("status", status.text.as_str()),
+        ("body", drawn.plain.as_str()),
+        ("time", placed.time.as_str()),
+    ];
+    let template = match status.reason {
+        Some(reason) => {
+            values.push(("reason", reason));
+            UiText::ItemWithReason
+        }
+        None => UiText::Item,
+    };
+    let label = fill(placeholder_en::text(template), &values);
     MessageRow {
         handle,
         label: label.into(),
         author: author.into(),
         author_id: author_id.into(),
-        status: status.into(),
+        status: status.text.as_str().into(),
+        reason: status.reason.unwrap_or_default().into(),
         outbound: item.direction == Direction::Outbound,
         hand_over: false,
         show_author: placed.show_author,
@@ -2689,6 +2732,8 @@ struct SeenItem {
     status: ItemStatus,
     /// The status as the item shows it.
     status_text: String,
+    /// Why it needs the person, as the item shows it beside its status.
+    reason: Option<&'static str>,
     /// An inbound item's short author.
     author: Option<String>,
 }
@@ -2721,6 +2766,7 @@ impl Seen {
                     let seen = SeenItem {
                         direction: item.direction,
                         status_text: status_text(&item, now_ms, host),
+                        reason: reason_text(&item, host),
                         author: item.author.as_ref().map(|p| short_peer(p.as_str())),
                         status: item.status,
                     };
@@ -2792,10 +2838,16 @@ fn announcement(before: &Seen, now: &Seen) -> Option<String> {
             .collect();
         match changed.as_slice() {
             [] => {}
-            [item] => parts.push(fill(
-                placeholder_en::text(UiText::AnnounceOwnStatus),
-                &[("status", &item.status_text)],
-            )),
+            [item] => parts.push(match item.reason {
+                Some(reason) => fill(
+                    placeholder_en::text(UiText::AnnounceOwnStatusReason),
+                    &[("status", &item.status_text), ("reason", reason)],
+                ),
+                None => fill(
+                    placeholder_en::text(UiText::AnnounceOwnStatus),
+                    &[("status", &item.status_text)],
+                ),
+            }),
             many => parts.push(fill(
                 placeholder_en::text(UiText::AnnounceOwnStatuses),
                 &[("count", &many.len().to_string())],
@@ -2842,6 +2894,25 @@ fn status_text(item: &MessageItem, now_ms: u64, host: RuntimeHost) -> String {
         ItemStatus::Outbound(status) => waiting_text(status, item.local_at, now_ms, host)
             .unwrap_or_else(|| placeholder_en::label(item.label).to_owned()),
         ItemStatus::Inbound(_) => placeholder_en::label(item.label).to_owned(),
+    }
+}
+
+/// What a row says of its status: the words, and why it needs the
+/// person when it does.
+struct RowStatus {
+    text: String,
+    reason: Option<&'static str>,
+}
+
+/// Why an item needs the person, drawn beside its status: its error
+/// class's text, as it reads where the runtime runs; `None` for an item
+/// that does not need them.
+fn reason_text(item: &MessageItem, host: RuntimeHost) -> Option<&'static str> {
+    match &item.status {
+        ItemStatus::Outbound(status) => {
+            attention_class(status).map(|class| placeholder_en::error(host, class))
+        }
+        ItemStatus::Inbound(_) => None,
     }
 }
 

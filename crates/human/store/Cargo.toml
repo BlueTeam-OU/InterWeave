@@ -32,10 +32,11 @@ interweave-transport-api = { path = "../../api/transport-api" }
 # rather than by a copy here -- a second copy of the rule is a second
 # place for it to drift.
 interweave-profile-config = { path = "../../config/profile-config" }
-# Bundled on purpose: the desktop and Android clients must run the SAME
-# SQLite, and a system library makes the storage engine a property of the
-# host rather than of the release. `default-features = false` drops the
-# WASM shim the 0.40 default pulls in.
+# SQLCipher, compiled here (the workspace's `rusqlite`, ADR-0060): the
+# desktop and Android clients run the SAME engine, and the store is
+# encrypted at rest under its key (`store_key.rs`). A system library would
+# make the storage engine a property of the host rather than of the release;
+# `tests/storage_mechanics.rs` pins that the engine is SQLCipher.
 rusqlite = { workspace = true }
 # Each identity's own key pair (ADR-0063, identity_key.rs): signing, and
 # its secret zeroized on drop. `legacy_compatibility` stays off here as in
@@ -47,8 +48,26 @@ rand = { workspace = true }
 sha2 = { workspace = true }
 zeroize = { version = "1", default-features = false, features = ["alloc"] }
 
+[features]
+# The rewrite's crash points (`at_rest::RewriteStep`): a test build ends
+# the process after the step `INTERWEAVE_STORE_CRASH_AFTER` names, as a
+# kill would. Enabled by this crate's own tests below and by no client;
+# a workspace-wide test build unifies it into every test's copy of the
+# store, where it is inert without the variable.
+crash-points = []
+# `at_rest::open_writable_for_tests`: a keyed connection that bypasses the
+# store's rules, for tests that put a store into a state no client
+# writes. Enabled by test crates' dev-dependencies and by no client.
+test-support = []
+
 [dev-dependencies]
+# This crate with its crash points, for tests/at_rest.rs.
+interweave-human-store = { path = ".", features = ["crash-points"] }
 tempfile = { workspace = true }
 # A software stand-in for the Keystore's AES-256-GCM key in
 # tests/identity_key.rs; the version the embedded host's tests use.
 aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"] }
+# AES-256 for tests/released_content_encrypted.rs, which decrypts the
+# store's pages itself to search them (RETENTION.md §8 on the encrypted
+# file); the version aes-gcm already resolves.
+aes = "0.8.4"

@@ -32,11 +32,14 @@ fn main() -> std::process::ExitCode {
 mod unix {
     use std::process::ExitCode;
 
+    use interweave_claude_channel::refused::{Refusal, serve_refused};
     use interweave_claude_channel::serve::{CLIENT_KIND, Config, Env, serve};
     use interweave_claude_channel_core::Delivery;
     use interweave_ipc_client::{IpcBinding, SocketPaths};
     use interweave_profile_config::profile_format::ProfileFormatError;
-    use interweave_profile_config::{LoadError, ProfileConfig, ProfilePaths, XdgRoots};
+    use interweave_profile_config::{
+        LoadError, PersistError, ProfileConfig, ProfilePaths, XdgRoots,
+    };
     use interweave_transport_api::EndpointId;
     use tokio::io::BufReader;
 
@@ -53,47 +56,42 @@ mod unix {
         }
     }
 
+    /// What a start that can work hands the serve loop.
+    struct Prepared {
+        sockets: SocketPaths,
+        config: Config,
+    }
+
     fn run() -> Result<(), String> {
-        let (profile, endpoint, delivery) = arguments(std::env::args().skip(1))?;
-        let roots = XdgRoots::from_env().map_err(|e| format!("the XDG directories: {e}"))?;
-        let paths = ProfilePaths::resolve(&profile, &roots)
-            .map_err(|e| format!("the profile's paths: {e}"))?;
-        let sockets = SocketPaths {
-            data: paths
-                .data_socket()
-                .map_err(|e| format!("the data socket: {e}"))?,
-            // Required by the binding's shape; the bridge is generic over
-            // the data side alone and never opens it.
-            admin: paths
-                .admin_socket()
-                .map_err(|e| format!("the admin socket path: {e}"))?,
-        };
-        let desired_channels = ProfileConfig::load(&paths)
-            .map(|config| config.channels.desired)
-            .map_err(|e| load_error_class(&e).to_owned());
-        let config = Config {
-            endpoint,
-            desired_channels,
-            delivery,
-        };
-        let env = Env {
-            now_ms: Box::new(wall_ms),
-            entropy: Box::new(rand::random),
-        };
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_io()
             .enable_time()
             .build()
             .map_err(|e| format!("the runtime: {e}"))?;
+        // A start that cannot work is served, not exited: Claude Code does
+        // not start the bridge again (`refused`).
+        let prepared = prepare().map_err(|refusal| {
+            eprintln!("claude-channel: {}; serving the refusal", refusal.reason);
+            (refusal, delivery_named(std::env::args().skip(1)))
+        });
         let ended = runtime.block_on(async {
-            let binding = IpcBinding::new(sockets, CLIENT_KIND);
-            let served = serve(
-                binding,
-                config,
-                env,
-                BufReader::new(tokio::io::stdin()),
-                tokio::io::stdout(),
-            );
+            let input = BufReader::new(tokio::io::stdin());
+            let output = tokio::io::stdout();
+            let served = async {
+                match prepared {
+                    Ok(Prepared { sockets, config }) => {
+                        let env = Env {
+                            now_ms: Box::new(wall_ms),
+                            entropy: Box::new(rand::random),
+                        };
+                        let binding = IpcBinding::new(sockets, CLIENT_KIND);
+                        serve(binding, config, env, input, output).await
+                    }
+                    Err((refusal, delivery)) => {
+                        serve_refused(&refusal, delivery, input, output).await
+                    }
+                }
+            };
             tokio::select! {
                 served = served => served.map_err(|e| format!("stdio: {e}")),
                 () = first_signal() => Ok(()),
@@ -105,6 +103,62 @@ mod unix {
         // (`the_first_sigint_ends_the_process_with_stdin_held_open`).
         runtime.shutdown_background();
         ended
+    }
+
+    /// The arguments and the profile's paths, or why they cannot be had.
+    fn prepare() -> Result<Prepared, Refusal> {
+        let (profile, endpoint, delivery) =
+            arguments(std::env::args().skip(1)).map_err(|reason| Refusal {
+                class: "usage",
+                reason,
+            })?;
+        let roots = XdgRoots::from_env().map_err(|e| refusal("the XDG directories", &e))?;
+        let paths = ProfilePaths::resolve(&profile, &roots)
+            .map_err(|e| refusal("the profile's paths", &e))?;
+        let sockets = SocketPaths {
+            data: paths
+                .data_socket()
+                .map_err(|e| refusal("the data socket", &e))?,
+            // Required by the binding's shape; the bridge is generic over
+            // the data side alone and never opens it.
+            admin: paths
+                .admin_socket()
+                .map_err(|e| refusal("the admin socket path", &e))?,
+        };
+        let desired_channels = ProfileConfig::load(&paths)
+            .map(|config| config.channels.desired)
+            .map_err(|e| load_error_class(&e).to_owned());
+        let config = Config {
+            endpoint,
+            desired_channels,
+            delivery,
+        };
+        Ok(Prepared { sockets, config })
+    }
+
+    /// A path failure as a refusal, classed so a host can tell an unset
+    /// directory from a bad profile name (`TOOL-SURFACE.md` §status).
+    fn refusal(what: &str, error: &PersistError) -> Refusal {
+        let class = match error {
+            PersistError::MissingHome => "home_unset",
+            PersistError::NoRuntimeDir => "runtime_dir_unset",
+            PersistError::InvalidProfileName { .. } => "profile_name",
+            _ => "paths",
+        };
+        Refusal {
+            class,
+            reason: format!("{what}: {error}"),
+        }
+    }
+
+    /// The delivery mode the arguments name, read on its own so a refusal
+    /// lists the tools of the mode asked for even when another argument
+    /// is wrong.
+    fn delivery_named(args: impl Iterator<Item = String>) -> Option<Delivery> {
+        let args: Vec<String> = args.collect();
+        args.windows(2)
+            .find(|pair| pair[0] == "--delivery")
+            .and_then(|pair| Delivery::parse(&pair[1]))
     }
 
     /// `--profile <name> --endpoint <id> --delivery push|pull`, in any

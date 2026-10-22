@@ -18,15 +18,11 @@ use interweave_human_transport_client::{OutboundStatus, SendProblem};
 
 use crate::common::human;
 use crate::harness::{self as app, until_lease};
-use crate::world::{Peer, app_store, envelope, rows, two_daemons};
+use crate::world::{Peer, app_conn, envelope, rows, two_daemons};
 
 /// The store's size in pages, read-only.
 fn pages(home: &crate::common::Home) -> u32 {
-    let conn = rusqlite::Connection::open_with_flags(
-        app_store(home),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .expect("the app's store opens read-only");
+    let conn = app_conn(home);
     conn.query_row("PRAGMA page_count", [], |r| r.get(0))
         .expect("a page count")
 }

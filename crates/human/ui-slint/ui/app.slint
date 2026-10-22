@@ -112,6 +112,10 @@ export struct MessageRow {
     // this client's own.
     author-id: string,
     status: string,
+    // Why a pending message needs the person, an error class's sentence,
+    // drawn above its status; empty for one that does not (look spec
+    // section 6, Composer: Android review F16).
+    reason: string,
     // Sent by this client: the bubble sits on the end side (section 6).
     outbound: bool,
     // The bubble opens with its author: a channel's received message,
@@ -208,9 +212,15 @@ export struct IdentityPage {
     grid: [IdSlot],
     primary: string,
     primary-enabled: bool,
+    // The store's key-lost screen: the primary deletes stored data, in
+    // `error` (design 2026-10-21 section 7.1).
+    primary-danger: bool,
     // A progress line in place of the primary action ("Going offline…").
     waiting: string,
     secondary: string,
+    // The store's recovery screen: the secondary deletes stored data,
+    // outlined in `error`.
+    secondary-danger: bool,
     tertiary: string,
     // Plain text below the actions (K1's way out, R3's no-paper line).
     footnote: string,
@@ -218,6 +228,15 @@ export struct IdentityPage {
     dialog-title: string,
     dialog-delete: string,
     dialog-keep: string,
+    // The store's discard confirmation (design 2026-10-21 section 7.2):
+    // the list's lead-in, what goes one item per line, what stays and
+    // what the device may still hold; the delete action filled in
+    // `error` when it loses data.
+    dialog-lead: string,
+    dialog-items: [string],
+    dialog-note-a: string,
+    dialog-note-b: string,
+    dialog-danger: bool,
 }
 
 // Whether the person is using the keyboard: focus that came by Tab sets
@@ -393,6 +412,10 @@ component ActionButton inherits FocusScope {
     // A filled button: `primary` behind an `on-primary` label, fully
     // rounded, label large (Material's filled button).
     in property <bool> filled;
+    // A destructive action: filled in `error` with an `on-error` label, or
+    // outlined with its border and label in `error` (design 2026-10-21
+    // section 7's Delete stored data).
+    in property <bool> danger;
     in property <color> ink: Palette.primary;
     min-height: root.target;
     // Never narrower than its label: squeezed beside a wrapping text, the
@@ -400,8 +423,9 @@ component ActionButton inherits FocusScope {
     min-width: max(root.target, label.preferred-width + (root.filled ? 48px : 16px));
     Rectangle {
         border-width: root.text-button || root.filled ? 0px : 1px;
-        border-color: root.on-notice ? Palette.notice-text : Palette.outline;
-        background: root.filled ? Palette.primary : transparent;
+        border-color: root.on-notice ? Palette.notice-text
+            : root.danger ? Palette.error : Palette.outline;
+        background: root.filled ? (root.danger ? Palette.error : Palette.primary) : transparent;
         border-radius: root.filled ? self.height / 2 : 0px;
         HorizontalLayout {
             padding-left: root.filled ? 24px : 8px;
@@ -411,8 +435,9 @@ component ActionButton inherits FocusScope {
                 text: root.text;
                 font-size: root.text-button || root.filled ? Type.label-large : Type.body-medium;
                 font-weight: root.text-button || root.filled ? 500 : 400;
-                color: root.filled ? Palette.on-primary
-                    : root.text-button ? root.ink : root.on-notice ? Palette.notice-text : Palette.on-surface;
+                color: root.filled ? (root.danger ? Palette.on-error : Palette.on-primary)
+                    : root.text-button ? root.ink : root.on-notice ? Palette.notice-text
+                    : root.danger ? Palette.error : Palette.on-surface;
                 vertical-alignment: center;
                 accessible-role: none;
             }
@@ -575,6 +600,9 @@ export global Palette {
     out property <color> on-tertiary: #2a1800;
     out property <color> unread-dot: dark ? #ffb547 : #7c5200;
     out property <color> error: dark ? #ffb4ab : #ba1a1a;
+    // A label on `error` (Delete stored data, design 2026-10-21 section
+    // 7): #ffffff on #ba1a1a is 6.4:1, #690005 on #ffb4ab 7.6:1.
+    out property <color> on-error: dark ? #690005 : #ffffff;
     // The snackbar's roles (section 7): its surface, its text, its Undo,
     // and focus-ring-on-inverse below for the Undo's ring.
     out property <color> inverse-surface: dark ? #e3e6f3 : #2a3050;
@@ -1380,7 +1408,8 @@ component IdentityScreen inherits FocusScope {
         if root.page.waiting == "" && root.page.primary != "": Rectangle {
             min-height: 48px;
             border-radius: 24px;
-            background: root.page.primary-enabled ? Palette.primary : Palette.surface-container-high;
+            background: !root.page.primary-enabled ? Palette.surface-container-high
+                : root.page.primary-danger ? Palette.error : Palette.primary;
             accessible-role: button;
             accessible-label: root.page.primary;
             accessible-enabled: root.page.primary-enabled;
@@ -1389,7 +1418,8 @@ component IdentityScreen inherits FocusScope {
                 text: root.page.primary;
                 font-size: Type.label-large;
                 font-weight: 500;
-                color: root.page.primary-enabled ? Palette.on-primary : Palette.on-surface-variant;
+                color: !root.page.primary-enabled ? Palette.on-surface-variant
+                    : root.page.primary-danger ? Palette.on-error : Palette.on-primary;
                 horizontal-alignment: center;
                 vertical-alignment: center;
                 accessible-role: none;
@@ -1403,7 +1433,8 @@ component IdentityScreen inherits FocusScope {
             alignment: center;
             ActionButton {
                 text: root.page.secondary;
-                text-button: true;
+                text-button: !root.page.secondary-danger;
+                danger: root.page.secondary-danger;
                 target: 48px;
                 pressed => { root.secondary(); }
             }
@@ -1446,12 +1477,57 @@ component IdentityScreen inherits FocusScope {
                     accessible-role: text;
                     accessible-label: self.text;
                 }
+                if root.page.dialog-lead != "": Text {
+                    text: root.page.dialog-lead;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                for item in root.page.dialog-items: HorizontalLayout {
+                    spacing: 8px;
+                    accessible-role: list-item;
+                    accessible-label: item;
+                    Text {
+                        text: "•";
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface;
+                        accessible-role: none;
+                    }
+                    Text {
+                        text: item;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        horizontal-stretch: 1;
+                        accessible-role: none;
+                    }
+                }
+                if root.page.dialog-note-a != "": Text {
+                    text: root.page.dialog-note-a;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface-variant;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.page.dialog-note-b != "": Text {
+                    text: root.page.dialog-note-b;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface-variant;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
                 HorizontalLayout {
                     spacing: 8px;
                     alignment: end;
                     ActionButton {
                         text: root.page.dialog-delete;
-                        text-button: true;
+                        text-button: !root.page.dialog-danger;
+                        filled: root.page.dialog-danger;
+                        danger: root.page.dialog-danger;
                         target: 48px;
                         pressed => { root.dialog(true); }
                     }
@@ -3087,6 +3163,20 @@ export component AppWindow inherits Window {
                                             focused(k) => { root.focus-id = k; }
                                         }
                                     }
+                                    // The reason above the status, so the status
+                                    // and time stay the bubble's last line; only
+                                    // drawn when there is one, so an empty line
+                                    // takes no room (#304 F9 step 5).
+                                    if row.reason != "": Text {
+                                        text: row.reason;
+                                        font-size: Type.body-small;
+                                        color: Palette.error;
+                                        wrap: word-wrap;
+                                        min-width: 0px;
+                                        horizontal-alignment: root.rtl ? TextHorizontalAlignment.left : TextHorizontalAlignment.right;
+                                        accessible-role: text;
+                                        accessible-label: self.text;
+                                    }
                                     // The status with its icon, then the time, at
                                     // the bubble's end (section 6). Not a live
                                     // region: the window's one announcement says
@@ -3753,6 +3843,28 @@ export component RefusalWindow inherits Window {
     in property <string> close-label;
     in property <string> retry-label;
     in property <bool> can-retry;
+    // Delete stored data… on the store's recovery screen (ADR-0060
+    // decision 6; design 2026-10-21 section 7): offered there only.
+    in property <bool> can-discard;
+    in property <string> discard-label;
+    // While the discard's plan is built or the discard runs: every action
+    // inert, Escape ignored (a half-done discard cannot be left).
+    in property <bool> busy;
+    // The line under the heading: Checking, Deleting, or the failure.
+    in property <string> progress;
+    // The discard's confirmation, over a scrim: its title, the list of
+    // what goes (one item per line), its notes, then Cancel -- the
+    // initial focus, so Enter alone never discards -- and the primary.
+    in property <bool> dialog-open;
+    in property <string> dialog-title;
+    in property <string> dialog-lead;
+    in property <[string]> dialog-items;
+    // What stays, and what the device may still hold: at most two notes.
+    in property <string> dialog-note-a;
+    in property <string> dialog-note-b;
+    in property <string> dialog-confirm-label;
+    in property <bool> dialog-danger;
+    in property <string> cancel-label;
     in property <string> code-font;
     // The live region (as AppWindow's): two slots taking turns, so the
     // same status after a second Try again is still a change a screen
@@ -3763,6 +3875,16 @@ export component RefusalWindow inherits Window {
     in-out property <string> focus-id;
     callback retry();
     callback close-screen();
+    callback discard();
+    callback dialog-cancel();
+    callback dialog-confirm();
+    property <int> dialog-focus-seq;
+    property <string> dialog-focus: "dialog-cancel";
+    // Called by Rust when the confirmation opens: Cancel takes focus.
+    public function focus-dialog() {
+        root.dialog-focus = "dialog-cancel";
+        root.dialog-focus-seq += 1;
+    }
     // Called by Rust when the screen opens or changes: focus goes to the
     // action a person most likely wants, Try again where it is offered.
     // Try again is conditional, so it is out of the layout when not
@@ -3783,8 +3905,10 @@ export component RefusalWindow inherits Window {
     // Stated, not taken from the text: a window sizes itself before its
     // wrapped lines are measured at its width, so it opened shorter than
     // its content and cut off the actions (seen in the window). What does
-    // not fit scrolls above the actions, which stay in view.
-    preferred-height: 420px;
+    // not fit scrolls above the actions, which stay in view. 520 holds the
+    // full discard's confirmation, title to buttons, without a scroll at
+    // the preferred width (its list read whole, design 2026-10-21 §7.2).
+    preferred-height: 520px;
     min-width: 320px;
     min-height: 200px;
     // Escape closes, as the window's own close does: Close is never
@@ -3794,7 +3918,11 @@ export component RefusalWindow inherits Window {
         focus-on-tab-navigation: false;
         key-pressed(event) => {
             if (event.text == Key.Escape) {
-                root.close-screen();
+                if (root.dialog-open) {
+                    root.dialog-cancel();
+                } else if (!root.busy) {
+                    root.close-screen();
+                }
                 return accept;
             }
             reject
@@ -3816,6 +3944,15 @@ export component RefusalWindow inherits Window {
                         wrap: word-wrap;
                         accessible-role: text;
                         accessible-label: self.text;
+                    }
+                    if root.progress != "": Text {
+                        text: root.progress;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface-variant;
+                        wrap: word-wrap;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                        accessible-live-region: polite;
                     }
                     Text {
                         text: root.reason;
@@ -3903,26 +4040,174 @@ export component RefusalWindow inherits Window {
                     }
                 }
             }
-            HorizontalLayout {
-                alignment: end;
+            // Delete stored data… on a line of its own, above the others
+            // and at the start side, apart from them: three actions do not
+            // fit one line of a 320 px window (seen), and a layout cannot
+            // ask the window's width without a binding loop (Slint 1.18).
+            VerticalLayout {
                 spacing: 12px;
-                close-button := ActionButton {
-                    text: root.close-label;
-                    focus-key: "close";
-                    target: 40px;
-                    text-button: true;
-                    pressed => { root.close-screen(); }
-                    focused(key) => { root.focus-id = key; }
+                if root.can-discard: HorizontalLayout {
+                    alignment: start;
+                    ActionButton {
+                        text: root.discard-label;
+                        focus-key: "discard";
+                        target: 40px;
+                        danger: true;
+                        pressed => {
+                            if (!root.busy && !root.dialog-open) { root.discard(); }
+                        }
+                        focused(key) => { root.focus-id = key; }
+                    }
                 }
-                if root.can-retry: ActionButton {
-                    text: root.retry-label;
-                    focus-key: "retry";
-                    target: 40px;
-                    filled: true;
-                    focus-seq: root.retry-focus-seq;
-                    focus-wanted: true;
-                    pressed => { root.retry(); }
-                    focused(key) => { root.focus-id = key; }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Rectangle { horizontal-stretch: 1; }
+                    close-button := ActionButton {
+                        text: root.close-label;
+                        focus-key: "close";
+                        target: 40px;
+                        text-button: true;
+                        pressed => {
+                            if (!root.busy && !root.dialog-open) { root.close-screen(); }
+                        }
+                        focused(key) => { root.focus-id = key; }
+                    }
+                    if root.can-retry: ActionButton {
+                        text: root.retry-label;
+                        focus-key: "retry";
+                        target: 40px;
+                        filled: true;
+                        focus-seq: root.retry-focus-seq;
+                        focus-wanted: true;
+                        pressed => {
+                            if (!root.busy && !root.dialog-open) { root.retry(); }
+                        }
+                        focused(key) => { root.focus-id = key; }
+                    }
+                }
+            }
+        }
+    }
+    // The scrim: a press outside the confirmation is Cancel.
+    if root.dialog-open: TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        clicked => { root.dialog-cancel(); }
+        Rectangle { background: #00000052; }
+    }
+    if root.dialog-open: FocusScope {
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: min(root.width - 32px, 560px);
+        height: min(root.height - 32px, dialog-box.preferred-height);
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.dialog-cancel();
+                return accept;
+            }
+            // A modal dialog keeps focus on its two buttons.
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                root.dialog-focus = root.focus-id == "dialog-cancel" ? "dialog-confirm" : "dialog-cancel";
+                root.dialog-focus-seq += 1;
+                return accept;
+            }
+            reject
+        }
+        dialog-box := Rectangle {
+            background: Palette.surface-container-high;
+            border-radius: 28px;
+            // A press on the dialog is the dialog's, not the scrim's.
+            TouchArea {}
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                Text {
+                    text: root.dialog-title;
+                    font-size: Type.title-large;
+                    color: Palette.on-surface;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                Flickable {
+                    vertical-stretch: 1;
+                    content-height: dialog-body.preferred-height;
+                    min-height: min(dialog-body.preferred-height, 120px);
+                    dialog-body := VerticalLayout {
+                        width: parent.width;
+                        spacing: 8px;
+                        if root.dialog-lead != "": Text {
+                            text: root.dialog-lead;
+                            font-size: Type.body-medium;
+                            color: Palette.on-surface;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                        for item in root.dialog-items: HorizontalLayout {
+                            spacing: 8px;
+                            accessible-role: list-item;
+                            accessible-label: item;
+                            Text {
+                                text: "•";
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface;
+                                accessible-role: none;
+                            }
+                            Text {
+                                text: item;
+                                font-size: Type.body-medium;
+                                color: Palette.on-surface;
+                                wrap: word-wrap;
+                                horizontal-stretch: 1;
+                                accessible-role: none;
+                            }
+                        }
+                        if root.dialog-note-a != "": Text {
+                            text: root.dialog-note-a;
+                            font-size: Type.body-medium;
+                            color: Palette.on-surface-variant;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                        if root.dialog-note-b != "": Text {
+                            text: root.dialog-note-b;
+                            font-size: Type.body-medium;
+                            color: Palette.on-surface-variant;
+                            wrap: word-wrap;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    ActionButton {
+                        text: root.cancel-label;
+                        text-button: true;
+                        target: 48px;
+                        focus-key: "dialog-cancel";
+                        focus-seq: root.dialog-focus-seq;
+                        focus-wanted: root.dialog-focus == "dialog-cancel";
+                        pressed => { root.dialog-cancel(); }
+                        focused(k) => { root.focus-id = k; }
+                        init => { self.focus(); }
+                    }
+                    ActionButton {
+                        text: root.dialog-confirm-label;
+                        filled: true;
+                        danger: root.dialog-danger;
+                        target: 48px;
+                        focus-key: "dialog-confirm";
+                        focus-seq: root.dialog-focus-seq;
+                        focus-wanted: root.dialog-focus == "dialog-confirm";
+                        pressed => { root.dialog-confirm(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
                 }
             }
         }
