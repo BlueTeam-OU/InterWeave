@@ -46,6 +46,7 @@ fn card<'a>(
         name,
         surname: None,
         identity_key: [key; 32],
+        photo: None,
     }
 }
 
@@ -302,4 +303,48 @@ fn an_identitys_own_card_and_when_a_conversation_shared_it() {
         .mark_card_shared(&p, &human, 60)
         .expect("shared again");
     assert_eq!(store.card_shared_at(&p, &human).expect("read"), Some(60));
+}
+
+#[test]
+fn an_accepted_photo_is_kept_as_bytes_and_a_photo_the_person_set_is_never_replaced() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let with = |photo: &'static [u8]| AcceptedCard {
+        photo: Some(photo),
+        ..card(&p, &human, "Ada", 1)
+    };
+    let first = store.accept_card(&with(b"jpeg one"), 10).expect("first");
+    let contact = store
+        .contact(&first.contact_id)
+        .expect("read")
+        .expect("there");
+    assert_eq!(contact.photo.as_deref(), Some(b"jpeg one".as_slice()));
+    assert_eq!(contact.photo_source, Some(ValueSource::Card));
+    store.accept_card(&with(b"jpeg two"), 20).expect("second");
+    let contact = store
+        .contact(&first.contact_id)
+        .expect("read")
+        .expect("there");
+    assert_eq!(
+        contact.photo.as_deref(),
+        Some(b"jpeg two".as_slice()),
+        "a card's photo follows the card"
+    );
+    assert!(
+        store
+            .set_contact_photo(&first.contact_id, Some(b"mine"), 30)
+            .expect("set")
+    );
+    let third = store.accept_card(&with(b"jpeg three"), 40).expect("third");
+    assert!(third.photo_kept);
+    let contact = store
+        .contact(&first.contact_id)
+        .expect("read")
+        .expect("there");
+    assert_eq!(
+        contact.photo.as_deref(),
+        Some(b"mine".as_slice()),
+        "the person's photo stands"
+    );
+    assert_eq!(contact.photo_source, Some(ValueSource::Person));
 }

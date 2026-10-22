@@ -77,6 +77,9 @@ pub struct Contact {
     pub name_at: Option<u64>,
     /// Where the photo came from, if there is one.
     pub photo_source: Option<ValueSource>,
+    /// The photo's encoded bytes as accepted or set, decoded only at
+    /// display.
+    pub photo: Option<Vec<u8>>,
     /// Its routes.
     pub routes: Vec<ContactRoute>,
 }
@@ -94,6 +97,8 @@ pub struct AcceptedCard<'a> {
     pub surname: Option<&'a str>,
     /// The card's identity key.
     pub identity_key: [u8; 32],
+    /// The card's photo as received, if it carried one.
+    pub photo: Option<&'a [u8]>,
 }
 
 impl AcceptedCard<'_> {
@@ -150,6 +155,8 @@ pub struct Accepted {
     pub created: bool,
     /// Whether the contact's name was the person's and stayed.
     pub name_kept: bool,
+    /// Whether the contact's photo was the person's and stayed.
+    pub photo_kept: bool,
     /// How the key stood before.
     pub key: KeyStanding,
 }
@@ -212,7 +219,8 @@ impl HumanStore {
         let row = self
             .conn
             .query_row(
-                "SELECT display_name, name_source, name_at, photo_source FROM contacts WHERE contact_id = ?1",
+                "SELECT display_name, name_source, name_at, photo_source, photo
+                   FROM contacts WHERE contact_id = ?1",
                 params![contact_id],
                 |r| {
                     Ok((
@@ -220,11 +228,12 @@ impl HumanStore {
                         r.get::<_, Option<String>>(1)?,
                         r.get::<_, Option<i64>>(2)?,
                         r.get::<_, Option<String>>(3)?,
+                        r.get::<_, Option<Vec<u8>>>(4)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((display_name, name_source, name_at, photo_source)) = row else {
+        let Some((display_name, name_source, name_at, photo_source, photo)) = row else {
             return Ok(None);
         };
         let routes = self
@@ -262,6 +271,7 @@ impl HumanStore {
             photo_source: photo_source
                 .as_deref()
                 .map(|s| ValueSource::from_sql(Some(s))),
+            photo,
             routes,
         }))
     }
@@ -373,17 +383,36 @@ impl HumanStore {
                     Some(k) if k == card.identity_key => KeyStanding::Same,
                     Some(recorded) => KeyStanding::Changed { recorded },
                 };
-                let source: Option<String> = tx.query_row(
-                    "SELECT name_source FROM contacts WHERE contact_id = ?1",
+                let (name_source, photo_source): (Option<String>, Option<String>) = tx.query_row(
+                    "SELECT name_source, photo_source FROM contacts WHERE contact_id = ?1",
                     params![contact_id],
-                    |r| r.get(0),
+                    |r| Ok((r.get(0)?, r.get(1)?)),
                 )?;
-                let name_kept = ValueSource::from_sql(source.as_deref()) == ValueSource::Person;
+                let name_kept =
+                    ValueSource::from_sql(name_source.as_deref()) == ValueSource::Person;
                 if !name_kept {
                     tx.execute(
                         "UPDATE contacts SET display_name = ?2, name_at = ?3, updated_at = ?3
                           WHERE contact_id = ?1",
                         params![contact_id, display, at],
+                    )?;
+                }
+                // A photo the person set stays. Unlike a name, a contact
+                // may hold no photo at all, so one with no recorded source
+                // is no person's choice, and the card's photo, or its
+                // absence, is the contact's.
+                let photo_kept = photo_source.as_deref() == Some(ValueSource::Person.as_sql());
+                if !photo_kept {
+                    tx.execute(
+                        "UPDATE contacts SET photo = ?2, photo_source = ?3, photo_at = ?4, updated_at = ?5
+                          WHERE contact_id = ?1",
+                        params![
+                            contact_id,
+                            card.photo,
+                            card.photo.map(|_| ValueSource::Card.as_sql()),
+                            card.photo.map(|_| at),
+                            at
+                        ],
                     )?;
                 }
                 tx.execute(
@@ -394,14 +423,24 @@ impl HumanStore {
                     contact_id,
                     created: false,
                     name_kept,
+                    photo_kept,
                     key,
                 }
             } else {
                 let contact_id = new_contact_id();
                 tx.execute(
-                    "INSERT INTO contacts (contact_id, display_name, name_source, name_at, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?4, ?4)",
-                    params![contact_id, display, ValueSource::Card.as_sql(), at],
+                    "INSERT INTO contacts (contact_id, display_name, name_source, name_at,
+                                           photo, photo_source, photo_at, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?4, ?4)",
+                    params![
+                        contact_id,
+                        display,
+                        ValueSource::Card.as_sql(),
+                        at,
+                        card.photo,
+                        card.photo.map(|_| ValueSource::Card.as_sql()),
+                        card.photo.map(|_| at)
+                    ],
                 )?;
                 tx.execute(
                     "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
@@ -417,6 +456,7 @@ impl HumanStore {
                     contact_id,
                     created: true,
                     name_kept: false,
+                    photo_kept: false,
                     key: KeyStanding::Unrecorded,
                 }
             };
@@ -444,6 +484,30 @@ impl HumanStore {
                 "UPDATE contacts SET display_name = ?2, name_source = ?3, name_at = ?4, updated_at = ?4
                   WHERE contact_id = ?1",
                 params![contact_id, name, ValueSource::Person.as_sql(), at],
+            )
+            .map_err(StoreError::from)
+            .map_err(|e| self.note_store_failure(e))?;
+        Ok(changed == 1)
+    }
+
+    /// The person's own photo for a contact, or its removal: theirs from
+    /// now on, and no card replaces it.
+    ///
+    /// # Errors
+    /// A storage error. Whether there was such a contact.
+    pub fn set_contact_photo(
+        &mut self,
+        contact_id: &str,
+        photo: Option<&[u8]>,
+        at_ms: u64,
+    ) -> Result<bool, StoreError> {
+        let at = sql_timestamp("at", at_ms)?;
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE contacts SET photo = ?2, photo_source = ?3, photo_at = ?4, updated_at = ?4
+                  WHERE contact_id = ?1",
+                params![contact_id, photo, ValueSource::Person.as_sql(), at],
             )
             .map_err(StoreError::from)
             .map_err(|e| self.note_store_failure(e))?;

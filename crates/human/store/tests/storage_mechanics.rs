@@ -20,6 +20,8 @@ const UNDO_V9: &str = "DROP TABLE own_cards;
      ALTER TABLE contacts DROP COLUMN name_at;
      ALTER TABLE contacts DROP COLUMN photo_source;
      ALTER TABLE contacts DROP COLUMN photo_at;
+     ALTER TABLE contacts DROP COLUMN photo;
+     ALTER TABLE contacts ADD COLUMN avatar_ref TEXT;
      ALTER TABLE contact_routes DROP COLUMN identity_key;
      ALTER TABLE conversation_index DROP COLUMN card_shared_at;
      ";
@@ -3276,6 +3278,7 @@ fn a_v8_database_gains_the_card_columns_keeping_its_rows() {
         ("contacts", "name_at"),
         ("contacts", "photo_source"),
         ("contacts", "photo_at"),
+        ("contacts", "photo"),
         ("contact_routes", "identity_key"),
         ("conversation_index", "card_shared_at"),
     ] {
@@ -3284,6 +3287,10 @@ fn a_v8_database_gains_the_card_columns_keeping_its_rows() {
             "{table}.{column}"
         );
     }
+    assert!(
+        !columns_of(&conn, "contacts").contains(&"avatar_ref".to_owned()),
+        "avatar_ref is retired: a photo is bytes, never a reference"
+    );
     let contact: (String, i64, i64, Option<String>, Option<i64>) = conn
         .query_row(
             "SELECT display_name, created_at, updated_at, name_source, photo_at FROM contacts",
@@ -3366,6 +3373,14 @@ fn the_card_columns_and_keys_are_part_of_the_verified_shape() {
             "ALTER TABLE own_cards ADD COLUMN phone TEXT;",
         ),
         ("no own cards", "DROP TABLE own_cards;"),
+        (
+            "a contact without its photo",
+            "ALTER TABLE contacts DROP COLUMN photo;",
+        ),
+        (
+            "a contact with avatar_ref back",
+            "ALTER TABLE contacts ADD COLUMN avatar_ref TEXT;",
+        ),
         (
             "routes without the one-per-PeerId key",
             "PRAGMA foreign_keys = OFF;

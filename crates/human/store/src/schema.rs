@@ -161,6 +161,10 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
 ///   an accepted card never overwrites a local edit and the contact page
 ///   says which is which. NULL on every contact from before: those were
 ///   typed, and a typed value is the person's.
+/// - `contacts.photo`: the accepted card's encoded photo as received,
+///   within the card's 24,576-byte bound, decoded only at display; and
+///   `avatar_ref` dropped, since a photo is bytes and never a reference
+///   (ADR-0059 A 2026-10-22 (iv)). No writer ever set it.
 /// - `contact_routes.identity_key`: the 32-byte key the first accepted
 ///   card on the route recorded, NULL until then and on a typed route.
 /// - `UNIQUE(contact_id, peer_id)` on `contact_routes`: a contact holds at
@@ -185,6 +189,8 @@ fn migration_9(tx: &Transaction<'_>) -> Result<(), StoreError> {
         ALTER TABLE contacts ADD COLUMN name_at INTEGER;
         ALTER TABLE contacts ADD COLUMN photo_source TEXT;
         ALTER TABLE contacts ADD COLUMN photo_at INTEGER;
+        ALTER TABLE contacts ADD COLUMN photo BLOB;
+        ALTER TABLE contacts DROP COLUMN avatar_ref;
         CREATE TABLE contact_routes_v9 (
             contact_id         TEXT NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,
             peer_id            TEXT NOT NULL,
@@ -1208,7 +1214,6 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             // hold any number of NULLs otherwise.
             ("contact_id", "TEXT", true, true),
             col("display_name", "TEXT", true),
-            col("avatar_ref", "TEXT", false),
             col("notes", "TEXT", false),
             col("created_at", "INTEGER", true),
             col("updated_at", "INTEGER", true),
@@ -1216,6 +1221,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("name_at", "INTEGER", false),
             col("photo_source", "TEXT", false),
             col("photo_at", "INTEGER", false),
+            col("photo", "BLOB", false),
         ],
         unique_keys: &[&["contact_id"]],
         generated: &[],
