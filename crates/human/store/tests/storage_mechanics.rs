@@ -3409,7 +3409,7 @@ fn the_card_columns_and_keys_are_part_of_the_verified_shape() {
     }
 }
 
-/// The store's engine is SQLCipher, compiled with the release (ADR-0060,
+/// The store's engine is `SQLCipher`, compiled with the release (ADR-0060,
 /// SPIKE-011): a build that fell back to plain SQLite -- the `bundled`
 /// feature, or a system library -- would accept a key pragma silently and
 /// encrypt nothing, so the engine is asked for its cipher by name.

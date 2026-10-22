@@ -307,6 +307,7 @@ fn the_store_directory_removed_and_made_again_leaves_every_key() {
     let key = identity_key::create(&paths, &human, &FilesystemCustody).expect("created");
     let store = interweave_human_store::HumanStore::open_profile(
         &paths,
+        &FilesystemCustody,
         interweave_human_store::StoreOptions::default(),
     )
     .expect("a store");
@@ -315,6 +316,7 @@ fn the_store_directory_removed_and_made_again_leaves_every_key() {
     drop(
         interweave_human_store::HumanStore::open_profile(
             &paths,
+            &FilesystemCustody,
             interweave_human_store::StoreOptions::default(),
         )
         .expect("a new store"),

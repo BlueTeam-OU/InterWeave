@@ -45,6 +45,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod at_rest;
 pub mod identity_key;
 pub mod key_custody;
 pub mod records;
@@ -241,6 +242,26 @@ pub enum StoreError {
     /// Refusing beats creating a directory of message content this build
     /// cannot protect.
     UnsupportedPlatform,
+    /// The platform reports the store key invalidated (ADR-0060 decision
+    /// 6): the Android Keystore refuses a key whose wrapped record is
+    /// present, after the screen lock was removed or the device's security
+    /// changed. Not recovery mode: the client offers Discard and recreate
+    /// directly ([`at_rest::plan_discard`]). Never an identity condition:
+    /// the store key opens the store, not the identity.
+    KeyInvalidated,
+    /// The store at rest needs recovery mode, by ADR-0060 decision 6's
+    /// names: Quit, Retry, and the confirmed Discard and recreate.
+    AtRest(at_rest::AtRestRecovery),
+    /// The store key's file could not be read, written or removed, for a
+    /// reason that is not the key's: its directory, the medium.
+    KeyFile(String),
+    /// The profile-format marker could not be raised before the rewrite
+    /// (ADR-0028 A 2026-10-20, ADR-0060 A 2026-10-21); nothing was
+    /// rewritten.
+    ProfileFormat(String),
+    /// A confirmed discard found the store no longer as the person saw it
+    /// confirmed: nothing was removed, and the client asks again.
+    DiscardChanged,
 }
 
 impl StoreError {
@@ -275,7 +296,7 @@ impl StoreError {
     #[must_use]
     pub fn needs_recovery(&self) -> bool {
         match self {
-            Self::Migration(_) | Self::Corrupt(_) => true,
+            Self::Migration(_) | Self::Corrupt(_) | Self::AtRest(_) => true,
             Self::Sql(rusqlite::Error::SqliteFailure(e, _)) => matches!(
                 e.code,
                 rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt
@@ -371,6 +392,15 @@ impl core::fmt::Display for StoreError {
             Self::Sql(e) => write!(f, "sqlite: {e}"),
             Self::Io(e) => write!(f, "human store directory: {e}"),
             Self::AlreadyRead => write!(f, "this message was already read here and not kept"),
+            Self::KeyInvalidated => f.write_str(
+                "the platform has invalidated the key that opens the message store",
+            ),
+            Self::AtRest(why) => write!(f, "the message store needs recovery: {why}"),
+            Self::KeyFile(e) => write!(f, "the message store's key: {e}"),
+            Self::ProfileFormat(e) => write!(f, "the profile's format marker: {e}"),
+            Self::DiscardChanged => f.write_str(
+                "the message store changed since the discard was confirmed; nothing was removed",
+            ),
             Self::UnsupportedPlatform => write!(
                 f,
                 "owner-only directory permissions cannot be checked on this platform"

@@ -93,6 +93,19 @@ impl StoreKey {
         Ok(Self(key))
     }
 
+    /// The key as `SQLCipher`'s raw-key literal, `x'<64 hex>'`.
+    pub(crate) fn sqlcipher_literal(&self) -> Zeroizing<String> {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut out = Zeroizing::new(String::with_capacity(67));
+        out.push_str("x'");
+        for b in self.0.iter() {
+            out.push(char::from(HEX[usize::from(b >> 4)]));
+            out.push(char::from(HEX[usize::from(b & 0x0f)]));
+        }
+        out.push('\'');
+        out
+    }
+
     /// The record line sealed by `cipher` for `profile`.
     ///
     /// # Errors

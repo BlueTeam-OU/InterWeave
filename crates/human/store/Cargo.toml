@@ -48,7 +48,17 @@ rand = { workspace = true }
 sha2 = { workspace = true }
 zeroize = { version = "1", default-features = false, features = ["alloc"] }
 
+[features]
+# The rewrite's crash points (`at_rest::RewriteStep`): a test build ends
+# the process after the step `INTERWEAVE_STORE_CRASH_AFTER` names, as a
+# kill would. Enabled by this crate's own tests below and by no client;
+# a workspace-wide test build unifies it into every test's copy of the
+# store, where it is inert without the variable.
+crash-points = []
+
 [dev-dependencies]
+# This crate with its crash points, for tests/at_rest.rs.
+interweave-human-store = { path = ".", features = ["crash-points"] }
 tempfile = { workspace = true }
 # A software stand-in for the Keystore's AES-256-GCM key in
 # tests/identity_key.rs; the version the embedded host's tests use.

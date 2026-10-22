@@ -3632,6 +3632,7 @@ dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
  "interweave-human-core",
+ "interweave-human-store",
  "interweave-profile-config",
  "interweave-transport-api",
  "rand 0.10.3",
