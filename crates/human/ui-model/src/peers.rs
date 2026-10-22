@@ -195,28 +195,52 @@ struct TrustBlock {
     /// Its answer was lost: the trust list is read back.
     checking: bool,
     problem: Option<BlockProblem>,
+    /// Whether its peer is trusted, as the latest thing that told this
+    /// device succeeded (§5.3): the trust list on the daemon's word when
+    /// the block opened or since, `None` once this block's Trust is lost
+    /// until its read back answers. Kept per block, so one block's lost
+    /// Trust leaves another's known answer standing.
+    known: Option<bool>,
 }
 
 impl TrustBlock {
-    const fn new(peer: TransportIdentity) -> Self {
+    fn new(peer: TransportIdentity, trust: &TrustSettings) -> Self {
+        let known = trust.confirmed_list().map(|l| l.allows(&peer));
         Self {
             peer,
             later: false,
             trusting: false,
             checking: false,
             problem: None,
+            known,
         }
     }
 
+    /// What is known of its peer's trust: the trust list while it is the
+    /// daemon's word, else the block's own last known answer.
+    fn known(&self, trust: &TrustSettings) -> Option<bool> {
+        if self.checking {
+            return None;
+        }
+        trust
+            .confirmed_list()
+            .map(|l| l.allows(&self.peer))
+            .or(self.known)
+    }
+
+    fn allowed(&self, trust: &TrustSettings) -> bool {
+        self.known(trust) == Some(true)
+    }
+
     fn state(&self, trust: &TrustSettings) -> BlockState {
-        if trust_allows(trust, &self.peer) {
+        if self.allowed(trust) {
             BlockState::Trusted
         } else if self.checking {
             BlockState::Checking
         } else if self.trusting {
             BlockState::Trusting
         } else if self.later {
-            if trust.confirmed_list().is_some() {
+            if self.known(trust).is_some() {
                 BlockState::Later
             } else {
                 BlockState::LaterUnknown
@@ -536,8 +560,12 @@ fn listed(list: &AddressList, address: &str) -> bool {
     list.addresses.iter().any(|a| a.address == address)
 }
 
+/// Whether the trust list, on the daemon's word, allows `peer`: whether
+/// an add's peer needs no block. A list kept after a failed read is no
+/// such word, so every peer of the add gets a block then; a block's own
+/// state reads `TrustBlock::known`.
 fn trust_allows(trust: &TrustSettings, peer: &TransportIdentity) -> bool {
-    trust.list().is_some_and(|l| l.allows(peer))
+    trust.confirmed_list().is_some_and(|l| l.allows(peer))
 }
 
 /// `list` in the order Peers shows it: the addresses added here newest
@@ -820,10 +848,15 @@ impl Peers {
             .clone();
         self.page = Some(AddPage {
             from_row: Some(row),
-            blocks: vec![TrustBlock::new(peer.clone())],
+            blocks: vec![TrustBlock::new(peer.clone(), trust)],
             ..AddPage::default()
         });
         self.ask_focus(PeersFocus::Block(peer.clone()));
+        // The trust step reads the set itself (§5.2): with the list not
+        // the daemon's word, its block waits on that read.
+        if trust.confirmed_list().is_none() {
+            return trust.opened();
+        }
         None
     }
 
@@ -1156,7 +1189,7 @@ impl Peers {
 
     /// Step one done: the result line, the field cleared, and one block
     /// per peer of the add not trusted -- every peer while the trust list
-    /// is unread, since a needless block costs a tap and a missing one
+    /// is not the daemon's word (unread, or kept after a failed read), since a needless block costs a tap and a missing one
     /// leaves a peer untrusted unprompted.
     fn accepted(
         &mut self,
@@ -1180,7 +1213,7 @@ impl Peers {
             {
                 continue;
             }
-            page.blocks.push(TrustBlock::new(peer.clone()));
+            page.blocks.push(TrustBlock::new(peer.clone(), trust));
         }
         match page.blocks.first() {
             Some(block) => {
@@ -1388,20 +1421,24 @@ impl Peers {
         let mut problem = None;
         let mut moved = false;
         for block in &mut page.blocks {
+            if let Some(list) = trust.confirmed_list() {
+                block.known = Some(list.allows(&block.peer));
+            }
             let on_its_way = trust.in_flight().is_some_and(|c| c.peer == block.peer);
-            if block.problem.is_some() && trust_allows(trust, &block.peer) {
+            if block.problem.is_some() && block.allowed(trust) {
                 block.problem = None;
                 moved = true;
             }
             if block.trusting && !on_its_way {
                 block.trusting = false;
                 moved = true;
-                if !trust_allows(trust, &block.peer) {
+                if !block.allowed(trust) {
                     match trust.outcome().0 {
                         Some(TrustOutcome::Unconfirmed(c) | TrustOutcome::Changed(c))
                             if c.peer == block.peer =>
                         {
                             block.checking = true;
+                            block.known = None;
                         }
                         Some(TrustOutcome::Problem(p)) => {
                             block.problem = Some(BlockProblem::Trust(*p));
@@ -1412,7 +1449,7 @@ impl Peers {
             } else if block.checking && !trust.reading() && !trust.reread_owed() {
                 block.checking = false;
                 moved = true;
-                if !trust_allows(trust, &block.peer) {
+                if !block.allowed(trust) {
                     block.problem = Some(match trust.outcome().0 {
                         Some(TrustOutcome::NotReadAgain(_)) => BlockProblem::Unknown,
                         _ => BlockProblem::NotMade,

@@ -177,17 +177,21 @@ impl TrustSettings {
 
     /// Propose trusting `peer`, named by a view that shows it in full as
     /// its own confirmation (the add page's step two): the change to
-    /// confirm, unless the list read says `peer` is not one to allow.
-    /// With the list unread it is proposed still: the step offers a block
-    /// for every peer then, and the daemon refuses this profile's own
-    /// identity itself. Nothing is sent until [`Self::confirm`].
+    /// confirm, unless `peer` is this profile's own identity or the list,
+    /// on the daemon's word ([`Self::confirmed_list`]), already allows it.
+    /// With the list unread or unconfirmed it is proposed still: the step
+    /// offers a block for every peer then, and the daemon refuses this
+    /// profile's own identity itself. Nothing is sent until
+    /// [`Self::confirm`].
     pub fn propose_allow_of(&mut self, peer: &TransportIdentity) -> Option<TrustChange> {
-        if self
+        // This profile's own identity never changes, so the kept list
+        // answers it; "already trusted" only on the daemon's word, or a
+        // Trust offered while trust is unread would go nowhere.
+        let own = self
             .list
             .as_ref()
-            .and_then(|l| entry_problem(l, peer))
-            .is_some()
-        {
+            .is_some_and(|l| l.local_peer.as_ref() == Some(peer));
+        if own || self.confirmed_list().is_some_and(|l| l.allows(peer)) {
             return None;
         }
         let change = TrustChange {

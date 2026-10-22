@@ -1206,3 +1206,108 @@ fn an_unread_trust_list_is_said_and_no_row_guesses_its_trust() {
     m.addresses_read(Err(AddressProblem::Unavailable));
     assert_eq!(m.peers().trust_line(m.trust_settings()), None);
 }
+
+/// A trust list kept after a failed read is no fact for step two either:
+/// an add of a peer it holds still gets its block, and a row's Trust
+/// opens an undecided block whose Trust is proposed and whose Not now
+/// claims no trust -- never "Trusted" or "Peer trusted" from that list.
+#[test]
+fn a_kept_trust_list_decides_no_block() {
+    let (me, p) = (peer(), peer());
+    let stale = || {
+        let mut m = opened(&me, std::slice::from_ref(&p), &[added(&p)]);
+        let _ = input(&mut m, PeersInput::Opened);
+        m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+        assert!(m.trust_settings().list().is_some_and(|l| l.allows(&p)));
+        m
+    };
+
+    // An add of another address of P: its block, undecided.
+    let mut m = stale();
+    let other = format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", p.as_str());
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(other.clone()));
+    let _ = input(&mut m, PeersInput::Add);
+    let mut second = added(&p);
+    second.address = other.clone();
+    m.addresses_added(
+        std::slice::from_ref(&other),
+        answer(
+            AddressOutcome::Added {
+                peer: Some(p.clone()),
+            },
+            &[added(&p), second],
+        ),
+    );
+    let blocks = m.peers().blocks(m.trust_settings());
+    assert_eq!(blocks.len(), 1, "P's block, though the kept list holds P");
+    assert_eq!(blocks[0].state, BlockState::Undecided);
+
+    // A row's Trust: the step reads the set itself, the block undecided,
+    // its Trust proposed, Not now unknown.
+    let mut m = stale();
+    assert_eq!(
+        input(&mut m, PeersInput::Trust(p.clone())),
+        vec![Intent::ReadTrust]
+    );
+    assert_eq!(
+        m.peers().blocks(m.trust_settings())[0].state,
+        BlockState::Undecided
+    );
+    let asked = input(&mut m, PeersInput::Trust(p.clone()));
+    assert_eq!(
+        asked,
+        vec![Intent::SetTrust(TrustChange {
+            peer: p.clone(),
+            allowed: true,
+        })],
+        "the block's Trust goes to the daemon"
+    );
+    let mut m = stale();
+    let _ = input(&mut m, PeersInput::Trust(p.clone()));
+    let _ = input(&mut m, PeersInput::NotNow(p.clone()));
+    assert_ne!(m.peers().snack().0, Some(&PeersSnack::PeerTrusted));
+}
+
+/// What a block knows of its peer is its own: in a step of two blocks,
+/// one Trust answered as made stays Trusted when the other's answer is
+/// lost and the trust list goes unconfirmed, and Done says so.
+#[test]
+fn one_blocks_lost_trust_leaves_anothers_known_answer() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let two = vec![at(&a), at(&b)];
+    let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
+    m.addresses_added(
+        &two,
+        answer(
+            AddressOutcome::Added { peer: None },
+            &[added(&a), added(&b)],
+        ),
+    );
+    let _ = input(&mut m, PeersInput::Trust(a.clone()));
+    m.trust_settings_mut().set(
+        TrustChange {
+            peer: a.clone(),
+            allowed: true,
+        },
+        Ok(TrustList {
+            local_peer: Some(me),
+            allowed: vec![TrustRow::added_here(a.clone())],
+        }),
+    );
+    let _ = m.peers_turn();
+    let _ = input(&mut m, PeersInput::Trust(b.clone()));
+    m.trust_settings_mut().set(
+        TrustChange {
+            peer: b.clone(),
+            allowed: true,
+        },
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    let blocks = m.peers().blocks(m.trust_settings());
+    assert_eq!(blocks[0].state, BlockState::Trusted, "A's answer stands");
+    assert_eq!(blocks[1].state, BlockState::Checking);
+}
