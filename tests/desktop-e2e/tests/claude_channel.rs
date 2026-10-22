@@ -225,6 +225,12 @@ impl Bridge {
 
     /// The next channel notification, held to the contract (P1).
     async fn notification(&mut self) -> Value {
+        self.notification_line().await.0
+    }
+
+    /// [`Bridge::notification`], with the line it came on: every byte the
+    /// bridge wrote for it.
+    async fn notification_line(&mut self) -> (Value, String) {
         let (params, line) = match self.notifications.pop_front() {
             Some(held) => held,
             None => loop {
@@ -235,7 +241,7 @@ impl Bridge {
             },
         };
         meta_is_the_contracts(&params["meta"], &line);
-        params
+        (params, line)
     }
 }
 
@@ -341,24 +347,39 @@ async fn two_daemons() -> (
     Daemon,
     TransportIdentity,
 ) {
+    two_daemons_with(|yaml| yaml).await
+}
+
+/// [`two_daemons`], each profile document edited by `edit` before it is
+/// written.
+async fn two_daemons_with(
+    edit: impl Fn(String) -> String,
+) -> (
+    Home,
+    Daemon,
+    TransportIdentity,
+    Home,
+    Daemon,
+    TransportIdentity,
+) {
     let ip = interweave_test_support::net::require_private_interface_v4();
     let (a, b) = (Home::new("human-desktop"), Home::new("human-desktop"));
     let (a_peer, b_peer) = (a.write_key(), b.write_key());
     let (a_port, b_port) = (free_port(ip), free_port(ip));
     let at = |port: u16| format!("/ip4/{ip}/tcp/{port}");
     let route = |port: u16, peer: &TransportIdentity| format!("{}/p2p/{}", at(port), peer.as_str());
-    a.write_config(&example(
+    a.write_config(&edit(example(
         "human-desktop.yaml",
         &b_peer,
         &at(a_port),
         Some(&route(b_port, &b_peer)),
-    ));
-    b.write_config(&example(
+    )));
+    b.write_config(&edit(example(
         "human-desktop.yaml",
         &a_peer,
         &at(b_port),
         Some(&route(a_port, &a_peer)),
-    ));
+    )));
     let mut a_daemon = a.start(&[]);
     a_daemon.serving(&a).await;
     let mut b_daemon = b.start(&[]);
@@ -1405,4 +1426,570 @@ async fn a_plain_mcp_host_receives_by_pull_across_two_daemons() {
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+// ---- Size limits and behaviour under load (plan §19's carry from
+// SPIKE-001, "size limits on content and meta and behaviour under
+// load"; architect-cto's REQUEST 01a1631d, confirmed in REPLY 01a16321).
+
+/// A constant of another crate, read from its source: this suite does
+/// not depend on that crate, and a value restated here would drift. The
+/// line is `pub const NAME: TYPE = VALUE;`, VALUE a decimal or `1 << N`;
+/// anything else fails, so a changed form is noticed rather than misread.
+fn source_const(path: &str, name: &str) -> u64 {
+    let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(path))
+        .unwrap_or_else(|e| panic!("{path}: {e}"));
+    let prefix = format!("pub const {name}: ");
+    let value = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(&prefix))
+        .and_then(|rest| rest.split_once(" = "))
+        .map_or_else(
+            || panic!("no `{prefix}` in {path}"),
+            |(_, value)| value.trim_end_matches(';').replace('_', ""),
+        );
+    match value.split_once(" << ") {
+        Some((base, shift)) => {
+            base.parse::<u64>().expect("a base") << shift.parse::<u32>().expect("a shift")
+        }
+        None => value.parse().unwrap_or_else(|_| panic!("{name} = {value}")),
+    }
+}
+
+/// The bridge's ceiling on a line it reads from its host (#330).
+fn host_line_ceiling() -> usize {
+    usize::try_from(source_const(
+        "../../apps/claude-channel/src/host_input.rs",
+        "MAX_HOST_LINE_BYTES",
+    ))
+    .expect("fits")
+}
+
+/// A direct payload at the transport's ceiling reaches the model whole,
+/// as UTF-8 text and as bytes that are not, the second base64url; one
+/// byte more cannot be built at all, so it cannot be sent. Each line the
+/// bridge writes is measured against the host-line ceiling for the
+/// figures.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_direct_payload_at_the_ceiling_reaches_the_model_whole() {
+    let (a, a_daemon, a_peer, b, b_daemon, _b_peer) = two_daemons().await;
+    let daemons = [&a_daemon, &b_daemon];
+    let mut bridge = Bridge::start(&a);
+    bridge.wait_leased(&daemons).await;
+    let b_claude = claude_session(&b).await;
+
+    assert!(
+        Payload::new(None, vec![b'x'; MAX_PAYLOAD_BYTES + 1], MAX_PAYLOAD_BYTES).is_err(),
+        "one byte past the ceiling is no payload"
+    );
+    let text = "x".repeat(MAX_PAYLOAD_BYTES);
+    let bytes = vec![0xff_u8; MAX_PAYLOAD_BYTES];
+    let cases = [
+        (
+            Payload::new(None, text.clone().into_bytes(), MAX_PAYLOAD_BYTES)
+                .expect("at the ceiling"),
+            text,
+            "utf8",
+        ),
+        (
+            Payload::new(None, bytes.clone(), MAX_PAYLOAD_BYTES).expect("at the ceiling"),
+            interweave_transport_api::base64url::encode(&bytes),
+            "base64url",
+        ),
+    ];
+    for (payload, content, encoding) in cases {
+        send_payload_until_accepted(&b_claude, &a_peer, claude(), &payload, &daemons).await;
+        let (n, line) = bridge.notification_line().await;
+        assert_eq!(n["meta"]["payload_encoding"], json!(encoding));
+        assert_eq!(
+            n["content"].as_str().map(str::len),
+            Some(content.len()),
+            "{encoding}: whole"
+        );
+        assert_eq!(n["content"], json!(content), "{encoding}: as sent");
+        eprintln!(
+            "size: a {MAX_PAYLOAD_BYTES}-byte {encoding} payload made a {}-byte host line ({} of the {} ceiling)",
+            line.len(),
+            line.len() * 100 / host_line_ceiling(),
+            host_line_ceiling()
+        );
+        assert!(
+            line.len() < host_line_ceiling(),
+            "{encoding}: {}",
+            line.len()
+        );
+    }
+}
+
+/// CHANNEL-EVENT.md §Content's bound on one event as the host receives it
+/// (A 2026-10-22).
+const EVENT_LINE_BOUND: usize = 320 * 1024;
+
+/// The worst case for the host line, and the bound that now holds it.
+/// JSON escapes a control character to six bytes (`\u0001`), and seven
+/// in `receive`'s pulled form, where the event is escaped a second time
+/// as tool-result text. So the worst content is all control characters:
+/// - plain: the payload ceiling's worth;
+/// - `;ce=br`: a `HumanChatV2` payload the bridge decodes to the decoded
+///   ceiling and forwards unparsed, since it is not an envelope.
+///
+/// CHANNEL-EVENT.md bounds one event on the host line at 320 KiB,
+/// measured as the larger of its two host forms (A 2026-10-22). A text
+/// whose escaped form would pass the bound is carried as base64url of
+/// its bytes instead (#376). Before #376 the plain case was 295,309 bytes
+/// pushed and 344,452 pulled, and the decoded case 1,180,109 and 1,376,712
+/// (this test's own figures, recorded in the contract). Now both arrive as
+/// base64url, whole, and both forms keep the bound. Base64url needs no
+/// JSON escape, so its two forms differ only by the frame.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_longest_host_line_a_legal_event_keeps_the_bound() {
+    use interweave_human_chat_protocol::{MAX_DECOMPRESSED_BYTES, encode_raw_envelope};
+    let (a, a_daemon, a_peer, b, b_daemon, _b_peer) = two_daemons().await;
+    let daemons = [&a_daemon, &b_daemon];
+    let mut bridge = Bridge::start(&a);
+    bridge.wait_leased(&daemons).await;
+    let b_claude = claude_session(&b).await;
+
+    let plain =
+        Payload::new(None, vec![0x01; MAX_PAYLOAD_BYTES], MAX_PAYLOAD_BYTES).expect("payload");
+    let encoded =
+        encode_raw_envelope(vec![0x01; MAX_DECOMPRESSED_BYTES], MAX_PAYLOAD_BYTES).expect("fits");
+    assert!(
+        encoded.media_type.ends_with(";ce=br"),
+        "{}",
+        encoded.media_type
+    );
+    let compressed = Payload::new(
+        Some(MediaType::parse(&encoded.media_type).expect("a media type")),
+        encoded.bytes,
+        MAX_PAYLOAD_BYTES,
+    )
+    .expect("payload");
+    for (payload, decoded) in [
+        (plain, MAX_PAYLOAD_BYTES),
+        (compressed, MAX_DECOMPRESSED_BYTES),
+    ] {
+        send_payload_until_accepted(&b_claude, &a_peer, claude(), &payload, &daemons).await;
+        let (n, line) = bridge.notification_line().await;
+        assert_eq!(
+            n["meta"]["payload_encoding"],
+            json!("base64url"),
+            "{decoded}: carried by size"
+        );
+        assert_eq!(
+            n["content"],
+            json!(interweave_transport_api::base64url::encode(&vec![
+                0x01_u8;
+                decoded
+            ])),
+            "{decoded}: the whole text, as base64url of its bytes"
+        );
+        // The event's other host form: `receive`'s event serialised, then
+        // escaped a second time as its tool-result text, the quotes around
+        // it not counted.
+        let event = serde_json::to_string(
+            &json!({"kind": "direct", "content": n["content"], "meta": n["meta"]}),
+        )
+        .expect("serializes");
+        let pulled = serde_json::to_string(&event).expect("serializes").len() - 2;
+        eprintln!(
+            "size: {decoded} control characters made a {}-byte push line and a {pulled}-byte pulled form as base64url; the bound is {EVENT_LINE_BOUND}",
+            line.len()
+        );
+        assert!(
+            line.len() <= EVENT_LINE_BOUND && pulled <= EVENT_LINE_BOUND,
+            "{decoded}: push {} and pulled {pulled} within {EVENT_LINE_BOUND}",
+            line.len()
+        );
+    }
+}
+
+/// N, for a text content `prefix N`.
+fn text_number(content: &Value, prefix: &str) -> Option<u32> {
+    content.as_str()?.strip_prefix(prefix)?.parse().ok()
+}
+
+/// A burst of direct sends from one peer through the bridge in push mode.
+/// Each send is retried while the receiver answers `Overloaded`, its
+/// per-peer bucket. Every one accepted is notified exactly once, none
+/// lost and none twice. The refusals and the order are reported, not
+/// asserted: their numbers depend on timing, and nothing promises the
+/// order (AUTOMATED-CLIENT.md §2).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_direct_burst_reaches_the_model_once_each_in_push_mode() {
+    use interweave_transport_api::TransportError;
+    const COUNT: u32 = 64;
+    let (a, a_daemon, a_peer, b, b_daemon, _b_peer) = two_daemons().await;
+    let daemons = [&a_daemon, &b_daemon];
+    let mut bridge = Bridge::start(&a);
+    bridge.wait_leased(&daemons).await;
+    let b_claude = claude_session(&b).await;
+    send_until_accepted(&b_claude, &a_peer, claude(), "warm", &daemons).await;
+    assert_eq!(bridge.notification().await["content"], json!("warm"));
+
+    let started = tokio::time::Instant::now();
+    let mut overloaded = 0_u32;
+    for n in 1..=COUNT {
+        let deadline = tokio::time::Instant::now() + PATIENCE * 3;
+        loop {
+            match b_claude
+                .send_direct(
+                    DirectDestination {
+                        peer: a_peer.clone(),
+                        endpoint: Some(claude()),
+                    },
+                    MessageId::from_bytes(rand_bytes()),
+                    text(&format!("burst {n}")),
+                )
+                .await
+            {
+                Ok(_) => break,
+                Err(TransportError::Overloaded) => overloaded += 1,
+                Err(e) => panic!("burst {n}: {e:?}\n{}", logs(&daemons)),
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "burst {n} never accepted"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+    let mut seen = Vec::new();
+    while seen.len() < usize::try_from(COUNT).expect("n") {
+        let n = bridge.notification().await;
+        seen.push(text_number(&n["content"], "burst ").expect("a burst message"));
+    }
+    let elapsed = started.elapsed();
+    let mut sorted = seen.clone();
+    sorted.sort_unstable();
+    assert_eq!(sorted, (1..=COUNT).collect::<Vec<_>>(), "each exactly once");
+    let in_order = seen.windows(2).all(|w| w[0] < w[1]);
+    eprintln!(
+        "load: {COUNT} direct sent and {COUNT} notified in {elapsed:?}, {overloaded} Overloaded refusals retried, order {}",
+        if in_order { "held" } else { "not held" }
+    );
+}
+
+/// A burst of broadcasts through the bridge in push mode. The receiver's
+/// ingress bucket drops what exceeds it silently, with no counter, so
+/// the drop is reported as sent minus delivered. Every delivered publish
+/// is notified exactly once, and no more are delivered than the bucket
+/// allows over the elapsed time. That bound is computed from the
+/// runtime's constants as the automated-client case computes it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_broadcast_burst_reaches_the_model_within_the_ingress_bucket() {
+    const COUNT: u32 = 200;
+    let burst = source_const(
+        "../../crates/transport/runtime/src/ingress.rs",
+        "DEFAULT_PER_PEER_BURST",
+    );
+    let per_minute = source_const(
+        "../../crates/transport/runtime/src/ingress.rs",
+        "DEFAULT_PER_PEER_PER_MINUTE",
+    );
+    let (a, a_daemon, _a_peer, b, b_daemon, _b_peer) = two_daemons().await;
+    let daemons = [&a_daemon, &b_daemon];
+    let mut bridge = Bridge::start(&a);
+    bridge.wait_leased(&daemons).await;
+    let (answer, error) = bridge.tool("join", json!({"channel": "general"})).await;
+    assert!(!error, "{answer}");
+    let b_human = session(&b, human()).await;
+    b_human.join(general()).await.expect("B joins");
+    // The mesh first: until it forms a publish reaches no one.
+    broadcast_until(&b_human, &mut bridge, "mesh", &daemons).await;
+    // The bucket refills while the mesh forms; let it reach its burst.
+    tokio::time::sleep(Duration::from_secs(20)).await;
+    while bridge.notifications.pop_front().is_some() {}
+
+    let started = tokio::time::Instant::now();
+    for n in 1..=COUNT {
+        b_human
+            .broadcast(
+                general(),
+                BroadcastMessageV1 {
+                    message_id: MessageId::from_bytes(rand_bytes()),
+                    sent_at_ms: 0,
+                    payload: text(&format!("cast {n}")),
+                },
+            )
+            .await
+            .expect("accepted for local publish");
+    }
+    let mut seen = Vec::new();
+    let quiet = tokio::time::Instant::now() + Duration::from_secs(3);
+    while tokio::time::Instant::now() < quiet {
+        let _ = bridge.status().await;
+        while let Some((n, line)) = bridge.notifications.pop_front() {
+            meta_is_the_contracts(&n["meta"], &line);
+            if let Some(k) = text_number(&n["content"], "cast ") {
+                seen.push(k);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let elapsed = started.elapsed();
+    let refilled = per_minute * u64::try_from(elapsed.as_millis()).expect("ms") / 60_000;
+    let ceiling = usize::try_from(burst + refilled + 1).expect("n");
+    let mut sorted = seen.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        seen.len(),
+        "each delivered publish exactly once: {seen:?}"
+    );
+    assert!(
+        !seen.is_empty() && seen.len() <= ceiling,
+        "{} delivered, the bucket allows at most {ceiling} over {elapsed:?}",
+        seen.len()
+    );
+    eprintln!(
+        "load: {COUNT} broadcast, {} notified, {} dropped unseen by the bucket (at most {ceiling} over {elapsed:?}), order {}",
+        seen.len(),
+        usize::try_from(COUNT).expect("n") - seen.len(),
+        if seen.windows(2).all(|w| w[0] < w[1]) {
+            "held"
+        } else {
+            "not held"
+        }
+    );
+}
+
+/// What a pull-mode run under load saw.
+struct PullFigures {
+    /// The sends accepted, in the order accepted.
+    accepted: Vec<u32>,
+    /// What `receive` handed the host, in order.
+    delivered: Vec<u32>,
+    /// Sends refused `Overloaded`, each retried.
+    overloaded: u32,
+    /// Sends refused for want of the endpoint (the coarse no-route class).
+    unavailable: u32,
+    /// Whether status ever read `paused`, and the deepest pull queue.
+    paused_seen: bool,
+    max_depth: u64,
+}
+
+/// Pull mode under load, the host calling `receive` not at all for
+/// `pause`. The daemon's per-client event queue is `queue`, and when
+/// `keepalive` is given it replaces the example's keepalive block.
+///
+/// B sends direct messages one at a time to the bridge's endpoint for the
+/// whole pause, timed from the first send accepted. Before that the pair
+/// may not be connected yet: a `PeerUnreachable` refusal is retried, and
+/// the test fails if no send is accepted within PATIENCE, whatever the
+/// refusals were. An `Overloaded` refusal is retried. A refusal for want of
+/// the endpoint is counted: the daemon closed the bridge as wedged
+/// (LOCAL-IPC.md §Disconnect/reconnect). Status is read meanwhile for
+/// `paused` and the pull queue's depth. Then the host drains with
+/// `receive` until nothing more arrives.
+async fn pull_mode_under_load(queue: u32, pause: Duration, keepalive: Option<&str>) -> PullFigures {
+    use interweave_transport_api::TransportError;
+    let (a, a_daemon, a_peer, b, b_daemon, _b_peer) = two_daemons_with(|yaml| {
+        let at = "  max_admin_clients: 4\n";
+        assert!(yaml.contains(at), "the example's ipc block");
+        let mut yaml = yaml.replacen(at, &format!("{at}  client_event_queue: {queue}\n"), 1);
+        if let Some(keepalive) = keepalive {
+            let shipped = "interval: 30s, response_timeout: 10s, max_missed: 3";
+            assert!(yaml.contains(shipped), "the example's keepalive");
+            yaml = yaml.replacen(shipped, keepalive, 1);
+        }
+        yaml
+    })
+    .await;
+    let daemons = [&a_daemon, &b_daemon];
+    let mut bridge = Bridge::start_pull(&a);
+    let _ = bridge
+        .request(
+            "initialize",
+            json!({"protocolVersion": "2025-11-25", "capabilities": {}}),
+        )
+        .await;
+    bridge.wait_leased(&daemons).await;
+    let b_claude = claude_session(&b).await;
+    let mut figures = PullFigures {
+        accepted: Vec::new(),
+        delivered: Vec::new(),
+        overloaded: 0,
+        unavailable: 0,
+        paused_seen: false,
+        max_depth: 0,
+    };
+
+    // The pause is timed from the first accepted send: before it the pair
+    // may not be connected yet, and a send then is refused for want of
+    // the peer, which says nothing about the pull queue.
+    let connecting = tokio::time::Instant::now();
+    let mut started: Option<tokio::time::Instant> = None;
+    let mut next_status = connecting;
+    let mut n = 1;
+    while started.is_none_or(|at| at.elapsed() < pause) {
+        assert!(
+            started.is_some() || connecting.elapsed() < PATIENCE,
+            "no send accepted within {PATIENCE:?}: {} Overloaded, {} endpoint-unavailable\n{}",
+            figures.overloaded,
+            figures.unavailable,
+            logs(&daemons)
+        );
+        match b_claude
+            .send_direct(
+                DirectDestination {
+                    peer: a_peer.clone(),
+                    endpoint: Some(claude()),
+                },
+                MessageId::from_bytes(rand_bytes()),
+                text(&format!("pull {n}")),
+            )
+            .await
+        {
+            Ok(_) => {
+                started.get_or_insert_with(tokio::time::Instant::now);
+                figures.accepted.push(n);
+                n += 1;
+            }
+            // Bounded by the deadline at the top of the loop.
+            Err(TransportError::PeerUnreachable) if started.is_none() => {}
+            Err(TransportError::Overloaded) => figures.overloaded += 1,
+            Err(TransportError::RemoteEndpointUnavailable) => figures.unavailable += 1,
+            Err(e) => panic!("pull {n}: {e:?}\n{}", logs(&daemons)),
+        }
+        if tokio::time::Instant::now() >= next_status {
+            let status = bridge.status().await;
+            figures.paused_seen |= status["pull_queue"]["paused"] == json!(true);
+            figures.max_depth = figures
+                .max_depth
+                .max(status["pull_queue"]["depth"].as_u64().unwrap_or(0));
+            next_status = tokio::time::Instant::now() + Duration::from_millis(500);
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let mut quiet_since = tokio::time::Instant::now();
+    let deadline = quiet_since + PATIENCE * 6;
+    while quiet_since.elapsed() < Duration::from_secs(3) {
+        let (answer, error) = bridge.tool("receive", json!({})).await;
+        assert!(!error, "{answer}");
+        let take: Value = serde_json::from_str(&answer).expect("receive is JSON");
+        let events = take["events"].as_array().expect("events");
+        if !events.is_empty() {
+            quiet_since = tokio::time::Instant::now();
+        }
+        figures.delivered.extend(
+            events
+                .iter()
+                .map(|e| text_number(&e["content"], "pull ").expect("a pull message")),
+        );
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the drain never settled"
+        );
+        if take["remaining"] == json!(0) {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+    assert!(bridge.notifications.is_empty(), "pull mode pushes nothing");
+    // Whatever was lost, nothing arrived twice, nothing out of the order
+    // accepted, and nothing that was not accepted.
+    let mut expected = figures.accepted.iter();
+    for got in &figures.delivered {
+        assert!(
+            expected.any(|a| a == got),
+            "pull {got} delivered out of the accepted order, twice, or unaccepted: {:?}",
+            figures.delivered
+        );
+    }
+    eprintln!(
+        "load: pull at client_event_queue {queue}, a {pause:?} pause{}: {} accepted, {} delivered, {} lost; {} Overloaded and {} endpoint-unavailable refusals; paused {}, pull queue at most {}",
+        keepalive.map_or(String::new(), |k| format!(" under keepalive {{{k}}}")),
+        figures.accepted.len(),
+        figures.delivered.len(),
+        figures.accepted.len() - figures.delivered.len(),
+        figures.overloaded,
+        figures.unavailable,
+        if figures.paused_seen {
+            "read"
+        } else {
+            "never read"
+        },
+        figures.max_depth
+    );
+    figures
+}
+
+/// A pause inside the keepalive window: the pull queue fills to its
+/// bound and status reads `paused`. It never evicts, and every message
+/// the daemon accepted reaches the host once, in the order accepted.
+/// What the daemon accepts past the pull queue is the whole pipeline's
+/// capacity, including the kernel's socket buffer (LOCAL-IPC.md), so it
+/// is reported rather than pinned.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pull_pause_inside_the_keepalive_window_loses_nothing() {
+    let figures = pull_mode_under_load(16, Duration::from_secs(10), None).await;
+    assert!(
+        figures.paused_seen,
+        "the pull queue filled and paused the drain"
+    );
+    assert_eq!(figures.max_depth, 16, "at its bound, and no deeper");
+    assert_eq!(figures.unavailable, 0, "the lease held");
+    assert_eq!(
+        figures.delivered, figures.accepted,
+        "nothing accepted was lost"
+    );
+}
+
+/// A pause past the keepalive threshold, the profile's smallest. A
+/// bridge whose pull queue is full stops reading its socket, so it misses
+/// the daemon's keepalive probes, and the daemon closes it as wedged
+/// (LOCAL-IPC.md). By contract, what the daemon still held for it is then
+/// lost, and its senders, already answered Accepted, are not told. The
+/// bridge reconnects and keeps its own pull queue.
+///
+/// Pinned here: the lease was lost (senders were refused for want of the
+/// endpoint), and the host got a subsequence of what was accepted. The
+/// loss is measured and reported, not asserted. Its size is the share
+/// of the pipeline still on the daemon's side at the close, which the
+/// contract leaves unstated. Frames already in the bridge's own socket
+/// buffer can still be read after the close.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pull_pause_past_the_keepalive_threshold_costs_the_lease() {
+    let figures = pull_mode_under_load(
+        16,
+        Duration::from_secs(30),
+        Some("interval: 10s, response_timeout: 2s, max_missed: 1"),
+    )
+    .await;
+    assert!(
+        figures.paused_seen,
+        "the pull queue filled and paused the drain"
+    );
+    assert!(
+        figures.unavailable > 0,
+        "the daemon closed the paused bridge as wedged"
+    );
+}
+
+/// A pause past the shipped keepalive threshold (`max_missed × interval +
+/// response_timeout`, 100 s), at the smallest queue. It is run by name
+/// (`--ignored`), and its figures are recorded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "two minutes; run by name for the figures past the shipped threshold"]
+async fn a_pull_pause_past_the_shipped_keepalive_threshold_is_measured() {
+    let figures = pull_mode_under_load(16, Duration::from_secs(120), None).await;
+    assert!(
+        figures.unavailable > 0,
+        "the daemon closed the paused bridge as wedged"
+    );
+}
+
+/// The first case at the shipped event queue, 256 (LOCAL-IPC.md). It is
+/// run by name (`--ignored`), and its figures are recorded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "run by name for the figures at the shipped queue"]
+async fn a_pull_pause_at_the_shipped_queue_is_measured() {
+    let figures = pull_mode_under_load(256, Duration::from_secs(60), None).await;
+    assert_eq!(figures.unavailable, 0, "inside the keepalive window");
+    assert_eq!(
+        figures.delivered, figures.accepted,
+        "nothing accepted was lost"
+    );
 }
