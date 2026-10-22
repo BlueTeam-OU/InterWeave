@@ -564,3 +564,62 @@ fn an_unknown_removal_focuses_the_snackbars_try_again() {
     view.render(&model);
     assert_eq!(view.window().get_focus_id().as_str(), "peers-snack-action");
 }
+
+/// Escape on the add page is its Back (design section 5.3), from
+/// wherever focus is on it: on step one it discards the field and focus
+/// goes to Add an address; on step two it is Done, and the page closes
+/// with its snackbar.
+#[test]
+fn escape_on_the_add_page_is_its_back() {
+    use slint::platform::{Key, WindowEvent};
+    let escape = |view: &View| {
+        let text: slint::SharedString = Key::Escape.into();
+        let window = view.window().window();
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text });
+    };
+    let settle = |view: &mut View, model: &mut UiModel| {
+        let _ = intents(view, model);
+        for _ in 0..2 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        }
+        view.render(model);
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, u) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+
+    // Step one, focus where opening the page put it.
+    press(&view, text(UiText::AddAddress));
+    settle(&mut view, &mut model);
+    assert!(view.window().get_peers_add_open());
+    assert!(!view.window().get_focus_id().is_empty());
+    escape(&view);
+    settle(&mut view, &mut model);
+    assert!(!view.window().get_peers_add_open(), "step one discarded");
+    assert_eq!(view.window().get_focus_id().as_str(), "add-address");
+
+    // Step two, focus in a block: Done.
+    press(&view, text(UiText::AddAddress));
+    settle(&mut view, &mut model);
+    let _ = model.peers_input(interweave_human_ui_model::PeersInput::FieldChanged(at(&u)));
+    let _ = model.peers_input(interweave_human_ui_model::PeersInput::Add);
+    model.addresses_added(
+        &[at(&u)],
+        Ok(interweave_human_client_api::AddressAnswer {
+            outcome: interweave_human_client_api::AddressOutcome::Added {
+                peer: Some(u.clone()),
+            },
+            list: Ok(AddressList {
+                addresses: vec![added(&u)],
+            }),
+        }),
+    );
+    settle(&mut view, &mut model);
+    assert_eq!(view.window().get_trust_blocks().row_count(), 1);
+    escape(&view);
+    settle(&mut view, &mut model);
+    assert!(!view.window().get_peers_add_open(), "step two: Done");
+    assert!(view.window().get_peers_snack_shown());
+}
