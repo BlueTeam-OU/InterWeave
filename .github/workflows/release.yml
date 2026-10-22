@@ -167,14 +167,19 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"
           python3 tools/ci/skia_notices.py "$RUNNER_TEMP/out/notices.json"
 
-      # ADR-0058 decision 5: the page also carries the notices of every
-      # crate compiled into the native library, made by the tool and rule
-      # the Linux archive's are. No build needed: cargo resolves the
-      # library's graph for its target from the lock.
+      # ADR-0058 decision 5 (A 2026-10-22 (ii)): the notices of every crate
+      # compiled into the native library, made by the tool and rule the
+      # Linux archive's are, as THIRD-PARTY-NOTICES-android.md, a release
+      # asset beside the APK -- about six times what a release body takes,
+      # so the page holds only its link and hash (crate-notices.json). The
+      # link is the release's download URL, run.json's base for the APK.
+      # No build needed: cargo resolves the library's graph from the lock.
       - name: The native library's crate notices
+        env:
+          BASE: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}
         run: |
           bash tools/ci/release_crate_notices.sh aarch64-linux-android interweave-human-android \
-            "$RUNNER_TEMP/out/crate-notices.json"
+            "$RUNNER_TEMP/out" "$BASE"
 
       # One directory for the artifact: given paths in two, upload-artifact
       # roots it at their common ancestor, and the files arrive nested
@@ -189,6 +194,8 @@ jobs:
             ${{ runner.temp }}/out/app-release-unsigned.apk
             ${{ runner.temp }}/out/notices.json
             ${{ runner.temp }}/out/crate-notices.json
+            ${{ runner.temp }}/out/THIRD-PARTY-NOTICES-android.md
+            ${{ runner.temp }}/out/THIRD-PARTY-NOTICES-android.md.sha256
           if-no-files-found: error
           retention-days: 7
 
@@ -358,6 +365,12 @@ jobs:
             "$in/android-values.json" "$in/linux-values.json" "$in/notices.json" \
             "$in/crate-notices.json"
 
+      # Before anything is created: a page the API would refuse fails here,
+      # its size and the limit named, not at gh release create with the tag
+      # already pushed (ADR-0058 A 2026-10-22 (ii)).
+      - name: The page fits a release body
+        run: bash tools/ci/check_release_body.sh "$RUNNER_TEMP/page.md"
+
       # Step 9. --verify-tag: the release is the pushed tag's, never one
       # gh would create at another commit.
       - name: Publishing
@@ -369,4 +382,5 @@ jobs:
           gh release create "$TAG" --verify-tag --title "InterWeave $VERSION" \
             --notes-file "$RUNNER_TEMP/page.md" \
             "$in"/interweave-*-arm64-v8a.apk "$in"/interweave-*-arm64-v8a.apk.sha256 \
-            "$in"/interweave-*-x86_64-unknown-linux-gnu.tar.gz "$in"/interweave-*-x86_64-unknown-linux-gnu.tar.gz.sha256
+            "$in"/interweave-*-x86_64-unknown-linux-gnu.tar.gz "$in"/interweave-*-x86_64-unknown-linux-gnu.tar.gz.sha256 \
+            "$in"/THIRD-PARTY-NOTICES-android.md "$in"/THIRD-PARTY-NOTICES-android.md.sha256
