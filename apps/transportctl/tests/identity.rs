@@ -1160,17 +1160,38 @@ fn a_lock_refused_for_its_directory_does_not_say_it_is_held() {
 }
 
 /// A profile document past its size bound is refused naming the
-/// document's path, which its own error does not carry.
+/// document's path, which its own error does not carry -- by every verb
+/// that loads it: `show` reads it as `init` does, `backup` and `restore`
+/// through their own loader.
 #[test]
 fn an_oversized_profile_is_refused_by_its_path() {
     let home = Home::new();
+    home.write_key();
     home.write_config(&format!("# {}\n", "x".repeat(1024 * 1024)));
-    let out = home.run(&["--profile", "p", "identity", "show"]);
-    assert_eq!(out.status.code(), Some(1));
-    let stderr = text(&out.stderr);
-    assert!(stderr.contains("larger than"), "{stderr}");
     let path = home.paths.config_file();
-    assert!(stderr.contains(path.to_str().expect("utf-8")), "{stderr}");
+    let to_file = home.file("record.json");
+    for args in [
+        &["--profile", "p", "identity", "show"][..],
+        &[
+            "--profile",
+            "p",
+            "identity",
+            "backup",
+            "--to-file",
+            to_file.to_str().expect("utf-8"),
+        ][..],
+        &["--profile", "p", "identity", "restore", "--new"][..],
+    ] {
+        let out = home.run(args);
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        let stderr = text(&out.stderr);
+        assert!(stderr.contains("larger than"), "{args:?}: {stderr}");
+        assert!(
+            stderr.contains(path.to_str().expect("utf-8")),
+            "{args:?}: {stderr}"
+        );
+    }
+    assert!(!to_file.exists(), "nothing written");
 }
 
 /// Held, the lock is a running daemon or another identity command: `init`

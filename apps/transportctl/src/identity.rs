@@ -46,7 +46,12 @@ fn profile(name: &str) -> Result<(ProfilePaths, PathBuf), Failure> {
     let refused = |what: &str, e: &dyn std::fmt::Display| Failure::Refused(format!("{what}: {e}"));
     let roots = XdgRoots::from_env().map_err(|e| refused("the XDG directories", &e))?;
     let paths = ProfilePaths::resolve_offline(name, &roots).map_err(crate::profile_refusal)?;
-    let config = ProfileConfig::load(&paths).map_err(|e| refused("the profile", &e))?;
+    let config = ProfileConfig::load(&paths).map_err(|e| {
+        refused(
+            &format!("the profile {}", paths.config_file().display()),
+            &e,
+        )
+    })?;
     let key_file = config.identity.key_file_in(&paths);
     Ok((paths, key_file))
 }
