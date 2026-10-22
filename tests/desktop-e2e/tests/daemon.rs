@@ -1616,3 +1616,121 @@ async fn a_peers_restart_is_in_the_connectivity_log_and_third_party_debug_is_not
         "the daemon's own info line:\n{log}"
     );
 }
+
+/// `admin.peers` through `transportctl` against a live daemon (ADR-0062,
+/// plan §29 gate (e)): THE METHOD refuses every special-use class with
+/// `transportctl` as the caller -- the tool passes the address as typed,
+/// so the refusal is the daemon's -- each exit 1 naming the rule and
+/// nothing listed; a private range of each family is admitted. What the
+/// app adds over its own admin connection `transportctl` lists, an
+/// authored-less profile's provider holding it; a removal leaves it, and
+/// `--json` validates against the method's schema.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn transportctl_adds_lists_and_removes_and_the_method_refuses_every_special_use_class() {
+    use interweave_local_client_api::{AddressChange, AdminBinding as _, AdminCapability};
+    let home = Home::new("peers");
+    let _peer = home.write_key();
+    let other = stranger();
+    home.write_config(&profile("peers", &other, ""));
+    let mut daemon = home.start(&[]);
+    daemon.serving(&home).await;
+    let at = |host: &str| format!("/{host}/tcp/4001/p2p/{}", other.as_str());
+    let listed = |home: &Home| -> Vec<serde_json::Value> {
+        let out = home.transportctl(&["peers", "addresses", "--json"], "");
+        assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+        let list: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("json");
+        let errors: Vec<String> = ipc_validator("peers-address-list.schema.json")
+            .iter_errors(&list)
+            .map(|e| e.to_string())
+            .collect();
+        assert!(errors.is_empty(), "{list}: {errors:?}");
+        list["addresses"].as_array().expect("rows").clone()
+    };
+
+    for refused in [
+        "ip4/127.0.0.1",
+        "ip4/0.0.0.0",
+        "ip4/169.254.1.1",
+        "ip4/224.0.0.251",
+        "ip4/255.255.255.255",
+        "ip4/192.0.2.1",
+        "ip4/100.64.0.1",
+        "ip4/240.0.0.1",
+        "ip6/::1",
+        "ip6/::",
+        "ip6/fe80::1",
+        "ip6/ff02::1",
+        "ip6/2001:db8::1",
+        "ip6/::ffff:127.0.0.1",
+    ] {
+        let out = home.transportctl(&["peers", "add", &at(refused)], "");
+        assert_eq!(out.status.code(), Some(1), "{refused} admitted");
+        assert!(
+            stderr(&out).contains("refused special_use"),
+            "{refused}: {}",
+            stderr(&out)
+        );
+    }
+    // The relay's prefix of a circuit route is a component like any other.
+    let route = format!(
+        "/ip4/127.0.0.1/tcp/4001/p2p/{0}/p2p-circuit/p2p/{0}",
+        other.as_str()
+    );
+    let out = home.transportctl(&["peers", "add", &route], "");
+    assert!(
+        stderr(&out).contains("refused special_use"),
+        "{}",
+        stderr(&out)
+    );
+    let out = home.transportctl(&["peers", "add", "not an address"], "");
+    assert!(stderr(&out).contains("refused grammar"), "{}", stderr(&out));
+    assert!(listed(&home).is_empty(), "a refusal writes nothing");
+
+    // THE CONTROL: a private range of each family is admitted.
+    for private in ["ip4/192.168.1.20", "ip6/fd00::1"] {
+        let out = home.transportctl(&["peers", "add", &at(private)], "");
+        assert_eq!(out.status.code(), Some(0), "{private}: {}", stderr(&out));
+        assert_eq!(stdout(&out), "added\n");
+    }
+
+    // What the app adds, over its own admin connection, transportctl lists.
+    let app = home
+        .binding()
+        .admin([AdminCapability::Peers].into())
+        .await
+        .expect("the app's admin port");
+    assert_eq!(
+        interweave_local_client_api::AdminPort::add_bootstrap_address(&app, at("ip4/10.1.2.3"))
+            .await,
+        Ok(AddressChange::Added)
+    );
+    drop(app);
+    let rows = listed(&home);
+    let addresses: Vec<&str> = rows.iter().filter_map(|r| r["address"].as_str()).collect();
+    assert_eq!(
+        addresses,
+        [
+            at("ip4/192.168.1.20"),
+            at("ip6/fd00::1"),
+            at("ip4/10.1.2.3")
+        ]
+    );
+    assert!(
+        rows.iter()
+            .all(|r| r["source"] == "added" && r["dialled"] == true)
+    );
+
+    let out = home.transportctl(&["peers", "remove", &at("ip6/fd00::1")], "");
+    assert_eq!(stdout(&out), "removed\n", "{}", stderr(&out));
+    assert_eq!(listed(&home).len(), 2);
+    let out = home.transportctl(&["peers", "addresses"], "");
+    assert!(
+        stdout(&out).contains(&format!("{}  added", at("ip4/10.1.2.3"))),
+        "{}",
+        stdout(&out)
+    );
+
+    let out = home.transportctl(&["shutdown", "--grace", "200"], "");
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(daemon.exit().await.success(), "{}", daemon.log());
+}
