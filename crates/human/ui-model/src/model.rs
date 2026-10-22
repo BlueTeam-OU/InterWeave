@@ -25,6 +25,7 @@ use crate::labels::{
 use crate::look::Avatar;
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
+pub(crate) mod cards;
 mod swipe;
 
 pub use swipe::{
@@ -138,6 +139,24 @@ pub enum Table {
 /// first shown under for the session, even when its row moves table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ItemKey(Table, RowId);
+
+/// An item's key as text: its table's letter and its row, `p12` for a
+/// pending row, `u7` unread, `k3` kept. A process that lists the store
+/// afresh shows each item under the row it holds now, so the text names
+/// the same item to the next process while the row stays in its table --
+/// what a command line or a script hands back (`apps/human-cli`), and
+/// [`UiModel::item_named`] finds again. Nothing parses it into a row: a
+/// row id comes only from the store.
+impl std::fmt::Display for ItemKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let letter = match self.0 {
+            Table::Pending => 'p',
+            Table::Unread => 'u',
+            Table::Kept => 'k',
+        };
+        write!(f, "{letter}{}", self.1.get())
+    }
+}
 
 /// An inbound message's retention state (`human-client-ui.md` §6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -363,6 +382,39 @@ pub enum Intent {
     /// Read the trust allowlist: the trust settings opened, or a change's
     /// list was not read back ([`crate::TrustSettings::take_reread`]).
     ReadTrust,
+    /// Accept the card a proposal holds: write the contact it said it
+    /// would. Only [`UiModel::card_actions`] offers it.
+    AcceptCard(RowId),
+    /// Decline it: discard the card, writing nothing.
+    DeclineCard(RowId),
+    /// Send this conversation's identity's own card to its route. Only
+    /// [`UiModel::share_card`] makes one, for a direct conversation.
+    ShareCard(ConversationKey),
+    /// The person's edit of their identity's own card, from its settings.
+    SetOwnCard {
+        /// The name.
+        name: String,
+        /// The surname, if any.
+        surname: Option<String>,
+        /// What happens to the photo.
+        photo: cards::PhotoEdit,
+    },
+    /// The person's own name for a contact: theirs from now on, and no
+    /// card replaces it.
+    RenameContact {
+        /// The contact.
+        contact_id: String,
+        /// The name.
+        name: String,
+    },
+    /// The person's own photo for a contact, or its removal: theirs from
+    /// now on, and no card replaces it.
+    SetContactPhoto {
+        /// The contact.
+        contact_id: String,
+        /// What happens to the photo.
+        photo: cards::PhotoEdit,
+    },
     /// Make a trust change the person confirmed in the trust settings,
     /// which showed its exact `PeerId` and scope (`human-client-ui.md` §8).
     /// Only [`crate::TrustSettings::confirm`] makes one.
@@ -532,6 +584,8 @@ pub struct UiModel {
     trust: TrustSettings,
     /// The snackbar, its Undo and the latest outcome.
     swipe: swipe::SwipeState,
+    /// Card proposals, the contacts and the identity in front.
+    cards: cards::Cards,
 }
 
 impl Default for UiModel {
@@ -570,6 +624,7 @@ impl UiModel {
             diagnostics: Diagnostics::default(),
             trust: TrustSettings::default(),
             swipe: swipe::SwipeState::default(),
+            cards: cards::Cards::default(),
         }
     }
 
@@ -782,6 +837,7 @@ impl UiModel {
     /// the content stays for this session unless another row holds it.
     pub fn read(&mut self, row: RowId) {
         self.release(Table::Unread, row);
+        self.cards.read(row);
     }
 
     /// The content a Keep of `key` would keep is no longer held this
@@ -866,7 +922,7 @@ impl UiModel {
                 .entry(&item.conversation)
                 .or_insert_with(|| ConversationSummary {
                     key: item.conversation.clone(),
-                    title: title(&item.conversation, &shared),
+                    title: self.contact_title(&item.conversation, &shared),
                     unread: 0,
                     last_activity: 0,
                     avatar: Avatar::of(&item.conversation),
@@ -896,7 +952,38 @@ impl UiModel {
     /// is open.
     #[must_use]
     pub fn title(&self, key: &ConversationKey) -> String {
-        title(key, &self.peers_with_routes())
+        self.contact_title(key, &self.peers_with_routes())
+    }
+
+    /// The title, its contact's name once the route belongs to one (plan
+    /// §29 step 2, `human-client-ui.md` §4), with the short `PeerId` beside
+    /// it when another contact has that name; else as before.
+    fn contact_title(
+        &self,
+        key: &ConversationKey,
+        shared: &BTreeSet<&TransportIdentity>,
+    ) -> String {
+        if let ConversationKey::Direct {
+            peer,
+            endpoint: Some(at),
+        } = key
+            && let Some(contact) = self.cards.contact_for(peer, at)
+        {
+            if self
+                .cards
+                .name_is_shared(&contact.contact_id, &contact.name)
+            {
+                return fill(
+                    placeholder_en::text(UiText::ContactTitle),
+                    &[
+                        ("name", &contact.name),
+                        ("peer", &short_peer(peer.as_str())),
+                    ],
+                );
+            }
+            return contact.name.clone();
+        }
+        title(key, shared)
     }
 
     /// The peers this session holds direct conversations with on more than
@@ -915,6 +1002,24 @@ impl UiModel {
             .filter(|(_, keys)| keys.len() > 1)
             .map(|(peer, _)| peer)
             .collect()
+    }
+
+    /// The item a text from [`ItemKey`]'s `Display` names: one of the
+    /// rows the model holds now under that table letter and row -- an
+    /// item that moved table answers to its new row too -- else the key
+    /// it was first shown under. `None` for a text naming nothing held.
+    #[must_use]
+    pub fn item_named(&self, text: &str) -> Option<ItemKey> {
+        self.by_row
+            .iter()
+            .find(|((table, row), _)| ItemKey(*table, *row).to_string() == text)
+            .map(|(_, key)| *key)
+            .or_else(|| {
+                self.items
+                    .keys()
+                    .find(|key| key.to_string() == text)
+                    .copied()
+            })
     }
 
     /// A conversation's messages, in LOCAL time order (A3). Replies are

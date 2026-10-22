@@ -56,6 +56,10 @@ members = [
     # Stage 17 (plan section 20 steps 2-4): the Android human client's
     # native library; its Gradle project is apps/human-android/android.
     "apps/human-android",
+    # Stage 21 (plan section 29 step 4's command half, split out by
+    # architect-cto-01's request of 2026-10-22): the command-line human
+    # client, the stage's one new application.
+    "apps/human-cli",
     "crates/human/app-core",
     # Stage 17 (plan section 20 steps 2-4): the Android client's Service
     # side, host-testable.
@@ -211,6 +215,11 @@ unicode-normalization = { version = "0.1", default-features = false, features = 
 # The card's names refuse format characters (Cf), which no std predicate
 # names. Already in the graph via jsonschema; Apache-2.0, no dependencies.
 unicode-general-category = "1.1"
+# A card's photo (app-core's card_photo.rs): the sender re-encodes the
+# chosen image, the receiver decodes an accepted one at 256 x 256. PNG and
+# JPEG only, pure Rust (png, zune-jpeg), the version and the two features
+# the Slint toolkit already resolves, so this adds no crate.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # Brotli for the HumanChatV2 fit-fallback decode path. Used through its
 # streaming interface so the decompressed ceiling aborts mid-stream.
 brotli = { version = "8", default-features = false, features = ["std"] }
@@ -679,6 +688,7 @@ planned_members = [
   "apps/claude-channel",
   "apps/human-desktop",
   "apps/human-android",
+  "apps/human-cli",
   "crates/api/transport-api",
   "crates/api/discovery-api",
   "crates/api/trust-api",

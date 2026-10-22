@@ -98,6 +98,21 @@ pub fn encode_outbound(
         reason = "serializing a typed envelope to JSON cannot fail: every field is a string, an integer or an endpoint id"
     )]
     let raw = serde_json::to_vec(envelope).expect("an envelope serializes");
+    encode_raw_envelope(raw, max_payload_bytes)
+}
+
+/// [`encode_outbound`]'s rule for an envelope already serialized: the raw
+/// JSON when it fits, else brotli when the sender may compress it, else
+/// refused. A contact card is built as JSON text (`build_card`) and goes
+/// out through this, under the same ceilings as a message.
+///
+/// # Errors
+/// As [`encode_outbound`].
+///
+/// # Panics
+/// The brotli encoder reporting its own invalid state, as
+/// [`encode_outbound`] says.
+pub fn encode_raw_envelope(raw: Vec<u8>, max_payload_bytes: usize) -> Result<Encoded, EncodeError> {
     if raw.len() <= max_payload_bytes {
         return Ok(Encoded {
             media_type: MEDIA_TYPE_V2.to_owned(),

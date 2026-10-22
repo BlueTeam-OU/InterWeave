@@ -17,11 +17,15 @@
 
 #![forbid(unsafe_code)]
 
+pub mod card_photo;
+mod cards;
 mod facade;
 mod listing;
 mod model_side;
+mod profile;
 mod protocol;
 
 pub use facade::{CANCELLED_CAP, FacadeSide, READ_COPY_CAP};
 pub use model_side::{ModelSide, Opener, PROBLEM_CAP, Problem, Surface};
+pub use profile::{CLIENT_KIND, leasable_endpoints};
 pub use protocol::{Command, Failure, Listing, Update};

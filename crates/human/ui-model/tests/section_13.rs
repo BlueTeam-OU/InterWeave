@@ -78,7 +78,16 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         | Intent::Reopen
         | Intent::RecheckStorage
         | Intent::AllowNetwork
-        | Intent::Authenticate => false,
+        | Intent::Authenticate
+        // A card changes no trust and no route policy (HUMAN-CHAT.md
+        // §Contact card): Accept writes a contact, Decline nothing, Share
+        // sends a message.
+        | Intent::AcceptCard(_)
+        | Intent::DeclineCard(_)
+        | Intent::ShareCard(_)
+        | Intent::SetOwnCard { .. }
+        | Intent::RenameContact { .. }
+        | Intent::SetContactPhoto { .. } => false,
         Intent::ReadTrust | Intent::SetTrust(_) => true,
     }
 }
