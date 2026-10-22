@@ -341,8 +341,8 @@ mod tests {
 
     /// The widest legal card name, 64 scalar values of four bytes each,
     /// is exactly the value bound, and is carried. One byte more is
-    /// refused, so the bound and the card's name bound meet exactly, as
-    /// `card.rs`'s compile-time assertion says.
+    /// refused. `card.rs`'s compile-time assertion holds only that a
+    /// legal name fits; this test pins that it fits exactly.
     #[test]
     fn the_widest_legal_card_name_fits_and_one_byte_more_does_not() {
         let widest = "\u{1D49C}".repeat(interweave_human_chat_protocol::MAX_CARD_NAME_SCALARS);
