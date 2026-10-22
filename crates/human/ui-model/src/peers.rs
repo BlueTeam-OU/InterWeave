@@ -13,11 +13,14 @@
 //! floor, the bound, a list the configuration turns off) is never judged
 //! here: the model sends the lines and renders the refusal by name. The
 //! client's own rules are judged before anything is sent: at most
-//! [`CODE_LINES`] lines in one add (ADR-0062 decision 4), and no DNS name
-//! from a scan (decision 1).
+//! [`CODE_LINES`] lines in one add (ADR-0062 decision 4), at most
+//! [`TYPED_LINES`] typed, and no DNS name from a scan (decision 1).
 //!
 //! An add is all or none and is never split: one line is one write, and
-//! several are one call that checks them all first. So every failure is
+//! several need the call that checks them all first (IPC 2.9's
+//! `admin.peers.add_addresses`), which this build does not bind; until
+//! it does, the facade answers an add of several as a runtime without
+//! that call answers. So every failure is
 //! one of the note's §5.7 outcomes, and "nothing was changed" is said
 //! only where it is true: not written; unknown, where the answer was lost
 //! after the request left and the list is read back before anything is
@@ -35,6 +38,14 @@ use crate::trust::{TrustOutcome, TrustSettings};
 /// The most lines one add carries: a code's bound (ADR-0062 decision 4),
 /// and the add method's.
 pub const CODE_LINES: usize = 16;
+
+/// The most lines a typed add carries while the add of several lines is
+/// not bound: the runtime's add takes one address, an add is never split
+/// into single writes, and the note designs no interim state for typed
+/// lines (`design/2026-10-22-add-a-peer.md` §5.7), so a second line is
+/// refused in the field's own words before anything is sent. It becomes
+/// [`CODE_LINES`] when `admin.peers.add_addresses` (IPC 2.9) is bound.
+pub const TYPED_LINES: usize = 1;
 
 /// The most addresses a device holds, configured and added together
 /// (ADR-0062 decision 2): the `{max}` the at-the-bound words fill. The
@@ -93,7 +104,7 @@ pub enum AddNote {
         /// Why.
         why: Refusal,
     },
-    /// Typed or pasted lines past [`CODE_LINES`], refused whole before
+    /// Typed or pasted lines past [`TYPED_LINES`], refused whole before
     /// anything is sent.
     TooManyLines {
         /// How many lines the field holds.
@@ -109,8 +120,10 @@ pub enum AddNote {
         /// How many lines the add carried.
         lines: usize,
     },
-    /// A runtime with the one-address add only (IPC 2.7 or 2.8) did not
-    /// take an add of several lines: nothing added.
+    /// An add of several lines, from a scan, not taken: nothing added.
+    /// A runtime with the one-address add only (IPC 2.7 or 2.8) answers
+    /// so, and so does this build's facade for every such add until the
+    /// add of several lines is bound.
     SeveralIncompatible {
         /// How many lines.
         lines: usize,
@@ -640,10 +653,10 @@ impl Peers {
             self.ask_focus(PeersFocus::Field { select: None });
             return None;
         }
-        if lines.len() > CODE_LINES {
+        if lines.len() > TYPED_LINES {
             page.note = Some(AddNote::TooManyLines { lines: lines.len() });
             self.ask_focus(PeersFocus::Field {
-                select: Some(LineSelection::From(CODE_LINES)),
+                select: Some(LineSelection::From(TYPED_LINES)),
             });
             return None;
         }

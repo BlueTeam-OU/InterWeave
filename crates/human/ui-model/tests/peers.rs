@@ -15,7 +15,7 @@ use interweave_human_client_api::{
 use interweave_human_ui_model::{
     AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES, Intent,
     LineSelection, ListProblem, PeersFocus, PeersInput, PeersSnack, Refusal, RowState, ScanVerdict,
-    TrustChange, UiModel,
+    TYPED_LINES, TrustChange, UiModel,
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::TransportIdentity;
@@ -204,19 +204,20 @@ fn an_empty_or_too_long_field_sends_nothing() {
         "goes once the field is not empty"
     );
 
-    let many: Vec<String> = (0..=CODE_LINES).map(|_| at(&peer())).collect();
+    // Typed lines past TYPED_LINES, never split into single writes.
+    let many: Vec<String> = (0..=TYPED_LINES).map(|_| at(&peer())).collect();
     let _ = input(&mut m, PeersInput::FieldChanged(many.join("\n")));
     assert!(input(&mut m, PeersInput::Add).is_empty());
     assert_eq!(
         m.peers().add_page_note(),
         Some(&AddNote::TooManyLines {
-            lines: CODE_LINES + 1
+            lines: TYPED_LINES + 1
         })
     );
     assert_eq!(
         focus(&m),
         Some(PeersFocus::Field {
-            select: Some(LineSelection::From(CODE_LINES))
+            select: Some(LineSelection::From(TYPED_LINES))
         })
     );
     assert!(!m.peers().busy(), "nothing was sent");
@@ -359,8 +360,15 @@ fn a_failed_add_says_what_is_true() {
     for (lines, problem, note) in cases {
         let mut m = opened(&me, &[], &[]);
         let _ = input(&mut m, PeersInput::OpenAdd);
-        let _ = input(&mut m, PeersInput::FieldChanged(lines.join("\n")));
-        let _ = input(&mut m, PeersInput::Add);
+        // Several lines reach the runtime only from a scan: typed, the
+        // field takes TYPED_LINES.
+        let sent = if lines.len() > TYPED_LINES {
+            input(&mut m, PeersInput::Scanned(lines.join("\n")))
+        } else {
+            let _ = input(&mut m, PeersInput::FieldChanged(lines.join("\n")));
+            input(&mut m, PeersInput::Add)
+        };
+        assert_eq!(sent, vec![Intent::AddAddresses(lines.clone())]);
         m.addresses_added(lines, Err(AddressChangeFailure::NotMade(problem)));
         assert_eq!(m.peers().add_page_note(), Some(&note), "{problem:?}");
         assert_eq!(focus(&m), Some(PeersFocus::AddButton));
@@ -416,8 +424,8 @@ fn a_lost_add_answer_is_decided_on_the_list_read_back() {
     let two = vec![at(&other), line.clone()];
     let mut partly = opened(&me, &[], &[added(&other)]);
     let _ = input(&mut partly, PeersInput::OpenAdd);
-    let _ = input(&mut partly, PeersInput::FieldChanged(two.join("\n")));
-    let _ = input(&mut partly, PeersInput::Add);
+    // Several lines in one add come from a scan (TYPED_LINES).
+    let _ = input(&mut partly, PeersInput::Scanned(two.join("\n")));
     partly.addresses_added(&two, lost());
     let _ = partly.peers_turn();
     partly.addresses_read(Ok(list(&[added(&other)])));
@@ -664,8 +672,8 @@ fn several_peers_are_several_blocks_each_decided_on_its_own() {
     let mut m = opened(&me, &[], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let lines = vec![at(&a), at(&b)];
-    let _ = input(&mut m, PeersInput::FieldChanged(lines.join("\n")));
-    let _ = input(&mut m, PeersInput::Add);
+    // Several lines in one add come from a scan (TYPED_LINES).
+    let _ = input(&mut m, PeersInput::Scanned(lines.join("\n")));
     m.addresses_added(
         &lines,
         answer(
@@ -716,8 +724,8 @@ fn an_add_for_a_trusted_peer_closes_at_once() {
     let mut m = opened(&me, std::slice::from_ref(&t), &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     let lines = vec![at(&t), at(&me)];
-    let _ = input(&mut m, PeersInput::FieldChanged(lines.join("\n")));
-    let _ = input(&mut m, PeersInput::Add);
+    // Several lines in one add come from a scan (TYPED_LINES).
+    let _ = input(&mut m, PeersInput::Scanned(lines.join("\n")));
     m.addresses_added(
         &lines,
         answer(
