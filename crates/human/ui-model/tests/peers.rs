@@ -1439,3 +1439,29 @@ fn a_rows_trust_returns_focus_to_that_row() {
         "the row shown first, whose Trust it was"
     );
 }
+
+/// An Undo answered as added whose list could not be read back focuses
+/// the restored row once a read lists it -- not before, when no such row
+/// is drawn.
+#[test]
+fn an_undo_restored_unread_focuses_its_row_once_read() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[added(&b)]));
+    let _ = input(&mut m, PeersInput::Undo);
+    let before = m.peers().focus().1;
+    m.addresses_added(
+        &[at(&a)],
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            list: Err(AddressProblem::Unavailable),
+        }),
+    );
+    assert_eq!(m.peers().focus().1, before, "no row to focus yet");
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Ok(list(&[added(&a), added(&b)])));
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))));
+}

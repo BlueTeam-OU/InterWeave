@@ -532,6 +532,9 @@ pub struct Peers {
     focuses: u64,
     /// Where focus went after the last removal, for an Undo refused.
     after_remove: Option<PeersFocus>,
+    /// A row an Undo restored while its list was unread, focused once a
+    /// read lists it.
+    restored: Option<String>,
 }
 
 /// The field's lines as the add sends them: each line ending (LF, CR LF
@@ -1025,6 +1028,16 @@ impl Peers {
                 if let Some(check) = check {
                     self.checked(check, trust);
                 }
+                if let Some(address) = self.restored.take() {
+                    let focus = self.list.as_ref().and_then(|l| {
+                        if listed(l, &address) {
+                            Some(PeersFocus::Row(address))
+                        } else {
+                            shown(l).next().map(|a| PeersFocus::Row(a.address.clone()))
+                        }
+                    });
+                    self.ask_focus(focus.unwrap_or(PeersFocus::AddAddress));
+                }
             }
             // A lost answer's read back failing leaves the list as last
             // read: the change is unknown, said where it was made.
@@ -1284,6 +1297,14 @@ impl Peers {
     fn undone(&mut self, address: String) {
         self.snack = None;
         self.after_remove = None;
+        // Restored with its list unread: the row is not drawn yet, so
+        // focus goes to it once a read lists it.
+        if self.held == Held::MayHaveChanged
+            && !self.list.as_ref().is_some_and(|l| listed(l, &address))
+        {
+            self.restored = Some(address);
+            return;
+        }
         self.ask_focus(PeersFocus::Row(address));
     }
 
