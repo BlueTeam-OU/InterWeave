@@ -505,6 +505,18 @@ pub struct PeerAddress {
     pub dialled: bool,
 }
 
+impl PeerAddress {
+    /// The peer `address` reaches: its last `/p2p/` component, which for
+    /// a circuit route is the destination and not the relay. Read, never
+    /// judged: the runtime's grammar is the judge, so a string it would
+    /// refuse may still name a peer here.
+    #[must_use]
+    pub fn peer_of(address: &str) -> Option<TransportIdentity> {
+        let (_, peer) = address.rsplit_once("/p2p/")?;
+        TransportIdentity::parse(peer).ok()
+    }
+}
+
 /// Where an address comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AddressOrigin {
