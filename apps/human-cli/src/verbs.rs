@@ -95,6 +95,9 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         }
         Verb::Send { text: None, .. }
         | Verb::Listen
+        | Verb::PeersList
+        | Verb::PeerAdd(_)
+        | Verb::PeerRemove(_)
         | Verb::IdentitiesList
         | Verb::SetEnabled(..)
         | Verb::SetDefault(_)

@@ -38,6 +38,8 @@ usage:
   interweave-human --profile <name> contacts rename <contact> <name>
   interweave-human --profile <name> contacts photo <contact> <file>|--none
   interweave-human --profile <name> contacts delete <contact>
+  interweave-human --profile <name> peers [--json]
+  interweave-human --profile <name> peers add|remove <address>
 
   --wait <ms>   how long to wait for the session and for an answer
                 (default 5000)
@@ -158,6 +160,12 @@ pub(crate) enum Verb {
     ContactPhoto(String, PhotoArg),
     /// Delete a contact, its routes and their keys.
     ContactDelete(String),
+    /// The bootstrap addresses: authored and added (ADR-0062).
+    PeersList,
+    /// Add a peer by address, as the person typed it.
+    PeerAdd(String),
+    /// Remove an added address.
+    PeerRemove(String),
 }
 
 /// What a photo argument asks.
@@ -371,6 +379,9 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             Verb::ContactPhoto((*id).to_owned(), PhotoArg::Remove),
             false,
         ),
+        ["peers"] => (Verb::PeersList, true),
+        ["peers", "add", address] => (Verb::PeerAdd((*address).to_owned()), false),
+        ["peers", "remove", address] => (Verb::PeerRemove((*address).to_owned()), false),
         ["contacts", "delete", id] => (Verb::ContactDelete((*id).to_owned()), false),
         ["contacts", "photo", id, file] => (
             Verb::ContactPhoto((*id).to_owned(), PhotoArg::File((*file).into())),
@@ -481,6 +492,21 @@ mod tests {
             &["--profile", "p", "contacts", "photo", "c1", "a.jpg"],
             &["--profile", "p", "contacts", "photo", "c1", "--none"],
             &["--profile", "p", "contacts", "delete", "c1"],
+            &["--profile", "p", "peers", "--json"],
+            &[
+                "--profile",
+                "p",
+                "peers",
+                "add",
+                "/ip4/192.0.2.1/tcp/4001/p2p/x",
+            ],
+            &[
+                "--profile",
+                "p",
+                "peers",
+                "remove",
+                "/ip4/192.0.2.1/tcp/4001/p2p/x",
+            ],
         ];
         for args in cases {
             assert!(matches!(run(args), Ok(Command::Run { .. })), "{args:?}");
@@ -512,6 +538,7 @@ mod tests {
             "contacts rename",
             "contacts photo",
             "contacts delete",
+            "peers add|remove",
         ] {
             assert!(USAGE.contains(word), "{word} in the usage");
         }

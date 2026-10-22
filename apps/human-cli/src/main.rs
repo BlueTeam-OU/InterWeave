@@ -227,6 +227,13 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
         let result = runtime.block_on(admin::identities(&profile, verb, json, &mut out));
         return Outcome { out, result };
     }
+    if matches!(
+        verb,
+        cli::Verb::PeersList | cli::Verb::PeerAdd(_) | cli::Verb::PeerRemove(_)
+    ) {
+        let result = runtime.block_on(admin::peers(&profile, verb, json, &mut out));
+        return Outcome { out, result };
+    }
     let lock = startup::lock(&profile).and_then(|lock| Ok((lock, startup::open_store(&profile)?)));
     let (_lock, mut store) = match lock {
         Ok(held) => held,

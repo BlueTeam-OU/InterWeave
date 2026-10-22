@@ -11,7 +11,9 @@
 use std::fmt::Write as _;
 
 use interweave_ipc_client::{IpcBinding, SocketPaths};
-use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+use interweave_local_client_api::{
+    AddressChange, AddressSource, AdminBinding as _, AdminCapability, AdminPort as _,
+};
 use interweave_profile_config::ProfileLock;
 use interweave_transport_api::{EndpointId, TransportError};
 use serde_json::json;
@@ -64,6 +66,98 @@ fn may_clear(current: Option<&EndpointId>, ours: &[EndpointId]) -> Result<(), Fa
         )),
         _ => Ok(()),
     }
+}
+
+/// What an address change prints, or why it was refused. A refusal is
+/// named by its rule's token; the daemon's detail is for a log, and is
+/// not shown (`an_address_refusal_names_its_rule_and_not_the_detail`).
+fn change_line(change: &AddressChange) -> Result<String, Failure> {
+    match change {
+        AddressChange::Added => Ok("added\n".to_owned()),
+        AddressChange::Removed => Ok("removed\n".to_owned()),
+        AddressChange::Unchanged => Ok("unchanged\n".to_owned()),
+        AddressChange::Refused { reason, .. } => Err(Failure::Refused(format!(
+            "the daemon refused the address: {}",
+            reason.as_str()
+        ))),
+    }
+}
+
+/// Carry out a `peers` verb (ADR-0062), on the admin socket's
+/// `admin.peers` capability (IPC 2.7). An address is sent as typed: the
+/// daemon's method judges it, against the configuration's grammar and the
+/// special-use floor.
+///
+/// # Errors
+/// [`Failure::Unreachable`] when no daemon answers, [`Failure::Refused`]
+/// when it refuses or speaks no 2.7.
+pub(crate) async fn peers(
+    profile: &Profile,
+    verb: &Verb,
+    json: bool,
+    out: &mut String,
+) -> Result<(), Failure> {
+    let binding = IpcBinding::new(
+        SocketPaths {
+            data: profile.data_socket.clone(),
+            admin: profile.admin_socket.clone(),
+        },
+        CLIENT_KIND,
+    );
+    let port = match binding.admin([AdminCapability::Peers].into()).await {
+        Ok(port) => port,
+        Err(TransportError::BackendUnavailable) => return Err(unreachable(profile)),
+        Err(e) => return Err(refused(e)),
+    };
+    if !port.port().holds(AdminCapability::Peers) {
+        return Err(Failure::Refused(
+            "the daemon does not grant the peers capability (IPC 2.7): is it older?".to_owned(),
+        ));
+    }
+    match verb {
+        Verb::PeerAdd(address) => {
+            let change = port
+                .add_bootstrap_address(address.clone())
+                .await
+                .map_err(refused)?;
+            out.push_str(&change_line(&change)?);
+        }
+        Verb::PeerRemove(address) => {
+            let change = port
+                .remove_bootstrap_address(address.clone())
+                .await
+                .map_err(refused)?;
+            out.push_str(&change_line(&change)?);
+        }
+        Verb::PeersList => {
+            for row in port.bootstrap_addresses().await.map_err(refused)? {
+                let source = match row.source {
+                    AddressSource::Authored => "authored",
+                    AddressSource::Added => "added",
+                };
+                if json {
+                    out.push_str(&output::json_line(&json!({
+                        "address": row.address,
+                        "source": source,
+                        "dialled": row.dialled,
+                    })));
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "{}  {source}{}",
+                        output::printable(&row.address),
+                        if row.dialled {
+                            ""
+                        } else {
+                            ", not dialled: the provider is off"
+                        }
+                    );
+                }
+            }
+        }
+        _ => return Err(Failure::Refused("not a peers verb".to_owned())),
+    }
+    Ok(())
 }
 
 /// Carry out an `identities` verb.
@@ -169,6 +263,27 @@ pub(crate) async fn identities(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_address_refusal_names_its_rule_and_not_the_detail() {
+        use interweave_local_client_api::AddressRefusal;
+        let refused = change_line(&AddressChange::Refused {
+            reason: AddressRefusal::SpecialUse,
+            detail: "loopback /ip4/127.0.0.1".to_owned(),
+        });
+        match refused {
+            Err(Failure::Refused(message)) => {
+                assert!(message.contains("special_use"), "{message}");
+                assert!(!message.contains("127.0.0.1"), "{message}");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(change_line(&AddressChange::Added).expect("ok"), "added\n");
+        assert_eq!(
+            change_line(&AddressChange::Unchanged).expect("ok"),
+            "unchanged\n"
+        );
+    }
 
     #[test]
     fn a_change_to_an_endpoint_not_the_human_clients_is_refused() {
