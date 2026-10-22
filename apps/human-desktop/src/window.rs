@@ -71,8 +71,16 @@ fn focus(focused: bool) {
 ///
 /// # Errors
 /// The toolkit's, as text: no window could be created or shown.
-pub(crate) fn run(profile: &Profile, store: HumanStore) -> Result<(), String> {
+pub(crate) fn run(
+    profile: &Profile,
+    store: HumanStore,
+    notice: Option<interweave_human_ui_model::UiText>,
+) -> Result<(), String> {
     let view = View::new(RuntimeHost::Daemon).map_err(|e| e.to_string())?;
+    // What a discard of the store came to, shown once in Chats.
+    if let Some(notice) = notice {
+        view.show_once(notice);
+    }
     let handle = view.handle();
     view.set_wake(|| defer(turn));
     view.on_window_focus(focus);

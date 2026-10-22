@@ -46,7 +46,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> ExitCode {
     let refused = |refusal: Refusal| {
         eprintln!("human-desktop: {refusal}");
         // Without Try again the screen can only close, with this class.
-        let _ = refusal::show::<()>(&refusal, None);
+        let _ = refusal::show::<()>(&refusal, None, None);
         ExitCode::from(refusal.code())
     };
 
@@ -85,26 +85,48 @@ pub fn run(args: impl IntoIterator<Item = String>) -> ExitCode {
         }
     };
     let store = match open_store(&profile, launch.store_options()) {
-        Opened::Ready(store) => store,
+        Opened::Ready(store) => (store, None),
         Opened::Blocked(blocked) => {
             let refusal = Refusal::Store(blocked);
             eprintln!("human-desktop: {refusal}");
+            let discard = discard(&profile);
             let (profile, options) = (profile.clone(), launch.store_options());
             let retry: Retry<_> = Box::new(move || match open_store(&profile, options) {
                 Opened::Ready(store) => Ok(store),
                 Opened::Blocked(blocked) => Err(Refusal::Store(blocked)),
             });
-            match refusal::show(&refusal, Some(retry)) {
-                Ok(store) => store,
+            match refusal::show(&refusal, Some(retry), Some(discard)) {
+                Ok((store, notice)) => (store, notice),
                 Err(code) => return ExitCode::from(code),
             }
         }
     };
-    match window::run(&profile, store) {
+    let (store, notice) = store;
+    match window::run(&profile, store, notice) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => refuse(
             EX_UNAVAILABLE,
             &format_args!("no window could be opened: {e}"),
         ),
+    }
+}
+
+/// Discard and recreate for `profile`'s store under the v1 desktop's
+/// custody, run under the single-instance lock the root holds (ADR-0060
+/// decision 6). The desktop holds one identity until Stage 22.
+fn discard(profile: &crate::startup::Profile) -> refusal::Discard {
+    use interweave_human_store::at_rest;
+    use interweave_human_store::key_custody::FilesystemCustody;
+    let (plan_paths, run_paths) = (profile.paths.clone(), profile.paths.clone());
+    refusal::Discard {
+        plan: Box::new(move || {
+            at_rest::plan_discard(&plan_paths, &FilesystemCustody).map_err(|e| e.to_string())
+        }),
+        run: Box::new(move |confirmed| {
+            at_rest::discard(&run_paths, &FilesystemCustody, confirmed)
+                .map(|done| done.scope)
+                .map_err(|e| e.to_string())
+        }),
+        identities: 1,
     }
 }
