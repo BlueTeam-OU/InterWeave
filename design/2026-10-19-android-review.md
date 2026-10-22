@@ -781,6 +781,53 @@ first (for architect-cto-01 to put to the owner):
 6. F10's waiting status, which needs a retry in progress to be seen;
 7. F3's handle, carried as toolkit-limited.
 
+Round 5, 2026-10-22 (10:57-11:03 phone time), the re-review for the
+close, on #358's build: rust-ui-dev-01's afb4466b, merged as
+fbca15e6, debug APK sha256 beginning 177170bf (read from the phone;
+installed 03:50 UTC with the app's data kept). By script through
+`phone-run` at the phone's new address, with Do Not Disturb on for
+each run and set back; dark theme, font 1.0, rotation automatic, all
+as found.
+
+| finding | result |
+|---|---|
+| F9 | Pass, step 5 included: in landscape with the keyboard up (`mInputShown=true`) in …x6gY6Eri, the newest message, its text ("w2 another pending one"), status and time, is wholly in view above the composer. |
+| F16 | Second half not met: a send to …x6gY6Eri, whose peer Trust does not list, becomes a pending row ("Not sent, send again or cancel", 11:00), as `RETENTION.md` §2 orders, but neither the row nor its menu (Send again, Cancel, Show source) gives the not-trusted reason look spec acceptance 23 asks for (`PeerNotTrusted`: "This peer is not trusted for this profile."). The row was cancelled at once by a drag left ("Sending canceled", the undo window let run out), so the phone holds nothing of the check. The first half passed in round 3. |
+| F17 | Pass: after the app bar's Back from …x6gY6Eri, no Chats row is drawn as selected on a phone-wide window. |
+| F10 | Unchanged: both earlier pending rows read "May have reached the peer, send again or cancel" at 01:14; a retry in progress, which the new waiting status is for, was not on screen. |
+
+Also seen: one long-press on the new pending row opened its menu and
+a second, minutes later, did not (the drag left then worked); not
+reproduced, so not filed.
+
+**State of every ranked finding for the close** (plan §20 clause (j)):
+
+| rank | finding | state |
+|---|---|---|
+| 1 | F1 Back | built, re-reviewed: pass (round 1) |
+| 1 | F2 actions as buttons | built, re-reviewed: pass (round 1) |
+| 1 | F3 composer | built and passed as ranked (round 2); its insertion handle after Back is Slint 1.18.1's Android backend: carried by name to the release gate, toolkit-limited (architect-cto-01, INFO 01a15914) |
+| 1 | F4 Trust's look and PeerIds | built, re-reviewed: pass (rounds 3 and 4) |
+| 1 | F8 status bar in light theme | built, re-reviewed: pass (round 1) |
+| 1 | F9 landscape keyboard | built, re-reviewed: pass (round 5) |
+| 1 | F16 composer focus and untrusted send | first half pass (round 3); second half not met (round 5): the not-trusted reason is not shown |
+| 2 | F5 focus ring on touch | built: pass (round 2) |
+| 2 | F6 "/ human" in titles | built: titles show the PeerId fragment alone (rounds 3-5) |
+| 2 | F7 app bar subtitle | built: pass (round 2) |
+| 2 | F10 pending status over hours | built (62312ee5); not seen on the phone, since no retry was in progress in any window: carried by name |
+| 2 | F11 Details | built: pass (round 2) |
+| 2 | F14 Show recovery phrase button | built: pass (round 2) |
+| 3 | F12 Trust's entry | built: pass (round 2) |
+| 3 | F13 font scale keeps the conversation | built: pass (round 1) |
+| 3 | F17 selected row on a phone | built: pass (round 5) |
+
+Not reviewed on the phone, and why: the identity screens' own
+acceptance (`design/2026-10-19-android-identity.md` §10). S2 and its
+Recents card need the owner's unlock; a first launch, create, restore
+and process death need the app's data wiped, which this phone's
+identity and conversations rule out. They are a person's check and a
+fresh-install run.
+
 ## 8. The swipe spec's acceptance on the same build
 
 `design/2026-10-16-message-swipe.md` §11, walked on the same build and
