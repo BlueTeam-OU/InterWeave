@@ -42,6 +42,7 @@ fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2
 #   $5 spike source    $6 vendored source  $7 channel-core source
 run_against() {
     SANDBOX="$(mktemp -d)"
+    [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_domain_fns_are_called: no sandbox (mktemp failed)" >&2; exit 1; }
     mkdir -p "$SANDBOX/tools/checks" \
              "$SANDBOX/crates/transport/runtime/src" \
              "$SANDBOX/crates/transport/libp2p/src" \

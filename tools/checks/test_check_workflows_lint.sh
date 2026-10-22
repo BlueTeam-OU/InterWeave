@@ -24,6 +24,7 @@ bad()  { echo "  FAIL: $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/        /' >&2
          fails=$((fails + 1)); }
 
 SANDBOX="$(mktemp -d)"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_workflows_lint: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 mkdir -p "$SANDBOX/repo/.github/workflows" "$SANDBOX/bin" "$SANDBOX/dist"
 printf 'on: push\n' > "$SANDBOX/repo/.github/workflows/ci.yml"
@@ -140,6 +141,7 @@ mv "$SANDBOX/shellcheck.away" "$SANDBOX/bin/shellcheck"
 # what the hand-over itself promises, against a recording stub.
 hcheck() { if eval "$2"; then pass "$1"; else bad "$1" "$hout"; fi; }
 hstub="$(mktemp -d)"
+[ -n "$hstub" ] && [ -d "$hstub" ] || { echo "test_check_workflows_lint: no sandbox (mktemp failed)" >&2; exit 1; }
 # The module stub is a shell script; a fake interpreter runs it with bash.
 printf '#!/bin/sh\nexec bash "$@"\n' > "$hstub/fake-python"; chmod +x "$hstub/fake-python"
 export AGENT_FABRIC_PYTHON="$hstub/fake-python"

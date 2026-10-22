@@ -51,6 +51,7 @@ expect() {
 }
 
 tmp="$(mktemp -d)"
+[ -n "$tmp" ] && [ -d "$tmp" ] || { echo "test_check_discovery_config_keys: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$tmp"' EXIT
 
 # 1. Agreement.

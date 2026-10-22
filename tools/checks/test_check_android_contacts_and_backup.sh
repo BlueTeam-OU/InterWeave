@@ -22,6 +22,7 @@ ok()  { printf '  ✓ %s\n' "$1"; pass=$((pass + 1)); }
 bad() { printf '  ✗ %s\n' "$1" >&2; fail=$((fail + 1)); }
 
 TMP="$(mktemp -d)"
+[ -n "$TMP" ] && [ -d "$TMP" ] || { echo "test_check_android_contacts_and_backup: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
 
 # Captured, never piped into `grep -q`: pipefail plus an early-exiting

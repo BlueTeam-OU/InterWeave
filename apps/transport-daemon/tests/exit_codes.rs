@@ -49,9 +49,18 @@ fn a_refused_start_is_one_and_says_why() {
         .output()
         .expect("runs");
     assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("transport-daemon: "),
+        stderr.contains("transport-daemon: "),
         "the reason is printed"
+    );
+    // The document by its path: a read or size refusal carries none.
+    let document = tmp
+        .path()
+        .join("config/interweave/profiles/absent/config.yaml");
+    assert!(
+        stderr.contains(document.to_str().expect("utf-8")),
+        "{stderr}"
     );
 }
 
