@@ -46,6 +46,7 @@
 #![forbid(unsafe_code)]
 
 pub mod identity_key;
+pub mod key_custody;
 pub mod records;
 pub mod schema;
 pub mod store;

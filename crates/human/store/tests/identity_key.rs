@@ -23,8 +23,8 @@ use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use interweave_human_store::identity_key::{
-    self, CipherFailure, Custody, FilesystemCustody, IdentityKey, IdentityKeyCipher,
-    IdentityKeyError, IdentityKeyFileError,
+    self, CipherFailure, Custody, FilesystemCustody, IdentityKey, IdentityKeyError,
+    IdentityKeyFileError, KeyCipher,
 };
 use interweave_profile_config::TrustBoundary;
 use interweave_profile_config::paths::ProfilePaths;
@@ -45,7 +45,7 @@ struct SoftKeystore {
     retired: RefCell<Vec<String>>,
 }
 
-impl IdentityKeyCipher for SoftKeystore {
+impl KeyCipher for SoftKeystore {
     fn custody(&self) -> Custody {
         Custody::Keystore
     }
@@ -425,7 +425,7 @@ struct RetireFails {
     file_there_at_retire: RefCell<Option<bool>>,
 }
 
-impl IdentityKeyCipher for RetireFails {
+impl KeyCipher for RetireFails {
     fn custody(&self) -> Custody {
         self.inner.custody()
     }

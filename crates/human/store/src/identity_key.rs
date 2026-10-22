@@ -41,7 +41,7 @@
 //!
 //! # The custody byte is a floor, never a choice
 //!
-//! The platform's [`IdentityKeyCipher`] says which custody it holds. A
+//! The platform's [`KeyCipher`] says which custody it holds. A
 //! record below it — a filesystem-only record where a wrapping key
 //! exists — is refused as a downgrade, and one above it — a sealed record
 //! on a desktop — as unreadable here. Nothing re-seals a record into
@@ -60,6 +60,8 @@ use interweave_transport_api::EndpointId;
 use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
+pub use crate::key_custody::{CipherFailure, Custody, FilesystemCustody, KeyCipher};
+
 /// The record's magic.
 pub const MAGIC: &[u8; 4] = b"IDK1";
 /// The one version this build writes and reads.
@@ -68,97 +70,6 @@ pub const VERSION: u8 = 1;
 pub const IDENTITY_KEYS_DIR: &str = "identity-keys";
 /// A file larger than this is no record of this build's.
 pub const MAX_RECORD_BYTES: u64 = 1024;
-
-/// Who holds the secret at rest, in increasing order of protection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Custody {
-    /// An owner-only file and nothing more: ADR-0038's `filesystem-only`,
-    /// the v1 desktop.
-    FilesystemOnly,
-    /// Sealed by a platform key the file does not hold: Android's
-    /// `AndroidKeyStore`, `background-compatible`.
-    Keystore,
-}
-
-impl Custody {
-    const fn byte(self) -> u8 {
-        match self {
-            Self::FilesystemOnly => 1,
-            Self::Keystore => 2,
-        }
-    }
-
-    const fn from_byte(b: u8) -> Option<Self> {
-        match b {
-            1 => Some(Self::FilesystemOnly),
-            2 => Some(Self::Keystore),
-            _ => None,
-        }
-    }
-}
-
-/// The platform half of the custody: seals and opens a secret under a
-/// key the file does not hold, and retires that key.
-pub trait IdentityKeyCipher {
-    /// The custody this platform holds, the floor every record is held to.
-    fn custody(&self) -> Custody;
-    /// Seal `secret` under the key named `alias`, binding `aad`.
-    ///
-    /// # Errors
-    /// The platform's refusal.
-    fn seal(&self, alias: &str, aad: &[u8], secret: &[u8; 32]) -> Result<Vec<u8>, CipherFailure>;
-    /// Open a body [`IdentityKeyCipher::seal`] produced under `alias` and `aad`.
-    ///
-    /// # Errors
-    /// The platform's refusal: a wrong key, a changed `aad`, an
-    /// invalidated or absent key.
-    fn open(
-        &self,
-        alias: &str,
-        aad: &[u8],
-        sealed: &[u8],
-    ) -> Result<Zeroizing<[u8; 32]>, CipherFailure>;
-    /// Delete the key named `alias`, if the platform holds one.
-    ///
-    /// # Errors
-    /// The platform's refusal.
-    fn retire(&self, alias: &str) -> Result<(), CipherFailure>;
-}
-
-/// A platform cipher's refusal.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CipherFailure {
-    /// The wrapping key is gone or invalidated (a Keystore invalidation).
-    KeyUnavailable,
-    /// The body did not authenticate under the key and associated data.
-    Unauthentic,
-    /// Anything else the platform reported.
-    Platform(String),
-}
-
-/// The desktop's custody: the file is the only protection, so sealing is
-/// the identity and there is no key to retire.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct FilesystemCustody;
-
-impl IdentityKeyCipher for FilesystemCustody {
-    fn custody(&self) -> Custody {
-        Custody::FilesystemOnly
-    }
-
-    fn seal(&self, _: &str, _: &[u8], secret: &[u8; 32]) -> Result<Vec<u8>, CipherFailure> {
-        Ok(secret.to_vec())
-    }
-
-    fn open(&self, _: &str, _: &[u8], sealed: &[u8]) -> Result<Zeroizing<[u8; 32]>, CipherFailure> {
-        let secret: [u8; 32] = sealed.try_into().map_err(|_| CipherFailure::Unauthentic)?;
-        Ok(Zeroizing::new(secret))
-    }
-
-    fn retire(&self, _: &str) -> Result<(), CipherFailure> {
-        Ok(())
-    }
-}
 
 /// The platform key's alias for one identity of one profile (ADR-0063
 /// decision 2): its own namespace, never one of the seed's
@@ -272,7 +183,7 @@ impl IdentityKey {
     pub fn to_record(
         &self,
         profile: &str,
-        cipher: &dyn IdentityKeyCipher,
+        cipher: &dyn KeyCipher,
     ) -> Result<Zeroizing<String>, IdentityKeyError> {
         let custody = cipher.custody();
         let mut record = Zeroizing::new(self.header(custody));
@@ -295,7 +206,7 @@ impl IdentityKey {
         line: &str,
         profile: &str,
         endpoint: &EndpointId,
-        cipher: &dyn IdentityKeyCipher,
+        cipher: &dyn KeyCipher,
     ) -> Result<Self, IdentityKeyError> {
         let bytes = Zeroizing::new(
             STANDARD
@@ -349,7 +260,7 @@ pub fn key_path(paths: &ProfilePaths, endpoint: &EndpointId) -> PathBuf {
 pub fn create(
     paths: &ProfilePaths,
     endpoint: &EndpointId,
-    cipher: &dyn IdentityKeyCipher,
+    cipher: &dyn KeyCipher,
 ) -> Result<IdentityKey, IdentityKeyFileError> {
     let key = IdentityKey::generate(endpoint.clone())?;
     let line = key.to_record(paths.profile(), cipher)?;
@@ -382,7 +293,7 @@ pub fn create(
 pub fn open(
     paths: &ProfilePaths,
     endpoint: &EndpointId,
-    cipher: &dyn IdentityKeyCipher,
+    cipher: &dyn KeyCipher,
 ) -> Result<Option<IdentityKey>, IdentityKeyFileError> {
     let Some(line) = interweave_profile_config::read_private_within(
         &key_path(paths, endpoint),
@@ -412,7 +323,7 @@ pub fn open(
 pub fn remove(
     paths: &ProfilePaths,
     endpoint: &EndpointId,
-    cipher: &dyn IdentityKeyCipher,
+    cipher: &dyn KeyCipher,
 ) -> Result<bool, IdentityKeyFileError> {
     let removed = persist::remove_private_within(&key_path(paths, endpoint), paths.boundary())
         .map_err(|e| IdentityKeyFileError::Persist(e.to_string()))?;
