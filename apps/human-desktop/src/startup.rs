@@ -10,6 +10,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use interweave_human_store::key_custody::FilesystemCustody;
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
 use interweave_profile_config::{LoadError, PersistError, ProfileConfig, ProfilePaths, XdgRoots};
 use interweave_transport_api::{ChannelId, EndpointId};
@@ -278,7 +279,9 @@ impl fmt::Display for Blocked {
 /// classifying a failure by what a person can do about it.
 #[must_use]
 pub fn open_store(profile: &Profile, options: StoreOptions) -> Opened {
-    match HumanStore::open_profile(&profile.paths, options) {
+    // The v1 desktop seals the store key at ADR-0038's `filesystem-only`
+    // (ADR-0060 decision 3), until SPIKE-007's envelope lands.
+    match HumanStore::open_profile(&profile.paths, &FilesystemCustody, options) {
         Ok(store) => Opened::Ready(store),
         Err(error) => Opened::Blocked(classify(&profile.store_path(), &error)),
     }
@@ -286,7 +289,9 @@ pub fn open_store(profile: &Profile, options: StoreOptions) -> Opened {
 
 fn classify(path: &Path, error: &StoreError) -> Blocked {
     let path = path.to_path_buf();
-    if error.needs_recovery() {
+    // A filesystem custody reports no invalidation; were one to, the
+    // store is as unreadable as with a missing key: recovery mode.
+    if error.needs_recovery() || matches!(error, StoreError::KeyInvalidated) {
         return Blocked::Recovery { path };
     }
     match error {
