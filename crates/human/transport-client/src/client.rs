@@ -728,7 +728,7 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
         &self,
         address: String,
     ) -> Result<AddressAnswer, AddressChangeFailure> {
-        let peer = peer_of(&address);
+        let peer = PeerAddress::peer_of(&address);
         self.change_address(address, true).await.map(|mut answer| {
             if answer.outcome == (AddressOutcome::Added { peer: None }) {
                 answer.outcome = AddressOutcome::Added { peer };
@@ -1402,7 +1402,7 @@ async fn read_addresses<P: AdminPort>(admin: &P) -> Result<AddressList, AddressP
         addresses: rows
             .into_iter()
             .map(|row| PeerAddress {
-                peer: peer_of(&row.address),
+                peer: PeerAddress::peer_of(&row.address),
                 origin: match row.source {
                     AddressSource::Authored => AddressOrigin::Configured,
                     AddressSource::Added => AddressOrigin::AddedHere,
@@ -1412,15 +1412,6 @@ async fn read_addresses<P: AdminPort>(admin: &P) -> Result<AddressList, AddressP
             })
             .collect(),
     })
-}
-
-/// The peer an address reaches: its last `/p2p/` component, which for a
-/// circuit route is the destination and not the relay. Read, never
-/// judged: the runtime's grammar is the judge, so a string it would
-/// refuse may still name a peer here.
-fn peer_of(address: &str) -> Option<TransportIdentity> {
-    let (_, peer) = address.rsplit_once("/p2p/")?;
-    TransportIdentity::parse(peer).ok()
 }
 
 fn trust_row(row: interweave_local_client_api::TrustedPeer) -> TrustRow {
