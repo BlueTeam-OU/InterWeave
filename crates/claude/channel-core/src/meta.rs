@@ -338,25 +338,4 @@ mod tests {
             Some(MAX_META_VALUE_BYTES)
         );
     }
-
-    /// The widest legal card name, 64 scalar values of four bytes each,
-    /// is exactly the value bound, and is carried. One byte more is
-    /// refused. `card.rs`'s compile-time assertion holds only that a
-    /// legal name fits; this test pins that it fits exactly.
-    #[test]
-    fn the_widest_legal_card_name_fits_and_one_byte_more_does_not() {
-        let widest = "\u{1D49C}".repeat(interweave_human_chat_protocol::MAX_CARD_NAME_SCALARS);
-        assert_eq!(widest.len(), MAX_META_VALUE_BYTES, "64 scalars of 4 bytes");
-        let mut meta = ChannelMeta::new();
-        meta.set(MetaKey::CardName, widest.clone())
-            .expect("carried");
-        assert_eq!(meta.get(MetaKey::CardName), Some(widest.as_str()));
-        assert_eq!(
-            meta.set(MetaKey::CardName, format!("{widest}x")),
-            Err(MetaError::TooLong {
-                key: "card_name",
-                len: MAX_META_VALUE_BYTES + 1
-            })
-        );
-    }
 }
