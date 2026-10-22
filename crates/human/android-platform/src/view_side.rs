@@ -30,6 +30,9 @@ pub struct ViewSide<S: Surface, O: Opener> {
     authentication: bool,
     /// The store's refusal of the last start, as the hub last said.
     store: Option<StoreRefusal>,
+    /// How many store answers the hub has sent this view: a refusal of a
+    /// start, or the end of one.
+    store_answers: u64,
 }
 
 impl<S: Surface, O: Opener> ViewSide<S, O> {
@@ -42,6 +45,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             network: true,
             authentication: false,
             store: None,
+            store_answers: 0,
         }
     }
 
@@ -51,6 +55,14 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     #[must_use]
     pub const fn store_refused(&self) -> Option<StoreRefusal> {
         self.store
+    }
+
+    /// How many store answers the hub has sent: a count that grows with
+    /// each refused start and each start that opened the store, so a view
+    /// tells a refusal that came after its own discard from one before it.
+    #[must_use]
+    pub const fn store_answers(&self) -> u64 {
+        self.store_answers
     }
 
     /// Apply one message from the hub.
@@ -78,7 +90,10 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             }
             ToView::Update(update) => self.side.apply(*update),
             ToView::ListingFailed => return Err(ListingFailed),
-            ToView::StoreRefused(screen) => self.store = screen,
+            ToView::StoreRefused(screen) => {
+                self.store = screen;
+                self.store_answers += 1;
+            }
         }
         Ok(())
     }

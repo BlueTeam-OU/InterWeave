@@ -269,9 +269,13 @@ impl Hub {
 
     /// What the store's refusal of the last start was, or `None` once a
     /// start opened it: said to the attached view, and to each later one.
+    /// EVERY REFUSAL IS SAID, an unchanged one included: each answers a
+    /// start, and a view that asked for a restart learns from it that the
+    /// restart was refused again (#377 review F3). An unchanged `None` is
+    /// not repeated.
     pub(crate) fn set_store_refused(&self, screen: Option<StoreRefusal>) {
         let mut slot = self.slot();
-        if slot.store == screen {
+        if slot.store.is_none() && screen.is_none() {
             return;
         }
         slot.store = screen;
@@ -589,5 +593,28 @@ mod tests {
         assert!(matches!(rx.try_recv(), Ok(Command::Reopen)));
         hub.set_running(None);
         assert!(!hub.command(Command::Reopen));
+    }
+
+    /// Every refused start is said, an unchanged refusal included: a view
+    /// that asked for a restart learns it was refused again; an unchanged
+    /// `None` is not repeated (#377 review F3).
+    #[test]
+    fn a_refusal_is_said_at_every_start_and_an_opened_store_once() {
+        let hub = Hub::new();
+        let (_, wake) = counting();
+        let mut link = hub.attach(wake);
+        let _ = link.take();
+        let refusals = |link: &mut ViewLink| {
+            link.take()
+                .iter()
+                .filter(|m| matches!(m, ToView::StoreRefused(_)))
+                .count()
+        };
+        hub.set_store_refused(Some(StoreRefusal::KeyLost));
+        hub.set_store_refused(Some(StoreRefusal::KeyLost));
+        assert_eq!(refusals(&mut link), 2, "each refused start");
+        hub.set_store_refused(None);
+        hub.set_store_refused(None);
+        assert_eq!(refusals(&mut link), 1, "the store opened, said once");
     }
 }
