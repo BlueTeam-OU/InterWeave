@@ -46,10 +46,15 @@ holds no release logic of its own. In order:
    (`packaging/linux/README.md`).
 7. **The notices.** `tools/ci/skia_notices.py <out.json>` fetches every
    licence text the APK's native Skia library owes, each checked
-   against `tools/ci/skia-notices.pin`, with FreeType's credit line.
+   against `tools/ci/skia-notices.pin`, with FreeType's credit line;
+   `tools/ci/release_crate_notices.sh aarch64-linux-android
+   interweave-human-android <crate-notices.json>` writes the notices of
+   every Rust crate compiled into the native library (ADR-0058
+   decision 5), under the page's own `{crate_notices}`.
 8. **The page.** `tools/ci/release_page.py
    apps/human-android/release/release-page.md.in <page.md>
-   <run.json> android-values.json linux-values.json <notices.json>`,
+   <run.json> android-values.json linux-values.json <notices.json>
+   <crate-notices.json>`,
    `<run.json>` holding the version, the release notes and the two
    download URLs, the rest the files steps 5–7 wrote. It refuses a
    placeholder left unfilled, a value with no placeholder, and a value
