@@ -56,17 +56,18 @@ pub(super) fn select<'a>(
             rows.push(OwnAddress { address, kind });
         }
     };
-    let confirmed: Vec<Multiaddr> = confirmed
-        .into_iter()
-        .filter_map(parsed)
-        .filter(|a| !is_relayed(a))
-        .collect();
-    for address in &confirmed {
-        if let Some(a) = admitted(address, false) {
+    // Relay-only is read off the list as AutoNAT handed it over, every
+    // entry counted: an entry the rows below omit -- unparsable, relayed,
+    // floored -- is still a confirmation, so it never turns a confirmed
+    // node relay-only.
+    let confirmed: Vec<&str> = confirmed.into_iter().collect();
+    let relay_only = confirmed.is_empty();
+    for address in confirmed.iter().copied().filter_map(parsed) {
+        if let Some(a) = admitted(&address, false) {
             push(a, OwnAddressKind::ConfirmedExternal, &mut rows);
         }
     }
-    if confirmed.is_empty() {
+    if relay_only {
         for address in circuits.into_iter().filter_map(parsed) {
             if let Some(a) = admitted(&address, true) {
                 push(a, OwnAddressKind::RelayCircuit, &mut rows);
@@ -167,8 +168,9 @@ mod tests {
     }
 
     /// Relay-only: with nothing confirmed the circuit route comes before
-    /// the listeners. The control: a confirmed address, even one the
-    /// floor omits, means the node is not relay-only, so no circuit row.
+    /// the listeners. The control: a confirmed entry, even one no row
+    /// shows -- floored, relayed or unparsable -- means the node is not
+    /// relay-only, so no circuit row.
     #[test]
     fn a_relay_only_node_shows_its_circuit_route_before_its_listeners() {
         let (peer, identity) = me();
@@ -177,21 +179,27 @@ mod tests {
             .to_peer_id();
         let circuit = format!("/ip4/93.184.216.34/tcp/4001/p2p/{relay}/p2p-circuit");
         let listen = [ma("/ip4/192.168.1.20/tcp/4001")];
-        let floored = select(
-            peer,
-            identity.clone(),
-            ["/ip4/127.0.0.1/tcp/4001"],
-            [circuit.as_str()],
-            &listen,
-        );
-        assert_eq!(
-            rows(&floored),
-            [(
-                format!("/ip4/192.168.1.20/tcp/4001/p2p/{peer}"),
-                OwnAddressKind::Listen
-            )],
-            "confirmed, though floored: not relay-only"
-        );
+        for omitted in [
+            "/ip4/127.0.0.1/tcp/4001",
+            circuit.as_str(),
+            "not a multiaddr",
+        ] {
+            let confirmed_omitted = select(
+                peer,
+                identity.clone(),
+                [omitted],
+                [circuit.as_str()],
+                &listen,
+            );
+            assert_eq!(
+                rows(&confirmed_omitted),
+                [(
+                    format!("/ip4/192.168.1.20/tcp/4001/p2p/{peer}"),
+                    OwnAddressKind::Listen
+                )],
+                "{omitted} confirmed, though not shown: not relay-only"
+            );
+        }
         let own = select(peer, identity, [], [circuit.as_str()], &listen);
         assert_eq!(
             rows(&own),
