@@ -135,6 +135,25 @@ and `meta` and behaviour under load; a server negotiating the
 2026-07-28 revision; any non-interactive delivery; any `-p` timing other
 than the three tried.
 
+**Carried measurement, S19 (2026-10-22, Claude Code 2.1.286,
+rust-services-dev, plan §22): marketplace distribution works with the
+development flag only.** Read off `spikes/spike-001/README.md` §S19
+(facts 20–23, runs `s19-*`). The plugin was the bridge's own package,
+assembled by `packaging/claude-plugin/build.sh` from the release build.
+A local marketplace of it is added, and the plugin installs from it
+at user scope. Installed, its server is
+`plugin:interweave:interweave` and its flag value is
+`plugin:interweave@interweave`. The development flag registers the
+channel from that install as it does from `--plugin-dir`. `--channels`
+names the installed plugin correctly and is refused because the plugin
+is not on the approved channels allowlist. With no flag, the channel is
+skipped. Read from the binary, not measured: without the development
+flag, a plugin channel needs `{plugin, marketplace}` on the
+organisation's `allowedChannelPlugins` (with `channelsEnabled: true`)
+or, without one, on the allowlist Anthropic serves remotely. So
+`--channels` with a published plugin needs Anthropic to list it, and
+that, like the organisation path, stays not established.
+
 ---
 
 ## SPIKE-002 — transport wire/race and GossipSub cache behavior
