@@ -123,7 +123,7 @@ The documents are listed by document and sentence. Amending them is architect-ct
 
 ## Not established
 
-- `--channels` with a published plugin. A plugin installed from a local marketplace is refused by `--channels` and registers only with the development flag (S19, facts 20 to 22). A listing on Anthropic's allowlist, or an organisation's `allowedChannelPlugins`, is what would change that (fact 23), and neither was tried.
+- `--channels` with a published plugin. A plugin installed from a local marketplace is refused by `--channels` and registers only with the development flag (S19, facts 20 to 22). A listing on Anthropic's allowlist, or an organisation's `allowedChannelPlugins` with `channelsEnabled: true`, is what would change that (fact 23, read from the binary, not measured), and neither was tried.
 - `userConfig` substitution into the server's environment.
 - Organisation-policy gating (`channelsEnabled`, `allowedChannelPlugins`): this account has no organisation.
 - Permission relay, which the design does not declare.
