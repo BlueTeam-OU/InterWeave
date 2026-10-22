@@ -202,7 +202,7 @@ fn main() {}'
 src trunc src/lib.rs "$(printf '%s\n' "$MITHDR" | grep -v 'The above copyright notice\|portions of the Software')"
 # Cut right after "IN NO EVENT SHALL": every marker a fragment check
 # would look for is still there.
-src trunc2 src/lib.rs "$(printf '%s\n' "$MITHDR" | sed '/EVENT SHALL THE AUTHORS/,/DEALINGS IN THE SOFTWARE/d')"
+src trunc2 src/lib.rs "$(printf '%s\n' "$MITHDR" | sed '/IN AN ACTION OF CONTRACT/,/DEALINGS IN THE SOFTWARE/d')"
 # One header naming the crate's own licence and a foreign one (as the
 # Chromium-derived accesskit header names MIT and BSD): the BSD text is
 # owed even though MIT is answered.
