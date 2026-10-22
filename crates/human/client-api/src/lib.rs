@@ -14,7 +14,7 @@
 
 #![forbid(unsafe_code)]
 
-use interweave_human_chat_protocol::HumanChatV2;
+use interweave_human_chat_protocol::{Card, HumanChatV2};
 use interweave_human_core::{AppMessageId, RowId};
 use interweave_transport_api::{
     ChannelId, EndpointId, PeerPath, TransportError, TransportIdentity,
@@ -275,6 +275,32 @@ pub struct Received {
     pub received_at: u64,
 }
 
+/// A contact card committed as unread, ready to show as a proposal
+/// (plan §29 step 2, `human-client-ui.md` §3): it verified under its
+/// identity key over the route it arrived on, which is this one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceivedCard {
+    /// Its unread row.
+    pub row: RowId,
+    /// The authenticated source peer of the direct message it came in.
+    pub peer: TransportIdentity,
+    /// The source endpoint it came from: the remote identity it presents.
+    pub endpoint: EndpointId,
+    /// The parsed card. Its photo is bytes, not decoded before Accept.
+    pub card: Card,
+    /// When it was committed, on the caller's wall clock in Unix ms.
+    pub received_at: u64,
+}
+
+/// What one inbound commit gives the caller: a message, or a card.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Inbound {
+    /// A text message.
+    Message(Received),
+    /// A contact card.
+    Card(ReceivedCard),
+}
+
 /// Something the caller should re-render.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientEvent {
@@ -332,6 +358,12 @@ pub struct Diagnostics {
     /// Committed inbound past the hand-over queue's cap: unread in the
     /// store, shown from there rather than from `drain`.
     pub held_overflow: u64,
+    /// Contact cards discarded as malformed: any fault of HUMAN-CHAT.md
+    /// §Contact card, a signature that does not verify included.
+    pub malformed_card: u64,
+    /// Contact cards received over broadcast: ignored, never shown, since
+    /// broadcast is not the channel a card is sent on (ADR-0059 decision 2).
+    pub card_over_broadcast: u64,
 }
 
 /// The profile's trust allowlist as the daemon holds it now
