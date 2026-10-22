@@ -903,6 +903,17 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
         Err(StartRefused::StoreKeyInvalidated)
     );
     assert!(!service.is_running());
+    // A view attached now hears which screen the refusal calls for.
+    let mut link = service.hub().attach(Arc::new(|| {}));
+    assert!(
+        link.take().iter().any(|m| matches!(
+            m,
+            ToView::StoreRefused(Some(
+                interweave_human_android_platform::StoreRefusal::KeyLost
+            ))
+        )),
+        "the key-lost screen"
+    );
     let health = service
         .store_health(&app.dir, PROFILE, &keystore)
         .expect("health");
@@ -922,5 +933,11 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
     service
         .start_without_network(&app.dir, PROFILE, &keystore)
         .expect("the store is recreated under a new key");
+    assert!(
+        link.take()
+            .iter()
+            .any(|m| matches!(m, ToView::StoreRefused(None))),
+        "the screen goes once a start opened the store"
+    );
     let _ = service.stop(GRACE);
 }

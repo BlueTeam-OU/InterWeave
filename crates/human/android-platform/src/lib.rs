@@ -27,7 +27,7 @@ pub mod service;
 pub mod stand_in;
 pub mod view_side;
 
-pub use hub::{Hub, TO_VIEW, ToView, ViewLink};
+pub use hub::{Hub, StoreRefusal, TO_VIEW, ToView, ViewLink};
 pub use identity::{
     Expected, FirstRun, IdentityRefused, RestoreRefused, phrase_peer, restore_identity,
     start_identity,

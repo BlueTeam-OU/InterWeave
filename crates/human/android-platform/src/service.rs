@@ -29,6 +29,7 @@ use interweave_transport_embedded::{
 
 use crate::facade::{FacadeLoop, SpawnError};
 use crate::hub::Hub;
+use crate::hub::StoreRefusal;
 use crate::network::{NetworkReport, NetworkSlot, Told};
 use crate::offline::offline_embedded;
 
@@ -378,6 +379,7 @@ impl ServiceHost {
         // From here a refusal stops the host before it answers.
         let refuse = |host: EmbeddedHost, why: StartRefused| {
             let _ = host.stop(Duration::ZERO);
+            self.hub.set_store_refused(store_screen(&why));
             Err(why)
         };
         let config = match ProfileConfig::load(host.paths()) {
@@ -415,6 +417,7 @@ impl ServiceHost {
             Err(SpawnError::Store(e)) => return refuse(host, classify(&e)),
             Err(SpawnError::Thread(e)) => return refuse(host, StartRefused::Thread(e.to_string())),
         };
+        self.hub.set_store_refused(None);
         self.hub.set_network_access(true);
         let host = Arc::new(host);
         // The callback reported the networks before this runtime existed
@@ -459,7 +462,11 @@ impl ServiceHost {
         let config = ProfileConfig::load(&paths).map_err(|e| refused(e.into()))?;
         let endpoint = human_endpoint(&config).ok_or(StartRefused::NoHumanEndpoint)?;
         let store = HumanStore::open_profile(&paths, store_cipher, StoreOptions::default())
-            .map_err(|e| classify(&e))?;
+            .map_err(|e| {
+                let why = classify(&e);
+                self.hub.set_store_refused(store_screen(&why));
+                why
+            })?;
         let executor = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("interweave-offline")
@@ -480,6 +487,7 @@ impl ServiceHost {
         };
         // Said before the facade runs, so a view never shows this posture
         // as a service that can send.
+        self.hub.set_store_refused(None);
         self.hub.set_network_access(false);
         let facade = match FacadeLoop::spawn(executor.handle().clone(), make, &self.hub) {
             Ok(facade) => facade,
@@ -685,6 +693,16 @@ fn client_config(
         endpoints: vec![endpoint],
         channels: config.channels.desired.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
+    }
+}
+
+/// The screen a store refusal shows in place of the chats (ADR-0060
+/// decision 6), or none for any other refusal.
+const fn store_screen(why: &StartRefused) -> Option<StoreRefusal> {
+    match why {
+        StartRefused::StoreNeedsRecovery => Some(StoreRefusal::Recovery),
+        StartRefused::StoreKeyInvalidated => Some(StoreRefusal::KeyLost),
+        _ => None,
     }
 }
 

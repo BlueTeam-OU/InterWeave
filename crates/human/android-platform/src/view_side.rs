@@ -12,6 +12,7 @@
 
 use interweave_human_app_core::{ModelSide, Opener, Surface};
 
+use crate::hub::StoreRefusal;
 use crate::hub::ToView;
 
 /// The store could not be listed for this view: what it holds stays
@@ -27,6 +28,8 @@ pub struct ViewSide<S: Surface, O: Opener> {
     network: bool,
     /// Whether the person must authenticate first, as the hub last said.
     authentication: bool,
+    /// The store's refusal of the last start, as the hub last said.
+    store: Option<StoreRefusal>,
 }
 
 impl<S: Surface, O: Opener> ViewSide<S, O> {
@@ -38,7 +41,16 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             fresh: Box::new(fresh),
             network: true,
             authentication: false,
+            store: None,
         }
+    }
+
+    /// The screen the store's refusal of the last start calls for (ADR-0060
+    /// decision 6), shown in place of the chats; `None` once a start
+    /// opened the store.
+    #[must_use]
+    pub const fn store_refused(&self) -> Option<StoreRefusal> {
+        self.store
     }
 
     /// Apply one message from the hub.
@@ -66,6 +78,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             }
             ToView::Update(update) => self.side.apply(*update),
             ToView::ListingFailed => return Err(ListingFailed),
+            ToView::StoreRefused(screen) => self.store = screen,
         }
         Ok(())
     }

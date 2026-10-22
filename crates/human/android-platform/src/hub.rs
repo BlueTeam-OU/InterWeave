@@ -50,6 +50,12 @@ pub enum ToView {
     /// The store could not be listed for this view: what it holds stays
     /// unshown until the view attaches again. A class, never content.
     ListingFailed,
+    /// The service did not start because of the message store (ADR-0060
+    /// decision 6): the screen the view shows in place of the chats --
+    /// recovery mode, or the key the platform invalidated -- or `None`
+    /// once a start opened the store. Sent at an attach and at every
+    /// change.
+    StoreRefused(Option<StoreRefusal>),
 }
 
 struct Viewer {
@@ -88,6 +94,8 @@ struct Slot {
     /// Whether the person must authenticate before anything runs, as the
     /// Activity last said.
     authentication: bool,
+    /// The store's refusal of the last start, if it refused.
+    store: Option<StoreRefusal>,
 }
 
 impl Default for Slot {
@@ -97,8 +105,21 @@ impl Default for Slot {
             running: false,
             network: true,
             authentication: false,
+            store: None,
         }
     }
+}
+
+/// Why the message store refused the last start (ADR-0060 decision 6):
+/// the screen the view shows in place of the chats.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreRefusal {
+    /// Recovery mode: the key missing or not opening the store, a damaged
+    /// file, a newer build's, a failed migration.
+    Recovery,
+    /// The platform invalidated the store key: Discard and recreate is
+    /// offered directly.
+    KeyLost,
 }
 
 /// The process's one meeting point between the facade and the view.
@@ -152,6 +173,7 @@ impl Hub {
         viewer.send(ToView::Running(slot.running));
         viewer.send(ToView::NetworkAccess(slot.network));
         viewer.send(ToView::AuthenticationNeeded(slot.authentication));
+        viewer.send(ToView::StoreRefused(slot.store));
         slot.viewer = Some(viewer);
         ViewLink {
             from,
@@ -240,6 +262,21 @@ impl Hub {
         slot.authentication = needed;
         if let Some(viewer) = slot.viewer.as_ref()
             && !viewer.send(ToView::AuthenticationNeeded(needed))
+        {
+            slot.viewer = None;
+        }
+    }
+
+    /// What the store's refusal of the last start was, or `None` once a
+    /// start opened it: said to the attached view, and to each later one.
+    pub(crate) fn set_store_refused(&self, screen: Option<StoreRefusal>) {
+        let mut slot = self.slot();
+        if slot.store == screen {
+            return;
+        }
+        slot.store = screen;
+        if let Some(viewer) = slot.viewer.as_ref()
+            && !viewer.send(ToView::StoreRefused(screen))
         {
             slot.viewer = None;
         }
@@ -349,7 +386,8 @@ mod tests {
             [
                 ToView::Running(false),
                 ToView::NetworkAccess(true),
-                ToView::AuthenticationNeeded(false)
+                ToView::AuthenticationNeeded(false),
+                ToView::StoreRefused(None)
             ]
         ));
         assert!(!hub.wants_listing(), "nothing to list while none runs");
@@ -430,7 +468,8 @@ mod tests {
             [
                 ToView::Running(false),
                 ToView::NetworkAccess(false),
-                ToView::AuthenticationNeeded(false)
+                ToView::AuthenticationNeeded(false),
+                ToView::StoreRefused(None)
             ]
         ));
     }
@@ -456,7 +495,8 @@ mod tests {
             [
                 ToView::Running(false),
                 ToView::NetworkAccess(true),
-                ToView::AuthenticationNeeded(true)
+                ToView::AuthenticationNeeded(true),
+                ToView::StoreRefused(None)
             ]
         ));
     }
@@ -474,7 +514,8 @@ mod tests {
             [
                 ToView::Running(false),
                 ToView::NetworkAccess(true),
-                ToView::AuthenticationNeeded(false)
+                ToView::AuthenticationNeeded(false),
+                ToView::StoreRefused(None)
             ]
         ));
         assert!(!second.lost());
