@@ -233,6 +233,60 @@
       "rule": "signature-fails"
     },
     {
+      "name": "signature-small-order-r",
+      "note": "valid-minimal's card under the test-only key, its signature's R the identity point's encoding and S recomputed as H(R||A||M)·a mod ℓ, a the clamped first half of the seed's SHA-512: a cofactorless verifier accepts it, and only the small-order-R check refuses it.",
+      "received_on": {
+        "peer_id": "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+        "source_endpoint": "human"
+      },
+      "signer": {
+        "test_only_seed_hex": "563390434497ceb0ef02c45a3142664a260db2859a5c20cf8eb47a699d0da2cd",
+        "public_key_base64": "s+xRBXOeKjg/sNDiAjolD2QxrmJcqV81R4Pu5jE4yDc=",
+        "constructed": "small-order-r",
+        "lax_verifies": true
+      },
+      "envelope": {
+        "v": 2,
+        "kind": "contact_card",
+        "app_message_id": "0123456789abcdef0123456789abcdef",
+        "card": {
+          "name": "Ada",
+          "identity_key": "s+xRBXOeKjg/sNDiAjolD2QxrmJcqV81R4Pu5jE4yDc=",
+          "signature": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABRvuT4p5GR3EpJnlrfDlCazfM9TqDdQUeUsNLGobV2Aw=="
+        }
+      },
+      "canonical_bytes_hex": "696e74657277656176652d636172642d7631000341646100000000000000260024080112203b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29000568756d616e",
+      "valid": false,
+      "rule": "signature-fails"
+    },
+    {
+      "name": "signature-non-canonical-s",
+      "note": "valid-minimal's signature with S raised by the group order ℓ, still below 2^253: the same signature modulo ℓ, refused only by the canonical-S check.",
+      "received_on": {
+        "peer_id": "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+        "source_endpoint": "human"
+      },
+      "signer": {
+        "test_only_seed_hex": "563390434497ceb0ef02c45a3142664a260db2859a5c20cf8eb47a699d0da2cd",
+        "public_key_base64": "s+xRBXOeKjg/sNDiAjolD2QxrmJcqV81R4Pu5jE4yDc=",
+        "constructed": "s-plus-order",
+        "lax_verifies": false
+      },
+      "envelope": {
+        "v": 2,
+        "kind": "contact_card",
+        "app_message_id": "0123456789abcdef0123456789abcdef",
+        "card": {
+          "name": "Ada",
+          "identity_key": "s+xRBXOeKjg/sNDiAjolD2QxrmJcqV81R4Pu5jE4yDc=",
+          "signature": "ax47gUx5cU9H/VLb6uMG1ohMhkAhoImFkzAYwF+CL9YBnMLl3h7DAKmKV7E97cl0vV+/C3GZZzJ124Ynuw3CEg=="
+        }
+      },
+      "canonical_bytes_hex": "696e74657277656176652d636172642d7631000341646100000000000000260024080112203b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29000568756d616e",
+      "valid": false,
+      "rule": "signature-fails"
+    },
+    {
       "name": "identity-key-unpadded",
       "note": "The test key's base64 without its padding.",
       "received_on": {

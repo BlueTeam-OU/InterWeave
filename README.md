@@ -24,7 +24,7 @@ Every closed stage has a closing record in the [implementation plan](./architect
 | 16 | 2026-10-06 | the Claude Code Channel bridge: a stdio MCP server holding one endpoint lease, turning direct and broadcast messages into channel notifications with provenance-only metadata, exchanging messages with a far peer from inside an installed Claude Code | plan §19 |
 | 17 | open | the Android human client, after SPIKE-008 and SPIKE-009 | plan §20 |
 
-Stages 18 (the adversarial and security gate, plan §21) and 19 (packaging, migration and release, plan §22) run beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20); the status value names the lowest open stage.
+Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migration and release, plan §22) and 21 (contacts, cards and the encrypted store, plan §29) run beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20; §29, the owner's word of 2026-10-21); the status value names the lowest open stage.
 
 ## What runs today
 

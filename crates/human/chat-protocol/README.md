@@ -1,8 +1,8 @@
 # chat-protocol
 
-HumanChatV2 parsing/serialization/validation and application fixtures: the envelope codec, the bounded brotli decode path, the send-side encoder, and -- behind the `markdown` feature -- the render model (ADR-0050, plan §17 (3)).
+HumanChatV2 parsing/serialization/validation and application fixtures: the envelope codec, the contact card's parser, the bounded brotli decode path, the send-side encoder, and -- behind the `markdown` feature -- the render model (ADR-0050, plan §17 (3); the card ADR-0059 and ADR-0063, plan §29 step 1).
 
-**Current status:** active workspace member since Stage 2; the encoder and the render model are Stage 14's. Above transport and independent of it — no libp2p, no IPC, no UI.
+**Current status:** active workspace member since Stage 2; the encoder and the render model are Stage 14's, the contact card Stage 21's. Above transport and independent of it — no libp2p, no IPC, no UI.
 
 ## One library, three consumers
 
@@ -35,3 +35,11 @@ The feature is off by default because the Claude bridge decodes and never parses
 - **An unresolvable `reply_to` stays valid** and triggers no lookup. Treating it as a fetchable pointer would turn a display hint into a remote-triggered request.
 
 `tests/frozen_envelopes.rs` runs all 23 vectors from `fixtures/human-chat-v2/`, whose verdicts are recomputed independently by the Python verifier.
+
+## The contact card
+
+`classify` gives every HumanChatV2 text, received on a direct route, the three-way answer its consumers need (plan §29 step 1): `NotCard`, `Card`, or `MalformedCard` with one fixed `CardFault`, which carries no peer text. A text is a card when **any** of its top-level `kind` copies is `contact_card`, read apart from the strict parse; so a second `kind` cannot hide a card from a consumer that drops a malformed card but forwards what is not a card: it is `MalformedCard(DuplicateMember)`, never `NotCard`. That decision follows the JSON grammar, not what `serde_json` can represent: a number out of range, a lone surrogate escape or nesting past the recursion limit, in a key or any value, is well-formed JSON other readers accept, so it cannot hide a card either; the card is then `MalformedCard(Unreadable)`. `HumanChatV2::parse` still answers for messages only and refuses a card as `UnsupportedKind`.
+
+A `Card` has verified under its identity key, strictly (`ed25519-dalek`'s `verify_strict`: a small-order key or R is refused, and a non-canonical S while the crate's `legacy_compatibility` is off in the graph), over `canonical_card_bytes` built from the route the card arrived on, never from what the envelope says: so a card signed for one PeerId or endpoint fails on another. Names are bounded and signed after NFC. The photo is base64-decoded and measured (`Card::photo_len`), never decoded as an image: a client does that after the person accepts the card.
+
+`tests/frozen_cards.rs` holds `classify` to all 20 vectors of `human-chat-v2-contact-card.json` by name, compares `canonical_card_bytes` with the verifier's bytes, and guards the built cases: the small-order-key and small-order-R cards verify under the crate's non-strict `verify` and fail only `verify_strict`, and the S-plus-order card is the valid signature with S raised by the group order, still below 2^253, so it fails whenever `legacy_compatibility` is turned on.
