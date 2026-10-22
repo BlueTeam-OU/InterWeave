@@ -6,16 +6,16 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use interweave_ipc_protocol::{
-    AddressList, AddressParams, AddressResult, AdminStatusResult, ENDPOINT_PERSISTED_SINCE_MINOR,
-    EmptyResult, EndpointList, EndpointParams, MAX_SHUTDOWN_GRACE_MS, Method, OwnAddressList,
-    PeerList, PeerListParams, Request, RequestedCapability, SetDefaultParams, SetEnabledParams,
-    SetEnabledResult, ShutdownParams, TRUST_SOURCE_SINCE_MINOR, TrustList, TrustListParams,
-    TrustSetParams,
+    AddressList, AddressParams, AddressResult, AddressesParams, AddressesResult, AdminStatusResult,
+    ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, EndpointParams,
+    MAX_SHUTDOWN_GRACE_MS, Method, OwnAddressList, PeerList, PeerListParams, Request,
+    RequestedCapability, SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams,
+    TRUST_SOURCE_SINCE_MINOR, TrustList, TrustListParams, TrustSetParams,
 };
 use interweave_local_client_api::{
-    AddressChange, AdminBinding, AdminCapability, AdminPort, AdminStatus, BootstrapAddress,
-    EndpointAdminView, Generation, LocalAdminPort, OwnAddresses, PeerGateView, TrustAdminView,
-    TrustedPeer,
+    AddressChange, AddressesChange, AdminBinding, AdminCapability, AdminPort, AdminStatus,
+    BootstrapAddress, EndpointAdminView, Generation, LocalAdminPort, OwnAddresses, PeerGateView,
+    TrustAdminView, TrustedPeer,
 };
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
 
@@ -451,6 +451,41 @@ impl AdminPort for IpcAdmin {
     ) -> Result<AddressChange, TransportError> {
         self.address_move(Method::AdminPeersAddAddress, address)
             .await
+    }
+
+    /// Below 2.9 the method does not exist -- though `admin.peers` is
+    /// granted from 2.7 -- so it is refused `ProtocolUnsupported` without
+    /// a round trip; a list the schema refuses (none, or more than 16
+    /// lines) is refused `InvalidArgument` without one too. An answer
+    /// whose rows do not match the lines sent one for one is the daemon's
+    /// `ProtocolViolation`: a client could not say which line each row is.
+    async fn add_bootstrap_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> Result<AddressesChange, TransportError> {
+        if self.minor < Method::AdminPeersAddAddresses.entry().since_minor {
+            return Err(TransportError::ProtocolUnsupported);
+        }
+        let lines = addresses.len();
+        if lines == 0 || lines > interweave_local_client_api::MAX_ADDRESSES_PER_ADD {
+            return Err(TransportError::InvalidArgument);
+        }
+        let change: AddressesChange = self
+            .connection
+            .call::<AddressesResult>(Request::AdminPeersAddAddresses(AddressesParams {
+                addresses,
+            }))
+            .await?
+            .into();
+        match &change {
+            AddressesChange::Added(rows) if rows.len() != lines => {
+                Err(TransportError::ProtocolViolation)
+            }
+            AddressesChange::Refused {
+                line: Some(line), ..
+            } if *line >= lines => Err(TransportError::ProtocolViolation),
+            _ => Ok(change),
+        }
     }
 
     async fn remove_bootstrap_address(
