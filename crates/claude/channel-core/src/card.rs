@@ -60,7 +60,10 @@ pub enum CardDrop {
 }
 
 impl CardDrop {
-    /// Every reason, in the order `status` lists them.
+    /// Every reason, in declaration order: the order
+    /// [`BridgeState::dropped_cards`](crate::BridgeState::dropped_cards)
+    /// yields. `status` writes them as a JSON object, whose key order
+    /// carries no meaning.
     pub const ALL: [Self; 12] = [
         Self::PhotoSize,
         Self::PhotoEncoding,
