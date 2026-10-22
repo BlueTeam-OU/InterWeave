@@ -565,6 +565,53 @@ pub enum AddressChange {
     },
 }
 
+/// The most lines one [`AdminPort::add_bootstrap_addresses`] takes: the
+/// QR's cut (ADR-0062 decision 4), the `peers-addresses-params` bound.
+pub const MAX_ADDRESSES_PER_ADD: usize = 16;
+
+/// What an all-or-none add did with one of its lines
+/// (`peers-addresses-result`'s row).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineChange {
+    /// Added and in force.
+    Added,
+    /// Already present, authored or added, or repeated earlier in the
+    /// list; it cost nothing against the bound.
+    Unchanged,
+}
+
+impl LineChange {
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Added => "added",
+            Self::Unchanged => "unchanged",
+        }
+    }
+}
+
+/// What an all-or-none add of bootstrap addresses did
+/// (`peers-addresses-result`). A refusal is an answer, not an error, and
+/// refuses the whole list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddressesChange {
+    /// Every line is in force: one row per line, in the order given.
+    Added(Vec<LineChange>),
+    /// Refused; nothing was written.
+    Refused {
+        /// The rule, by name: never [`AddressRefusal::Authored`], which
+        /// only a removal answers.
+        reason: AddressRefusal,
+        /// The 0-based position of the line refused; `None` exactly for
+        /// [`AddressRefusal::ProviderDisabled`], which refuses the list
+        /// whole.
+        line: Option<usize>,
+        /// For a log, never parsed.
+        detail: String,
+    },
+}
+
 /// The read-only administrative view (`admin.status`): the raw detail a
 /// data session never sees (ADR-0036). A binding adds its own counters
 /// -- connections, cross-domain refusals -- beside these, since only it
@@ -730,6 +777,32 @@ pub trait AdminPort {
         address: String,
     ) -> impl Future<Output = Result<AddressChange, TransportError>> + Send {
         let _ = address;
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// Add every line of `addresses` to the profile's bootstrap
+    /// addresses or none of them (`admin.peers.add_addresses`, IPC 2.9;
+    /// ADR-0062 decision 4: a scan, or a pasted list of lines). The whole
+    /// list is checked before anything is written, in
+    /// [`Self::add_bootstrap_address`]'s order -- every line's grammar,
+    /// the provider, every line's special-use floor, then the bound
+    /// counting only new lines -- so a one-line list is answered as that
+    /// method answers its line; the accepted lines are written in one
+    /// overlay write before the running provider is told and before the
+    /// answer. Adding an address grants no trust. Not implemented by a
+    /// port that predates it.
+    ///
+    /// # Errors
+    /// `InvalidArgument` for an empty list or one longer than
+    /// [`MAX_ADDRESSES_PER_ADD`] (nothing sent), `CapabilityDenied`
+    /// without `admin.peers`, `ProtocolUnsupported` (below 2.9, nothing
+    /// sent), `Internal` when the overlay could not be written (nothing
+    /// changed), or `BackendUnavailable`.
+    fn add_bootstrap_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> impl Future<Output = Result<AddressesChange, TransportError>> + Send {
+        let _ = addresses;
         std::future::ready(Err(TransportError::ProtocolUnsupported))
     }
 
