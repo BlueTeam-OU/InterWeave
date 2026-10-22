@@ -1536,11 +1536,12 @@ async fn a_bare_address_intent_reaches_nothing() {
 
 /// Peers' add reaches the facade as one add of all its lines: one line
 /// is the runtime's single add, which this fake answers unsupported;
-/// several are never split, and until the add of several lines exists
-/// they are answered as a runtime without it answers.
+/// several typed are refused before anything is sent (`TYPED_LINES`);
+/// several scanned are never split, and until the add of several lines
+/// is bound they are answered as a runtime without it answers.
 #[tokio::test]
 async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
-    use interweave_human_ui_model::{AddNote, Barred, PeersInput};
+    use interweave_human_ui_model::{AddNote, Barred, PeersInput, TYPED_LINES};
     let (a, b) = FakeNetwork::pair(node(), node());
     let one = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", b.peer().as_str());
     let two = format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", b.peer().as_str());
@@ -1569,6 +1570,22 @@ async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
         ViewEvent::Peers(PeersInput::OpenAdd),
         ViewEvent::Peers(PeersInput::FieldChanged(format!("{one}\n{two}"))),
         ViewEvent::Peers(PeersInput::Add),
+    ]);
+    root.pump(1).await;
+    assert!(root.commands.is_empty(), "two typed lines send nothing");
+    assert_eq!(
+        root.model().peers().add_page_note(),
+        Some(&AddNote::TooManyLines {
+            lines: TYPED_LINES + 1
+        })
+    );
+
+    let (d, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&d, memory()));
+    root.settled(0).await;
+    root.will(vec![
+        ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::Scanned(format!("{one}\n{two}"))),
     ]);
     root.pump(1).await;
     assert_eq!(root.commands, vec![Command::AddAddresses(vec![one, two])]);
