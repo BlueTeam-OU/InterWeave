@@ -175,11 +175,13 @@ observability: { log_level: info }
   and PeerId (`/p2p/<PeerId>` is required). A loopback address is
   admitted here because the operator wrote it; one a peer advertises is
   not (ADR-0052). Entries written here stay the operator's: nothing at
-  run time removes them. Plan §29 step 5 (ADR-0062), not yet on
-  `main`, adds peers by address to a running daemon as well, `transportctl --profile
-  <profile> peers add <address>/p2p/<PeerId>`, which refuses a loopback
-  or other special-use address -- so a peer on this host stays an entry
-  here. If the provider is written here at all, write it `enabled:
+  run time removes them. A running daemon also takes peers by address
+  (ADR-0062): `transportctl --profile <profile> peers add
+  <address>/p2p/<PeerId>`, `peers remove` and `peers addresses`, kept in
+  the state directory's `bootstrap-overlay.json` and effective without
+  a restart. It refuses a loopback or other special-use address, so a
+  peer on this host stays an entry here; a peer on another host is
+  better added at run time. If the provider is written here at all, write it `enabled:
   true`: a disabled one refuses every run-time add.
 - **Trust.** `allowed_peers` is where trust starts. It changes at run
   time with `transportctl --profile <profile> trust allow|revoke <PeerId>`,
@@ -269,7 +271,10 @@ journal.
   `packaging/claude-plugin/build.sh <new directory> target/release/claude-channel`.
 - An automated client: `interweave-client@<profile>` (`README.md`).
 - Upgrading is `install.sh` again and a restart; uninstalling is
-  `uninstall.sh`, which keeps every profile (`README.md`).
+  `uninstall.sh`, which keeps every profile (`README.md`). A
+  downgrade is not: a daemon records the profile format it wrote in
+  the state directory, and an older build refuses a profile a newer
+  one has raised, naming the newer format.
 
 ## What this procedure assumes, and where it stops
 
