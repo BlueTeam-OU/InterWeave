@@ -1096,7 +1096,8 @@ impl UiModel {
             }
             Intent::HideConversation(key) => return self.conversation_hide_offered(key),
             // Destructive: offered only while the contact is still held,
-            // so a delete raised twice in one take is issued once.
+            // so a delete of a contact already gone is not issued. Two in
+            // one take are one command by the root's in-flight set.
             Intent::DeleteContact { contact_id } => return self.contact(contact_id).is_some(),
             _ => return true,
         };
