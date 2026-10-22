@@ -6,7 +6,8 @@
 //! plus `interweave/bin/claude-channel`; a file git does not track in the
 //! source, ignored or not, fails the build and creates nothing; and an
 //! out-dir inside the repository, or under a parent that does not exist,
-//! is refused before anything is written.
+//! is refused before anything is written; a build that fails partway leaves
+//! no out-dir behind.
 
 #![cfg(target_os = "linux")]
 #![allow(clippy::expect_used)]
@@ -109,6 +110,11 @@ impl Scratch {
             .arg(self.package().join("build.sh"))
             .arg(out)
             .arg(env!("CARGO_BIN_EXE_claude-channel"))
+            // build.sh's own git must read the scratch repository, not one
+            // a caller's environment points at.
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
             .output()
             .expect("build.sh runs")
     }
@@ -243,4 +249,23 @@ fn an_out_dir_in_the_repository_is_refused_before_anything_is_written() {
         "the tree is untouched: {:?}",
         lines(&status)
     );
+}
+
+#[test]
+fn a_failed_build_leaves_no_out_dir() {
+    let s = Scratch::new();
+    // Tracked, then removed from the working tree: the copy fails partway.
+    fs::remove_file(s.package().join("interweave/README.md")).expect("rm a tracked file");
+
+    let out = s.out_root.path().join("marketplace");
+    let run = s.build(&out);
+    assert!(
+        !run.status.success(),
+        "a missing tracked file must fail the build"
+    );
+    assert!(!out.exists(), "no partial out-dir");
+    let left: Vec<_> = fs::read_dir(s.out_root.path())
+        .expect("read out root")
+        .collect();
+    assert!(left.is_empty(), "no staging directory is left: {left:?}");
 }
