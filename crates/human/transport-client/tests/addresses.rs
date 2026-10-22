@@ -350,7 +350,8 @@ async fn each_refusal_is_answered_by_its_rule() {
 }
 
 /// Whether a failed change was made is said truly: a port that never
-/// opened, or a method the runtime does not have, made nothing; a failure
+/// opened, a method the runtime does not have, or the method's failed
+/// write of the list made nothing; a failure
 /// after the request may have left says so; a list that cannot be read
 /// back after an answered change keeps what the change did.
 #[tokio::test]
@@ -369,6 +370,14 @@ async fn a_failure_says_whether_the_change_was_made() {
     assert_eq!(
         facade(old).add_address(direct(&p)).await,
         Err(AddressChangeFailure::NotMade(AddressProblem::Incompatible))
+    );
+
+    let unwritten = Book::default();
+    unwritten.0.lock().unwrap().change = Some(Err(TransportError::Internal));
+    assert_eq!(
+        facade(unwritten).add_address(direct(&p)).await,
+        Err(AddressChangeFailure::NotMade(AddressProblem::Internal)),
+        "the method's failed write changed nothing"
     );
 
     let lost = Book::default();

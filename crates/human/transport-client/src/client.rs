@@ -764,7 +764,10 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
             admin.remove_bootstrap_address(address).await
         };
         let change = change.map_err(|error| {
-            if may_have_reached(error) {
+            // The method's `Internal` is its failed write of the list,
+            // which changed nothing (`AdminPort::add_bootstrap_address`);
+            // only an answer lost after the request left is unknown.
+            if may_have_reached(error) && error != TransportError::Internal {
                 AddressChangeFailure::Unconfirmed(classify_address(error))
             } else {
                 AddressChangeFailure::NotMade(classify_address(error))
