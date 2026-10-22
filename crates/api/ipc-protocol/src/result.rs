@@ -13,10 +13,10 @@
 use std::collections::BTreeSet;
 
 use interweave_local_client_api::{
-    AddressChange, AddressRefusal, AddressSource, AdminStatus, BootstrapAddress, EndpointAdminView,
-    Generation, IngressCounts, LeaseRecord, MAX_CLIENT_KIND_CHARS, MAX_OWN_ADDRESSES, OwnAddress,
-    OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome, PreAuthCounts, TrustAdminView,
-    TrustSource,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminStatus, BootstrapAddress,
+    EndpointAdminView, Generation, IngressCounts, LeaseRecord, LineChange, MAX_ADDRESSES_PER_ADD,
+    MAX_CLIENT_KIND_CHARS, MAX_OWN_ADDRESSES, OwnAddress, OwnAddressKind, OwnAddresses,
+    PeerGateView, PeerOutcome, PreAuthCounts, TrustAdminView, TrustSource,
 };
 use interweave_transport_api::{
     ConnectivitySummary, EndpointDirectoryV1, EndpointId, Health, MAX_DIRECTORY_ENTRIES,
@@ -964,6 +964,190 @@ impl<'de> Deserialize<'de> for AddressResult {
             refused,
             detail: wire.detail,
         })
+    }
+}
+
+/// `ipc/peers-addresses-result`: what an `admin.peers.add_addresses` did
+/// (ADR-0062 decision 4). Every line in force, one row per line in the
+/// order given; or a refusal naming its rule and -- but for
+/// `provider_disabled`, which refuses the list whole -- its line, nothing
+/// written. A refusal is an ANSWER, never an error.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AddressesResult {
+    outcome: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lines: Option<Vec<LineRow>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refused: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+/// One `peers-addresses-result` row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LineRow {
+    /// What the add did with the line.
+    pub outcome: LineOutcome,
+}
+
+/// A row's closed `outcome` set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineOutcome {
+    /// Added and in force.
+    Added,
+    /// Already present, or repeated earlier in the list.
+    Unchanged,
+}
+
+impl AddressesResult {
+    /// The port's answer.
+    ///
+    /// # Errors
+    /// [`TransportError::Internal`] for an answer the contract cannot
+    /// carry -- no row, more than [`MAX_ADDRESSES_PER_ADD`], a refusal
+    /// `authored`, a line named where the rule names none or none where
+    /// it names one: a port that answered that broke its own rule, and
+    /// the server answers so rather than mending it.
+    pub fn from_view(change: AddressesChange) -> Result<Self, TransportError> {
+        Ok(match change {
+            AddressesChange::Added(lines) => {
+                if lines.is_empty() || lines.len() > MAX_ADDRESSES_PER_ADD {
+                    return Err(TransportError::Internal);
+                }
+                Self {
+                    outcome: "added",
+                    lines: Some(
+                        lines
+                            .into_iter()
+                            .map(|line| LineRow {
+                                outcome: match line {
+                                    LineChange::Added => LineOutcome::Added,
+                                    LineChange::Unchanged => LineOutcome::Unchanged,
+                                },
+                            })
+                            .collect(),
+                    ),
+                    refused: None,
+                    index: None,
+                    detail: None,
+                }
+            }
+            AddressesChange::Refused {
+                reason,
+                line,
+                detail,
+            } => {
+                let whole = reason == AddressRefusal::ProviderDisabled;
+                if reason == AddressRefusal::Authored
+                    || whole != line.is_none()
+                    || line.is_some_and(|line| line >= MAX_ADDRESSES_PER_ADD)
+                {
+                    return Err(TransportError::Internal);
+                }
+                Self {
+                    outcome: "refused",
+                    lines: None,
+                    refused: Some(reason.as_str()),
+                    index: line,
+                    // Cut, not refused: it is for a log, and the reason a
+                    // client renders is `refused`.
+                    detail: Some(detail.chars().take(MAX_ADDRESS_DETAIL_CHARS).collect()),
+                }
+            }
+        })
+    }
+}
+
+impl From<AddressesResult> for AddressesChange {
+    fn from(result: AddressesResult) -> Self {
+        match (result.lines, result.refused) {
+            (Some(lines), _) => Self::Added(
+                lines
+                    .into_iter()
+                    .map(|row| match row.outcome {
+                        LineOutcome::Added => LineChange::Added,
+                        LineOutcome::Unchanged => LineChange::Unchanged,
+                    })
+                    .collect(),
+            ),
+            (None, refused) => Self::Refused {
+                reason: refused
+                    .and_then(refusal_named)
+                    .unwrap_or(AddressRefusal::Grammar),
+                line: result.index,
+                detail: result.detail.unwrap_or_default(),
+            },
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AddressesResult {
+    /// The schema's closed sets and its two halves never mixed: `added`
+    /// with 1..=16 rows and nothing of a refusal; `refused` with its rule,
+    /// never `authored`, and `index` (0..=15) present exactly when the
+    /// rule is not `provider_disabled`.
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            outcome: String,
+            #[serde(default, deserialize_with = "present")]
+            lines: Option<Vec<LineRow>>,
+            #[serde(default, deserialize_with = "present")]
+            refused: Option<String>,
+            #[serde(default, deserialize_with = "present")]
+            index: Option<usize>,
+            #[serde(default, deserialize_with = "present")]
+            detail: Option<String>,
+        }
+        let bad = |what: &str| serde::de::Error::custom(what);
+        let wire = Wire::deserialize(d)?;
+        if wire
+            .detail
+            .as_ref()
+            .is_some_and(|detail| detail.chars().count() > MAX_ADDRESS_DETAIL_CHARS)
+        {
+            return Err(bad("a detail is at most 512 characters"));
+        }
+        match (wire.outcome.as_str(), wire.lines, wire.refused) {
+            ("added", Some(lines), None) if wire.index.is_none() => {
+                if lines.is_empty() || lines.len() > MAX_ADDRESSES_PER_ADD {
+                    return Err(bad("an add answers 1..=16 rows"));
+                }
+                Ok(Self {
+                    outcome: "added",
+                    lines: Some(lines),
+                    refused: None,
+                    index: None,
+                    detail: wire.detail,
+                })
+            }
+            ("refused", None, Some(name)) => {
+                let reason = refusal_named(&name)
+                    .filter(|reason| *reason != AddressRefusal::Authored)
+                    .ok_or_else(|| bad("an unknown refusal"))?;
+                let whole = reason == AddressRefusal::ProviderDisabled;
+                if whole != wire.index.is_none()
+                    || wire.index.is_some_and(|i| i >= MAX_ADDRESSES_PER_ADD)
+                {
+                    return Err(bad(
+                        "a refusal names its line unless it refuses the list whole",
+                    ));
+                }
+                Ok(Self {
+                    outcome: "refused",
+                    lines: None,
+                    refused: Some(reason.as_str()),
+                    index: wire.index,
+                    detail: wire.detail,
+                })
+            }
+            _ => Err(bad("added carries its rows, refused its rule, never both")),
+        }
     }
 }
 

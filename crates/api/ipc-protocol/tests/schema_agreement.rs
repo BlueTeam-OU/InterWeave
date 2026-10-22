@@ -10,20 +10,20 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use interweave_ipc_protocol::{
-    AddressList, AddressParams, AddressResult, AdminStatusResult, AuthorityDomain, Cancel,
-    ChannelParams, ClientInfo, Close, DirectoryResult, EmptyResult, EndpointList, EndpointParams,
-    Event, EventType, Frame, GrantedLease, HandshakeOutcome, Hello, HelloResponse, HelloTag,
-    IPC_MAJOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED, Method, Nonce, OwnAddressList, PeerList,
-    PeerListParams, Ping, PublishParams, QueryParams, Request, RequestId, RequestedCapability,
-    ResponseFrame, SendParams, SendResult, ServerCounters, ServerState, SetDefaultParams,
-    SetEnabledParams, SetEnabledResult, ShutdownParams, TrustList, TrustListParams, TrustSetParams,
-    UnsupportedMajor, encode_frame, supported,
+    AddressList, AddressParams, AddressResult, AddressesParams, AddressesResult, AdminStatusResult,
+    AuthorityDomain, Cancel, ChannelParams, ClientInfo, Close, DirectoryResult, EmptyResult,
+    EndpointList, EndpointParams, Event, EventType, Frame, GrantedLease, HandshakeOutcome, Hello,
+    HelloResponse, HelloTag, IPC_MAJOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED, Method, Nonce,
+    OwnAddressList, PeerList, PeerListParams, Ping, PublishParams, QueryParams, Request, RequestId,
+    RequestedCapability, ResponseFrame, SendParams, SendResult, ServerCounters, ServerState,
+    SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams, TrustList,
+    TrustListParams, TrustSetParams, UnsupportedMajor, encode_frame, supported,
 };
 use interweave_local_client_api::{
-    AddressChange, AddressRefusal, AddressSource, AdminCapability, AdminStatus, BootstrapAddress,
-    DataCapability, EndpointAdminView, Generation, LeaseRecord, LocalSessionEvent, OwnAddress,
-    OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome, ReceivedBroadcast, ReceivedDirect,
-    SessionEvent, TrustAdminView,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminCapability, AdminStatus,
+    BootstrapAddress, DataCapability, EndpointAdminView, Generation, LeaseRecord, LineChange,
+    LocalSessionEvent, OwnAddress, OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome,
+    ReceivedBroadcast, ReceivedDirect, SessionEvent, TrustAdminView,
 };
 use interweave_transport_api::{
     ChannelId, ConnectivitySummary, DirectInboundState, EndpointDirectoryV1, EndpointId, Health,
@@ -726,6 +726,12 @@ fn every_request() -> Vec<Request> {
         }),
         Request::AdminPeersListAddresses,
         Request::AdminPeersOwnAddresses,
+        Request::AdminPeersAddAddresses(AddressesParams {
+            addresses: vec![
+                format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", peer().as_str()),
+                format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", peer().as_str()),
+            ],
+        }),
     ];
     assert_eq!(
         requests.iter().map(Request::method).collect::<Vec<_>>(),
@@ -1219,6 +1225,9 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
             }
             Method::AdminPeersAddAddress | Method::AdminPeersRemoveAddress => {
                 "architecture/contracts/schemas/ipc/peers-address-params.schema.json"
+            }
+            Method::AdminPeersAddAddresses => {
+                "architecture/contracts/schemas/ipc/peers-addresses-params.schema.json"
             }
         })
     };
@@ -1984,11 +1993,13 @@ fn the_own_addresses_shape_holds_what_the_contract_says() {
     );
 }
 
-/// The all-or-none add (ADR-0062 decision 4), `approved` before its
-/// wire: 1 to 16 lines in, and out either one row per line, each added
-/// or unchanged, or a refusal naming its rule and -- for every rule but
-/// the provider's, which refuses the list whole -- the line's index, the
-/// two halves never mixed.
+/// The all-or-none add (ADR-0062 decision 4): 1 to 16 lines in, and out
+/// either one row per line, each added or unchanged, or a refusal naming
+/// its rule and -- for every rule but the provider's, which refuses the
+/// list whole -- the line's index, the two halves never mixed. And the
+/// Rust mirror agrees both ways: every instance the schema refuses it
+/// refuses too, what the server builds validates and reads back, and a
+/// port answer the contract cannot carry is `Internal`, never mended.
 #[test]
 fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
     let params = "architecture/contracts/schemas/ipc/peers-addresses-params.schema.json";
@@ -1998,6 +2009,12 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
             !validator(path).is_valid(&instance),
             "{path} admits {instance}"
         );
+        let mirror = if path == params {
+            serde_json::from_value::<AddressesParams>(instance.clone()).is_err()
+        } else {
+            serde_json::from_value::<AddressesResult>(instance.clone()).is_err()
+        };
+        assert!(mirror, "the mirror admits {instance}");
     };
     let peer = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
     let address = format!("/ip4/192.168.1.20/tcp/4001/p2p/{peer}");
@@ -2093,4 +2110,89 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
         result,
         serde_json::json!({ "outcome": "refused", "index": 0 }),
     );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "refused", "refused": "grammar", "index": 0, "detail": "d".repeat(513) }),
+    );
+
+    // THE RUST MIRROR, the server's side.
+    let line = |n: usize| AddressesChange::Refused {
+        reason: AddressRefusal::Bound,
+        line: Some(n),
+        detail: "d".repeat(600),
+    };
+    for change in [
+        AddressesChange::Added(vec![LineChange::Added, LineChange::Unchanged]),
+        AddressesChange::Added(vec![LineChange::Unchanged; 16]),
+        line(15),
+        AddressesChange::Refused {
+            reason: AddressRefusal::ProviderDisabled,
+            line: None,
+            detail: String::new(),
+        },
+    ] {
+        let wire =
+            serde_json::to_value(AddressesResult::from_view(change.clone()).expect("carried"))
+                .expect("ser");
+        assert_valid(result, &wire);
+        let back: AddressesChange = serde_json::from_value::<AddressesResult>(wire)
+            .expect("reads back")
+            .into();
+        match (&change, &back) {
+            (
+                AddressesChange::Refused {
+                    reason,
+                    line,
+                    detail,
+                },
+                AddressesChange::Refused {
+                    reason: r,
+                    line: l,
+                    detail: d,
+                },
+            ) => {
+                assert_eq!((reason, line), (r, l));
+                assert_eq!(d.chars().count(), detail.chars().count().min(512));
+            }
+            _ => assert_eq!(change, back),
+        }
+    }
+    assert_eq!(
+        serde_json::to_value(
+            AddressesResult::from_view(AddressesChange::Added(vec![
+                LineChange::Added,
+                LineChange::Unchanged
+            ]))
+            .expect("carried")
+        )
+        .expect("ser")["lines"],
+        serde_json::json!([{ "outcome": LineChange::Added.as_str() }, { "outcome": LineChange::Unchanged.as_str() }]),
+        "the wire names are LineChange::as_str's"
+    );
+    for broken in [
+        AddressesChange::Added(Vec::new()),
+        AddressesChange::Added(vec![LineChange::Added; 17]),
+        line(16),
+        AddressesChange::Refused {
+            reason: AddressRefusal::Grammar,
+            line: None,
+            detail: String::new(),
+        },
+        AddressesChange::Refused {
+            reason: AddressRefusal::ProviderDisabled,
+            line: Some(0),
+            detail: String::new(),
+        },
+        AddressesChange::Refused {
+            reason: AddressRefusal::Authored,
+            line: Some(0),
+            detail: String::new(),
+        },
+    ] {
+        assert_eq!(
+            AddressesResult::from_view(broken.clone()),
+            Err(TransportError::Internal),
+            "{broken:?}"
+        );
+    }
 }
