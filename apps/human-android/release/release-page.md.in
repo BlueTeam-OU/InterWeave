@@ -2,8 +2,10 @@
 <!-- The release page's template (RELEASE.md), a template and not a
      document: the release run fills each {placeholder} and publishes the
      result. {freetype_credit} takes the credit line FreeType's
-     LICENSE.TXT asks for and {third_party_notice_texts} each bundled
-     component's licence text, both read from the sources the build used;
+     LICENSE.TXT asks for, {third_party_notice_texts} each bundled
+     component's licence text, both read from the sources the build used,
+     and {crate_notices} the notice of every Rust crate compiled into
+     the native library (ADR-0058 decision 5, tools/ci/release_notices.py);
      {cert_sha256} is printed as apksigner prints it, lowercase hex with
      no colons, so a reader compares like with like. One page serves
      every platform (architect-cto DECISION 01a157e6-b852); the
@@ -163,3 +165,8 @@ The credit that FreeType asks for, and the licence texts, follow.
 {freetype_credit}
 
 {third_party_notice_texts}
+
+The app's native library is also built from the Rust crates below, each
+under its own licence. Their notices follow, as the build used them.
+
+{crate_notices}
