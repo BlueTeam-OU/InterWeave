@@ -93,6 +93,21 @@ pub struct TrustSettings {
     reread: bool,
     /// The read on its way is that owed re-read.
     rereading: bool,
+    /// Whether the list kept is the daemon's word: not after a failed
+    /// read, nor after a change that may have been made, until a read
+    /// succeeds ([`Self::confirmed_list`]).
+    held: Held,
+}
+
+/// Whether a list kept is the daemon's word.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Held {
+    /// As the last read answered.
+    #[default]
+    AsRead,
+    /// A read failed, or a change may have reached the daemon, since
+    /// the list was last read.
+    MayHaveChanged,
 }
 
 impl TrustSettings {
@@ -227,9 +242,18 @@ impl TrustSettings {
                     self.pending = None;
                 }
                 self.list = Some(list);
+                self.held = Held::AsRead;
             }
-            Err(problem) if rereading => self.say(TrustOutcome::NotReadAgain(problem)),
-            Err(problem) => self.say(TrustOutcome::Problem(problem)),
+            Err(problem) => {
+                // The list as last read stays on show, but it is no
+                // longer the daemon's word on what it holds.
+                self.held = Held::MayHaveChanged;
+                self.say(if rereading {
+                    TrustOutcome::NotReadAgain(problem)
+                } else {
+                    TrustOutcome::Problem(problem)
+                });
+            }
         }
     }
 
@@ -249,20 +273,24 @@ impl TrustSettings {
             // list that says otherwise is not reported as the change made.
             Ok(list) if list.allows(&change.peer) != change.allowed => {
                 self.list = Some(list);
+                self.held = Held::AsRead;
                 self.reread = true;
                 self.say(TrustOutcome::Unconfirmed(change));
             }
             Ok(list) => {
                 self.made(&change);
                 self.list = Some(list);
+                self.held = Held::AsRead;
                 self.say(TrustOutcome::Changed(change));
             }
             Err(TrustSetFailure::MadeNotReadBack(_)) => {
                 self.made(&change);
+                self.held = Held::MayHaveChanged;
                 self.reread = true;
                 self.say(TrustOutcome::Changed(change));
             }
             Err(TrustSetFailure::Unconfirmed(_)) => {
+                self.held = Held::MayHaveChanged;
                 self.reread = true;
                 self.say(TrustOutcome::Unconfirmed(change));
             }
@@ -297,6 +325,18 @@ impl TrustSettings {
     #[must_use]
     pub const fn list(&self) -> Option<&TrustList> {
         self.list.as_ref()
+    }
+
+    /// The allowlist only while it is the daemon's word: `None` before
+    /// the first read, after a read that failed, and after a change that
+    /// may have been made until a read succeeds. What holds the list as a
+    /// fact (decision 8's notice, a row's trust state) reads this.
+    #[must_use]
+    pub const fn confirmed_list(&self) -> Option<&TrustList> {
+        match self.held {
+            Held::AsRead => self.list.as_ref(),
+            Held::MayHaveChanged => None,
+        }
     }
 
     /// Whether a read is on its way.

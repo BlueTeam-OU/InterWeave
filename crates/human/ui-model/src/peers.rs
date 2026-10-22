@@ -33,7 +33,7 @@ use interweave_human_client_api::{
 use interweave_transport_api::TransportIdentity;
 
 use crate::model::Intent;
-use crate::trust::{TrustOutcome, TrustSettings};
+use crate::trust::{Held, TrustOutcome, TrustSettings};
 
 /// The most lines one add carries: a code's bound (ADR-0062 decision 4),
 /// and the add method's.
@@ -452,6 +452,10 @@ pub struct Peers {
     /// when Peers opens.
     read_again: bool,
     reread: bool,
+    /// A change may have reached the runtime since the list was last
+    /// read: its rows stay on show as last read (§5.7), but its
+    /// emptiness is no fact until a read succeeds.
+    held: Held,
     check: Option<Check>,
     page: Option<AddPage>,
     add_note: Option<Refusal>,
@@ -909,6 +913,7 @@ impl Peers {
             Ok(list) => {
                 self.list = Some(list);
                 self.list_problem = None;
+                self.held = Held::AsRead;
                 if again {
                     self.ask_focus(PeersFocus::Title);
                 }
@@ -999,6 +1004,7 @@ impl Peers {
                     before,
                 });
                 self.reread = true;
+                self.held = Held::MayHaveChanged;
             }
         }
     }
@@ -1041,6 +1047,7 @@ impl Peers {
             Err(AddressChangeFailure::Unconfirmed(_)) => {
                 self.check = Some(Check::Add(lines));
                 self.reread = true;
+                self.held = Held::MayHaveChanged;
                 self.page_note(AddNote::Checking, PeersFocus::AddButton);
                 return;
             }
@@ -1167,6 +1174,7 @@ impl Peers {
             Err(AddressChangeFailure::Unconfirmed(_)) => {
                 self.check = Some(Check::Undo(address));
                 self.reread = true;
+                self.held = Held::MayHaveChanged;
             }
         }
     }
@@ -1252,12 +1260,13 @@ impl Peers {
 
     /// A change's list read back, or, when it failed, a read owed.
     fn take_list(&mut self, list: Result<AddressList, AddressProblem>) {
-        match list {
-            Ok(list) => {
-                self.list = Some(list);
-                self.list_problem = None;
-            }
-            Err(_) => self.reread = true,
+        if let Ok(list) = list {
+            self.list = Some(list);
+            self.list_problem = None;
+            self.held = Held::AsRead;
+        } else {
+            self.reread = true;
+            self.held = Held::MayHaveChanged;
         }
     }
 
@@ -1478,11 +1487,13 @@ impl Peers {
 
     /// ADR-0062 decision 8's condition: the list read and empty, and
     /// `trust`'s read and empty -- two facts the client holds whole,
-    /// never a connection or path signal. An unread list, or one whose
-    /// read failed, is unknown and makes no claim.
+    /// never a connection or path signal. An unread list, one whose read
+    /// failed, or one a change may have altered since it was read, is
+    /// unknown and makes no claim.
     #[must_use]
     pub fn no_reach(&self, trust: &TrustSettings) -> bool {
-        self.list.as_ref().is_some_and(AddressList::is_empty)
-            && trust.list().is_some_and(|l| l.allowed.is_empty())
+        self.held == Held::AsRead
+            && self.list.as_ref().is_some_and(AddressList::is_empty)
+            && trust.confirmed_list().is_some_and(|l| l.allowed.is_empty())
     }
 }

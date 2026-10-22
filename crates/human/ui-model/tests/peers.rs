@@ -108,6 +108,53 @@ fn the_no_reach_notice_shows_on_two_empty_lists_and_nothing_else() {
     assert_eq!(m.peers().list_problem(), Some(ListProblem::Unavailable));
 }
 
+/// A list a change may have altered since it was read is no fact for
+/// the notice, though its rows stay on show as last read: a lost add
+/// whose read back fails, and a Trust made whose list could not be
+/// read again, each leave it hidden until a read succeeds.
+#[test]
+fn the_no_reach_notice_claims_nothing_on_a_list_a_change_may_have_altered() {
+    let (me, them) = (peer(), peer());
+
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&them)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&them)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    assert!(!m.no_reach(), "the add may have been made");
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert!(!m.no_reach(), "its read back failed: still unknown");
+    m.addresses_read(Ok(list(&[])));
+    assert!(m.no_reach(), "a read that succeeds is the fact again");
+
+    let mut t = opened(&me, &[], &[]);
+    t.trust_settings_mut().set(
+        TrustChange {
+            peer: them.clone(),
+            allowed: true,
+        },
+        Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Unavailable)),
+    );
+    assert!(!t.no_reach(), "trust made, its list not read back");
+    assert_eq!(
+        t.trust_settings_mut().take_reread(),
+        Some(Intent::ReadTrust)
+    );
+    t.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    assert!(!t.no_reach(), "the read again failed: still unknown");
+    t.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me),
+        allowed: vec![TrustRow::added_here(them)],
+    }));
+    assert!(!t.no_reach(), "read: a trusted peer");
+}
+
 /// A typed line, trimmed, is one add; its untrusted peer gets a block;
 /// Trust on the block is the confirmed change, and once trust lists the
 /// peer the page closes with the trusted snackbar, focus on its opener.
