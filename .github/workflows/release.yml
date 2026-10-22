@@ -167,6 +167,15 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"
           python3 tools/ci/skia_notices.py "$RUNNER_TEMP/out/notices.json"
 
+      # ADR-0058 decision 5: the page also carries the notices of every
+      # crate compiled into the native library, made by the tool and rule
+      # the Linux archive's are. No build needed: cargo resolves the
+      # library's graph for its target from the lock.
+      - name: The native library's crate notices
+        run: |
+          bash tools/ci/release_crate_notices.sh aarch64-linux-android interweave-human-android \
+            "$RUNNER_TEMP/out/crate-notices.json"
+
       # One directory for the artifact: given paths in two, upload-artifact
       # roots it at their common ancestor, and the files arrive nested
       # under it rather than where sign and publish read them.
@@ -179,6 +188,7 @@ jobs:
           path: |
             ${{ runner.temp }}/out/app-release-unsigned.apk
             ${{ runner.temp }}/out/notices.json
+            ${{ runner.temp }}/out/crate-notices.json
           if-no-files-found: error
           retention-days: 7
 
@@ -345,7 +355,8 @@ jobs:
           in="$RUNNER_TEMP/in"
           python3 tools/ci/release_page.py apps/human-android/release/release-page.md.in \
             "$RUNNER_TEMP/page.md" "$RUNNER_TEMP/run.json" \
-            "$in/android-values.json" "$in/linux-values.json" "$in/notices.json"
+            "$in/android-values.json" "$in/linux-values.json" "$in/notices.json" \
+            "$in/crate-notices.json"
 
       # Step 9. --verify-tag: the release is the pushed tag's, never one
       # gh would create at another commit.
