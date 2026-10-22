@@ -23,6 +23,7 @@
 use std::time::Duration;
 
 use interweave_automated_client_tests::{Client, ClientConfig, Inbound};
+use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
 use interweave_test_support::e2e::{Daemon, Home, PATIENCE, free_port, private_tempdir};
 use interweave_transport_api::{EndpointId, MessageId, TransportError, TransportIdentity};
 
@@ -133,6 +134,36 @@ observability: {{ log_level: debug }}
 
     fn log(&self) -> String {
         self.daemon.as_ref().map(Daemon::log).unwrap_or_default()
+    }
+
+    /// Whether `ENDPOINT`'s lease is held on this profile's daemon, read
+    /// through its admin port.
+    async fn leased(&self) -> bool {
+        let admin = self
+            .home
+            .binding()
+            .admin([AdminCapability::Endpoints].into())
+            .await
+            .expect("an admin port");
+        let views = admin.leases().await.expect("the leases");
+        views
+            .into_iter()
+            .any(|v| v.endpoint == endpoint() && v.lease.is_some())
+    }
+
+    /// Wait until the daemon has freed `ENDPOINT`'s lease. A client's
+    /// disconnect only closes its side; the daemon frees the lease when it
+    /// reads the close, so a send made before then still finds it held.
+    async fn until_unleased(&self) {
+        let deadline = tokio::time::Instant::now() + PATIENCE;
+        while self.leased().await {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the lease was never freed\n{}",
+                self.log()
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 
     async fn client(&self) -> Client {
@@ -291,7 +322,10 @@ async fn a_withheld_lease_is_retried_under_one_id_and_lands_once() {
     assert_eq!(warm.outcome, Ok(endpoint()), "{:?}", warm.retried);
     assert!(to.pump_until(PATIENCE, |r| r.inbound.len() == 1).await);
 
+    // The control: the oracle sees B's lease while B's client holds it.
+    assert!(profiles[1].leased().await, "B's client holds the lease");
     to.disconnect();
+    profiles[1].until_unleased().await;
     let refused = from.send_once(&b_peer, id(2), "while away").await;
     assert_eq!(refused, Err(TransportError::RemoteEndpointUnavailable));
 
