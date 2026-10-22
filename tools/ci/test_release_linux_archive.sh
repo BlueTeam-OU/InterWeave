@@ -194,8 +194,8 @@ EOF
         sh "$X/$NAME/install.sh" >"$SANDBOX/install.out" 2>&1 \
         && [[ "$("$SANDBOX/home/.local/bin/transportctl")" == transportctl ]] \
         && [[ -f "$SANDBOX/home/.config/systemd/user/interweave-daemon@.service" ]] \
-        && [[ ! -e "$SANDBOX/home/.local/bin/claude-channel" ]]; then
-        pass "the unpacked archive's install.sh installs its programs and units, and not the bridge"
+        && [[ ! -e "$X/$NAME/bin/claude-channel" ]]; then
+        pass "the unpacked archive's install.sh installs its programs and units, and bin/ holds no bridge"
     else
         fail "the unpacked archive's install.sh did not install" "$(cat "$SANDBOX/install.out")"
     fi

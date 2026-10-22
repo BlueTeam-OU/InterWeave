@@ -56,7 +56,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 target=x86_64-unknown-linux-gnu
 # The bridge is built and its crates noticed with the three, but it ships
-# only inside the plugin, never in bin/: install.sh installs bin/ whole.
+# only inside the plugin, never in bin/: the plugin's .mcp.json starts
+# ${CLAUDE_PLUGIN_ROOT}/bin/claude-channel, and Claude Code, not install.sh,
+# is what runs it.
 packages=(interweave-transport-daemon interweave-transportctl interweave-human-desktop interweave-claude-channel)
 programs=(transport-daemon transportctl human-desktop)
 bridge=claude-channel
@@ -134,7 +136,8 @@ install -m 0644 "$root/packaging/linux/README.md" "$stage/README.md"
 install -m 0644 "$root/LICENSE" "$stage/LICENSE"
 bash "$root/packaging/claude-plugin/build.sh" "$stage/claude-plugin" "$bin_dir/$bridge" >/dev/null \
     || die "packaging/claude-plugin/build.sh refused the plugin"
-# build.sh keeps the checkout's modes; the archive's are fixed like the rest.
+# build.sh's copies take the builder's umask; the archive's modes are fixed
+# like the rest.
 find "$stage/claude-plugin" -type d -exec chmod 0755 {} +
 find "$stage/claude-plugin" -type f -exec chmod 0644 {} +
 chmod 0755 "$stage/claude-plugin/interweave/bin/$bridge"
