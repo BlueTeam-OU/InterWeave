@@ -1372,6 +1372,54 @@ fn an_unknown_undo_focuses_its_try_again() {
     assert_eq!(focus(&m), Some(PeersFocus::SnackAction));
 }
 
+/// A block a trust read shows trusted is decided as its own Trust would
+/// be: a row's trust step opened with trust unread closes once its read
+/// lists the peer, focus on that row; and an add's block made before the
+/// opening read answered settles the same way (§5.3).
+#[test]
+fn a_block_a_read_shows_trusted_settles_its_step() {
+    let (me, p) = (peer(), peer());
+    let listing = |m: &mut UiModel| {
+        m.trust_settings_mut().read(Ok(TrustList {
+            local_peer: Some(me.clone()),
+            allowed: vec![TrustRow::added_here(p.clone())],
+        }));
+        let _ = m.peers_turn();
+    };
+
+    let mut m = UiModel::new();
+    let _ = input(&mut m, PeersInput::Opened);
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    m.addresses_read(Ok(list(&[added(&p)])));
+    assert_eq!(
+        input(&mut m, PeersInput::TrustRow(at(&p))),
+        vec![Intent::ReadTrust]
+    );
+    listing(&mut m);
+    assert!(!m.peers().add_open(), "decided by the read: closed");
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&p))));
+
+    // The add answered before the opening trust read.
+    let mut m = UiModel::new();
+    let _ = input(&mut m, PeersInput::Opened);
+    m.addresses_read(Ok(list(&[])));
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&p)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&p)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(p.clone()),
+            },
+            &[added(&p)],
+        ),
+    );
+    assert_eq!(m.peers().blocks(m.trust_settings()).len(), 1);
+    listing(&mut m);
+    assert!(!m.peers().add_open(), "the opening read decided it");
+}
+
 /// Two rows name one peer: the trust step a row's Trust opens returns
 /// focus to that row, not the other -- here the newest, shown first and
 /// last in the runtime's order (§8).

@@ -1445,8 +1445,18 @@ impl Peers {
         let mut problem = None;
         let mut moved = false;
         for block in &mut page.blocks {
+            let known_before = block.known;
             if let Some(list) = trust.confirmed_list() {
                 block.known = Some(list.allows(&block.peer));
+            }
+            // A read that shows the peer trusted decides the block as its
+            // own Trust would: the step settles (§5.3).
+            if block.known == Some(true)
+                && known_before != Some(true)
+                && !block.trusting
+                && !block.checking
+            {
+                moved = true;
             }
             let on_its_way = trust.in_flight().is_some_and(|c| c.peer == block.peer);
             if block.problem.is_some() && block.allowed(trust) {
