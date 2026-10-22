@@ -15,7 +15,7 @@ use std::rc::{Rc, Weak};
 
 use interweave_human_android_platform::{ServiceHost, StoreRefusal};
 use interweave_human_store::at_rest::{DiscardPlan, DiscardScope};
-use interweave_human_ui_model::{DiscardKind, StoreEffect, StorePhase, StoreRecovery, StoreScreen};
+use interweave_human_ui_model::{DiscardKind, StoreEffect, StoreRecovery, StoreScreen};
 use interweave_human_ui_slint::{
     IdentityInput, StoreOutcome, View, apply_store, defer, store_page,
 };
@@ -23,12 +23,18 @@ use interweave_human_ui_slint::{
 use crate::jni::{PROFILE, log};
 use crate::keystore::StoreKeystore;
 use crate::onboard::{ask, ask_activity, platform};
+use crate::store_follow::{Follow, ShownState, follow as decide};
 
 /// The flow while a store screen shows, and the plan it confirmed.
 struct Shown {
     flow: StoreRecovery,
     plan: Option<DiscardPlan>,
     view: Weak<RefCell<View>>,
+    /// The hub's store answers as last seen.
+    answers: u64,
+    /// The answer count when the discard finished: a refusal counted
+    /// past it is the restart's.
+    done_at: Option<u64>,
 }
 
 thread_local! {
@@ -53,28 +59,32 @@ const fn kind(scope: DiscardScope) -> DiscardKind {
 /// Follow what the hub last said of the store: show the screen it calls
 /// for, or, once a start opened the store, take it away -- with the
 /// discard's notice in Chats when one ran. Called at every turn.
-pub(crate) fn follow(view: &Rc<RefCell<View>>, refused: Option<StoreRefusal>) {
+pub(crate) fn follow(view: &Rc<RefCell<View>>, refused: Option<StoreRefusal>, answers: u64) {
     SHOWN.with(|shown| {
         let mut shown = shown.borrow_mut();
-        match (refused, shown.as_ref()) {
-            // The same screen, still in use. A finished flow (its discard
-            // done) under a refusal is a restart refused again: it starts
-            // over, or every action would stay inert (#377 review, risk 2).
-            (Some(refused), Some(s))
-                if s.flow.screen() == screen(refused)
-                    && !matches!(s.flow.phase(), StorePhase::Done(_)) => {}
-            (Some(refused), _) => {
+        if let Some(s) = shown.as_mut() {
+            s.answers = answers;
+        }
+        let state = shown.as_ref().map(|s| ShownState {
+            screen: s.flow.screen(),
+            done_at: s.done_at,
+        });
+        match decide(state, refused.map(screen), answers) {
+            Follow::Keep => {}
+            Follow::Show(screen) => {
                 // The desktop and the phone hold one identity until Stage 22.
                 *shown = Some(Shown {
-                    flow: StoreRecovery::new(screen(refused), 1),
+                    flow: StoreRecovery::new(screen, 1),
                     plan: None,
                     view: Rc::downgrade(view),
+                    answers,
+                    done_at: None,
                 });
                 view.borrow()
                     .on_identity(move |input| defer(move || input_on(&input)));
                 render(shown.as_ref());
             }
-            (None, Some(_)) => {
+            Follow::Hide => {
                 let s = shown.take();
                 let view = view.borrow();
                 view.show_identity(None);
@@ -82,7 +92,6 @@ pub(crate) fn follow(view: &Rc<RefCell<View>>, refused: Option<StoreRefusal>) {
                     view.show_once(notice);
                 }
             }
-            (None, None) => {}
         }
     });
 }
@@ -165,6 +174,7 @@ fn discard() {
         let ok = match done {
             Ok(discarded) => {
                 s.flow.discarded(kind(discarded.scope));
+                s.done_at = Some(s.answers);
                 true
             }
             Err(why) => {
