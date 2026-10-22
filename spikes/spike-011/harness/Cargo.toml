@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# SPIKE-011's harness: the shipping human store, opened by its own code,
+# under each candidate engine, timed and searched.
+#
+# ITS OWN WORKSPACE, like every spike harness: a spike never becomes a
+# production dependency, and the root workspace never builds it.
+#
+# THE STORE IS TAKEN BY REVISION, not by path: SPIKE-011 is under the
+# release-gate regime (`architecture/roadmap/SPIKES.md`'s preamble), so the
+# harness measures the store at a named revision, and that pin moves only
+# in the change that re-runs the rows and re-records them.
+#
+# THE ENGINE IS A FEATURE OF THIS PACKAGE, unified into the store's own
+# `rusqlite`: `libsqlite3-sys` builds SQLCipher in place of SQLite when
+# `bundled-sqlcipher` is on anywhere in the graph, so the store's code runs
+# unchanged on the candidate. One build per engine:
+#   (none)           the plaintext baseline, the store as it ships;
+#   cipher           SQLCipher, its crypto from the host's libcrypto,
+#                    linked dynamically;
+#   cipher-vendored  SQLCipher, OpenSSL built from source and linked
+#                    statically (the only one Android can link: it has
+#                    no libcrypto an app may load).
+
+[workspace]
+
+[package]
+name = "spike-011-harness"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "Apache-2.0"
+
+[[bin]]
+name = "spike-011"
+path = "src/main.rs"
+
+[features]
+cipher = ["rusqlite/bundled-sqlcipher"]
+cipher-vendored = ["cipher", "rusqlite/bundled-sqlcipher-vendored-openssl"]
+
+[dependencies]
+interweave-human-store = { git = "https://github.com/BlueTeam-OU/InterWeave.git", rev = "1a4fa590a6059efdaf14ba04d579f33db57bf0f0" }
+interweave-profile-config = { git = "https://github.com/BlueTeam-OU/InterWeave.git", rev = "1a4fa590a6059efdaf14ba04d579f33db57bf0f0" }
+interweave-transport-api = { git = "https://github.com/BlueTeam-OU/InterWeave.git", rev = "1a4fa590a6059efdaf14ba04d579f33db57bf0f0" }
+rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
+libc = "=0.2.190"

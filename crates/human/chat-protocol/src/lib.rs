@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! `HumanChatV2`: the envelope, the media type, the bounded decode path,
-//! and the send-side encoder.
+//! `HumanChatV2`: the envelope, the contact card, the media type, the
+//! bounded decode path, and the send-side encoder.
 //!
 //! Above transport and independent of it (ADR-0050). The same library
 //! serves the desktop client, the Android client, and the Claude bridge,
@@ -18,12 +18,18 @@
 
 #![forbid(unsafe_code)]
 
+pub mod card;
 pub mod decode;
 pub mod encode;
 pub mod envelope;
 #[cfg(feature = "markdown")]
 pub mod render;
 
+pub use card::{
+    CARD_BYTES_PREFIX, CARD_PHOTO_MEDIA_TYPES, CONTACT_CARD_KIND, Card, CardFault, CardPhoto,
+    CardRoute, Classified, MAX_CARD_NAME_SCALARS, MAX_CARD_PHOTO_BYTES, canonical_card_bytes,
+    classify,
+};
 pub use decode::{
     CONTENT_ENCODING_BROTLI, ContentEncoding, DecodeError, MAX_DECOMPRESSED_BYTES, MEDIA_TYPE_V2,
     MediaTypeInfo, decode_envelope_bytes, parse_media_type, sender_may_compress,

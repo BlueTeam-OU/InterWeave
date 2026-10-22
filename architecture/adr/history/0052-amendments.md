@@ -265,3 +265,24 @@ be configured to reach a relay-only peer: the recorded gap.
 ### Amendment 2026-10-09 — Rule 3's own listener is one on an IP the host is known to hold
 
 Stage 17 step 5 gave the network-change detector a second source, the platform's view (CONNECTIVITY.md §14, A 2026-10-09), and with it a state the listener set alone never had: a listener still BOUND on an IP the view has said departed, until the listener poll catches up. The offer sites stopped offering such a listener (`NetworkSet::holds`, de611722), and the punch's own-listener test (`HolePunchScope::within_boundary`) reads the offered set, so at that commit the punch already counted bound ∩ known — except the `NewListenAddr` offer, filtered since e70747ce. The other instances of the same test — the discovery and advertised doors' `own_listeners` (the root funnel's, Kademlia's, the relay state's, the Identify boundary, mDNS, the Learn and OfferRoutingPeer commands) — read the bound set until 7c1eaf7b, so a departed LAN's listener kept admitting private candidates there for the poll's lag. Ruled on p2p-network-dev's question: rule 3's "holds" means bound and on an IP the host is known to hold, at every instance of the test; nothing else in the rule changes (family and range, the per-instance decision, the dial-back's refusal). Built before this note landed: a crate-level held-listener set the detector publishes after every observation, read by every runtime own-listener site through `NetworkSet::own_listeners` and taken by the root funnel beside the operator set (7c1eaf7b; wire test at the Learn site, the funnel's unit test, the detector's publication test). The AutoNAT offer filters have no test that fails on their removal — this host has no probeable listener — and the predicate is pinned through DCUtR; a public-IP row is where it would show.
+
+### Amendment 2026-10-21 — A person's add is the one peer-chosen address admitted through the operator door
+
+ADR-0062 lets a person add a peer's address in the human client, typed
+or scanned from a code the other party showed, and persists it in the
+bootstrap-peers overlay, which the static-bootstrap provider emits into
+the operator set. Rule 8's last sentence held operator inputs outside
+the boundary "because no peer chose them" and its implementation text
+called feeding a peer's address back through the operator command
+laundering. A scanned code's addresses are chosen by the other party,
+so #340's review (F16) asked on what ground they pass. Ruled: the
+person's choice is the ground, and the floor is the safeguard — the add
+method applies rule 2's special-use floor to every component before
+anything is stored, and the client refuses a DNS name that arrived by
+scan — the one named exception to the sentence; no other path feeds a
+peer-chosen address through the operator door.
+The same amendment reads rule 2's "whoever supplies them" as
+"whichever peer supplies them": rule 9 admits an operator-set address
+whatever its class, and the two sentences had read against each other
+(#340's review, rounds 4 and 5); the floor is the peer-supplied path's,
+and the person's add brings its own.

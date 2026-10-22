@@ -678,3 +678,21 @@ than once, and `advertise` described as a second authored field beside
 Round 17 (F62): the client asserts the delta before it takes the
 identity's lease, at every acquisition of that lease, so no window exists
 in which a listed-and-leased identity answers a directory query.
+
+### Amendment 2026-10-21 — A bootstrap-peers overlay holds the addresses a person adds (ii)
+
+ADR-0062 (the owner's direction of 2026-10-21: the Android app must
+have a way to define bootstrap addresses) gives a person on either
+platform an add-a-peer-by-address action through the administrative
+boundary. The authored file stays unrewritten, so the addresses need an
+overlay of their own: `<state>/bootstrap-overlay.json`, `{"peers":
+[<multiaddr-with-peer-id>, …]}`, under the trust overlay's every rule,
+normalised at load (a duplicate of an authored entry leaves, an entry
+outside the grammar fails the load by name), counted with the authored
+entries against the static-bootstrap provider's 64. The static provider
+reads it beside the authored entries and emits both with configured
+provenance — the composition building the provider from the overlay
+alone when the profile authors none, an authored `enabled: false`
+refusing the add — and a composed count above 64 at start is FATAL
+naming the overlay, never truncated; nothing of trust moves. The methods are p2p-network-dev's,
+an IPC minor under ADR-0017, as the endpoint overlay's were.

@@ -1,5 +1,7 @@
 # Android transport-key custody
 
+**A second subject (A 2026-10-21, ADR-0063).** Every user identity's Ed25519 identity key is sealed as the human store's key is (ADR-0060 decision 3), not through the seed's seam below: an envelope of its own, magic `IDK1`, with the EndpointId and the public key as associated data, under an `AndroidKeyStore` AES-256-GCM wrapping key in its own alias namespace `interweave.idk1.<profile>.<EndpointId>` at the `background-compatible` level, one file per identity at `<state_dir>/identity-keys/<EndpointId>.key` under the state root. The invalidation signals below apply to its wrapping key; its outcome differs: a lost identity key is a new key and a key change at every counterparty, not a recovery flow.
+
 Status: architecture/design only.
 
 ## Constraint

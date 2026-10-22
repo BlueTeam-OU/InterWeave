@@ -28,7 +28,7 @@ use rusqlite::{Connection, OptionalExtension as _, Transaction};
 use crate::StoreError;
 
 /// The schema version this build writes and expects.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// Every table the store is allowed to contain.
 ///
@@ -38,22 +38,6 @@ pub const SCHEMA_VERSION: i64 = 7;
 /// the conversation index (`RETENTION.md` §5, plan §17 (4)), and since
 /// v7 the read pairs (STATE.md, plan §18 (5)).
 pub const REQUIRED_TABLES: &[&str] = &[
-    "pending_outbound",
-    "unread_inbound",
-    "kept_inbound",
-    "settings",
-    "contacts",
-    "contact_routes",
-    "conversation_index",
-    "read_pairs",
-];
-
-/// Tables whose SQLite-generated indexes are legitimate.
-///
-/// An autoindex is named `sqlite_autoindex_<table>_<n>` and is caught by
-/// the `sqlite_` prefix; this covers any index SQLite names after the
-/// table it backs.
-const INTERNAL_INDEX_OWNERS: &[&str] = &[
     "pending_outbound",
     "unread_inbound",
     "kept_inbound",
@@ -149,12 +133,38 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     if current < 7 {
         migration_7(&tx)?;
     }
+    if current < 8 {
+        migration_8(&tx)?;
+    }
     // The version bump rides the SAME transaction as the DDL above, which
     // is what makes a crashed migration a no-op rather than a schema the
     // store misreads on the next open.
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     Ok(())
+}
+
+/// v8 — the inbound walk's sort key is indexed: `(received_at, row_id)`
+/// on each inbound content table (SPIKE-011; architect-cto's ruling,
+/// REPLY 01a15f1a).
+///
+/// The client's start-up walk pages both tables in that order
+/// (`read_inbound_table`), and without an index every page was a full
+/// scan and a sort of the whole table. Content-free: the index holds the
+/// time of receipt and the row id, both already columns of the row, and
+/// goes with the row it indexes, so a released message leaves nothing
+/// behind in it. No table is rebuilt and none changes shape (STATE.md's
+/// logical tables are unchanged); [`verify_shape`] holds the two indexes
+/// by name and column, as it holds every other part of the schema.
+/// `the_inbound_walk_reads_its_index_not_a_sort` pins the plan.
+fn migration_8(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "
+        CREATE INDEX unread_inbound_by_received ON unread_inbound (received_at, row_id);
+        CREATE INDEX kept_inbound_by_received ON kept_inbound (received_at, row_id);
+        ",
+    )
+    .map_err(migration_error)
 }
 
 /// v7 — the read pairs: a bounded, content-free record of messages read
@@ -446,19 +456,24 @@ fn carry_sequence(
 /// VIRTUAL: it computes on read and stores nothing, so it is not a second
 /// place a body can be kept and does not widen the content surface
 /// ADR-0044 bounds. `PRAGMA table_info` does not report generated columns
-/// at all, so [`EXPECTED_SCHEMA`] does not list it among the columns;
-/// `PRAGMA index_info` does report it BY NAME, which is what keeps
-/// [`verify_shape`]'s unique key assertion load-bearing. A bare
-/// expression index would have been reported with a NULL column name and
-/// silently dropped by [`actual_unique_keys`], leaving the guard passing
-/// a key it no longer checked.
+/// at all, so [`EXPECTED_SCHEMA`] does not list it among the columns. The
+/// unique key names it, and [`index_key_columns`] reads a key from
+/// `PRAGMA index_xinfo` by column NAME, so [`verify_shape`]'s unique-key
+/// assertion holds the column this migration wrote. A unique index over
+/// `IFNULL(source_endpoint, '')` itself would read as `<expression>`,
+/// which names no expression: one over a constant would read the same.
+/// `a_unique_key_over_an_expression_is_not_the_generated_column_this_build_wrote`
+/// plants both and holds the refusal.
 ///
-/// The NAME alone is still not enough, and an earlier version of this
-/// comment stopped here as though it were: a column of the same name
+/// The NAME alone is still not enough: a column of the same name
 /// generated from a constant presents an identical column list and an
 /// identical unique key while collapsing every endpoint again. So
-/// [`verify_shape`] compares the declaration text, and
-/// [`TableShape::generated`] carries it.
+/// [`verify_shape`] evaluates what each generated column computes
+/// ([`TableShape::generated`], [`generated_columns_compute_what_we_wrote`])
+/// rather than reading its declaration text, which a comment can forge:
+/// `a_generated_key_with_the_right_name_and_a_different_expression_is_refused`
+/// and `a_decoy_comment_carrying_the_expected_declaration_does_not_excuse_a_constant`
+/// hold it.
 ///
 /// The copy is a plain `INSERT`: this migration WIDENS the key, and a
 /// wider key cannot turn two distinct rows into a collision. A failure
@@ -684,7 +699,7 @@ struct TableShape {
     ///
     /// Neither the name nor the declaration text is enough, and this
     /// guard has now been written both wrong ways. `PRAGMA table_info`
-    /// hides generated columns and `PRAGMA index_info` reports only the
+    /// hides generated columns and `PRAGMA index_xinfo` reports only the
     /// NAME of one used in a key, so a `source_endpoint_key` redefined as
     /// the constant `''` presents an identical column list and an
     /// identical unique key while collapsing every endpoint back into
@@ -697,6 +712,12 @@ struct TableShape {
     /// So the expression is EVALUATED rather than read. See
     /// [`generated_columns_compute_what_we_wrote`].
     generated: &'static [GeneratedColumn],
+    /// Every index the store creates beyond its UNIQUE keys, as `(name,
+    /// ordered columns)`. Any other non-unique index on the table -- an
+    /// extra one, a partial one, one over an expression -- is refused: an
+    /// index is a second copy of the columns it covers, so the set is
+    /// part of what the store keeps.
+    indexes: &'static [(&'static str, &'static [&'static str])],
     /// Whether the rowid primary key is AUTOINCREMENT.
     ///
     /// Not visible through any pragma, and load-bearing: a bare
@@ -1039,6 +1060,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         unique_keys: &[&["app_message_id"], &["transport_message_id"]],
         generated: &[],
         autoincrement: true,
+        indexes: &[],
         foreign_keys: &[],
     },
     TableShape {
@@ -1067,6 +1089,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         ]],
         generated: &[GENERATED_ENDPOINT_KEY, GENERATED_CHANNEL_KEY],
         autoincrement: true,
+        indexes: &[("unread_inbound_by_received", &["received_at", "row_id"])],
         foreign_keys: &[],
     },
     TableShape {
@@ -1091,6 +1114,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         ]],
         generated: &[GENERATED_ENDPOINT_KEY, GENERATED_CHANNEL_KEY],
         autoincrement: true,
+        indexes: &[("kept_inbound_by_received", &["received_at", "row_id"])],
         foreign_keys: &[],
     },
     TableShape {
@@ -1099,6 +1123,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         unique_keys: &[&["key"]],
         generated: &[],
         autoincrement: false,
+        indexes: &[],
         foreign_keys: &[],
     },
     // v5's three content-free tables (`migration_5`): shaped column by
@@ -1119,6 +1144,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         unique_keys: &[&["contact_id"]],
         generated: &[],
         autoincrement: false,
+        indexes: &[],
         foreign_keys: &[],
     },
     TableShape {
@@ -1134,6 +1160,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         unique_keys: &[&["contact_id", "peer_id", "endpoint_id"]],
         generated: &[],
         autoincrement: false,
+        indexes: &[],
         foreign_keys: &[(
             "contact_id",
             "contacts",
@@ -1155,6 +1182,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         unique_keys: &[&["conversation_id"]],
         generated: &[],
         autoincrement: false,
+        indexes: &[],
         foreign_keys: &[],
     },
     TableShape {
@@ -1178,6 +1206,7 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
         ]],
         generated: &[GENERATED_ENDPOINT_KEY, GENERATED_CHANNEL_KEY],
         autoincrement: true,
+        indexes: &[],
         foreign_keys: &[],
     },
 ];
@@ -1199,29 +1228,108 @@ fn actual_columns(conn: &Connection, table: &str) -> Result<Vec<Column>, StoreEr
     rows.collect::<Result<_, _>>().map_err(StoreError::from)
 }
 
-/// Read one table's UNIQUE keys as ordered column lists.
+/// Read one table's UNIQUE keys as ordered column lists, each column as
+/// [`index_key_columns`] reads it, with `<partial>` appended to a key
+/// whose index carries a WHERE clause.
 fn actual_unique_keys(conn: &Connection, table: &str) -> Result<Vec<Vec<String>>, StoreError> {
-    let mut list = conn.prepare(&format!("PRAGMA index_list({table})"))?;
-    let indexes: Vec<(String, i64)> = list
-        .query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, i64>(2)?)))?
+    let mut keys: Vec<Vec<String>> = index_list(conn, table)?
+        .into_iter()
+        .filter(|ix| ix.unique)
+        .map(|ix| index_columns(conn, &ix))
         .collect::<Result<_, _>>()?;
-
-    let mut keys = Vec::new();
-    for (name, unique) in indexes {
-        if unique == 0 {
-            continue;
-        }
-        let mut info = conn.prepare(&format!("PRAGMA index_info(\"{name}\")"))?;
-        let mut cols: Vec<(i64, Option<String>)> = info
-            .query_map([], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(2)?))
-            })?
-            .collect::<Result<_, _>>()?;
-        cols.sort_by_key(|(seq, _)| *seq);
-        keys.push(cols.into_iter().filter_map(|(_, c)| c).collect());
-    }
     keys.sort();
     Ok(keys)
+}
+
+/// Read one table's non-unique indexes as `(name, ordered columns)`, each
+/// column as [`index_key_columns`] reads it, with `<partial>` appended to
+/// a partial index.
+fn actual_plain_indexes(
+    conn: &Connection,
+    table: &str,
+) -> Result<Vec<(String, Vec<String>)>, StoreError> {
+    let mut out: Vec<(String, Vec<String>)> = index_list(conn, table)?
+        .into_iter()
+        .filter(|ix| !ix.unique)
+        .map(|ix| Ok((ix.name.clone(), index_columns(conn, &ix)?)))
+        .collect::<Result<_, StoreError>>()?;
+    out.sort();
+    Ok(out)
+}
+
+struct IndexEntry {
+    name: String,
+    unique: bool,
+    partial: bool,
+}
+
+fn index_list(conn: &Connection, table: &str) -> Result<Vec<IndexEntry>, StoreError> {
+    let mut list = conn.prepare(&format!("PRAGMA index_list({table})"))?;
+    let rows = list
+        .query_map([], |r| {
+            Ok(IndexEntry {
+                name: r.get(1)?,
+                unique: r.get::<_, i64>(2)? != 0,
+                partial: r.get::<_, i64>(4)? != 0,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(rows)
+}
+
+fn index_columns(conn: &Connection, ix: &IndexEntry) -> Result<Vec<String>, StoreError> {
+    let mut cols = index_key_columns(conn, &ix.name)?;
+    if ix.partial {
+        cols.push("<partial>".to_owned());
+    }
+    Ok(cols)
+}
+
+/// One index's key columns, in order, read from `index_xinfo` and not
+/// `index_info`: the latter names a column and nothing else, so
+/// `received_at DESC`, `received_at COLLATE NOCASE` or an expression read
+/// as the key this build wrote (an expression's NULL name was once
+/// dropped outright) while the walk sorts again or a UNIQUE key compares
+/// differently. A column this build did not write carries its difference:
+/// an expression reads as `<expression>`, a descending key has ` DESC`
+/// appended, and a collation other than `BINARY` -- matched without case,
+/// as SQLite matches collation names -- ` COLLATE <name>`; so none can
+/// match a declared column by its name alone.
+fn index_key_columns(conn: &Connection, index: &str) -> Result<Vec<String>, StoreError> {
+    let mut info = conn.prepare(&format!("PRAGMA index_xinfo(\"{index}\")"))?;
+    // (seqno, name, desc, coll) of each key column; the rowid entry
+    // `index_xinfo` adds is not a key and is left out.
+    let mut cols: Vec<(i64, Option<String>, i64, Option<String>)> = info
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, i64>(5)?,
+            ))
+        })?
+        .filter_map(|row| match row {
+            Ok((seq, name, desc, coll, 1)) => Some(Ok((seq, name, desc, coll))),
+            Ok(_) => None,
+            Err(e) => Some(Err(e)),
+        })
+        .collect::<Result<_, _>>()?;
+    cols.sort_by_key(|(seq, ..)| *seq);
+    Ok(cols
+        .into_iter()
+        .map(|(_, c, desc, coll)| {
+            let mut col = c.unwrap_or_else(|| "<expression>".to_owned());
+            if desc != 0 {
+                col.push_str(" DESC");
+            }
+            if let Some(coll) = coll.filter(|c| !c.eq_ignore_ascii_case("BINARY")) {
+                col.push_str(" COLLATE ");
+                col.push_str(&coll);
+            }
+            col
+        })
+        .collect())
 }
 
 /// Read one table's foreign keys as `[column, parent table, parent
@@ -1329,7 +1437,10 @@ pub fn verify_shape(conn: &Connection) -> Result<(), StoreError> {
         // as a constant satisfies both while quietly restoring the
         // collision `migration_3` removed. Both halves are checked: the
         // hidden-column set, so an extra or missing one is caught, and
-        // the declaration text, so a changed expression is.
+        // what each column computes, evaluated by
+        // `generated_columns_compute_what_we_wrote`, so a changed
+        // expression is; its declaration text is not read, since a
+        // comment can carry the expected one.
         let hidden = actual_hidden_columns(conn, shape.name)?;
         let mut expected_hidden: Vec<(String, i64)> = shape
             .generated
@@ -1367,6 +1478,28 @@ pub fn verify_shape(conn: &Connection) -> Result<(), StoreError> {
         // And what the generated columns COMPUTE, which is the only
         // question a rebuilt schema cannot lie about.
         generated_columns_compute_what_we_wrote(conn, shape)?;
+
+        // Last of the table's checks, so a rebuilt table is refused by
+        // the check that names what the rebuild changed, not by the
+        // index the rebuild dropped with it.
+        let mut expected_indexes: Vec<(String, Vec<String>)> = shape
+            .indexes
+            .iter()
+            .map(|(name, cols)| {
+                (
+                    (*name).to_owned(),
+                    cols.iter().map(|c| (*c).to_owned()).collect(),
+                )
+            })
+            .collect();
+        expected_indexes.sort();
+        let actual_indexes = actual_plain_indexes(conn, shape.name)?;
+        if actual_indexes != expected_indexes {
+            return Err(StoreError::Migration(format!(
+                "table `{}` has indexes {actual_indexes:?}; this build wrote {expected_indexes:?}",
+                shape.name
+            )));
+        }
     }
 
     // AN ALLOWLIST, not a list of names someone thought of.
@@ -1399,7 +1532,13 @@ pub fn verify_shape(conn: &Connection) -> Result<(), StoreError> {
         }
         match kind.as_str() {
             "table" if REQUIRED_TABLES.contains(&name.as_str()) => {}
-            "index" if INTERNAL_INDEX_OWNERS.iter().any(|t| lowered.contains(t)) => {}
+            // Every index this build writes is declared on its table's
+            // shape and checked there, columns and all; any other is
+            // refused here, whatever table it names.
+            "index"
+                if EXPECTED_SCHEMA
+                    .iter()
+                    .any(|shape| shape.indexes.iter().any(|(n, _)| *n == name.as_str())) => {}
             _ => {
                 return Err(StoreError::Migration(format!(
                     "{kind} `{name}` is not part of this store's schema; ADR-0044 allows the \

@@ -190,8 +190,8 @@ fn a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every
             .expect("unread");
     }
     // Back to v5: pending_outbound without its transport id (migration 6
-    // rebuilds the table to add it) and no read_pairs (migration 7 creates
-    // it). In read_pairs' place, an index of that name: migration 7's
+    // rebuilds the table to add it), no read_pairs (migration 7 creates
+    // it) and no walk indexes (migration 8's). In read_pairs' place, an index of that name: migration 7's
     // CREATE TABLE fails on it, AFTER migration 6 has rebuilt
     // pending_outbound inside the same transaction.
     raw(&path)
@@ -215,6 +215,8 @@ fn a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every
              DROP TABLE pending_outbound;
              ALTER TABLE pending_outbound_v5 RENAME TO pending_outbound;
              DROP TABLE read_pairs;
+             DROP INDEX unread_inbound_by_received;
+             DROP INDEX kept_inbound_by_received;
              CREATE INDEX read_pairs ON settings(key);
              PRAGMA user_version = 5;",
         )

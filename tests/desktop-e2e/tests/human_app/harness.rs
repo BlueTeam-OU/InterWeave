@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use interweave_ipc_client::IpcBinding;
@@ -158,8 +159,15 @@ pub(crate) fn start(home: &Home) -> App {
 
 /// [`start`], with `extra` after the profile on the command line.
 pub(crate) fn start_with(home: &Home, extra: &[&str]) -> App {
-    let log = home.root.path().join("human-desktop.log");
-    let stderr = std::fs::File::create(&log).expect("a log file");
+    // One log per start, never one per home: a case that starts a second
+    // client on a home (refused as already open, or a restart) would
+    // otherwise truncate the file the first still writes to at its own
+    // offset, and either one's lines could be lost. `create_new` makes a
+    // reused name a panic rather than that silent truncation.
+    static STARTS: AtomicU64 = AtomicU64::new(0);
+    let n = STARTS.fetch_add(1, Ordering::Relaxed);
+    let log = home.root.path().join(format!("human-desktop-{n}.log"));
+    let stderr = std::fs::File::create_new(&log).expect("a log file of its own");
     let env = |p: &std::path::Path| p.as_os_str().to_owned();
     let mut command = Command::new(app_binary());
     command.env_clear();

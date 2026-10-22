@@ -68,6 +68,7 @@ pub mod adb;
 /// One per test process, installed by [`log_capture::install`]; until
 /// then [`HostStandIn`]'s log is empty.
 pub mod log_capture {
+    use std::fmt::Write as _;
     use std::sync::{Mutex, OnceLock, RwLock};
 
     use interweave_profile_config::sections::LogLevel;
@@ -77,12 +78,31 @@ pub mod log_capture {
     static LINES: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
     static LEVEL: RwLock<LogLevel> = RwLock::new(LogLevel::Info);
 
-    struct Message(String);
+    /// An event as the app's platform layer writes it
+    /// (`apps/human-android/src/platform_log.rs`): the message, then each
+    /// field as ` name=value` -- a string bare, anything else in its
+    /// `Debug` form -- so a case reads a field the same way from either
+    /// runner's log.
+    #[derive(Default)]
+    struct Line {
+        message: String,
+        fields: String,
+    }
 
-    impl tracing::field::Visit for Message {
+    impl tracing::field::Visit for Line {
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            if field.name() == "message" {
+                value.clone_into(&mut self.message);
+            } else {
+                let _ = write!(self.fields, " {}={value}", field.name());
+            }
+        }
+
         fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
             if field.name() == "message" {
-                self.0 = format!("{value:?}");
+                self.message = format!("{value:?}");
+            } else {
+                let _ = write!(self.fields, " {}={value:?}", field.name());
             }
         }
     }
@@ -102,13 +122,19 @@ pub mod log_capture {
             if !log_admits(meta.target(), *meta.level(), level) {
                 return;
             }
-            let mut message = Message(String::new());
-            event.record(&mut message);
+            let mut line = Line::default();
+            event.record(&mut line);
             if let Some(lines) = LINES.get() {
                 lines
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .push(format!("{} {} {}", meta.level(), meta.target(), message.0));
+                    .push(format!(
+                        "{} {} {}{}",
+                        meta.level(),
+                        meta.target(),
+                        line.message,
+                        line.fields
+                    ));
             }
         }
     }
@@ -134,11 +160,28 @@ pub mod log_capture {
     /// What has been captured so far, one line per event.
     #[must_use]
     pub fn lines() -> String {
-        LINES.get().map_or_else(String::new, |lines| {
+        lines_from(0)
+    }
+
+    /// How many lines have been captured so far.
+    #[must_use]
+    pub fn count() -> usize {
+        LINES.get().map_or(0, |lines| {
             lines
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .join("\n")
+                .len()
+        })
+    }
+
+    /// The lines captured after the first `from`.
+    #[must_use]
+    pub fn lines_from(from: usize) -> String {
+        LINES.get().map_or_else(String::new, |lines| {
+            let lines = lines
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            lines[from.min(lines.len())..].join("\n")
         })
     }
 }
@@ -187,6 +230,13 @@ pub trait Device {
     fn log(&self) -> String {
         String::new()
     }
+
+    /// Begin a fresh log: what [`log`](Self::log) returns from here is
+    /// only what the Android side logs after this call. Called while no
+    /// runtime is up, so a check of the next run reads that run alone --
+    /// counting the lines of an earlier dump is no mark, since a device's
+    /// is formatted and capped (`route_hold.rs`).
+    fn fresh_log(&mut self) {}
 
     /// The bytes of `path`, a file a case on the Android side wrote and
     /// named in its result (`human_chat`'s payloads). The stand-ins share
@@ -350,6 +400,8 @@ pub struct HostStandIn {
     // The provisioned profile's log level, which the capture filters at
     // from BEFORE the host starts, so its startup events are judged at it.
     log_level: LogLevel,
+    // Where `log` begins in the process-wide capture (`fresh_log`).
+    log_from: usize,
 }
 
 impl HostStandIn {
@@ -387,6 +439,7 @@ impl HostStandIn {
                 .expect("a generated identity has a phrase"),
             host: None,
             log_level: LogLevel::Info,
+            log_from: 0,
         }
     }
 
@@ -451,9 +504,14 @@ impl Device for HostStandIn {
         drop(self.host.take());
     }
 
-    /// The capture's lines, when the test process installed it.
+    /// The capture's lines since the last [`fresh_log`](Device::fresh_log),
+    /// when the test process installed it.
     fn log(&self) -> String {
-        log_capture::lines()
+        log_capture::lines_from(self.log_from)
+    }
+
+    fn fresh_log(&mut self) {
+        self.log_from = log_capture::count();
     }
 
     fn restart(&mut self) {

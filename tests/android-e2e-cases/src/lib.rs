@@ -83,6 +83,13 @@ pub mod keys {
     /// required (`trust_boundary`), since it rests on the platform's
     /// name service.
     pub const FILES_WALK_ALONE: &str = "files_walk_alone";
+    /// The end of the hold on the desktop's circuit route, milliseconds
+    /// since the Unix epoch, as TEXT (`route_hold`).
+    pub const HELD_UNTIL: &str = "held_until_ms";
+    /// How many reads of the peer row the watch made, every one finding
+    /// the route held, its end within a second of the first read's, as
+    /// TEXT (`route_hold`).
+    pub const READS: &str = "reads";
     /// [`RESULT`] of a case that held.
     pub const PASS: &str = "pass";
     /// [`RESULT`] of a case that did not, or could not run.
@@ -115,6 +122,18 @@ pub mod cases {
     /// `Device::log`.
     pub const AUDIT: &str = "audit";
 
+    /// ADR-0011 A 2026-10-21 in the app's process: this side's only route
+    /// to the desktop is a circuit through a relay that is down, so the
+    /// failed hop holds the route. The case waits for the hold on the
+    /// admin port's peer row, then reads the row through
+    /// [`super::RouteHoldArgs::watch`] -- several of the reconnect round's
+    /// one-second ticks -- and fails if the hold is set again (a hop tried
+    /// inside it) or is lifted; a lifted hold is waited on until the
+    /// desktop connects, and the failure says whether it did. Arguments:
+    /// [`super::RouteHoldArgs`]; answers [`super::keys::HELD_UNTIL`] and
+    /// [`super::keys::READS`].
+    pub const ROUTE_HOLD: &str = "route_hold";
+
     /// `HumanChatV2` with the desktop on the app's own client, both ways,
     /// plain and `;ce=br`. Arguments: [`super::HumanChatArgs`].
     pub const HUMAN_CHAT: &str = "human_chat";
@@ -127,7 +146,7 @@ pub mod cases {
     /// service host (`ServiceHost::start_runtime_alone`, called by the
     /// instrumentation in apps/human-android/src/e2e.rs). The others run
     /// before it starts, as [`PROVISION`] must.
-    pub const NEED_A_RUNTIME: &[&str] = &[PATHS, TRUST_BOUNDARY, AUDIT];
+    pub const NEED_A_RUNTIME: &[&str] = &[PATHS, TRUST_BOUNDARY, AUDIT, ROUTE_HOLD];
 
     /// The cases a runner must have the app's service serving for in
     /// full -- runtime, store, facade and hub -- handing the case
@@ -272,6 +291,13 @@ fn dispatch<B: DataSessionBinding + AdminBinding>(
                 .ok_or_else(|| "no runtime is serving: start the app's service first".to_owned())?;
             block_on(audit(&binding, peer))??;
         }
+        cases::ROUTE_HOLD => {
+            let args = RouteHoldArgs::from_json(&args)?;
+            let binding = ctx
+                .binding
+                .ok_or_else(|| "no runtime is serving: start the app's service first".to_owned())?;
+            out.extend(block_on(route_hold(&binding, &args))??);
+        }
         cases::HUMAN_CHAT => {
             let args = HumanChatArgs::from_json(&args)?;
             let mut client = ctx.client.ok_or_else(|| {
@@ -368,6 +394,167 @@ impl PathsArgs {
             deadline,
         })
     }
+}
+
+/// The arguments of [`cases::ROUTE_HOLD`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteHoldArgs {
+    /// The desktop peer whose circuit route must be held.
+    pub desktop: TransportIdentity,
+    /// How long the hold must stay as it was first read: longer than a
+    /// few of the reconnect round's one-second ticks, shorter than the
+    /// hold (the first one lasts the retry base, 30 s).
+    pub watch: Duration,
+    /// How long the hold may take to appear.
+    pub deadline: Duration,
+}
+
+impl RouteHoldArgs {
+    /// The JSON a host passes: `desktop`, `watch_ms`, and `deadline_ms`
+    /// (optional).
+    #[must_use]
+    pub fn to_json(&self) -> Value {
+        let ms = |d: Duration| u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
+        let mut out = Map::new();
+        out.insert("desktop".to_owned(), self.desktop.as_str().into());
+        out.insert("watch_ms".to_owned(), ms(self.watch).into());
+        out.insert("deadline_ms".to_owned(), ms(self.deadline).into());
+        Value::Object(out)
+    }
+
+    /// Parse what [`to_json`](Self::to_json) wrote.
+    ///
+    /// # Errors
+    /// A missing or malformed field, by name.
+    pub fn from_json(args: &Value) -> Result<Self, String> {
+        let desktop = args
+            .get("desktop")
+            .and_then(Value::as_str)
+            .and_then(|s| TransportIdentity::parse(s).ok())
+            .ok_or("argument \"desktop\" is not a PeerId")?;
+        let watch = args
+            .get("watch_ms")
+            .and_then(Value::as_u64)
+            .map(Duration::from_millis)
+            .ok_or("argument \"watch_ms\" is not a count")?;
+        let deadline = match args.get("deadline_ms") {
+            None => DEFAULT_DEADLINE,
+            Some(v) => Duration::from_millis(
+                v.as_u64()
+                    .ok_or("argument \"deadline_ms\" is not a count")?,
+            ),
+        };
+        Ok(Self {
+            desktop,
+            watch,
+            deadline,
+        })
+    }
+}
+
+/// How far apart the holds one failed dial sets may end
+/// ([`cases::ROUTE_HOLD`]); far below the 30 s retry base a new hold
+/// would add.
+const SAME_FAILURE_MS: u64 = 1_000;
+
+/// [`cases::ROUTE_HOLD`]'s body, over the admin port's peer rows.
+async fn route_hold(
+    binding: &impl AdminBinding,
+    args: &RouteHoldArgs,
+) -> Result<Map<String, Value>, String> {
+    let port = binding
+        .admin(BTreeSet::from([AdminCapability::Status]))
+        .await
+        .map_err(|_| "the admin port with the status capability was refused".to_owned())?;
+    let desktop = &args.desktop;
+    let read = || async {
+        let rows = port
+            .peers()
+            .await
+            .map_err(|e| format!("the peer rows were refused: {e:?}"))?;
+        rows.into_iter()
+            .find(|row| &row.peer == desktop)
+            .ok_or_else(|| format!("no peer row for {}", desktop.as_str()))
+    };
+    let wall_ms = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+    };
+    let until = tokio::time::Instant::now() + args.deadline;
+    let held = loop {
+        let row = read().await?;
+        if row.connected {
+            return Err(format!("connected to the desktop, nothing held: {row:?}"));
+        }
+        if let Some(held) = row.route_held_until {
+            break held;
+        }
+        if tokio::time::Instant::now() >= until {
+            return Err(format!(
+                "no hold on the desktop's route within {:?}: {row:?}",
+                args.deadline
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+    // A hold that ends inside the watch would be renewed by a retry the
+    // policy allows, which this case could not tell from one it forbids.
+    let watch_ms = u64::try_from(args.watch.as_millis()).unwrap_or(u64::MAX);
+    let read_at = wall_ms();
+    if held <= read_at.saturating_add(watch_ms) {
+        return Err(format!(
+            "the hold ends at {held}, inside the {watch_ms} ms watch from {read_at}"
+        ));
+    }
+    let end = tokio::time::Instant::now() + args.watch;
+    let mut reads = 0_u32;
+    while tokio::time::Instant::now() < end {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let row = read().await?;
+        reads += 1;
+        // One failed dial holds each circuit address of the peer through
+        // the relay, milliseconds apart; the refusal is any of them and
+        // the row reports the latest, so the reported end moves by those
+        // milliseconds either way as entries come and go, with no dial
+        // (measured on the stand-in, 2026-10-21: 1 ms earlier, and 1 ms
+        // later with the last outcome `denied`). A hop tried inside the
+        // hold would fail and set a new end the retry delay past ITS
+        // moment, seconds later at least. The host's log check is what
+        // rules a dial out; this rules out a new hold.
+        let same_failure = held.saturating_add(SAME_FAILURE_MS);
+        if !row.connected && row.route_held_until.is_some_and(|now| now <= same_failure) {
+            continue;
+        }
+        // A hold the relay's connection lifted (`relay_reached`) is the
+        // policy working, not a hop tried inside the hold: a first dial
+        // can race the relay's connection at start. What follows the lift
+        // is said, so a run with the relay up reads as connected.
+        if row.route_held_until.is_none() {
+            let lifted = row.clone();
+            let connect_by = tokio::time::Instant::now() + args.deadline;
+            while tokio::time::Instant::now() < connect_by {
+                if read().await?.connected {
+                    return Err(format!(
+                        "the hold until {held} was lifted (read {reads}) and this side \
+                         connected to the desktop: {lifted:?}"
+                    ));
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+            return Err(format!(
+                "the hold until {held} was lifted (read {reads}) and nothing connected: {lifted:?}"
+            ));
+        }
+        return Err(format!(
+            "the hold until {held} moved later or connected inside the watch (read {reads}): \
+             {row:?}"
+        ));
+    }
+    let mut out = Map::new();
+    out.insert(keys::HELD_UNTIL.to_owned(), held.to_string().into());
+    out.insert(keys::READS.to_owned(), reads.to_string().into());
+    Ok(out)
 }
 
 /// Gate (d) in the running app: what `resolve_embedded` resolves for
@@ -1372,6 +1559,32 @@ mod tests {
         json.as_object_mut().unwrap().remove("deadline_ms");
         assert_eq!(
             PathsArgs::from_json(&json).map(|a| a.deadline),
+            Ok(DEFAULT_DEADLINE)
+        );
+    }
+
+    #[test]
+    fn route_hold_arguments_round_trip_and_name_what_is_wrong() {
+        let args = RouteHoldArgs {
+            desktop: peer(),
+            watch: Duration::from_millis(6000),
+            deadline: Duration::from_millis(1500),
+        };
+        assert_eq!(RouteHoldArgs::from_json(&args.to_json()), Ok(args.clone()));
+        for (field, bad) in [
+            ("desktop", Value::from("not a peer")),
+            ("watch_ms", Value::from(-1)),
+            ("deadline_ms", Value::from(-1)),
+        ] {
+            let mut json = args.to_json();
+            json[field] = bad;
+            let err = RouteHoldArgs::from_json(&json).expect_err(field);
+            assert!(err.contains(&format!("{field:?}")), "{field}: {err}");
+        }
+        let mut json = args.to_json();
+        json.as_object_mut().unwrap().remove("deadline_ms");
+        assert_eq!(
+            RouteHoldArgs::from_json(&json).map(|a| a.deadline),
             Ok(DEFAULT_DEADLINE)
         );
     }

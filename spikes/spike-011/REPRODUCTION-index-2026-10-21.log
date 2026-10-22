@@ -1,0 +1,100 @@
+# SPIKE-011 index rows
+# date:      2026-10-21T16:40:57Z
+# commit:    e41d5fff24a770dc7a176ac9e8b03650ec06d463 (the tree run)
+# dirty:     0 changed path(s) under spikes/spike-011
+# before:    1a4fa590a6059efdaf14ba04d579f33db57bf0f0 (store schema v7)
+# after:     c4a5af955b7029d0cb661610ebff58f234dc7762 (store schema v8)
+# toolchain: cargo 1.98.1 (797e8a9bc 2026-08-05), rustc 1.98.1 (48a229cea 2026-09-01)
+# host:      Linux 6.17.9-1.qubes.fc37.x86_64 x86_64, 10 cpu, ext4 under WORK
+# cpu:       Intel(R) Core(TM) Ultra 7 155H
+# load:      36.69 40.52 34.30 at the start (a shared host; the sides interleave by round)
+# binary:    2faa490a690b99df  3385544 bytes  target-before-plain/release/spike-011
+# binary:    ee42058fab253b6b  8626336 bytes  target-before-vend/release/spike-011
+# binary:    fd8c85f56e481c18  3424824 bytes  target-after-plain/release/spike-011
+# binary:    6bc7bbd0fb1d4ee4  8663496 bytes  target-after-vend/release/spike-011
+## timings: 500 2000 kept, 3 rounds of 30 per side and engine
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":3124,"median_us":5352,"p90_us":13220,"max_us":24005,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":2147,"median_us":2644,"p90_us":3974,"max_us":5157,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":1141,"median_us":2126,"p90_us":3137,"max_us":4473,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":3193,"median_us":5349,"p90_us":9171,"max_us":14009,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":1972,"median_us":2201,"p90_us":4028,"max_us":7859,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":743,"median_us":898,"p90_us":1899,"max_us":4102,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":3623,"median_us":6006,"p90_us":11560,"max_us":15942,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2185,"median_us":2819,"p90_us":4303,"max_us":7818,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":1436,"median_us":4100,"p90_us":5679,"max_us":5933,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":3616,"median_us":5967,"p90_us":11234,"max_us":12809,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2046,"median_us":2409,"p90_us":3071,"max_us":9498,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":894,"median_us":1271,"p90_us":2969,"max_us":5352,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":3006,"median_us":4684,"p90_us":11483,"max_us":16801,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":2319,"median_us":3582,"p90_us":6236,"max_us":12547,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":1339,"median_us":1715,"p90_us":2222,"max_us":5943,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":2915,"median_us":4845,"p90_us":11424,"max_us":16617,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":2004,"median_us":2177,"p90_us":2645,"max_us":4639,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":777,"median_us":1080,"p90_us":2427,"max_us":5645,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":5268,"median_us":6913,"p90_us":10087,"max_us":37735,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2364,"median_us":2804,"p90_us":4988,"max_us":10423,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":1439,"median_us":1595,"p90_us":3167,"max_us":15720,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":3798,"median_us":6129,"p90_us":12751,"max_us":14250,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2027,"median_us":2475,"p90_us":3250,"max_us":5932,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":1161,"median_us":1228,"p90_us":2600,"max_us":5690,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":3010,"median_us":5308,"p90_us":13585,"max_us":23085,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":2012,"median_us":2648,"p90_us":4954,"max_us":7159,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":1238,"median_us":1904,"p90_us":7092,"max_us":15801,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":3363,"median_us":5081,"p90_us":7261,"max_us":10606,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":2044,"median_us":2325,"p90_us":2597,"max_us":4754,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":714,"median_us":1070,"p90_us":1602,"max_us":5113,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":3642,"median_us":6049,"p90_us":13369,"max_us":14793,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2345,"median_us":2934,"p90_us":4059,"max_us":7344,"kept":500,"unread":20,"db_bytes":606208}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":2015,"median_us":2204,"p90_us":4517,"max_us":6486,"kept":500,"unread":20,"db_bytes":606208,"rows":550}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":3598,"median_us":6019,"p90_us":10870,"max_us":15167,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2246,"median_us":2588,"p90_us":3655,"max_us":6955,"kept":500,"unread":20,"db_bytes":622592}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":728,"median_us":943,"p90_us":1412,"max_us":4214,"kept":500,"unread":20,"db_bytes":622592,"rows":550}
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":3825,"median_us":7022,"p90_us":12460,"max_us":16243,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":1963,"median_us":2268,"p90_us":3955,"max_us":8612,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":1,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":9089,"median_us":12773,"p90_us":17204,"max_us":17928,"kept":2000,"unread":20,"db_bytes":2105344,"rows":2050}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":2928,"median_us":6830,"p90_us":11174,"max_us":12978,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":2264,"median_us":3027,"p90_us":4397,"max_us":7389,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":1,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":3414,"median_us":6868,"p90_us":12557,"max_us":22254,"kept":2000,"unread":20,"db_bytes":2142208,"rows":2050}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":3539,"median_us":5667,"p90_us":13086,"max_us":17891,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2145,"median_us":2280,"p90_us":3719,"max_us":5324,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":1,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":9168,"median_us":11796,"p90_us":17967,"max_us":26947,"kept":2000,"unread":20,"db_bytes":2125824,"rows":2050}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":3531,"median_us":6521,"p90_us":13894,"max_us":21191,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2298,"median_us":3118,"p90_us":4705,"max_us":25949,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":1,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":3198,"median_us":5432,"p90_us":11547,"max_us":21328,"kept":2000,"unread":20,"db_bytes":2162688,"rows":2050}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":2891,"median_us":5443,"p90_us":9029,"max_us":16748,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":2057,"median_us":2577,"p90_us":3676,"max_us":7381,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":2,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":11905,"median_us":21650,"p90_us":33964,"max_us":41421,"kept":2000,"unread":20,"db_bytes":2105344,"rows":2050}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":3474,"median_us":5889,"p90_us":12668,"max_us":16086,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":2065,"median_us":2531,"p90_us":4923,"max_us":6286,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":2,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":4038,"median_us":4638,"p90_us":5825,"max_us":27595,"kept":2000,"unread":20,"db_bytes":2142208,"rows":2050}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":6094,"median_us":10449,"p90_us":24046,"max_us":32496,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2162,"median_us":2782,"p90_us":3654,"max_us":15175,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":2,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":9975,"median_us":15942,"p90_us":39883,"max_us":91004,"kept":2000,"unread":20,"db_bytes":2125824,"rows":2050}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":5083,"median_us":8340,"p90_us":23524,"max_us":43204,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2318,"median_us":2854,"p90_us":4017,"max_us":11516,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":2,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":3059,"median_us":5252,"p90_us":11698,"max_us":46211,"kept":2000,"unread":20,"db_bytes":2162688,"rows":2050}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":3701,"median_us":6873,"p90_us":18005,"max_us":31598,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":2148,"median_us":2795,"p90_us":4476,"max_us":7945,"kept":2000,"unread":20,"db_bytes":2105344}
+{"side":"before","round":3,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":11083,"median_us":13636,"p90_us":29160,"max_us":57233,"kept":2000,"unread":20,"db_bytes":2105344,"rows":2050}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"open-cold","n":30,"min_us":3859,"median_us":9396,"p90_us":18411,"max_us":37453,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"commit-unread","n":30,"min_us":2572,"median_us":2977,"p90_us":3790,"max_us":6556,"kept":2000,"unread":20,"db_bytes":2142208}
+{"side":"after","round":3,"engine":"sqlite-plaintext","op":"read-walk","n":30,"min_us":3082,"median_us":5275,"p90_us":13343,"max_us":37066,"kept":2000,"unread":20,"db_bytes":2142208,"rows":2050}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":3701,"median_us":8123,"p90_us":16127,"max_us":36656,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2712,"median_us":3424,"p90_us":5820,"max_us":45212,"kept":2000,"unread":20,"db_bytes":2125824}
+{"side":"before","round":3,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":9185,"median_us":13232,"p90_us":14794,"max_us":78469,"kept":2000,"unread":20,"db_bytes":2125824,"rows":2050}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":30,"min_us":4662,"median_us":8269,"p90_us":14347,"max_us":33437,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":30,"min_us":2517,"median_us":3005,"p90_us":8811,"max_us":15472,"kept":2000,"unread":20,"db_bytes":2162688}
+{"side":"after","round":3,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":30,"min_us":3401,"median_us":5323,"p90_us":18360,"max_us":33158,"kept":2000,"unread":20,"db_bytes":2162688,"rows":2050}
+## stress, not a criterion: 20000 kept, 1 round of 10 per side and engine
+{"side":"before","stress":true,"engine":"sqlite-plaintext","op":"open-cold","n":10,"min_us":3595,"median_us":6431,"p90_us":23762,"max_us":23942,"kept":20000,"unread":20,"db_bytes":16809984}
+{"side":"before","stress":true,"engine":"sqlite-plaintext","op":"commit-unread","n":10,"min_us":2425,"median_us":3674,"p90_us":12586,"max_us":31503,"kept":20000,"unread":20,"db_bytes":16809984}
+{"side":"before","stress":true,"engine":"sqlite-plaintext","op":"read-walk","n":10,"min_us":1949180,"median_us":2495099,"p90_us":3065833,"max_us":3076742,"kept":20000,"unread":20,"db_bytes":16809984,"rows":20030}
+{"side":"after","stress":true,"engine":"sqlite-plaintext","op":"open-cold","n":10,"min_us":4873,"median_us":6089,"p90_us":18394,"max_us":24548,"kept":20000,"unread":20,"db_bytes":17113088}
+{"side":"after","stress":true,"engine":"sqlite-plaintext","op":"commit-unread","n":10,"min_us":2839,"median_us":3376,"p90_us":6313,"max_us":14634,"kept":20000,"unread":20,"db_bytes":17113088}
+{"side":"after","stress":true,"engine":"sqlite-plaintext","op":"read-walk","n":10,"min_us":71807,"median_us":223046,"p90_us":378707,"max_us":397937,"kept":20000,"unread":20,"db_bytes":17113088,"rows":20030}
+{"side":"before","stress":true,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":10,"min_us":6225,"median_us":14954,"p90_us":27636,"max_us":101750,"kept":20000,"unread":20,"db_bytes":16883712}
+{"side":"before","stress":true,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":10,"min_us":2611,"median_us":3063,"p90_us":7790,"max_us":39713,"kept":20000,"unread":20,"db_bytes":16883712}
+{"side":"before","stress":true,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":10,"min_us":18167873,"median_us":23800596,"p90_us":24720336,"max_us":28476548,"kept":20000,"unread":20,"db_bytes":16883712,"rows":20030}
+{"side":"after","stress":true,"engine":"sqlcipher-vendored-openssl","op":"open-cold","n":10,"min_us":8561,"median_us":15733,"p90_us":22203,"max_us":42332,"kept":20000,"unread":20,"db_bytes":17195008}
+{"side":"after","stress":true,"engine":"sqlcipher-vendored-openssl","op":"commit-unread","n":10,"min_us":5395,"median_us":7589,"p90_us":15152,"max_us":26543,"kept":20000,"unread":20,"db_bytes":17195008}
+{"side":"after","stress":true,"engine":"sqlcipher-vendored-openssl","op":"read-walk","n":10,"min_us":105551,"median_us":145925,"p90_us":344496,"max_us":386787,"kept":20000,"unread":20,"db_bytes":17195008,"rows":20030}
