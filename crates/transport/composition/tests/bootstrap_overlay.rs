@@ -7,7 +7,8 @@
 //! removed address leaves without a restart; an authored entry stays;
 //! an authored `enabled: false` provider refuses the add and lists what
 //! the overlay holds as not dialled; and a composed count past 64 stops
-//! the start naming the overlay -- each beside its control.
+//! the start naming the overlay; a list is added whole or not at all,
+//! the refusal naming its line -- each beside its control.
 
 #![allow(clippy::expect_used, clippy::panic)]
 
@@ -15,9 +16,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AddressChange, AddressRefusal, AddressSource, AdminBinding as _, AdminCapability,
-    AdminPort as _, BootstrapAddress, DataCapability, DataSessionBinding as _,
-    DataSessionPort as _, SessionRequest,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding as _,
+    AdminCapability, AdminPort as _, BootstrapAddress, DataCapability, DataSessionBinding as _,
+    DataSessionPort as _, LineChange, SessionRequest,
 };
 use interweave_profile_config::ProfileConfig;
 use interweave_profile_config::bootstrap_overlay::BOOTSTRAP_OVERLAY_FILE;
@@ -112,6 +113,24 @@ async fn add(runtime: &ComposedRuntime, address: &str) -> AddressChange {
         .add_bootstrap_address(address.to_owned())
         .await
         .expect("answered")
+}
+
+async fn add_all(
+    runtime: &ComposedRuntime,
+    addresses: &[String],
+) -> Result<AddressesChange, interweave_transport_api::TransportError> {
+    port(runtime)
+        .await
+        .add_bootstrap_addresses(addresses.to_vec())
+        .await
+}
+
+/// The rule and the line of a refused all-or-none add.
+fn refused_line(change: &AddressesChange) -> Option<(AddressRefusal, Option<usize>)> {
+    match change {
+        AddressesChange::Refused { reason, line, .. } => Some((*reason, *line)),
+        AddressesChange::Added(_) => None,
+    }
 }
 
 async fn remove(runtime: &ComposedRuntime, address: &str) -> AddressChange {
@@ -666,4 +685,191 @@ async fn removing_an_added_entry_keeps_the_door_an_authored_one_names() {
         "the control: a route nothing else names leaves the door"
     );
     runtime.shutdown().await.expect("clean shutdown");
+}
+
+/// THE ALL-OR-NONE ADD (ADR-0062 decision 4): a list with one refused
+/// line writes nothing and names the line -- grammar first on every line,
+/// then the special-use floor, then the bound, which counts only new
+/// lines. The controls: a list of good lines, present and repeated ones
+/// among them, is taken whole with one row per line, and the list at the
+/// bound with a repeat is taken.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_list_is_added_whole_or_not_at_all_naming_the_refused_line() {
+    let (identity, _) = id();
+    let (_, b) = id();
+    let authored = vec![at(1, &b)];
+    let (_dir, path) = state();
+    let runtime = ComposedRuntime::start(
+        &identity,
+        &profile(&[&b], Provider::Enabled(&authored)),
+        options(&path),
+    )
+    .await
+    .expect("composes");
+    let loopback = format!("/ip4/127.0.0.1/tcp/4001/p2p/{}", b.as_str());
+
+    for (list, want) in [
+        (
+            vec![at(2, &b), "not an address".to_owned()],
+            (AddressRefusal::Grammar, Some(1)),
+        ),
+        (
+            vec![at(2, &b), at(3, &b), loopback.clone()],
+            (AddressRefusal::SpecialUse, Some(2)),
+        ),
+        (
+            vec![loopback.clone(), "not an address".to_owned()],
+            (AddressRefusal::Grammar, Some(1)),
+        ),
+    ] {
+        let change = add_all(&runtime, &list).await.expect("answered");
+        assert_eq!(refused_line(&change), Some(want), "{list:?}: {change:?}");
+    }
+    assert!(!path.exists(), "nothing written for a refused list");
+    assert_eq!(
+        rows(&runtime).await,
+        vec![row(&authored[0], AddressSource::Authored, true)],
+        "no line of a refused list is in force"
+    );
+    for bad in [Vec::new(), vec![at(2, &b); 17]] {
+        assert_eq!(
+            add_all(&runtime, &bad).await,
+            Err(interweave_transport_api::TransportError::InvalidArgument),
+            "{} lines",
+            bad.len()
+        );
+    }
+
+    assert_eq!(
+        add_all(
+            &runtime,
+            &[authored[0].clone(), at(2, &b), at(2, &b), at(3, &b)]
+        )
+        .await,
+        Ok(AddressesChange::Added(vec![
+            LineChange::Unchanged,
+            LineChange::Added,
+            LineChange::Unchanged,
+            LineChange::Added,
+        ])),
+        "the control"
+    );
+    let on_disk = std::fs::read_to_string(&path).expect("the overlay");
+    assert!(on_disk.contains(&at(2, &b)) && on_disk.contains(&at(3, &b)));
+    assert_eq!(
+        add(&runtime, &at(3, &b)).await,
+        AddressChange::Unchanged,
+        "the single add sees the list's lines"
+    );
+
+    // Up to 63: four lists of 15 new lines.
+    for start in [4_u16, 19, 34, 49] {
+        let list: Vec<String> = (start..start + 15).map(|p| at(p, &b)).collect();
+        assert!(matches!(
+            add_all(&runtime, &list).await,
+            Ok(AddressesChange::Added(_))
+        ));
+    }
+    assert_eq!(rows(&runtime).await.len(), 63);
+    let change = add_all(&runtime, &[at(64, &b), at(65, &b)])
+        .await
+        .expect("answered");
+    assert_eq!(
+        refused_line(&change),
+        Some((AddressRefusal::Bound, Some(1))),
+        "{change:?}"
+    );
+    assert_eq!(rows(&runtime).await.len(), 63, "the 64th not written alone");
+    assert_eq!(
+        add_all(&runtime, &[at(64, &b), at(2, &b), at(64, &b)]).await,
+        Ok(AddressesChange::Added(vec![
+            LineChange::Added,
+            LineChange::Unchanged,
+            LineChange::Unchanged,
+        ])),
+        "the control: the repeats cost nothing"
+    );
+    assert_eq!(rows(&runtime).await.len(), 64);
+    runtime.shutdown().await.expect("clean shutdown");
+}
+
+/// Under an authored `enabled: false` the list is refused whole, naming
+/// no line -- after every line's grammar, which names one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_disabled_provider_refuses_the_list_whole() {
+    let (identity, _) = id();
+    let (_, b) = id();
+    let authored = vec![at(1, &b)];
+    let (_dir, path) = state();
+    let runtime = ComposedRuntime::start(
+        &identity,
+        &profile(&[&b], Provider::Disabled(&authored)),
+        options(&path),
+    )
+    .await
+    .expect("composes");
+    let change = add_all(&runtime, &[at(2, &b), at(3, &b)])
+        .await
+        .expect("answered");
+    assert_eq!(
+        refused_line(&change),
+        Some((AddressRefusal::ProviderDisabled, None)),
+        "{change:?}"
+    );
+    let change = add_all(&runtime, &[at(2, &b), "x".to_owned()])
+        .await
+        .expect("answered");
+    assert_eq!(
+        refused_line(&change),
+        Some((AddressRefusal::Grammar, Some(1))),
+        "{change:?}"
+    );
+    assert!(!path.exists());
+    runtime.shutdown().await.expect("clean shutdown");
+}
+
+/// EVERY line of an added list reaches the operator's door, not only the
+/// first: the reachable address is the list's SECOND line, behind one
+/// nobody listens on. The control: nothing connects before the add.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_line_of_an_added_list_is_dialled() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let listen = CompositionOptions {
+        listen: vec![format!("/ip4/{ip}/tcp/0")],
+        ..CompositionOptions::default()
+    };
+    let (b_id, b) = id();
+    let (a_id, a) = id();
+    let target = ComposedRuntime::start(&b_id, &profile(&[&a], Provider::None), listen.clone())
+        .await
+        .expect("b composes");
+    let b_addr = format!("{}/p2p/{}", target.listening()[0], b.as_str());
+
+    let (_dir, path) = state();
+    let mut subject = ComposedRuntime::start(
+        &a_id,
+        &profile(&[&b], Provider::None),
+        CompositionOptions {
+            bootstrap_overlay_file: Some(path.clone()),
+            ..listen
+        },
+    )
+    .await
+    .expect("a composes");
+    assert!(
+        tokio::time::timeout(Duration::from_secs(2), wait_connected(&mut subject, &b))
+            .await
+            .is_err(),
+        "the control: nothing connects before the add"
+    );
+    assert_eq!(
+        add_all(&subject, &[at(9, &b), b_addr.clone()]).await,
+        Ok(AddressesChange::Added(vec![
+            LineChange::Added,
+            LineChange::Added
+        ]))
+    );
+    wait_connected(&mut subject, &b).await;
+    subject.shutdown().await.expect("clean shutdown");
+    target.shutdown().await.expect("clean shutdown");
 }

@@ -17,13 +17,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AddressChange, AddressRefusal, AddressSource, BootstrapAddress, Generation, OwnAddresses,
-    TrustAdminView, TrustSource, TrustedPeer,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, BootstrapAddress, Generation,
+    LineChange, MAX_ADDRESSES_PER_ADD, OwnAddresses, TrustAdminView, TrustSource, TrustedPeer,
 };
 #[cfg(feature = "test-hooks")]
 use interweave_profile_config::PersistError;
 use interweave_profile_config::bootstrap_overlay::{
-    BootstrapOverlay, BootstrapOverlayError, MoveRefusal,
+    BootstrapOverlay, BootstrapOverlayError, MoveRefusal, entry_grammar,
 };
 use interweave_profile_config::endpoint_overlay::{EndpointOverlay, EndpointOverlayError};
 use interweave_profile_config::trust_overlay::{OverlayError, TrustOverlay};
@@ -217,6 +217,11 @@ pub(crate) enum Request {
     AddBootstrap(
         String,
         oneshot::Sender<Result<AddressChange, TransportError>>,
+    ),
+    /// Add bootstrap addresses all or none (`admin.peers.add_addresses`).
+    AddBootstraps(
+        Vec<String>,
+        oneshot::Sender<Result<AddressesChange, TransportError>>,
     ),
     /// Remove a bootstrap address (`admin.peers.remove_address`).
     RemoveBootstrap(
@@ -1273,6 +1278,9 @@ impl Driver {
             Request::AddBootstrap(address, reply) => {
                 let _ = reply.send(self.add_bootstrap(address).await);
             }
+            Request::AddBootstraps(addresses, reply) => {
+                let _ = reply.send(self.add_bootstraps(addresses).await);
+            }
             Request::RemoveBootstrap(address, reply) => {
                 let _ = reply.send(self.remove_bootstrap(address).await);
             }
@@ -1460,62 +1468,115 @@ impl Driver {
         Ok(answer)
     }
 
-    /// Add a bootstrap address (ADR-0062 decision 1). Each refusal is an
-    /// answer naming its rule, nothing written: the configuration's
-    /// grammar; an authored `enabled: false` provider; ADR-0052 rule 2's
-    /// special-use floor, applied HERE whoever the caller, since the
-    /// operator set the address enters is admitted at every store door
-    /// whatever its class; the provider's bound. An address already
-    /// present changes nothing. An accepted one is written to the overlay
-    /// before it reaches the running provider and the operator's door,
-    /// and before the answer.
+    /// Add a bootstrap address (ADR-0062 decision 1): the all-or-none add
+    /// of one line, so the two methods cannot answer one line apart.
     async fn add_bootstrap(&mut self, address: String) -> Result<AddressChange, TransportError> {
-        let refused = |reason, detail: String| Ok(AddressChange::Refused { reason, detail });
-        if let Err(why) = interweave_profile_config::split_peer_multiaddr(&address) {
-            return refused(AddressRefusal::Grammar, why.to_owned());
+        Ok(match self.add_bootstraps(vec![address]).await? {
+            AddressesChange::Added(lines) => match lines.as_slice() {
+                [LineChange::Added] => AddressChange::Added,
+                [LineChange::Unchanged] => AddressChange::Unchanged,
+                _ => return Err(TransportError::Internal),
+            },
+            AddressesChange::Refused { reason, detail, .. } => {
+                AddressChange::Refused { reason, detail }
+            }
+        })
+    }
+
+    /// Add every one of `addresses` as a bootstrap address or none
+    /// (ADR-0062 decisions 1 and 4). The whole list is checked before
+    /// anything is written, and each refusal is an answer naming its rule
+    /// and -- but for the provider's -- the line: every line's grammar,
+    /// the configuration's whole entry rule; then an authored `enabled:
+    /// false` provider; then every line against ADR-0052 rule 2's
+    /// special-use floor, applied HERE whoever the caller, since the
+    /// operator set an address enters is admitted at every store door
+    /// whatever its class; then the provider's bound, counting only new
+    /// lines. A line already present, or repeated, changes nothing. The
+    /// accepted lines are written to the overlay in ONE write, so a kill
+    /// leaves all or none, before they reach the running provider and the
+    /// operator's door, and before the answer.
+    async fn add_bootstraps(
+        &mut self,
+        addresses: Vec<String>,
+    ) -> Result<AddressesChange, TransportError> {
+        if addresses.is_empty() || addresses.len() > MAX_ADDRESSES_PER_ADD {
+            return Err(TransportError::InvalidArgument);
+        }
+        let refused = |reason, line, detail: String| {
+            Ok(AddressesChange::Refused {
+                reason,
+                line,
+                detail,
+            })
+        };
+        for (line, address) in addresses.iter().enumerate() {
+            if let Err(why) = entry_grammar(address) {
+                return refused(AddressRefusal::Grammar, Some(line), why.to_owned());
+            }
         }
         if self.static_how == StaticAuthoring::Disabled {
             return refused(
                 AddressRefusal::ProviderDisabled,
+                None,
                 "config.yaml authors the static-bootstrap provider enabled: false".to_owned(),
             );
         }
-        if let Some(ip) = interweave_transport_runtime::reachability::special_use_host(&address) {
-            return refused(
-                AddressRefusal::SpecialUse,
-                format!("{ip} is in a special-use range (ADR-0052 rule 2)"),
-            );
-        }
-        let moved = match self.bootstrap.add(&self.static_authored, &address) {
-            Ok(Some(moved)) => moved,
-            Ok(None) => return Ok(AddressChange::Unchanged),
-            Err(MoveRefusal::Grammar(why)) => {
-                return refused(AddressRefusal::Grammar, why.to_owned());
+        for (line, address) in addresses.iter().enumerate() {
+            if let Some(ip) = interweave_transport_runtime::reachability::special_use_host(address)
+            {
+                return refused(
+                    AddressRefusal::SpecialUse,
+                    Some(line),
+                    format!("{ip} is in a special-use range (ADR-0052 rule 2)"),
+                );
             }
-            Err(MoveRefusal::Bound) => {
+        }
+        let (moved, added) = match self.bootstrap.add_all(&self.static_authored, &addresses) {
+            Ok(moved) => moved,
+            Err((MoveRefusal::Grammar(why), line)) => {
+                return refused(AddressRefusal::Grammar, Some(line), why.to_owned());
+            }
+            Err((MoveRefusal::Bound, line)) => {
                 return refused(
                     AddressRefusal::Bound,
+                    Some(line),
                     "authored and added entries would pass 64".to_owned(),
                 );
             }
-            Err(MoveRefusal::Authored) => return Err(TransportError::Internal),
+            Err((MoveRefusal::Authored, _)) => return Err(TransportError::Internal),
+        };
+        let lines = added
+            .iter()
+            .map(|&new| {
+                if new {
+                    LineChange::Added
+                } else {
+                    LineChange::Unchanged
+                }
+            })
+            .collect();
+        let Some(moved) = moved else {
+            return Ok(AddressesChange::Added(lines));
         };
         self.commit_bootstrap(moved)?;
-        // A REMOVAL STILL PENDING FOR IT IS WITHDRAWN: retried, it would
-        // take the address off the door and out of the book after this
-        // answer said it was in force.
-        self.pending_forget
-            .retain(|(_, pending)| pending != &address);
-        let (_, peer) = interweave_profile_config::split_peer_multiaddr(&address)
-            .map_err(|_| TransportError::Internal)?;
-        let parsed = address.parse().map_err(|_| TransportError::Internal)?;
-        // The operator's door, beside the provider: the book takes the
-        // address now, and every store door admits it (ADR-0052 rule 9).
-        self.swarm
-            .add_address(peer, parsed)
-            .await
-            .map_err(|_| TransportError::BackendUnavailable)?;
-        Ok(AddressChange::Added)
+        for (address, _) in addresses.iter().zip(&added).filter(|(_, new)| **new) {
+            // A REMOVAL STILL PENDING FOR IT IS WITHDRAWN: retried, it
+            // would take the address off the door and out of the book
+            // after this answer said it was in force.
+            self.pending_forget
+                .retain(|(_, pending)| pending != address);
+            let (_, peer) = interweave_profile_config::split_peer_multiaddr(address)
+                .map_err(|_| TransportError::Internal)?;
+            let parsed = address.parse().map_err(|_| TransportError::Internal)?;
+            // The operator's door, beside the provider: the book takes the
+            // address now, and every store door admits it (ADR-0052 rule 9).
+            self.swarm
+                .add_address(peer, parsed)
+                .await
+                .map_err(|_| TransportError::BackendUnavailable)?;
+        }
+        Ok(AddressesChange::Added(lines))
     }
 
     /// Remove a bootstrap address: an authored one is refused by name, an
