@@ -550,6 +550,21 @@ drun && pass "Apache-2.0 at a sentence's end, its text attached" || fail "Apache
 printf '// Copyright 2012 Extra Holder.\n// SPDX-License-''Identifier: MIT OR Apache-2.0.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist '["Apache-2.0"]'
 drun && pass "an SPDX line ending in a stop, its texts attached" || fail "an SPDX line ending in a stop was refused" "$(cat "$SANDBOX/err")"
+# An SPDX expression ends where prose follows it on its line; an
+# operator in lower case still joins the next id; an expression cut where
+# an id is due is refused, not read short.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT -- see LICENSE\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drun && pass "prose after an SPDX expression on its line" || fail "prose after an SPDX expression was refused" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT or LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "a lower-case operator before an unknown id" "names a licence this tool does not recognise (LicenseRef-Frob)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT OR\n// LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an SPDX expression cut at the line's end" "names a licence this tool does not recognise (an SPDX expression cut short)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT/LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an SPDX word that is not a clean id" "MIT/LicenseRef-Frob (not an SPDX id)"
 
 # --- The digest gate (ADR-0058 A 2026-10-22 (iii)) --------------------------
 # A header no one has listed is refused by its digest, whatever words it

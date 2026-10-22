@@ -338,13 +338,35 @@ def unrecognised_names(block: str) -> list:
 def id_tokens(text: str, block: str) -> list:
     """Every id the header writes: its SPDX lines' and the id-shaped words
     in its prose, a sentence's punctuation trimmed."""
-    tokens = [
-        t
-        for m in SPDX_LINE.finditer(block)
-        for t in re.findall(r"[A-Za-z0-9.+-]+", m.group(1))
-        if t.upper() not in ("AND", "OR", "WITH")
-    ] + [m.group(0) for m in ID_SHAPED.finditer(text)]
+    tokens = [t for m in SPDX_LINE.finditer(block) for t in spdx_expression(m.group(1))]
+    tokens += [m.group(0) for m in ID_SHAPED.finditer(text)]
     return [t.rstrip(".") for t in tokens if t.rstrip(".")]
+
+
+def spdx_expression(line: str) -> list:
+    """The ids of the SPDX expression that opens `line`: an id, then an
+    operator (AND, OR, WITH, in any case) before each further id,
+    parentheses aside. It ends where an operator is due and another word
+    stands ("MIT -- see LICENSE", "MIT. All rights reserved"). A word that
+    is not a clean id ("MIT/Frob"), and an expression cut where an id is
+    due ("MIT OR" at the line's end, its id wrapped onto the next line),
+    are returned as they stand, so the lookup refuses them rather than
+    reading less than the line names."""
+    ids, want_id = [], True
+    for word in line.split():
+        word = word.strip("()")
+        if not word:
+            continue
+        if want_id:
+            ids.append(word if re.fullmatch(r"[A-Za-z0-9.+-]+", word.rstrip(".")) else f"{word} (not an SPDX id)")
+            want_id = False
+        elif word.upper() in ("AND", "OR", "WITH"):
+            want_id = True
+        else:
+            break
+    if want_id:
+        ids.append("an SPDX expression cut short")
+    return ids
 
 
 def owed_ids(block: str) -> list:
