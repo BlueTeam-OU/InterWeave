@@ -238,6 +238,10 @@ pub(crate) enum Request {
     /// were gone. Test builds only.
     #[cfg(feature = "test-hooks")]
     FailPublishes(usize, oneshot::Sender<()>),
+    /// Whether the operator's door holds a bootstrap address. Test
+    /// builds only.
+    #[cfg(feature = "test-hooks")]
+    OperatorHolds(String, oneshot::Sender<bool>),
     /// End the driver as if its substrate had gone: how a test reaches
     /// a runtime that ends on its own. Test builds only.
     #[cfg(feature = "test-hooks")]
@@ -748,6 +752,17 @@ impl ComposedRuntime {
         current: PeerPath,
     ) -> Result<(), TransportError> {
         self.ask(|reply| Request::InjectPathChange(peer, previous, current, reply))
+            .await
+    }
+
+    /// Whether the operator's door holds `address` (a bootstrap entry, as
+    /// typed): what a removal left at the door. TEST BUILDS ONLY.
+    ///
+    /// # Errors
+    /// `BackendUnavailable` once the runtime has stopped.
+    #[cfg(feature = "test-hooks")]
+    pub async fn operator_holds(&self, address: &str) -> Result<bool, TransportError> {
+        self.ask(|reply| Request::OperatorHolds(address.to_owned(), reply))
             .await
     }
 
@@ -1268,6 +1283,17 @@ impl Driver {
                 let _ = reply.send(());
             }
             #[cfg(feature = "test-hooks")]
+            Request::OperatorHolds(address, reply) => {
+                let held = match (
+                    interweave_profile_config::split_peer_multiaddr(&address),
+                    address.parse(),
+                ) {
+                    (Ok((_, peer)), Ok(parsed)) => self.swarm.operator_holds(&peer, &parsed),
+                    _ => false,
+                };
+                let _ = reply.send(held);
+            }
+            #[cfg(feature = "test-hooks")]
             Request::FailOverlayWrites(faults, reply) => {
                 self.overlay_faults = faults.into();
                 let _ = reply.send(());
@@ -1497,6 +1523,13 @@ impl Driver {
             Err(_) => return Err(TransportError::Internal),
         };
         self.commit_bootstrap(moved)?;
+        // Under an authored `enabled: false` nothing of the overlay reached
+        // the door or the book this run (`with_added_bootstrap`), so there
+        // is nothing of its to undo; a route another source taught the
+        // book stays (#367 re-review F7).
+        if self.static_how == StaticAuthoring::Disabled {
+            return Ok(AddressChange::Removed);
+        }
         if let Ok((_, peer)) = interweave_profile_config::split_peer_multiaddr(&address)
             && !self.forget(&peer, &address).await
         {

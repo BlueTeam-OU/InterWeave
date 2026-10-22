@@ -567,9 +567,14 @@ async fn a_removed_address_is_dialled_no_more_without_a_restart() {
     wait_connected(&mut subject, &b).await;
     let window = (returned.elapsed() * 3).max(Duration::from_secs(10));
 
-    assert_eq!(remove(&subject, &b_addr).await, AddressChange::Removed);
+    // REMOVED WHILE THE FAR END IS DOWN: its Identify, which teaches the
+    // same route on its own authority (ADR-0052's own-listener rule), has
+    // all been taken in by the disconnect, and nothing can teach it
+    // again before the removal -- removed while connected, a late
+    // Identify put the route back and the test raced (#367 re-review F6).
     target.shutdown().await.expect("clean shutdown");
     wait_disconnected(&mut subject, &b).await;
+    assert_eq!(remove(&subject, &b_addr).await, AddressChange::Removed);
     let target = start_target(bound).await;
     // A SEND TO THE PEER is what reads the book (`DialPeer`): with the
     // route still there it would dial and connect.
@@ -605,4 +610,46 @@ async fn a_removed_address_is_dialled_no_more_without_a_restart() {
     drop(sending);
     subject.shutdown().await.expect("clean shutdown");
     target.shutdown().await.expect("clean shutdown");
+}
+
+/// ONE ROUTE, TWO INPUTS (#367 re-review F8): the operator's door keys a
+/// route without its `/p2p` suffix, so an added entry and an authored one
+/// naming the same route under two `PeerId`s share it. Removing the added
+/// one leaves the door to the authored one; the control, removing an
+/// added entry nothing else names, closes it. Read at the door itself,
+/// since a connection would let the peer's own Identify teach the route.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn removing_an_added_entry_keeps_the_door_an_authored_one_names() {
+    let (identity, _) = id();
+    let (_, kept) = id();
+    let (_, stale) = id();
+    let route = "/dns4/boot.example/tcp/4001";
+    let authored = format!("{route}/p2p/{}", kept.as_str());
+    let added = format!("{route}/p2p/{}", stale.as_str());
+    let alone = format!("/dns4/other.example/tcp/4001/p2p/{}", stale.as_str());
+    let (_dir, path) = state();
+    let runtime = ComposedRuntime::start(
+        &identity,
+        &profile(
+            &[&kept, &stale],
+            Provider::Enabled(std::slice::from_ref(&authored)),
+        ),
+        options(&path),
+    )
+    .await
+    .expect("composes");
+    assert_eq!(add(&runtime, &added).await, AddressChange::Added);
+    assert_eq!(add(&runtime, &alone).await, AddressChange::Added);
+
+    assert_eq!(remove(&runtime, &added).await, AddressChange::Removed);
+    assert!(
+        runtime.operator_holds(&authored).await.expect("answered"),
+        "the authored entry keeps its door"
+    );
+    assert_eq!(remove(&runtime, &alone).await, AddressChange::Removed);
+    assert!(
+        !runtime.operator_holds(&alone).await.expect("answered"),
+        "the control: a route nothing else names leaves the door"
+    );
+    runtime.shutdown().await.expect("clean shutdown");
 }
