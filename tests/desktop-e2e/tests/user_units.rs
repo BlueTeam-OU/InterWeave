@@ -71,12 +71,32 @@ fn packaging() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/linux")
 }
 
-/// The directory holding the workspace's three executables, each checked.
+/// The programs install.sh places and uninstall.sh removes, as the
+/// release archive's `bin/` carries them; every case below reads this one
+/// list, so a program added to the package is added here once.
+const PROGRAMS: [&str; 4] = [
+    "transport-daemon",
+    "transportctl",
+    "human-desktop",
+    "interweave-human",
+];
+/// The package that builds each of [`PROGRAMS`], in the same order.
+const PACKAGES: [&str; 4] = [
+    "interweave-transport-daemon",
+    "interweave-transportctl",
+    "interweave-human-desktop",
+    "interweave-human-cli",
+];
+
+/// The directory holding the workspace's builds of [`PROGRAMS`], each
+/// checked.
 fn bin_dir() -> PathBuf {
-    let daemon = workspace_binary("transport-daemon", "interweave-transport-daemon");
-    workspace_binary("transportctl", "interweave-transportctl");
-    workspace_binary("human-desktop", "interweave-human-desktop");
-    daemon.parent().expect("a target directory").to_path_buf()
+    let built: Vec<_> = PROGRAMS
+        .iter()
+        .zip(PACKAGES)
+        .map(|(exe, package)| workspace_binary(exe, package))
+        .collect();
+    built[0].parent().expect("a target directory").to_path_buf()
 }
 
 fn systemctl(args: &[&str]) -> Output {
@@ -413,7 +433,7 @@ async fn the_installed_daemon_unit_starts_restarts_on_sighup_and_stops() {
     let daemon = installed.daemon.as_str();
 
     // Installed, enabled nowhere: autostart is the person's act.
-    for exe in ["transport-daemon", "transportctl", "human-desktop"] {
+    for exe in PROGRAMS {
         assert!(installed.installed_bin().join(exe).is_file(), "{exe}");
     }
     assert_eq!(
@@ -604,7 +624,7 @@ async fn uninstall_stops_every_instance_removes_the_package_and_keeps_the_profil
     let files_after = profile_files(&profile_roots);
     let lost: Vec<_> = files_before.difference(&files_after).collect();
     assert!(lost.is_empty(), "nothing of the profile removed: {lost:?}");
-    for exe in ["transport-daemon", "transportctl", "human-desktop"] {
+    for exe in PROGRAMS {
         assert!(
             !installed.installed_bin().join(exe).exists(),
             "{exe} removed"
@@ -724,7 +744,7 @@ impl Unmanaged {
             !Path::new("/run/user/2147480000").exists(),
             "the stand-in uid has a runtime directory on this host"
         );
-        for exe in ["transport-daemon", "transportctl", "human-desktop"] {
+        for exe in PROGRAMS {
             let path = this.bins.join(exe);
             std::fs::write(&path, "#!/bin/sh\nexit 0\n").expect("a stand-in");
             std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))
@@ -791,7 +811,7 @@ impl Unmanaged {
         ["interweave-daemon@.service", "interweave-client@.service"]
             .iter()
             .all(|u| self.units().join(u).exists())
-            && ["transport-daemon", "transportctl", "human-desktop"]
+            && PROGRAMS
                 .iter()
                 .all(|e| self.home.join(".local/bin").join(e).exists())
     }
@@ -933,7 +953,6 @@ fn uninstall_refuses_a_manager_whose_query_fails() {
     );
 }
 
-const PROGRAMS: [&str; 3] = ["transport-daemon", "transportctl", "human-desktop"];
 const UNITS: [&str; 2] = ["interweave-daemon@.service", "interweave-client@.service"];
 
 /// Runs a copy of install.sh beside a copy of its templates, under a
@@ -1013,7 +1032,7 @@ fn install_with_a_missing_input_writes_nothing() {
 
     let (out, _, counts, _root) = run("", false);
     assert!(
-        out.status.success() && counts == (3, 2),
+        out.status.success() && counts == (PROGRAMS.len(), UNITS.len()),
         "the control installs every file: {counts:?} {}",
         String::from_utf8_lossy(&out.stderr)
     );

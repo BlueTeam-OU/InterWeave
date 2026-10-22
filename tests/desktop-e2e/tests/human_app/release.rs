@@ -39,10 +39,12 @@ use std::time::Duration;
 
 use interweave_human_chat_protocol::encode_outbound;
 use interweave_human_store::identity_key;
+use interweave_human_store::key_custody::FilesystemCustody;
 use interweave_human_store::{
     AppMessageId, HumanStore, InboundOrigin, NewInbound, NewOutbound, OutboundDestination,
     SCHEMA_VERSION, StoreOptions,
 };
+use interweave_human_store::{at_rest, store_key};
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
 use interweave_profile_config::profile_format::{self, PROFILE_FORMAT};
 use interweave_transport_api::{
@@ -231,19 +233,17 @@ fn changed(before: &BTreeMap<PathBuf, Vec<u8>>, after: &BTreeMap<PathBuf, Vec<u8
         .collect()
 }
 
-/// The store's `user_version`, read-only.
-fn store_version(home: &Home) -> i64 {
-    let conn = rusqlite::Connection::open_with_flags(
-        app_store(home),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .expect("the store opens read-only");
-    conn.query_row("PRAGMA user_version", [], |r| r.get(0))
-        .expect("a version")
-}
-
-/// The application ids of `table`'s rows, read-only.
-fn ids(home: &Home, table: &str) -> Vec<String> {
+/// A read-only connection to the app's store: under its key once this
+/// build has run on it (ADR-0060), in plaintext while it is still as the
+/// previous build wrote it.
+fn store_conn(home: &Home) -> rusqlite::Connection {
+    if store_key::exists(&home.paths).expect("the state directory") {
+        let conn = at_rest::open_read_only(&home.paths, &FilesystemCustody)
+            .expect("the store opens read-only under its key");
+        conn.busy_timeout(Duration::from_secs(5))
+            .expect("a timeout");
+        return conn;
+    }
     let conn = rusqlite::Connection::open_with_flags(
         app_store(home),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -251,6 +251,19 @@ fn ids(home: &Home, table: &str) -> Vec<String> {
     .expect("the store opens read-only");
     conn.busy_timeout(Duration::from_secs(5))
         .expect("a timeout");
+    conn
+}
+
+/// The store's `user_version`, read-only.
+fn store_version(home: &Home) -> i64 {
+    store_conn(home)
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .expect("a version")
+}
+
+/// The application ids of `table`'s rows, read-only.
+fn ids(home: &Home, table: &str) -> Vec<String> {
+    let conn = store_conn(home);
     let mut stmt = conn
         .prepare(&format!(
             "SELECT app_message_id FROM {table} ORDER BY app_message_id"
@@ -453,9 +466,58 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
             .expect("an IDK1 record")
             .is_some()
     );
+    // The previous build's store was plaintext: this build's first open
+    // rewrote it encrypted under a new store key (ADR-0060 decision 6),
+    // every row kept (the ids above), nothing of it left in clear.
+    let store_key_file = store_key::key_path(&home.paths);
+    let store_key_name = store_key_file
+        .strip_prefix(home.root.path())
+        .expect("inside")
+        .display()
+        .to_string();
+    assert!(
+        !before.contains_key(Path::new(&store_key_name)),
+        "the previous build made no store key"
+    );
+    assert_eq!(
+        std::fs::metadata(&store_key_file)
+            .expect("made by the rewrite")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    let human_dir = home.paths.human_dir();
+    let mut in_human: Vec<String> = std::fs::read_dir(&human_dir)
+        .expect("the store's directory")
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    in_human.sort();
+    assert!(
+        !in_human
+            .iter()
+            .any(|n| n.ends_with(".encrypting") || n.ends_with(".encrypted")),
+        "the rewrite finished: {in_human:?}"
+    );
+    for name in &in_human {
+        let bytes = std::fs::read(human_dir.join(name)).unwrap_or_default();
+        for needle in [
+            b"SQLite format 3\0".as_slice(),
+            manifest.pending.as_bytes(),
+            manifest.unread.as_bytes(),
+            manifest.kept.as_bytes(),
+        ] {
+            assert!(
+                !bytes.windows(needle.len()).any(|w| w == needle),
+                "{name} holds {} in clear after the upgrade",
+                String::from_utf8_lossy(needle)
+            );
+        }
+    }
     let rewritten: Vec<_> = rewritten
         .into_iter()
-        .filter(|name| *name != marker_name && *name != identity_name)
+        .filter(|name| *name != marker_name && *name != identity_name && *name != store_key_name)
         .collect();
     assert!(
         rewritten.is_empty(),

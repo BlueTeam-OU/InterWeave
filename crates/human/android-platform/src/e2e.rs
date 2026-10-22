@@ -73,7 +73,12 @@ impl AppClient for HubClient {
                 }
                 ToView::Running(false)
                 | ToView::NetworkAccess(true)
-                | ToView::AuthenticationNeeded(false) => {}
+                | ToView::AuthenticationNeeded(false)
+                | ToView::StoreRefused(None) => {}
+                // The store refused the start: the case cannot run.
+                ToView::StoreRefused(Some(why)) => {
+                    return Err(format!("the message store refused the start: {why:?}"));
+                }
                 // The case's profile is background-compatible: a need to
                 // authenticate means the case cannot run, so it ends.
                 ToView::AuthenticationNeeded(true) => {

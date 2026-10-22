@@ -139,42 +139,51 @@ pub const STORE_FILE: &str = "human.sqlite";
 
 impl HumanStore {
     /// Open (creating if needed) the profile's store: [`STORE_FILE`] in
-    /// its human directory, judged by ADR-0028's walk up to the trust
-    /// boundary the paths carry (A 2026-10-08) -- `/` on the desktop, the
-    /// app's data directory in an embedded layout, which a walk to `/`
-    /// refuses where an ancestor above it fails ADR-0028's rule -- owned by
-    /// another account, as Android's `system` `0771` directories are, or
-    /// writable by others
+    /// its human directory, encrypted at rest under the store key
+    /// `cipher` seals ([`crate::store_key`], ADR-0060), judged by
+    /// ADR-0028's walk up to the trust boundary the paths carry (A
+    /// 2026-10-08) -- `/` on the desktop, the app's data directory in an
+    /// embedded layout, which a walk to `/` refuses where an ancestor
+    /// above it fails ADR-0028's rule -- owned by another account, as
+    /// Android's `system` `0771` directories are, or writable by others
     /// (`an_embedded_profiles_store_opens_under_its_boundary_and_not_without_it`).
     /// The one opener a client composes: the boundary arrives with the
-    /// paths, never as a value of its own.
+    /// paths, never as a value of its own, and the key with the platform's
+    /// custody.
+    ///
+    /// A plaintext store is rewritten encrypted first, and a crash at any
+    /// step of that rewrite is resumed by the next open
+    /// ([`crate::at_rest`], ADR-0060 decision 6).
     ///
     /// # Errors
-    /// As [`open`](Self::open).
+    /// As [`open`](Self::open), and [`StoreError::KeyInvalidated`] and
+    /// [`StoreError::AtRest`] for the key and the files decision 6 names.
     pub fn open_profile(
         paths: &profile_config::ProfilePaths,
+        cipher: &dyn crate::key_custody::KeyCipher,
         options: StoreOptions,
     ) -> Result<Self, StoreError> {
-        Self::open_within(
-            &paths.human_dir().join(STORE_FILE),
-            paths.boundary(),
-            options,
-        )
+        crate::at_rest::open(paths, cipher, options)
     }
 
-    /// Open (creating if needed) the store at `path`, judged up to `/`.
+    /// Open (creating if needed) the store at `path`, judged up to `/`,
+    /// IN PLAINTEXT: no key reaches the engine. For tests of the store's
+    /// own logic over a real file, and for the rewrite's read of a
+    /// plaintext store; a client opens through
+    /// [`open_profile`](Self::open_profile), which keys every page.
     ///
     /// # Errors
     /// Returns [`StoreError`] if the file cannot be opened, a migration
     /// fails, or the database contains a table ADR-0044 forbids.
     pub fn open(path: &Path, options: StoreOptions) -> Result<Self, StoreError> {
-        Self::open_within(path, &profile_config::TrustBoundary::root(), options)
+        Self::open_within(path, &profile_config::TrustBoundary::root(), options, None)
     }
 
-    fn open_within(
+    pub(crate) fn open_within(
         path: &Path,
         boundary: &profile_config::TrustBoundary,
         options: StoreOptions,
+        key: Option<&crate::store_key::StoreKey>,
     ) -> Result<Self, StoreError> {
         // Create the parent, owner-only. SQLite will not, and a caller
         // that has to remember to mkdir first is a caller that will
@@ -272,6 +281,11 @@ impl HumanStore {
         }
 
         let conn = Connection::open(path)?;
+        // THE KEY BEFORE ANY STATEMENT: SQLCipher takes it only ahead of the
+        // connection's first read, and every pragma below reads page 1.
+        if let Some(key) = key {
+            crate::at_rest::apply_key(&conn, key)?;
+        }
         // The database and its WAL/SHM companions hold the same message
         // content as the directory, and SQLite creates the companions
         // itself with the process umask. Checked after the connection so
@@ -1470,7 +1484,7 @@ impl HumanStore {
 /// opens it without that lock gets the rule too.
 ///
 /// The walk stops at `boundary` and judges nothing above it.
-fn private_dir(
+pub(crate) fn private_dir(
     dir: &Path,
     boundary: &profile_config::TrustBoundary,
 ) -> Result<std::path::PathBuf, StoreError> {
@@ -1582,7 +1596,7 @@ fn parse_media_type(stored: Option<String>) -> Result<Option<MediaType>, StoreEr
 /// header (offset 60, four bytes big-endian) without opening it as a
 /// database. `None` for a missing, empty or non-SQLite file: those reach
 /// the ordinary open, which refuses a non-database before writing.
-fn header_user_version(path: &Path) -> Result<Option<i64>, StoreError> {
+pub(crate) fn header_user_version(path: &Path) -> Result<Option<i64>, StoreError> {
     use std::io::Read as _;
     let mut file = match std::fs::File::open(path) {
         Ok(file) => file,
@@ -1840,7 +1854,7 @@ fn stored_message_id(bytes: &[u8]) -> Result<MessageId, StoreError> {
 /// absent skipped every directory check for a bare relative path — in a
 /// shared or attacker-writable working directory, exactly the case that
 /// most needed them.
-fn private_parent_of(path: &std::path::Path) -> &std::path::Path {
+pub(crate) fn private_parent_of(path: &std::path::Path) -> &std::path::Path {
     match path.parent() {
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => std::path::Path::new("."),

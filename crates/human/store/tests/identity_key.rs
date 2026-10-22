@@ -23,8 +23,8 @@ use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use interweave_human_store::identity_key::{
-    self, CipherFailure, Custody, FilesystemCustody, IdentityKey, IdentityKeyCipher,
-    IdentityKeyError, IdentityKeyFileError,
+    self, CipherFailure, Custody, FilesystemCustody, IdentityKey, IdentityKeyError,
+    IdentityKeyFileError, KeyCipher,
 };
 use interweave_profile_config::TrustBoundary;
 use interweave_profile_config::paths::ProfilePaths;
@@ -45,7 +45,7 @@ struct SoftKeystore {
     retired: RefCell<Vec<String>>,
 }
 
-impl IdentityKeyCipher for SoftKeystore {
+impl KeyCipher for SoftKeystore {
     fn custody(&self) -> Custody {
         Custody::Keystore
     }
@@ -307,6 +307,7 @@ fn the_store_directory_removed_and_made_again_leaves_every_key() {
     let key = identity_key::create(&paths, &human, &FilesystemCustody).expect("created");
     let store = interweave_human_store::HumanStore::open_profile(
         &paths,
+        &FilesystemCustody,
         interweave_human_store::StoreOptions::default(),
     )
     .expect("a store");
@@ -315,6 +316,7 @@ fn the_store_directory_removed_and_made_again_leaves_every_key() {
     drop(
         interweave_human_store::HumanStore::open_profile(
             &paths,
+            &FilesystemCustody,
             interweave_human_store::StoreOptions::default(),
         )
         .expect("a new store"),
@@ -425,7 +427,7 @@ struct RetireFails {
     file_there_at_retire: RefCell<Option<bool>>,
 }
 
-impl IdentityKeyCipher for RetireFails {
+impl KeyCipher for RetireFails {
     fn custody(&self) -> Custody {
         self.inner.custody()
     }
@@ -471,4 +473,26 @@ fn remove_deletes_the_file_before_it_retires_the_platform_key() {
         "the file went first"
     );
     assert!(!cipher.file.exists());
+}
+
+#[path = "common/keystore.rs"]
+mod keystore;
+
+/// Under a custody that makes a new key at the alias on every seal, as
+/// `KeystoreCipher.kt` does, a second create is refused before it seals,
+/// so the existing record still opens (#377 review F2).
+#[test]
+fn a_second_create_under_a_resealing_keystore_leaves_the_first_record_openable() {
+    let (_dir, paths) = desktop_paths();
+    let human = endpoint("human");
+    let keystore = keystore::SoftKeystore::default();
+    let key = identity_key::create(&paths, &human, &keystore).expect("created");
+    assert_eq!(
+        identity_key::create(&paths, &human, &keystore).map(|_| ()),
+        Err(IdentityKeyFileError::Exists)
+    );
+    let opened = identity_key::open(&paths, &human, &keystore)
+        .expect("the first record still opens")
+        .expect("a key");
+    assert_eq!(opened.public_key(), key.public_key());
 }

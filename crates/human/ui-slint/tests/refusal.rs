@@ -12,7 +12,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use i_slint_backend_testing::ElementHandle;
-use interweave_human_ui_model::{UiText, placeholder_en};
+use interweave_human_ui_model::{StoreRecovery, StoreScreen, UiText, placeholder_en};
 use interweave_human_ui_slint::{RefusalPage, RefusalView};
 use slint::ComponentHandle as _;
 use slint::platform::{Key, WindowEvent};
@@ -28,6 +28,7 @@ fn store_page() -> RefusalPage {
         reason: UiText::RefusalStoreRecovery,
         path: Some(PATH.to_owned()),
         can_retry: true,
+        can_discard: false,
     }
 }
 
@@ -36,6 +37,7 @@ fn closed_page() -> RefusalPage {
         reason: UiText::RefusalAlreadyOpen,
         path: None,
         can_retry: false,
+        can_discard: false,
     }
 }
 
@@ -174,6 +176,7 @@ fn a_new_page_replaces_the_reason_and_clears_what_was_said() {
         reason: UiText::RefusalStoreUnavailable,
         path: Some(PATH.to_owned()),
         can_retry: true,
+        can_discard: false,
     });
     slint::platform::update_timers_and_animations();
     the(&view, text(UiText::RefusalStoreUnavailable));
@@ -275,4 +278,205 @@ fn close_alone_sits_at_the_edge_try_again_would_take() {
         (close_right - retry_right).abs() < 1.0,
         "Close takes the end of the row when alone: {close_right} vs {retry_right}"
     );
+}
+
+fn discard_page() -> RefusalPage {
+    RefusalPage {
+        can_discard: true,
+        ..store_page()
+    }
+}
+
+/// A flow at the confirmation of `kind`.
+fn confirming(kind: interweave_human_ui_model::DiscardKind, identities: usize) -> StoreRecovery {
+    let mut flow = StoreRecovery::new(StoreScreen::Recovery, identities);
+    flow.press_discard();
+    flow.planned(kind);
+    flow
+}
+
+/// Delete stored data… is on the store's recovery screen, at the start
+/// side on a line of its own, and never the initial focus: Try again is
+/// (design 2026-10-21 section 7.1). All three actions stay inside the
+/// narrowest window.
+#[test]
+fn the_recovery_screen_offers_delete_stored_data_apart_and_try_again_keeps_focus() {
+    let view = screen(&discard_page());
+    let discard = the(&view, text(UiText::DiscardStore));
+    assert_eq!(
+        discard.accessible_role(),
+        Some(i_slint_backend_testing::AccessibleRole::Button)
+    );
+    assert_eq!(focus(&view), "retry");
+    let close = the(&view, text(UiText::Close));
+    assert!(
+        discard.absolute_position().x <= close.absolute_position().x
+            && discard.absolute_position().y + discard.size().height <= close.absolute_position().y,
+        "apart, at the start side, on a line above Close"
+    );
+    assert!(labelled(&screen(&store_page()), text(UiText::DiscardStore)).is_empty());
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(320.0, 600.0));
+    slint::platform::update_timers_and_animations();
+    for label in [
+        text(UiText::DiscardStore),
+        text(UiText::Close),
+        text(UiText::TryAgain),
+    ] {
+        let at = the(&view, label);
+        let right = at.absolute_position().x + at.size().width;
+        assert!(
+            right <= 320.0 && at.absolute_position().x >= 0.0,
+            "{label:?} at {right}"
+        );
+    }
+    // Still two lines at the minimum: Delete stored data… above Close.
+    let (discard, close) = (
+        the(&view, text(UiText::DiscardStore)),
+        the(&view, text(UiText::Close)),
+    );
+    assert!(
+        discard.absolute_position().y + discard.size().height <= close.absolute_position().y,
+        "on its own line above Close at 320 px"
+    );
+}
+
+/// The confirmation lists what goes one item per line, opens with focus
+/// on Cancel so Enter alone never discards, keeps Tab on its two buttons,
+/// and Escape is Cancel (human-client-ui.md §13; design section 7.2).
+#[test]
+fn the_full_confirmation_lists_every_loss_and_cancel_has_focus() {
+    use interweave_human_ui_model::DiscardKind;
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let view = screen(&discard_page());
+    let cancelled = Rc::new(Cell::new(0));
+    let confirmed = Rc::new(Cell::new(0));
+    {
+        let c = Rc::clone(&cancelled);
+        view.on_dialog_cancel(move || c.set(c.get() + 1));
+        let c = Rc::clone(&confirmed);
+        view.on_dialog_confirm(move || c.set(c.get() + 1));
+    }
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(520.0, 900.0));
+    let flow = confirming(DiscardKind::Full, 1);
+    view.show_store_recovery(&flow);
+    slint::platform::update_timers_and_animations();
+    the(&view, text(UiText::DiscardStoreTitle));
+    // One identity: the plain lead-in, never "for all your identities".
+    the(&view, text(UiText::DiscardStoreLosesOne));
+    assert!(labelled(&view, text(UiText::DiscardStoreLosesMany)).is_empty());
+    the(&view, text(UiText::DiscardLosesCardOne));
+    for item in flow.dialog().expect("open").items {
+        let row = the(&view, text(item));
+        assert_eq!(
+            row.accessible_role(),
+            Some(i_slint_backend_testing::AccessibleRole::ListItem),
+            "{item:?}"
+        );
+    }
+    the(&view, text(UiText::DiscardStoreKeepsOne));
+    the(&view, text(UiText::DiscardStoreRemains));
+    // A focus change reports itself at the loop's next turn.
+    slint::platform::update_timers_and_animations();
+    assert_eq!(focus(&view), "dialog-cancel", "Cancel is the initial focus");
+    key(&view, Key::Return);
+    assert_eq!(
+        (cancelled.get(), confirmed.get()),
+        (1, 0),
+        "Enter alone cancels"
+    );
+    key(&view, Key::Tab);
+    assert_eq!(focus(&view), "dialog-confirm");
+    key(&view, Key::Tab);
+    assert_eq!(focus(&view), "dialog-cancel", "Tab stays in the dialog");
+    key(&view, Key::Escape);
+    assert_eq!(cancelled.get(), 2, "Escape is Cancel");
+    the(&view, text(UiText::DiscardStoreConfirm)).invoke_accessible_default_action();
+    assert_eq!(confirmed.get(), 1);
+}
+
+#[test]
+fn the_partial_confirmation_names_the_unfinished_file_only() {
+    use interweave_human_ui_model::DiscardKind;
+    let view = screen(&discard_page());
+    view.show_store_recovery(&confirming(DiscardKind::Partial, 2));
+    slint::platform::update_timers_and_animations();
+    the(&view, text(UiText::DiscardPartialTitle));
+    the(&view, text(UiText::DiscardPartialBody));
+    the(&view, text(UiText::DiscardPartialConfirm));
+    assert!(labelled(&view, text(UiText::DiscardLosesContacts)).is_empty());
+    assert!(
+        !view.window().get_dialog_danger(),
+        "nothing the person has is lost"
+    );
+}
+
+/// While the plan is built and while the discard runs, every action is
+/// inert and Escape does not close the screen; the line under the heading
+/// says what is under way, and after a failure, that it failed.
+#[test]
+fn while_checking_or_deleting_every_action_is_inert() {
+    use interweave_human_ui_model::DiscardKind;
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let view = screen(&discard_page());
+    let pressed = Rc::new(Cell::new(0));
+    {
+        let p = Rc::clone(&pressed);
+        view.on_discard(move || p.set(p.get() + 1));
+        let p = Rc::clone(&pressed);
+        view.on_retry(move || p.set(p.get() + 1));
+    }
+    let mut flow = StoreRecovery::new(StoreScreen::Recovery, 1);
+    flow.press_discard();
+    view.show_store_recovery(&flow);
+    slint::platform::update_timers_and_animations();
+    the(&view, text(UiText::StoreChecking));
+    the(&view, text(UiText::DiscardStore)).invoke_accessible_default_action();
+    the(&view, text(UiText::TryAgain)).invoke_accessible_default_action();
+    key(&view, Key::Escape);
+    assert_eq!(pressed.get(), 0, "inert");
+    assert!(
+        view.window().window().is_visible(),
+        "Escape did not close it"
+    );
+    flow.planned(DiscardKind::Full);
+    flow.confirm();
+    view.show_store_recovery(&flow);
+    slint::platform::update_timers_and_animations();
+    the(&view, text(UiText::StoreDiscarding));
+    flow.failed();
+    view.show_store_recovery(&flow);
+    slint::platform::update_timers_and_animations();
+    the(&view, text(UiText::StoreDiscardFailed));
+    the(&view, text(UiText::DiscardStore)).invoke_accessible_default_action();
+    assert_eq!(pressed.get(), 1, "live again after the failure");
+}
+
+/// Tab follows the reading order on the store's recovery screen:
+/// Delete stored data…, then Close, then Try again (design 2026-10-21
+/// section 7.1, as accepted with Delete stored data… on its own line).
+#[test]
+fn tab_reaches_delete_stored_data_then_close_then_try_again() {
+    let view = screen(&discard_page());
+    assert_eq!(focus(&view), "retry");
+    let mut order = Vec::new();
+    for _ in 0..6 {
+        key(&view, Key::Tab);
+        // A focus change reports itself at the loop's next turn.
+        slint::platform::update_timers_and_animations();
+        order.push(focus(&view));
+    }
+    let at = |id: &str| order.iter().position(|f| f == id).expect(id);
+    let (discard, close) = (at("discard"), at("close"));
+    let retry = discard
+        + order[discard..]
+            .iter()
+            .position(|f| f == "retry")
+            .expect("retry after");
+    assert!(discard < close && close < retry, "{order:?}");
 }

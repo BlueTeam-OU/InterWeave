@@ -40,14 +40,15 @@ promises such a client, and what the client owes itself, is
 ## Installing and uninstalling
 
 `install.sh` and `uninstall.sh` are run as the account that will run the
-profile, and write nothing outside its home: the three executables
-(`transport-daemon`, `transportctl`, `human-desktop`) into `~/.local/bin`,
+profile, and write nothing outside its home: the four programs
+(`transport-daemon`, `transportctl`, `human-desktop` and the command-line
+human client `interweave-human`) into `~/.local/bin`,
 the two templates into `${XDG_CONFIG_HOME:-~/.config}/systemd/user`.
 From the release archive, whose `bin/` and `systemd/` sit beside the
 scripts:
 
 ```sh
-./install.sh                                          # or ./install.sh <dir holding the three executables>
+./install.sh                                          # or ./install.sh <dir holding the four programs>
 transportctl identity init --profile <profile>        # once: mints the key, prints the PeerId
 # write the profile's config.yaml (see below), then, to run it at login:
 systemctl --user enable --now interweave-daemon@<profile>
@@ -63,7 +64,7 @@ with until it is restarted.
 
 `./uninstall.sh` stops and disables every `interweave-daemon@` and
 `interweave-client@` instance of the account, then removes the two
-templates and the three executables. Run it from the account's own
+templates and the four programs. Run it from the account's own
 session: from a shell without the session's variables, or with another
 account's (`sudo -u`, `su -c`, `sudo -E`, cron), it finds the manager
 under the account's own `/run/user/<uid>`, and if a running manager
@@ -95,10 +96,16 @@ would both serve one PeerId.
 A release ships these files as
 `interweave-<version>-x86_64-unknown-linux-gnu.tar.gz`, built by
 `tools/ci/release_linux_archive.sh`: one directory holding `bin/` (the
-three programs), `systemd/` (the two templates), `install.sh`,
-`uninstall.sh`, this README, `LICENSE` and `THIRD-PARTY-NOTICES.md`, the
-licence files of every crate compiled into the programs (a crate that
-publishes none fails the archive, since its notice cannot be shipped). The archive has no
+four programs), `systemd/` (the two templates), `install.sh`,
+`uninstall.sh`, this README, `LICENSE`, `THIRD-PARTY-NOTICES.md`, the
+notice of every crate compiled into the programs and the Claude Code
+bridge -- the licence files it publishes, or for a crate that publishes none
+a notice derived as `tools/ci/notice_derived.json` lists it (ADR-0058); a
+crate with neither fails the archive -- and `claude-plugin/`, the Claude Code plugin marketplace with the
+bridge inside it. `install.sh` does not install the plugin; Claude Code adds
+it, from a copy of `claude-plugin/` kept where it stays, with
+`claude plugin marketplace add <that copy>` and then
+`claude plugin install interweave@interweave`. The archive has no
 signature; its SHA-256 is on the release page and in the `.sha256` file
 beside it, and the same sources and `SOURCE_DATE_EPOCH` give the same
 bytes. The first build of it is `evidence/2026-10-20-release-archive.md`.

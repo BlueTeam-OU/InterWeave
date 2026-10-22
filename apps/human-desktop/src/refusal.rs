@@ -12,7 +12,8 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use interweave_human_ui_model::UiText;
+use interweave_human_store::at_rest::{ConfirmedDiscard, DiscardPlan, DiscardScope};
+use interweave_human_ui_model::{DiscardKind, StoreRecovery, StoreScreen, UiText};
 use interweave_human_ui_slint::{RefusalPage, RefusalView};
 use interweave_profile_config::profile_format::{self, ProfileFormatError};
 use interweave_profile_config::{LoadError, PersistError};
@@ -72,6 +73,9 @@ impl Refusal {
             reason,
             path: path.map(|p| p.display().to_string()),
             can_retry,
+            // Set by `show` for the store's recovery screen, where the root
+            // can run the discard.
+            can_discard: false,
         };
         Some(match self {
             Self::Profile(error) => {
@@ -169,9 +173,25 @@ fn persist_path(error: &PersistError) -> Option<PathBuf> {
 /// (`HumanStore::open_within`'s NOT COVERED case).
 pub type Retry<T> = Box<dyn FnMut() -> Result<T, Refusal>>;
 
+/// Discard and recreate on the store's recovery screen (ADR-0060
+/// decision 6): what the root runs for it. Nothing here deletes before
+/// the person confirmed the plan `plan` built.
+pub struct Discard {
+    /// Build the plan, writing nothing: what would go now.
+    pub plan: Box<dyn Fn() -> Result<DiscardPlan, String>>,
+    /// Run the confirmed plan.
+    pub run: Box<dyn Fn(ConfirmedDiscard) -> Result<DiscardScope, String>>,
+    /// How many identities the client holds: the confirmation names every
+    /// identity's data from the second on.
+    pub identities: usize,
+}
+
 /// Show `refusal` until the person closes the screen, running `retry`
 /// at each Try again: its success closes the screen and is returned, its
-/// refusal is shown in place, said on stderr like the first.
+/// refusal is shown in place, said on stderr like the first. With
+/// `discard`, the store's recovery screen also offers Delete stored
+/// data…: a confirmed discard is followed by `retry`, which recreates the
+/// store, and its success is returned with the notice Chats shows once.
 ///
 /// No window can be shown -- no display, no backend -- and this returns
 /// at once: the stderr line already said it.
@@ -179,7 +199,11 @@ pub type Retry<T> = Box<dyn FnMut() -> Result<T, Refusal>>;
 /// # Errors
 /// The exit class of the last refusal, once the screen is closed or
 /// cannot be shown.
-pub fn show<T: 'static>(refusal: &Refusal, retry: Option<Retry<T>>) -> Result<T, u8> {
+pub fn show<T: 'static>(
+    refusal: &Refusal,
+    retry: Option<Retry<T>>,
+    discard: Option<Discard>,
+) -> Result<(T, Option<UiText>), u8> {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
@@ -188,6 +212,8 @@ pub fn show<T: 'static>(refusal: &Refusal, retry: Option<Retry<T>>) -> Result<T,
     };
     // Offered only where there is something to run again.
     page.can_retry &= retry.is_some();
+    let discard = discard.filter(|_| matches!(refusal, Refusal::Store(Blocked::Recovery { .. })));
+    page.can_discard = discard.is_some() && retry.is_some();
     let Some(retry) = retry else {
         let Ok(view) = RefusalView::new(&page) else {
             return Err(refusal.code());
@@ -201,16 +227,24 @@ pub fn show<T: 'static>(refusal: &Refusal, retry: Option<Retry<T>>) -> Result<T,
     let view = Rc::new(view);
     let code = Rc::new(Cell::new(refusal.code()));
     let opened: Rc<RefCell<Option<T>>> = Rc::new(RefCell::new(None));
-    let retry = RefCell::new(retry);
+    let notice: Rc<Cell<Option<UiText>>> = Rc::new(Cell::new(None));
+    let retry = Rc::new(RefCell::new(retry));
     {
-        let (weak, code, opened) = (Rc::downgrade(&view), Rc::clone(&code), Rc::clone(&opened));
+        let (weak, code, opened, retry) = (
+            Rc::downgrade(&view),
+            Rc::clone(&code),
+            Rc::clone(&opened),
+            Rc::clone(&retry),
+        );
         view.on_retry(move || {
             let Some(view) = weak.upgrade() else { return };
             match press(&opened, &mut *retry.borrow_mut()) {
                 Pressed::Opened => view.close(),
                 Pressed::Refused(again) => {
                     eprintln!("human-desktop: {again}");
-                    if let Some(page) = again.page() {
+                    if let Some(mut page) = again.page() {
+                        page.can_discard = view.window().get_can_discard()
+                            && matches!(again, Refusal::Store(Blocked::Recovery { .. }));
                         view.show_page(&page);
                     }
                     view.tried_again();
@@ -220,11 +254,152 @@ pub fn show<T: 'static>(refusal: &Refusal, retry: Option<Retry<T>>) -> Result<T,
             }
         });
     }
+    if let Some(discard) = discard {
+        wire_discard(&view, discard, &retry, &opened, &notice, &code);
+    }
     // A screen that could not be shown has said nothing more than the
     // stderr line, which is the same answer.
     let _ = view.run();
     let value = opened.borrow_mut().take();
-    value.ok_or_else(|| code.get())
+    value.map(|v| (v, notice.get())).ok_or_else(|| code.get())
+}
+
+/// The recovery screen's Delete stored data…, through the shared model:
+/// the plan built on the press, its confirmation, the discard on its
+/// primary action alone, then the store opened again -- recreated, or the
+/// kept copy promoted -- and the screen closed on success. Each step that
+/// touches the disk runs on the loop's next turn, after the screen has
+/// shown what is under way.
+fn wire_discard<T: 'static>(
+    view: &std::rc::Rc<RefusalView>,
+    discard: Discard,
+    retry: &std::rc::Rc<std::cell::RefCell<Retry<T>>>,
+    opened: &std::rc::Rc<std::cell::RefCell<Option<T>>>,
+    notice: &std::rc::Rc<std::cell::Cell<Option<UiText>>>,
+    code: &std::rc::Rc<std::cell::Cell<u8>>,
+) {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let flow = Rc::new(RefCell::new(StoreRecovery::new(
+        StoreScreen::Recovery,
+        discard.identities,
+    )));
+    let plan: Rc<RefCell<Option<DiscardPlan>>> = Rc::new(RefCell::new(None));
+    let discard = Rc::new(discard);
+    let next_turn = |f: Box<dyn FnOnce()>| interweave_human_ui_slint::defer(f);
+    {
+        let (weak, flow, plan, discard) = (
+            Rc::downgrade(view),
+            Rc::clone(&flow),
+            Rc::clone(&plan),
+            Rc::clone(&discard),
+        );
+        view.on_discard(move || {
+            let Some(view) = weak.upgrade() else { return };
+            if flow.borrow_mut().press_discard().is_none() {
+                return;
+            }
+            view.show_store_recovery(&flow.borrow());
+            let (weak, flow, plan, discard) = (
+                Rc::downgrade(&view),
+                Rc::clone(&flow),
+                Rc::clone(&plan),
+                Rc::clone(&discard),
+            );
+            next_turn(Box::new(move || {
+                let Some(view) = weak.upgrade() else { return };
+                match (discard.plan)() {
+                    Ok(built) => {
+                        let kind = kind_of(built.scope());
+                        *plan.borrow_mut() = Some(built);
+                        flow.borrow_mut().planned(kind);
+                    }
+                    Err(e) => {
+                        eprintln!("human-desktop: the discard could not be planned: {e}");
+                        flow.borrow_mut().failed();
+                    }
+                }
+                view.show_store_recovery(&flow.borrow());
+            }));
+        });
+    }
+    {
+        let (weak, flow, plan) = (Rc::downgrade(view), Rc::clone(&flow), Rc::clone(&plan));
+        view.on_dialog_cancel(move || {
+            let Some(view) = weak.upgrade() else { return };
+            flow.borrow_mut().cancel();
+            plan.borrow_mut().take();
+            view.show_store_recovery(&flow.borrow());
+        });
+    }
+    {
+        let weak = Rc::downgrade(view);
+        let (retry, opened, notice, code) = (
+            Rc::clone(retry),
+            Rc::clone(opened),
+            Rc::clone(notice),
+            Rc::clone(code),
+        );
+        view.on_dialog_confirm(move || {
+            let Some(view) = weak.upgrade() else { return };
+            if flow.borrow_mut().confirm().is_none() {
+                return;
+            }
+            view.show_store_recovery(&flow.borrow());
+            let Some(confirmed) = plan.borrow_mut().take().map(DiscardPlan::confirm) else {
+                flow.borrow_mut().failed();
+                view.show_store_recovery(&flow.borrow());
+                return;
+            };
+            let (weak, flow, discard, retry, opened, notice, code) = (
+                Rc::downgrade(&view),
+                Rc::clone(&flow),
+                Rc::clone(&discard),
+                Rc::clone(&retry),
+                Rc::clone(&opened),
+                Rc::clone(&notice),
+                Rc::clone(&code),
+            );
+            next_turn(Box::new(move || {
+                let Some(view) = weak.upgrade() else { return };
+                match (discard.run)(confirmed) {
+                    Ok(scope) => {
+                        let kind = kind_of(scope);
+                        flow.borrow_mut().discarded(kind);
+                        notice.set(flow.borrow().notice());
+                        match press(&opened, &mut *retry.borrow_mut()) {
+                            Pressed::Opened | Pressed::AlreadyOpen => view.close(),
+                            Pressed::Refused(again) => {
+                                // Discarded, and the store still does not
+                                // open: said as any refusal is.
+                                eprintln!("human-desktop: {again}");
+                                *flow.borrow_mut() =
+                                    StoreRecovery::new(StoreScreen::Recovery, discard.identities);
+                                if let Some(page) = again.page() {
+                                    view.show_page(&page);
+                                }
+                                view.show_store_recovery(&flow.borrow());
+                                code.set(again.code());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("human-desktop: the discard failed: {e}");
+                        flow.borrow_mut().failed();
+                        view.show_store_recovery(&flow.borrow());
+                    }
+                }
+            }));
+        });
+    }
+}
+
+const fn kind_of(scope: DiscardScope) -> DiscardKind {
+    match scope {
+        DiscardScope::Everything => DiscardKind::Full,
+        DiscardScope::UnfinishedPlaintext => DiscardKind::Partial,
+    }
 }
 
 /// What one press of Try again came to.

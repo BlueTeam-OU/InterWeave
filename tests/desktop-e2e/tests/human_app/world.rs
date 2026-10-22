@@ -334,6 +334,19 @@ pub(crate) fn app_store(home: &Home) -> PathBuf {
         .join(interweave_human_store::STORE_FILE)
 }
 
+/// A read-only connection to the app's store under its key (ADR-0060),
+/// while the app may be running.
+pub(crate) fn app_conn(home: &Home) -> rusqlite::Connection {
+    let conn = interweave_human_store::at_rest::open_read_only(
+        &home.paths,
+        &interweave_human_store::key_custody::FilesystemCustody,
+    )
+    .expect("the app's store opens read-only under its key");
+    conn.busy_timeout(Duration::from_secs(5))
+        .expect("a timeout");
+    conn
+}
+
 /// Rows of `table` in the app's store, read-only, while the app may be
 /// running: a count of rows, never their content.
 pub(crate) fn rows(home: &Home, table: &str) -> usize {
@@ -341,11 +354,7 @@ pub(crate) fn rows(home: &Home, table: &str) -> usize {
     // A missing store is a failure, never zero rows: every "now holds
     // none" would pass if the store moved.
     assert!(path.exists(), "the app's store is at {}", path.display());
-    let conn =
-        rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .expect("the app's store opens read-only");
-    conn.busy_timeout(Duration::from_secs(5))
-        .expect("a timeout");
+    let conn = app_conn(home);
     let count: i64 = conn
         .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
         .expect("a count");
@@ -355,13 +364,7 @@ pub(crate) fn rows(home: &Home, table: &str) -> usize {
 /// The application ids of `table`'s rows in the app's store, read-only:
 /// the sender's ids, never content.
 pub(crate) fn ids(home: &Home, table: &str) -> std::collections::BTreeSet<String> {
-    let conn = rusqlite::Connection::open_with_flags(
-        app_store(home),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .expect("the app's store opens read-only");
-    conn.busy_timeout(Duration::from_secs(5))
-        .expect("a timeout");
+    let conn = app_conn(home);
     let mut stmt = conn
         .prepare(&format!("SELECT app_message_id FROM {table}"))
         .expect("a select");
@@ -412,8 +415,12 @@ pub(crate) fn seed_pending_to(
     destination: OutboundDestination,
     envelope: &HumanChatV2,
 ) {
-    let mut store =
-        HumanStore::open(&app_store(home), StoreOptions::default()).expect("the app's store");
+    let mut store = HumanStore::open_profile(
+        &home.paths,
+        &interweave_human_store::key_custody::FilesystemCustody,
+        StoreOptions::default(),
+    )
+    .expect("the app's store");
     let encoded = encode_outbound(envelope, MAX_PAYLOAD_BYTES).expect("it fits");
     let serial = u128::from_str_radix(&envelope.app_message_id, 16).expect("a hex id");
     store
@@ -441,13 +448,7 @@ pub(crate) struct UnreadRow {
 
 /// The app's unread rows under `home`, read-only, while it may run.
 pub(crate) fn unread_rows(home: &Home) -> Vec<UnreadRow> {
-    let conn = rusqlite::Connection::open_with_flags(
-        app_store(home),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .expect("the app's store opens read-only");
-    conn.busy_timeout(Duration::from_secs(5))
-        .expect("a timeout");
+    let conn = app_conn(home);
     let mut stmt = conn
         .prepare("SELECT app_message_id, source_peer, channel_id, media_type FROM unread_inbound")
         .expect("a select");
