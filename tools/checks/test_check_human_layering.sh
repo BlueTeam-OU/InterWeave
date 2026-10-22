@@ -7,12 +7,14 @@
 #
 # The guard reads `cargo metadata`, so these cases drive it through a stub
 # `cargo` on PATH that prints a hand-built graph, and a sandbox workspace
-# whose Cargo.toml carries the planned_members list. Each of the five rules
-# has a case that must FAIL, and each carve-out (a dev-dependency, rusqlite
-# outside ui-model and client-api, an app reaching Slint through ui-slint,
-# app-core reaching rusqlite through store) one that must
-# pass — the carve-outs are where a guard written too wide would go red on
-# the tree, and too narrow would miss the breach next to them.
+# whose Cargo.toml carries the planned_members list. Each of the seven
+# rules has a case that must FAIL, and each carve-out (a dev-dependency,
+# rusqlite outside ui-model and client-api, an app reaching Slint through
+# ui-slint, app-core reaching rusqlite through store, an optional test
+# crate outside the Android library's own build, the CLI on tokio and the
+# store) one that must pass — the carve-outs are where a guard written
+# too wide would go red on the tree, and too narrow would miss the breach
+# next to them.
 #
 # Exit codes:
 #   0  all assertions passed
@@ -106,12 +108,13 @@ islint i-slint-core registry/i-slint-core
 sbuild slint-build registry/slint-build
 sql rusqlite registry/rusqlite
 happ interweave-human-android apps/human-android
-e2e interweave-android-e2e-cases tests/android-e2e-cases'
+e2e interweave-android-e2e-cases tests/android-e2e-cases
+cli interweave-human-cli apps/human-cli'
 EDGES='core api normal
 proto serde normal
 store sql normal
 store core normal'
-FIVE_LATER="crates/human/transport-client crates/human/ui-model crates/human/ui-slint crates/human/client-api crates/human/app-core"
+FIVE_LATER="crates/human/transport-client crates/human/ui-model crates/human/ui-slint crates/human/client-api crates/human/app-core apps/human-cli"
 NOW="core proto store api"
 
 echo "test_check_human_layering"
@@ -258,6 +261,27 @@ graph "$NOW happ e2e" "$PKGS" "$EDGES"
 expect 2 "cargo tree failing is exit 2, not a pass" "cargo tree -p interweave-human-android failed"
 rm -f "$SANDBOX/tree-fails"
 
+# Rule 7: the CLI reaches no libp2p and no Slint, transitively; tokio,
+# the store and the IPC client are its to use.
+graph "$NOW appcore cli" "$PKGS" "$EDGES
+cli appcore normal
+cli store normal
+cli tokio normal
+appcore core normal"
+expect 0 "the CLI over app-core, the store and tokio passes" "apps/human-cli keeps to its layer"
+graph "$NOW cli" "$PKGS" "$EDGES
+cli core normal
+api lpid normal"
+expect 1 "the CLI reaching a libp2p crate transitively fails, with the path" "apps/human-cli depends on a libp2p crate (the CLI's transport is the shared daemon's): interweave-human-cli -> interweave-human-core -> interweave-local-client-api -> libp2p-identity"
+graph "$NOW cli" "$PKGS" "$EDGES
+cli serde normal
+serde islint normal"
+expect 1 "the CLI reaching a Slint crate transitively fails" "apps/human-cli depends on a Slint crate (the CLI has no display)"
+graph "$NOW cli" "$PKGS" "$EDGES
+cli lp dev
+cli slint dev"
+expect 0 "the CLI's dev-dependencies are not followed"
+
 # Absent crates: planned is a skip, anything else a failure to check.
 planned crates/human/ui-model crates/human/ui-slint
 graph "$NOW" "$PKGS" "$EDGES"
@@ -268,6 +292,9 @@ expect 2 "client-api neither member nor planned is exit 2, by name" "crates/huma
 planned crates/human/transport-client crates/human/ui-model crates/human/ui-slint crates/human/client-api
 graph "$NOW" "$PKGS" "$EDGES"
 expect 2 "app-core neither member nor planned is exit 2, by name" "crates/human/app-core is neither a workspace member nor in planned_members"
+planned crates/human/transport-client crates/human/ui-model crates/human/ui-slint crates/human/client-api crates/human/app-core
+graph "$NOW" "$PKGS" "$EDGES"
+expect 2 "the CLI neither member nor planned is exit 2, by name" "apps/human-cli is neither a workspace member nor in planned_members"
 planned $FIVE_LATER
 graph "core store api" "$PKGS" "$EDGES"
 expect 2 "an existing crate dropped from the workspace is exit 2, not a pass" "crates/human/chat-protocol is neither"
