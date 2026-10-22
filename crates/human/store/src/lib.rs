@@ -56,6 +56,10 @@ pub use records::{
     StoredInbound,
 };
 pub use schema::{REQUIRED_TABLES, SCHEMA_VERSION};
+pub use store::contacts::{
+    Accepted, AcceptedCard, CardStanding, Contact, ContactRoute, KeyStanding, OwnCard, ValueSource,
+    direct_conversation_id,
+};
 pub use store::{HumanStore, READ_PAIR_CAP, STORE_FILE, StoreOptions};
 
 // Re-exported so a caller acting on retention does not need a second
