@@ -5149,6 +5149,208 @@ flips at this gate: the Android binding consumes contracts already
 `active` (ADR-0049; each flip is recorded in the stage that made it),
 and a new contract this stage finds it needs lands `approved` first.
 
+**Met (2026-10-22; the closing record).** Stage 17 closed on the owner's
+word of 2026-10-22 — given on the arming of the pull request that lands
+this record, which is its approval on record, as Stages 15 and 16's were
+— sixteen days after it opened (2026-10-06, §18's closing record), with
+Stages 18, 19 and 21 running beside it by their records, on the steps
+above in order: step 1 (#241, the embedded runtime host under the app's
+trust boundary), steps 2–4 (#254 the runtime side, #255 the app shell
+— service, Activity, notifications, phone layout — #262 the
+network-denied posture and the Keystore custody adapter, #257
+`NetworkDenied`), step 5 (#250 the one detector and #285 the Service
+telling the runtime the phone's networks, #263 the same-IP redial of
+SPIKE-008 L7), step 6 (#256 the IWK1 v1 envelope behind the platform
+cipher seam, #276 the SELinux-safe exclusive create), steps 7–8 (#303
+the identity screens' design and #309 the identity and recovery
+screens on the app), step 9 (#309's backup exclusions, the records
+below), step 10 (#306 ADR-0057, #309's release metadata, #314's
+dependency check over both targets, #324's scripted release run), the
+look (#293, #295, #296, #300), the review's rank-1 findings (#309,
+#313, #358, #364) and the device evidence (#258, #260, #283, #316, #322,
+#358) — rust-ui-dev's and p2p-network-dev's lanes, ux-designer's
+review, with the records architect-cto supplied on the way (#297,
+#301, #326, #350). Against the gate: (a) SPIKE-008 and SPIKE-009 closed PASS on
+2026-10-09 within their Result paragraphs (SPIKES.md), SPIKE-008's
+target-API item measured since on the Pixel 9a at API 37 (its Result,
+A 2026-10-22); the client-side clauses are step 7's host tests —
+`crates/human/android-platform/tests/identity.rs`'s
+`a_record_a_new_key_does_not_open_is_recovery_never_a_second_identity`,
+`recovery_restores_the_recorded_peer_from_the_phrase_and_it_unlocks_after`,
+`a_fresh_install_restores_the_peer_the_person_confirmed_and_no_other`
+and `a_record_naming_nobody_is_restored_by_neither_path_and_left_as_it_was`,
+with `crates/transport/embedded/tests/custody.rs`'s
+`an_invalidated_or_missing_key_requires_recovery_and_mints_nothing` and
+`restore_refuses_any_other_identity` — and the Keystore invalidation on
+a device is the user-presence carry below (SPIKE-009 D6a/D6b stand as
+the device evidence); (b) every step has a green host test, named here: step 1
+`crates/transport/embedded/tests/host.rs::the_host_serves_under_its_root`,
+step 2
+`crates/human/android-platform/tests/service.rs::a_stop_releases_the_waiter_tells_the_view_and_frees_the_profile`,
+step 3
+`crates/transport/embedded/tests/availability.rs::turning_stay_reachable_on_restarts_the_service_in_the_new_mode`,
+step 4 `crates/human/android-platform/src/hub.rs`'s
+`an_arrival_asks_a_notice_only_while_no_window_has_focus` and
+`notice.rs`'s `focus_withdraws_the_notice_and_an_empty_clear_says_nothing`,
+step 5 `service.rs::a_network_report_never_waits_on_a_start` and
+`host.rs::a_listener_the_platform_refuses_is_network_denied`, step 6
+`crates/transport/embedded/tests/custody.rs::the_exact_seed_round_trips_with_its_frozen_peer_id`
+and `every_flipped_envelope_bit_is_refused_and_the_record_is_kept`, step
+7 the tests under (a), step 8
+`crates/human/android-platform/tests/identity.rs::show_my_phrase_gives_back_the_words_sealed`
+and `a_phrase_that_fails_its_checksum_derives_nothing` with the picker's
+units in `crates/human/ui-model/src/identity_flow.rs`, step 9
+`tests/human-retention/tests/retention_conformance.rs::case_12_backup_includes_only_unread_and_kept_inbound`
+with the device record below, step 10 the release metadata and
+`check_dependencies.sh` over both targets (#314); and the eight
+Platform-tests lines are met under the clause as amended on 2026-10-21: process death/restart and notification behaviour
+by instrumented tests through the app itself
+(`tests/android-e2e/tests/app_lifecycle.rs`'s
+`a_process_death_restarts_the_service_into_the_same_store` and
+`an_arrival_while_no_window_has_focus_posts_a_count_notice`, Samsung
+A40 at API 30, `apps/human-android/device-runs/2026-10-22-samsung-a40.md`),
+and Keystore, FLAG_SECURE / recents, foreground-service lifecycle,
+network callbacks, backup / device-transfer exclusion and the
+user-presence restart diagnostic by dated device-run records
+(`device-runs/2026-10-20-gate-b.md` on the A40 at API 30 and the Pixel
+9a at API 37; `device-runs/2026-10-21-pixel-9a.md` for the network
+rebind, whose drop half rests on the owner's status read since the loss
+callback writes no line) — step 3's API 34+ run is the Pixel record
+(targetSdk 36, `remoteMessaging` as type `0x200`, restarted after
+process death), step 10 the release metadata and `check_dependencies.sh`
+over both targets (#314); carried by name to the owner's release gate:
+the Keystore user-presence instrumented case (a person's biometric),
+the network-callback instrumented case (the Wi-Fi drop takes wireless
+adb with it), the Recents thumbnail's content (no API reads a task
+snapshot), notification arrival at API 33+ (needs a fresh profile with
+the POST_NOTIFICATIONS grant), device transfer under
+`dataExtractionRules` at API 31+ with a GMS transport (no such phone:
+the Pixel's transport is Seedvault, the A40 is API 30 where
+`allowBackup` governs — the targetSdk 36 doubt is unmeasured), and the
+four instrumented cases rust-ui-dev named for lines 2, 3, 7 and 8 in
+their clause (b) mapping of 2026-10-22 (`secure_span`, `fgs_lifecycle`,
+`backup_exclusion`, `presence_prompt_and_cancel`; the gate-b record
+names none, this record is where they are named), not built, their
+lines met by record;
+the TalkBack items travel with the release gate's TalkBack carry
+(Decided 2026-10-18); (c) `tests/android-e2e` proves the exchange both
+directions over a direct and a relayed path, plain and `;ce=br`, every
+captured payload validated against `envelope.schema.json`
+(`tests/human_chat.rs`, `tests/paths.rs`; the Pixel 9a at API 37 on
+2026-10-20, the A40 at API 30 on 2026-10-22, six runs of six each after
+the relayed-path fix that the first Pixel run failed one in five on); of
+`tests/interoperability`'s three items the independent codecs and the
+upgrade matrices are proved there, and the desktop ↔ Android platform
+matrix comparing the decoded envelope fields is RE-CARRIED to Stage 18
+with the reason: `android-e2e` compares the whole decoded envelope in
+ONE direction — what the desktop facade decoded against what the phone
+composed, `human_chat.rs`'s `arrived as composed` assertion on
+`HumanChatV2`'s equality — and in the other reads the phone's inbound
+text and author only (`android-e2e-cases`' `human_chat.rs`), beside
+validating every handed payload against the schema
+(`assert_captured_payloads_validate`); the matrix asks every decoded
+field both ways, on both platforms' real decoders; the relayed route
+indicator was NOT proved live on this path — it is read at the ui-model
+and the route named in `paths.rs` is the test's own classification —
+which §21 (Stage 18) holds its own carry against, as this clause
+foresaw; (d) `tests/android-e2e/tests/platform_gates.rs` passes on the
+Pixel 9a at API 37 (`tests/android-e2e/runs/2026-10-20-pixel-9a-api37.md`; the runtime root directly under the app data
+directory at `0700`, a private directory under `files/` refused as
+outside the runtime root beside the control the ancestor walk alone
+accepts), the store opens on the device and reopens after an upgrade
+(`device-runs/2026-10-21-pixel-9a.md`, gate (d)), and the trust overlay
+sits under the boundary (`crates/transport/embedded/tests/`); (e) the
+endpoint runtime overlay's persistence LANDED (#261, ADR-0028 A
+2026-10-11; `crates/transport/composition/tests/endpoint_overlay.rs`,
+`endpoint_overlay_ahead.rs`; the profile-format marker of #318 guards
+a rollback), no re-carry; (f) render parity holds on the host
+(`crates/human/ui-slint/tests/render_parity.rs`; the Android look's
+colour roles in `look.rs`) and its Android half — the same
+`render-parity.json` compared on the device, which that test's own
+note says §20 carries — is CARRIED to the owner's release gate: no
+Android-side comparison exists; the PeerId copies in
+its exact canonical form on the device (the review's F11, Pixel 9a at
+API 37: ⋮ → Details, Copy PeerId, Android's own clipboard preview), and
+the accessibility reach is carried to the owner's release gate with the
+TalkBack carry (Decided 2026-10-18); (g)
+`tests/android-e2e/tests/audit_gate.rs` passes on the Pixel 9a at API
+37 (the same run record): a trust set's audit record reaches the Android side's log with the
+profile at WARN, so the sink's admission is what is proved; (h) the
+OSV.dev scan over the committed Gradle lockfiles at this record's base
+head fbca15e6 (devex-tooling, 2026-10-22T06:53:58Z, osv-scanner 2.6.0,
+the live OSV.dev API at the run time): `buildscript-gradle.lockfile`
+(113 packages) and `app/gradle.lockfile` (94), exit 0, "No issues
+found", the nine `[[IgnoredVulns]]` entries each matching a finding and
+no filtered finding without one; the nearest `ignoreUntil` is
+GHSA-9pwp-9qqc-pr26 on bcprov-jdk18on 1.80.2, 2026-11-10, after which
+the same command exits 1 unless p2p-network-dev re-reviews the entry or
+the artefact moves; (i) the ledger holds no `stage-17` entry and this
+record moves the status to `stage-18-adversarial-security-gate`, the
+lowest open stage, Stages 19 and 21 running beside it (the guards read
+the number alone); (j)
+ux-designer's review `design/2026-10-19-android-review.md` ranked its
+findings on 2026-10-19 and re-reviewed rank 1 in rounds 1–3 on the
+builds that carried them (#333), rounds 4 and 5 on #358's build (#361: F17 and F9 pass, F10 built and
+carried, F16's second half found not met) and round 6 on #364's build
+(#372: F16's second half passes — a send to an untrusted peer shows
+"This peer is not trusted for this profile" above its status), so every
+rank-1 finding is built and re-reviewed, with F3's toolkit handle and
+F4's Trust at 200 % in light theme carried by name, and every rank-2 and
+rank-3 finding built or carried to the owner's release gate by name in
+its close table — F10's retry state never seen on a phone, F6's
+truncation at 200 % not re-checked, look spec acceptance 23's
+network-denied state unwalked (revoking INTERNET on the owner's phone
+is expected to end the app, unverified) — beside what the review lists
+as not the app's (N1, the permission toast of the target SDK, carried
+unranked to the target-SDK decision below; N2, the strings under an
+Arabic app locale, language-culture's) and as carried unranked (the
+accessibility reach, with TalkBack); the identity screens of ADR-0061 are Stage 22's
+and were not in this review's scope. No contract flipped
+at this gate.
+
+**What this stage did not prove, carried by name:** the Keystore
+user-presence and network-callback instrumented cases; the Recents
+thumbnail's content; notification arrival at API 33+; device transfer
+under `dataExtractionRules` at API 31+ with a GMS transport (the
+targetSdk 36 doubt); the four unbuilt instrumented cases of (b); the
+Android half of render parity; the desktop ↔ Android platform matrix
+comparing decoded fields and the relayed route indicator live on the
+Android path (both Stage 18's); the accessibility reach and TalkBack
+(the release gate); from the design review's close table, F3's toolkit
+handle, F4's Trust at 200 % in light theme, F10's retry state on a
+phone, F6's truncation at 200 % and acceptance 23's network-denied
+state (the release gate); N1, the permission toast the target SDK
+raises, unranked (architect-cto's target-SDK decision, taken with the
+`dataExtractionRules` doubt above); the relayed-paths fix on the Pixel, measured
+on the A40 only (p2p-network-dev's second device run, when the phone is
+re-paired). Of SPIKE-008's not-established items, closed by this stage:
+the current target API's enforcement (the Pixel 9a at API 37, gate
+(b)'s record); carried, each to the owner's release gate: natural Doze
+and a real low-memory kill, other OEMs' power managers and plain
+Sleeping apps, cellular transitions, `batterystats` and `netstats`, B4
+device-to-device and B5 Smart Switch, duplicate suppression and the
+byte search across a reboot, a power loss mid-truncate, L2 with the
+screen off or unplugged, R2 on other launchers and API levels, freed
+pages after `VACUUM` or reuse, the one-time rewrite's cost on a large
+store (the `secure_delete` rewrite of SPIKE-008's record, measured
+here on a large store) and media remanence, API 33+'s `POST_NOTIFICATIONS` grant (above); B2 and the Play items are closed by
+ADR-0057 (no store, no backup on Google). Of SPIKE-009's items carried
+to steps 7–8: the restart diagnostic is split — the person-visible
+Unlock prompt on a cold launch and after process death under the
+default `foreground-only` profile is closed by record (gate-b's by-hand
+table, the A40), while `background_restart_requires_user_authentication`
+after a `stay-reachable` service restart, the case SPIKE-009 named, was
+not read before the phone was handed back (gate-b's own words); its
+predicate is unit-tested in `profile-config`'s `runtime.rs`, but
+nothing emits the diagnostic yet and no device read exists, so it is
+carried to the release gate with the user-presence case; the picker's host tests are step 8's above and its
+instrumented tests, `FLAG_SECURE` around it, the IME-free path and the
+clipboard refusal on a device are carried to the release gate with the
+user-presence case; StrongBox reporting and API 34+ behaviour on another
+device, Samsung Keyboard's input flags, the IME window outside
+`FLAG_SECURE`, system_server's saved-state and crash artifacts, and the
+D6b re-run stay carried, unmeasured.
+
 ## 21. Stage 18 — full adversarial/security gate
 
 Security tests are added continuously at each lower stage. This stage runs the complete release matrix together.
@@ -6050,7 +6252,15 @@ decision 6.
    encrypted file, and §22's upgrade and rollback rows learning the case.
 4. **Desktop and Android screens, and the command-line client**
    (rust-ui-dev): the same `ui-model` on both; every action of steps
-   2 and 3 as a command, with no display (ADR-0059 decision 9); `human-client-ui.md` §13 acceptance criteria for steps 2 and 3,
+   2 and 3 as a command, with no display (ADR-0059 decision 9) —
+   **the command-line client first, ahead of the screens and ahead of
+   step 2's landing for what main already holds, on the owner's word
+   of 2026-10-22** ("delivering a working full fledge cli and claude
+   mcp is now maximum priority", said of the software, not of how it
+   is deployed — the infrastructure is not chosen yet, the owner the
+   same day — so a client usable with no display and a bridge a
+   Claude Code user can rely on are what is built first; the screens
+   follow); `human-client-ui.md` §13 acceptance criteria for steps 2 and 3,
    proposed by rust-ui-dev and ruled by architect-cto.
 5. **A peer by address, and one's own** (ADR-0062, A 2026-10-21):
    p2p-network-dev — the bootstrap-peers overlay in `profile-config`

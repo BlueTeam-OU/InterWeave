@@ -4,7 +4,7 @@
 
 **InterWeave** is a peer-to-peer transport for agent harnesses that speak MCP and for first-party human clients: the agent bridge delivers by Claude Code's channel extension, or to any MCP host through a `receive` tool. One configured profile owns one persistent peer identity; many local applications share it through configured endpoints. On the wire it combines signed GossipSub broadcast, a dedicated directed-message protocol, an endpoint directory, replaceable discovery, Kademlia peer routing, and mandatory Internet reachability through AutoNAT v2, Circuit Relay v2 and DCUtR. The design is under [`architecture/`](./architecture/); the code is built one stage at a time in the order that design fixes.
 
-> **Repository status: Stage 17 open** (`stage-17-android-human-client`). Stages 0–16 are complete, and Stage 20 (automated clients and the one-host deployment, plan §28, ADR-0055) ran beside Stage 17 and closed 2026-10-19; Stage 18 (the adversarial and security gate, plan §21) and Stage 19 (packaging, migration and release, plan §22) run beside Stage 17 by their records, the status value naming the lowest open stage. Stage 17's prerequisites, SPIKE-008 and SPIKE-009, are its first work; the Android human client follows them.
+> **Repository status: Stage 18 open** (`stage-18-adversarial-security-gate`). Stages 0–17 are complete (Stage 17, the Android human client, closed 2026-10-22 on the plan's §20 record), and Stage 20 (automated clients and the one-host deployment, plan §28, ADR-0055) ran beside Stage 17 and closed 2026-10-19; Stage 18 (the adversarial and security gate, plan §21) and Stage 19 (packaging, migration and release, plan §22) ran beside Stage 17 by their records and run beside Stage 18 now, the status value naming the lowest open stage.
 
 ## Where the work stands
 
@@ -22,9 +22,9 @@ Every closed stage has a closing record in the [implementation plan](./architect
 | 14 | 2026-10-03 | the human application core: the facade that owns the client's half of retention, the store's application tables, a toolkit-free render and presentation model, the reference Slint views, and HumanChatV2 across two daemons | plan §17 |
 | 15 | 2026-10-06 | the desktop human client as one binary, proved without a person against two real daemons: process kill, restart, storage failure, trust mutation over the admin socket, and the accessibility tree read over AT-SPI | plan §18 |
 | 16 | 2026-10-06 | the Claude Code Channel bridge: a stdio MCP server holding one endpoint lease, turning direct and broadcast messages into channel notifications with provenance-only metadata, exchanging messages with a far peer from inside an installed Claude Code | plan §19 |
-| 17 | open | the Android human client, after SPIKE-008 and SPIKE-009 | plan §20 |
+| 17 | 2026-10-22 | the Android human client: the APK hosting the embedded runtime, the Keystore-sealed identity, recovery, the device-run records, the design review's six rounds | plan §20 |
 
-Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migration and release, plan §22) and 21 (contacts, cards and the encrypted store, plan §29) run beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20; §29, the owner's word of 2026-10-21); the status value names the lowest open stage.
+Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migration and release, plan §22) and 21 (contacts, cards and the encrypted store, plan §29) ran beside Stage 17 by the plan's records (§21 (0), decided 2026-10-11; §22, activated 2026-10-20; §29, the owner's word of 2026-10-21) and, since Stage 17 closed on 2026-10-22, Stages 19 and 21 run beside Stage 18; the status value names the lowest open stage.
 
 ## What runs today
 
@@ -33,7 +33,7 @@ Stages 18 (the adversarial and security gate, plan §21), 19 (packaging, migrati
 - **`human-desktop`** (`apps/human-desktop`): the first-party desktop client, a Slint window over a headless application core.
 - **`claude-channel`** (`apps/claude-channel`): the Claude Code Channel bridge, a stdio MCP server over the daemon's data socket; the plugin that starts it is `packaging/claude-plugin/interweave`.
 
-`apps/human-android` is the Android client Stage 17 is building: its APK draws the client's views and hosts the profile's runtime in-process — the embedded transport (`crates/transport/embedded`) inside its foreground network service, with the identity seed sealed by a key held in the Android Keystore; no session has yet run on a phone, and the device-run records land with the client's open work.
+`apps/human-android` is the Android client Stage 17 built: its APK draws the client's views and hosts the profile's runtime in-process — the embedded transport (`crates/transport/embedded`) inside its foreground network service, with the identity seed sealed by a key held in the Android Keystore; its device runs on a Pixel 9a (API 37) and a Samsung A40 (API 30) are recorded under `apps/human-android/device-runs/`, and what the stage did not prove is carried by name in the plan's §20 closing record.
 
 Trust changes made through the admin socket persist in the profile's state directory, never in its configuration file, and survive a daemon restart.
 
