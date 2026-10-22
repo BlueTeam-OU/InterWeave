@@ -100,9 +100,10 @@ three programs), `systemd/` (the two templates), `install.sh`,
 licence files of every crate compiled into the programs and the Claude Code
 bridge (a crate that publishes none fails the archive, since its notice cannot
 be shipped), and `claude-plugin/`, the Claude Code plugin marketplace with the
-bridge inside it. `install.sh` does not install the plugin: it is added to
-Claude Code with `claude plugin marketplace add`, as
-`packaging/claude-plugin/INSTALL.md` sets out. The archive has no
+bridge inside it. `install.sh` does not install the plugin; Claude Code adds
+it, from a copy of `claude-plugin/` kept where it stays, with
+`claude plugin marketplace add <that copy>` and then
+`claude plugin install interweave@interweave`. The archive has no
 signature; its SHA-256 is on the release page and in the `.sha256` file
 beside it, and the same sources and `SOURCE_DATE_EPOCH` give the same
 bytes. The first build of it is `evidence/2026-10-20-release-archive.md`.
