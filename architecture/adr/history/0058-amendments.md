@@ -53,7 +53,7 @@ failed at `gh release create` (the review of the derivation's PR,
 #374, a P1). The prior wording, "the APK's release page carries the
 notices", is replaced: the crate notices are a Markdown file of their
 own attached to the release beside the APK, its SHA-256 in the page's
-hash list, and `{crate_notices}` holds the link and the hash; the
+hash list, and `{crate_notices}` holding the link and `{crate_notices_sha256}` the hash; the
 native libraries' notices, about 50,000 characters, stay in the body;
 and the publish step refuses a page over the body limit, the limit a
 named constant with its source, verified at the first publish. The
