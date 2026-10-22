@@ -48,7 +48,9 @@ pub const PROFILE_FORMAT_FILE: &str = "profile-format.json";
 ///
 /// 1: the marker itself, written first by the build that carries the
 /// trust overlay, the endpoint overlay and the availability overlay.
-pub const PROFILE_FORMAT: u32 = 1;
+/// 2: the bootstrap-peers overlay (ADR-0062), which a build at 1 would
+/// ignore, starting on a profile holding added peers and dialling none.
+pub const PROFILE_FORMAT: u32 = 2;
 
 /// The most a marker may hold on disk; its one shape is a few dozen
 /// bytes, and anything past this is refused before it is parsed.

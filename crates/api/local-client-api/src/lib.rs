@@ -31,9 +31,10 @@ use std::collections::BTreeSet;
 pub mod binding;
 
 pub use binding::{
-    AdminBinding, AdminPort, AdminStatus, DataSessionBinding, DataSessionPort, EndpointAdminView,
-    IngressCounts, LeaseRecord, PeerGateView, PeerOutcome, PreAuthCounts, ReceivedBroadcast,
-    ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView, TrustSource, TrustedPeer,
+    AddressChange, AddressRefusal, AddressSource, AdminBinding, AdminPort, AdminStatus,
+    BootstrapAddress, DataSessionBinding, DataSessionPort, EndpointAdminView, IngressCounts,
+    LeaseRecord, PeerGateView, PeerOutcome, PreAuthCounts, ReceivedBroadcast, ReceivedDirect,
+    SessionEvent, SessionRequest, TrustAdminView, TrustSource, TrustedPeer,
 };
 
 use interweave_transport_api::{
@@ -105,6 +106,12 @@ pub enum AdminCapability {
     /// (`LOCAL-IPC.md` §Version negotiation).
     #[serde(rename = "admin.trust")]
     Trust,
+    /// Add, remove and list the profile's bootstrap addresses, kept in
+    /// the bootstrap-peers overlay (ADR-0062, ADR-0028 A 2026-10-21
+    /// (ii)). Introduced at IPC minor 2.7: an IPC binding names it only
+    /// to a daemon known to speak it.
+    #[serde(rename = "admin.peers")]
+    Peers,
 }
 
 /// An opaque generation value for a session or lease.
@@ -438,6 +445,14 @@ impl LocalAdminPort {
     #[must_use]
     pub const fn port_id(&self) -> &Generation {
         &self.port_id
+    }
+
+    /// Every administrative authority this port holds: what a server
+    /// admits a request against, read whole so a capability added later
+    /// is not lost to a list of the ones that existed before it.
+    #[must_use]
+    pub const fn capabilities(&self) -> &BTreeSet<AdminCapability> {
+        &self.capabilities
     }
 
     /// Whether this port holds a given administrative authority.

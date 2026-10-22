@@ -400,6 +400,61 @@ impl SwarmRuntime {
         answer.await.map_err(|_| SubstrateError::Stopped)
     }
 
+    /// Whether the operator's door holds `address` as a route to `peer`
+    /// -- asked as the store doors ask it. A read, for a caller judging
+    /// what a removal left in place.
+    #[must_use]
+    pub fn operator_holds(&self, peer: &TransportIdentity, address: &Multiaddr) -> bool {
+        let record = peer.as_str().parse::<libp2p::PeerId>().map_or_else(
+            |_| address.clone(),
+            |owner| crate::operator_set::probe_for(address, &owner),
+        );
+        self.operator.contains(&record)
+    }
+
+    /// Undo [`Self::add_address`] for an address the operator removed
+    /// (ADR-0062: a removed bootstrap address is dialled no more, without
+    /// a restart): out of the operator set unless an input in
+    /// `still_named` -- every operator input that remains: the profile's
+    /// static peers, relays and servers and the overlay's other entries --
+    /// holds the same route ([`OperatorSet::remove_unless_named`]), and out
+    /// of the book.
+    ///
+    /// Returns whether it is out of the book: `false` for a live
+    /// quarantine the book cannot hand over yet, which stays quarantined
+    /// and is to be asked again (`ConnectionManager::forget_address`).
+    ///
+    /// # Errors
+    /// Returns [`SubstrateError::Stopped`] if the task is gone.
+    pub async fn forget_address(
+        &self,
+        peer: TransportIdentity,
+        address: Multiaddr,
+        still_named: &[String],
+    ) -> Result<bool, SubstrateError> {
+        let record = peer.as_str().parse::<libp2p::PeerId>().map_or_else(
+            |_| address.clone(),
+            |owner| crate::operator_set::probe_for(&address, &owner),
+        );
+        // An input that does not parse names no route, so it keeps no
+        // door; the profile's own inputs were validated at start.
+        let named: Vec<Multiaddr> = still_named
+            .iter()
+            .filter_map(|input| input.parse().ok())
+            .collect();
+        let _ = self.operator.remove_unless_named(&record, &named);
+        let (reply, answer) = oneshot::channel();
+        self.commands
+            .send(SwarmCommand::ForgetAddress {
+                peer,
+                address,
+                reply,
+            })
+            .await
+            .map_err(|_| SubstrateError::Stopped)?;
+        answer.await.map_err(|_| SubstrateError::Stopped)
+    }
+
     /// The status surface (plan §15): the computed `ConnectivitySummary`
     /// and the dial gate's introspection, photographed at one instant in
     /// the Swarm task. `peer`, when given, adds that peer's retry state.

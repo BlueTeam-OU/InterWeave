@@ -55,7 +55,7 @@ mod common;
 use common::{Daemon, Home, PATIENCE, example, free_port, human, workspace_binary};
 
 /// CHANNEL-EVENT.md §Metadata's table, in its order.
-const META_KEYS: [&str; 10] = [
+const META_KEYS: [&str; 16] = [
     "delivery_mode",
     "source_peer",
     "source_endpoint",
@@ -66,6 +66,12 @@ const META_KEYS: [&str; 10] = [
     "reply_token",
     "payload_encoding",
     "content_type",
+    "app_kind",
+    "card_name",
+    "card_surname",
+    "card_photo_bytes",
+    "card_photo_type",
+    "card_identity_key",
 ];
 
 fn claude() -> EndpointId {
@@ -231,6 +237,26 @@ impl Bridge {
         meta_is_the_contracts(&params["meta"], &line);
         params
     }
+}
+
+/// [`META_KEYS`] is CHANNEL-EVENT.md §Metadata's table, key for key and in
+/// its order, read from the document itself: a key the contract gains
+/// fails here rather than as a notification `meta_is_the_contracts`
+/// calls foreign.
+#[test]
+fn the_key_list_is_the_contracts_table() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../architecture/contracts/CHANNEL-EVENT.md");
+    let text = std::fs::read_to_string(&path).expect("CHANNEL-EVENT.md");
+    let table: Vec<&str> = text
+        .lines()
+        .skip_while(|line| *line != "## Metadata")
+        .skip(1)
+        .take_while(|line| !line.starts_with("## "))
+        .filter_map(|line| line.strip_prefix("| `"))
+        .filter_map(|rest| rest.split_once('`').map(|(key, _)| key))
+        .collect();
+    assert_eq!(table, META_KEYS, "the table, in order");
 }
 
 /// Every key one of the table's, in the table's order AS WRITTEN on

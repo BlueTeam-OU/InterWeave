@@ -35,6 +35,7 @@ use interweave_trust_api::{EndpointTrustPolicy, PeerTrustPolicy};
 use serde::{Deserialize, Serialize};
 
 pub mod availability_overlay;
+pub mod bootstrap_overlay;
 pub mod connectivity;
 pub mod endpoint_overlay;
 pub mod ipc;

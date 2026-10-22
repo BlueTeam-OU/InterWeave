@@ -11,9 +11,9 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use interweave_ipc_protocol::{
-    AdminStatusResult, DirectoryResult, ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList,
-    PeerList, Request, RequestId, ResponseFrame, SendResult, SetEnabledResult,
-    TRUST_SOURCE_SINCE_MINOR, TrustList,
+    AddressList, AddressResult, AdminStatusResult, DirectoryResult, ENDPOINT_PERSISTED_SINCE_MINOR,
+    EmptyResult, EndpointList, PeerList, Request, RequestId, ResponseFrame, SendResult,
+    SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList,
 };
 use interweave_local_client_api::{AdminPort, DataSessionPort};
 use interweave_transport_api::{BroadcastMessageV1, DirectDestination, TransportError};
@@ -75,7 +75,10 @@ pub(crate) async fn data<S: DataSessionPort>(
         | Request::AdminShutdown(_)
         | Request::AdminTrustList(_)
         | Request::AdminTrustSet(_)
-        | Request::AdminPeersList(_) => {
+        | Request::AdminPeersList(_)
+        | Request::AdminPeersAddAddress(_)
+        | Request::AdminPeersRemoveAddress(_)
+        | Request::AdminPeersListAddresses => {
             ResponseFrame::failure(id, TransportError::CapabilityDenied)
         }
     }
@@ -162,6 +165,25 @@ pub(crate) async fn admin<A: AdminPort>(
         // a position in their order, so nothing is held between pages.
         Request::AdminPeersList(p) => match port.peers().await {
             Ok(rows) => ResponseFrame::success(id, &PeerList::page(rows, p.after.as_ref(), minor)),
+            Err(code) => ResponseFrame::failure(id, code),
+        },
+        // A refusal is the port's ANSWER, carried as a result naming its
+        // rule; only a failure of the port itself is an error (ADR-0062).
+        Request::AdminPeersAddAddress(p) => match port.add_bootstrap_address(p.address).await {
+            Ok(change) => ResponseFrame::success(id, &AddressResult::from(change)),
+            Err(code) => ResponseFrame::failure(id, code),
+        },
+        Request::AdminPeersRemoveAddress(p) => {
+            match port.remove_bootstrap_address(p.address).await {
+                Ok(change) => ResponseFrame::success(id, &AddressResult::from(change)),
+                Err(code) => ResponseFrame::failure(id, code),
+            }
+        }
+        Request::AdminPeersListAddresses => match port.bootstrap_addresses().await {
+            Ok(rows) => match AddressList::from_views(rows) {
+                Ok(list) => ResponseFrame::success(id, &list),
+                Err(code) => ResponseFrame::failure(id, code),
+            },
             Err(code) => ResponseFrame::failure(id, code),
         },
         // The data domain on the admin socket: admission's to refuse, as
@@ -357,6 +379,21 @@ mod tests {
             (Method::AdminTrustList, serde_json::json!({}), "trust"),
             (Method::AdminPeersList, serde_json::json!({}), "peers"),
             (
+                Method::AdminPeersAddAddress,
+                serde_json::json!({"address": "/ip4/192.168.1.20/tcp/4001/p2p/x"}),
+                "add_address /ip4/192.168.1.20/tcp/4001/p2p/x",
+            ),
+            (
+                Method::AdminPeersRemoveAddress,
+                serde_json::json!({"address": "a"}),
+                "remove_address a",
+            ),
+            (
+                Method::AdminPeersListAddresses,
+                serde_json::json!({}),
+                "list_addresses",
+            ),
+            (
                 Method::AdminTrustSet,
                 serde_json::json!({"peer": crate::fake::peer().as_str(), "allowed": false}),
                 "set_trust 12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN false",
@@ -413,6 +450,33 @@ mod tests {
         );
         assert!(answer.contains("CapabilityDenied"), "{answer}");
         assert_eq!(fake.script().calls.len(), before);
+    }
+
+    /// A refusal is the port's answer, so the response SUCCEEDS and names
+    /// the rule; a client renders `refused`, never an error code.
+    #[tokio::test]
+    async fn an_address_refusal_is_a_result_naming_its_rule() {
+        let fake = Fake::default();
+        let port = fake.admin([].into()).await.expect("port");
+        let answer = body(
+            admin(
+                &port,
+                &Counters::default(),
+                Duration::ZERO,
+                id(),
+                request(
+                    Method::AdminPeersRemoveAddress,
+                    &serde_json::json!({"address": "a"}),
+                ),
+                interweave_ipc_protocol::IPC_MAX_MINOR,
+            )
+            .await,
+        );
+        assert!(answer.contains(r#""ok":true"#), "{answer}");
+        assert!(
+            answer.contains(r#""outcome":"refused","refused":"authored""#),
+            "{answer}"
+        );
     }
 
     /// `admin.peers.list` answers the port's rows one page at a time, as

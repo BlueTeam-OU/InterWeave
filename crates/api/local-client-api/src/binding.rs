@@ -435,6 +435,82 @@ pub struct PeerGateView {
     pub last_outcome: Option<PeerOutcome>,
 }
 
+/// Where a bootstrap address comes from (ADR-0062,
+/// `peers-address-list`'s `source`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddressSource {
+    /// `config.yaml`'s static-bootstrap entries: the operator's, which the
+    /// overlay cannot remove.
+    Authored,
+    /// Added through `admin.peers.add_address` or the embedded host's
+    /// function, kept in the bootstrap-peers overlay.
+    Added,
+}
+
+/// One bootstrap address the static-bootstrap provider holds or would
+/// hold (`admin.peers.list_addresses`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BootstrapAddress {
+    /// A `multiaddr-with-peer-id` in the configuration's grammar.
+    pub address: String,
+    /// Authored or added.
+    pub source: AddressSource,
+    /// Whether the provider emits it: `false` exactly when the profile
+    /// authors the static-bootstrap provider `enabled: false`.
+    pub dialled: bool,
+}
+
+/// Why an address change was refused, by name: the closed set
+/// `peers-address-result`'s `refused` carries, so a client says why in its
+/// own words without parsing a message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddressRefusal {
+    /// Not a `multiaddr-with-peer-id` in the configuration's grammar.
+    Grammar,
+    /// A component in a class ADR-0052 rule 2 refuses.
+    SpecialUse,
+    /// Authored and added entries would pass 64.
+    Bound,
+    /// An add while the profile authors the provider `enabled: false`.
+    ProviderDisabled,
+    /// A removal of an entry `config.yaml` authors.
+    Authored,
+}
+
+impl AddressRefusal {
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Grammar => "grammar",
+            Self::SpecialUse => "special_use",
+            Self::Bound => "bound",
+            Self::ProviderDisabled => "provider_disabled",
+            Self::Authored => "authored",
+        }
+    }
+}
+
+/// What an add or a removal of a bootstrap address did
+/// (`peers-address-result`). A refusal is an answer, not an error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddressChange {
+    /// The address was added and is in force.
+    Added,
+    /// The address was removed and is dialled no more.
+    Removed,
+    /// An add of an address already present, or a removal of one the
+    /// overlay does not hold.
+    Unchanged,
+    /// Refused; nothing was written.
+    Refused {
+        /// The rule, by name.
+        reason: AddressRefusal,
+        /// For a log, never parsed.
+        detail: String,
+    },
+}
+
 /// The read-only administrative view (`admin.status`): the raw detail a
 /// data session never sees (ADR-0036). A binding adds its own counters
 /// -- connections, cross-domain refusals -- beside these, since only it
@@ -579,6 +655,54 @@ pub trait AdminPort {
     /// `CapabilityDenied` without `admin.status`, `ProtocolUnsupported`,
     /// or `BackendUnavailable`.
     fn peers(&self) -> impl Future<Output = Result<Vec<PeerGateView>, TransportError>> + Send {
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// Add `address` to the profile's bootstrap addresses (ADR-0062,
+    /// `admin.peers.add_address`): the configuration's grammar, ADR-0052
+    /// rule 2's special-use floor whoever the caller, the provider's bound
+    /// of 64 and an authored `enabled: false` provider each refuse by
+    /// name; an accepted address is written to the bootstrap-peers
+    /// overlay before it reaches the running provider and before the
+    /// answer. Adding an address grants no trust. Not implemented by a
+    /// port that predates it.
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `admin.peers`, `ProtocolUnsupported`,
+    /// `Internal` when the overlay could not be written (nothing
+    /// changed), or `BackendUnavailable`.
+    fn add_bootstrap_address(
+        &self,
+        address: String,
+    ) -> impl Future<Output = Result<AddressChange, TransportError>> + Send {
+        let _ = address;
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// Remove `address` from the profile's bootstrap addresses
+    /// (`admin.peers.remove_address`): out of the overlay, the running
+    /// provider and the operator's door, dialled no more without a
+    /// restart; an authored entry is refused by name.
+    ///
+    /// # Errors
+    /// As [`Self::add_bootstrap_address`].
+    fn remove_bootstrap_address(
+        &self,
+        address: String,
+    ) -> impl Future<Output = Result<AddressChange, TransportError>> + Send {
+        let _ = address;
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// Every bootstrap address, authored first, then added
+    /// (`admin.peers.list_addresses`).
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `admin.peers`, `ProtocolUnsupported`,
+    /// or `BackendUnavailable`.
+    fn bootstrap_addresses(
+        &self,
+    ) -> impl Future<Output = Result<Vec<BootstrapAddress>, TransportError>> + Send {
         std::future::ready(Err(TransportError::ProtocolUnsupported))
     }
 

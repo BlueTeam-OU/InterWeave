@@ -30,6 +30,12 @@ use crate::version::IpcVersion;
 /// it in bytes).
 pub const MAX_REQUEST_ID_CHARS: usize = 128;
 
+/// Maximum CHARACTERS in an `admin.peers` address
+/// (`ipc/peers-address-params.schema.json`, `maxLength`): a bound that
+/// refuses an absurd string before the configuration's grammar parses
+/// it, not the grammar.
+pub const MAX_BOOTSTRAP_ADDRESS_CHARS: usize = 1024;
+
 /// The longest `grace_ms` an `admin.shutdown` may ask for.
 pub const MAX_SHUTDOWN_GRACE_MS: u32 = 600_000;
 
@@ -233,6 +239,28 @@ pub struct TrustSetParams {
     pub allowed: bool,
 }
 
+/// `admin.peers.add_address` and `admin.peers.remove_address` params
+/// (2.7): one bootstrap address, as text. Whether it is a
+/// `multiaddr-with-peer-id` is the METHOD's to answer, by name, so a
+/// string outside that grammar is a well-formed request (ADR-0062).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AddressParams {
+    /// The address, 1..=[`MAX_BOOTSTRAP_ADDRESS_CHARS`] characters.
+    #[serde(deserialize_with = "bounded_address")]
+    pub address: String,
+}
+
+pub(crate) fn bounded_address<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let address = String::deserialize(d)?;
+    if address.is_empty() || address.chars().count() > MAX_BOOTSTRAP_ADDRESS_CHARS {
+        return Err(serde::de::Error::custom(
+            "an address is 1..=1024 characters",
+        ));
+    }
+    Ok(address)
+}
+
 /// `after` present is a peer: `null` is not "the first page", it is a
 /// malformed request, as the schema says by not admitting it.
 fn absent_or_peer<'de, D: serde::Deserializer<'de>>(
@@ -277,6 +305,12 @@ pub enum Request {
     AdminTrustSet(TrustSetParams),
     /// `admin.peers.list` (2.2).
     AdminPeersList(PeerListParams),
+    /// `admin.peers.add_address` (2.7).
+    AdminPeersAddAddress(AddressParams),
+    /// `admin.peers.remove_address` (2.7).
+    AdminPeersRemoveAddress(AddressParams),
+    /// `admin.peers.list_addresses` (2.7).
+    AdminPeersListAddresses,
 }
 
 impl Request {
@@ -298,6 +332,9 @@ impl Request {
             Self::AdminTrustList(_) => Method::AdminTrustList,
             Self::AdminTrustSet(_) => Method::AdminTrustSet,
             Self::AdminPeersList(_) => Method::AdminPeersList,
+            Self::AdminPeersAddAddress(_) => Method::AdminPeersAddAddress,
+            Self::AdminPeersRemoveAddress(_) => Method::AdminPeersRemoveAddress,
+            Self::AdminPeersListAddresses => Method::AdminPeersListAddresses,
         }
     }
 
@@ -345,6 +382,11 @@ impl Request {
             Method::AdminTrustList => Self::AdminTrustList(typed(params)?),
             Method::AdminTrustSet => Self::AdminTrustSet(typed(params)?),
             Method::AdminPeersList => Self::AdminPeersList(typed(params)?),
+            Method::AdminPeersAddAddress => Self::AdminPeersAddAddress(typed(params)?),
+            Method::AdminPeersRemoveAddress => Self::AdminPeersRemoveAddress(typed(params)?),
+            Method::AdminPeersListAddresses => {
+                none(params).map(|()| Self::AdminPeersListAddresses)?
+            }
         })
     }
 
@@ -361,7 +403,7 @@ impl Request {
             Self::BroadcastPublish(p) => serde_json::value::to_raw_value(p),
             Self::DirectSend(p) => serde_json::value::to_raw_value(p),
             Self::EndpointsQuery(p) => serde_json::value::to_raw_value(p),
-            Self::AdminStatus | Self::AdminEndpointsList => {
+            Self::AdminStatus | Self::AdminEndpointsList | Self::AdminPeersListAddresses => {
                 serde_json::value::to_raw_value(&EmptyParams {})
             }
             Self::AdminEndpointsRevoke(p) => serde_json::value::to_raw_value(p),
@@ -371,6 +413,9 @@ impl Request {
             Self::AdminTrustList(p) => serde_json::value::to_raw_value(p),
             Self::AdminTrustSet(p) => serde_json::value::to_raw_value(p),
             Self::AdminPeersList(p) => serde_json::value::to_raw_value(p),
+            Self::AdminPeersAddAddress(p) | Self::AdminPeersRemoveAddress(p) => {
+                serde_json::value::to_raw_value(p)
+            }
         };
         raw.unwrap_or_else(|_| unreachable!("a params type serializes"))
     }
@@ -802,6 +847,13 @@ mod tests {
                 allowed: true,
             }),
             Request::AdminPeersList(PeerListParams::default()),
+            Request::AdminPeersAddAddress(AddressParams {
+                address: "/ip4/192.168.1.20/tcp/4001/p2p/x".to_owned(),
+            }),
+            Request::AdminPeersRemoveAddress(AddressParams {
+                address: "x".to_owned(),
+            }),
+            Request::AdminPeersListAddresses,
         ];
         assert_eq!(
             requests.iter().map(Request::method).collect::<Vec<_>>(),

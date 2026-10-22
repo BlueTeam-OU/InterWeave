@@ -1348,6 +1348,27 @@ impl ConnectionManager {
         self.policy.preferred_addresses(peer, &known, now_ms)
     }
 
+    /// Take `address` out of `peer`'s book: an operator's removal
+    /// (ADR-0062: a removed bootstrap address is dialled no more, without
+    /// a restart). Its state goes back to the policy table as a displaced
+    /// entry's does ([`Self::learn_address`]), so a live quarantine
+    /// leaves only into room the table can give it and leaving launders
+    /// nothing.
+    ///
+    /// KEYED BY THE CALLER'S STRING, as every route here is: a caller holds
+    /// the canonical form or misses the entry, which is why the libp2p
+    /// crate reaches this only through `forget_route`.
+    ///
+    /// Returns whether the address is out of the book: `true` too when it
+    /// was never in it, and `false` only for a live quarantine the table
+    /// cannot take yet, which stays -- quarantined, so not dialled -- for
+    /// the caller to ask again (`a_forgotten_address_leaves_the_book`,
+    /// `a_quarantine_the_table_cannot_take_is_forgotten_later`).
+    pub fn forget_address(&mut self, peer: &TransportIdentity, address: &str, now_ms: u64) -> bool {
+        self.observe(now_ms);
+        self.hand_over(peer, address, now_ms)
+    }
+
     /// How many addresses are remembered for `peer`.
     #[must_use]
     pub fn known_addresses(&self, peer: &TransportIdentity) -> usize {
@@ -4812,6 +4833,50 @@ mod tests {
     }
 
     #[test]
+    fn a_forgotten_address_leaves_the_book() {
+        let mut m = manager(8);
+        assert!(m.learn_address(&peer(P1), A2, 0));
+        assert!(m.learn_address(&peer(P1), "/ip4/198.51.100.9/tcp/1", 0));
+        assert!(m.forget_address(&peer(P1), A2, 0));
+        assert_eq!(
+            m.known_addresses(&peer(P1)),
+            1,
+            "the other stays: the control"
+        );
+        assert!(
+            m.forget_address(&peer(P1), A2, 0),
+            "an address not in the book is out of it"
+        );
+        assert!(
+            m.learn_address(&peer(P1), A2, 0),
+            "and may be learned again"
+        );
+    }
+
+    #[test]
+    fn a_quarantine_the_table_cannot_take_is_forgotten_later() {
+        let mut m = full_book_with_a_quarantine(1);
+        m.policy.max_addresses = 2;
+        let quarantined = "/ip4/198.51.100.3/tcp/1";
+        let held = m
+            .handle()
+            .admit(&request(P2, "/ip4/198.51.100.1/tcp/1"), 0)
+            .expect("admitted, its outcome reserving the one free slot");
+        let before = m.known_addresses(&peer(P1));
+        assert!(
+            !m.forget_address(&peer(P1), quarantined, 0),
+            "the free slot is promised: the quarantine stays in the book"
+        );
+        assert_eq!(m.known_addresses(&peer(P1)), before);
+        drop(held);
+        assert!(
+            m.forget_address(&peer(P1), quarantined, 0),
+            "asked again, it leaves"
+        );
+        assert_eq!(m.known_addresses(&peer(P1)), before - 1);
+    }
+
+    #[test]
     fn the_address_book_is_bounded_per_peer() {
         let mut m = manager(8);
         for i in 0..DEFAULT_MAX_ADDRESSES_PER_PEER {
@@ -6010,6 +6075,10 @@ mod tests {
             // Declaration only; reaches `learn_address` through nothing and
             // keys the book by removing from it instead.
             ("record_permanent_address_failure_unadmitted(", 1),
+            // Declaration only, as the one above: an operator's removal
+            // keys the book by the caller's string, so its caller must
+            // canonicalize (`forget_route`, counted over there).
+            ("forget_address(", 1),
             // Ticket-carried, and keyed by `ticket.address()` all the same:
             // the book, the quarantine and the success score in that order.
             // `record_permanent_failure(` is not a substring of
@@ -6038,11 +6107,14 @@ mod tests {
             (".book", 8),
             // Every way out of the book, through the one door that hands
             // a quarantine over or refuses (ADR-0011, amendment
-            // 2026-09-28): `hand_over`'s declaration and its four callers
-            // -- `learn_address`'s eviction, the retirement pass and the
-            // two removers -- and its two calls into the policy.
+            // 2026-09-28): `hand_over`'s declaration and its five callers
+            // -- `learn_address`'s eviction, the retirement pass, the two
+            // removers and `forget_address`, an operator's removal
+            // (ADR-0062), reached only through the libp2p crate's
+            // canonicalizing `forget_route` -- and its two calls into the
+            // policy.
             ("release_from_book(", 2),
-            ("hand_over(", 5),
+            ("hand_over(", 6),
         ] {
             let calls = production.matches(pattern).count();
             assert_eq!(

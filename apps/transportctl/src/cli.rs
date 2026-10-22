@@ -28,6 +28,8 @@ usage:
   transportctl --profile <name> trust list [--json]
   transportctl --profile <name> trust allow|revoke <peer>
   transportctl --profile <name> peers list [--json]
+  transportctl --profile <name> peers add|remove <multiaddr-with-peer-id>
+  transportctl --profile <name> peers addresses [--json]
   transportctl --profile <name> shutdown [--grace <ms>]
   transportctl --profile <name> identity init
   transportctl --profile <name> identity show
@@ -77,6 +79,15 @@ pub(crate) enum Admin {
     SetTrust(TransportIdentity, bool),
     /// `admin.peers.list`, every page (IPC 2.2).
     PeersList,
+    /// `admin.peers.add_address` (IPC 2.7). The address is the daemon's
+    /// to judge -- its grammar and its special-use floor are the
+    /// method's, whoever the caller (ADR-0062) -- so it is passed as
+    /// typed.
+    AddAddress(String),
+    /// `admin.peers.remove_address` (IPC 2.7).
+    RemoveAddress(String),
+    /// `admin.peers.list_addresses` (IPC 2.7).
+    ListAddresses,
 }
 
 /// An offline identity command: never over IPC (ADR-0033).
@@ -205,6 +216,9 @@ fn admin(words: &[&str], mut flags: Flags) -> Result<Command, String> {
         ["trust", "allow", id] => (Admin::SetTrust(peer(id)?, true), false),
         ["trust", "revoke", id] => (Admin::SetTrust(peer(id)?, false), false),
         ["peers", "list"] => (Admin::PeersList, true),
+        ["peers", "add", address] => (Admin::AddAddress((*address).to_owned()), false),
+        ["peers", "remove", address] => (Admin::RemoveAddress((*address).to_owned()), false),
+        ["peers", "addresses"] => (Admin::ListAddresses, true),
         ["shutdown"] => {
             let grace = flags
                 .grace
@@ -222,7 +236,8 @@ fn admin(words: &[&str], mut flags: Flags) -> Result<Command, String> {
     let json = std::mem::take(&mut flags.json);
     if json && !json_allowed {
         return Err(
-            "--json applies to status, endpoints list, trust list and peers list only".to_owned(),
+            "--json applies to status, endpoints list, trust list, peers list and peers addresses only"
+                .to_owned(),
         );
     }
     refuse_leftovers(&flags)?;
@@ -386,6 +401,25 @@ mod tests {
             admin_of("--profile p peers list"),
             (Admin::PeersList, false)
         );
+        // An address is passed as typed: the daemon's method judges it.
+        assert_eq!(
+            admin_of("--profile p peers add /ip4/127.0.0.1/tcp/1/p2p/x"),
+            (
+                Admin::AddAddress("/ip4/127.0.0.1/tcp/1/p2p/x".to_owned()),
+                false
+            )
+        );
+        assert_eq!(
+            admin_of("--profile p peers remove /dns4/a/tcp/1/p2p/x"),
+            (
+                Admin::RemoveAddress("/dns4/a/tcp/1/p2p/x".to_owned()),
+                false
+            )
+        );
+        assert_eq!(
+            admin_of("--profile p peers addresses --json"),
+            (Admin::ListAddresses, true)
+        );
         assert_eq!(
             admin_of(
                 "--profile p trust allow 12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
@@ -495,6 +529,11 @@ mod tests {
             "--profile p trust list extra",
             "--profile p peers",
             "--profile p peers list extra",
+            "--profile p peers add",
+            "--profile p peers add /ip4/1.2.3.4/tcp/1/p2p/x extra",
+            "--profile p peers remove",
+            "--profile p peers add /ip4/1.2.3.4/tcp/1/p2p/x --json",
+            "--profile p peers addresses extra",
             "--profile p shutdown --grace soon",
             "--profile p status --grace 5",
             "--profile p --profile q status",
