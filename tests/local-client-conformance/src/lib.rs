@@ -1258,13 +1258,12 @@ pub async fn trust_administration_revokes_as_policy<B: DataSessionBinding + Admi
 /// of the pair before relying on it.
 const UNLISTED_PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
-/// A trust view with its allowlist sorted, so two reads compare as sets:
-/// "changes nothing" is about the policy, not the order a binding lists it.
 /// Bootstrap-address administration (ADR-0062, LOCAL-IPC.md minor 2.7;
 /// LOCAL-CLIENT.md §7 item 13), the same at every binding: without
 /// `admin.peers` the add, the removal and the list are each
-/// `CapabilityDenied`; an address outside the grammar and one with a
-/// loopback component are each refused BY NAME, an answer and never an
+/// `CapabilityDenied`; a string that is no address, a well-formed address
+/// outside the grammar and one with a loopback component are each refused
+/// BY NAME, an answer and never an
 /// error, with nothing written; a new address is `added`, listed as
 /// `added` after every `authored` entry, and a second add of it is
 /// `unchanged`; the add grants no trust; its removal is `removed` and the
@@ -1318,6 +1317,16 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
         refusal(
             admin
                 .add_bootstrap_address("not an address".to_owned())
+                .await
+        ),
+        Some(AddressRefusal::Grammar)
+    );
+    // Well-formed as a multiaddress, outside the grammar: the peer half
+    // is no identity.
+    assert_eq!(
+        refusal(
+            admin
+                .add_bootstrap_address("/ip4/10.0.0.1/tcp/4001/p2p/not-an-identity".to_owned())
                 .await
         ),
         Some(AddressRefusal::Grammar)
@@ -1427,6 +1436,8 @@ pub async fn own_addresses_are_what_an_add_takes<B: AdminBinding>(
     );
 }
 
+/// A trust view with its allowlist sorted, so two reads compare as sets:
+/// "changes nothing" is about the policy, not the order a binding lists it.
 fn sorted(mut view: TrustAdminView) -> TrustAdminView {
     view.allowed.sort();
     view
