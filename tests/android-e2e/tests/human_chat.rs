@@ -157,6 +157,7 @@ impl Device for AppStandIn {
             app_data_dir: self.app_data_dir.clone(),
             profile: PROFILE.to_owned(),
             identity: ProfileIdentity::from_phrase(&self.phrase).expect("the same identity"),
+            store_cipher: Box::new(interweave_human_store::key_custody::FilesystemCustody),
         };
         let tap = Arc::clone(&self.tap);
         off_runtime(|| self.service.start_recording(launch, tap)).expect("the service starts");
