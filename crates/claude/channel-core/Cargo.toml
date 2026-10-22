@@ -25,6 +25,9 @@ workspace = true
 # HumanChatV2's bounded decode only (CHANNEL-EVENT.md §Content): default
 # features, so no markdown parser (check_bridge_default_features.sh).
 interweave-human-chat-protocol = { path = "../../human/chat-protocol" }
+# A contact card's identity key, re-encoded as the 44 characters it came
+# as (CHANNEL-EVENT.md §Metadata `card_identity_key`).
+base64 = { workspace = true }
 interweave-local-client-api = { path = "../../api/local-client-api" }
 interweave-transport-api = { path = "../../api/transport-api" }
 serde = { workspace = true, features = ["derive"] }

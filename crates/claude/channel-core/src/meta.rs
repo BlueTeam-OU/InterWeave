@@ -14,9 +14,11 @@
 //! through `serde_json::to_value` or `json!`, which build a `Map` first
 //! (`the_order_survives_text_and_not_a_value`).
 //!
-//! The values are built from validated types (a `PeerId`, an `EndpointId`,
-//! a `ChannelId`, a `MediaType`, a hex message id), so none can carry a
-//! control character today. [`ChannelMeta::set`] refuses one anyway, and
+//! Most values are built from validated types (a `PeerId`, an
+//! `EndpointId`, a `ChannelId`, a `MediaType`, a hex message id). A
+//! contact card's name and surname are a peer's text, bounded by the card
+//! parser first (no control, format or separator character, 64 scalar
+//! values). [`ChannelMeta::set`] refuses a control character anyway, and
 //! anything past [`MAX_META_VALUE_BYTES`]: the host escapes values for
 //! XML, and the bridge's own bound stands beside that, not instead of it
 //! (CHANNEL-EVENT.md §Sanitization).
@@ -47,11 +49,23 @@ pub enum MetaKey {
     PayloadEncoding,
     /// The media type, its content-encoding parameter removed.
     ContentType,
+    /// `contact_card`, for a contact card the bridge parsed only.
+    AppKind,
+    /// The card's name.
+    CardName,
+    /// The card's surname, when it has one.
+    CardSurname,
+    /// The photo's decoded length, decimal; `0` with no photo.
+    CardPhotoBytes,
+    /// The photo's media type, when it has one.
+    CardPhotoType,
+    /// The card's identity key, as received.
+    CardIdentityKey,
 }
 
 impl MetaKey {
     /// Every key, in the contract's table order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 16] = [
         Self::DeliveryMode,
         Self::SourcePeer,
         Self::SourceEndpoint,
@@ -62,6 +76,12 @@ impl MetaKey {
         Self::ReplyToken,
         Self::PayloadEncoding,
         Self::ContentType,
+        Self::AppKind,
+        Self::CardName,
+        Self::CardSurname,
+        Self::CardPhotoBytes,
+        Self::CardPhotoType,
+        Self::CardIdentityKey,
     ];
 
     /// The key as the host sees it. None is `source`
@@ -79,6 +99,12 @@ impl MetaKey {
             Self::ReplyToken => "reply_token",
             Self::PayloadEncoding => "payload_encoding",
             Self::ContentType => "content_type",
+            Self::AppKind => "app_kind",
+            Self::CardName => "card_name",
+            Self::CardSurname => "card_surname",
+            Self::CardPhotoBytes => "card_photo_bytes",
+            Self::CardPhotoType => "card_photo_type",
+            Self::CardIdentityKey => "card_identity_key",
         }
     }
 
@@ -90,7 +116,9 @@ impl MetaKey {
 }
 
 /// The longest value the bridge emits, in bytes. The longest legitimate
-/// one is a 128-byte media type; a `PeerId` is at most a few dozen.
+/// one is a contact card's name or surname, 64 scalar values of up to
+/// four bytes each (asserted at compile time in `card.rs`); a media type
+/// is at most 128, a `PeerId` a few dozen.
 pub const MAX_META_VALUE_BYTES: usize = 256;
 
 /// Why a value was refused.
