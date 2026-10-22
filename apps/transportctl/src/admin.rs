@@ -42,9 +42,10 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
         Admin::Status | Admin::PeersList => AdminCapability::Status,
         Admin::Shutdown(_) => AdminCapability::Shutdown,
         Admin::TrustList | Admin::SetTrust(..) => AdminCapability::Trust,
-        Admin::AddAddress(_) | Admin::RemoveAddress(_) | Admin::ListAddresses => {
-            AdminCapability::Peers
-        }
+        Admin::AddAddress(_)
+        | Admin::RemoveAddress(_)
+        | Admin::ListAddresses
+        | Admin::ShowAddresses => AdminCapability::Peers,
         _ => AdminCapability::Endpoints,
     };
     let port = match binding.admin([capability].into()).await {
@@ -86,7 +87,14 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
         };
     }
     let peers = action == Admin::PeersList;
+    let show = action == Admin::ShowAddresses;
     call(&port, action, json).await.map_err(|e| match e {
+        // `admin.peers` is granted from 2.7 and the show side is 2.8's,
+        // so a 2.7 daemon is told by the port's refusal.
+        TransportError::ProtocolUnsupported if show => Failure::Refused(
+            "the daemon does not speak IPC 2.8's admin.peers.own_addresses: is the daemon older?"
+                .to_owned(),
+        ),
         // `admin.status` is granted at every minor, so a daemon too old
         // for the 2.2 read is told by the port's refusal, not by a
         // missing capability.
@@ -299,6 +307,20 @@ async fn call(port: &IpcAdmin, action: Admin, json: bool) -> Result<String, Tran
                             "  not dialled: the provider is disabled"
                         }
                     );
+                }
+                out
+            }
+        }
+        // One address per line and nothing else, in the daemon's order:
+        // what the show screen's code carries, so the text pipes into
+        // another node's `peers add`. Kinds and `truncated` are --json's.
+        Admin::ShowAddresses => {
+            if json {
+                to_json(&port.own_addresses_result().await?)
+            } else {
+                let mut out = String::new();
+                for row in port.own_addresses().await?.addresses {
+                    let _ = writeln!(out, "{}", row.address);
                 }
                 out
             }
