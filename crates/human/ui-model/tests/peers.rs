@@ -864,3 +864,84 @@ fn a_lost_trust_answer_read_back_unlisted_is_not_made() {
     );
     assert_eq!(focus(&m), Some(PeersFocus::BlockProblem(them)));
 }
+
+/// A Trust the runtime made whose trust list could not be read back
+/// (`MadeNotReadBack`) is decided on the list read again, never shown
+/// as not saved: listed, the block is trusted with no problem and the
+/// one-block page closes; still unlisted, it is not made.
+#[test]
+fn a_trust_made_but_not_read_back_is_decided_on_the_list_read_again() {
+    for listed in [true, false] {
+        let (me, them) = (peer(), peer());
+        let mut m = opened(&me, &[], &[]);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::FieldChanged(at(&them)));
+        let _ = input(&mut m, PeersInput::Add);
+        m.addresses_added(
+            &[at(&them)],
+            answer(
+                AddressOutcome::Added {
+                    peer: Some(them.clone()),
+                },
+                &[added(&them)],
+            ),
+        );
+        let change = TrustChange {
+            peer: them.clone(),
+            allowed: true,
+        };
+        let _ = input(&mut m, PeersInput::Trust(them.clone()));
+        m.trust_settings_mut().set(
+            change,
+            Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Unavailable)),
+        );
+        assert_eq!(
+            m.trust_settings_mut().take_reread(),
+            Some(Intent::ReadTrust)
+        );
+        let _ = m.peers_turn();
+        assert_eq!(
+            m.peers().blocks(m.trust_settings())[0],
+            BlockView {
+                peer: them.clone(),
+                state: BlockState::Checking,
+                problem: None,
+            },
+            "no verdict before the list is read again"
+        );
+        let allowed = if listed {
+            vec![TrustRow::added_here(them.clone())]
+        } else {
+            Vec::new()
+        };
+        m.trust_settings_mut().read(Ok(TrustList {
+            local_peer: Some(me),
+            allowed,
+        }));
+        let _ = m.peers_turn();
+        if listed {
+            assert!(
+                !m.peers().add_open(),
+                "the one block decided closes the page"
+            );
+        } else {
+            assert_eq!(
+                m.peers().blocks(m.trust_settings())[0],
+                BlockView {
+                    peer: them.clone(),
+                    state: BlockState::Undecided,
+                    problem: Some(BlockProblem::NotMade),
+                }
+            );
+            assert_eq!(focus(&m), Some(PeersFocus::BlockProblem(them.clone())));
+            // A later read listing the peer leaves no problem on a
+            // trusted block, and the decided page closes.
+            m.trust_settings_mut().read(Ok(TrustList {
+                local_peer: None,
+                allowed: vec![TrustRow::added_here(them)],
+            }));
+            let _ = m.peers_turn();
+            assert!(!m.peers().add_open(), "trusted at last, the page closes");
+        }
+    }
+}

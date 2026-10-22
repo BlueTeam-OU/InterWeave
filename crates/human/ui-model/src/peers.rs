@@ -1276,8 +1276,10 @@ impl Peers {
     }
 
     /// A block whose Trust is no longer on its way takes trust's answer:
-    /// trusted, a problem in the block, or a lost answer checked on the
-    /// trust list read back.
+    /// trusted, a problem in the block, or an answer that leaves the
+    /// list unconfirmed (lost, or made but not read back) checked on
+    /// the trust list read again. A trusted peer's block keeps no
+    /// problem, whatever read listed it.
     fn trust_answers(&mut self, trust: &TrustSettings) {
         let Some(page) = self.page.as_mut() else {
             return;
@@ -1286,12 +1288,18 @@ impl Peers {
         let mut moved = false;
         for block in &mut page.blocks {
             let on_its_way = trust.in_flight().is_some_and(|c| c.peer == block.peer);
+            if block.problem.is_some() && trust_allows(trust, &block.peer) {
+                block.problem = None;
+                moved = true;
+            }
             if block.trusting && !on_its_way {
                 block.trusting = false;
                 moved = true;
                 if !trust_allows(trust, &block.peer) {
                     match trust.outcome().0 {
-                        Some(TrustOutcome::Unconfirmed(c)) if c.peer == block.peer => {
+                        Some(TrustOutcome::Unconfirmed(c) | TrustOutcome::Changed(c))
+                            if c.peer == block.peer =>
+                        {
                             block.checking = true;
                         }
                         Some(TrustOutcome::Problem(p)) => {
