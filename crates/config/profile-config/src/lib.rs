@@ -64,6 +64,7 @@ pub use persist::{
     resolve_private_dir, resolve_private_dir_as, resolve_private_dir_within, write_atomic,
     write_private_atomic, write_private_atomic_within,
 };
+pub use private_read::{PrivateReadError, read_private_within};
 
 /// Which provider a `discovery.providers` entry configures.
 ///

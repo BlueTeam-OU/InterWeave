@@ -718,6 +718,16 @@ jobs:
       - name: No Google Play services on the Android app's classpath
         run: bash tools/checks/check_android_no_play_services.sh
 
+      # ADR-0059 decision 6 (its Android half) and ADR-0060 decision 8:
+      # no contacts permission, provider or library; allowBackup "false",
+      # no backupAgent, fullBackupContent or fullBackupOnly; and every
+      # domain excluded from cloud-backup and device-transfer, with no
+      # <include> -- read from the app's manifests, its extraction rules
+      # and its sources. Standard-library python3 only: it needs none of
+      # the validator dependencies installed above.
+      - name: No address book and no platform backup in the Android app
+        run: python3 tools/checks/check_android_contacts_and_backup.py
+
       # A domain function nothing calls is a rule that binds nothing, and
       # its own green unit tests are what make it look covered. Stage 6
       # shipped two that way and both came back as P1 findings.
