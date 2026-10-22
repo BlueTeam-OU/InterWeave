@@ -34,8 +34,8 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 
 ### Output
 
-- `--json` is accepted by every verb that reads (`status`, `conversations`, `messages`, `read`, `listen`, `trust list`, `identities list`, `store health`). It prints one JSON object per line. Every control character in a string is escaped, so a line is always one line.
-- `send`, `retry`, `cancel` and `unkeep` print `<id> <status>`. `send` and `retry` print it also when they fail with exit 1 or 6, so a script holds the id to retry or cancel.
+- `--json` is accepted by every verb that reads (`status`, `conversations`, `messages`, `read`, `listen`, `trust list`, `identities list`, `store health`) and by `send`, `cancel`, `retry` and `unkeep`. It prints one JSON object per line. Every control character, line separator and bidirectional control in a string is escaped, so a line is always one line.
+- `send`, `retry`, `cancel` and `unkeep` print `<id> <status>`, or `{"id": ..., "status": ...}` with `--json`. `send` and `retry` print it also when they fail with exit 1 or 6, so a script holds the id to retry or cancel.
 - Every status and state is a fixed token, never a translated label:
   - a message's `status` is one of `sending`, `not-confirmed`, `needs-attention`, `accepted`, `published`, `cancelled`, `unread`, `read`, `kept`;
   - `session` is one of `ready`, `opening`, `reconnecting`, `no-daemon`, `refused`, `storage-degraded`, `closed`;
@@ -43,7 +43,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
   - `listen`'s `event` is one of `message`, `outbound`, `session`, `connectivity`, `path`, `disconnected`.
 - `accepted` means the remote endpoint's bounded queue admitted the message (`AcceptedV2`). It does not mean a person read it.
 - Times are Unix milliseconds in JSON (`local_at_ms`, `sent_at_ms`, `last_activity_ms`). `sent_at_ms` is what the sender asserts: shown, never an order.
-- Text output is for a person and may change. Text from a peer is printed with every control character but newline and tab replaced, so a message cannot drive the terminal.
+- Text output is for a person and may change. Text from a peer is printed with every control character but newline and tab replaced, and every line separator and bidirectional control, so a message cannot drive the terminal or reorder what it shows.
 
 ### A conversation and a message id
 
@@ -56,11 +56,12 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 - **What a one-shot verb sees.** It sees what the store holds plus what arrives while it runs. Messages arrive only while some client holds the lease. `listen` holds it.
 - **Reading verbs work without a daemon.** `conversations`, `messages` and `read` show what the store holds, and say on stderr why the session did not open. `status` exits 0 and reports the session as `no-daemon`.
 - **Verbs that need the daemon** (`send`, `retry`, `trust`, `identities`) fail with exit 3 when none answers.
-- **Keep happens at read time.** Keep is `read <conversation> --keep <id>`, in the same run that read the message. A message read and not kept lives only for the run that read it (RETENTION.md), so a Keep of a message read in an earlier run cannot exist. Every `--keep` id is checked before anything is marked read.
+- **Keep happens at read time.** Keep is `read <conversation> --keep <id>`, in the same run that read the message. A message read and not kept lives only for the run that read it (RETENTION.md), so a Keep of a message read in an earlier run cannot exist. Every `--keep` id must name a message received in that conversation, checked before anything is marked read. Should anything fail after the read, what was read is still printed before the exit code says so.
 - **Pending messages are sent by whichever run opens the session.** A `send` that exits 6 leaves its message pending. Any later run that opens the session (`status` included) attempts it again, until it is accepted or cancelled.
 - **`--wait <ms>`** (default 5000) bounds how long a verb waits for the session and for an answer.
 - **`listen`** prints until SIGINT or SIGTERM, then exits 0, its lease released. What it prints as a `message` stays unread in the store.
 - **`send <conversation> -`** reads the message from stdin, without the one trailing newline a shell adds.
+- **`identities default --none`** clears the profile's default endpoint only when it is a human one; another client's default is `transportctl`'s to clear.
 - **`trust allow` and `trust revoke`** of a peer already in that state exit 0, printing `(already)`.
 
 ## Tests

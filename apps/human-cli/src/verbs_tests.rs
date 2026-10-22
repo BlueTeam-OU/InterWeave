@@ -402,3 +402,118 @@ async fn listen_prints_a_message_as_it_arrives_and_leaves_it_unread() {
     assert_eq!(message["status"], "unread");
     assert!(message["conversation"].is_string());
 }
+
+#[tokio::test]
+async fn what_a_step_reported_is_held_for_that_step_only() {
+    use interweave_human_app_core::Update;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    run(&mut alice, send(&to(b.peer()), "once"), false)
+        .await
+        .1
+        .expect("sent");
+    // A verb that never takes the updates: what it received stays out of
+    // them past the step that reported it.
+    let (_, listed) = run(&mut bob, Verb::Conversations, false).await;
+    listed.expect("conversations");
+    bob.step().await;
+    assert!(
+        !bob.take_updates()
+            .iter()
+            .any(|u| matches!(u, Update::Received(_))),
+        "the message received steps ago is not held"
+    );
+}
+
+#[tokio::test]
+async fn a_keep_naming_an_outbound_message_refuses_before_anything_is_read() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    run(&mut alice, send(&to(b.peer()), "to bob"), false)
+        .await
+        .1
+        .expect("sent");
+    let (out, _) = run(&mut bob, Verb::Conversations, true).await;
+    let key = crate::cli::conversation(lines(&out)[0]["conversation"].as_str().expect("key"))
+        .expect("parses");
+    // Bob's own message in the same conversation: an id that is shown
+    // there and cannot be kept.
+    run(&mut bob, send(&key, "from bob"), false)
+        .await
+        .1
+        .expect("sent back");
+    let (out, _) = run(&mut bob, Verb::Messages(key.clone()), true).await;
+    let own = lines(&out)
+        .into_iter()
+        .find(|m| m["direction"] == "out")
+        .expect("bob's own message");
+    let (out, read) = run(
+        &mut bob,
+        Verb::Read {
+            conversation: key.clone(),
+            keep: vec![own["id"].as_str().expect("id").to_owned()],
+        },
+        false,
+    )
+    .await;
+    assert!(matches!(read, Err(Failure::Refused(_))), "{read:?}");
+    assert!(out.is_empty(), "nothing was read, so nothing is printed");
+    let (out, _) = run(&mut bob, Verb::Messages(key), true).await;
+    assert!(
+        lines(&out).iter().any(|m| m["status"] == "unread"),
+        "still unread: {out}"
+    );
+}
+
+#[tokio::test]
+async fn a_keep_that_fails_after_the_read_still_prints_what_was_read() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (dir_a, dir_b) = (private_dir(), private_dir());
+    let mut alice = session(&a, store(dir_a.path()));
+    let mut bob = session(&b, store(dir_b.path()));
+    run(&mut bob, Verb::Status, false).await.1.expect("status");
+    for text in ["first", "second"] {
+        run(&mut alice, send(&to(b.peer()), text), false)
+            .await
+            .1
+            .expect("sent");
+    }
+    let (out, _) = run(&mut bob, Verb::Conversations, true).await;
+    let key = crate::cli::conversation(lines(&out)[0]["conversation"].as_str().expect("key"))
+        .expect("parses");
+    let (out, _) = run(&mut bob, Verb::Messages(key.clone()), true).await;
+    let ids: Vec<String> = lines(&out)
+        .iter()
+        .map(|m| m["id"].as_str().expect("id").to_owned())
+        .collect();
+    // The second row cannot be read back now: marking it read fails after
+    // the first was read, which this run alone then holds.
+    let row: i64 = ids[1][1..].parse().expect("a row");
+    let conn = rusqlite::Connection::open(dir_b.path().join("human.sqlite3")).expect("open");
+    conn.execute(
+        "UPDATE unread_inbound SET source_peer = 'not-a-peer' WHERE row_id = ?1",
+        [row],
+    )
+    .expect("corrupt");
+    drop(conn);
+    let (out, read) = run(
+        &mut bob,
+        Verb::Read {
+            conversation: key,
+            keep: vec![ids[0].clone()],
+        },
+        true,
+    )
+    .await;
+    assert!(read.is_err(), "{read:?}");
+    let shown = lines(&out);
+    assert_eq!(shown.len(), 2, "both are printed: {out}");
+    assert_eq!(shown[0]["status"], "read", "{out}");
+    assert_eq!(shown[0]["text"], "first");
+}

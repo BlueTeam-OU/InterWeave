@@ -3586,6 +3586,7 @@ dependencies = [
  "interweave-profile-config",
  "interweave-profile-identity",
  "interweave-transport-api",
+ "rusqlite",
  "serde_json",
  "tempfile",
  "tokio",

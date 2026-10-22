@@ -109,7 +109,10 @@ pub(crate) struct Session<B: DataSessionBinding, A: AdminBinding> {
     start: Instant,
     daemon: Box<dyn FnMut() -> Option<bool>>,
     probed: Option<Instant>,
-    /// What the facade side reported since the last [`Self::take_updates`].
+    /// What the facade side reported in the last step: replaced at each,
+    /// so a verb that never takes them holds one step's worth, not every
+    /// message the run received
+    /// (`what_a_step_reported_is_held_for_that_step_only`).
     updates: Vec<Update>,
 }
 
@@ -162,7 +165,7 @@ impl<B: DataSessionBinding, A: AdminBinding> Session<B, A> {
         self.state.as_ref()
     }
 
-    /// What the facade side reported since the last call, in order.
+    /// What the facade side reported in the last step, in order.
     pub(crate) fn take_updates(&mut self) -> Vec<Update> {
         std::mem::take(&mut self.updates)
     }
@@ -185,7 +188,7 @@ impl<B: DataSessionBinding, A: AdminBinding> Session<B, A> {
     /// facade's again when there were any, as a send is attempted there.
     /// True when anything other than a counter changed.
     pub(crate) async fn step(&mut self) -> bool {
-        let before = self.updates.len();
+        self.updates.clear();
         let now = self.now();
         for update in self.facade.turn(now).await {
             self.apply(update);
@@ -209,7 +212,7 @@ impl<B: DataSessionBinding, A: AdminBinding> Session<B, A> {
                 self.apply(update);
             }
         }
-        self.updates[before..]
+        self.updates
             .iter()
             .any(|u| !matches!(u, Update::Diagnostics(_)))
     }

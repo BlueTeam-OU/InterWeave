@@ -43,4 +43,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync", "macr
 [dev-dependencies]
 interweave-local-client-fake = { path = "../../tests/local-client-fake" }
 interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
+# Corrupts a stored row, in one test, to drive a store failure.
+rusqlite = { workspace = true }
 tempfile = { workspace = true }
