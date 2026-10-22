@@ -19,10 +19,10 @@
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AddressChange, AddressRefusal, AddressSource, AdminBinding, AdminCapability, AdminPort,
-    BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort, LocalSessionEvent,
-    MAX_OWN_ADDRESSES, OwnAddressKind, SessionEvent, SessionRequest, TrustAdminView, TrustSource,
-    TrustedPeer,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminCapability,
+    AdminPort, BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort, LineChange,
+    LocalSessionEvent, MAX_ADDRESSES_PER_ADD, MAX_OWN_ADDRESSES, OwnAddressKind, SessionEvent,
+    SessionRequest, TrustAdminView, TrustSource, TrustedPeer,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MediaType, MessageId, Payload,
@@ -1380,6 +1380,116 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
         refusal(admin.remove_bootstrap_address(authored.to_owned()).await),
         Some(AddressRefusal::Authored)
     );
+    assert_eq!(admin.bootstrap_addresses().await.expect("the list"), first);
+}
+
+/// The all-or-none add (ADR-0062 decision 4, LOCAL-IPC.md minor 2.9),
+/// the same at every binding: without `admin.peers` it is
+/// `CapabilityDenied`; a list of no line or of 17 is `InvalidArgument`; a
+/// list with one line outside the grammar, or one in a special-use class,
+/// is refused BY NAME naming that line -- an answer, never an error --
+/// with nothing written, not even its good lines; a list of good lines is
+/// taken whole, one row per line in the order given, a line already
+/// present (`authored` among them) or repeated being `unchanged`; the
+/// single add then sees the list's lines; the add grants no trust.
+///
+/// What no binding here can show: a port that predates the method
+/// answers `ProtocolUnsupported` (the trait's default, and ipc-client's
+/// below 2.9, pinned by its scripted daemon), the bound and an
+/// `enabled: false` provider (the composition's own tests).
+pub async fn a_list_is_added_all_or_none_at_every_binding<B: AdminBinding>(
+    binding: &B,
+    authored: &str,
+) {
+    let unlisted = TransportIdentity::parse(UNLISTED_PEER).expect("a peer id");
+    let fresh = |n: u8| format!("/ip4/10.255.255.{n}/tcp/4001/p2p/{}", unlisted.as_str());
+    let loopback = format!("/ip4/127.0.0.1/tcp/4001/p2p/{}", unlisted.as_str());
+
+    assert_eq!(
+        port(binding, &[AdminCapability::Status])
+            .await
+            .add_bootstrap_addresses(vec![fresh(1)])
+            .await,
+        Err(TransportError::CapabilityDenied)
+    );
+    let admin = port(binding, &[AdminCapability::Peers, AdminCapability::Trust]).await;
+    let first = admin.bootstrap_addresses().await.expect("the list");
+    let trust = sorted(admin.trust().await.expect("the policy"));
+    for bad in [Vec::new(), vec![fresh(1); MAX_ADDRESSES_PER_ADD + 1]] {
+        assert_eq!(
+            admin.add_bootstrap_addresses(bad.clone()).await,
+            Err(TransportError::InvalidArgument),
+            "{} lines",
+            bad.len()
+        );
+    }
+
+    let refusal = |change: Result<AddressesChange, TransportError>| match change {
+        Ok(AddressesChange::Refused { reason, line, .. }) => (reason, line),
+        other => panic!("a refusal is an answer: {other:?}"),
+    };
+    assert_eq!(
+        refusal(
+            admin
+                .add_bootstrap_addresses(vec![fresh(1), "not an address".to_owned()])
+                .await
+        ),
+        (AddressRefusal::Grammar, Some(1))
+    );
+    assert_eq!(
+        refusal(
+            admin
+                .add_bootstrap_addresses(vec![fresh(1), fresh(2), loopback])
+                .await
+        ),
+        (AddressRefusal::SpecialUse, Some(2))
+    );
+    assert_eq!(
+        admin.bootstrap_addresses().await.expect("the list"),
+        first,
+        "a refused list writes none of its lines"
+    );
+
+    assert_eq!(
+        admin
+            .add_bootstrap_addresses(vec![authored.to_owned(), fresh(1), fresh(1), fresh(2)])
+            .await,
+        Ok(AddressesChange::Added(vec![
+            LineChange::Unchanged,
+            LineChange::Added,
+            LineChange::Unchanged,
+            LineChange::Added,
+        ]))
+    );
+    let mut expected = first.clone();
+    for n in [1, 2] {
+        expected.push(BootstrapAddress {
+            address: fresh(n),
+            source: AddressSource::Added,
+            dialled: true,
+        });
+    }
+    assert_eq!(
+        admin.bootstrap_addresses().await.expect("the list"),
+        expected,
+        "taken whole, in the order given"
+    );
+    assert_eq!(
+        admin.add_bootstrap_address(fresh(2)).await,
+        Ok(AddressChange::Unchanged),
+        "the single add sees the list's lines"
+    );
+    assert_eq!(
+        sorted(admin.trust().await.expect("the policy")),
+        trust,
+        "an address grants no trust"
+    );
+    for n in [1, 2] {
+        assert_eq!(
+            admin.remove_bootstrap_address(fresh(n)).await,
+            Ok(AddressChange::Removed)
+        );
+    }
     assert_eq!(admin.bootstrap_addresses().await.expect("the list"), first);
 }
 

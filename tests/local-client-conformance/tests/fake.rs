@@ -1132,6 +1132,14 @@ async fn bootstrap_addresses_answer_alike_at_every_binding() {
 }
 
 #[tokio::test]
+async fn a_list_is_added_all_or_none_at_every_binding() {
+    let p = pair();
+    let authored = format!("/ip4/192.168.77.11/tcp/4001/p2p/{}", p.b_peer.as_str());
+    p.a.author_bootstrap(vec![authored.clone()]);
+    suite::a_list_is_added_all_or_none_at_every_binding(&p.a, &authored).await;
+}
+
+#[tokio::test]
 async fn own_addresses_are_what_an_add_takes() {
     let p = pair();
     suite::own_addresses_are_what_an_add_takes(&p.a, &p.a_peer, &p.b).await;
