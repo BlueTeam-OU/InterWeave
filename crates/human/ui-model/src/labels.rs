@@ -669,76 +669,69 @@ ui_texts! {
     /// decision 6). Try again and Delete stored data are offered. The
     /// stored data opens only with its key on this device, so no backup
     /// copy can be put back (design/2026-10-21-contact-cards.md §10).
-    // PLACEHOLDER (en)
     RefusalStoreRecovery => "InterWeave cannot read its stored data, which includes your messages and contacts. Nothing was changed. The data opens only with its key on this device, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. If a newer version of InterWeave wrote this data, install and start the newest version that you have used, or a newer one. Restoring this device's PeerId from its recovery phrase does not bring back this data.",
     /// ANDROID, the store's recovery screen (R): its heading.
-    StoreRecoveryTitle => "InterWeave cannot read its stored data", // PLACEHOLDER (en)
+    StoreRecoveryTitle => "InterWeave cannot read its stored data",
     /// ANDROID, the store's recovery screen (R): why, and the way back.
     /// No newer-version advice: Android installs no older build over a
     /// newer one.
-    // PLACEHOLDER (en)
     StoreRecoveryBody => "InterWeave cannot read its stored data, which includes your messages and contacts. Nothing was changed. The data opens only with its key on this phone, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. Restoring this device's PeerId from its recovery phrase does not bring back this data.",
     /// ANDROID, the key-lost screen (K): the Keystore invalidated the
     /// store key (ADR-0060 decision 6). Its heading.
-    StoreKeyLostTitle => "The key to your stored data no longer works", // PLACEHOLDER (en)
+    StoreKeyLostTitle => "The key to your stored data no longer works",
     /// ANDROID, the key-lost screen (K): why; the identity is untouched.
-    // PLACEHOLDER (en)
-    StoreKeyLostBody => "This phone no longer accepts the key that protects InterWeave's stored data. This can happen after some changes to the screen lock. The data cannot be read again. This device's PeerId and recovery phrase are not affected.",
+    StoreKeyLostBody => "This phone no longer accepts the key that protects InterWeave's stored data. This can happen after some changes to the screen lock. The data cannot be read again. This device's PeerId and recovery phrase are not affected. To use InterWeave again, choose Delete stored data. InterWeave shows what you lose before it deletes anything.",
     /// R and K: the action that builds the discard's confirmation. The
     /// ellipsis says a further step follows.
-    DiscardStore => "Delete stored data…", // PLACEHOLDER (en)
+    DiscardStore => "Delete stored data…",
     /// While the discard's confirmation is built (the complete copy
     /// opened read-only under the key), past 300 ms.
-    StoreChecking => "Checking the stored data…", // PLACEHOLDER (en)
+    StoreChecking => "Checking the stored data…",
     /// The full discard's dialog title.
-    DiscardStoreTitle => "Delete all stored data?", // PLACEHOLDER (en)
+    DiscardStoreTitle => "Delete all stored data?",
     /// The full discard's list, its lead-in, one identity held.
-    DiscardStoreLosesOne => "This deletes from this device:", // PLACEHOLDER (en)
+    DiscardStoreLosesOne => "This deletes from this device:",
     /// The full discard's list, its lead-in, two or more identities held:
     /// it is every identity's data (ADR-0061 decision 9).
-    DiscardStoreLosesMany => "This deletes from this device, for all your identities:", // PLACEHOLDER (en)
+    DiscardStoreLosesMany => "This deletes from this device, for all your identities:",
     /// The full discard's list: an item.
-    DiscardLosesContacts => "Your contacts and their routes", // PLACEHOLDER (en)
+    DiscardLosesContacts => "Your contacts and their routes",
     /// The full discard's list: an item.
-    DiscardLosesPending => "Messages waiting to be sent", // PLACEHOLDER (en)
+    DiscardLosesPending => "Messages waiting to be sent",
     /// The full discard's list: an item.
-    DiscardLosesMessages => "Unread and kept messages", // PLACEHOLDER (en)
+    DiscardLosesMessages => "Unread and kept messages",
     /// The full discard's list: an item.
-    DiscardLosesConversations => "Your conversation list", // PLACEHOLDER (en)
+    DiscardLosesConversations => "Your conversation list",
     /// The full discard's list: an item, one identity held.
-    DiscardLosesCardOne => "The name and photo on your card", // PLACEHOLDER (en)
+    DiscardLosesCardOne => "The name and photo on your card",
     /// The full discard's list: an item, two or more identities held.
-    DiscardLosesCardMany => "The names and photos of your identities", // PLACEHOLDER (en)
+    DiscardLosesCardMany => "The names and photos of your identities",
     /// The full discard's list: an item.
-    DiscardLosesSettings => "The app's settings, other than your network settings", // PLACEHOLDER (en)
+    DiscardLosesSettings => "The app's settings, other than your network settings",
     /// The full discard's list: the duplicate-suppression pairs go too.
-    DiscardLosesShownAgain => "A message you already received may show again", // PLACEHOLDER (en)
+    DiscardLosesShownAgain => "The record of the messages you already received (one of them might show again)",
     /// The full discard: what is kept, one identity held.
-    // PLACEHOLDER (en)
     DiscardStoreKeepsOne => "This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected.",
     /// The full discard: what is kept, two or more identities held.
-    // PLACEHOLDER (en)
     DiscardStoreKeepsMany => "This device's PeerId and recovery phrase, the peers you trust and your network settings are not affected. All your identities are kept. Each one shows its label as its name until you give it a new name.",
     /// The full discard: RETENTION.md's disclaimer (ADR-0060 decision 6).
-    DiscardStoreRemains => "Earlier copies that your device made outside InterWeave may still be on it.", // PLACEHOLDER (en)
+    DiscardStoreRemains => "Earlier copies that your device made outside InterWeave might still be on it.",
     /// The full discard's primary action.
-    DiscardStoreConfirm => "Delete stored data", // PLACEHOLDER (en)
+    DiscardStoreConfirm => "Delete stored data",
     /// The partial discard's dialog title: a complete copy exists.
-    DiscardPartialTitle => "Delete the unfinished file?", // PLACEHOLDER (en)
+    DiscardPartialTitle => "Delete the unfinished file?",
     /// The partial discard: nothing the person has is lost.
-    // PLACEHOLDER (en)
-    DiscardPartialBody => "An update to how your data is protected was interrupted. A complete copy of your data exists. This deletes only the unfinished file, and InterWeave opens with your data.",
+    DiscardPartialBody => "An update to how your data is protected was interrupted. A complete copy of your data exists. This deletes only the unfinished file. Then InterWeave opens with your data.",
     /// The partial discard's primary action.
-    DiscardPartialConfirm => "Delete the unfinished file", // PLACEHOLDER (en)
+    DiscardPartialConfirm => "Delete the unfinished file",
     /// While the confirmed discard runs.
-    StoreDiscarding => "Deleting…", // PLACEHOLDER (en)
+    StoreDiscarding => "Deleting…",
     /// Chats' notice after a full discard, shown once.
-    // PLACEHOLDER (en)
     StoreDiscarded => "The stored data was deleted. This device's PeerId and the peers you trust did not change.",
     /// Chats' notice after the partial discard, shown once.
-    StoreRestored => "Your data was restored from the complete copy.", // PLACEHOLDER (en)
+    StoreRestored => "Your data was restored from the complete copy.",
     /// R and K after a discard that failed.
-    StoreDiscardFailed => "The stored data could not be deleted. Try again.", // PLACEHOLDER (en)
+    StoreDiscardFailed => "The stored data could not be deleted. Try again.",
     /// A conversation's title once its route belongs to a contact who
     /// shares a name with another: `{name}` is the contact's name as the
     /// person accepted or edited it, `{peer}` the short `PeerId` that tells
