@@ -443,3 +443,27 @@ fn while_checking_or_deleting_every_action_is_inert() {
     the(&view, text(UiText::DiscardStore)).invoke_accessible_default_action();
     assert_eq!(pressed.get(), 1, "live again after the failure");
 }
+
+/// Tab follows the reading order on the store's recovery screen:
+/// Delete stored data…, then Close, then Try again (design 2026-10-21
+/// section 7.1, as accepted with Delete stored data… on its own line).
+#[test]
+fn tab_reaches_delete_stored_data_then_close_then_try_again() {
+    let view = screen(&discard_page());
+    assert_eq!(focus(&view), "retry");
+    let mut order = Vec::new();
+    for _ in 0..6 {
+        key(&view, Key::Tab);
+        // A focus change reports itself at the loop's next turn.
+        slint::platform::update_timers_and_animations();
+        order.push(focus(&view));
+    }
+    let at = |id: &str| order.iter().position(|f| f == id).expect(id);
+    let (discard, close) = (at("discard"), at("close"));
+    let retry = discard
+        + order[discard..]
+            .iter()
+            .position(|f| f == "retry")
+            .expect("retry after");
+    assert!(discard < close && close < retry, "{order:?}");
+}
