@@ -318,6 +318,7 @@ impl View {
                         RowState::NeedsTrust => text(UiText::PeerStateNeedsTrust),
                         RowState::ProviderOff => text(UiText::PeerStateProviderOff),
                         RowState::TrustUnknown => "",
+                        RowState::ThisDevice => text(UiText::PeerStateThisDevice),
                     }
                     .into(),
                     origin: text(match r.origin {
