@@ -5,7 +5,9 @@
 //! listeners in the classes an add admits, in bind order, each ending in
 //! its own `/p2p/<peer>` -- the loopback listener beside them is not
 //! shown -- and what it shows, added on another node as a scan would,
-//! is dialled and connects. The read needs `admin.peers`.
+//! is dialled and connects; a node bound on loopback alone shows no
+//! listen row (LOCAL-CLIENT.md §7 item 14's control). The read needs
+//! `admin.peers`.
 //!
 //! Confirmed external and circuit rows need an AutoNAT verdict and a
 //! held reservation, which a host without a public address cannot
@@ -179,5 +181,45 @@ async fn the_read_needs_the_peers_capability() {
         .await
         .expect("a port");
     assert!(with.own_addresses().await.is_ok());
+    runtime.shutdown().await.expect("clean shutdown");
+}
+
+/// LOCAL-CLIENT.md §7 item 14's control: a node bound on loopback alone
+/// shows no listen row -- it shows nothing at all, holding no
+/// confirmation and no reservation -- though it is listening (the
+/// control: `listening` names the loopback listener).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_loopback_only_node_shows_no_listen_row() {
+    let (a_id, a) = id();
+    let (_, b) = id();
+    let runtime = ComposedRuntime::start(
+        &a_id,
+        &profile(&b),
+        CompositionOptions {
+            listen: vec!["/ip4/127.0.0.1/tcp/0".to_owned()],
+            ..CompositionOptions::default()
+        },
+    )
+    .await
+    .expect("composes");
+    assert!(
+        runtime
+            .listening()
+            .iter()
+            .any(|l| l.starts_with("/ip4/127.0.0.1/tcp/")),
+        "the control: bound on loopback {:?}",
+        runtime.listening()
+    );
+    let own = runtime
+        .sessions()
+        .admin([AdminCapability::Peers].into())
+        .await
+        .expect("a port")
+        .own_addresses()
+        .await
+        .expect("answered");
+    assert_eq!(own.peer, a);
+    assert_eq!(own.addresses, Vec::new(), "{own:?}");
+    assert!(!own.truncated);
     runtime.shutdown().await.expect("clean shutdown");
 }
