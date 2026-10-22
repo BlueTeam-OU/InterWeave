@@ -495,7 +495,9 @@ for bad in 'Licensed under the MIT license and the frobnicate license.:frobnicat
            'Licensed under the MIT license and the FROBNICATE LICENSE.:FROBNICATE License' \
            'Licensed under the MIT license; portions are BSD-4-Clause.:BSD-4-Clause' \
            'spdx-license-''identifier MIT OR Frob:(Frob)' \
-           'SPDX-License-''Identifier: MIT OR LicenseRef-MIT-Frob:LicenseRef-MIT-Frob'; do
+           'SPDX-License-''Identifier: MIT OR LicenseRef-MIT-Frob:LicenseRef-MIT-Frob' \
+           'Licensed under the MIT/Frob License.:(Frob License)' \
+           'Licensed under the MIT license and the "Frobnicate" license.:Frobnicate License'; do
     printf '// Copyright 2012 Extra Holder. %s\npub fn x() {}\n' "${bad%:*}" > "$D/crates/hdr/src/x.rs"
     drefused "an unrecognised name beside MIT: ${bad%:*}" "names a licence this tool does not recognise" 
     grep -qF -- "${bad##*:}" "$SANDBOX/err" && pass "  and names ${bad##*:}" || fail "  the refusal does not name ${bad##*:}" "$(cat "$SANDBOX/err")"
@@ -506,6 +508,12 @@ drefused "Apache-1.1 with the Apache-2.0 text attached" "names a licence this to
 printf '// Copyright 2012 Extra Holder.\n// SPDX-License-''Identifier: MIT OR BSD-2-Clause\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 list "$(entry hdr MIT header src/lib.rs 2 '["BSD-3-Clause"]')" "${GOOD[@]:1}"
 drefused "an SPDX BSD-2-Clause with the BSD-3-Clause text attached" "names BSD-2-Clause, whose standard text is not committed"
+printf '// Copyright 2012 Extra Holder. Licensed under the BSD-2-Clause license.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+drefused "BSD-2-Clause in prose with the BSD-3-Clause text attached" "names BSD-2-Clause, whose standard text is not committed"
+# A known id ending a sentence is that id: accepted with its text.
+printf '// Copyright 2012 Extra Holder. Licensed under MIT or Apache-2.0.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+list "$(entry hdr MIT header src/lib.rs 2 '["Apache-2.0"]')" "${GOOD[@]:1}"
+drun && pass "Apache-2.0 at a sentence's end, its text attached" || fail "Apache-2.0 at a sentence's end was refused" "$(cat "$SANDBOX/err")"
 rm "$D/crates/hdr/src/x.rs"
 list "$(entry hdr MIT header src/lib.rs true)" "${GOOD[@]:1}"
 drefused "a header count of true" "hdr 1.0.0's header count is not a positive number"

@@ -236,7 +236,7 @@ NAMED = tuple(
         ),
         (r"\bUnlicense\b", ("Unlicense",)),
         (r"\bBoost Software License\b|\bBSL-1\.0\b", ("BSL-1.0",)),
-        (r"\bUnicode License\b|\bUnicode-(?:DFS-2016|3\.0)\b", ("Unicode-3.0",)),
+        (r"\bUnicode License\b|\bUnicode-(?:DFS-2016|3\.0)\b", ("Unicode-3.0", "Unicode-DFS-2016")),
     )
 )
 
@@ -264,7 +264,8 @@ LICENCE_WORDS = re.compile(
 # reviewed list's reading of each header is what covers them.
 # Not a file's or a URL's "LICENSE": LICENSE-APACHE, LICENSE.chromium,
 # .../licenses/MIT.
-NAME_PHRASE = re.compile(r"((?:[\w.+/-]+\s+){1,4})(?<![/\w])licen[cs]es?\b(?![-./]\w)", re.I)
+# No "/" inside a word: "MIT/Frob License" is read as "Frob License".
+NAME_PHRASE = re.compile(r"((?:[\w.+\"'()-]+\s+){1,4})(?<![/\w])licen[cs]es?\b(?![-./]\w)", re.I)
 CONNECTIVES = {
     "a", "additional", "all", "an", "and", "any", "applicable", "by", "compatible", "different",
     "each", "entire", "following", "for", "found", "from", "full", "in", "its", "of", "or",
@@ -278,7 +279,9 @@ CONNECTIVES = {
 GENERIC = {"copyright", "patent", "public", "software", "grant", "no"}
 SPDX_LINE = re.compile(r"spdx-license-identifier\s*:?[ \t]*([^\n]*)", re.I)
 # A variant carries a number (BSD-4-Clause, MIT-0); "BSD-style" names none.
-ID_SHAPED = re.compile(r"\b(?:A?GPL|LGPL|BSD|MIT|Apache|CC0|MPL|ISC|Zlib|BSL|Unicode)-[\w.+-]*\d[\w.+-]*", re.I)
+# It ends on a letter, digit or "+", never a sentence's full stop.
+ID_SHAPED = re.compile(r"\b(?:A?GPL|LGPL|BSD|MIT|Apache|CC0|MPL|ISC|Zlib|BSL|Unicode)-(?=[\w.+-]*\d)[\w.+-]*[\w+]", re.I)
+
 
 
 def known_ids() -> dict:
@@ -302,8 +305,9 @@ def unrecognised_names(block: str) -> list:
     found = []
     for m in NAME_PHRASE.finditer(text):
         words = m.group(1).split()
-        # A name does not run across a sentence: "Trademarks. This License".
-        while any(w[-1] in ".:;,(" for w in words[:-1]):
+        # A name does not run across a sentence or out of a parenthesis:
+        # "Trademarks. This License", "(... this section) patent license".
+        while any(w[-1] in ".:;,()" for w in words[:-1]):
             words = words[1:]
         words = [w.strip("\"'(),.:;") for w in words]
         run = []
@@ -316,25 +320,29 @@ def unrecognised_names(block: str) -> list:
         if not any(n.search(" ".join(run) + " License") for n, _ in NAMED):
             found.append(" ".join(run) + " License")
     ids = known_ids()
-    for m in SPDX_LINE.finditer(block):
-        for token in re.findall(r"[A-Za-z0-9.+-]+", m.group(1)):
-            if token.upper() not in ("AND", "OR", "WITH") and token.lower() not in ids:
-                found.append(token)
-    for m in ID_SHAPED.finditer(text):
-        if m.group(0).lower() not in ids:
-            found.append(m.group(0))
-    return found
+    found += [t for t in id_tokens(text, block) if t.lower() not in ids]
+    return list(dict.fromkeys(found))
 
 
-def spdx_ids(block: str) -> list:
-    """The licence ids the header's SPDX lines name, each owed its own text."""
-    ids = known_ids()
-    return [
-        ids[t.lower()]
+def id_tokens(text: str, block: str) -> list:
+    """Every id the header writes: its SPDX lines' and the id-shaped words
+    in its prose, a sentence's punctuation trimmed."""
+    tokens = [
+        t
         for m in SPDX_LINE.finditer(block)
         for t in re.findall(r"[A-Za-z0-9.+-]+", m.group(1))
-        if t.lower() in ids
-    ]
+        if t.upper() not in ("AND", "OR", "WITH")
+    ] + [m.group(0) for m in ID_SHAPED.finditer(text)]
+    return [t.rstrip(".") for t in tokens if t.rstrip(".")]
+
+
+def owed_ids(block: str) -> list:
+    """The known licence ids the header writes, in an SPDX line or its
+    prose, each owed its own text: BSD-2-Clause is not answered by the
+    BSD-3-Clause text."""
+    ids = known_ids()
+    text = " ".join(block.split())
+    return [ids[t.lower()] for t in id_tokens(text, block) if t.lower() in ids]
 
 
 def carries_text(block: str, term: str) -> bool:
@@ -486,7 +494,7 @@ def derived_notices(package: dict, entry: dict) -> list:
                 )
             # An SPDX id is owed its own text, never a sibling's: BSD-2-Clause
             # is not answered by the BSD-3-Clause text.
-            for answers in named + [(t,) for t in spdx_ids(text)]:
+            for answers in named + [(t,) for t in owed_ids(text)]:
                 if not (set(answers) & shipped or any(carries_text(text, x) for x in answers)):
                     if not set(answers) & set(STANDARD):
                         # extra_texts takes committed texts only, so the
