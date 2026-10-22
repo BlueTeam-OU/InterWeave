@@ -1521,6 +1521,10 @@ async fn a_direct_payload_at_the_ceiling_reaches_the_model_whole() {
     }
 }
 
+/// CHANNEL-EVENT.md §Content's bound on one event as the host receives it
+/// (A 2026-10-22).
+const EVENT_LINE_BOUND: usize = 320 * 1024;
+
 /// The largest line a legal event makes. JSON escapes a control character
 /// to six bytes (`\u0001`), so the worst content is all of them:
 /// - plain: the payload ceiling's worth;
@@ -1537,7 +1541,8 @@ async fn a_direct_payload_at_the_ceiling_reaches_the_model_whole() {
 /// that goes as base64url instead. The bridge does not do this yet; the
 /// change is rust-services-dev-02's, after j41. This test pins today's
 /// line, about 1.18 MB, so it fails when that change lands. Its last
-/// assertion then turns around into the 320 KiB bound.
+/// assertion then turns around into the 320 KiB bound the plain case
+/// already holds to.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_longest_host_line_a_legal_event_makes_is_measured() {
     use interweave_human_chat_protocol::{MAX_DECOMPRESSED_BYTES, encode_raw_envelope};
@@ -1588,7 +1593,9 @@ async fn the_longest_host_line_a_legal_event_makes_is_measured() {
         );
         lines.push(line.len());
     }
-    assert!(lines[0] < host_line_ceiling(), "plain: {}", lines[0]);
+    // The plain case, the 48 KiB payload ceiling escaped at JSON's worst,
+    // already keeps the contract's bound.
+    assert!(lines[0] <= EVENT_LINE_BOUND, "plain: {}", lines[0]);
     assert!(
         lines[1] > host_line_ceiling(),
         "the decoded case is past the inbound ceiling, which bounds nothing outbound: {}",
