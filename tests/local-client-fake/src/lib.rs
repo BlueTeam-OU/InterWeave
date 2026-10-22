@@ -1190,10 +1190,10 @@ impl AdminPort for FakeAdmin {
     }
 
     /// The bootstrap add's rules by name, in the runtime's order: the
-    /// grammar's shape (a trailing `/p2p/<peer>` after an address), the
-    /// special-use floor on every IP component, the bound of 64 authored
-    /// and added together; an address present already changes nothing.
-    /// The fake holds no `enabled: false` provider.
+    /// configuration's entry rule (the same function the runtime's add
+    /// reads), the special-use floor on every IP component, the bound of
+    /// 64 authored and added together; an address present already
+    /// changes nothing. The fake holds no `enabled: false` provider.
     async fn add_bootstrap_address(
         &self,
         address: String,
@@ -1206,11 +1206,8 @@ impl AdminPort for FakeAdmin {
                 detail: detail.to_owned(),
             })
         };
-        if !address
-            .rsplit_once("/p2p/")
-            .is_some_and(|(head, peer)| head.starts_with('/') && head.len() > 1 && !peer.is_empty())
-        {
-            return refused(AddressRefusal::Grammar, "not a multiaddr-with-peer-id");
+        if let Err(why) = interweave_profile_config::bootstrap_overlay::entry_grammar(&address) {
+            return refused(AddressRefusal::Grammar, why);
         }
         if special_use(&address) {
             return refused(AddressRefusal::SpecialUse, "a special-use component");
