@@ -440,12 +440,14 @@ def render(third: list, derived: dict) -> tuple:
     out = [
         "# Third-party notices",
         "",
-        # Draft English, for language-culture-en to finalise: the same
-        # page ships in the Linux archive and beside the Android app.
-        "InterWeave's own code is under the Apache License 2.0 (`LICENSE`",
-        "in its source). What this release ships also contains the following",
-        "crates, each under its own licence. A licence text that several",
-        "crates share is printed once, below the list, and named by each.",
+        "InterWeave's own code is under the Apache License 2.0 (the file",
+        "`LICENSE` in its source code). The InterWeave software that comes",
+        "with this file also contains the Rust libraries (called crates)",
+        "listed below, each under its own licence. Each line names a crate,",
+        "its version and its licence, and gives the labels of its licence",
+        "texts (T1, T2 and so on). The licence texts follow the list, under",
+        "the heading \"Licence texts\". A text that several crates share is",
+        "printed once.",
         "",
         *lines,
         "",
@@ -459,10 +461,9 @@ def render(third: list, derived: dict) -> tuple:
 
 
 def as_section(page: str) -> str:
-    """The page from its list on -- without its title and the paragraph
-    under it, which speak of "these programs" where the release page
-    says in its own sentence whose crates these are -- each heading one
-    level down, fenced text left as it is."""
+    """The page from its list on -- without its title and the opening
+    paragraph, which the release page puts in its own words -- each
+    heading one level down, fenced text left as it is."""
     lines = page.splitlines()
     start = next(i for i, l in enumerate(lines) if l.startswith("- `"))
     out, fenced = [], False
