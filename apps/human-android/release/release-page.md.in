@@ -4,8 +4,12 @@
      result. {freetype_credit} takes the credit line FreeType's
      LICENSE.TXT asks for, {third_party_notice_texts} each bundled
      component's licence text, both read from the sources the build used,
-     and {crate_notices} the notice of every Rust crate compiled into
-     the native library (ADR-0058 decision 5, tools/ci/release_notices.py);
+     and {crate_notices} the link to THIRD-PARTY-NOTICES-android.md, the
+     release asset holding the notice of every Rust crate compiled into
+     the native library, its SHA-256 in {crate_notices_sha256} in the
+     Android hash list beside the APK's (ADR-0058 decision 5 and its
+     amendment of 2026-10-22 (ii): those notices are too long for the
+     page's body; tools/ci/release_notices.py);
      {cert_sha256} is printed as apksigner prints it, lowercase hex with
      no colons, so a reader compares like with like. One page serves
      every platform (architect-cto DECISION 01a157e6-b852); the
@@ -38,6 +42,13 @@ Use these two values to check that the file is the one published here:
 - SHA-256 of the file: `{apk_sha256}`
 - SHA-256 of the signing certificate, the same for every release:
   `{cert_sha256}`
+
+The app also contains Rust libraries. Their licence notices are in a
+separate file, attached to this release (see "Third-party notices
+for the Android app" further down this page). Use this value to
+check that the notices file is the one published here:
+
+- SHA-256 of the notices file: `{crate_notices_sha256}`
 
 ### Installing and updating on Android
 
@@ -166,10 +177,14 @@ The credit that FreeType asks for, and the licence texts, follow.
 
 {third_party_notice_texts}
 
-The Android app also contains the Rust libraries (called crates)
-listed below, in the versions used to build this release. Each of them
-is under its own licence. Each line names a crate, its version and its
-licence, and gives the label of its licence text (T1, T2 and so on).
-The licence texts follow the list.
+The Android app also contains Rust libraries (called crates), in the
+versions used to build this release. Each of them is under its own
+licence. Their notices are in a separate file, attached to this
+release. The file begins with a list: each line names a crate, its
+version and its licence, and gives the labels of its licence texts
+(T1, T2 and so on). The licence texts follow the list, under the
+heading "Licence texts". The link to the file is below. Its SHA-256
+is in the Android section, earlier on this page, after the two values
+for the app.
 
 {crate_notices}

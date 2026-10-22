@@ -36,3 +36,16 @@ decision 5 says "as admitted"; `apps/human-android/STORE-CHECK.md`'s
 paragraph was rewritten the same way on #348 (it dates #314 by its
 commit, 2026-10-19; this record dates it by its merge). Propagation: decisions 3 and 5; this
 note; the log row; the digest entry.
+
+### Amendment 2026-10-22 — The Android crate notices are a release asset, per ADR-0058 A 2026-10-22 (ii)
+
+The 2026-10-21 amendment put the crate notices into the release page's
+body; the first derivation measured them at about 790,000 characters
+against a release body of about 125,000 (ADR-0058's history note of
+the same day). Decision 5 now reads: the crate notices are a Markdown
+file attached to the release beside the APK, its SHA-256 in the page's
+hash list, `{crate_notices}` holding the link and hash; the native
+libraries' notices stay in the body. The template's sentence is
+rust-ui-dev-02's and language-culture-en's; the upload is
+devex-tooling's `release.yml`. Propagation: decision 5; this note; the
+log row; the digest entry.
