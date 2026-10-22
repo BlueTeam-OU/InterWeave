@@ -408,6 +408,17 @@ mod tests {
     }
 
     #[test]
+    fn json_refused_names_the_verbs_that_take_it() {
+        assert_eq!(
+            run(&["--profile", "p", "trust", "allow", PEER, "--json"]),
+            Err(
+                "--json applies to the verbs that read, and to send, cancel, retry and unkeep"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
     fn no_usage_error_repeats_a_value_it_was_given() {
         let secret = "correct horse battery staple";
         for args in [

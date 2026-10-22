@@ -108,7 +108,7 @@ pub(crate) fn lock(profile: &Profile) -> Result<HumanClientLock, Failure> {
 /// classes: recovery, not private, or not now. Nothing here touches the
 /// file but the store's open, which leaves a file needing recovery where
 /// it was (`crates/human/store/tests/storage_failure.rs`,
-/// `a_store_damaged_under_its_unread_rows_needs_recovery_and_never_reads_as_empty`).
+/// `a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every_row`).
 ///
 /// # Errors
 /// [`Failure::Store`] saying which.
