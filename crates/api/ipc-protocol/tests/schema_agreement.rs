@@ -13,16 +13,17 @@ use interweave_ipc_protocol::{
     AddressList, AddressParams, AddressResult, AdminStatusResult, AuthorityDomain, Cancel,
     ChannelParams, ClientInfo, Close, DirectoryResult, EmptyResult, EndpointList, EndpointParams,
     Event, EventType, Frame, GrantedLease, HandshakeOutcome, Hello, HelloResponse, HelloTag,
-    IPC_MAJOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED, Method, Nonce, PeerList, PeerListParams,
-    Ping, PublishParams, QueryParams, Request, RequestId, RequestedCapability, ResponseFrame,
-    SendParams, SendResult, ServerCounters, ServerState, SetDefaultParams, SetEnabledParams,
-    SetEnabledResult, ShutdownParams, TrustList, TrustListParams, TrustSetParams, UnsupportedMajor,
-    encode_frame, supported,
+    IPC_MAJOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED, Method, Nonce, OwnAddressList, PeerList,
+    PeerListParams, Ping, PublishParams, QueryParams, Request, RequestId, RequestedCapability,
+    ResponseFrame, SendParams, SendResult, ServerCounters, ServerState, SetDefaultParams,
+    SetEnabledParams, SetEnabledResult, ShutdownParams, TrustList, TrustListParams, TrustSetParams,
+    UnsupportedMajor, encode_frame, supported,
 };
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AdminCapability, AdminStatus, BootstrapAddress,
-    DataCapability, EndpointAdminView, Generation, LeaseRecord, LocalSessionEvent, PeerGateView,
-    PeerOutcome, ReceivedBroadcast, ReceivedDirect, SessionEvent, TrustAdminView,
+    DataCapability, EndpointAdminView, Generation, LeaseRecord, LocalSessionEvent, OwnAddress,
+    OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome, ReceivedBroadcast, ReceivedDirect,
+    SessionEvent, TrustAdminView,
 };
 use interweave_transport_api::{
     ChannelId, ConnectivitySummary, DirectInboundState, EndpointDirectoryV1, EndpointId, Health,
@@ -722,6 +723,7 @@ fn every_request() -> Vec<Request> {
             address: format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", peer().as_str()),
         }),
         Request::AdminPeersListAddresses,
+        Request::AdminPeersOwnAddresses,
     ];
     assert_eq!(
         requests.iter().map(Request::method).collect::<Vec<_>>(),
@@ -1186,7 +1188,10 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
             }
             Method::DirectSend => "architecture/contracts/schemas/ipc/send-params.schema.json",
             Method::EndpointsQuery => "architecture/contracts/schemas/ipc/query-params.schema.json",
-            Method::AdminStatus | Method::AdminEndpointsList | Method::AdminPeersListAddresses => {
+            Method::AdminStatus
+            | Method::AdminEndpointsList
+            | Method::AdminPeersListAddresses
+            | Method::AdminPeersOwnAddresses => {
                 return None;
             }
             Method::AdminEndpointsRevoke => {
@@ -1877,9 +1882,10 @@ fn the_peers_address_shapes_hold_what_the_contract_says() {
 
 /// The show side's read (ADR-0062 decision 4), `approved` before its
 /// wire: one ordered list whose rows name their kind from a closed set,
-/// held to its 64-row bound, with this node's PeerId and whether rows
-/// were dropped. The Rust mirror joins this agreement with the batch
-/// that serves it.
+/// held to its 64-row bound, with this node's `PeerId` and whether rows
+/// were dropped -- and the Rust mirror agrees both ways: what it writes
+/// validates and reads back, and every instance the schema refuses it
+/// refuses too.
 #[test]
 fn the_own_addresses_shape_holds_what_the_contract_says() {
     let own = "architecture/contracts/schemas/ipc/peers-own-addresses.schema.json";
@@ -1887,6 +1893,10 @@ fn the_own_addresses_shape_holds_what_the_contract_says() {
         assert!(
             !validator(own).is_valid(&instance),
             "{own} admits {instance}"
+        );
+        assert!(
+            serde_json::from_value::<OwnAddressList>(instance.clone()).is_err(),
+            "the mirror admits {instance}"
         );
     };
     let peer = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
@@ -1918,4 +1928,56 @@ fn the_own_addresses_shape_holds_what_the_contract_says() {
     refuses(serde_json::json!({ "peer": peer, "addresses": [
         { "address": "", "kind": "listen" }
     ], "truncated": false }));
+
+    let view = |kind: OwnAddressKind| OwnAddress {
+        address: format!("/ip4/192.168.1.20/tcp/4001/p2p/{peer}"),
+        kind,
+    };
+    let answered = OwnAddresses {
+        peer: TransportIdentity::parse(peer.to_owned()).expect("peer"),
+        addresses: vec![
+            view(OwnAddressKind::ConfirmedExternal),
+            view(OwnAddressKind::RelayCircuit),
+            view(OwnAddressKind::Listen),
+        ],
+        truncated: false,
+    };
+    let wire = serde_json::to_value(OwnAddressList::from_view(answered.clone()).expect("in bound"))
+        .expect("ser");
+    assert_valid(own, &wire);
+    assert_eq!(
+        wire["addresses"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|r| r["kind"].as_str().expect("kind"))
+            .collect::<Vec<_>>(),
+        ["confirmed_external", "relay_circuit", "listen"],
+        "the wire names are OwnAddressKind::as_str's"
+    );
+    for kind in [
+        OwnAddressKind::ConfirmedExternal,
+        OwnAddressKind::RelayCircuit,
+        OwnAddressKind::Listen,
+    ] {
+        let one = OwnAddressList::from_view(OwnAddresses {
+            addresses: vec![view(kind)],
+            ..answered.clone()
+        })
+        .expect("in bound");
+        assert_eq!(
+            serde_json::to_value(&one).expect("ser")["addresses"][0]["kind"],
+            kind.as_str()
+        );
+    }
+    let back: OwnAddressList = serde_json::from_value(wire).expect("reads back");
+    assert_eq!(OwnAddresses::from(back), answered);
+    assert_eq!(
+        OwnAddressList::from_view(OwnAddresses {
+            addresses: vec![view(OwnAddressKind::Listen); 65],
+            ..answered
+        }),
+        Err(TransportError::Internal),
+        "a port past the bound is answered Internal, never cut"
+    );
 }
