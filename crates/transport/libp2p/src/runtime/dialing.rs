@@ -1854,10 +1854,101 @@ pub(super) type PendingListens =
 ///
 /// Keyed by id and holding every address that listener bound, because a
 /// caller names one by an address `listen` handed back.
-pub(super) type ActiveListeners = HashMap<ListenerId, Vec<Multiaddr>>;
+///
+/// IN BIND ORDER, listeners and each listener's addresses alike: the
+/// show side lists listen addresses in the order they were bound
+/// (`admin.peers.own_addresses`, ADR-0062 decision 4), and the Swarm's
+/// own listener table is a hash map with no order to read. A listener
+/// count is bounded by `max_active_listeners`, so the scans are short.
+#[derive(Debug, Default)]
+pub(super) struct ActiveListeners(Vec<(ListenerId, Vec<Multiaddr>)>);
+
+impl ActiveListeners {
+    pub(super) const fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Set `id`'s addresses, keeping its place when it is already held.
+    #[cfg(test)]
+    pub(super) fn insert(&mut self, id: ListenerId, addresses: Vec<Multiaddr>) {
+        *self.entry_or_default(id) = addresses;
+    }
+
+    /// `id`'s addresses, a listener not held being added at the end.
+    pub(super) fn entry_or_default(&mut self, id: ListenerId) -> &mut Vec<Multiaddr> {
+        let at = self
+            .0
+            .iter()
+            .position(|(held, _)| *held == id)
+            .unwrap_or_else(|| {
+                self.0.push((id, Vec::new()));
+                self.0.len() - 1
+            });
+        &mut self.0[at].1
+    }
+
+    #[cfg(test)]
+    pub(super) fn get(&self, id: ListenerId) -> Option<&Vec<Multiaddr>> {
+        self.0.iter().find(|(held, _)| *held == id).map(|(_, a)| a)
+    }
+
+    pub(super) fn get_mut(&mut self, id: ListenerId) -> Option<&mut Vec<Multiaddr>> {
+        self.0
+            .iter_mut()
+            .find(|(held, _)| *held == id)
+            .map(|(_, a)| a)
+    }
+
+    #[cfg(test)]
+    pub(super) fn contains_key(&self, id: ListenerId) -> bool {
+        self.0.iter().any(|(held, _)| *held == id)
+    }
+
+    /// Forget `id`, the others keeping their order.
+    pub(super) fn remove(&mut self, id: ListenerId) -> Option<Vec<Multiaddr>> {
+        let at = self.0.iter().position(|(held, _)| *held == id)?;
+        Some(self.0.remove(at).1)
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Each listener's addresses, in bind order.
+    pub(super) fn values(&self) -> impl Iterator<Item = &Vec<Multiaddr>> {
+        self.0.iter().map(|(_, a)| a)
+    }
+
+    /// Each listener with its addresses, in bind order.
+    pub(super) fn iter(&self) -> impl Iterator<Item = (&ListenerId, &Vec<Multiaddr>)> {
+        self.0.iter().map(|(id, a)| (id, a))
+    }
+}
 
 #[cfg(test)]
 mod tests {
+
+    /// Bind order survives every write the runtime makes: a listener's
+    /// later address goes after its first, a later listener after an
+    /// earlier one, and removing one leaves the others in place.
+    #[test]
+    fn the_listener_table_keeps_bind_order() {
+        use libp2p::core::transport::ListenerId;
+        let a =
+            |p: u16| -> Multiaddr { format!("/ip4/192.168.1.20/tcp/{p}").parse().expect("addr") };
+        let (one, two, three) = (ListenerId::next(), ListenerId::next(), ListenerId::next());
+        let mut active = super::ActiveListeners::new();
+        active.entry_or_default(three).push(a(3));
+        active.entry_or_default(one).push(a(1));
+        active.entry_or_default(two).push(a(2));
+        active.entry_or_default(three).push(a(4));
+        let order = |t: &super::ActiveListeners| t.values().flatten().cloned().collect::<Vec<_>>();
+        assert_eq!(order(&active), [a(3), a(4), a(1), a(2)]);
+        assert_eq!(active.remove(three), Some(vec![a(3), a(4)]));
+        assert_eq!(order(&active), [a(1), a(2)]);
+        assert_eq!(active.remove(three), None);
+        assert_eq!(active.len(), 2);
+    }
 
     /// `RELAY_HOP_CANCELED` is the pinned relay client's own text for a
     /// circuit request its behaviour dropped unsent, and `hop_canceled`
@@ -4860,6 +4951,7 @@ mod tests {
             ("messages.rs", include_str!("messages.rs")),
             ("mod.rs", include_str!("mod.rs")),
             ("network_change.rs", include_str!("network_change.rs")),
+            ("own_addresses.rs", include_str!("own_addresses.rs")),
             ("path_race.rs", include_str!("path_race.rs")),
             ("relay_driver.rs", include_str!("relay_driver.rs")),
             (

@@ -341,6 +341,13 @@ impl RelayState {
         self.own_listeners.extend(listeners);
     }
 
+    /// The circuit addresses of every reservation held as active, in the
+    /// manager's order (`admin.peers.own_addresses`).
+    #[must_use]
+    pub(crate) fn circuits(&self) -> Vec<String> {
+        self.manager.advertised()
+    }
+
     /// Reservations held and wanted, `(active, target)`: the status
     /// surface's relay half (`CONNECTIVITY.md` §3).
     #[must_use]
