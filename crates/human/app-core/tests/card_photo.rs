@@ -192,6 +192,25 @@ fn a_received_photo_decodes_only_within_256_by_256() {
     );
 }
 
+#[test]
+fn a_received_photo_whose_header_lies_about_its_size_is_dropped_before_the_decode() {
+    // TM-53: a header claiming 20000 x 20000 at a few bytes is dropped,
+    // the card kept without it. The decode limit itself is pinned by the
+    // 257-pixel cases above: this stream also fails without it.
+    let mut lie = encode(&picture(2, 2), ImageFormat::Png);
+    lie[16..20].copy_from_slice(&20_000u32.to_be_bytes());
+    lie[20..24].copy_from_slice(&20_000u32.to_be_bytes());
+    let ihdr_crc = crc32(&lie[12..29]);
+    lie[29..33].copy_from_slice(&ihdr_crc.to_be_bytes());
+    assert_eq!(
+        decode_received(&CardPhoto {
+            media_type: "image/png",
+            bytes: lie,
+        }),
+        None
+    );
+}
+
 fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = 0xFFFF_FFFFu32;
     for b in bytes {
