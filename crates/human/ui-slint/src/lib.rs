@@ -2973,8 +2973,9 @@ fn status_mark(item: &MessageItem) -> StatusMark {
 /// The control text for an intent a view offers as a button, or `None`
 /// for one it never offers that way: `MarkRead` comes from a focused
 /// view alone, `Send` from the composer, `OpenLink` from a link's own
-/// control, labelled with its destination, and the trust intents from the
-/// trust settings' own controls, never an item's.
+/// control, labelled with its destination, and the trust and address
+/// intents from the trust settings' and Peers' own controls, never an
+/// item's.
 fn action_text(intent: &Intent) -> Option<&'static str> {
     let text = match intent {
         Intent::Retry(_) => UiText::Retry,
@@ -2997,6 +2998,10 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::Restore(_)
         | Intent::ReadTrust
         | Intent::SetTrust(_)
+        // The addresses come from Peers' own controls, never an item's.
+        | Intent::ReadAddresses
+        | Intent::AddAddresses(_)
+        | Intent::RemoveAddress(_)
         // Edits come from the settings and the contact page's own
         // controls, never an item's.
         | Intent::SetOwnCard { .. }
