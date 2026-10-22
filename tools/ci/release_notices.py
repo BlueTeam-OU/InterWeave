@@ -354,8 +354,10 @@ def spdx_expression(line: str) -> list:
     ("MIT/Frob"), and an expression cut where an id is due ("MIT OR" at
     the line's end, its id wrapped onto the next line), are returned as
     they stand, so the lookup refuses them rather than reading less than
-    the line names; and after the expression ends, any id-shaped word left
-    on the line ("MIT -- EPL-2.0 for x.c") is read too."""
+    the line names; and after the expression ends, an id-shaped word left
+    on the line is read too: a name, a hyphen and a version ("MIT --
+    EPL-2.0 for x.c"), a LicenseRef-, or an id this tool knows (ISC), each
+    without the punctuation that follows it in prose."""
     ids, want_id, ended = [], True, False
     words = line.split()
     for at, word in enumerate(words):
@@ -368,12 +370,15 @@ def spdx_expression(line: str) -> list:
         elif bare.upper() in ("AND", "OR", "WITH") or word in ("/", "|", "+"):
             want_id = True
         elif ended or not re.search(r"[A-Za-z0-9]", word):
-            ids += [
-                w.rstrip(".").strip("()").rstrip(".")
-                for w in words[at:]
-                if re.fullmatch(r"[A-Za-z][A-Za-z0-9.+]*-[A-Za-z0-9.+-]*\d[A-Za-z0-9.+-]*",
-                                w.rstrip(".").strip("()").rstrip(".").rstrip(",;:"))
-            ]
+            known = known_ids()
+            for w in words[at:]:
+                w = w.strip("()\"'").rstrip(".,;:").strip("()\"'").rstrip(".,;:")
+                if (
+                    re.fullmatch(r"[A-Za-z][A-Za-z0-9.+]*-[A-Za-z0-9.+-]*\d[A-Za-z0-9.+-]*", w)
+                    or re.fullmatch(r"LicenseRef-[A-Za-z0-9.+-]+", w)
+                    or w.lower() in known
+                ):
+                    ids.append(w)
             break
         else:
             ids.append(bare if re.fullmatch(r"[A-Za-z0-9.+-]+", bare) else f"{word} (not an SPDX id)")
