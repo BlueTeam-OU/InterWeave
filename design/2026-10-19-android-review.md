@@ -796,10 +796,11 @@ as found.
 | F16 | Second half not met: a send to …x6gY6Eri, whose peer Trust does not list, becomes a pending row ("Not sent, send again or cancel", 11:00), as `RETENTION.md` §2 orders, but neither the row nor its menu (Send again, Cancel, Show source) gives the not-trusted reason look spec acceptance 23 asks for (`PeerNotTrusted`: "This peer is not trusted for this profile."). The row was cancelled at once by a drag left ("Sending canceled", the undo window let run out), so the phone holds nothing of the check. The first half passed in round 3. |
 | F17 | Pass: after the app bar's Back from …x6gY6Eri, no Chats row is drawn as selected on a phone-wide window. |
 | F10 | Unchanged: both earlier pending rows read "May have reached the peer, send again or cancel" at 01:14; a retry in progress, which the new waiting status is for, was not on screen. |
+| F6 | Seen in passing: the titles "…x6gY6Eri" (the list and the app bar) and "…5eQhFJG4" (the list) carry no "/ human". F6's truncation at 200 % was not re-checked. |
 
-Not re-walked on 177170bf: F1, F2, F3, F4, F5, F7, F8, F11, F12, F13
-and F14, which passed on earlier builds (the close table cites each
-round). #358 changed F17's selection and F9's landscape layout, per
+Not re-walked on 177170bf: F1, F2, F5, F7, F8, F11, F12, F13 and F14,
+which passed on earlier builds, and F3 and F4, carried as the close
+table states (it cites each round). #358 changed F17's selection and F9's landscape layout, per
 rust-ui-dev-01's INFO 01a161c7, and this round walked what it changed
 and what was still open. The owner's date change (round 4) is
 specified on this branch and not yet built: the build still reads
@@ -822,7 +823,7 @@ reproduced, so not filed.
 | 1 | F9 landscape keyboard | built, re-reviewed: pass (round 5) |
 | 1 | F16 composer focus and untrusted send | first half pass (round 3); second half not met (round 5): the not-trusted reason is not shown |
 | 2 | F5 focus ring on touch | built: pass (round 2) |
-| 2 | F6 "/ human" in titles | built: round 5 saw the titles "…x6gY6Eri" and "…5eQhFJG4" in the list and the app bar, with no "/ human"; F6's truncation at 200 % was not re-checked |
+| 2 | F6 "/ human" in titles | built: no "/ human" in the titles round 5 saw (its F6 row); F6's truncation at 200 % was not re-checked |
 | 2 | F7 app bar subtitle | built: pass (round 2) |
 | 2 | F10 pending status over hours | built (62312ee5); not seen on the phone, since no retry was in progress in any window: carried by name |
 | 2 | F11 Details | built: pass (round 2) |

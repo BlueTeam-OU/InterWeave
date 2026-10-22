@@ -473,7 +473,8 @@ client prepares what will be sent from the picked image:
   192 and 128 px.) It lays any transparency over plain white and
   encodes it as JPEG, always, with 4:2:0 chroma subsampling, at the
   highest quality from 90 down to 20 that fits 24,576 bytes
-  (HUMAN-CHAT.md). A camera photograph fits at quality 50 or above; the
+  (HUMAN-CHAT.md). A camera photograph fits at quality 50 or above (15
+photographs measured at 256 px fit at 50, the largest 17,405 bytes); the
   lower qualities are for a picture of fine texture or noise, which at
   256 px can exceed the bound at 50 (measured: uniform noise 27,478
   bytes at quality 50, 23,260 at 40, 13,620 at 20), so the size stays
