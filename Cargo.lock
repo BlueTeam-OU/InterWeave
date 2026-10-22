@@ -3303,6 +3303,7 @@ name = "interweave-claude-channel"
 version = "0.0.0"
 dependencies = [
  "interweave-claude-channel-core",
+ "interweave-human-chat-protocol",
  "interweave-ipc-client",
  "interweave-ipc-protocol",
  "interweave-local-client-api",

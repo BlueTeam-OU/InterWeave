@@ -1201,6 +1201,41 @@ impl<B: DataSessionBinding> Bridge<B> {
 mod tests {
     use super::*;
 
+    /// The core's measure of an event (`host_event_bytes`) is the length
+    /// of what this server writes for it: the push line whole for plain
+    /// text, where the push framing is the longer, and the pulled event as
+    /// escaped inside the tool result for control characters, where the
+    /// second escape is.
+    #[test]
+    fn the_measure_is_the_lines_own_length() {
+        use interweave_claude_channel_core::{MetaKey, host_event_bytes};
+        let mut meta = ChannelMeta::new();
+        for (key, value) in [
+            (MetaKey::DeliveryMode, "broadcast"),
+            (MetaKey::Channel, "general"),
+            (MetaKey::ReplyToken, "pVuAd8_1ZtUdhbV4aZRUDw"),
+            (MetaKey::PayloadEncoding, "utf8"),
+            (MetaKey::ContentType, "text/plain; q=\"x\\y\""),
+        ] {
+            meta.set(key, value).expect("a legal value");
+        }
+        let plain = ChannelNotification {
+            content: "plain text, no escapes".repeat(100),
+            meta: meta.clone(),
+        };
+        let push = crate::mcp::notification_line(&plain).expect("serializes");
+        assert_eq!(host_event_bytes(&plain.content, &plain.meta), push.len());
+        let controls = "\u{1}\n\"".repeat(100);
+        let pulled = serde_json::to_string(&ReceivedEvent {
+            kind: "broadcast",
+            content: &controls,
+            meta: &meta,
+        })
+        .expect("serializes");
+        let in_the_result = Value::String(pulled).to_string().len() - 2;
+        assert_eq!(host_event_bytes(&controls, &meta), in_the_result);
+    }
+
     #[test]
     fn the_reconnect_backoff_doubles_to_its_ceiling() {
         assert_eq!(reconnect_delay(0), Duration::from_millis(250));

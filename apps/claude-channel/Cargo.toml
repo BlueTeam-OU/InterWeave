@@ -46,3 +46,6 @@ interweave-ipc-protocol = { path = "../../crates/api/ipc-protocol" }
 tempfile = { workspace = true }
 interweave-local-client-fake = { path = "../../tests/local-client-fake" }
 interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
+# The brotli form of a HumanChatV2 payload, as a peer sends it
+# (`tests/fake.rs`, the host line's bound).
+interweave-human-chat-protocol = { path = "../../crates/human/chat-protocol" }
