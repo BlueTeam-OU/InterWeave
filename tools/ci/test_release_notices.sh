@@ -514,6 +514,8 @@ drefused "BSD-2-Clause in prose with the BSD-3-Clause text attached" "names BSD-
 printf '// Copyright 2012 Extra Holder. Licensed under MIT or Apache-2.0.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 list "$(entry hdr MIT header src/lib.rs 2 '["Apache-2.0"]')" "${GOOD[@]:1}"
 drun && pass "Apache-2.0 at a sentence's end, its text attached" || fail "Apache-2.0 at a sentence's end was refused" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2012 Extra Holder.\n// SPDX-License-''Identifier: MIT OR Apache-2.0.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+drun && pass "an SPDX line ending in a stop, its texts attached" || fail "an SPDX line ending in a stop was refused" "$(cat "$SANDBOX/err")"
 rm "$D/crates/hdr/src/x.rs"
 list "$(entry hdr MIT header src/lib.rs true)" "${GOOD[@]:1}"
 drefused "a header count of true" "hdr 1.0.0's header count is not a positive number"
