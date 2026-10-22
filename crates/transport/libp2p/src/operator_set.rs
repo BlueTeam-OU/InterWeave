@@ -141,12 +141,27 @@ impl OperatorSet {
     }
 
     /// Forget that `address` came in by the operator's door: an
-    /// operator's removal (ADR-0062). The caller keeps an address that
-    /// another operator input still names -- a static relay or AutoNAT
-    /// server -- since the set records the door, not who used it.
-    /// Returns whether it was held.
-    pub fn remove(&self, address: &Multiaddr) -> bool {
-        self.write().addresses.remove(&operator_key(address))
+    /// operator's removal (ADR-0062) -- UNLESS an input in `still_named`
+    /// holds the same key. The set records the door, not who used it,
+    /// so one key can stand for several inputs (one route under two
+    /// `PeerId`s, an authored entry and an added one, a static relay), and
+    /// the door closes only when the last of them leaves. Compared by the
+    /// set's own key, never by the inputs' strings
+    /// (`a_removal_keeps_the_door_another_input_names`). Returns whether
+    /// it was taken out.
+    pub fn remove_unless_named<'a>(
+        &self,
+        address: &Multiaddr,
+        still_named: impl IntoIterator<Item = &'a Multiaddr>,
+    ) -> bool {
+        let key = operator_key(address);
+        if still_named
+            .into_iter()
+            .any(|other| operator_key(other) == key)
+        {
+            return false;
+        }
+        self.write().addresses.remove(&key)
     }
 
     /// Did `address` come in by the operator's door?
@@ -494,10 +509,13 @@ mod tests {
         let kept = addr("/dns4/boot.example/tcp/4001");
         let gone = addr("/ip4/192.168.1.20/tcp/4001");
         assert!(set.insert(&kept) && set.insert(&gone));
-        assert!(set.remove(&gone));
+        assert!(set.remove_unless_named(&gone, []));
         assert!(!set.contains(&gone));
         assert!(set.contains(&kept), "the other entry stays");
-        assert!(!set.remove(&gone), "removing it again holds nothing");
+        assert!(
+            !set.remove_unless_named(&gone, []),
+            "removing it again holds nothing"
+        );
 
         let relay = PeerId::random();
         let target = PeerId::random();
@@ -505,8 +523,30 @@ mod tests {
             "/ip4/192.168.1.1/tcp/4001/p2p/{relay}/p2p-circuit/p2p/{target}"
         ));
         assert!(set.insert(&circuit));
-        assert!(set.remove(&circuit));
+        assert!(set.remove_unless_named(&circuit, []));
         assert!(!set.contains(&circuit));
+    }
+
+    /// ONE KEY, SEVERAL INPUTS: the same route under the `PeerId` it had
+    /// and the one it has now, as an authored entry and an added one would
+    /// hold it. Removing one keeps the door while the other is named, and
+    /// closes it once nothing is. The control: a different route named
+    /// beside it keeps nothing.
+    #[test]
+    fn a_removal_keeps_the_door_another_input_names() {
+        let set = OperatorSet::new();
+        let (old, new) = (PeerId::random(), PeerId::random());
+        let gone = addr(&format!("/dns4/boot.example/tcp/4001/p2p/{old}"));
+        let other = addr(&format!("/dns4/boot.example/tcp/4001/p2p/{new}"));
+        let elsewhere = addr(&format!("/dns4/other.example/tcp/4001/p2p/{new}"));
+        assert!(set.insert(&gone) && set.insert(&other));
+        assert!(!set.remove_unless_named(&gone, [&other, &elsewhere]));
+        assert!(set.contains(&other), "the other input keeps its door");
+        assert!(set.remove_unless_named(&gone, [&elsewhere]));
+        assert!(
+            !set.contains(&other),
+            "the control: an unrelated input keeps nothing"
+        );
     }
 
     /// Bounded, and a refusal past the bound is counted rather than

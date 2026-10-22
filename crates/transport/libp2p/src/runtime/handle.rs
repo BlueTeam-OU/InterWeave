@@ -402,8 +402,11 @@ impl SwarmRuntime {
 
     /// Undo [`Self::add_address`] for an address the operator removed
     /// (ADR-0062: a removed bootstrap address is dialled no more, without
-    /// a restart): out of the operator set, unless `keep_operator` -- an
-    /// address another operator input still names -- and out of the book.
+    /// a restart): out of the operator set unless an input in
+    /// `still_named` -- every operator input that remains: the profile's
+    /// static peers, relays and servers and the overlay's other entries --
+    /// holds the same route ([`OperatorSet::remove_unless_named`]), and out
+    /// of the book.
     ///
     /// Returns whether it is out of the book: `false` for a live
     /// quarantine the book cannot hand over yet, which stays quarantined
@@ -415,15 +418,19 @@ impl SwarmRuntime {
         &self,
         peer: TransportIdentity,
         address: Multiaddr,
-        keep_operator: bool,
+        still_named: &[String],
     ) -> Result<bool, SubstrateError> {
-        if !keep_operator {
-            let record = peer.as_str().parse::<libp2p::PeerId>().map_or_else(
-                |_| address.clone(),
-                |owner| crate::operator_set::probe_for(&address, &owner),
-            );
-            let _ = self.operator.remove(&record);
-        }
+        let record = peer.as_str().parse::<libp2p::PeerId>().map_or_else(
+            |_| address.clone(),
+            |owner| crate::operator_set::probe_for(&address, &owner),
+        );
+        // An input that does not parse names no route, so it keeps no
+        // door; the profile's own inputs were validated at start.
+        let named: Vec<Multiaddr> = still_named
+            .iter()
+            .filter_map(|input| input.parse().ok())
+            .collect();
+        let _ = self.operator.remove_unless_named(&record, &named);
         let (reply, answer) = oneshot::channel();
         self.commands
             .send(SwarmCommand::ForgetAddress {
