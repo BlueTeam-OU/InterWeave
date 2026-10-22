@@ -168,6 +168,22 @@ impl IpcAdmin {
             .await
     }
 
+    /// `admin.peers.list_addresses`'s result object as the daemon sent it,
+    /// for `transportctl peers addresses --json` and
+    /// [`AdminPort::bootstrap_addresses`]. Below 2.7 the method does not
+    /// exist, so it is refused `ProtocolUnsupported` with nothing sent.
+    ///
+    /// # Errors
+    /// The call's, and `ProtocolUnsupported` below 2.7.
+    pub async fn addresses_result(&self) -> Result<AddressList, TransportError> {
+        if self.minor < Method::AdminPeersListAddresses.entry().since_minor {
+            return Err(TransportError::ProtocolUnsupported);
+        }
+        self.connection
+            .call::<AddressList>(Request::AdminPeersListAddresses)
+            .await
+    }
+
     /// `admin.endpoints.list`'s result object as the daemon sent it, for
     /// `transportctl endpoints list --json` and [`AdminPort::leases`]: the
     /// one reader, so both hold the row to its minor's shape. From 2.5 the
@@ -428,12 +444,8 @@ impl AdminPort for IpcAdmin {
     }
 
     async fn bootstrap_addresses(&self) -> Result<Vec<BootstrapAddress>, TransportError> {
-        if self.minor < Method::AdminPeersListAddresses.entry().since_minor {
-            return Err(TransportError::ProtocolUnsupported);
-        }
         Ok(self
-            .connection
-            .call::<AddressList>(Request::AdminPeersListAddresses)
+            .addresses_result()
             .await?
             .addresses
             .into_iter()
