@@ -7,10 +7,11 @@
 #
 # cargo is a stub on PATH that records what it was asked and prints a
 # small graph over sandbox crates, so nothing is resolved or compiled;
-# release_notices.py is the tree's own, so the values file is the one the
-# release page would take. The overrides (RELEASE_METADATA_JSON,
-# RELEASE_COMPILED_LIST) are exercised too, and a refusal must leave no
-# file, an earlier run's included.
+# release_notices.py is the tree's own, so the notices file is the one the
+# release would carry and the values file the one its page would take.
+# The overrides (RELEASE_METADATA_JSON, RELEASE_COMPILED_LIST) are
+# exercised too, and every refusal must leave none of the three outputs,
+# an earlier run's included.
 #
 # Exit codes:
 #   0  all assertions passed
@@ -70,21 +71,37 @@ esac
 EOF
 chmod +x "$STUB/cargo"
 
-OUT="$SANDBOX/crate-notices.json"
+D="$SANDBOX/out"
+ASSET="$D/THIRD-PARTY-NOTICES-android.md"
+J="$D/crate-notices.json"
+URL="https://example.invalid/releases/download/v1.2.3"
 run() { PATH="$STUB:$PATH" bash "$UNDER_TEST" "$@" >"$SANDBOX/stdout" 2>"$SANDBOX/err"; }
+# plant: an earlier run's three outputs, which a refusal must remove.
+plant() { mkdir -p "$D"; for f in "$ASSET" "$ASSET.sha256" "$J"; do echo stale > "$f"; done; }
+none_left() { [[ ! -e "$ASSET" && ! -e "$ASSET.sha256" && ! -e "$J" ]]; }
 
 echo "release_crate_notices.sh:"
 : > "$SANDBOX/cargo-args"
-if run aarch64-linux-android interweave-human-android "$OUT"; then
-    keys="$(python3 -c 'import json, sys; print(sorted(json.load(open(sys.argv[1]))))' "$OUT")"
-    [[ "$keys" == "['crate_notices']" ]] \
-        && pass "the values file holds the one key release-page.md.in takes, crate_notices" \
-        || fail "the values file's keys are $keys"
-    body="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["crate_notices"])' "$OUT")"
+if run aarch64-linux-android interweave-human-android 1.2.3 "$D" "$URL"; then
+    (cd "$D" && sha256sum -c --quiet THIRD-PARTY-NOTICES-android.md.sha256) \
+        && pass "the notices file and a .sha256 that checks against it are written" \
+        || fail "the .sha256 does not check against the notices file" "$(ls -A "$D")"
+    got="$(python3 - "$J" "$ASSET" <<'PY'
+import hashlib, json, sys
+v = json.load(open(sys.argv[1]))
+sha = hashlib.sha256(open(sys.argv[2], "rb").read()).hexdigest()
+print(sorted(v), v.get("crate_notices"), v.get("crate_notices_sha256") == sha, v.get("check:crate_notices_version"))
+PY
+)"
+    want="['check:crate_notices_version', 'crate_notices', 'crate_notices_sha256'] $URL/THIRD-PARTY-NOTICES-android.md True 1.2.3"
+    [[ "$got" == "$want" ]] \
+        && pass "crate-notices.json: the file's URL, its SHA-256 and the version that binds them, and nothing else" \
+        || fail "crate-notices.json is not the expected one" "$got"
+    body="$(cat "$ASSET")"
     if [[ "$body" == *libfoo* && "$body" == *"the text of LICENSE-MIT"* && "$body" != *interweave-human-android* ]]; then
-        pass "the notices name the compiled crate with its text, and not the workspace's own package"
+        pass "the notices file names the compiled crate with its text, and not the workspace's own package"
     else
-        fail "the notices are not the package's compiled crates" "$body"
+        fail "the notices file is not the package's compiled crates" "$body"
     fi
     args="$(cat "$SANDBOX/cargo-args")"
     if grep -qxF 'metadata --locked --format-version 1 --filter-platform aarch64-linux-android' <<<"$args" \
@@ -99,32 +116,39 @@ fi
 
 # The overrides: no cargo call at all.
 : > "$SANDBOX/cargo-args"
-RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" run aarch64-linux-android interweave-human-android "$OUT" \
-    && [[ ! -s "$SANDBOX/cargo-args" ]] && [[ -s "$OUT" ]] \
+RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" run aarch64-linux-android interweave-human-android 1.2.3 "$D" "$URL" \
+    && [[ ! -s "$SANDBOX/cargo-args" ]] && [[ -s "$ASSET" && -s "$J" ]] \
     && pass "with RELEASE_METADATA_JSON and RELEASE_COMPILED_LIST, cargo is not run" \
     || fail "the overrides still ran cargo, or wrote nothing" "$(cat "$SANDBOX/cargo-args" "$SANDBOX/err")"
 
-# A refusal: a compiled list that does not name the package. An earlier
-# run's file is planted first and must be gone.
+# A refusal of release_notices.py: a compiled list that does not name
+# the package.
 printf 'libfoo v1.0.0\n' > "$SANDBOX/no-root.txt"
-echo stale > "$OUT"
-STUB_TREE="$SANDBOX/no-root.txt" run aarch64-linux-android interweave-human-android "$OUT"
+plant
+STUB_TREE="$SANDBOX/no-root.txt" run aarch64-linux-android interweave-human-android 1.2.3 "$D" "$URL"
 status=$?
-[[ $status == 1 && ! -e "$OUT" ]] && grep -qF 'could not be written' "$SANDBOX/err" \
-    && pass "release_notices.py's refusal is exit 1, named, and leaves no file, an earlier run's included" \
-    || fail "a refusal: exit $status, or a file was left" "$(cat "$SANDBOX/err")"
+[[ $status == 1 ]] && none_left && grep -qF 'could not be written' "$SANDBOX/err" \
+    && pass "release_notices.py's refusal is exit 1, named, and leaves none of the three, an earlier run's included" \
+    || fail "a refusal: exit $status, or an output was left" "$(ls -A "$D"; cat "$SANDBOX/err")"
+
+plant
+run aarch64-linux-android interweave-human-android 1.2 "$D" "$URL"
+status=$?
+[[ $status == 1 ]] && none_left && grep -qF 'is not MAJOR.MINOR.PATCH' "$SANDBOX/err" \
+    && pass "a version that is not MAJOR.MINOR.PATCH is refused, leaving none of the three" \
+    || fail "version 1.2: exit $status, or an output was left" "$(ls -A "$D"; cat "$SANDBOX/err")"
 
 # cargo failing.
 cat > "$STUB/cargo" <<'EOF'
 #!/bin/sh
 echo "error: failed to load manifest" >&2; exit 101
 EOF
-echo stale > "$OUT"
-run aarch64-linux-android interweave-human-android "$OUT"
+plant
+run aarch64-linux-android interweave-human-android 1.2.3 "$D" "$URL"
 status=$?
-[[ $status == 1 && ! -e "$OUT" ]] && grep -qF 'cargo metadata failed' "$SANDBOX/err" \
-    && pass "cargo failing is exit 1, named, with no file left" \
-    || fail "cargo failing: exit $status" "$(cat "$SANDBOX/err")"
+[[ $status == 1 ]] && none_left && grep -qF 'cargo metadata failed' "$SANDBOX/err" \
+    && pass "cargo failing is exit 1, named, with none of the three left" \
+    || fail "cargo failing: exit $status" "$(ls -A "$D"; cat "$SANDBOX/err")"
 
 # cargo tree failing after metadata succeeded: its own message, exit 1,
 # never cargo's status.
@@ -135,17 +159,17 @@ metadata) cat "$M" ;;
 *) echo "error: tree failed" >&2; exit 101 ;;
 esac
 EOF
-echo stale > "$OUT"
-run aarch64-linux-android interweave-human-android "$OUT"
+plant
+run aarch64-linux-android interweave-human-android 1.2.3 "$D" "$URL"
 status=$?
-[[ $status == 1 && ! -e "$OUT" ]] && grep -qF 'cargo tree failed' "$SANDBOX/err" \
-    && pass "cargo tree failing is exit 1, named, with no file left" \
-    || fail "cargo tree failing: exit $status" "$(cat "$SANDBOX/err")"
+[[ $status == 1 ]] && none_left && grep -qF 'cargo tree failed' "$SANDBOX/err" \
+    && pass "cargo tree failing is exit 1, named, with none of the three left" \
+    || fail "cargo tree failing: exit $status" "$(ls -A "$D"; cat "$SANDBOX/err")"
 
-bash "$UNDER_TEST" aarch64-linux-android >/dev/null 2>&1; status=$?
-[[ $status == 2 ]] && pass "a missing argument is a usage error" || fail "two arguments: exit $status, not 2"
+bash "$UNDER_TEST" aarch64-linux-android interweave-human-android 1.2.3 "$D" >/dev/null 2>&1; status=$?
+[[ $status == 2 ]] && pass "a missing argument is a usage error" || fail "four arguments: exit $status, not 2"
 help_out="$(bash "$UNDER_TEST" --help 2>/dev/null)"
-[[ "$help_out" == *"ADR-0058 decision 5"* ]] && pass "--help prints the help block" || fail "--help" "$help_out"
+[[ "$help_out" == *"A 2026-10-22 (ii)"* ]] && pass "--help prints the help block" || fail "--help" "$help_out"
 
 echo
 if (( failures )); then
