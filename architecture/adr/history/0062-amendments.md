@@ -14,8 +14,11 @@ device rows and step 2's tree check holding the camera APIs to the
 Scan module. Decision 8's "no LAN peer" was read as a
 discovery fact the client could see; it cannot — `LOCAL-CLIENT.md`'s
 `ServerState` carries health and the connectivity summary only — so
-the notice keys on the overlay and the trust set crossed with the
-session's per-peer path state, never the summary's counts.
+the notice keys on the overlay empty and the trust set empty, two
+facts the client holds whole, and on no connection or path signal (a
+session's per-peer path state exists only for peers it has exchanged
+a message with; the round-3 review of #362 found the first wording
+reading it).
 Propagation: decision 8; this note; the log row; the digest entry;
 plan §29 step 2 (the allow-list and the tree check) and its exit gate
 (e) (the cases);
