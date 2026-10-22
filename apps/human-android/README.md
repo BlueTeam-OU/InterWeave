@@ -8,7 +8,7 @@ its Service side hosts the embedded transport runtime
 (`crates/transport/embedded`) through `crates/human/android-platform`. It
 names no Slint crate itself: the toolkit is reached through ui-slint.
 
-**Current status:** Stage 17 (plan section 20), at its close. The
+**Current status:** Stage 17 (plan section 20), closing. The
 network service hosts the embedded runtime, the store and the facade;
 the Activity attaches to it; unread arrivals raise a count-only
 notification. The person creates an identity or restores one from its
@@ -18,8 +18,9 @@ user-presence prompt where the profile asks for one. The debug APK
 runs on a stand-in profile. Sessions run on phones: the device runs
 are recorded under `device-runs/` (a Samsung A40 at API
 30 and the Pixel 9a at API 37, from 2026-10-20) and the android-e2e
-cases' runs under `tests/android-e2e/runs/`; what the stage did not
-prove on a device is the plan's closing record.
+cases' runs under `tests/android-e2e/runs/`. Each record names what it
+did not show; the plan's closing record for section 20, which will name
+what the stage did not prove, is still to come.
 
 Build, on a host set up by `tools/host/android` (its README):
 
