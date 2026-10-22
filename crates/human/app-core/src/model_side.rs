@@ -7,6 +7,7 @@
 use std::collections::{HashSet, VecDeque};
 
 use interweave_human_chat_protocol::is_allowed_link_scheme;
+use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_human_ui_model::{ConversationKey, Intent, UiModel, ViewEvent};
 
 use crate::facade::CANCELLED_CAP;
@@ -93,6 +94,10 @@ pub struct ModelSide<S: Surface, O: Opener> {
     problems_dropped: u64,
     hidden_unread: usize,
     hidden_other: usize,
+    /// The trust and address lists are to be read: a session became
+    /// ready with either unread, which is the start for a runtime that is
+    /// up, and the first moment both can be answered for one that was not.
+    reads_owed: bool,
 }
 
 impl<S: Surface, O: Opener> ModelSide<S, O> {
@@ -107,6 +112,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             problems_dropped: 0,
             hidden_unread: 0,
             hidden_other: 0,
+            reads_owed: false,
         }
     }
 
@@ -203,7 +209,18 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
             Update::CardShared { key, at, .. } => self.model.card_shared(key, at),
-            Update::Client(event) => self.model.client_event(event),
+            Update::Client(event) => {
+                // A session ready with either list unread reads it: the
+                // no-reach notice needs both, and a runtime that was not
+                // up at start could answer neither then.
+                if matches!(event, ClientEvent::Session(SessionState::Ready { .. }))
+                    && (self.model.peers().list().is_none()
+                        || self.model.trust_settings().list().is_none())
+                {
+                    self.reads_owed = true;
+                }
+                self.model.client_event(event);
+            }
             Update::Diagnostics(diagnostics) => self.model.diagnostics_updated(diagnostics),
             Update::Sent {
                 row,
@@ -223,6 +240,13 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::TrustRead(answer) => self.model.trust_settings_mut().read(answer),
             Update::TrustSet { change, answer } => {
                 self.model.trust_settings_mut().set(change, answer);
+            }
+            Update::AddressesRead(answer) => self.model.addresses_read(answer),
+            Update::AddressesAdded { lines, answer } => {
+                self.model.addresses_added(&lines, answer);
+            }
+            Update::AddressRemoved { address, answer } => {
+                self.model.address_removed(&address, answer);
             }
             Update::Done(command) => {
                 self.in_flight.remove(&InFlight::of(&command));
@@ -275,6 +299,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         // What closed snackbars no longer need goes first, ahead of any
         // cancel this turn issues.
         let mut commands = Vec::new();
+        if std::mem::take(&mut self.reads_owed) {
+            let reads = [
+                self.model.trust_settings_mut().opened(),
+                self.model.read_addresses(),
+            ];
+            for intent in reads.into_iter().flatten() {
+                commands.extend(self.command_for(intent));
+            }
+        }
         let released = self.model.take_released();
         commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
         commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
@@ -301,6 +334,13 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 {
                     commands.push(command);
                 }
+                // The same for the addresses, and step two's blocks once
+                // trust answered them.
+                if let Some(intent) = self.model.peers_turn()
+                    && let Some(command) = self.command_for(intent)
+                {
+                    commands.push(command);
+                }
                 if std::mem::take(&mut unrendered) {
                     self.surface.render(&self.model);
                     continue;
@@ -311,6 +351,14 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 match event {
                     ViewEvent::DraftChanged { key, draft } => {
                         self.model.draft_changed(key, draft);
+                    }
+                    ViewEvent::Peers(input) => {
+                        unrendered = true;
+                        for intent in self.model.peers_input(input) {
+                            if let Some(command) = self.command_for(intent) {
+                                commands.push(command);
+                            }
+                        }
                     }
                     ViewEvent::Trust(input) => {
                         unrendered = true;
@@ -324,7 +372,16 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     // inputs, which confirm the change shown: a trust
                     // intent handed over bare, by any surface, is dropped
                     // (`a_trust_intent_handed_over_bare_reaches_nothing`).
-                    ViewEvent::Intent(Intent::ReadTrust | Intent::SetTrust(_)) => {}
+                    // The addresses likewise reach the runtime only through
+                    // Peers' inputs, after the client's own rules
+                    // (`a_bare_address_intent_reaches_nothing`).
+                    ViewEvent::Intent(
+                        Intent::ReadTrust
+                        | Intent::SetTrust(_)
+                        | Intent::ReadAddresses
+                        | Intent::AddAddresses(_)
+                        | Intent::RemoveAddress(_),
+                    ) => {}
                     ViewEvent::Intent(intent) => {
                         unrendered |=
                             matches!(intent, Intent::Hide(_) | Intent::HideConversation(_));
@@ -441,6 +498,9 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Intent::RecheckStorage => Command::RecheckStorage,
             Intent::ReadTrust => Command::ReadTrust,
             Intent::SetTrust(change) => Command::SetTrust(change),
+            Intent::ReadAddresses => Command::ReadAddresses,
+            Intent::AddAddresses(lines) => Command::AddAddresses(lines),
+            Intent::RemoveAddress(address) => Command::RemoveAddress(address),
             // Accept carries the context the person was shown; a proposal
             // already gone has nothing to accept.
             Intent::AcceptCard(row) => Command::AcceptCard {

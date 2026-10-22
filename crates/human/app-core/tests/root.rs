@@ -175,6 +175,24 @@ impl Root {
         }
     }
 
+    /// Pump until the session is ready and the reads it owes at start
+    /// -- the trust and address lists, for the no-reach notice -- are
+    /// answered, then forget what was asked: a test of what a person's
+    /// input asks starts from here.
+    async fn settled(&mut self, now: u64) {
+        for _ in 0..4 {
+            self.pump(now).await;
+        }
+        assert!(
+            self.commands.contains(&Command::ReadTrust)
+                && self.commands.contains(&Command::ReadAddresses),
+            "{:?}",
+            self.commands
+        );
+        self.commands.clear();
+        self.updates.clear();
+    }
+
     fn will(&mut self, events: Vec<ViewEvent>) {
         self.model.surface_mut().will(events);
     }
@@ -462,6 +480,7 @@ async fn a_keep_with_no_copy_held_fails_and_changes_nothing() {
 async fn a_link_is_opened_only_when_allowlisted_and_never_reaches_the_facade() {
     let (a, _b) = FakeNetwork::pair(node(), node());
     let (mut alice, opened) = Root::new(facade(&a, memory()));
+    alice.settled(0).await;
     alice.will(vec![
         ViewEvent::Intent(Intent::OpenLink("https://example.org/a".to_owned())),
         ViewEvent::Intent(Intent::OpenLink("javascript:alert(1)".to_owned())),
@@ -478,7 +497,7 @@ async fn a_link_is_opened_only_when_allowlisted_and_never_reaches_the_facade() {
 async fn an_ask_for_network_access_reaches_the_platform_and_never_the_facade() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let (mut alice, opened) = Root::new(facade(&a, memory()));
-    alice.pump(0).await;
+    alice.settled(0).await;
     let to_bob = direct(b.peer());
     alice.model.network_access(false);
     alice.will(vec![
@@ -813,6 +832,7 @@ async fn a_hide_is_rendered_in_the_turn_that_took_it() {
 async fn a_trust_intent_handed_over_bare_reaches_nothing() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
     root.will(vec![
         ViewEvent::Intent(Intent::ReadTrust),
         ViewEvent::Intent(Intent::SetTrust(TrustChange {
@@ -1443,7 +1463,7 @@ async fn an_ask_for_authentication_reaches_the_platform_and_never_the_facade() {
     use interweave_human_ui_model::SessionNotice;
     let (a, _) = FakeNetwork::pair(node(), node());
     let (mut alice, opened) = Root::new(facade(&a, memory()));
-    alice.pump(0).await;
+    alice.settled(0).await;
     alice.model.authentication_needed(true);
     assert_eq!(
         alice.model().session_notice(),
@@ -1458,5 +1478,112 @@ async fn an_ask_for_authentication_reaches_the_platform_and_never_the_facade() {
     assert_ne!(
         alice.model().session_notice(),
         Some(SessionNotice::AuthenticationNeeded)
+    );
+}
+
+/// A session ready reads the trust and address lists once, for the
+/// no-reach notice; a runtime without the address methods -- this fake
+/// predates them -- leaves Peers in its incompatible state, and an
+/// unreadable list is no notice.
+#[tokio::test]
+async fn a_ready_session_reads_both_lists_once_and_an_unreadable_one_is_no_notice() {
+    use interweave_human_ui_model::{Barred, ListProblem};
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
+    for now in 1..4 {
+        root.pump(now).await;
+    }
+    assert!(
+        !root
+            .commands
+            .iter()
+            .any(|c| matches!(c, Command::ReadTrust | Command::ReadAddresses)),
+        "read once: {:?}",
+        root.commands
+    );
+    assert!(root.model().trust_settings().list().is_some());
+    assert_eq!(
+        root.model().peers().list_problem(),
+        Some(ListProblem::Barred(Barred::Incompatible))
+    );
+    assert!(!root.model().no_reach());
+}
+
+/// An address intent handed over bare reaches nothing: the addresses
+/// change only through Peers' inputs, after the client's own rules.
+#[tokio::test]
+async fn a_bare_address_intent_reaches_nothing() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
+    let address = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", b.peer().as_str());
+    root.will(vec![
+        ViewEvent::Intent(Intent::ReadAddresses),
+        ViewEvent::Intent(Intent::AddAddresses(vec![address.clone()])),
+        ViewEvent::Intent(Intent::RemoveAddress(address)),
+    ]);
+    root.pump(1).await;
+    assert!(
+        !root.commands.iter().any(|c| matches!(
+            c,
+            Command::ReadAddresses | Command::AddAddresses(_) | Command::RemoveAddress(_)
+        )),
+        "{:?}",
+        root.commands
+    );
+}
+
+/// Peers' add reaches the facade as one add of all its lines: one line
+/// is the runtime's single add, which this fake answers unsupported;
+/// several are never split, and until the add of several lines exists
+/// they are answered as a runtime without it answers.
+#[tokio::test]
+async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
+    use interweave_human_ui_model::{AddNote, Barred, PeersInput};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let one = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", b.peer().as_str());
+    let two = format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", b.peer().as_str());
+
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
+    root.will(vec![
+        ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::FieldChanged(one.clone())),
+        ViewEvent::Peers(PeersInput::Add),
+    ]);
+    root.pump(1).await;
+    assert_eq!(
+        root.commands,
+        vec![Command::AddAddresses(vec![one.clone()])]
+    );
+    assert_eq!(
+        root.model().peers().add_page_note(),
+        Some(&AddNote::Barred(Barred::Incompatible))
+    );
+
+    let (c, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&c, memory()));
+    root.settled(0).await;
+    root.will(vec![
+        ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::FieldChanged(format!("{one}\n{two}"))),
+        ViewEvent::Peers(PeersInput::Add),
+    ]);
+    root.pump(1).await;
+    assert_eq!(root.commands, vec![Command::AddAddresses(vec![one, two])]);
+    assert_eq!(
+        root.model().peers().add_page_note(),
+        Some(&AddNote::SeveralIncompatible { lines: 2 })
+    );
+}
+
+/// The words' `{max}` is the configuration's bound, which the runtime
+/// enforces: one value, held equal here.
+#[test]
+fn the_address_bound_in_the_words_is_the_configurations() {
+    assert_eq!(
+        interweave_human_ui_model::ADDRESS_BOUND,
+        interweave_profile_config::MAX_STATIC_BOOTSTRAP_PEERS
     );
 }
