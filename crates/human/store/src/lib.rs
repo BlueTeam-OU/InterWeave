@@ -50,6 +50,7 @@ pub mod key_custody;
 pub mod records;
 pub mod schema;
 pub mod store;
+pub mod store_key;
 
 pub use records::{
     AppMessageId, BackupCursor, BackupTable, Cursor, InboundOrigin, NewInbound, NewOutbound,

@@ -3,7 +3,7 @@
 //! The platform's custody of a 32-byte secret at rest: the seam both
 //! secrets this crate keeps beside the store go through -- each
 //! identity's key ([`crate::identity_key`], ADR-0063) and the store's own
-//! key (`store_key`, ADR-0060).
+//! key ([`crate::store_key`], ADR-0060).
 //!
 //! One seam, two custodies: each secret names its own alias namespace
 //! (`interweave.idk1.<profile>.<EndpointId>`,
