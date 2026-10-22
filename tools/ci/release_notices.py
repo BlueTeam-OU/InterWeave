@@ -226,7 +226,10 @@ NAMED = tuple(
         (r"\bCC0\b|\bpublic domain dedication\b", ("CC0-1.0",)),
         (r"\bzlib\b", ("Zlib",)),
         (r"\bMPL\b|\bMozilla Public License\b", ("MPL-2.0",)),
-        (r"\b(?:L|A)?GPL\b|\bGeneral Public License\b", ("GPL",)),
+        (
+            r"\b(?:L|A)?GPL\b|\bGeneral Public License\b",
+            ("GPL-2.0-only", "GPL-3.0-only", "LGPL-2.1-only", "LGPL-3.0-only", "AGPL-3.0-only"),
+        ),
         (r"\bUnlicense\b", ("Unlicense",)),
         (r"\bBoost Software License\b|\bBSL-1\.0\b", ("BSL-1.0",)),
         (r"\bUnicode License\b|\bUnicode-(?:DFS-2016|3\.0)\b", ("Unicode-3.0",)),
@@ -389,6 +392,14 @@ def derived_notices(package: dict, entry: dict) -> list:
                 )
             for answers in named:
                 if not (set(answers) & shipped or any(carries_text(text, x) for x in answers)):
+                    if not set(answers) & set(STANDARD):
+                        # extra_texts takes committed texts only, so the
+                        # remedy is the text first (`a header naming zlib`).
+                        raise ValueError(
+                            f"{name} {version}'s header in {path} names {' or '.join(answers)}, whose standard"
+                            f" text is not committed: commit and pin it under {TEXTS.name}/, then add it to"
+                            f" the entry's extra_texts"
+                        )
                     raise ValueError(
                         f"{name} {version}'s header in {path} names {answers[-1]}, whose text it does not carry:"
                         f" add it to the entry's extra_texts"

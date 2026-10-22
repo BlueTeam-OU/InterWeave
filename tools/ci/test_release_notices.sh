@@ -475,7 +475,7 @@ printf '// Copyright 2012 Extra Holder. Licensed under the MIT license.\npub fn 
 list "$(entry hdr MIT header src/lib.rs 2)" "${GOOD[@]:1}"
 drun && pass "the control: a second header naming MIT" || fail "a second header naming MIT was refused" "$(cat "$SANDBOX/err")"
 printf '// Copyright 2012 Extra Holder. Licensed under the zlib License.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
-drefused "a header naming zlib, whose text is not committed" "hdr 1.0.0's header in src/x.rs names Zlib, whose text it does not carry"
+drefused "a header naming zlib, whose text is not committed" "hdr 1.0.0's header in src/x.rs names Zlib, whose standard text is not committed: commit and pin it under licence_texts/"
 printf '// Copyright 2012 Extra Holder. Licensed under the Frobnicate License 1.0.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 drefused "a header naming an unrecognised licence" "hdr 1.0.0's header in src/x.rs names a licence this tool does not recognise"
 rm "$D/crates/hdr/src/x.rs"
