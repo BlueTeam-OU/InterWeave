@@ -614,8 +614,8 @@ async fn a_removed_address_is_dialled_no_more_without_a_restart() {
 
 /// ONE ROUTE, TWO INPUTS (#367 re-review F8): the operator's door keys a
 /// route without its `/p2p` suffix, so an added entry and an authored one
-/// naming the same route under two `PeerId`s share it. Removing the added
-/// one leaves the door to the authored one; the control, removing an
+/// naming the same route under two `PeerId`s share it, as two added ones
+/// do. Removing one leaves the door to the other; the control, removing an
 /// added entry nothing else names, closes it. Read at the door itself,
 /// since a connection would let the peer's own Identify teach the route.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -627,6 +627,10 @@ async fn removing_an_added_entry_keeps_the_door_an_authored_one_names() {
     let authored = format!("{route}/p2p/{}", kept.as_str());
     let added = format!("{route}/p2p/{}", stale.as_str());
     let alone = format!("/dns4/other.example/tcp/4001/p2p/{}", stale.as_str());
+    // And two ADDED entries on one route: the one that stays is the
+    // overlay's, not config.yaml's.
+    let shared_kept = format!("/dns4/shared.example/tcp/4001/p2p/{}", kept.as_str());
+    let shared_gone = format!("/dns4/shared.example/tcp/4001/p2p/{}", stale.as_str());
     let (_dir, path) = state();
     let runtime = ComposedRuntime::start(
         &identity,
@@ -640,11 +644,21 @@ async fn removing_an_added_entry_keeps_the_door_an_authored_one_names() {
     .expect("composes");
     assert_eq!(add(&runtime, &added).await, AddressChange::Added);
     assert_eq!(add(&runtime, &alone).await, AddressChange::Added);
+    assert_eq!(add(&runtime, &shared_kept).await, AddressChange::Added);
+    assert_eq!(add(&runtime, &shared_gone).await, AddressChange::Added);
 
     assert_eq!(remove(&runtime, &added).await, AddressChange::Removed);
     assert!(
         runtime.operator_holds(&authored).await.expect("answered"),
         "the authored entry keeps its door"
+    );
+    assert_eq!(remove(&runtime, &shared_gone).await, AddressChange::Removed);
+    assert!(
+        runtime
+            .operator_holds(&shared_kept)
+            .await
+            .expect("answered"),
+        "the other added entry keeps its door"
     );
     assert_eq!(remove(&runtime, &alone).await, AddressChange::Removed);
     assert!(
