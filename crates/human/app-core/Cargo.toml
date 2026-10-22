@@ -30,8 +30,12 @@ interweave-local-client-api = { path = "../../api/local-client-api" }
 interweave-transport-api = { path = "../../api/transport-api" }
 # A sent message's application id: 128 random bits.
 rand = { workspace = true }
+image = { workspace = true }
 
 [dev-dependencies]
+# The identity-key record's secret, read back to grep the store for it.
+base64 = { workspace = true }
+interweave-profile-config = { path = "../../config/profile-config" }
 interweave-local-client-fake = { path = "../../../tests/local-client-fake" }
 interweave-profile-identity = { path = "../../identity/profile-identity" }
 # Corrupts a stored row, in one test, to drive a store failure.

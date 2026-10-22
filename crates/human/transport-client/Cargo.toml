@@ -31,6 +31,8 @@ rand = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+# Signs the cards tests/facade.rs sends.
+ed25519-dalek = { workspace = true }
 interweave-local-client-fake = { path = "../../../tests/local-client-fake" }
 interweave-profile-identity = { path = "../../identity/profile-identity" }
 # Reads a store's page count to size a quota, in one test.

@@ -211,6 +211,11 @@ unicode-normalization = { version = "0.1", default-features = false, features = 
 # The card's names refuse format characters (Cf), which no std predicate
 # names. Already in the graph via jsonschema; Apache-2.0, no dependencies.
 unicode-general-category = "1.1"
+# A card's photo (app-core's card_photo.rs): the sender re-encodes the
+# chosen image, the receiver decodes an accepted one at 256 x 256. PNG and
+# JPEG only, pure Rust (png, zune-jpeg), the version and the two features
+# the Slint toolkit already resolves, so this adds no crate.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # Brotli for the HumanChatV2 fit-fallback decode path. Used through its
 # streaming interface so the decompressed ceiling aborts mid-stream.
 brotli = { version = "8", default-features = false, features = ["std"] }

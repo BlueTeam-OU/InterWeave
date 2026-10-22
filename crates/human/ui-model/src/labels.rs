@@ -667,6 +667,47 @@ ui_texts! {
     /// recovery -- corrupt, written by a newer version, or its migration
     /// failed. Try again is offered.
     RefusalStoreRecovery => "This version of InterWeave cannot read the file that keeps your messages. The file was not changed, moved or deleted. If you have a backup copy of the file that this version can read, replace the file with it, then try again. If a newer version wrote the file, install and start the newest version of InterWeave that you have used, or a newer one.",
+    /// A conversation's title once its route belongs to a contact who
+    /// shares a name with another: `{name}` is the contact's name as the
+    /// person accepted or edited it, `{peer}` the short `PeerId` that tells
+    /// the two apart (human-client-ui.md §13). Plain text, never markdown.
+    ContactTitle => "{name} ({peer})",
+    /// CARD PROPOSAL, in a conversation, before Accept: what the
+    /// counterparty says about themselves. `{name}` is the card's name and
+    /// surname as plain text; the full `PeerId` is shown beside it, always.
+    CardProposal => "This peer says they are {name}",
+    /// CARD PROPOSAL: the control that writes the contact. Its context line
+    /// (one of the two below) says what it will do before it runs.
+    CardAccept => "Accept",
+    /// CARD PROPOSAL: the control that discards the card, writing nothing.
+    CardDecline => "Decline",
+    /// CARD PROPOSAL, Accept's context line when no contact holds the
+    /// card's route.
+    CardWillCreate => "If you accept, a new contact is saved.",
+    /// CARD PROPOSAL, Accept's context line when a contact holds the
+    /// route: `{contact}` is that contact's name. The person's own edits
+    /// stay, and the line says so.
+    CardWillUpdate => "If you accept, your contact {contact} is updated. If you chose a name or photo yourself, it does not change.",
+    /// CARD PROPOSAL, the same-name note: `{contact}` is a contact of this
+    /// identity with the same name on another `PeerId`.
+    CardSameName => "One of your contacts is named {contact} and has a different PeerId. Compare the two PeerIds before you accept.",
+    /// CARD PROPOSAL: the card came from another identity of a device one
+    /// of this identity's contacts is on; `{contact}` is that contact.
+    CardSharesNode => "This card comes from the same device as your contact {contact}.",
+    /// CARD PROPOSAL, a key change, before Accept: the words human-client-
+    /// ui.md §3 asks for. `{old}` and `{new}` are the recorded and the
+    /// presented fingerprints, 16 hex characters each, in that order.
+    CardKeyChange => "The identity key in this conversation has changed. The person might have installed InterWeave again, or this might be someone else. Previous key fingerprint: {old}. New key fingerprint: {new}.",
+    /// CARD PROPOSAL: the card's key is one a contact of this identity
+    /// holds on another `PeerId`; `{contact}` is that contact.
+    CardKeyMatches => "This card has the same identity key as your contact {contact}, but it comes from a different PeerId.",
+    /// A conversation's action: send this identity's own card to the
+    /// counterparty. Offered in a direct conversation only, never sent
+    /// on its own.
+    ShareCard => "Share a card",
+    /// The identity and contact pages: the label beside an identity key's
+    /// fingerprint, 16 lowercase hex characters.
+    Fingerprint => "Key fingerprint",
 }
 
 /// Where the transport runtime runs, which decides how a text that names
@@ -1283,6 +1324,10 @@ mod tests {
             ("rest", "Your message: Sent."),
             ("n", "7"),
             ("age", "3 hours ago"),
+            ("name", "Ada Lovelace"),
+            ("contact", "Ada"),
+            ("old", "0123456789abcdef"),
+            ("new", "fedcba9876543210"),
         ];
         for text in UiText::ALL {
             let filled = fill(placeholder_en::text(*text), &values);

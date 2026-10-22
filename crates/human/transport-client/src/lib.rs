@@ -25,7 +25,7 @@ pub use client::{CancelledSend, ClientConfig, TransportClient, WallClock};
 // where the UI model can name it without reaching this crate's store
 // (plan §17 P2); re-exported so a caller of the facade needs one crate.
 pub use interweave_human_client_api::{
-    ClientEvent, Connectivity, Destination, Diagnostics, Origin, OutboundStatus, OutboundUpdate,
-    Received, RowError, SendError, SendProblem, SessionProblem, SessionState, TrustList,
-    TrustOrigin, TrustProblem, TrustRow, TrustSetFailure,
+    ClientEvent, Connectivity, Destination, Diagnostics, Inbound, Origin, OutboundStatus,
+    OutboundUpdate, Received, ReceivedCard, RowError, SendError, SendProblem, SessionProblem,
+    SessionState, TrustList, TrustOrigin, TrustProblem, TrustRow, TrustSetFailure,
 };
