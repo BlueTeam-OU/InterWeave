@@ -475,53 +475,66 @@ async fn a_composed_count_past_64_stops_the_start_naming_the_overlay() {
     }
 }
 
-/// Close every connection to `peer` the way that counts no dial failure
-/// against it: revoke, then allow again (ADR-0012).
-async fn reset_trust(runtime: &ComposedRuntime, peer: &TransportIdentity) {
-    let port = runtime
-        .sessions()
-        .admin([AdminCapability::Trust].into())
-        .await
-        .expect("a port");
-    port.set_trust(peer.clone(), false).await.expect("revoked");
-    port.set_trust(peer.clone(), true)
-        .await
-        .expect("allowed again");
-}
-
-/// A REMOVED ADDRESS IS DIALLED NO MORE, without a restart: its
-/// connection closed, the reconnect round finds no address for the peer
-/// in the provider, the operator's door or the book. The control, first:
-/// while the address is held, the same close is followed by a reconnect.
+/// A REMOVED ADDRESS IS DIALLED NO MORE, without a restart of the
+/// subject: the far end goes away and comes back at the same address, and
+/// nothing redials it -- not the provider, not the operator's door and
+/// not the BOOK, which keys the route without its `/p2p/` suffix while
+/// the person typed it with one. The control, first: while the address is
+/// held, the same return is followed by a reconnect, and how long that
+/// took sets the window the removal is watched over.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_removed_address_is_dialled_no_more_without_a_restart() {
     let ip = interweave_test_support::net::require_private_interface_v4();
-    let listen = CompositionOptions {
-        listen: vec![format!("/ip4/{ip}/tcp/0")],
-        ..CompositionOptions::default()
-    };
     let (b_id, b) = id();
     let (a_id, a) = id();
-    let target = ComposedRuntime::start(&b_id, &profile(&[&a], Provider::None), listen.clone())
-        .await
-        .expect("b composes");
-    let b_addr = format!("{}/p2p/{}", target.listening()[0], b.as_str());
-    let mut subject = ComposedRuntime::start(&a_id, &profile(&[&b], Provider::None), listen)
-        .await
-        .expect("a composes");
+    let start_target = |listen: String| {
+        let profile = profile(&[&a], Provider::None);
+        let b_id = &b_id;
+        async move {
+            ComposedRuntime::start(
+                b_id,
+                &profile,
+                CompositionOptions {
+                    listen: vec![listen],
+                    ..CompositionOptions::default()
+                },
+            )
+            .await
+            .expect("b composes")
+        }
+    };
+    let target = start_target(format!("/ip4/{ip}/tcp/0")).await;
+    let bound = target.listening()[0].clone();
+    let b_addr = format!("{bound}/p2p/{}", b.as_str());
+    let mut subject = ComposedRuntime::start(
+        &a_id,
+        &profile(&[&b], Provider::None),
+        CompositionOptions {
+            listen: vec![format!("/ip4/{ip}/tcp/0")],
+            ..CompositionOptions::default()
+        },
+    )
+    .await
+    .expect("a composes");
     assert_eq!(add(&subject, &b_addr).await, AddressChange::Added);
     wait_connected(&mut subject, &b).await;
 
-    reset_trust(&subject, &b).await;
+    // THE CONTROL: the far end leaves and returns; the held address is
+    // redialled.
+    target.shutdown().await.expect("clean shutdown");
+    let target = start_target(bound.clone()).await;
+    let returned = tokio::time::Instant::now();
     wait_connected(&mut subject, &b).await;
+    let window = (returned.elapsed() * 3).max(Duration::from_secs(10));
 
     assert_eq!(remove(&subject, &b_addr).await, AddressChange::Removed);
-    reset_trust(&subject, &b).await;
+    target.shutdown().await.expect("clean shutdown");
+    let target = start_target(bound).await;
     assert!(
-        tokio::time::timeout(Duration::from_secs(5), wait_connected(&mut subject, &b))
+        tokio::time::timeout(window, wait_connected(&mut subject, &b))
             .await
             .is_err(),
-        "a removed address was dialled"
+        "a removed address was dialled within {window:?}"
     );
     subject.shutdown().await.expect("clean shutdown");
     target.shutdown().await.expect("clean shutdown");

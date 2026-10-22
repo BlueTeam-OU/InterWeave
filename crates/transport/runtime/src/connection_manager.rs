@@ -1355,6 +1355,10 @@ impl ConnectionManager {
     /// leaves only into room the table can give it and leaving launders
     /// nothing.
     ///
+    /// KEYED BY THE CALLER'S STRING, as every route here is: a caller holds
+    /// the canonical form or misses the entry, which is why the libp2p
+    /// crate reaches this only through `forget_route`.
+    ///
     /// Returns whether the address is out of the book: `true` too when it
     /// was never in it, and `false` only for a live quarantine the table
     /// cannot take yet, which stays -- quarantined, so not dialled -- for
@@ -6071,6 +6075,10 @@ mod tests {
             // Declaration only; reaches `learn_address` through nothing and
             // keys the book by removing from it instead.
             ("record_permanent_address_failure_unadmitted(", 1),
+            // Declaration only, as the one above: an operator's removal
+            // keys the book by the caller's string, so its caller must
+            // canonicalize (`forget_route`, counted over there).
+            ("forget_address(", 1),
             // Ticket-carried, and keyed by `ticket.address()` all the same:
             // the book, the quarantine and the success score in that order.
             // `record_permanent_failure(` is not a substring of
@@ -6099,11 +6107,14 @@ mod tests {
             (".book", 8),
             // Every way out of the book, through the one door that hands
             // a quarantine over or refuses (ADR-0011, amendment
-            // 2026-09-28): `hand_over`'s declaration and its four callers
-            // -- `learn_address`'s eviction, the retirement pass and the
-            // two removers -- and its two calls into the policy.
+            // 2026-09-28): `hand_over`'s declaration and its five callers
+            // -- `learn_address`'s eviction, the retirement pass, the two
+            // removers and `forget_address`, an operator's removal
+            // (ADR-0062), reached only through the libp2p crate's
+            // canonicalizing `forget_route` -- and its two calls into the
+            // policy.
             ("release_from_book(", 2),
-            ("hand_over(", 5),
+            ("hand_over(", 6),
         ] {
             let calls = production.matches(pattern).count();
             assert_eq!(
