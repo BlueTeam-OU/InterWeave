@@ -12,6 +12,7 @@
 #![forbid(unsafe_code)]
 
 pub mod bridge;
+pub mod card;
 pub mod content;
 pub mod meta;
 pub mod pull;
@@ -20,6 +21,7 @@ pub mod reply_token;
 pub mod tools;
 
 pub use bridge::{BridgeState, ChannelNotification, ConvertError, REPLY_TOKEN_ENTROPY_BYTES};
+pub use card::CardDrop;
 pub use content::{ChannelContent, PayloadEncoding, Undecodable, channel_content};
 pub use meta::{ChannelMeta, MAX_META_VALUE_BYTES, MetaError, MetaKey};
 pub use pull::{PullQueue, Take};
