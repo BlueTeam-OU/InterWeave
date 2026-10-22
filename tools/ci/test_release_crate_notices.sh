@@ -126,6 +126,22 @@ status=$?
     && pass "cargo failing is exit 1, named, with no file left" \
     || fail "cargo failing: exit $status" "$(cat "$SANDBOX/err")"
 
+# cargo tree failing after metadata succeeded: its own message, exit 1,
+# never cargo's status.
+cat > "$STUB/cargo" <<EOF
+#!/bin/sh
+case "\$1" in
+metadata) cat "$M" ;;
+*) echo "error: tree failed" >&2; exit 101 ;;
+esac
+EOF
+echo stale > "$OUT"
+run aarch64-linux-android interweave-human-android "$OUT"
+status=$?
+[[ $status == 1 && ! -e "$OUT" ]] && grep -qF 'cargo tree failed' "$SANDBOX/err" \
+    && pass "cargo tree failing is exit 1, named, with no file left" \
+    || fail "cargo tree failing: exit $status" "$(cat "$SANDBOX/err")"
+
 bash "$UNDER_TEST" aarch64-linux-android >/dev/null 2>&1; status=$?
 [[ $status == 2 ]] && pass "a missing argument is a usage error" || fail "two arguments: exit $status, not 2"
 help_out="$(bash "$UNDER_TEST" --help 2>/dev/null)"
