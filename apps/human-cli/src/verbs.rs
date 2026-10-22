@@ -71,6 +71,27 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         Verb::Unkeep(id) => row_action(s, r, RowVerb::Unkeep, id, out).await,
         Verb::TrustList => trust_list(s, r, out).await,
         Verb::SetTrust(peer, allowed) => set_trust(s, r, peer, *allowed, out).await,
+        Verb::CardShow => crate::cards::card_show(s, r, out).await,
+        Verb::CardSet {
+            name,
+            surname,
+            photo,
+        } => crate::cards::card_set(s, name, surname.as_deref(), photo, out).await,
+        Verb::CardShare(key) => crate::cards::card_share(s, r, key, out).await,
+        Verb::Proposals => crate::cards::proposals(s, r, out).await,
+        Verb::ProposalsRead {
+            conversation,
+            accept,
+            decline,
+        } => crate::cards::proposals_read(s, r, conversation, accept, decline, out).await,
+        Verb::Contacts => crate::cards::contacts(s, r, out).await,
+        Verb::ContactShow(id) => crate::cards::contact_show(s, r, id, out).await,
+        Verb::ContactRename(id, name) => {
+            crate::cards::contact_edit(s, id, Some(name), None, out).await
+        }
+        Verb::ContactPhoto(id, photo) => {
+            crate::cards::contact_edit(s, id, None, Some(photo), out).await
+        }
         Verb::Send { text: None, .. }
         | Verb::Listen
         | Verb::IdentitiesList
@@ -86,7 +107,10 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
 /// whether or not it opens, and what the daemon held for this client is
 /// handed over first when it does. Why it did not open goes to stderr, for
 /// a person; a script reads `status`.
-async fn look<B: DataSessionBinding, A: AdminBinding>(s: &mut Session<B, A>, r: &Run<'_>) {
+pub(crate) async fn look<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+) {
     let opening = s.open(r.until).await;
     if opening == Opening::Ready {
         s.settle(r.until).await;
@@ -99,7 +123,7 @@ async fn look<B: DataSessionBinding, A: AdminBinding>(s: &mut Session<B, A>, r: 
 }
 
 /// Open the session for a verb that needs it, or fail as it did.
-async fn ready<B: DataSessionBinding, A: AdminBinding>(
+pub(crate) async fn ready<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
 ) -> Result<(), Failure> {
@@ -118,7 +142,9 @@ fn print_messages<B: DataSessionBinding, A: AdminBinding>(
 }
 
 /// A command the model side reports as not carried out, as a failure.
-fn problems<B: DataSessionBinding, A: AdminBinding>(s: &mut Session<B, A>) -> Result<(), Failure> {
+pub(crate) fn problems<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+) -> Result<(), Failure> {
     let Some(problem) = s.side().take_problems().into_iter().next() else {
         return Ok(());
     };
