@@ -1132,9 +1132,19 @@ PeerId:
 
 **Desktop**: R is today's `RefusalWindow` page for
 `RefusalStoreRecovery`. Its actions become, from the start: **Delete
-stored data…** (`DiscardStore`, an outlined button in `error`, at the
-start side, apart from the others), then at the end **Close** and **Try
-again** (filled). The ellipsis says a further step follows.
+stored data…** (`DiscardStore`, an outlined button in `error`) on a
+line of its own at the start side, then, on the line below it, at the
+end, **Close** (text) and **Try again** (filled, the initial focus). The
+two lines hold at every width: the three do not fit one line of the
+window's 320 px minimum, and a layout that moved the button only when
+narrow would have to read the window's width, which Slint 1.18 refuses
+as a binding loop (rust-ui-dev-01, 2026-10-22). Above rather than below
+keeps Close and Try again where a desktop dialog's actions sit, at the
+bottom end, and keeps the destructive action apart from the primary one
+by its line and its side; a press on it only opens the confirmation
+(§7.2), so its place cannot lose data. Tab follows the reading order:
+Delete stored data…, Close, Try again. The ellipsis says a further step
+follows.
 `RefusalStoreRecovery`'s text ("Nothing was changed…") stays
 true until the person confirms; its sentence on
 replacing the file with a backup copy no longer fits an encrypted
@@ -1151,7 +1161,8 @@ task). No file path: the person cannot reach it. **K** has heading
 the key that protects the app's stored data, which happens after some
 changes to the screen lock; the stored data cannot be read again; the
 device's PeerId and recovery phrase are not affected, and neither are the
-identities, which are configuration), primary **Delete stored data…**, then
+identities, which are configuration; and the way forward: Delete stored
+data, which shows what is lost before anything is deleted), primary **Delete stored data…**, then
 **Close**. K has no Try again: the platform has said the key is gone.
 
 ### 7.2 Building the confirmation
@@ -1170,8 +1181,9 @@ reason):
   list's lead-in says (ADR-0061 d. 9: no action whose scope the person
   cannot see): your contacts and their routes; messages waiting to be
   sent; unread and kept messages; your conversation list; the names and
-  photos of your identities; the app's settings; and "a message you
-  already received may show again";
+  photos of your identities; the app's settings; and the record of the
+  messages you already received, which is why one of them might show
+  again (an item of the list, since the lead-in says what is deleted);
 - `DiscardStoreKeeps`: this device's PeerId and recovery phrase, the
   peers you trust, and your network settings are not affected; your
   identities stay, since they are the profile's endpoints (ADR-0061
