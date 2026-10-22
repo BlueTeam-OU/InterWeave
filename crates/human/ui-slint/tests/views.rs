@@ -3212,7 +3212,11 @@ fn a_phone_wide_list_shows_no_row_selected() {
     press(&view, text(UiText::BackToConversations));
     let _ = intents(&mut view, &mut model);
     view.render(&model);
-    assert_eq!(listed_selected(&view), vec![false], "nothing open beside it");
+    assert_eq!(
+        listed_selected(&view),
+        vec![false],
+        "nothing open beside it"
+    );
 
     resize(&view, 1000.0);
     view.render(&model);
