@@ -71,3 +71,18 @@ and a key that changes on a known route is a proposal the person
 decides. The envelope schema is `active`, but no producer of a
 `contact_card` exists on `main` (plan §29 step 1 is unbuilt), so the
 card branch is tightened in place as a minor, 2.2.0 (ADR-0049).
+
+### Amendment 2026-10-22 — The accepted photo is bytes in `contacts.photo`; `avatar_ref` is retired (iv)
+
+Plan §29 step 2 found the contacts row with an `avatar_ref` TEXT column
+and nothing to hold the accepted photo, which the contact page and the
+conversation title show after a restart. Decision 5 already says a
+photo is bytes in the envelope, never a reference, so the store keeps
+the card's encoded bytes in `contacts.photo` (a BLOB within
+HUMAN-CHAT.md's bound, decoded at display with the memory-safe decoder
+at the fixed size, inside the store and so inside step 3's cipher and
+the deletion property) and v9 drops `avatar_ref`. Rejected: a file under
+`<state_dir>/human` keyed by hash (content outside the store's cipher
+and deletion property); keeping no photo (defers the provenance
+criterion). Propagation: the Consequences sentence; this note; the log
+row; the digest entry; STATE.md's row.
