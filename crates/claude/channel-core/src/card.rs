@@ -108,7 +108,7 @@ impl CardDrop {
     /// name, both key faults as one, the three signature faults as one,
     /// the envelope-wide faults as one.
     #[must_use]
-    pub const fn of(fault: CardFault) -> Self {
+    pub(crate) const fn of(fault: CardFault) -> Self {
         match fault {
             CardFault::PhotoTooLarge => Self::PhotoSize,
             CardFault::PhotoEncoding => Self::PhotoEncoding,
