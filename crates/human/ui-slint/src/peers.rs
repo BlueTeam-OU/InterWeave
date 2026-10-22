@@ -149,9 +149,9 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     });
     let s = Rc::clone(shared);
     window.on_row_trust(move |handle| {
-        let peer = s.borrow().peer_rows.get(&handle).and_then(|r| r.1.clone());
-        if let Some(peer) = peer {
-            enqueue(&s, Input::Peers(PeersInput::Trust(peer)));
+        let address = s.borrow().peer_rows.get(&handle).map(|r| r.0.clone());
+        if let Some(address) = address {
+            enqueue(&s, Input::Peers(PeersInput::TrustRow(address)));
         }
     });
     let s = Rc::clone(shared);
