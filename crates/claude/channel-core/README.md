@@ -1,7 +1,7 @@
 # channel-core
 
 The Claude Code Channel bridge's pure half (plan §19 step 2):
-- what a session's events become as `notifications/claude/channel`;
+- what a session's events become as `notifications/claude/channel`, a `HumanChatV2` contact card included: `meta` alone, `content` empty, never the photo, and a malformed or broadcast card dropped under one reason of `CHANNEL-EVENT.md` §Content's closed set (`card.rs`, its one parsing exception);
 - the reply-token table;
 - the tool surface's types and result wording.
 
