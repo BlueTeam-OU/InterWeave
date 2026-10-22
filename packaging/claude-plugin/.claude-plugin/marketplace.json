@@ -1,0 +1,16 @@
+{
+  "name": "interweave",
+  "owner": {
+    "name": "InterWeave"
+  },
+  "metadata": {
+    "description": "The InterWeave Claude Code plugin: the Channel bridge between Claude Code and the InterWeave transport daemon."
+  },
+  "plugins": [
+    {
+      "name": "interweave",
+      "source": "./interweave",
+      "description": "The InterWeave Claude Code Channel bridge: messages from InterWeave peers arrive as channel events, and seven tools send, reply, join and leave."
+    }
+  ]
+}
