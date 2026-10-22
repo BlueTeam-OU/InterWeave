@@ -1265,9 +1265,10 @@ mod tests {
     }
 
     /// Every class, state and host text, as `host` reads it: what the
-    /// platform-value tests walk. An exhaustive match keeps the lists
-    /// whole: a variant added to either enum fails to compile until it is
-    /// named here.
+    /// platform-value tests walk. A `Connectivity` variant fails to
+    /// compile until `state` names it, and an `ErrorClass` one until
+    /// `every_class` does; each array must gain it too, which nothing
+    /// enforces.
     fn host_dependent(host: RuntimeHost) -> Vec<&'static str> {
         const fn state(state: Connectivity) -> Connectivity {
             match state {
@@ -1310,6 +1311,8 @@ mod tests {
     /// `AnnounceOwnStatusReason`, `NotSent`, `Refused`).
     #[test]
     fn statuses_end_bare_and_every_reason_ends_with_a_period() {
+        // Listed by hand: a waiting text added later is not walked here
+        // until it is added.
         let waiting = [
             UiText::WaitingSending,
             UiText::WaitingSendingNoPath,
