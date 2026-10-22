@@ -1270,6 +1270,7 @@ impl Peers {
 
     fn undone(&mut self, address: String) {
         self.snack = None;
+        self.after_remove = None;
         self.ask_focus(PeersFocus::Row(address));
     }
 
@@ -1279,7 +1280,9 @@ impl Peers {
     fn undo_not_made(&mut self, snack: PeersSnack) {
         self.say(snack);
         let list = self.list.clone().unwrap_or_default();
-        let kept = self.after_remove.take().filter(|f| match f {
+        // Read, not taken: a Try again refused or failed again goes the
+        // same way (section 8), until an Undo lands or a new Remove.
+        let kept = self.after_remove.clone().filter(|f| match f {
             PeersFocus::Row(row) => listed(&list, row),
             _ => true,
         });

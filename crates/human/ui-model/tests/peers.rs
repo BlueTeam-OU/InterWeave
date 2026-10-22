@@ -1311,3 +1311,34 @@ fn one_blocks_lost_trust_leaves_anothers_known_answer() {
     assert_eq!(blocks[0].state, BlockState::Trusted, "A's answer stands");
     assert_eq!(blocks[1].state, BlockState::Checking);
 }
+
+/// A Try again on a failed Undo that fails again goes as the first did,
+/// to the row after the removed one (section 8), not the first row shown.
+#[test]
+fn a_second_failed_undo_keeps_its_focus() {
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    // Shown C, B, A.
+    let mut m = opened(&me, &[], &[added(&a), added(&b), added(&c)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    let after = [added(&a), added(&c)];
+    m.address_removed(&at(&b), answer(AddressOutcome::Removed, &after));
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))));
+    let failed = || Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable));
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(&[at(&b)], failed());
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Row(at(&a))),
+        "the first failure"
+    );
+    assert_eq!(
+        input(&mut m, PeersInput::TryAgain),
+        vec![Intent::AddAddresses(vec![at(&b)])]
+    );
+    m.addresses_added(&[at(&b)], failed());
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Row(at(&a))),
+        "failed again: as the first"
+    );
+}
