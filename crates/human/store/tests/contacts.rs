@@ -348,3 +348,30 @@ fn an_accepted_photo_is_kept_as_bytes_and_a_photo_the_person_set_is_never_replac
     );
     assert_eq!(contact.photo_source, Some(ValueSource::Person));
 }
+
+#[test]
+fn a_card_replayed_under_the_key_its_route_changed_away_from_is_a_key_change_back() {
+    // TM-55: the route's key went from 1 to 9 on the person's Accept; a
+    // card signed under 1 again is a key change, never an update.
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    store
+        .accept_card(&card(&p, &human, "Ada", 1), 10)
+        .expect("first");
+    store
+        .accept_card(&card(&p, &human, "Ada", 9), 20)
+        .expect("changed by the person");
+    let replayed = card(&p, &human, "Ada", 1);
+    assert_eq!(
+        store.card_standing(&replayed).expect("standing").key,
+        KeyStanding::Changed { recorded: [9; 32] }
+    );
+    assert_eq!(
+        store
+            .card_standing(&card(&p, &human, "Ada", 9))
+            .expect("standing")
+            .key,
+        KeyStanding::Same,
+        "the control: the recorded key is the same"
+    );
+}

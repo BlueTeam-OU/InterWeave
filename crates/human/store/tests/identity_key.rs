@@ -392,3 +392,27 @@ fn a_renamed_key_file_is_refused_at_open() {
         ))
     );
 }
+
+#[test]
+fn a_key_file_refused_as_a_downgrade_is_left_as_it_was() {
+    // A desktop's key file carried to a platform with a wrapping key:
+    // refused at open, named, and never re-sealed there (ADR-0063
+    // decision 2, A 2026-10-22).
+    let (_dir, paths) = desktop_paths();
+    let human = endpoint("human");
+    identity_key::create(&paths, &human, &FilesystemCustody).expect("created");
+    let file = identity_key::key_path(&paths, &human);
+    let before = std::fs::read(&file).expect("read");
+    let keystore = SoftKeystore::default();
+    assert_eq!(
+        identity_key::open(&paths, &human, &keystore).map(|k| k.is_some()),
+        Err(IdentityKeyFileError::Key(
+            IdentityKeyError::CustodyDowngrade
+        ))
+    );
+    assert_eq!(std::fs::read(&file).expect("read"), before, "not re-sealed");
+    assert!(
+        keystore.used.borrow().is_empty(),
+        "no wrapping key made for it"
+    );
+}
