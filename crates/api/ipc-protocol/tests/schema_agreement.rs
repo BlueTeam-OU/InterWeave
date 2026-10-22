@@ -477,7 +477,7 @@ fn the_authority_domain_is_not_a_frame_field() {
 /// covers nothing by itself -- `check_schemas_are_tested.sh` skips
 /// this list and counts only the sites below that read each schema, so a
 /// new schema needs a test that reads it, not only a line here.
-const IPC_SCHEMAS: [&str; 35] = [
+const IPC_SCHEMAS: [&str; 37] = [
     "architecture/contracts/schemas/ipc/admin-status.schema.json",
     "architecture/contracts/schemas/ipc/broadcast-received.schema.json",
     "architecture/contracts/schemas/ipc/capability.schema.json",
@@ -500,6 +500,8 @@ const IPC_SCHEMAS: [&str; 35] = [
     "architecture/contracts/schemas/ipc/peers-address-list.schema.json",
     "architecture/contracts/schemas/ipc/peers-address-params.schema.json",
     "architecture/contracts/schemas/ipc/peers-address-result.schema.json",
+    "architecture/contracts/schemas/ipc/peers-addresses-params.schema.json",
+    "architecture/contracts/schemas/ipc/peers-addresses-result.schema.json",
     "architecture/contracts/schemas/ipc/peers-own-addresses.schema.json",
     "architecture/contracts/schemas/ipc/publish-params.schema.json",
     "architecture/contracts/schemas/ipc/query-params.schema.json",
@@ -1979,5 +1981,116 @@ fn the_own_addresses_shape_holds_what_the_contract_says() {
         }),
         Err(TransportError::Internal),
         "a port past the bound is answered Internal, never cut"
+    );
+}
+
+/// The all-or-none add (ADR-0062 decision 4), `approved` before its
+/// wire: 1 to 16 lines in, and out either one row per line, each added
+/// or unchanged, or a refusal naming its rule and -- for every rule but
+/// the provider's, which refuses the list whole -- the line's index, the
+/// two halves never mixed.
+#[test]
+fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
+    let params = "architecture/contracts/schemas/ipc/peers-addresses-params.schema.json";
+    let result = "architecture/contracts/schemas/ipc/peers-addresses-result.schema.json";
+    let refuses = |path: &str, instance: Value| {
+        assert!(
+            !validator(path).is_valid(&instance),
+            "{path} admits {instance}"
+        );
+    };
+    let peer = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+    let address = format!("/ip4/192.168.1.20/tcp/4001/p2p/{peer}");
+
+    assert_valid(params, &serde_json::json!({ "addresses": [address] }));
+    assert_valid(
+        params,
+        &serde_json::json!({ "addresses": vec![address.clone(); 16] }),
+    );
+    refuses(
+        params,
+        serde_json::json!({ "addresses": vec![address.clone(); 17] }),
+    );
+    refuses(params, serde_json::json!({ "addresses": [] }));
+    refuses(params, serde_json::json!({}));
+    refuses(params, serde_json::json!({ "addresses": [""] }));
+    refuses(
+        params,
+        serde_json::json!({ "addresses": ["x".repeat(1025)] }),
+    );
+    refuses(params, serde_json::json!({ "addresses": address }));
+    refuses(
+        params,
+        serde_json::json!({ "addresses": [address], "source": "scan" }),
+    );
+
+    let row = |outcome: &str| serde_json::json!({ "outcome": outcome });
+    assert_valid(
+        result,
+        &serde_json::json!({ "outcome": "added", "lines": [row("added"), row("unchanged")] }),
+    );
+    assert_valid(
+        result,
+        &serde_json::json!({ "outcome": "added", "lines": vec![row("unchanged"); 16] }),
+    );
+    refuses(result, serde_json::json!({ "outcome": "added" }));
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "added", "lines": [] }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "added", "lines": vec![row("added"); 17] }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "added", "lines": [row("removed")] }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "added", "lines": [row("added")], "refused": "bound", "index": 0 }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "added", "lines": [row("added")], "index": 0 }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "unchanged", "lines": [row("unchanged")] }),
+    );
+
+    for reason in ["grammar", "special_use", "bound"] {
+        assert_valid(
+            result,
+            &serde_json::json!({ "outcome": "refused", "refused": reason, "index": 15, "detail": "why" }),
+        );
+        refuses(
+            result,
+            serde_json::json!({ "outcome": "refused", "refused": reason }),
+        );
+        refuses(
+            result,
+            serde_json::json!({ "outcome": "refused", "refused": reason, "index": 16 }),
+        );
+        refuses(
+            result,
+            serde_json::json!({ "outcome": "refused", "refused": reason, "index": 0, "lines": [row("added")] }),
+        );
+    }
+    assert_valid(
+        result,
+        &serde_json::json!({ "outcome": "refused", "refused": "provider_disabled" }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "refused", "refused": "provider_disabled", "index": 0 }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "refused", "refused": "authored", "index": 0 }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "refused", "index": 0 }),
     );
 }

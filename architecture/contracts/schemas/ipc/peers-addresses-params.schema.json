@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:peers-addresses-params",
+  "title": "IPC admin.peers.add_addresses params",
+  "description": "A list of bootstrap addresses added all or none (ADR-0062 decision 4: a scan, or a pasted list of lines), in the order given: each one as admin.peers.add_address's `address`, a multiaddr-with-peer-id in the configuration's grammar, parsed by that grammar and nothing looser by the method, which answers a line outside it as a refusal naming the line. At least one line and at most 16, the QR's cut; the list arrives whole or not at all, so a client sends what it trimmed and kept, never a line at a time. The length bound refuses an absurd string before it is parsed; it is not the grammar.",
+  "type": "object",
+  "required": [
+    "addresses"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "addresses": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      }
+    }
+  },
+  "x-contract": {
+    "name": "ipc.peers-addresses-params",
+    "status": "approved",
+    "version": "1.0.0",
+    "adr": [
+      "0062",
+      "0017",
+      "0028",
+      "0052"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}
