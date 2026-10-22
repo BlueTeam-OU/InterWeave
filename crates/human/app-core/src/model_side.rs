@@ -210,13 +210,14 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
             Update::CardShared { key, at, .. } => self.model.card_shared(key, at),
             Update::Client(event) => {
-                // A session ready with either list unread reads it: the
-                // no-reach notice needs both, and a runtime that was not
-                // up at start could answer neither then.
-                if matches!(event, ClientEvent::Session(SessionState::Ready { .. }))
-                    && (self.model.peers().list().is_none()
-                        || self.model.trust_settings().list().is_none())
-                {
+                // Every session that becomes ready reads both lists: the
+                // no-reach notice needs both, a runtime that was not up at
+                // start answered neither, and one restarted may hold others
+                // (its configuration reloaded). The facade raises Ready
+                // only on a change, and a read already on its way asks no
+                // second, so a flapping session stacks no reads. The lists
+                // as last read stand until the answers come.
+                if matches!(event, ClientEvent::Session(SessionState::Ready { .. })) {
                     self.reads_owed = true;
                 }
                 self.model.client_event(event);

@@ -1685,3 +1685,48 @@ async fn a_step_two_trust_answer_is_drawn_by_the_turn_that_takes_it() {
         }
     }
 }
+
+/// A session that becomes ready again -- a reconnection, the runtime
+/// perhaps restarted with other lists -- reads both lists again, once,
+/// though both were read before.
+#[tokio::test]
+async fn a_new_session_reads_both_lists_again() {
+    use interweave_human_client_api::{ClientEvent, SessionState};
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    for now in 0..4 {
+        root.pump(now).await;
+    }
+    // Both lists read: the fake answers the address read as from an
+    // older runtime, so it is given here as read and empty.
+    root.model.apply(Update::AddressesRead(Ok(
+        interweave_human_client_api::AddressList {
+            addresses: Vec::new(),
+        },
+    )));
+    assert!(root.model().trust_settings().list().is_some());
+    assert!(root.model().peers().list().is_some());
+    root.commands.clear();
+    root.model.apply(Update::Client(ClientEvent::Session(
+        SessionState::Reconnecting {
+            attempt: 1,
+            next_at: 0,
+        },
+    )));
+    root.model
+        .apply(Update::Client(ClientEvent::Session(SessionState::Ready {
+            endpoint: None,
+        })));
+    let commands = root.model.turn();
+    let count = |want: fn(&Command) -> bool| commands.iter().filter(|c| want(c)).count();
+    assert_eq!(
+        count(|c| matches!(c, Command::ReadTrust)),
+        1,
+        "{commands:?}"
+    );
+    assert_eq!(
+        count(|c| matches!(c, Command::ReadAddresses)),
+        1,
+        "{commands:?}"
+    );
+}
