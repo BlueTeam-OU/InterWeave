@@ -566,3 +566,72 @@ async fn a_peer_added_by_address_is_listed_refused_by_class_and_removed() {
     a_daemon.terminate().await;
     b_daemon.terminate().await;
 }
+
+/// ADR-0060 decision 6 as a shell runs it: a store whose key is gone is
+/// reported needing recovery, its discard is refused without the scope it
+/// lists, and the confirmed discard recreates it empty. The daemon is A's
+/// alone, so the message A sends to B stays pending in A's store.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_store_without_its_key_is_discarded_only_on_its_confirmed_scope() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (a, b) = (Home::new("human-desktop"), Home::new("human-desktop"));
+    let (_a_peer, b_peer) = (a.write_key(), b.write_key());
+    let (a_port, b_port) = (free_port(ip), free_port(ip));
+    a.write_config(&example(
+        "human-desktop.yaml",
+        &b_peer,
+        &format!("/ip4/{ip}/tcp/{a_port}"),
+        Some(&format!("/ip4/{ip}/tcp/{b_port}/p2p/{}", b_peer.as_str())),
+    ));
+    let mut a_daemon = a.start(&[]);
+    a_daemon.serving(&a).await;
+    runtime_up(&mut a_daemon).await;
+
+    let out = human(
+        &a,
+        &["send", b_peer.as_str(), "to nobody yet", "--wait", "500"],
+        "",
+    );
+    assert!(matches!(code(&out), Some(1 | 6)), "{}", said(&out));
+    let out = human(&a, &["store", "health", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["pending"], 1, "{}", said(&out));
+
+    std::fs::remove_file(a.paths.state_dir().join("human-store.key")).expect("the store key");
+    let out = human(&a, &["store", "health", "--json"], "");
+    assert_eq!(code(&out), Some(5), "{}", said(&out));
+    let report = &lines(&out)[0];
+    assert_eq!(report["health"], "needs-recovery", "{}", said(&out));
+    assert_eq!(report["key"], "absent", "{}", said(&out));
+
+    let out = human(&a, &["store", "discard"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("discard     everything"),
+        "{}",
+        said(&out)
+    );
+    let out = human(
+        &a,
+        &["store", "discard", "--confirm", "unfinished-plaintext"],
+        "",
+    );
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    let out = human(&a, &["store", "health", "--json"], "");
+    assert_eq!(lines(&out)[0]["health"], "needs-recovery", "refused, kept");
+
+    let out = human(
+        &a,
+        &["store", "discard", "--confirm", "everything", "--json"],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["recreated"], true, "{}", said(&out));
+    let out = human(&a, &["store", "health", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let report = &lines(&out)[0];
+    assert_eq!(report["key"], "present", "{}", said(&out));
+    assert_eq!(report["pending"], 0, "{}", said(&out));
+
+    a_daemon.terminate().await;
+}
