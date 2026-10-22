@@ -655,12 +655,7 @@ impl Peers {
     /// Whether step one can act: the page open, nothing on its way, and
     /// no result yet.
     fn step_one(&self) -> bool {
-        self.in_flight.is_none()
-            && self.check.is_none()
-            && self
-                .page
-                .as_ref()
-                .is_some_and(|p| p.result.is_none() && p.blocks.is_empty())
+        self.in_flight.is_none() && self.check.is_none() && self.step_one_shown()
     }
 
     /// Add pressed: the field's lines, or why not.
@@ -1440,6 +1435,17 @@ impl Peers {
     #[must_use]
     pub const fn add_open(&self) -> bool {
         self.page.is_some()
+    }
+
+    /// Whether the add page is at step one -- the field, its helper and
+    /// Add -- rather than its result or a trust step: open with no result
+    /// and no block. A row's Trust opens the trust step alone, so the
+    /// view draws no step-one control a press would not reach.
+    #[must_use]
+    pub fn step_one_shown(&self) -> bool {
+        self.page
+            .as_ref()
+            .is_some_and(|p| p.result.is_none() && p.blocks.is_empty())
     }
 
     /// The field's text.

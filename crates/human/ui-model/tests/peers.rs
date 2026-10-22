@@ -554,6 +554,38 @@ fn a_removal_offers_undo_unless_the_list_is_off() {
     assert!(input(&mut m, PeersInput::Remove(at(&a))).is_empty());
 }
 
+/// A row's Trust opens the trust step for its peer alone: the page is
+/// open with one block, and step one -- the field and Add -- is not on
+/// show, so nothing drawn is a control a press would not reach. Add an
+/// address opens step one.
+#[test]
+fn a_rows_trust_opens_the_trust_step_without_step_one() {
+    let (me, a) = (peer(), peer());
+    let mut m = opened(&me, &[], &[added(&a)]);
+    assert!(!m.peers().step_one_shown(), "no page");
+
+    let _ = input(&mut m, PeersInput::Trust(a.clone()));
+    assert!(m.peers().add_open());
+    assert_eq!(m.peers().blocks(m.trust_settings()).len(), 1);
+    assert!(!m.peers().step_one_shown(), "the trust step alone");
+
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    assert!(m.peers().step_one_shown());
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&a)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            &[added(&a)],
+        ),
+    );
+    assert!(!m.peers().step_one_shown(), "step one done: its result");
+}
+
 /// Focus after a removal walks the rows as Peers shows them -- added
 /// newest first, then the configuration's -- never the runtime's order:
 /// the next row shown, else the previous; and an Undo refused goes as
