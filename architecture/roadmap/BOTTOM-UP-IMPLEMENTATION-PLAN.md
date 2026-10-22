@@ -6033,7 +6033,8 @@ decision 6.
    with `<uses-feature android:name="android.hardware.camera"
    android:required="false"/>` beside it — any other permission or a
    required camera feature fails the check by name, so a permission
-   enters the app only through a record that names it here.
+   enters the app only through a record that names it here; and from
+   step 5 it holds the camera APIs to the Scan module alone.
 3. **The encrypted store** (rust-ui-dev, after SPIKE-011): the store
    key, its versioned sealed file, the Android sealing in its own
    alias namespace apart from the seed custody under
@@ -6068,11 +6069,7 @@ decision 6.
 ### Exit gate
 
 (a) Steps 1–5 landed with their tests green on `main`; (b) the
-conformance cases, by name: on Android the camera permission is asked
-at the first Scan and at no other moment, a refusal leaves the Scan
-screen offering typing, and no camera use exists outside that screen
-(ADR-0062 decision 8, A 2026-10-22; the manifest check's allow-list
-holds `CAMERA` with the camera feature not required); a valid card accepted creates the contact
+conformance cases, by name: a valid card accepted creates the contact
 and names the conversation; a card from an unknown kind or over a bound
 is rejected locally with no network effect; a card over broadcast is
 ignored; a second card from the same route is a new proposal and
@@ -6100,8 +6097,10 @@ without its confirmation flag; every action
 of steps 2 and 3 driven from the command-line client in a shell with
 no display; the photo is not
 decoded before Accept; no contacts permission, no contacts library,
-`allowBackup="false"` and total extraction rules in the Android build
-(the tree check, broken on purpose once per declaration); the
+`allowBackup="false"` and total extraction rules in the Android build,
+and the permission allow-list of step 2 (the tree check, broken on
+purpose once per declaration and once per allow-list failure: an extra
+permission, and the camera feature declared required); the
 store file, its log and its journal contain no plaintext of a contact
 name, a route or a retained message after a clean close and after an
 unclean one; a store whose key is missing opens nothing, reaches recovery mode
@@ -6117,7 +6116,14 @@ implications) and over `read_pairs`, `conversation_index`,
 `contact_routes.last_seen` and the contacts' provenance columns, which
 STATE.md puts in the same review; (e) step 5's cases, by name: an
 address added on the phone for a trusted peer is dialled and survives a
-restart, with no static-bootstrap entry authored; a string outside the
+restart, with no static-bootstrap entry authored; on Android the camera
+permission is asked at the first Scan and at no other moment, and a
+refusal leaves the Scan screen offering typing (ADR-0062 decision 8,
+A 2026-10-22; device rows: an instrumented test or a dated device-run
+record, as §20 (b) defines them), and no camera use exists outside the
+Scan screen (the tree check of step 2: the camera APIs referenced from
+the Scan module and nowhere else in `apps/human-android`, broken on
+purpose once); a string outside the
 grammar is refused by name and nothing is stored; the 65th entry is
 refused, and a profile whose authored and added entries exceed 64 fails
 to start naming the overlay; every special-use class of ADR-0052 rule 2
