@@ -53,6 +53,7 @@ WITH_DNS='const DIALABLE_HOST_PROTOCOLS: [&str; 4] = ["ip4", "ip6", "dns4", "dns
 run_against() {
     local features="$1" dialable="$2" member="${3:-}"
     SANDBOX="$(mktemp -d)"
+    [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_dialable_hosts: no sandbox (mktemp failed)" >&2; exit 1; }
     mkdir -p "$SANDBOX/tools/checks" "$SANDBOX/crates/config/profile-config/src"
     cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
     printf '%s\n' "$dialable" > "$SANDBOX/crates/config/profile-config/src/lib.rs"
@@ -173,6 +174,7 @@ assert_rc "the bare form every member uses passes" 0
 # the end of that line, with or without a trailing comment.
 one_line_case() {
     SANDBOX="$(mktemp -d)"
+    [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_dialable_hosts: no sandbox (mktemp failed)" >&2; exit 1; }
     mkdir -p "$SANDBOX/tools/checks" "$SANDBOX/crates/config/profile-config/src"
     cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
     printf '%s\n' "$IP_ONLY" > "$SANDBOX/crates/config/profile-config/src/lib.rs"
@@ -196,6 +198,7 @@ assert_rc "nor does one with a trailing comment" 0
 # relies on that.
 roster_case() {
     SANDBOX="$(mktemp -d)"
+    [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_dialable_hosts: no sandbox (mktemp failed)" >&2; exit 1; }
     mkdir -p "$SANDBOX/tools/checks" "$SANDBOX/crates/config/profile-config/src" "$SANDBOX/m"
     cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
     printf '%s\n' "$IP_ONLY" > "$SANDBOX/crates/config/profile-config/src/lib.rs"
@@ -225,6 +228,7 @@ assert_contains "and names it" "lists gone"
 # a malformed input exited 1 -- the code this guard uses for "they
 # disagree".
 SANDBOX="$(mktemp -d)"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_dialable_hosts: no sandbox (mktemp failed)" >&2; exit 1; }
 mkdir -p "$SANDBOX/tools/checks" "$SANDBOX/crates/config/profile-config/src"
 cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
 printf '%s\n' "$IP_ONLY" > "$SANDBOX/crates/config/profile-config/src/lib.rs"
@@ -235,6 +239,7 @@ assert_rc "a manifest with no libp2p array exits 2, not 1" 2
 assert_contains "and says which file it could not read" "found no libp2p feature array"
 
 SANDBOX="$(mktemp -d)"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_dialable_hosts: no sandbox (mktemp failed)" >&2; exit 1; }
 mkdir -p "$SANDBOX/tools/checks" "$SANDBOX/crates/config/profile-config/src"
 cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
 printf '// no such const here\n' > "$SANDBOX/crates/config/profile-config/src/lib.rs"
@@ -246,6 +251,7 @@ assert_rc "a source with no DIALABLE_HOST_PROTOCOLS exits 2, not 1" 2
 assert_contains "and names that one too" "found no DIALABLE_HOST_PROTOCOLS"
 
 SANDBOX="$(mktemp -d)"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_dialable_hosts: no sandbox (mktemp failed)" >&2; exit 1; }
 RUN_OUT="$( cd "$SANDBOX" && bash "$UNDER_TEST" 2>&1 )"; RUN_RC=$?
 rm -rf "$SANDBOX"; SANDBOX=""
 assert_rc "a tree with no manifest exits 2" 2

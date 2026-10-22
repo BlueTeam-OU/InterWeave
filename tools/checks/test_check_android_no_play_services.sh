@@ -19,6 +19,7 @@ REAL="$REPO/apps/human-android/android"
 
 failures=0
 TMP="$(mktemp -d)"
+[ -n "$TMP" ] && [ -d "$TMP" ] || { echo "test_check_android_no_play_services: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
 
 ok()  { echo "  ✓ $1"; }
@@ -33,6 +34,7 @@ run()      { bash "$GUARD" --root "$1" 2>&1; }
 tree() {
     local r g
     r="$(mktemp -d "$TMP/r.XXXXXX")"
+    [ -n "$r" ] && [ -d "$r" ] || { echo "test_check_android_no_play_services: no sandbox (mktemp failed)" >&2; exit 1; }
     g="$r/apps/human-android/android"
     mkdir -p "$g/app"
     cp "$REAL/build.gradle.kts" "$REAL/settings.gradle.kts" "$REAL/buildscript-gradle.lockfile" "$REAL/settings-gradle.lockfile" "$g/"
@@ -147,7 +149,9 @@ echo "a clone under a directory named build or .gradle is still read"
 # -path once matched the root's own prefix, so such a clone read nothing
 # and printed OK (review of #307, finding 1).
 for d in build .gradle; do
-    R="$(mktemp -d "$TMP/$d.XXXXXX")"; mkdir -p "$R/$d"
+    R="$(mktemp -d "$TMP/$d.XXXXXX")"
+    [ -n "$R" ] && [ -d "$R" ] || { echo "test_check_android_no_play_services: no sandbox (mktemp failed)" >&2; exit 1; }
+    mkdir -p "$R/$d"
     T="$(tree)"; mv "$T" "$R/$d/clone"; R="$R/$d/clone"
     add "$R/apps/human-android/android/app/gradle.lockfile" "com.google.firebase:firebase-messaging:24.1.0=releaseRuntimeClasspath"
     expect_fail "$R" "a clone below $d/" "com.google.firebase:firebase-messaging:24.1.0 on releaseRuntimeClasspath"

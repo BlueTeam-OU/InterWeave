@@ -15,6 +15,7 @@ GUARD="$SCRIPT_DIR/check_component_status.sh"
 
 failures=0
 TMP="$(mktemp -d)"
+[ -n "$TMP" ] && [ -d "$TMP" ] || { echo "test_check_component_status: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
 
 ok()  { echo "  ✓ $1"; }

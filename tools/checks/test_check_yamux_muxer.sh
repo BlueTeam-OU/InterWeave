@@ -38,6 +38,7 @@ fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2
 # A sandbox whose `cargo tree` prints the graph this case is about.
 run_against() {
     SANDBOX="$(mktemp -d)"
+    [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_yamux_muxer: no sandbox (mktemp failed)" >&2; exit 1; }
     mkdir -p "$SANDBOX/tools/checks" "$SANDBOX/bin"
     cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
     cat > "$SANDBOX/bin/cargo" <<EOF
@@ -62,6 +63,7 @@ EOF
 # difference.
 run_against_target_only() {
     SANDBOX="$(mktemp -d)"
+    [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_yamux_muxer: no sandbox (mktemp failed)" >&2; exit 1; }
     mkdir -p "$SANDBOX/tools/checks" "$SANDBOX/bin"
     cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
     cat > "$SANDBOX/bin/cargo" <<'STUB'
