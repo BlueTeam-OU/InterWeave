@@ -142,11 +142,169 @@ refused "a compiled list without the named package's own line" \
 # run above, with the same crate defined but not compiled, is the control).
 { cat "$SANDBOX/compiled.txt"; echo "bare v1.0.0"; } > "$SANDBOX/bare.txt"
 refused "a compiled crate that publishes no licence file" \
-    "bare 1.0.0 (MIT) publishes no licence file, so its notice cannot be shipped" "$SANDBOX/bare.txt" app
+    "bare 1.0.0 (MIT) publishes no licence file and notice_derived.json does not list it" "$SANDBOX/bare.txt" app
 metadata broken
 { cat "$SANDBOX/compiled.txt"; echo "nolicence v1.0.0"; } > "$SANDBOX/nolicence.txt"
 refused "a compiled crate with no licence expression and no licence file" \
     "nolicence 1.0.0 has no licence expression and no licence file" "$SANDBOX/nolicence.txt" app
+
+# --- Derived notices (ADR-0058 decision 2, A 2026-10-22) ------------------
+# Six crates that publish no licence file, one per case and edge. The
+# script and its pinned texts are copied into the sandbox, so a text can
+# be tampered with there.
+D="$SANDBOX/derived"
+mkdir -p "$D/tool"
+cp "$UNDER_TEST" "$D/tool/"
+cp -r "$SCRIPT_DIR/licence_texts" "$D/tool/"
+src() {  # src <crate> <path> <text>: a source file of a sandbox crate.
+    mkdir -p "$(dirname "$D/crates/$1/$2")"
+    printf '%s\n' "$3" > "$D/crates/$1/$2"
+    printf '[package]\n' > "$D/crates/$1/Cargo.toml"
+}
+MITHDR='// Copyright 2017 Example Ltd.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software, to deal in the Software without restriction.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+pub fn f() {}'
+src hdr src/lib.rs "$MITHDR"
+src hdrtext src/lib.rs '// Copyright 2022 The Example Authors. All rights reserved.
+// Licensed under the MIT license (found in the LICENSE-MIT file).
+
+pub fn f() {}'
+src std src/lib.rs 'pub fn f() {}'
+src spdxonly src/lib.rs '// SPDX-License-Identifier: CC0-1.0
+pub fn f() {}'
+src deep src/lib.rs 'mod inner;'
+src deep src/inner/mod.rs "$MITHDR"
+src docc src/lib.rs '//! Copyright 2020 Doc Writer: a doc comment, not a header.
+pub fn f() {}'
+python3 - "$D" > "$D/metadata.json" <<'PY'
+import json, sys
+root = sys.argv[1] + "/crates"
+def pkg(name, licence, authors=()):
+    return {"id": f"{name}-id", "name": name, "version": "1.0.0", "license": licence,
+            "license_file": None, "authors": list(authors),
+            "manifest_path": f"{root}/{name}/Cargo.toml",
+            "targets": [{"kind": ["lib"], "src_path": f"{root}/{name}/src/lib.rs"}]}
+derived = [pkg("hdr", "MIT"), pkg("hdrtext", "MIT OR Apache-2.0"),
+           pkg("std", "MIT", ["Ann Author <ann@example.invalid>"]),
+           pkg("spdxonly", "CC0-1.0"), pkg("deep", "MIT"), pkg("docc", "BSD-3-Clause")]
+app = {"id": "app-id", "name": "app", "version": "1.0.0", "license": "Apache-2.0",
+       "license_file": None, "manifest_path": f"{root}/app/Cargo.toml", "targets": []}
+normal = [{"kind": None, "target": None}]
+nodes = [{"id": "app-id", "deps": [{"name": p["name"], "pkg": p["id"], "dep_kinds": normal} for p in derived]}]
+nodes += [{"id": p["id"], "deps": []} for p in derived]
+print(json.dumps({"packages": [app] + derived, "workspace_members": ["app-id"], "resolve": {"nodes": nodes}}))
+PY
+printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\n' > "$D/compiled.txt"
+# list <json lines>: the derived list, one crate object per argument.
+list() {
+    local IFS=,
+    printf '{"crates": [%s]}\n' "$*" > "$D/list.json"
+}
+entry() {  # entry <name> <licence> <case> [file]
+    if [[ -n "${4-}" ]]; then
+        printf '{"name": "%s", "version": "1.0.0", "license": "%s", "case": "%s", "file": "%s"}' "$1" "$2" "$3" "$4"
+    else
+        printf '{"name": "%s", "version": "1.0.0", "license": "%s", "case": "%s"}' "$1" "$2" "$3"
+    fi
+}
+GOOD=("$(entry hdr MIT header src/lib.rs)" "$(entry hdrtext 'MIT OR Apache-2.0' header+text src/lib.rs)"
+      "$(entry std MIT standard)" "$(entry spdxonly CC0-1.0 standard)"
+      "$(entry deep MIT header src/inner/mod.rs)" "$(entry docc BSD-3-Clause standard)")
+drun() {
+    NOTICE_DERIVED_JSON="$D/list.json" python3 "$D/tool/release_notices.py" "$D/metadata.json" \
+        "$D/compiled.txt" "$SANDBOX/n.md" app >"$SANDBOX/stdout" 2>"$SANDBOX/err"
+}
+list "${GOOD[@]}"
+if drun; then
+    N="$SANDBOX/n.md"
+    grep -qF -- '- `hdr` 1.0.0: MIT (derived: header) — text T' "$N" \
+        && grep -qx 'Permission is hereby granted, free of charge, to any person obtaining a' "$N" \
+        && pass "a full notice in the root module's header ships as the header" \
+        || fail "the header notice is missing" "$(cat "$N")"
+    grep -qF 'Used by deep 1.0.0 (header of src/inner/mod.rs); hdr 1.0.0 (header of src/lib.rs).' "$N" \
+        && pass "a header found in another source file is the same notice, named by its file" \
+        || fail "the header of a nested source file was not found" "$(grep -n 'Used by' "$N")"
+    grep -qF -- '- `hdrtext` 1.0.0: MIT OR Apache-2.0 (derived: header+text) — text T' "$N" \
+        && grep -qx 'Licensed under the MIT license (found in the LICENSE-MIT file).' "$N" \
+        && grep -qF 'Used by hdrtext 1.0.0 (standard MIT text)' "$N" \
+        && ! grep -qF '<copyright holders>' "$N" \
+        && pass "a header naming its licence ships with the first term's standard text, no placeholder line" \
+        || fail "header+text did not ship the header and the MIT text" "$(cat "$N")"
+    grep -qF 'std 1.0.0 publishes no notice of its own: this is the standard text of MIT' "$N" \
+        && grep -qx 'Copyright (c) Ann Author <ann@example.invalid>' "$N" \
+        && ! grep -qF '<copyright holders>' "$N" \
+        && pass "a crate with no header gets the standard text under its authors" \
+        || fail "the standard text is not under the crate's authors" "$(cat "$N")"
+    grep -qF 'spdxonly 1.0.0 publishes no notice of its own: this is the standard text of CC0-1.0' "$N" \
+        && grep -qx 'Copyright (c) the spdxonly authors' "$N" \
+        && pass "an SPDX tag alone is no notice: the standard text, under the crate's name" \
+        || fail "an SPDX-only crate was not given the standard text" "$(cat "$N")"
+    grep -qF 'docc 1.0.0 publishes no notice of its own: this is the standard text of BSD-3-Clause' "$N" \
+        && grep -qx 'Copyright (c) the docc authors. ' "$N" \
+        && pass "a doc comment is not a header" \
+        || fail "a doc comment was taken for a header" "$(cat "$N")"
+else
+    fail "the derived list was refused" "$(cat "$SANDBOX/err")"
+fi
+
+drefused() {
+    local what="$1" needle="$2"
+    printf 'an earlier run\n' > "$SANDBOX/n.md"
+    if drun; then fail "$what: accepted"
+    elif [[ -e "$SANDBOX/n.md" ]]; then fail "$what: refused but left notices"
+    elif ! grep -qF -- "$needle" "$SANDBOX/err"; then fail "$what: refused without saying $needle" "$(cat "$SANDBOX/err")"
+    else pass "$what: refused"; fi
+}
+# Each beside the passing list above: one entry changed.
+list "${GOOD[@]:1}"
+drefused "a file-less crate the list does not name" "hdr 1.0.0 (MIT) publishes no licence file and notice_derived.json does not list it"
+list "$(entry hdr 'MIT OR Apache-2.0' header src/lib.rs)" "${GOOD[@]:1}"
+drefused "an entry whose licence is not the crate's" "hdr 1.0.0 declares 'MIT'; notice_derived.json lists 'MIT OR Apache-2.0'"
+list "$(entry hdr MIT header src/main.rs)" "${GOOD[@]:1}"
+drefused "a header entry naming another file" "hdr 1.0.0's header is in src/lib.rs; notice_derived.json names src/main.rs"
+list "$(entry hdr MIT standard)" "${GOOD[@]:1}"
+drefused "a standard entry for a crate with a header" "hdr 1.0.0 has a copyright header in src/lib.rs: list it as header or header+text"
+list "${GOOD[@]:0:3}" "$(entry spdxonly CC0-1.0 header src/lib.rs)" "${GOOD[@]:4}"
+drefused "a header entry for an SPDX tag alone" "spdxonly 1.0.0 is listed as header but has no copyright header"
+list "${GOOD[@]}" "$(entry hdr MIT header src/lib.rs)"
+drefused "a crate listed twice" "lists hdr 1.0.0 twice"
+list "$(entry hdr MIT headers src/lib.rs)" "${GOOD[@]:1}"
+drefused "an unknown case" "has case 'headers'"
+list "$(entry hdr MIT header)" "${GOOD[@]:1}"
+drefused "a header entry without its file" "names a file exactly when its case is a header"
+# A file-less crate now publishing a file: its entry must go.
+printf 'the MIT text\n' > "$D/crates/hdr/LICENSE"
+list "${GOOD[@]}"
+drefused "an entry for a crate that publishes a licence file now" "hdr 1.0.0 publishes a licence file now: remove its entry"
+rm "$D/crates/hdr/LICENSE"
+# A standard text that is not its pin; restored after.
+cp "$D/tool/licence_texts/MIT.txt" "$D/MIT.keep"
+printf 'tampered\n' >> "$D/tool/licence_texts/MIT.txt"
+drefused "a standard text changed from its pin" "licence_texts/MIT.txt is not the pinned SPDX text"
+cp "$D/MIT.keep" "$D/tool/licence_texts/MIT.txt"
+drun && pass "the restored text is accepted again" || fail "the restored text was refused" "$(cat "$SANDBOX/err")"
+# A licence with no committed standard text, and one with no first term.
+python3 - "$D/metadata.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+next(p for p in m["packages"] if p["name"] == "std")["license"] = "ISC"
+json.dump(m, open(sys.argv[1], "w"))
+PY
+list "${GOOD[@]:0:2}" "$(entry std ISC standard)" "${GOOD[@]:3}"
+drefused "a licence whose standard text is not committed" "no standard text of ISC is committed"
+python3 - "$D/metadata.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+next(p for p in m["packages"] if p["name"] == "std")["license"] = "(MIT AND ISC) OR Apache-2.0"
+json.dump(m, open(sys.argv[1], "w"))
+PY
+list "${GOOD[@]:0:2}" "$(entry std '(MIT AND ISC) OR Apache-2.0' standard)" "${GOOD[@]:3}"
+drefused "an expression with no single first term" "has no single first term"
 
 python3 "$UNDER_TEST" "$SANDBOX/metadata.json" >/dev/null 2>&1
 [[ $? -eq 2 ]] && pass "a missing argument is a usage error (2)" || fail "a missing argument did not exit 2"

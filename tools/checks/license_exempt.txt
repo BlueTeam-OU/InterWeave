@@ -126,3 +126,16 @@ third_party/wasm-bindgen-futures/src/task/worker.js
 apps/human-android/android/gradle/wrapper/gradle-wrapper.jar
 apps/human-android/android/gradlew
 apps/human-android/android/gradlew.bat
+
+# --- tools/ci/licence_texts: the standard licence texts ------------------
+# ADR-0058 decision 2.iii (A 2026-10-22): the standard text a release
+# ships for a compiled crate that publishes no notice of its own. Each is
+# SPDX license-list-data v3.27.0's text/<id>.txt, verbatim
+# (https://github.com/spdx/license-list-data, CC0-1.0 data; each text is
+# its licence's own), pinned by SHA-256 in tools/ci/release_notices.py,
+# which refuses a changed file. Never edit; a new SPDX release is a new
+# fetch and new pins.
+tools/ci/licence_texts/Apache-2.0.txt
+tools/ci/licence_texts/BSD-3-Clause.txt
+tools/ci/licence_texts/CC0-1.0.txt
+tools/ci/licence_texts/MIT.txt
