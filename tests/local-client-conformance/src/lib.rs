@@ -1388,9 +1388,10 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
 /// it, `shower`'s own `PeerId` and at most 64 rows, each ending in that
 /// `PeerId` -- and what it shows is what an add takes: its first row, added
 /// on `adder`, is `added`, and removed again. Item 14's control, a
-/// loopback-only node answering no listen row, needs a node no runner
-/// here can connect: it is the composition's
-/// `a_loopback_only_node_shows_no_listen_row`.
+/// loopback-only node answering no listen row, is the composition's
+/// `a_loopback_only_node_shows_no_listen_row`, as item 14 places it: each
+/// runner's subject here is one node of a pair connected over a private
+/// interface, and the fake answers a fixed private listener.
 pub async fn own_addresses_are_what_an_add_takes<B: AdminBinding>(
     shower: &B,
     shower_peer: &TransportIdentity,
