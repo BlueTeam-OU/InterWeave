@@ -161,23 +161,14 @@ src() {  # src <crate> <path> <text>: a source file of a sandbox crate.
     printf '%s\n' "$3" > "$D/crates/$1/$2"
     printf '[package]\n' > "$D/crates/$1/Cargo.toml"
 }
-MITHDR='// Copyright 2017 Example Ltd.
+# The whole MIT notice, as the committed standard text gives it from its
+# grant on: what a header must carry to be a header case.
+MITBODY="$(sed -n '/^Permission is hereby granted/,$p' "$SCRIPT_DIR/licence_texts/MIT.txt" | sed 's|^|// |; s| *$||')"
+MITHDR="// Copyright 2017 Example Ltd.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation
-// the rights to use, copy, modify, merge, publish, distribute, sublicense,
-// and/or sell copies of the Software, and to permit persons to whom the
-// Software is furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
-// ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE SOFTWARE.
+$MITBODY
 
-pub fn f() {}'
+pub fn f() {}"
 src hdr src/lib.rs "$MITHDR"
 src hdrtext src/lib.rs '// Copyright 2022 The Example Authors.
 // Licensed under the MIT license (found in the LICENSE-MIT file).
@@ -198,30 +189,20 @@ src std examples/demo.rs "$MITHDR"
 # Shaped like libp2p-core: the root module's header, a second holder's
 # in a file that sorts before it, and one in tests/ that is not compiled.
 src core src/lib.rs "$MITHDR"
-src core src/a_first.rs '// Copyright 2023 Second Holder Labs.
+src core src/a_first.rs "// Copyright 2023 Second Holder Labs.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation
-// the rights to use, copy, modify, merge, publish, distribute, sublicense,
-// and/or sell copies of the Software, and to permit persons to whom the
-// Software is furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
-// ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE SOFTWARE.
-pub fn g() {}'
+$MITBODY
+pub fn g() {}"
 src core tests/smoke.rs '// Copyright 2019 Test Writer.
 fn main() {}'
 # A header with the grant and AS IS but not the notice condition or the
 # liability clause is not the whole MIT notice (it ships as header+text).
 # Two near-whole MIT notices, each missing one clause: the notice
 # condition, then the liability clause.
-src trunc src/lib.rs "$(printf '%s\n' "$MITHDR" | grep -v 'The above copyright notice\|all copies or substantial')"
-src trunc2 src/lib.rs "$(printf '%s\n' "$MITHDR" | sed 's/ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR//; /ANY CLAIM, DAMAGES/d')"
+src trunc src/lib.rs "$(printf '%s\n' "$MITHDR" | grep -v 'The above copyright notice\|portions of the Software')"
+# Cut right after "IN NO EVENT SHALL": every marker a fragment check
+# would look for is still there.
+src trunc2 src/lib.rs "$(printf '%s\n' "$MITHDR" | sed '/EVENT SHALL THE AUTHORS/,/DEALINGS IN THE SOFTWARE/d')"
 # One header naming the crate's own licence and a foreign one (as the
 # Chromium-derived accesskit header names MIT and BSD): the BSD text is
 # owed even though MIT is answered.
@@ -243,6 +224,10 @@ pub fn k() {}'
 # (The tag is split so this file declares no licence of its own.)
 src reusehdr src/lib.rs "$(printf '%s\n%s\n%s' '// SPDX-FileCopyrightText: 2024 Jane Doe' \
     '// SPDX-License-''Identifier: MIT' 'pub fn f() {}')"
+# A header whose only copyright line is a "Portions Copyright" line.
+src portions src/lib.rs '// Portions Copyright 2010 Some Holder.
+// Licensed under the MIT license.
+pub fn f() {}'
 # An MIT crate with a second holder's BSD-style header that only names
 # its licence: the BSD text is owed beside it.
 src zbsd src/lib.rs "$MITHDR"
@@ -264,7 +249,7 @@ derived = [pkg("hdr", "MIT"), pkg("hdrtext", "MIT OR Apache-2.0"),
            pkg("prose", "MIT"), pkg("core", "MIT"), pkg("zbsd", "MIT"),
            pkg("trunc", "MIT"), pkg("apfirst", "Apache-2.0 OR MIT"),
            pkg("apx", "MIT OR Apache-2.0"), pkg("reusehdr", "MIT"),
-           pkg("trunc2", "MIT"), pkg("mixed", "MIT")]
+           pkg("trunc2", "MIT"), pkg("mixed", "MIT"), pkg("portions", "MIT")]
 app = {"id": "app-id", "name": "app", "version": "1.0.0", "license": "Apache-2.0",
        "license_file": None, "manifest_path": f"{root}/app/Cargo.toml", "targets": []}
 normal = [{"kind": None, "target": None}]
@@ -272,7 +257,7 @@ nodes = [{"id": "app-id", "deps": [{"name": p["name"], "pkg": p["id"], "dep_kind
 nodes += [{"id": p["id"], "deps": []} for p in derived]
 print(json.dumps({"packages": [app] + derived, "workspace_members": ["app-id"], "resolve": {"nodes": nodes}}))
 PY
-printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\ncore v1.0.0\nzbsd v1.0.0\ntrunc v1.0.0\napfirst v1.0.0\napx v1.0.0\nreusehdr v1.0.0\ntrunc2 v1.0.0\nmixed v1.0.0\n' > "$D/compiled.txt"
+printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\ncore v1.0.0\nzbsd v1.0.0\ntrunc v1.0.0\napfirst v1.0.0\napx v1.0.0\nreusehdr v1.0.0\ntrunc2 v1.0.0\nmixed v1.0.0\nportions v1.0.0\n' > "$D/compiled.txt"
 # list <json lines>: the derived list, one crate object per argument.
 list() {
     local IFS=,
@@ -294,7 +279,8 @@ GOOD=("$(entry hdr MIT header src/lib.rs)" "$(entry hdrtext 'MIT OR Apache-2.0' 
       "$(entry trunc MIT header+text src/lib.rs)" "$(entry apfirst 'Apache-2.0 OR MIT' header src/lib.rs)"
       "$(entry apx 'MIT OR Apache-2.0' header src/lib.rs 2 '["Apache-2.0"]')"
       "$(entry reusehdr MIT header+text src/lib.rs)" "$(entry trunc2 MIT header+text src/lib.rs)"
-      "$(entry mixed MIT header src/lib.rs 2 '["BSD-3-Clause"]')")
+      "$(entry mixed MIT header src/lib.rs 2 '["BSD-3-Clause"]')"
+      "$(entry portions MIT header+text src/lib.rs)")
 drun() {
     NOTICE_DERIVED_JSON="$D/list.json" python3 "$D/tool/release_notices.py" "$D/metadata.json" \
         "$D/compiled.txt" "$SANDBOX/n.md" app >"$SANDBOX/stdout" 2>"$SANDBOX/err"
@@ -303,7 +289,7 @@ list "${GOOD[@]}"
 if drun; then
     N="$SANDBOX/n.md"
     grep -qF -- '- `hdr` 1.0.0: MIT (derived: header) — text T' "$N" \
-        && grep -qx 'Permission is hereby granted, free of charge, to any person obtaining a' "$N" \
+        && grep -qx "$(printf '%s\n' "$MITBODY" | head -1 | sed 's|^// ||')" "$N" \
         && pass "a full notice in the root module's header ships as the header" \
         || fail "the header notice is missing" "$(cat "$N")"
     grep -F 'Used by ' "$N" | grep -F 'deep 1.0.0 (header of src/inner/mod.rs)' | grep -qF 'hdr 1.0.0 (header of src/lib.rs)' \
@@ -416,8 +402,10 @@ list "${GOOD[@]:0:2}" '{"name": "std", "version": "1.0.0", "license": "MIT", "ca
 drefused "extra_texts on a standard entry" "std 1.0.0 has extra_texts, which only a header case ships"
 list "${GOOD[@]:0:13}" "$(entry trunc2 MIT header src/lib.rs)" "${GOOD[@]:14}"
 drefused "an MIT notice without its liability clause listed as header" "trunc2 1.0.0's headers carry no whole text of MIT: list it as header+text"
-list "${GOOD[@]:0:14}" "$(entry mixed MIT header src/lib.rs 2)"
+list "${GOOD[@]:0:14}" "$(entry mixed MIT header src/lib.rs 2)" "${GOOD[@]:15}"
 drefused "a header naming its crate's licence and a foreign one, without the foreign text" "mixed 1.0.0's header in src/m.rs names BSD-3-Clause, whose text it does not carry"
+list "${GOOD[@]:0:15}" "$(entry portions MIT standard)"
+drefused "a Portions Copyright header listed as standard" "portions 1.0.0 has a copyright header in src/lib.rs"
 # A file-less crate now publishing a file: its entry must go.
 printf 'the MIT text\n' > "$D/crates/hdr/LICENSE"
 list "${GOOD[@]}"

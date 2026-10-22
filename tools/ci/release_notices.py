@@ -185,19 +185,18 @@ def load_derived(path: Path) -> dict:
     return derived
 
 
-# What a header must contain to carry its licence's text whole: the
-# grant and the disclaimer. A header-case entry must, a header+text one
-# must not (that is what the appended standard text is for).
-CARRIES = {
-    "MIT": ("Permission is hereby granted",
-            "The above copyright notice and this permission notice shall be included",
-            "AS IS", "IN NO EVENT SHALL"),
-    "BSD-2-Clause": ("Redistribution and use", "Redistributions of source code must retain",
-                     "AS IS", "IN NO EVENT SHALL"),
-    "BSD-3-Clause": ("Redistribution and use", "Redistributions of source code must retain",
-                     "AS IS", "IN NO EVENT SHALL"),
-    "ISC": ("Permission to use, copy, modify", "AS IS", "IN NO EVENT SHALL"),
-}
+# A header carries its licence's text only when it holds the committed
+# standard text whole, from where the grant begins (the copyright line
+# above it is the header's own), compared with whitespace and case
+# folded: a notice cut anywhere, even after its last marker, does not
+# count. A term with no committed text, or a header that rewords it (a
+# BSD header naming its organisation), is header+text -- the standard
+# text ships beside it.
+BODY_STARTS = {"MIT": "Permission is hereby granted", "BSD-3-Clause": "Redistribution and use"}
+
+
+def folded(text: str) -> str:
+    return " ".join(text.split()).lower()
 
 
 # A licence a header may name, by the words it is named with, and the
@@ -212,8 +211,10 @@ NAMED = (
 
 
 def carries_text(block: str, term: str) -> bool:
-    flat = " ".join(block.split())
-    return term in CARRIES and all(marker in flat for marker in CARRIES[term])
+    if term not in BODY_STARTS:
+        return False
+    text = standard_text(term)[0]
+    return folded(text[text.index(BODY_STARTS[term]):]) in folded(block)
 
 
 def elected(expr: str) -> str:
