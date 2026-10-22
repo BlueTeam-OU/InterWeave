@@ -27,7 +27,7 @@ use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{
     TransportError, TransportEvent, TransportIdentity, TransportRuntime as _,
 };
-use interweave_transport_composition::{ComposedRuntime, CompositionOptions};
+use interweave_transport_composition::{ComposedRuntime, CompositionOptions, NetworkView};
 
 const PATIENCE: Duration = Duration::from_secs(30);
 
@@ -221,5 +221,57 @@ async fn a_loopback_only_node_shows_no_listen_row() {
     assert_eq!(own.peer, a);
     assert_eq!(own.addresses, Vec::new(), "{own:?}");
     assert!(!own.truncated);
+    runtime.shutdown().await.expect("clean shutdown");
+}
+
+/// A listener on an IP the host no longer holds is not shown: the
+/// platform's view naming the IP keeps the row (the control), and an
+/// offline view takes it away, the listener still bound.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_listener_on_a_departed_ip_is_not_shown() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (a_id, _) = id();
+    let (_, b) = id();
+    let runtime = ComposedRuntime::start(
+        &a_id,
+        &profile(&b),
+        CompositionOptions {
+            listen: vec![format!("/ip4/{ip}/tcp/0")],
+            ..CompositionOptions::default()
+        },
+    )
+    .await
+    .expect("composes");
+    let port = runtime
+        .sessions()
+        .admin([AdminCapability::Peers].into())
+        .await
+        .expect("a port");
+    let rows = || async {
+        port.own_addresses()
+            .await
+            .expect("answered")
+            .addresses
+            .len()
+    };
+
+    runtime.network_changed(NetworkView::new(vec![ip.into()]));
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        rows().await,
+        1,
+        "the control: a view naming the IP keeps the row"
+    );
+
+    runtime.network_changed(NetworkView::default());
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while rows().await != 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the departed IP's listener is still shown"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(runtime.listening().len(), 1, "the listener is still bound");
     runtime.shutdown().await.expect("clean shutdown");
 }
