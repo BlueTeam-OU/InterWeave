@@ -1,0 +1,747 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Andrea Benetton
+//! Peers by address (`design/2026-10-22-add-a-peer.md`, ADR-0062) through
+//! the model's public surface: what each input asks of the runtime, and
+//! what each answer leaves on show. Isolation only: the runtime's
+//! answers are given here as the facade would hand them over.
+
+#![allow(clippy::expect_used, clippy::panic)]
+
+use interweave_human_client_api::{
+    AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
+    AddressProblem, AddressRefused, PeerAddress, TrustList, TrustProblem, TrustRow,
+    TrustSetFailure,
+};
+use interweave_human_ui_model::{
+    AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES, Intent,
+    LineSelection, ListProblem, PeersFocus, PeersInput, PeersSnack, Refusal, RowState, ScanVerdict,
+    TrustChange, UiModel,
+};
+use interweave_profile_identity::ProfileIdentity;
+use interweave_transport_api::TransportIdentity;
+
+fn peer() -> TransportIdentity {
+    ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a peer")
+}
+
+fn at(p: &TransportIdentity) -> String {
+    format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", p.as_str())
+}
+
+fn added(p: &TransportIdentity) -> PeerAddress {
+    PeerAddress {
+        address: at(p),
+        peer: Some(p.clone()),
+        origin: AddressOrigin::AddedHere,
+        dialled: true,
+    }
+}
+
+fn list(rows: &[PeerAddress]) -> AddressList {
+    AddressList {
+        addresses: rows.to_vec(),
+    }
+}
+
+fn input(m: &mut UiModel, i: PeersInput) -> Vec<Intent> {
+    m.peers_input(i)
+}
+
+/// A model with the trust list and the address list read.
+fn opened(me: &TransportIdentity, trusted: &[TransportIdentity], rows: &[PeerAddress]) -> UiModel {
+    let mut m = UiModel::new();
+    let asked = input(&mut m, PeersInput::Opened);
+    assert_eq!(asked, vec![Intent::ReadTrust, Intent::ReadAddresses]);
+    m.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me.clone()),
+        allowed: trusted.iter().cloned().map(TrustRow::added_here).collect(),
+    }));
+    m.addresses_read(Ok(list(rows)));
+    m
+}
+
+/// The facade's answer shape, `Ok` by construction here.
+#[allow(clippy::unnecessary_wraps)]
+fn answer(
+    outcome: AddressOutcome,
+    rows: &[PeerAddress],
+) -> Result<AddressAnswer, AddressChangeFailure> {
+    Ok(AddressAnswer {
+        outcome,
+        list: Ok(list(rows)),
+    })
+}
+
+fn focus(m: &UiModel) -> Option<PeersFocus> {
+    m.peers().focus().0.cloned()
+}
+
+/// ADR-0062 decision 8: the notice keys on two facts, the address list
+/// empty and the trust set empty, each read; either gaining an entry
+/// hides it, and an unread or unreadable list claims nothing.
+#[test]
+fn the_no_reach_notice_shows_on_two_empty_lists_and_nothing_else() {
+    let (me, them) = (peer(), peer());
+    let mut m = UiModel::new();
+    assert!(!m.no_reach(), "nothing read: no claim");
+
+    let m2 = opened(&me, &[], &[]);
+    assert!(m2.no_reach(), "both read and empty");
+    assert!(
+        !opened(&me, std::slice::from_ref(&them), &[]).no_reach(),
+        "a trusted peer, no address"
+    );
+    assert!(
+        !opened(&me, &[], &[added(&them)]).no_reach(),
+        "an address, no trust"
+    );
+
+    let _ = input(&mut m, PeersInput::Opened);
+    m.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me),
+        allowed: Vec::new(),
+    }));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert!(!m.no_reach(), "an unreadable list is unknown, not empty");
+    assert_eq!(m.peers().list_problem(), Some(ListProblem::Unavailable));
+}
+
+/// A typed line, trimmed, is one add; its untrusted peer gets a block;
+/// Trust on the block is the confirmed change, and once trust lists the
+/// peer the page closes with the trusted snackbar, focus on its opener.
+#[test]
+fn a_typed_address_is_added_then_its_peer_trusted_from_its_block() {
+    let (me, them) = (peer(), peer());
+    let mut m = opened(&me, &[], &[]);
+    assert!(input(&mut m, PeersInput::OpenAdd).is_empty());
+    assert_eq!(focus(&m), Some(PeersFocus::Field { select: None }));
+    let _ = input(
+        &mut m,
+        PeersInput::FieldChanged(format!(" \t{}  \r\n\r\n", at(&them))),
+    );
+    assert_eq!(
+        input(&mut m, PeersInput::Add),
+        vec![Intent::AddAddresses(vec![at(&them)])]
+    );
+    assert!(
+        input(&mut m, PeersInput::Add).is_empty(),
+        "one add at a time"
+    );
+
+    m.addresses_added(
+        &[at(&them)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(them.clone()),
+            },
+            &[added(&them)],
+        ),
+    );
+    assert_eq!(
+        m.peers().add_result(),
+        Some(&AddResult::Added {
+            lines: 1,
+            peers: vec![them.clone()]
+        })
+    );
+    assert_eq!(m.peers().field(), "", "the added line leaves the field");
+    assert_eq!(focus(&m), Some(PeersFocus::Block(them.clone())));
+    assert_eq!(
+        m.peers().rows(m.trust_settings())[0].state,
+        RowState::NeedsTrust,
+        "an address grants no trust"
+    );
+
+    let change = TrustChange {
+        peer: them.clone(),
+        allowed: true,
+    };
+    assert_eq!(
+        input(&mut m, PeersInput::Trust(them.clone())),
+        vec![Intent::SetTrust(change.clone())]
+    );
+    assert_eq!(
+        m.peers().blocks(m.trust_settings())[0].state,
+        BlockState::Trusting
+    );
+    m.trust_settings_mut().set(
+        change,
+        Ok(TrustList {
+            local_peer: Some(me),
+            allowed: vec![TrustRow::added_here(them.clone())],
+        }),
+    );
+    assert_eq!(m.peers_turn(), None);
+    assert!(
+        !m.peers().add_open(),
+        "every block decided: the page closes"
+    );
+    assert_eq!(m.peers().snack().0, Some(&PeersSnack::PeerTrusted));
+    assert_eq!(focus(&m), Some(PeersFocus::Opener));
+    assert_eq!(
+        m.peers().rows(m.trust_settings())[0].state,
+        RowState::Trusted
+    );
+}
+
+/// An empty field, and a field of more lines than one add carries, send
+/// nothing: each says why, the long one selecting from the line past the
+/// bound.
+#[test]
+fn an_empty_or_too_long_field_sends_nothing() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(" \n\t\r\n".to_owned()));
+    assert!(input(&mut m, PeersInput::Add).is_empty());
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::AddressNeeded));
+    let _ = input(&mut m, PeersInput::FieldChanged("x".to_owned()));
+    assert_eq!(
+        m.peers().add_page_note(),
+        None,
+        "goes once the field is not empty"
+    );
+
+    let many: Vec<String> = (0..=CODE_LINES).map(|_| at(&peer())).collect();
+    let _ = input(&mut m, PeersInput::FieldChanged(many.join("\n")));
+    assert!(input(&mut m, PeersInput::Add).is_empty());
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::TooManyLines {
+            lines: CODE_LINES + 1
+        })
+    );
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Field {
+            select: Some(LineSelection::From(CODE_LINES))
+        })
+    );
+    assert!(!m.peers().busy(), "nothing was sent");
+}
+
+/// The client's two scan rules refuse before anything is sent, and any
+/// one line refuses the code; a code that is no address list keeps the
+/// viewfinder open; a scan with an address in the field is never taken.
+#[test]
+fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&peer())));
+    let _ = input(&mut m, PeersInput::ScanPressed);
+    assert!(!m.peers().scan_open(), "an address in the field");
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::ScanAfterField));
+    let _ = input(&mut m, PeersInput::FieldChanged(String::new()));
+    assert_eq!(m.peers().add_page_note(), None);
+    let _ = input(&mut m, PeersInput::ScanPressed);
+    assert!(m.peers().scan_open());
+
+    assert_eq!(
+        m.scanned("https://example.org"),
+        (ScanVerdict::NotAddress, None)
+    );
+    assert!(m.peers().scan_open(), "the viewfinder stays open");
+
+    let dns = format!("/dns4/peer.example.net/tcp/4001/p2p/{}", peer().as_str());
+    let code = format!("{}\n{dns}", at(&peer()));
+    assert_eq!(m.scanned(&code), (ScanVerdict::Taken, None));
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Refused {
+            line: dns.clone(),
+            why: Refusal::DnsFromScan
+        })
+    );
+    assert_eq!(m.peers().field(), "", "a scan never enters the field");
+
+    let long: Vec<String> = (0..=CODE_LINES).map(|_| at(&peer())).collect();
+    assert_eq!(m.scanned(&long.join("\n")), (ScanVerdict::Taken, None));
+    assert!(matches!(
+        m.peers().add_page_note(),
+        Some(AddNote::Refused {
+            why: Refusal::TooMany,
+            ..
+        })
+    ));
+
+    let good = vec![at(&peer()), at(&peer())];
+    assert_eq!(
+        m.scanned(&good.join("\r\n")),
+        (ScanVerdict::Taken, Some(Intent::AddAddresses(good)))
+    );
+
+    // The same DNS line typed is the person's own: sent.
+    let mut typed = opened(&me, &[], &[]);
+    let _ = input(&mut typed, PeersInput::OpenAdd);
+    let _ = input(&mut typed, PeersInput::FieldChanged(dns.clone()));
+    assert_eq!(
+        input(&mut typed, PeersInput::Add),
+        vec![Intent::AddAddresses(vec![dns])]
+    );
+}
+
+/// The runtime's refusals are rendered by name, nothing stored; a
+/// removal's refusal answering an add is a failure, never a reason.
+#[test]
+fn each_runtime_refusal_is_named_and_stores_nothing() {
+    let me = peer();
+    for (refused, expected) in [
+        (AddressRefused::Grammar, Some(Refusal::Grammar)),
+        (AddressRefused::SpecialUse, Some(Refusal::SpecialUse)),
+        (AddressRefused::Bound, Some(Refusal::Limit)),
+        (AddressRefused::ListOff, Some(Refusal::ListOff)),
+        (AddressRefused::Configured, None),
+    ] {
+        let mut m = opened(&me, &[], &[]);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        let line = "/ip4/127.0.0.1/tcp/1/p2p/x".to_owned();
+        let _ = input(&mut m, PeersInput::FieldChanged(line.clone()));
+        let _ = input(&mut m, PeersInput::Add);
+        m.addresses_added(
+            std::slice::from_ref(&line),
+            answer(AddressOutcome::Refused(refused), &[]),
+        );
+        match expected {
+            Some(why) => {
+                assert_eq!(
+                    m.peers().add_page_note(),
+                    Some(&AddNote::Refused {
+                        line: line.clone(),
+                        why
+                    }),
+                    "{refused:?}"
+                );
+                assert_eq!(
+                    focus(&m),
+                    Some(PeersFocus::Field {
+                        select: Some(LineSelection::Line(line.clone()))
+                    })
+                );
+            }
+            None => assert_eq!(m.peers().add_page_note(), Some(&AddNote::Failed)),
+        }
+        assert_eq!(m.peers().add_result(), None);
+        assert_eq!(m.peers().field(), line, "the field is kept");
+    }
+}
+
+/// §5.7's outcomes for a failed add: not written, not permitted,
+/// incompatible below 2.7, and a multi-line add a 2.7/2.8 runtime does
+/// not take.
+#[test]
+fn a_failed_add_says_what_is_true() {
+    let me = peer();
+    let one = vec![at(&peer())];
+    let two = vec![at(&peer()), at(&peer())];
+    let cases = [
+        (&one, AddressProblem::Internal, AddNote::Failed),
+        (&one, AddressProblem::Unavailable, AddNote::Failed),
+        (
+            &one,
+            AddressProblem::NotPermitted,
+            AddNote::Barred(Barred::NotPermitted),
+        ),
+        (
+            &one,
+            AddressProblem::Incompatible,
+            AddNote::Barred(Barred::Incompatible),
+        ),
+        (
+            &two,
+            AddressProblem::Incompatible,
+            AddNote::SeveralIncompatible { lines: 2 },
+        ),
+    ];
+    for (lines, problem, note) in cases {
+        let mut m = opened(&me, &[], &[]);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::FieldChanged(lines.join("\n")));
+        let _ = input(&mut m, PeersInput::Add);
+        m.addresses_added(lines, Err(AddressChangeFailure::NotMade(problem)));
+        assert_eq!(m.peers().add_page_note(), Some(&note), "{problem:?}");
+        assert_eq!(focus(&m), Some(PeersFocus::AddButton));
+        let barred = matches!(note, AddNote::Barred(_));
+        assert_eq!(
+            m.peers().list_problem().is_some(),
+            barred,
+            "only a barred change bars the list"
+        );
+        assert_eq!(m.peers_turn(), None, "nothing to read back");
+    }
+}
+
+/// A lost answer reads the list back before anything is said: every line
+/// listed is accepted as checked, any line missing is an add not made,
+/// and a failed read is unknown.
+#[test]
+fn a_lost_add_answer_is_decided_on_the_list_read_back() {
+    let (me, them) = (peer(), peer());
+    let line = at(&them);
+    let lost = || {
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        ))
+    };
+    let start = || {
+        let mut m = opened(&me, &[], &[]);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::FieldChanged(line.clone()));
+        let _ = input(&mut m, PeersInput::Add);
+        m.addresses_added(std::slice::from_ref(&line), lost());
+        assert_eq!(m.peers().add_page_note(), Some(&AddNote::Checking));
+        assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+        m
+    };
+
+    let mut listed = start();
+    listed.addresses_read(Ok(list(&[added(&them)])));
+    assert_eq!(
+        listed.peers().add_result(),
+        Some(&AddResult::Checked { lines: 1 })
+    );
+    assert_eq!(focus(&listed), Some(PeersFocus::Block(them.clone())));
+
+    let mut missing = start();
+    missing.addresses_read(Ok(list(&[])));
+    assert_eq!(missing.peers().add_page_note(), Some(&AddNote::Failed));
+    assert_eq!(missing.peers().field(), line, "the field is kept");
+
+    // An add is all or none: a read back listing one of two lines shows
+    // the other was there before and this add was not made.
+    let other = peer();
+    let two = vec![at(&other), line.clone()];
+    let mut partly = opened(&me, &[], &[added(&other)]);
+    let _ = input(&mut partly, PeersInput::OpenAdd);
+    let _ = input(&mut partly, PeersInput::FieldChanged(two.join("\n")));
+    let _ = input(&mut partly, PeersInput::Add);
+    partly.addresses_added(&two, lost());
+    let _ = partly.peers_turn();
+    partly.addresses_read(Ok(list(&[added(&other)])));
+    assert_eq!(partly.peers().add_page_note(), Some(&AddNote::Failed));
+    assert_eq!(partly.peers().add_result(), None, "nothing shown as added");
+
+    let mut unread = start();
+    unread.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(unread.peers().add_page_note(), Some(&AddNote::Unknown));
+    assert_eq!(focus(&unread), Some(PeersFocus::AddButton));
+}
+
+/// Remove runs at once with Undo; Undo adds the address again; a row the
+/// configuration turned off has no Undo; a configured row is never
+/// removed.
+#[test]
+fn a_removal_offers_undo_unless_the_list_is_off() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let mut m = opened(&me, std::slice::from_ref(&a), &[added(&a), added(&b)]);
+
+    assert_eq!(
+        input(&mut m, PeersInput::Remove(at(&a))),
+        vec![Intent::RemoveAddress(at(&a))]
+    );
+    m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[added(&b)]));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::Removed {
+            address: at(&a),
+            trusted: true,
+            undo: true
+        })
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&b))), "the next row");
+
+    assert_eq!(
+        input(&mut m, PeersInput::Undo),
+        vec![Intent::AddAddresses(vec![at(&a)])]
+    );
+    m.addresses_added(
+        &[at(&a)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            &[added(&a), added(&b)],
+        ),
+    );
+    assert_eq!(m.peers().snack().0, None);
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))));
+    assert!(!m.peers().add_open(), "an Undo opens no add page");
+
+    let off = PeerAddress {
+        dialled: false,
+        ..added(&b)
+    };
+    let mut m = opened(&me, &[], &[off]);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(&at(&b), answer(AddressOutcome::Removed, &[]));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::Removed {
+            address: at(&b),
+            trusted: false,
+            undo: false
+        })
+    );
+    assert!(input(&mut m, PeersInput::Undo).is_empty());
+    assert_eq!(focus(&m), Some(PeersFocus::AddAddress), "no row left");
+
+    let configured = PeerAddress {
+        origin: AddressOrigin::Configured,
+        ..added(&a)
+    };
+    let mut m = opened(&me, &[], &[configured]);
+    assert!(input(&mut m, PeersInput::Remove(at(&a))).is_empty());
+}
+
+/// An Undo the runtime refuses leaves the address removed with that
+/// refusal's own words; one whose call fails offers Try again, which adds
+/// it again.
+#[test]
+fn a_refused_or_failed_undo_leaves_the_address_removed() {
+    let (me, a) = (peer(), peer());
+    let removed = |m: &mut UiModel| {
+        let _ = input(m, PeersInput::Remove(at(&a)));
+        m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[]));
+        let _ = input(m, PeersInput::Undo);
+    };
+
+    let mut m = opened(&me, &[], &[added(&a)]);
+    removed(&mut m);
+    m.addresses_added(
+        &[at(&a)],
+        answer(AddressOutcome::Refused(AddressRefused::Bound), &[]),
+    );
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::UndoRefused(Refusal::Limit))
+    );
+    assert!(input(&mut m, PeersInput::TryAgain).is_empty());
+
+    let mut m = opened(&me, &[], &[added(&a)]);
+    removed(&mut m);
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::UndoFailed { address: at(&a) })
+    );
+    assert_eq!(
+        input(&mut m, PeersInput::TryAgain),
+        vec![Intent::AddAddresses(vec![at(&a)])]
+    );
+}
+
+/// A removal not made keeps the row and offers Try again, focus on the
+/// row's menu; a lost answer is decided on the list read back.
+#[test]
+fn a_failed_or_lost_removal_is_said_truly() {
+    let (me, a) = (peer(), peer());
+    let mut m = opened(&me, &[], &[added(&a)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(
+        &at(&a),
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveFailed { address: at(&a) })
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::RowMenu(at(&a))));
+    assert_eq!(
+        input(&mut m, PeersInput::TryAgain),
+        vec![Intent::RemoveAddress(at(&a))]
+    );
+
+    let lost = || {
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        ))
+    };
+    let mut still = opened(&me, &[], &[added(&a)]);
+    let _ = input(&mut still, PeersInput::Remove(at(&a)));
+    still.address_removed(&at(&a), lost());
+    assert_eq!(still.peers_turn(), Some(Intent::ReadAddresses));
+    still.addresses_read(Ok(list(&[added(&a)])));
+    assert_eq!(
+        still.peers().snack().0,
+        Some(&PeersSnack::RemoveFailed { address: at(&a) })
+    );
+
+    let mut gone = opened(&me, &[], &[added(&a)]);
+    let _ = input(&mut gone, PeersInput::Remove(at(&a)));
+    gone.address_removed(&at(&a), lost());
+    let _ = gone.peers_turn();
+    gone.addresses_read(Ok(list(&[])));
+    assert!(matches!(
+        gone.peers().snack().0,
+        Some(PeersSnack::Removed { undo: true, .. })
+    ));
+
+    let mut unread = opened(&me, &[], &[added(&a)]);
+    let _ = input(&mut unread, PeersInput::Remove(at(&a)));
+    unread.address_removed(&at(&a), lost());
+    let _ = unread.peers_turn();
+    unread.addresses_read(Err(AddressProblem::Internal));
+    assert_eq!(
+        unread.peers().snack().0,
+        Some(&PeersSnack::RemoveUnknown { address: at(&a) })
+    );
+}
+
+/// Rows read newest added first, then the configuration's, each in its
+/// state against the trust list.
+#[test]
+fn rows_are_newest_added_first_then_configured_in_their_states() {
+    let (me, t, u, c) = (peer(), peer(), peer(), peer());
+    let configured = PeerAddress {
+        origin: AddressOrigin::Configured,
+        dialled: false,
+        ..added(&c)
+    };
+    let m = opened(
+        &me,
+        std::slice::from_ref(&t),
+        &[configured, added(&t), added(&u)],
+    );
+    let rows: Vec<(String, RowState)> = m
+        .peers()
+        .rows(m.trust_settings())
+        .into_iter()
+        .map(|r| (r.address, r.state))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            (at(&u), RowState::NeedsTrust),
+            (at(&t), RowState::Trusted),
+            (at(&c), RowState::ProviderOff),
+        ]
+    );
+}
+
+/// At the bound, or with the list off, Add an address opens nothing and
+/// says why under itself.
+#[test]
+fn add_an_address_opens_nothing_at_the_bound_or_with_the_list_off() {
+    let me = peer();
+    let full: Vec<PeerAddress> = (0..64).map(|_| added(&peer())).collect();
+    let mut m = opened(&me, &[], &full);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    assert!(!m.peers().add_open());
+    assert_eq!(m.peers().add_note(), Some(Refusal::Limit));
+    assert_eq!(focus(&m), Some(PeersFocus::AddAddressNote));
+
+    let off = PeerAddress {
+        dialled: false,
+        ..added(&peer())
+    };
+    let mut m = opened(&me, &[], &[off]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    assert_eq!(m.peers().add_note(), Some(Refusal::ListOff));
+}
+
+/// Two untrusted peers in one add are two blocks; Not now on one moves
+/// focus to the other; deciding both closes the page with the added
+/// snackbar, since not every block was trusted. A trust write that fails
+/// shows in its block, which stays undecided.
+#[test]
+fn several_peers_are_several_blocks_each_decided_on_its_own() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let lines = vec![at(&a), at(&b)];
+    let _ = input(&mut m, PeersInput::FieldChanged(lines.join("\n")));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &lines,
+        answer(
+            AddressOutcome::Added { peer: None },
+            &[added(&a), added(&b)],
+        ),
+    );
+    assert_eq!(
+        m.peers().add_result(),
+        Some(&AddResult::Added {
+            lines: 2,
+            peers: vec![a.clone(), b.clone()]
+        })
+    );
+
+    let change = TrustChange {
+        peer: a.clone(),
+        allowed: true,
+    };
+    let _ = input(&mut m, PeersInput::Trust(a.clone()));
+    m.trust_settings_mut().set(
+        change,
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    assert_eq!(
+        m.peers().blocks(m.trust_settings())[0],
+        BlockView {
+            peer: a.clone(),
+            state: BlockState::Undecided,
+            problem: Some(BlockProblem::Trust(TrustProblem::Unavailable)),
+        }
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::BlockProblem(a.clone())));
+
+    let _ = input(&mut m, PeersInput::NotNow(a.clone()));
+    assert_eq!(focus(&m), Some(PeersFocus::Block(b.clone())));
+    let _ = input(&mut m, PeersInput::NotNow(b));
+    assert!(!m.peers().add_open());
+    assert_eq!(m.peers().snack().0, Some(&PeersSnack::Added));
+}
+
+/// A peer already trusted, or this profile's own, gets no block: with
+/// none, the page closes on the add with the added snackbar.
+#[test]
+fn an_add_for_a_trusted_peer_closes_at_once() {
+    let (me, t) = (peer(), peer());
+    let mut m = opened(&me, std::slice::from_ref(&t), &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let lines = vec![at(&t), at(&me)];
+    let _ = input(&mut m, PeersInput::FieldChanged(lines.join("\n")));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &lines,
+        answer(
+            AddressOutcome::Added { peer: None },
+            &[added(&t), added(&me)],
+        ),
+    );
+    assert!(!m.peers().add_open());
+    assert_eq!(m.peers().snack().0, Some(&PeersSnack::Added));
+    assert_eq!(focus(&m), Some(PeersFocus::Opener));
+}
+
+/// Back while an add is on its way closes nothing, so the answer has a
+/// page to land on; a scanned line the runtime refuses is never selected
+/// in the field, which it never entered: focus goes to the note.
+#[test]
+fn an_add_on_its_way_keeps_its_page_and_a_refused_scan_focuses_its_note() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed);
+    let line = at(&peer());
+    let (_, sent) = m.scanned(&line);
+    assert_eq!(sent, Some(Intent::AddAddresses(vec![line.clone()])));
+    let _ = input(&mut m, PeersInput::Close);
+    assert!(m.peers().add_open(), "the add is on its way");
+    m.addresses_added(
+        std::slice::from_ref(&line),
+        answer(AddressOutcome::Refused(AddressRefused::SpecialUse), &[]),
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::Note));
+    assert_eq!(m.peers().field(), "");
+    let _ = input(&mut m, PeersInput::Close);
+    assert!(!m.peers().add_open(), "step one closes once answered");
+    assert_eq!(focus(&m), Some(PeersFocus::Opener));
+}

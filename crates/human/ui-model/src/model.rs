@@ -10,8 +10,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use interweave_human_chat_protocol::{HumanChatV2, Rendered, is_allowed_link_scheme, render};
 use interweave_human_client_api::{
-    ClientEvent, Connectivity, Destination, Diagnostics, Origin, OutboundStatus, OutboundUpdate,
-    SendError, SessionState,
+    AddressAnswer, AddressChangeFailure, AddressList, AddressProblem, ClientEvent, Connectivity,
+    Destination, Diagnostics, Origin, OutboundStatus, OutboundUpdate, SendError, SessionState,
 };
 use interweave_human_core::RowId;
 use interweave_transport_api::{
@@ -23,6 +23,7 @@ use crate::labels::{
     session_problem_class, short_peer,
 };
 use crate::look::Avatar;
+use crate::peers::{Peers, PeersInput, ScanVerdict};
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
 pub(crate) mod cards;
@@ -111,6 +112,9 @@ pub enum ViewEvent {
     /// [`TrustSettings::input`] before taking the view's events again, and
     /// carries out the intent it returns.
     Trust(TrustInput),
+    /// The person acted on Peers or its add page: the root passes it to
+    /// [`UiModel::peers_input`] and carries out the intents it returns.
+    Peers(PeersInput),
     /// The person pressed the Undo of the snackbar with this id: the root
     /// passes it to [`UiModel::undo`] and carries out what it returns.
     Undo(u64),
@@ -422,6 +426,16 @@ pub enum Intent {
         /// The contact.
         contact_id: String,
     },
+    /// Read the addresses this device holds for reaching peers (ADR-0062):
+    /// Peers opened, the app started, or a change's list was not read
+    /// back.
+    ReadAddresses,
+    /// Add these lines, all or none: the add page's typed lines or a
+    /// scanned code, or an Undo's one address. Only [`crate::Peers`]
+    /// makes one, after the client's own two rules.
+    AddAddresses(Vec<String>),
+    /// Remove an address added here.
+    RemoveAddress(String),
     /// Make a trust change the person confirmed in the trust settings,
     /// which showed its exact `PeerId` and scope (`human-client-ui.md` §8).
     /// Only [`crate::TrustSettings::confirm`] makes one.
@@ -589,6 +603,7 @@ pub struct UiModel {
     session: SessionState,
     diagnostics: Diagnostics,
     trust: TrustSettings,
+    peers: Peers,
     /// The snackbar, its Undo and the latest outcome.
     swipe: swipe::SwipeState,
     /// Card proposals, the contacts and the identity in front.
@@ -630,6 +645,7 @@ impl UiModel {
             },
             diagnostics: Diagnostics::default(),
             trust: TrustSettings::default(),
+            peers: Peers::default(),
             swipe: swipe::SwipeState::default(),
             cards: cards::Cards::default(),
         }
@@ -1193,6 +1209,65 @@ impl UiModel {
     /// daemon's answers.
     pub const fn trust_settings_mut(&mut self) -> &mut TrustSettings {
         &mut self.trust
+    }
+
+    /// Peers by address (ADR-0062).
+    #[must_use]
+    pub const fn peers(&self) -> &Peers {
+        &self.peers
+    }
+
+    /// Apply what the person did on Peers: the intents it asks for. Trust
+    /// on step two passes through the trust settings, the one way a trust
+    /// change is made.
+    pub fn peers_input(&mut self, input: PeersInput) -> Vec<Intent> {
+        self.peers.input(input, &mut self.trust)
+    }
+
+    /// Read the addresses: at start, for the no-reach notice.
+    pub fn read_addresses(&mut self) -> Option<Intent> {
+        self.peers.read()
+    }
+
+    /// The runtime's answer to a read of the addresses.
+    pub fn addresses_read(&mut self, answer: Result<AddressList, AddressProblem>) {
+        self.peers.read_answer(answer, &self.trust);
+    }
+
+    /// A code read, or an image decoded: whether the viewfinder stays
+    /// open, and the add it asks for.
+    pub fn scanned(&mut self, text: &str) -> (ScanVerdict, Option<Intent>) {
+        self.peers.scanned(text)
+    }
+
+    /// The runtime's answer to an add of `lines`.
+    pub fn addresses_added(
+        &mut self,
+        lines: &[String],
+        answer: Result<AddressAnswer, AddressChangeFailure>,
+    ) {
+        self.peers.add_answer(lines, answer, &self.trust);
+    }
+
+    /// The runtime's answer to a removal of `address`.
+    pub fn address_removed(
+        &mut self,
+        address: &str,
+        answer: Result<AddressAnswer, AddressChangeFailure>,
+    ) {
+        self.peers.remove_answer(address, answer, &self.trust);
+    }
+
+    /// What Peers asks between turns: a read a change left owed, and
+    /// closing the add page once trust's answers decided it.
+    pub fn peers_turn(&mut self) -> Option<Intent> {
+        self.peers.turn(&self.trust)
+    }
+
+    /// Whether Chats shows the no-reach notice (ADR-0062 decision 8).
+    #[must_use]
+    pub fn no_reach(&self) -> bool {
+        self.peers.no_reach(&self.trust)
     }
 
     /// What trust to show for `peer`.

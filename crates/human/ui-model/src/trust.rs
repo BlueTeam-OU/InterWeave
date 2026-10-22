@@ -160,6 +160,29 @@ impl TrustSettings {
         });
     }
 
+    /// Propose trusting `peer`, named by a view that shows it in full as
+    /// its own confirmation (the add page's step two): the change to
+    /// confirm, unless the list read says `peer` is not one to allow.
+    /// With the list unread it is proposed still: the step offers a block
+    /// for every peer then, and the daemon refuses this profile's own
+    /// identity itself. Nothing is sent until [`Self::confirm`].
+    pub fn propose_allow_of(&mut self, peer: &TransportIdentity) -> Option<TrustChange> {
+        if self
+            .list
+            .as_ref()
+            .and_then(|l| entry_problem(l, peer))
+            .is_some()
+        {
+            return None;
+        }
+        let change = TrustChange {
+            peer: peer.clone(),
+            allowed: true,
+        };
+        self.pending = Some(change.clone());
+        Some(change)
+    }
+
     /// Propose removing trust from `peer`, which must be listed: a
     /// confirmation to show.
     pub fn propose_revoke(&mut self, peer: &TransportIdentity) {
@@ -280,6 +303,13 @@ impl TrustSettings {
     #[must_use]
     pub const fn reading(&self) -> bool {
         self.reading
+    }
+
+    /// Whether a change's answer left the list to read again and the
+    /// read has not been asked yet ([`Self::take_reread`]).
+    #[must_use]
+    pub const fn reread_owed(&self) -> bool {
+        self.reread
     }
 
     /// The `PeerId` field's text.

@@ -18,6 +18,7 @@ mod identity_flow;
 mod labels;
 mod look;
 mod model;
+mod peers;
 mod picker;
 mod presence;
 mod store_recovery;
@@ -43,6 +44,11 @@ pub use model::{
     ListedInbound, ListedOutbound, MessageItem, Outcome, Released, Reply, Retention, RouteLabel,
     RowAction, SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table, Trust, UiModel,
     UndoClosed, ViewEvent,
+};
+pub use peers::{
+    ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES,
+    LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus, PeersInput, PeersSnack,
+    Refusal, RowState, ScanVerdict, lines_of,
 };
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};
