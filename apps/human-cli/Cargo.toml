@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# The command-line human client (ADR-0059 decision 9; plan section 29
+# step 4's command half, split out by architect-cto-01's request of
+# 2026-10-22): a thin composition root over crates/human/app-core, the
+# human store, the transport facade on the IPC binding and the ui-model,
+# as the desktop client is, with no display. It names no Slint crate and
+# no libp2p: the transport is the shared daemon's (ADR-0040).
+[package]
+name = "interweave-human-cli"
+version = "0.0.0"
+publish = false
+description = "The InterWeave command-line human client."
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "interweave-human"
+path = "src/main.rs"
+
+[dependencies]
+interweave-human-store = { path = "../../crates/human/store" }
+interweave-human-ui-model = { path = "../../crates/human/ui-model" }
+interweave-profile-config = { path = "../../crates/config/profile-config" }
+interweave-transport-api = { path = "../../crates/api/transport-api" }

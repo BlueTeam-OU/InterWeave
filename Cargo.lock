@@ -3569,6 +3569,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "interweave-human-cli"
+version = "0.0.0"
+dependencies = [
+ "interweave-human-store",
+ "interweave-human-ui-model",
+ "interweave-profile-config",
+ "interweave-transport-api",
+]
+
+[[package]]
 name = "interweave-human-client-api"
 version = "0.0.0"
 dependencies = [

@@ -56,6 +56,10 @@ members = [
     # Stage 17 (plan section 20 steps 2-4): the Android human client's
     # native library; its Gradle project is apps/human-android/android.
     "apps/human-android",
+    # Stage 21 (plan section 29 step 4's command half, split out by
+    # architect-cto-01's request of 2026-10-22): the command-line human
+    # client, the stage's one new application.
+    "apps/human-cli",
     "crates/human/app-core",
     # Stage 17 (plan section 20 steps 2-4): the Android client's Service
     # side, host-testable.
@@ -679,6 +683,7 @@ planned_members = [
   "apps/claude-channel",
   "apps/human-desktop",
   "apps/human-android",
+  "apps/human-cli",
   "crates/api/transport-api",
   "crates/api/discovery-api",
   "crates/api/trust-api",
