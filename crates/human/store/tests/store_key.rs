@@ -226,3 +226,23 @@ fn remove_deletes_the_file_and_retires_the_alias() {
     assert_eq!(*keystore.retired.borrow(), ["interweave.store.default"]);
     assert_eq!(store_key::remove(&paths, &keystore), Ok(false));
 }
+
+/// Under a sealing custody, a second create is refused BEFORE it seals:
+/// the Keystore generates a new key at the alias on every seal, so a seal
+/// first would have replaced the key the existing record needs (#377
+/// review F2).
+#[test]
+fn a_second_create_under_the_keystore_leaves_the_first_record_openable() {
+    let (_dir, paths) = paths();
+    let keystore = SoftKeystore::default();
+    let key = store_key::create(&paths, &keystore).expect("created");
+    assert_eq!(
+        store_key::create(&paths, &keystore).map(|_| ()),
+        Err(StoreKeyFileError::Exists)
+    );
+    let opened = store_key::open(&paths, &keystore)
+        .expect("the first record still opens")
+        .expect("a key");
+    let filesystem = |k: &StoreKey| k.to_record("p", &FilesystemCustody).unwrap();
+    assert_eq!(filesystem(&key).as_str(), filesystem(&opened).as_str());
+}

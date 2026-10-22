@@ -474,3 +474,25 @@ fn remove_deletes_the_file_before_it_retires_the_platform_key() {
     );
     assert!(!cipher.file.exists());
 }
+
+#[path = "common/keystore.rs"]
+mod keystore;
+
+/// Under a custody that makes a new key at the alias on every seal, as
+/// `KeystoreCipher.kt` does, a second create is refused before it seals,
+/// so the existing record still opens (#377 review F2).
+#[test]
+fn a_second_create_under_a_resealing_keystore_leaves_the_first_record_openable() {
+    let (_dir, paths) = desktop_paths();
+    let human = endpoint("human");
+    let keystore = keystore::SoftKeystore::default();
+    let key = identity_key::create(&paths, &human, &keystore).expect("created");
+    assert_eq!(
+        identity_key::create(&paths, &human, &keystore).map(|_| ()),
+        Err(IdentityKeyFileError::Exists)
+    );
+    let opened = identity_key::open(&paths, &human, &keystore)
+        .expect("the first record still opens")
+        .expect("a key");
+    assert_eq!(opened.public_key(), key.public_key());
+}

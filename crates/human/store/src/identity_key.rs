@@ -262,6 +262,13 @@ pub fn create(
     endpoint: &EndpointId,
     cipher: &dyn KeyCipher,
 ) -> Result<IdentityKey, IdentityKeyFileError> {
+    // REFUSED BEFORE THE SEAL: a sealing platform generates a new key at
+    // the alias on every seal, so sealing first would replace the key an
+    // existing record needs (#377 review F2). The exclusive create below
+    // still decides a race; the caller holds the profile's client lock.
+    if file_present(&key_path(paths, endpoint))? {
+        return Err(IdentityKeyFileError::Exists);
+    }
     let key = IdentityKey::generate(endpoint.clone())?;
     let line = key.to_record(paths.profile(), cipher)?;
     match persist::create_private_exclusive_within(
@@ -271,9 +278,10 @@ pub fn create(
     ) {
         Ok(()) => Ok(key),
         Err(PersistError::AlreadyExists) => {
-            // The seal may have made a platform key under the alias the
-            // existing record also uses, and it is the existing one's to
-            // keep: nothing is retired here.
+            // Only a race past the check above reaches here: the seal may
+            // then have made a platform key under the alias the existing
+            // record also uses, and it is the existing one's to keep --
+            // nothing is retired here.
             Err(IdentityKeyFileError::Exists)
         }
         Err(e) => Err(IdentityKeyFileError::Persist(e.to_string())),
@@ -331,6 +339,15 @@ pub fn remove(
         .retire(&alias(paths.profile(), endpoint))
         .map_err(IdentityKeyError::Cipher)?;
     Ok(removed)
+}
+
+/// Whether a file, a link or anything else stands at `path`.
+fn file_present(path: &std::path::Path) -> Result<bool, IdentityKeyFileError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(IdentityKeyFileError::Persist(e.to_string())),
+    }
 }
 
 /// Why an identity's key file cannot be made, opened or removed.

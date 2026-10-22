@@ -266,6 +266,13 @@ impl core::error::Error for StoreKeyFileError {}
 /// # Errors
 /// [`StoreKeyFileError`].
 pub fn create(paths: &ProfilePaths, cipher: &dyn KeyCipher) -> Result<StoreKey, StoreKeyFileError> {
+    // REFUSED BEFORE THE SEAL: a sealing platform generates a new key at
+    // the alias on every seal, so sealing first would replace the key the
+    // existing record needs (#377 review F2). The exclusive create below
+    // still decides a race; the caller holds the profile's client lock.
+    if exists(paths)? {
+        return Err(StoreKeyFileError::Exists);
+    }
     let key = StoreKey::generate()?;
     let line = key.to_record(paths.profile(), cipher)?;
     match persist::create_private_exclusive_within(
