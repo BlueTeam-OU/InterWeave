@@ -6,14 +6,15 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use interweave_ipc_protocol::{
-    AdminStatusResult, ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, EndpointParams,
-    MAX_SHUTDOWN_GRACE_MS, Method, PeerList, PeerListParams, Request, RequestedCapability,
-    SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams, TRUST_SOURCE_SINCE_MINOR,
-    TrustList, TrustListParams, TrustSetParams,
+    AddressList, AddressParams, AddressResult, AdminStatusResult, ENDPOINT_PERSISTED_SINCE_MINOR,
+    EmptyResult, EndpointList, EndpointParams, MAX_SHUTDOWN_GRACE_MS, Method, PeerList,
+    PeerListParams, Request, RequestedCapability, SetDefaultParams, SetEnabledParams,
+    SetEnabledResult, ShutdownParams, TRUST_SOURCE_SINCE_MINOR, TrustList, TrustListParams,
+    TrustSetParams,
 };
 use interweave_local_client_api::{
-    AdminBinding, AdminCapability, AdminPort, AdminStatus, EndpointAdminView, Generation,
-    LocalAdminPort, PeerGateView, TrustAdminView, TrustedPeer,
+    AddressChange, AdminBinding, AdminCapability, AdminPort, AdminStatus, BootstrapAddress,
+    EndpointAdminView, Generation, LocalAdminPort, PeerGateView, TrustAdminView, TrustedPeer,
 };
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
 
@@ -405,5 +406,57 @@ impl AdminPort for IpcAdmin {
             .call::<EmptyResult>(Request::AdminTrustSet(TrustSetParams { peer, allowed }))
             .await
             .map(|_| ())
+    }
+
+    /// Below 2.7 the method does not exist, so it is refused
+    /// `ProtocolUnsupported` without a round trip, as
+    /// [`AdminPort::peers`] is below 2.2.
+    async fn add_bootstrap_address(
+        &self,
+        address: String,
+    ) -> Result<AddressChange, TransportError> {
+        self.address_move(Method::AdminPeersAddAddress, address)
+            .await
+    }
+
+    async fn remove_bootstrap_address(
+        &self,
+        address: String,
+    ) -> Result<AddressChange, TransportError> {
+        self.address_move(Method::AdminPeersRemoveAddress, address)
+            .await
+    }
+
+    async fn bootstrap_addresses(&self) -> Result<Vec<BootstrapAddress>, TransportError> {
+        if self.minor < Method::AdminPeersListAddresses.entry().since_minor {
+            return Err(TransportError::ProtocolUnsupported);
+        }
+        Ok(self
+            .connection
+            .call::<AddressList>(Request::AdminPeersListAddresses)
+            .await?
+            .addresses
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+}
+
+impl IpcAdmin {
+    async fn address_move(
+        &self,
+        method: Method,
+        address: String,
+    ) -> Result<AddressChange, TransportError> {
+        if self.minor < method.entry().since_minor {
+            return Err(TransportError::ProtocolUnsupported);
+        }
+        let params = AddressParams { address };
+        let request = if method == Method::AdminPeersAddAddress {
+            Request::AdminPeersAddAddress(params)
+        } else {
+            Request::AdminPeersRemoveAddress(params)
+        };
+        Ok(self.connection.call::<AddressResult>(request).await?.into())
     }
 }
