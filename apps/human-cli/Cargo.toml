@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Andrea Benetton
+#
+# The command-line human client (ADR-0059 decision 9; plan section 29
+# step 4's command half, split out by architect-cto-01's request of
+# 2026-10-22): a thin composition root over crates/human/app-core, the
+# human store, the transport facade on the IPC binding and the ui-model,
+# as the desktop client is, with no display. It names no Slint crate and
+# no libp2p: the transport is the shared daemon's (ADR-0040).
+[package]
+name = "interweave-human-cli"
+version = "0.0.0"
+publish = false
+description = "The InterWeave command-line human client."
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "interweave-human"
+path = "src/main.rs"
+
+[dependencies]
+interweave-human-app-core = { path = "../../crates/human/app-core" }
+interweave-human-client-api = { path = "../../crates/human/client-api" }
+interweave-human-store = { path = "../../crates/human/store" }
+interweave-human-transport-client = { path = "../../crates/human/transport-client" }
+interweave-human-ui-model = { path = "../../crates/human/ui-model" }
+interweave-local-client-api = { path = "../../crates/api/local-client-api" }
+interweave-profile-config = { path = "../../crates/config/profile-config" }
+interweave-transport-api = { path = "../../crates/api/transport-api" }
+serde_json = { workspace = true }
+
+# The desktop IPC binding is Unix-only, as the desktop client's is.
+[target.'cfg(unix)'.dependencies]
+interweave-ipc-client = { path = "../../crates/local/ipc-client" }
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync", "macros", "signal"] }
+
+[dev-dependencies]
+interweave-local-client-fake = { path = "../../tests/local-client-fake" }
+interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
+# Corrupts a stored row, in one test, to drive a store failure.
+rusqlite = { workspace = true }
+tempfile = { workspace = true }

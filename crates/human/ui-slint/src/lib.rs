@@ -2962,7 +2962,8 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         // controls, never an item's.
         | Intent::SetOwnCard { .. }
         | Intent::RenameContact { .. }
-        | Intent::SetContactPhoto { .. } => return None,
+        | Intent::SetContactPhoto { .. }
+        | Intent::DeleteContact { .. } => return None,
     };
     Some(placeholder_en::text(text))
 }

@@ -87,7 +87,10 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         | Intent::ShareCard(_)
         | Intent::SetOwnCard { .. }
         | Intent::RenameContact { .. }
-        | Intent::SetContactPhoto { .. } => false,
+        | Intent::SetContactPhoto { .. }
+        // Deleting a contact removes what the person accepted about
+        // someone; the trust allowlist is not the contacts, and stays.
+        | Intent::DeleteContact { .. } => false,
         Intent::ReadTrust | Intent::SetTrust(_) => true,
     }
 }

@@ -532,6 +532,16 @@ pub(super) fn handle_command(
             let answer = super::dialing::learn_route(manager, &peer, &address.to_string(), now_ms);
             let _ = reply.send(answer);
         }
+        SwarmCommand::ForgetAddress {
+            peer,
+            address,
+            reply,
+        } => {
+            // Canonicalized as the learn above it is, or the book, keyed by
+            // the canonical form, holds a route this removal never finds.
+            let answer = super::dialing::forget_route(manager, &peer, &address.to_string(), now_ms);
+            let _ = reply.send(answer);
+        }
         SwarmCommand::Learn {
             peer,
             addresses,

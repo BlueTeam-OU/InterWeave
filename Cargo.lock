@@ -3573,6 +3573,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "interweave-human-cli"
+version = "0.0.0"
+dependencies = [
+ "interweave-human-app-core",
+ "interweave-human-client-api",
+ "interweave-human-store",
+ "interweave-human-transport-client",
+ "interweave-human-ui-model",
+ "interweave-ipc-client",
+ "interweave-local-client-api",
+ "interweave-local-client-fake",
+ "interweave-profile-config",
+ "interweave-profile-identity",
+ "interweave-transport-api",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "interweave-human-client-api"
 version = "0.0.0"
 dependencies = [

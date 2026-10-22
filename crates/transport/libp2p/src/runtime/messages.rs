@@ -132,6 +132,16 @@ pub enum SwarmCommand {
         /// Answered with whether it was remembered.
         reply: oneshot::Sender<bool>,
     },
+    /// Take an address out of a peer's book: an operator's removal
+    /// (ADR-0062), the book half of `SwarmRuntime::forget_address`.
+    ForgetAddress {
+        /// The peer the address belongs to.
+        peer: TransportIdentity,
+        /// The address, as the book keys it.
+        address: Multiaddr,
+        /// Answered with whether it is out of the book.
+        reply: oneshot::Sender<bool>,
+    },
     /// Take a discovery candidate's addresses into the book through the
     /// PEER'S door (ADR-0052 rules 8 and 9): each is judged by the same
     /// boundary Identify's `listen_addrs` meet, and the operator set is

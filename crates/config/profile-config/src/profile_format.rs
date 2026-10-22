@@ -48,10 +48,12 @@ pub const PROFILE_FORMAT_FILE: &str = "profile-format.json";
 ///
 /// 1: the marker itself, written first by the build that carries the
 /// trust overlay, the endpoint overlay and the availability overlay.
-/// 2: the human store encrypted at rest (ADR-0060 decision 6, A
+/// 2: the bootstrap-peers overlay (ADR-0062), which a build at 1 would
+/// ignore, starting on a profile holding added peers and dialling none.
+/// 3: the human store encrypted at rest (ADR-0060 decision 6, A
 /// 2026-10-21): a build before it would read the encrypted store as a
 /// corrupt file, so it refuses the profile by this marker instead.
-pub const PROFILE_FORMAT: u32 = 2;
+pub const PROFILE_FORMAT: u32 = 3;
 
 /// The most a marker may hold on disk; its one shape is a few dozen
 /// bytes, and anything past this is refused before it is parsed.

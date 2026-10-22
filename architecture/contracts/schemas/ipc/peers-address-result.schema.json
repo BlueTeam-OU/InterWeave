@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:peers-address-result",
+  "title": "IPC admin.peers.add_address and admin.peers.remove_address result",
+  "description": "What an add or a removal did (ADR-0062). A REFUSAL IS AN ANSWER, not an error: `outcome: refused` names its rule in `refused`, a closed set a client renders in its own words, and nothing was written. `detail` is for a log, never parsed. `unchanged` is an add of an address already present, authored or added, or a removal of one the overlay does not hold; a removal of an authored one is refused `authored`. A write that fails is the error `Internal`, nothing changed (written before published, ADR-0028).",
+  "type": "object",
+  "required": [
+    "outcome"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "outcome": {
+      "enum": [
+        "added",
+        "removed",
+        "unchanged",
+        "refused"
+      ]
+    },
+    "refused": {
+      "$comment": "Present exactly when outcome is refused. grammar: not a multiaddr-with-peer-id. special_use: a component of a refused class of ADR-0052 rule 2 (loopback, link-local, unspecified, multicast or another special-use range; private ranges are admitted). bound: authored and added entries would exceed 64. provider_disabled: the profile authors the static-bootstrap provider enabled: false (an add only). authored: the address is config.yaml's (a removal only).",
+      "enum": [
+        "grammar",
+        "special_use",
+        "bound",
+        "provider_disabled",
+        "authored"
+      ]
+    },
+    "detail": {
+      "type": "string",
+      "maxLength": 512
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "refused"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "refused"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "refused"
+          ]
+        }
+      }
+    }
+  ],
+  "x-contract": {
+    "name": "ipc.peers-address-result",
+    "status": "approved",
+    "version": "1.0.0",
+    "adr": [
+      "0062",
+      "0017",
+      "0028",
+      "0052"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}

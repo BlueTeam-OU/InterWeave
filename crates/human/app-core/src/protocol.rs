@@ -98,6 +98,8 @@ pub enum Command {
         /// What happens to the photo.
         photo: PhotoEdit,
     },
+    /// Delete a contact, its routes and their recorded keys.
+    DeleteContact(String),
 }
 
 /// The store's rows at start, decoded for the model.
