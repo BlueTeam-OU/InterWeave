@@ -39,8 +39,9 @@ pub struct Refusal {
 pub fn refusal_text(reason: &str) -> String {
     format!(
         "The InterWeave bridge did not start: {reason}. It is serving this session without \
-         a channel or a connection to the transport daemon; fix the plugin's .mcp.json \
-         arguments or the environment Claude Code starts it in, then start a new session."
+         a channel or a connection to the transport daemon. Fix the plugin's profile or \
+         endpoint setting (claude plugin configure interweave@interweave), or the \
+         environment Claude Code starts it in, then start a new session."
     )
 }
 
