@@ -832,7 +832,7 @@ impl Peers {
     }
 
     /// Trust on a block: proposed and confirmed at once, the block being
-    /// the confirmation. Trust on a row opens step two for its peer.
+    /// the confirmation. A row's Trust is [`Self::trust_row`].
     fn trust(&mut self, peer: &TransportIdentity, trust: &mut TrustSettings) -> Option<Intent> {
         if let Some(block) = self.block_mut(peer) {
             if block.trusting || block.checking || trust.in_flight().is_some() {
