@@ -598,6 +598,13 @@ fn snack_text(snack: &PeersSnack) -> String {
         PeersSnack::UndoFailed { .. } => text(UiText::UndoFailed),
         PeersSnack::UndoUnknown { .. } => text(UiText::UndoUnknown),
         PeersSnack::Added => text(UiText::ConfirmAddressAdded),
+        // Step one's own line, as the page closes on it (section 5.3).
+        PeersSnack::AddedUnchanged { lines } => {
+            return result_text(&AddResult::Unchanged { lines: *lines });
+        }
+        PeersSnack::AddedChecked { lines } => {
+            return result_text(&AddResult::Checked { lines: *lines });
+        }
         PeersSnack::PeerTrusted => text(UiText::ConfirmPeerTrusted),
     }
     .to_owned()
