@@ -590,9 +590,9 @@ drun && pass "prose after an expression's full stop" || fail "prose after an exp
 # A parenthesis standing alone groups and ends nothing: the licence after
 # it is read, an unknown one refusing; the same expression with known ids
 # is accepted.
-printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( MIT ) OR LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( MIT ) OR Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
-drefused "a licence after a spaced parenthesis" "names a licence this tool does not recognise (LicenseRef-Frob)"
+drefused "a licence after a spaced parenthesis" "names a licence this tool does not recognise (Frob)"
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( MIT OR Apache-2.0 ) AND MIT\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist '["Apache-2.0"]'
 drun && pass "an expression with spaced parentheses" || fail "an expression with spaced parentheses was refused" "$(cat "$SANDBOX/err")"
