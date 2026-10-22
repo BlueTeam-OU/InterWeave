@@ -468,3 +468,62 @@ async fn listen_prints_a_card_as_a_proposal_and_leaves_it_unread() {
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     assert_eq!(lines(&out)[0]["status"], "unread", "still unread: {out}");
 }
+
+#[tokio::test]
+async fn an_accept_made_before_another_fails_is_printed_accepted() {
+    let (alice, bob, mut b_run) = shared().await;
+    // A second card on the same route: shown as creating a contact too,
+    // which the first accept makes false, so the second is refused as
+    // changed after the first was made.
+    let mut a_run = alice.session();
+    run(&mut a_run, Verb::CardShare(bob.route()), false)
+        .await
+        .1
+        .expect("shared again");
+    a_run.close().await;
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    let held = lines(&out);
+    assert_eq!(held.len(), 2, "{out}");
+    let ids: Vec<String> = held
+        .iter()
+        .map(|p| p["id"].as_str().expect("id").to_owned())
+        .collect();
+    let (out, read) = run(
+        &mut b_run,
+        Verb::ProposalsRead {
+            conversation: alice.route(),
+            accept: ids.clone(),
+            decline: vec![],
+        },
+        true,
+    )
+    .await;
+    assert!(matches!(read, Err(Failure::Refused(_))), "{read:?}");
+    let shown = lines(&out);
+    assert_eq!(shown[0]["status"], "accepted", "the one made: {out}");
+    assert_eq!(shown[1]["status"], "read", "the one refused: {out}");
+    let (out, _) = run(&mut b_run, Verb::Contacts, true).await;
+    assert_eq!(lines(&out).len(), 1, "the first accept stands: {out}");
+}
+
+#[tokio::test]
+async fn proposals_are_read_on_a_route_naming_its_endpoint() {
+    let (alice, _bob, mut b_run) = shared().await;
+    let (out, refused) = run(
+        &mut b_run,
+        Verb::ProposalsRead {
+            conversation: ConversationKey::Direct {
+                peer: alice.node.peer().clone(),
+                endpoint: None,
+            },
+            accept: vec![],
+            decline: vec![],
+        },
+        false,
+    )
+    .await;
+    assert!(matches!(refused, Err(Failure::Refused(_))), "{refused:?}");
+    assert!(out.is_empty());
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    assert_eq!(lines(&out)[0]["status"], "unread");
+}

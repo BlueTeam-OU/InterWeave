@@ -385,6 +385,18 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
     decline: &[String],
     out: &mut String,
 ) -> Result<(), Failure> {
+    if !matches!(
+        key,
+        ConversationKey::Direct {
+            endpoint: Some(_),
+            ..
+        }
+    ) {
+        return Err(Failure::Refused(
+            "a card's proposals are read on its route: <peer>/<endpoint>, as proposals prints it"
+                .to_owned(),
+        ));
+    }
     look(s, r).await;
     let shown = s.model().proposals(key);
     let find = |id: &str, n: usize, what: &str| {
@@ -413,39 +425,44 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
             "a proposal is accepted or declined, not both, and once".to_owned(),
         ));
     }
+    // What is read is what is printed: the proposals shown, and not one
+    // that arrives in the step that reads them, which stays unread for
+    // the next run.
     let viewed = key.clone();
+    let printed: Vec<RowId> = shown.iter().map(|p| p.row).collect();
     s.will(move |m| {
         m.proposals_viewed(&viewed, true)
             .into_iter()
+            .filter(|i| matches!(i, Intent::MarkRead(row) if printed.contains(row)))
             .map(ViewEvent::Intent)
             .collect()
     });
     s.step().await;
     // From here every proposal shown is read, and lasts this run only: it
-    // is printed whatever fails after, or the person never sees it.
-    let decided = decide(s, &decisions).await;
+    // is printed whatever fails after, or the person never sees it, each
+    // with what was done to it
+    // (`an_accept_made_before_another_fails_is_printed_accepted`).
+    let (done, decided) = decide(s, &decisions).await;
     for p in &shown {
         let status = match decisions.iter().find(|(row, _)| *row == p.row) {
-            Some((row, accepted)) if decided.as_ref().is_ok_and(|done| done.contains(row)) => {
-                if *accepted {
-                    "accepted"
-                } else {
-                    "declined"
-                }
-            }
+            Some((row, true)) if done.contains(row) => "accepted",
+            Some((row, false)) if done.contains(row) => "declined",
             _ => "read",
         };
         out.push_str(&proposal(p, key, status, r.json));
     }
-    decided.map(|_| ())
+    decided
 }
 
-/// Carry out `decisions`, as the model offers them; the rows decided.
+/// Carry out `decisions`, as the model offers them: the rows decided,
+/// whatever else failed, and whether everything was.
 async fn decide<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     decisions: &[(RowId, bool)],
-) -> Result<Vec<RowId>, Failure> {
-    problems(s)?;
+) -> (Vec<RowId>, Result<(), Failure>) {
+    if let Err(failure) = problems(s) {
+        return (Vec::new(), Err(failure));
+    }
     let mut intents = Vec::new();
     for (row, accept) in decisions {
         let wanted = if *accept {
@@ -454,15 +471,18 @@ async fn decide<B: DataSessionBinding, A: AdminBinding>(
             Intent::DeclineCard(*row)
         };
         if !s.model().card_actions(*row).contains(&wanted) {
-            return Err(Failure::Refused(format!(
-                "{} cannot be decided now",
-                proposal_id(*row)
-            )));
+            return (
+                Vec::new(),
+                Err(Failure::Refused(format!(
+                    "{} cannot be decided now",
+                    proposal_id(*row)
+                ))),
+            );
         }
         intents.push(wanted);
     }
     if intents.is_empty() {
-        return Ok(Vec::new());
+        return (Vec::new(), Ok(()));
     }
     s.will(move |_| intents.into_iter().map(ViewEvent::Intent).collect());
     s.step().await;
@@ -474,8 +494,7 @@ async fn decide<B: DataSessionBinding, A: AdminBinding>(
             _ => None,
         })
         .collect();
-    problems(s)?;
-    Ok(resolved)
+    (resolved, problems(s))
 }
 
 /// `contacts`.
