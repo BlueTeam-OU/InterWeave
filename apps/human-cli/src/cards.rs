@@ -431,9 +431,8 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
     let viewed = key.clone();
     let printed: Vec<RowId> = shown.iter().map(|p| p.row).collect();
     s.will(move |m| {
-        m.proposals_viewed(&viewed, true)
+        printed_only(m.proposals_viewed(&viewed, true), &printed)
             .into_iter()
-            .filter(|i| matches!(i, Intent::MarkRead(row) if printed.contains(row)))
             .map(ViewEvent::Intent)
             .collect()
     });
@@ -452,6 +451,16 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
         out.push_str(&proposal(p, key, status, r.json));
     }
     decided
+}
+
+/// The reads `viewed` asks for, of the rows `printed` alone: a proposal
+/// the model gained after the list was printed is not read
+/// (`only_what_was_printed_is_marked_read`).
+fn printed_only(viewed: Vec<Intent>, printed: &[RowId]) -> Vec<Intent> {
+    viewed
+        .into_iter()
+        .filter(|i| matches!(i, Intent::MarkRead(row) if printed.contains(row)))
+        .collect()
 }
 
 /// Carry out `decisions`, as the model offers them: the rows decided,
@@ -574,4 +583,21 @@ pub(crate) async fn contact_delete<B: DataSessionBinding, A: AdminBinding>(
     problems(s)?;
     let _ = writeln!(out, "{id} deleted");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_what_was_printed_is_marked_read() {
+        let row = RowId::from_stored;
+        let viewed = vec![Intent::MarkRead(row(3)), Intent::MarkRead(row(9))];
+        assert_eq!(
+            printed_only(viewed, &[row(3)]),
+            [Intent::MarkRead(row(3))],
+            "the card that arrived after the list, row 9, stays unread"
+        );
+        assert!(printed_only(vec![Intent::MarkRead(row(9))], &[]).is_empty());
+    }
 }
