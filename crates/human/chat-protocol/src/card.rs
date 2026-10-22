@@ -283,6 +283,29 @@ pub enum CardBuildError {
     Unencodable,
 }
 
+/// Whether a receiver would hold `draft` within its bounds: the name and
+/// surname after NFC, the photo's media type and size. What a person's own
+/// card is held to when they edit it, so a card they share is never one a
+/// receiver refuses.
+///
+/// # Errors
+/// [`CardBuildError`] for the first bound it breaks.
+pub fn check_draft(draft: CardDraft<'_>) -> Result<(), CardBuildError> {
+    bounded_name(&serde_json::Value::from(draft.name)).ok_or(CardBuildError::Name)?;
+    if let Some(s) = draft.surname {
+        bounded_name(&serde_json::Value::from(s)).ok_or(CardBuildError::Surname)?;
+    }
+    if let Some((media_type, bytes)) = draft.photo {
+        if !CARD_PHOTO_MEDIA_TYPES.contains(&media_type) {
+            return Err(CardBuildError::PhotoMediaType);
+        }
+        if bytes.len() > MAX_CARD_PHOTO_BYTES {
+            return Err(CardBuildError::PhotoTooLarge);
+        }
+    }
+    Ok(())
+}
+
 /// The `contact_card` envelope `draft` makes, signed for the route it is
 /// sent on: `sender` is this node's `PeerId` and `endpoint` the identity
 /// the conversation speaks as, which the receiver takes from the
@@ -302,6 +325,7 @@ pub fn build_card(
     sent_at_ms: Option<u64>,
     sign: impl FnOnce(&[u8]) -> [u8; 64],
 ) -> Result<String, CardBuildError> {
+    check_draft(draft)?;
     let name = bounded_name(&serde_json::Value::from(draft.name)).ok_or(CardBuildError::Name)?;
     let surname = match draft.surname {
         None => None,
