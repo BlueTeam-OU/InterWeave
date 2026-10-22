@@ -18,8 +18,8 @@
 # fresh manifest.
 set -euo pipefail
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo="$(cd "$here/../.." && pwd)"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repo="$(cd "$here/../.." && pwd -P)"
 
 [[ $# -ge 1 && $# -le 2 ]] || { echo "usage: $0 <out-dir> [<claude-channel binary>]" >&2; exit 2; }
 out="$1"
@@ -27,7 +27,13 @@ binary="${2:-$repo/target/release/claude-channel}"
 
 [[ -x "$binary" ]] || { echo "$0: no executable bridge at $binary: cargo build --release -p interweave-claude-channel" >&2; exit 1; }
 [[ ! -e "$out" ]] || { echo "$0: $out exists; give a new directory" >&2; exit 1; }
-case "$(cd "$(dirname "$out")" && pwd)/" in
+# The parent is resolved physically, both sides alike, and must exist: an
+# unresolvable parent once made the case word "/", which matched nothing,
+# and `set -e` does not fire inside a case word -- so the guard failed open
+# and the binary was installed into the tree.
+parent="$(cd "$(dirname "$out")" 2>/dev/null && pwd -P)" \
+    || { echo "$0: the parent of $out does not exist; create it outside the repository" >&2; exit 1; }
+case "$parent/" in
     "$repo"/*) echo "$0: $out is inside the repository; the binary is never committed" >&2; exit 1 ;;
 esac
 
