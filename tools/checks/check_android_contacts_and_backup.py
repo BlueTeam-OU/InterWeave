@@ -32,16 +32,21 @@
 #     dataExtractionRules must be set, and backupAgent, fullBackupContent
 #     and fullBackupOnly must be absent -- in every manifest read, since a
 #     variant manifest merges over main;
-#   - the extraction-rules file the main manifest names: <cloud-backup>
-#     and <device-transfer> each present, each excluding every domain at
-#     the path ".", and no <include> anywhere;
+#   - android:dataExtractionRules set in the main manifest alone: a
+#     variant manifest setting it, which would merge over main's, fails;
+#   - the extraction-rules file the main manifest names, in main and in
+#     every other non-test source set that has one (a variant's res/xml
+#     replaces main's at the resource merge): <cloud-backup> and
+#     <device-transfer> each present, each excluding every domain at the
+#     path ".", and no <include> anywhere;
 #   - permissions: no <uses-permission>, <uses-permission-sdk-23> or
 #     <permission> naming one of the three, in any manifest read;
 #   - the contacts provider: no manifest, Kotlin, Java, Gradle script,
 #     version catalog or Rust source of the Android client (the app, its
 #     Rust library, crates/human/android-platform) naming
-#     `ContactsContract`, `android.provider.Contacts` or the provider's
-#     authority `com.android.contacts` -- read raw, so a comment naming
+#     `ContactsContract`, `android.provider.Contacts`, the provider's
+#     authority `com.android.contacts` or the legacy `content://contacts`
+#     -- read raw, so a comment naming
 #     one fails too, as the picker and the provider are reached by those
 #     names and no other;
 #   - the Gradle dependency list: no line of a gradle.lockfile, a Gradle
@@ -84,7 +89,12 @@ EXTRACTION_DOMAINS = {
     "device_root", "device_file", "device_database", "device_sharedpref",
 }
 EXTRACTION_SECTIONS = ("cloud-backup", "device-transfer")
-PROVIDER_NAMES = ("ContactsContract", "android.provider.Contacts", "com.android.contacts")
+PROVIDER_NAMES = (
+    "ContactsContract",
+    "android.provider.Contacts",
+    "com.android.contacts",
+    "content://contacts",
+)
 TEST_SOURCE_SETS = {"androidTest", "test"}
 SKIP_DIRS = {"build", ".gradle", ".cxx", "target", ".git"}
 
@@ -139,6 +149,9 @@ def check_manifest(path: pathlib.Path, root: pathlib.Path, main: bool):
         if backup is not None and backup != "false":
             report(f'{rel}: <application> sets android:allowBackup="{backup}", not "false" (ADR-0060 decision 8)')
     if not main:
+        for app in apps:
+            if app.get(A + "dataExtractionRules") is not None:
+                report(f"{rel}: <application> sets android:dataExtractionRules in a variant manifest, over main's (ADR-0060 decision 8)")
         return None
     if len(apps) != 1:
         report(f"{rel}: the main manifest has {len(apps)} <application> elements, not one")
@@ -154,13 +167,14 @@ def check_manifest(path: pathlib.Path, root: pathlib.Path, main: bool):
     if not m:
         report(f"{rel}: android:dataExtractionRules is '{rules}', not an @xml/ resource")
         return None
-    return path.parent / "res" / "xml" / f"{m.group(1)}.xml"
+    return f"{m.group(1)}.xml"
 
 
-def check_extraction_rules(path: pathlib.Path, root: pathlib.Path) -> None:
+def check_extraction_rules(path: pathlib.Path, root: pathlib.Path, required: bool) -> None:
     rel = path.relative_to(root)
     if not path.is_file():
-        report(f"{rel}: the extraction-rules file the main manifest names is missing")
+        if required:
+            report(f"{rel}: the extraction-rules file the main manifest names is missing")
         return
     doc = parse(path, root)
     if doc is None:
@@ -217,7 +231,13 @@ def main(argv: list[str]) -> int:
         if m == main_manifest:
             rules = r
     if rules is not None:
-        check_extraction_rules(rules, root)
+        # Main's copy must exist; any other shipped source set's copy
+        # replaces it at the resource merge, so each one present is read.
+        sets = android / "app" / "src"
+        for d in sorted(p for p in sets.iterdir() if p.is_dir()):
+            if d.name in TEST_SOURCE_SETS:
+                continue
+            check_extraction_rules(d / "res" / "xml" / rules, root, d.name == "main")
 
     # Raw scans: a provider name anywhere the Android client is built from,
     # and a contacts coordinate anywhere the Gradle dependency list is.

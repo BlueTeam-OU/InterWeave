@@ -116,6 +116,13 @@ fails "no-lockfile" "no Gradle lockfile read" "rm $APP/gradle.lockfile"
 fails "variant-manifest-backup" 'android:allowBackup="true"' \
     "mkdir -p $APP/src/release && printf '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:allowBackup=\"true\" /></manifest>\n' > $APP/src/release/AndroidManifest.xml"
 
+fails "variant-manifest-rules" "sets android:dataExtractionRules in a variant manifest" \
+    "mkdir -p $APP/src/release && printf '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application android:dataExtractionRules=\"@xml/other\" /></manifest>\n' > $APP/src/release/AndroidManifest.xml"
+fails "variant-rules-file" "release/res/xml/data_extraction_rules.xml: an <include" \
+    "mkdir -p $APP/src/release/res/xml && cp $X $APP/src/release/res/xml/data_extraction_rules.xml && edit $APP/src/release/res/xml/data_extraction_rules.xml \"s.replace('<cloud-backup>', '<cloud-backup><include domain=\\\"file\\\" path=\\\".\\\" />')\""
+fails "provider-legacy-uri" "names content://contacts" \
+    "printf 'val u = \"content://contacts/people\"\n' >> $MAIN/kotlin/org/interweave/human/Plain.kt"
+
 # A test source set's manifest is test tooling, not the shipped app.
 R="$TMP/androidtest"; make_root "$R"
 mkdir -p "$R/$APP/src/androidTest"

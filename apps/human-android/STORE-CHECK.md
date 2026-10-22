@@ -145,7 +145,10 @@ and ships no contacts library; its manifest sets
 `cloud-backup` and `device-transfer`. On every change it is held by
 `tools/checks/check_android_contacts_and_backup.py`, over the manifests,
 the extraction rules, the Gradle lockfiles and scripts, and the Kotlin
-and Rust sources of the app (run by `cargo xtask checks` and CI).
+and Rust sources of the app (run by `cargo xtask checks` and CI). The
+rules are declared in the main manifest alone, and every shipped source
+set's copy of the rules file is read, since a variant's replaces main's
+at the resource merge.
 
 ## SPIKE-008's target-SDK half
 
