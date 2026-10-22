@@ -1223,11 +1223,10 @@ mod tests {
         }
     }
 
-    /// Every class, state and host text, as `host` reads it: what the
-    /// platform-value tests walk. An exhaustive match keeps the lists
-    /// whole: a variant added to either enum fails to compile until it is
-    /// named here.
-    fn host_dependent(host: RuntimeHost) -> Vec<&'static str> {
+    /// Every error class. The exhaustive match fails to compile on a
+    /// class added to the enum until it is named there; the array must
+    /// gain it too, which nothing enforces.
+    fn every_class() -> [ErrorClass; 14] {
         const fn listed(class: ErrorClass) -> ErrorClass {
             match class {
                 ErrorClass::PeerNotTrusted
@@ -1246,16 +1245,7 @@ mod tests {
                 | ErrorClass::Internal => class,
             }
         }
-        const fn state(state: Connectivity) -> Connectivity {
-            match state {
-                Connectivity::OnlineDirect
-                | Connectivity::OnlineRelay
-                | Connectivity::OnlinePartial
-                | Connectivity::Offline
-                | Connectivity::Unknown => state,
-            }
-        }
-        let classes = [
+        [
             ErrorClass::PeerNotTrusted,
             ErrorClass::RouteUnavailable,
             ErrorClass::NoNetworkPath,
@@ -1270,7 +1260,25 @@ mod tests {
             ErrorClass::EndpointInUse,
             ErrorClass::EndpointNotAvailable,
             ErrorClass::Internal,
-        ];
+        ]
+        .map(listed)
+    }
+
+    /// Every class, state and host text, as `host` reads it: what the
+    /// platform-value tests walk. An exhaustive match keeps the lists
+    /// whole: a variant added to either enum fails to compile until it is
+    /// named here.
+    fn host_dependent(host: RuntimeHost) -> Vec<&'static str> {
+        const fn state(state: Connectivity) -> Connectivity {
+            match state {
+                Connectivity::OnlineDirect
+                | Connectivity::OnlineRelay
+                | Connectivity::OnlinePartial
+                | Connectivity::Offline
+                | Connectivity::Unknown => state,
+            }
+        }
+        let classes = every_class();
         let states = [
             Connectivity::OnlineDirect,
             Connectivity::OnlineRelay,
@@ -1280,7 +1288,7 @@ mod tests {
         ];
         let mut texts: Vec<&str> = classes
             .iter()
-            .map(|c| placeholder_en::error(host, listed(*c)))
+            .map(|c| placeholder_en::error(host, *c))
             .collect();
         texts.extend(
             states
@@ -1293,6 +1301,49 @@ mod tests {
                 .map(|t| placeholder_en::host_text(host, *t)),
         );
         texts
+    }
+
+    /// The punctuation the status templates are written around: a
+    /// status fills `{status}` before a comma or a period the template
+    /// adds, so no status ends with one; an error class fills `{reason}`
+    /// last, so each is a sentence with its own period (`ItemWithReason`,
+    /// `AnnounceOwnStatusReason`, `NotSent`, `Refused`).
+    #[test]
+    fn statuses_end_bare_and_every_reason_ends_with_a_period() {
+        let waiting = [
+            UiText::WaitingSending,
+            UiText::WaitingSendingNoPath,
+            UiText::WaitingSendingRoute,
+            UiText::WaitingSendingBusy,
+            UiText::WaitingMaybe,
+            UiText::WaitingMaybeNoPath,
+            UiText::WaitingMaybeRoute,
+            UiText::WaitingMaybeBusy,
+            UiText::UnreadAlsoKept,
+        ]
+        .map(placeholder_en::text);
+        for &host in RuntimeHost::ALL {
+            let unavailable = [
+                HostText::WaitingSendingUnavailable,
+                HostText::WaitingMaybeUnavailable,
+            ]
+            .map(|t| placeholder_en::host_text(host, t));
+            let statuses = LabelKey::ALL
+                .iter()
+                .map(|l| placeholder_en::label(*l))
+                .chain(waiting)
+                .chain(unavailable);
+            for status in statuses {
+                assert!(!status.ends_with('.'), "{host:?}: {status}");
+            }
+            for class in every_class() {
+                let reason = placeholder_en::error(host, class);
+                assert!(
+                    reason.ends_with('.') && !reason.ends_with(".."),
+                    "{host:?} {class:?}: {reason}"
+                );
+            }
+        }
     }
 
     /// Android has no daemon (relay 01a12495): no text it can show names
