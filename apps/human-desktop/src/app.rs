@@ -227,7 +227,7 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         // trust change, the peer least of all.
         Command::ReadTrust => "read trust",
         Command::SetTrust(_) => "set trust",
-        Command::AcceptCard(_) => "accept card",
+        Command::AcceptCard { .. } => "accept card",
         Command::DeclineCard(_) => "decline card",
         Command::ShareCard(_) => "share card",
         Command::SetOwnCard { .. } => "set own card",
