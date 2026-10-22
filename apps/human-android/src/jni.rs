@@ -19,7 +19,7 @@ use interweave_human_ui_slint::{TouchSettings, snackbar_ms};
 use interweave_profile_identity::ProfileIdentity;
 use jni::{Env, EnvUnowned};
 
-use crate::keystore::KeystoreCipher;
+use crate::keystore::{KeystoreCipher, StoreKeystore};
 use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jboolean, jfloat, jint, jlong};
@@ -53,6 +53,9 @@ mod refused {
     /// Native.kt's `REFUSED_NETWORK_DENIED`: the Service answers it with
     /// the network-denied posture.
     pub(super) const NETWORK_DENIED: jint = -12;
+    /// The Keystore invalidated the store key (ADR-0060 decision 6): the
+    /// window shows the key-lost screen.
+    pub(super) const STORE_KEY_INVALIDATED: jint = -13;
 }
 
 /// One line to the platform's log, under the app's tag. A started
@@ -208,20 +211,37 @@ fn refusal(why: &StartRefused) -> jint {
         StartRefused::Runtime(_) => refused::RUNTIME,
         StartRefused::NoHumanEndpoint => refused::ENDPOINT,
         StartRefused::StoreNeedsRecovery => refused::STORE_RECOVERY,
+        StartRefused::StoreKeyInvalidated => refused::STORE_KEY_INVALIDATED,
         StartRefused::StoreNotPrivate(_) => refused::STORE_PRIVATE,
         StartRefused::StoreUnavailable(_) => refused::STORE_UNAVAILABLE,
         StartRefused::Thread(_) => refused::THREAD,
     }
 }
 
-fn start_without_network(app_data_dir: &str) -> jint {
+/// The store key's custody, reached from a native method's thread (a
+/// natively attached one finds no app class): the Keystore bridge, or
+/// the refusal code after logging why it could not be reached.
+fn store_cipher(env: &mut Env<'_>) -> Result<StoreKeystore, jint> {
+    KeystoreCipher::new(env)
+        .map(|cipher| StoreKeystore(std::sync::Arc::new(cipher)))
+        .map_err(|e| {
+            log(&format!("the Keystore cipher could not be reached: {e}"));
+            refused::STORE_UNAVAILABLE
+        })
+}
+
+fn start_without_network(env: &mut Env<'_>, app_data_dir: &str) -> jint {
+    let cipher = match store_cipher(env) {
+        Ok(cipher) => cipher,
+        Err(code) => return code,
+    };
     if let Err(code) = provision(app_data_dir) {
         return code;
     }
     let host = ServiceHost::global();
     let dir = std::path::Path::new(app_data_dir);
     let started = crate::platform_log::around_start(host, dir, PROFILE, || {
-        host.start_without_network(dir, PROFILE)
+        host.start_without_network(dir, PROFILE, &cipher)
     });
     match started {
         Ok(()) => {
@@ -242,6 +262,10 @@ fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
         Ok(identity) => identity,
         Err(code) => return code,
     };
+    let store_cipher = match store_cipher(env) {
+        Ok(cipher) => cipher,
+        Err(code) => return code,
+    };
     let host = ServiceHost::global();
     let dir = std::path::PathBuf::from(&app_data_dir);
     let started = crate::platform_log::around_start(host, &dir, PROFILE, || {
@@ -249,6 +273,7 @@ fn start(env: &mut Env<'_>, app_data_dir: String) -> jint {
             app_data_dir: dir.clone(),
             profile: PROFILE.to_owned(),
             identity,
+            store_cipher: Box::new(store_cipher),
         })
     });
     match started {
@@ -301,7 +326,8 @@ extern "system" fn Java_org_interweave_human_Native_startWithoutNetwork<'caller>
     app_data_dir: JString<'caller>,
 ) -> jint {
     env.with_env(|env| -> Result<jint, jni::errors::Error> {
-        Ok(start_without_network(&app_data_dir.try_to_string(env)?))
+        let app_data_dir = app_data_dir.try_to_string(env)?;
+        Ok(start_without_network(env, &app_data_dir))
     })
     .resolve::<ThrowRuntimeExAndDefault>()
 }

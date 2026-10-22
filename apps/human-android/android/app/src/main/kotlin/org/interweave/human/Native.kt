@@ -184,6 +184,10 @@ internal object Ask {
     const val OFFLINE = 6
     const val ONLINE = 7
     const val UNLOCK = 8
+    // The store's screens: start the network service again -- Try again
+    // on the recovery screen, and after a confirmed discard, which
+    // recreates the store (ADR-0060 decision 6).
+    const val RESTART = 9
 }
 
 /** The keys of the texts the platform shows, as `jni.rs` maps them. */
