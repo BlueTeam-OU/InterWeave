@@ -113,7 +113,9 @@ pub fn run(args: impl IntoIterator<Item = String>) -> ExitCode {
 
 /// Discard and recreate for `profile`'s store under the v1 desktop's
 /// custody, run under the single-instance lock the root holds (ADR-0060
-/// decision 6). The desktop holds one identity until Stage 22.
+/// decision 6). The confirmation names every identity's data from the
+/// second leasable human endpoint on: before Stage 22 a desktop profile
+/// may still author two, and the list must not say less than it deletes.
 fn discard(profile: &crate::startup::Profile) -> refusal::Discard {
     use interweave_human_store::at_rest;
     use interweave_human_store::key_custody::FilesystemCustody;
@@ -127,6 +129,6 @@ fn discard(profile: &crate::startup::Profile) -> refusal::Discard {
                 .map(|done| done.scope)
                 .map_err(|e| e.to_string())
         }),
-        identities: 1,
+        identities: profile.endpoints.len().max(1),
     }
 }
