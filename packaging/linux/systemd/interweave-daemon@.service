@@ -25,6 +25,14 @@ TimeoutStopSec=30
 Restart=on-failure
 RestartSec=5
 RestartPreventExitStatus=2
+# SIGHUP is a restart, not a reload: the daemon stops exactly as on SIGTERM
+# and exits 75, which is restarted RestartSec= later like a failure but
+# logged as a success. Nothing survives it -- every lease is released and
+# the new daemon issues fresh epochs -- so a profile change is applied by
+# `systemctl --user restart interweave-daemon@<profile>` or this signal.
+# There is no ExecReload=. The e2e case reads the number from these lines.
+RestartForceExitStatus=75
+SuccessExitStatus=75
 UMask=0077
 NoNewPrivileges=yes
 

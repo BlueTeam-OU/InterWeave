@@ -322,19 +322,63 @@ jobs:
           --run-ignored only --no-tests=fail
           -E 'binary_id(interweave-desktop-e2e-tests::human_app) & test(=release::a_rollback_to_each_previous_build_keeps_the_peer_id_and_is_recorded)'
 
-      # Plan §21, decided (4) and P2: the daemon's sockets against a REAL
-      # second uid. The test is #[ignore]d for want of an account and
-      # panics by name with INTERWEAVE_FOREIGN_UID_USER unset, with
-      # `sudo -n -u` refused, or with the uid unchanged. The account is
-      # `nobody`: every runner image has it, and `sudo` runs a command
-      # without its login shell. The first lines fail HERE, named, when
-      # the image stops letting this job become `nobody` or `nobody`
-      # cannot run python3 (the test's client). TMPDIR is pinned to /tmp
-      # because the test's scratch comes from it and `nobody` must
+      # Plan §22's Linux rows "service/autostart lifecycle" and "uninstall
+      # semantics" install the packaged units into the runner account's
+      # systemd user manager. The hosted image already runs one: measured
+      # 2026-10-20 (ubuntu-24.04, systemd 255), runner was lingering and
+      # user@1001.service active from boot, and `journalctl --user -u`
+      # returned a user unit's lines, the restart case's oracle. Linger is
+      # asked for anyway, so an image that stops lingering is put right
+      # rather than failing as a missing bus; the last line fails HERE,
+      # named, if the manager does not answer. Only the uid is exported,
+      # so the session variables reach the user-unit step and no other.
+      - name: The runner account's systemd user manager (plan §22)
+        id: user-manager
+        run: |
+          set -euo pipefail
+          uid=$(id -u)
+          sudo loginctl enable-linger "$USER"
+          for _ in $(seq 30); do
+            systemctl is-active --quiet "user@${uid}.service" && break
+            sleep 1
+          done
+          echo "uid=${uid}" >> "$GITHUB_OUTPUT"
+          XDG_RUNTIME_DIR="/run/user/${uid}" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
+            systemctl --user show-environment > /dev/null
+
+      # The cases are #[ignore]d because a plain `cargo test` may have no
+      # user manager; with Tests' own selection, for the rollback row's
+      # reason (above), and every case of the binary, one at a time: each
+      # refuses to run beside another's interweave-*@ unit, since
+      # uninstall.sh stops every instance of the account. Measured 23 s.
+      - name: The packaged user units under the user manager (plan §22)
+        timeout-minutes: 5
+        env:
+          XDG_RUNTIME_DIR: /run/user/${{ steps.user-manager.outputs.uid }}
+          DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/${{ steps.user-manager.outputs.uid }}/bus
+        run: >-
+          cargo nextest run --workspace --all-targets --locked --profile ci
+          --run-ignored only --no-tests=fail --test-threads 1
+          -E 'binary_id(interweave-desktop-e2e-tests::user_units)'
+
+      # Plan §21, decided (4) and P2: the daemon against a REAL second
+      # uid, in two tests -- its sockets (S9) and a link another account
+      # owns on the state directory's path (TM-49). Each is #[ignore]d
+      # for want of an account and panics by name with
+      # INTERWEAVE_FOREIGN_UID_USER unset, with `sudo -n -u` refused, or
+      # with the uid unchanged. The account is `nobody`: every runner
+      # image has it, and `sudo` runs a command without its login shell.
+      # The first lines fail HERE, named, when the image stops letting
+      # this job become `nobody` or `nobody` cannot run python3 (S9's
+      # client; TM-49's needs only mktemp, ln and rm). TMPDIR is pinned to
+      # /tmp because S9's scratch comes from it and `nobody` must
       # traverse it; a TMPDIR under the runner's home would not be. The
       # selection is the rollback row's (above), for its reasons: Tests
-      # built the binary and the daemon beside it, and a name matching
-      # nothing fails rather than passes.
+      # built the binaries and the daemon beside them, and a name
+      # matching nothing fails rather than passes -- which is why each
+      # test has its own run: in one filter ORing both, a renamed test
+      # would leave the other matching and the step green.
       - name: The daemon's sockets refuse a foreign uid (plan §21, decided (4))
         timeout-minutes: 5
         env:
@@ -348,6 +392,9 @@ jobs:
           cargo nextest run --workspace --all-targets --locked --profile ci \
             --run-ignored only --no-tests=fail \
             -E 'binary_id(interweave-security-local-tests::socket_spoofing) & test(=a_foreign_uid_is_refused_by_the_modes_and_then_by_the_peer_credential_check)'
+          cargo nextest run --workspace --all-targets --locked --profile ci \
+            --run-ignored only --no-tests=fail \
+            -E 'binary_id(interweave-security-local-tests::profile_state) & test(=a_link_another_account_owns_on_the_path_stops_the_daemon)'
 
       - name: The lockfile is the one that was committed
         # Belt and braces to `--locked`: if any step did rewrite it, say

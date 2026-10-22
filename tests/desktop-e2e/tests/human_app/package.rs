@@ -183,8 +183,13 @@ pub(crate) fn start_daemon(home: &Home) -> Running {
 /// [`start_daemon`] with the `transport-daemon` at `bin`, another
 /// build's.
 pub(crate) fn start_daemon_of(bin: &Path, home: &Home) -> Running {
-    let log = home.root.path().join(format!("daemon-{}.log", stamp()));
-    let stderr = std::fs::File::create(&log).expect("a log file");
+    // One log per start, as the client's in harness.rs: a clock-named
+    // file could be reused within a tick and truncated under a daemon
+    // still writing it.
+    static STARTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = STARTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let log = home.root.path().join(format!("daemon-of-{n}.log"));
+    let stderr = std::fs::File::create_new(&log).expect("a log file of its own");
     let mut command = Command::new(bin);
     in_home(&mut command, home);
     let child = command
@@ -204,11 +209,4 @@ pub(crate) async fn status_peer(home: &Home) -> TransportIdentity {
         .await
         .expect("an admin port");
     port.status().await.expect("status").peer
-}
-
-fn stamp() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("a clock")
-        .as_nanos()
 }

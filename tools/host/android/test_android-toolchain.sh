@@ -35,7 +35,9 @@ expect() {  # expect <label> <want-rc> <substring>
 }
 # This host may be a Qubes AppVM; the cases that want a persistence say so.
 export ANDROID_TOOLCHAIN_PERSISTENCE=""
-SANDBOX="$(realpath -- "$(mktemp -d)")"; trap 'chmod -R u+w "$SANDBOX" 2>/dev/null; rm -rf "$SANDBOX"' EXIT
+SANDBOX="$(realpath -- "$(mktemp -d)")"
+[[ -n "$SANDBOX" && -d "$SANDBOX" ]] || { echo "test_android-toolchain: no sandbox (mktemp failed)" >&2; exit 1; }
+trap 'chmod -R u+w "$SANDBOX" 2>/dev/null; rm -rf "$SANDBOX"' EXIT
 # --install's one-at-a-time lock, in the sandbox rather than /run/lock.
 export ANDROID_TOOLCHAIN_LOCK="$SANDBOX/install.lock"
 PINS="$SANDBOX/pins"

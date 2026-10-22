@@ -55,3 +55,19 @@ even when one person holds them, and that no UX may let the person act
 as one while believing they act as the other: a contact is therefore
 held by the local identity that accepted it (decision 3), and the same
 counterparty accepted by two identities is two contacts.
+
+### Amendment 2026-10-21 — The card carries the identity's key and is signed by it (iii)
+
+The owner, the same evening: peer-level encryption and end-to-end
+encryption are two matters. ADR-0064 proposes the layer; ADR-0063
+takes the one field that cannot wait, so that no card exchanged before
+the layer has to be exchanged again: every user identity has an
+Ed25519 key of its own, and the card carries its public key and a
+signature over the card's canonical bytes bound to the PeerId and the
+EndpointId it is sent from. Decision 1's "no identifier field" becomes
+"no identifier a person chose": the key is the identity's cryptographic
+name, the connection's `source_peer` stays what the card is bound to,
+and a key that changes on a known route is a proposal the person
+decides. The envelope schema is `active`, but no producer of a
+`contact_card` exists on `main` (plan §29 step 1 is unbuilt), so the
+card branch is tightened in place as a minor, 2.2.0 (ADR-0049).

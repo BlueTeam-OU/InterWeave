@@ -3316,7 +3316,9 @@ Not decided: SLIP-0039; `profile init`.
 foreground (supervision is Stage 19); no `clap` — a small tested
 `cli.rs` per app (the spikes' parsers are precedent, ADR-0045 rule 8);
 exit codes 0 ok / 1 refused, the error code printed / 2 usage / 3
-daemon unreachable; `--json` prints the method's result object, so CLI
+daemon unreachable / 75 the daemon's clean stop on SIGHUP, which its
+systemd unit restarts (Stage 19, §22: a restart, not a reload);
+`--json` prints the method's result object, so CLI
 output is schema-validatable.
 
 (12) **Daemon identity at startup.** Load the key; missing is fatal
@@ -5074,7 +5076,19 @@ what a harness can measure; the client-side clauses of this sentence
 tests, named in the closing record; (b) every step of "Implement in order" has a test named for it in
 the closing record and green — host Rust tests for the session and
 domain logic, instrumented tests on a real device (API level recorded)
-for each line of "Platform tests", process death and restart included;
+for each line of "Platform tests", process death and restart included
+— **amended 2026-10-21 on the owner's word, for this close, on
+architect-cto's recommendation ("go as your recommendation for clause
+b")**: a Platform-tests line is met by an instrumented test on a device,
+or by a dated device-run record under `apps/human-android/device-runs/`
+naming the device, its API level, the build and the commands, run by a
+person; the instrumented cases not built at the close are carried by
+name to the owner's release gate in the closing record — at the close
+the Keystore user-presence case, which needs a person's biometric, and
+the network-callback case, which needs the Wi-Fi toggle — and the
+TalkBack items travel with the release gate's TalkBack carry (Decided
+2026-10-18); a line with neither an instrumented test nor a record is
+not met;
 step 10 by the release metadata and the dependency check (ADR-0057); (c)
 `tests/android-e2e` proves Android ↔ desktop interoperability through a
 direct and a relayed path, HumanChatV2 both directions, plain and
@@ -5904,14 +5918,24 @@ the timing.
 Recorded 2026-10-21 on the owner's direction of that day; the decisions
 are ADR-0059 (a contact is built from a card the counterparty sends and
 the person accepts) and ADR-0060 (the human store is encrypted at rest
-under a key the platform seals). **This section opens nothing by
-itself; the owner's word of 2026-10-21 opens the stage when Stage 17
-closes** ("open stage 21 after 17 closes"): from the landing of Stage
-17's closing record (§20) the stage runs beside Stage 18 and Stage 19
-as §19's Stage 16 ran beside Stage 15, the closing record names it as
-opened, and the status value stays the lowest open stage, Stage 18's
-slug once Stage 17 has closed. It is numbered after §28 so that no citation of
-§23–§28 moves. It takes over Stage 15's carry 11 (§18: a new conversation
+under a key the platform seals). **The stage runs beside Stage 17,
+Stage 18 and Stage 19 from the landing of this paragraph's amendment of
+2026-10-21, on the owner's word of that evening** — the morning's "open
+stage 21 after 17 closes", under which this section first landed
+opening nothing, superseded that evening, with the stage's three lanes
+idle on main and Stage 17 waiting on device runs and its closing
+record, by "agents must work" on the proposal to run it beside (this
+paragraph is that word's record); as §19's
+Stage 16 ran beside Stage 15 and §22's Stage 19 runs beside Stage 17.
+The status value stays the lowest open stage,
+`stage-17-android-human-client`, and this record is the authorisation
+for the stage's work (`CLAUDE.md` §3): no new crate but the
+command-line client under Activate, added to `[workspace].members` in
+the change that creates it. The precedent's two constraints hold: no
+`Proof::Stage(21)` deferral and no `stage-21` deadline is written while
+the stage runs beside the open one, since the guards expire a deferral
+only once the status passes it. It is numbered after §28 so that no
+citation of §23–§28 moves. It takes over Stage 15's carry 11 (§18: a new conversation
 by PeerId, the contacts UX and the owner's privacy review); ADR-0059
 decisions 2, 3 and 6 are input to that review, which the owner answers
 at the exit gate's (d).
@@ -5921,8 +5945,10 @@ at the exit gate's (d).
 A conversation shows the counterparty's name because the counterparty
 sent it and the person accepted it; every contact, route, conversation
 and retained message is ciphertext on disk; and neither client can
-reach the platform's address book. Nothing of this touches the daemon,
-the transport or the wire below the chat envelope.
+reach the platform's address book; and a person adds a peer's address
+and shows their own (ADR-0062), so a phone reaches its first peer
+without an operator. Nothing else of this touches the daemon, the
+transport or the wire below the chat envelope.
 
 ### Prerequisites
 
@@ -5956,10 +5982,29 @@ decision 6.
    MalformedCard(reason), where an envelope any of whose top-level kind
    copies is contact_card is a card — so a duplicate-member card is
    MalformedCard, never NotCard — and a Card carries the photo's
-   decoded length as the parser measured it.
-2. **The proposal and the acceptance** (rust-ui-dev): the person's own
+   decoded length as the parser measured it; the card's `identity_key`
+   and `signature` (ADR-0063), the canonical bytes, the three malformed
+   cases, held to the fixture vectors frozen on #343 ahead of
+   the parser (`fixtures/human-chat-v2/human-chat-v2-contact-card.json`,
+   with their test-only key pair), and the small-order-R and
+   non-canonical-S vectors HUMAN-CHAT.md's fixture list owes to this
+   step added to that file with the parser, each guarded against being
+   misbuilt: the R vector shown to verify under the crate's non-strict
+   `verify`, which lacks only the small-order check; the S vector
+   shown to be the valid signature with S raised by the group order
+   and still below 2^253, since the scalar check is in the decoding
+   every verify of the crate shares, the vector failing whenever the
+   verifier's `legacy_compatibility` feature is on in the build.
+2. **The proposal and the acceptance** (rust-ui-dev): the identity key
+   pair generated with the identity and sealed as the store key is
+   (ADR-0063, ADR-0060 decision 3: its own IDK1 envelope and alias
+   namespace, `<state_dir>/identity-keys/<EndpointId>.key`, the Android
+   wrapping key reached through the embedded host as the store key's is,
+   never the seed's custody seam); the person's own
    card in settings — one per configured endpoint, the `human` endpoint's
-   in this stage (ADR-0059 decision 2 as amended, ADR-0061); "Share a
+   in this stage (ADR-0059 decision 2 as amended, ADR-0061) — signed by
+   its key; `contact_routes.identity_key`; the key-change proposal and
+   the fingerprint on the identity and contact pages; "Share a
    card" on one conversation sending the conversation's identity's card,
    no chooser, never automatic; the received card held as inbound content under
    RETENTION.md, shown as a proposal with the PeerId beside it and the
@@ -5990,10 +6035,26 @@ decision 6.
    (rust-ui-dev): the same `ui-model` on both; every action of steps
    2 and 3 as a command, with no display (ADR-0059 decision 9); `human-client-ui.md` §13 acceptance criteria for steps 2 and 3,
    proposed by rust-ui-dev and ruled by architect-cto.
+5. **A peer by address, and one's own** (ADR-0062, A 2026-10-21):
+   p2p-network-dev — the bootstrap-peers overlay in `profile-config`
+   (loader, normalisation, the shared bound of 64, FATAL above it at
+   start), the composition building the static-bootstrap provider from
+   the overlay when none is authored and the provider taking adds and
+   removals live, the add's class floor (ADR-0052 rule 2) in the
+   method itself and the embedded host's function, the typed-only DNS
+   rule at the client,
+   `admin.peers.add_address`, `remove_address` and `list_addresses` and
+   their schemas under one IPC minor, the embedded host's function on
+   Android, `transportctl`'s add, remove and list; rust-ui-dev — the add
+   screen (typed or scanned) and the show screen (text and QR) on both
+   clients and the command-line forms, the QR encoder and decoder on the
+   licence allow-list or with their ADR, the ui-model's address list;
+   ux-designer — the two flows under `design/`, onboarding's third step
+   first; §13 criteria proposed by rust-ui-dev and ruled by architect-cto.
 
 ### Exit gate
 
-(a) Steps 1–4 landed with their tests green on `main`; (b) the
+(a) Steps 1–5 landed with their tests green on `main`; (b) the
 conformance cases, by name: a valid card accepted creates the contact
 and names the conversation; a card from an unknown kind or over a bound
 is rejected locally with no network effect; a card over broadcast is
@@ -6007,7 +6068,11 @@ route of a known PeerId creates a second contact and the proposal names
 the contact sharing its node, and a contact never holds two routes of one
 PeerId (ADR-0061 decision 4, A 2026-10-21 (ii)); the card shared to two
 conversations is the conversation's identity's each time and nothing
-sent names another identity (the two-identity case is §30's gate); a confirmed discard during a stalled rewrite
+sent names another identity (the two-identity case is §30's gate); a
+card's signature verifies at the receiver and a card replayed from
+another PeerId is malformed; a card with a changed identity key on a
+known route is shown as a key change and accepted only by the person;
+the identity key never enters the store, a log, IPC or a backup; a confirmed discard during a stalled rewrite
 removing the plaintext and keeping the key and the complete copy,
 which the next open promotes, the screen listing the plaintext alone;
 the same discard with the copy unopenable (no key, an invalidated
@@ -6033,7 +6098,25 @@ owner's privacy review of Stage 15's carry 11 answered in the record —
 over the card (what it still discloses: ADR-0059, Security
 implications) and over `read_pairs`, `conversation_index`,
 `contact_routes.last_seen` and the contacts' provenance columns, which
-STATE.md puts in the same review.
+STATE.md puts in the same review; (e) step 5's cases, by name: an
+address added on the phone for a trusted peer is dialled and survives a
+restart, with no static-bootstrap entry authored; a string outside the
+grammar is refused by name and nothing is stored; the 65th entry is
+refused, and a profile whose authored and added entries exceed 64 fails
+to start naming the overlay; every special-use class of ADR-0052 rule 2
+is refused by the method itself, `transportctl` as the caller, and a
+private-range address is admitted; an add under an authored
+`enabled: false` provider is refused by name, and overlay entries
+already present under one raise the load-time diagnostic and list as
+not dialled; a DNS
+name is admitted typed and refused from a scan; a scanned QR made by a
+hostile party adds its addresses and nothing else, the trust set
+unchanged, and one refused line refuses the whole scan; the shown QR
+decodes to this node's addresses and PeerId and nothing else, none of a
+refused class; a removed address is dialled no more without a restart,
+and an authored one cannot be removed; `transportctl` lists what the
+app added; two phones on one LAN, each fresh, connect after each has
+scanned the other and trusted the shown PeerId, and not before.
 
 ### Record
 
