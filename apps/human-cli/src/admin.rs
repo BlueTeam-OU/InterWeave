@@ -53,6 +53,19 @@ fn narrowed(ours: &[EndpointId], verb: &Verb) -> Result<(), Failure> {
     }
 }
 
+/// Whether `identities default --none` may clear `current`, the
+/// profile's default now: only when it is one of `ours`, or there is none.
+fn may_clear(current: Option<&EndpointId>, ours: &[EndpointId]) -> Result<(), Failure> {
+    match current {
+        Some(id) if !ours.contains(id) => Err(Failure::Refused(
+            "the profile's default endpoint is not one a human client uses: \
+             clear it with transportctl"
+                .to_owned(),
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Carry out an `identities` verb.
 ///
 /// # Errors
@@ -130,6 +143,14 @@ pub(crate) async fn identities(
             );
         }
         Verb::SetDefault(endpoint) => {
+            if endpoint.is_none() {
+                // Clearing names no endpoint, so whose default it clears is
+                // read first: one that is not a human endpoint is another
+                // client's routing, and `transportctl`'s to change.
+                let list = port.endpoints_result().await.map_err(refused)?;
+                let current = list.endpoints.iter().find(|row| row.default);
+                may_clear(current.map(|row| &row.id), &profile.endpoints)?;
+            }
             port.set_default_endpoint(endpoint.clone())
                 .await
                 .map_err(refused)?;
@@ -162,6 +183,12 @@ mod tests {
                 "{verb:?}"
             );
         }
+        assert!(matches!(
+            may_clear(Some(&id("claude")), &ours),
+            Err(Failure::Refused(_))
+        ));
+        assert!(may_clear(Some(&id("human")), &ours).is_ok());
+        assert!(may_clear(None, &ours).is_ok());
         for verb in [
             Verb::SetEnabled(id("human"), false),
             Verb::SetDefault(Some(id("human"))),

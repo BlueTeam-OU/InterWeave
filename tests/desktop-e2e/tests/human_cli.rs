@@ -243,6 +243,23 @@ async fn every_batch_one_verb_against_two_daemons() {
     let out = human(&a, &["identities", "list", "--json"], "");
     assert_eq!(lines(&out)[0]["enabled"], true, "{}", said(&out));
     assert_eq!(lines(&out)[0]["default"], true, "{}", said(&out));
+    // Another client's default is not this client's to clear.
+    let set = a.transportctl(&["endpoints", "default", "claude"], "");
+    assert!(set.status.success(), "{set:?}");
+    let out = human(&a, &["identities", "default", "--none"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    let listed = a.transportctl(&["endpoints", "list", "--json"], "");
+    let listed: Value = serde_json::from_slice(&listed.stdout).expect("the list");
+    assert!(
+        listed["endpoints"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .any(|row| row["id"] == "claude" && row["default"] == true),
+        "claude is still the default: {listed}"
+    );
+    let out = human(&a, &["identities", "default", "human"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
 
     // trust: B is configured; revoked and allowed again.
     let out = human(&a, &["trust", "list", "--json"], "");
