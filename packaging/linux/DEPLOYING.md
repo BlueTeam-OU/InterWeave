@@ -77,7 +77,9 @@ record before anything depends on this PeerId:
 transportctl --profile <profile> identity backup --to-file <new path>
 ```
 
-(the record is a secret; keep it off the host).
+(the record is a secret; keep it off the host). The `identity` commands
+take the profile's lock, so they run while the profile's daemon is
+stopped; with it running they are refused, naming the lock.
 
 ## 3. `config.yaml`
 
