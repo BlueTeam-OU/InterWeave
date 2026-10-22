@@ -41,6 +41,11 @@
 #      (org.interweave.human.test.E2eCase) is a Java class this walk
 #      cannot see, checked on the APK once the instrumentation build
 #      exists.
+#   7. apps/human-cli, the command-line client, reaches no libp2p crate and
+#      no Slint crate: the claim its Cargo.toml makes (the transport is the
+#      shared daemon's, ADR-0040, and it has no display). Walked, as rule 1
+#      is, so a dependency that brings either in transitively fails too;
+#      rule 4 alone would see only a Slint crate it declared itself.
 # check_ipc_layering.sh is the precedent; this is its shape, wider.
 #
 # WHAT IS FOLLOWED: the normal and build dependencies cargo resolves with
@@ -54,7 +59,7 @@
 # `tokio` (a `tokio-*` crate that links the runtime reaches `tokio` itself,
 # and one that does not is not the runtime).
 #
-# A LISTED CRATE (rule 1's six, and rule 5's app-core) THAT IS NOT A WORKSPACE MEMBER passes only
+# A LISTED CRATE (rule 1's six, rule 5's app-core and rule 7's CLI) THAT IS NOT A WORKSPACE MEMBER passes only
 # while [workspace.metadata.interweave].planned_members names it: ui-model
 # before its batch; transport-client once Stage 14's batch 2 plans it,
 # which this check therefore needs first. Absent from both, the guard would
@@ -185,6 +190,13 @@ def model_free(pkg):
 def headless_free(pkg):
     return runtime_free(pkg) or ("tokio (the headless root chooses no runtime)" if pkg["name"] == "tokio" else None)
 
+def cli_free(pkg):
+    if is_libp2p(pkg["name"]):
+        return "a libp2p crate (the CLI's transport is the shared daemon's)"
+    if is_slint(pkg["name"]):
+        return "a Slint crate (the CLI has no display)"
+    return None
+
 def slint_free(pkg):
     return "a Slint crate (only crates/human/ui-slint may)" if is_slint(pkg["name"]) else None
 
@@ -196,6 +208,7 @@ GUARDED = [
     ("crates/human/ui-model", model_free),
     ("crates/human/client-api", model_free),
     ("crates/human/app-core", headless_free),
+    ("apps/human-cli", cli_free),
 ]
 APP_CORE = "crates/human/app-core"
 HUMAN_ANDROID = "apps/human-android"
@@ -226,7 +239,7 @@ def release_build(name):
 
 def main():
     global bad
-    # Rules 1, 2 and 5: the listed crates.
+    # Rules 1, 2, 5 and 7: the listed crates.
     for d, offence in GUARDED:
         start = member_at.get(d)
         if start is None:
@@ -282,7 +295,8 @@ def main():
         print("ui-model and client-api know no transport runtime, no libp2p and no Slint;")
         print("ui-model and client-api hold no storage; app-core runs on no tokio and")
         print("declares no rusqlite; Slint is ui-slint's alone, and an app composes ui-slint;")
-        print("the release Android library reaches no test-only crate.")
+        print("the release Android library reaches no test-only crate; the CLI reaches")
+        print("no libp2p and no Slint.")
         sys.exit(1)
 
 # Exit 1 means a breach and nothing else: an error the load or the walk did
