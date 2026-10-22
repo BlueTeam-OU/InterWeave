@@ -17,7 +17,7 @@ use interweave_profile_config::{
 };
 use interweave_transport_api::{ChannelId, EndpointId};
 
-use crate::Failure;
+use crate::{Failure, output};
 
 /// The client kind this client leases under: the human client's, the
 /// same as the desktop's, since the profile's endpoints allow that kind.
@@ -152,7 +152,7 @@ pub(crate) fn open_store_at(
                 Failure::Store(format!(
                     "the message store at {} cannot be read by this version and needs \
                      recovery; it was not renamed, moved or deleted (see store discard)",
-                    path.display()
+                    output::printable(&path.display().to_string())
                 )),
             )
         } else if matches!(
@@ -165,16 +165,18 @@ pub(crate) fn open_store_at(
                 Blocked::NotPrivate,
                 Failure::Store(format!(
                     "the message store at {} or its directory is not private to this user; \
-                     refusing to use it: {error}",
-                    path.display()
+                     refusing to use it: {}",
+                    output::printable(&path.display().to_string()),
+                    output::printable(&error.to_string())
                 )),
             )
         } else {
             (
                 Blocked::Unavailable,
                 Failure::Store(format!(
-                    "the message store at {} could not be opened now: {error}",
-                    path.display()
+                    "the message store at {} could not be opened now: {}",
+                    output::printable(&path.display().to_string()),
+                    output::printable(&error.to_string())
                 )),
             )
         }

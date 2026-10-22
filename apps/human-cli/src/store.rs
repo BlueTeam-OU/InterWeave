@@ -2,8 +2,8 @@
 // Copyright 2026 Andrea Benetton
 //! `store health` and `store discard`: the store as ADR-0060 has it, at
 //! rest under a key the platform's custody holds. Both run under the
-//! instance lock and never reach the daemon: health is the store's and the
-//! key's, and discard and recreate is the one way back from recovery
+//! instance lock, on the store's files and its key alone: health is the
+//! store's and the key's, and discard and recreate is the one way back from recovery
 //! (decision 6), taken only on the person's word -- here the scope they
 //! name with `--confirm`, which must be the one the plan lists.
 
@@ -64,7 +64,10 @@ fn unavailable(e: &StoreError) -> Failure {
 /// not open anyway -- and re-checked as the window's re-check does, with
 /// what it holds counted; then its key and files at rest, as that open
 /// left them. A store that does not open is reported by its class, with
-/// no counts. Anything but healthy is exit 5.
+/// no counts; where its files cannot be looked at either (a directory not
+/// private to this user), the key and the files are not reported
+/// (`a_store_whose_directory_is_not_private_is_reported_and_never_discarded`).
+/// Anything but healthy is exit 5.
 pub(crate) fn health(paths: &ProfilePaths, cipher: &dyn KeyCipher, json: bool) -> Outcome {
     let opened = open_store_at(paths, cipher);
     let (state, counts, failure) = match opened {
@@ -88,12 +91,13 @@ pub(crate) fn health(paths: &ProfilePaths, cipher: &dyn KeyCipher, json: bool) -
         }
         Err((blocked, failure)) => (blocked.token(), None, Some(failure)),
     };
-    let report = match at_rest::inspect(paths, cipher) {
-        Ok(report) => report,
-        Err(e) => return unavailable(&e).into(),
+    let (report, failure) = match (at_rest::inspect(paths, cipher), failure) {
+        (Ok(report), failure) => (Some(report), failure),
+        (Err(_), Some(failure)) => (None, Some(failure)),
+        (Err(e), None) => (None, Some(unavailable(&e))),
     };
     Outcome {
-        out: health_lines(state, &report, counts, json),
+        out: health_lines(state, cipher.custody(), report.as_ref(), counts, json),
         result: failure.map_or(Ok(()), Err),
     }
 }
@@ -108,15 +112,14 @@ fn counts(store: &mut HumanStore) -> Result<(usize, usize, usize), Failure> {
 
 fn health_lines(
     state: &str,
-    report: &AtRestReport,
+    custody: Custody,
+    report: Option<&AtRestReport>,
     counts: Option<(usize, usize, usize)>,
     json: bool,
 ) -> String {
-    let (protection, key, files) = (
-        custody_token(report.protection),
-        key_token(&report.key),
-        files_token(report.files),
-    );
+    let protection = custody_token(report.map_or(custody, |r| r.protection));
+    let key = report.map(|r| key_token(&r.key));
+    let files = report.map(|r| files_token(r.files));
     if json {
         return output::json_line(&json!({
             "health": state,
@@ -129,7 +132,9 @@ fn health_lines(
         }));
     }
     let mut out = format!(
-        "health      {state}\nprotection  {protection}\nkey         {key}\nfiles       {files}\n"
+        "health      {state}\nprotection  {protection}\nkey         {}\nfiles       {}\n",
+        key.unwrap_or("unknown"),
+        files.unwrap_or("unknown")
     );
     if let Some((pending, unread, kept)) = counts {
         let _ = write!(
@@ -141,10 +146,13 @@ fn health_lines(
 }
 
 /// `store discard [--confirm <scope>]`. Only a store that needs recovery
-/// is discarded: one that opens is refused, as the desktop offers the
-/// action on its recovery screen alone. The plan is listed whatever
-/// happens; nothing is removed unless `confirm` names its scope, so a
-/// script that confirmed one loss never takes another
+/// is discarded: one that opens, or is refused for another class, is
+/// refused here, as the desktop offers the action on its recovery screen
+/// alone (`a_store_that_opens_is_never_discarded`,
+/// `a_store_whose_directory_is_not_private_is_reported_and_never_discarded`).
+/// The plan is listed whatever happens; nothing is removed unless
+/// `confirm` names its scope, so a script that confirmed one loss never
+/// takes another
 /// (`a_discard_is_refused_without_the_scope_it_lists_and_removes_nothing`).
 /// After a discard the store is opened again, which recreates it.
 pub(crate) fn discard(
@@ -199,8 +207,11 @@ pub(crate) fn discard(
                      removed; list it again"
                         .to_owned(),
                 ),
+                // The library plans again before its first removal, so a
+                // failure may come before any file went, or after some.
                 other => Failure::Store(format!(
-                    "the discard stopped part way, some files removed: {other}"
+                    "the discard stopped: some of the files listed may have been removed, \
+                     and listing it again says which remain: {other}"
                 )),
             }),
         };
@@ -220,10 +231,11 @@ pub(crate) fn discard(
 /// What a discard removes and what it loses, as ADR-0060 has the clients
 /// list it before doing it.
 fn plan_lines(plan: &DiscardPlan, done: bool, recreated: bool, json: bool) -> String {
+    // Raw into JSON, which escapes every control; printable for a terminal.
     let files: Vec<String> = plan
         .files()
         .iter()
-        .map(|f| output::printable(&f.display().to_string()))
+        .map(|f| f.display().to_string())
         .collect();
     if json {
         return output::json_line(&json!({
@@ -236,7 +248,7 @@ fn plan_lines(plan: &DiscardPlan, done: bool, recreated: bool, json: bool) -> St
     }
     let mut out = format!("discard     {}\n", scope_token(plan.scope()));
     for file in &files {
-        let _ = writeln!(out, "file        {file}");
+        let _ = writeln!(out, "file        {}", output::printable(file));
     }
     let _ = writeln!(
         out,
@@ -399,6 +411,36 @@ mod tests {
         assert_eq!(report["files"], "encrypted");
         assert_eq!(report["protection"], "filesystem-only");
         assert_eq!(report["unread"], 0, "the old store's message is gone");
+    }
+
+    fn widen(paths: &ProfilePaths) {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(paths.human_dir(), std::fs::Permissions::from_mode(0o755))
+            .expect("chmod");
+    }
+
+    #[test]
+    fn a_store_whose_directory_is_not_private_is_reported_and_never_discarded() {
+        let (_dir, paths) = profile();
+        with_one_unread(&paths);
+        widen(&paths);
+        let before = files_in(&paths);
+        let (report, result) = health_json(&paths);
+        assert!(matches!(result, Err(Failure::Store(_))), "{result:?}");
+        assert_eq!(report["health"], "not-private");
+        assert_eq!(report["protection"], "filesystem-only");
+        assert_eq!(report["key"], Value::Null, "not read past the refusal");
+        assert_eq!(report["files"], Value::Null);
+        assert_eq!(report["unread"], Value::Null);
+        let Outcome { out, result } = discard(
+            &paths,
+            &FilesystemCustody,
+            Some(DiscardScope::Everything),
+            false,
+        );
+        assert!(matches!(result, Err(Failure::Store(_))), "{result:?}");
+        assert!(out.is_empty(), "{out}");
+        assert_eq!(files_in(&paths), before);
     }
 
     #[test]

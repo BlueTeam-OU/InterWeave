@@ -131,7 +131,8 @@ pub(crate) enum Verb {
     StoreHealth,
     /// Discard and recreate a store that needs recovery (ADR-0060
     /// decision 6): without the scope the person confirms, it lists what
-    /// it would remove and removes nothing.
+    /// it would remove and removes nothing
+    /// (`store::tests::a_discard_is_refused_without_the_scope_it_lists_and_removes_nothing`).
     StoreDiscard(Option<DiscardScope>),
     /// The identity in front's own card and key.
     CardShow,
