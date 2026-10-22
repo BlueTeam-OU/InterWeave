@@ -11,9 +11,9 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use interweave_ipc_protocol::{
-    AddressList, AddressResult, AdminStatusResult, DirectoryResult, ENDPOINT_PERSISTED_SINCE_MINOR,
-    EmptyResult, EndpointList, OwnAddressList, PeerList, Request, RequestId, ResponseFrame,
-    SendResult, SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList,
+    AddressList, AddressResult, AddressesResult, AdminStatusResult, DirectoryResult,
+    ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, OwnAddressList, PeerList, Request,
+    RequestId, ResponseFrame, SendResult, SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList,
 };
 use interweave_local_client_api::{AdminPort, DataSessionPort};
 use interweave_transport_api::{BroadcastMessageV1, DirectDestination, TransportError};
@@ -79,7 +79,8 @@ pub(crate) async fn data<S: DataSessionPort>(
         | Request::AdminPeersAddAddress(_)
         | Request::AdminPeersRemoveAddress(_)
         | Request::AdminPeersListAddresses
-        | Request::AdminPeersOwnAddresses => {
+        | Request::AdminPeersOwnAddresses
+        | Request::AdminPeersAddAddresses(_) => {
             ResponseFrame::failure(id, TransportError::CapabilityDenied)
         }
     }
@@ -187,6 +188,16 @@ pub(crate) async fn admin<A: AdminPort>(
             },
             Err(code) => ResponseFrame::failure(id, code),
         },
+        Request::AdminPeersAddAddresses(p) => {
+            let lines = p.addresses.len();
+            match port.add_bootstrap_addresses(p.addresses).await {
+                Ok(change) => match AddressesResult::from_view(change, lines) {
+                    Ok(result) => ResponseFrame::success(id, &result),
+                    Err(code) => ResponseFrame::failure(id, code),
+                },
+                Err(code) => ResponseFrame::failure(id, code),
+            }
+        }
         Request::AdminPeersOwnAddresses => match port.own_addresses().await {
             Ok(own) => match OwnAddressList::from_view(own) {
                 Ok(list) => ResponseFrame::success(id, &list),
@@ -405,6 +416,11 @@ mod tests {
                 Method::AdminPeersOwnAddresses,
                 serde_json::json!({}),
                 "own_addresses",
+            ),
+            (
+                Method::AdminPeersAddAddresses,
+                serde_json::json!({"addresses": ["a", "b"]}),
+                "add_addresses a b",
             ),
             (
                 Method::AdminTrustSet,

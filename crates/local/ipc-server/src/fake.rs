@@ -371,6 +371,18 @@ impl AdminPort for FakeAdmin {
         Ok(Vec::new())
     }
 
+    async fn add_bootstrap_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> Result<interweave_local_client_api::AddressesChange, TransportError> {
+        self.fake
+            .call(format!("add_addresses {}", addresses.join(" ")));
+        Ok(interweave_local_client_api::AddressesChange::Added(vec![
+            interweave_local_client_api::LineChange::Added;
+            addresses.len()
+        ]))
+    }
+
     async fn own_addresses(
         &self,
     ) -> Result<interweave_local_client_api::OwnAddresses, TransportError> {
