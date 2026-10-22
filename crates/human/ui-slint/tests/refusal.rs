@@ -331,6 +331,15 @@ fn the_recovery_screen_offers_delete_stored_data_apart_and_try_again_keeps_focus
             "{label:?} at {right}"
         );
     }
+    // Still two lines at the minimum: Delete stored data… above Close.
+    let (discard, close) = (
+        the(&view, text(UiText::DiscardStore)),
+        the(&view, text(UiText::Close)),
+    );
+    assert!(
+        discard.absolute_position().y + discard.size().height <= close.absolute_position().y,
+        "on its own line above Close at 320 px"
+    );
 }
 
 /// The confirmation lists what goes one item per line, opens with focus
@@ -357,6 +366,10 @@ fn the_full_confirmation_lists_every_loss_and_cancel_has_focus() {
     view.show_store_recovery(&flow);
     slint::platform::update_timers_and_animations();
     the(&view, text(UiText::DiscardStoreTitle));
+    // One identity: the plain lead-in, never "for all your identities".
+    the(&view, text(UiText::DiscardStoreLosesOne));
+    assert!(labelled(&view, text(UiText::DiscardStoreLosesMany)).is_empty());
+    the(&view, text(UiText::DiscardLosesCardOne));
     for item in flow.dialog().expect("open").items {
         let row = the(&view, text(item));
         assert_eq!(
