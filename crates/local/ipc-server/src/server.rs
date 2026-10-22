@@ -716,13 +716,20 @@ mod tests {
     async fn an_answered_probe_keeps_the_connection() {
         let fake = Fake::default();
         let mut config = config();
-        config.keepalive.interval = Duration::from_millis(50);
-        config.keepalive.response_timeout = Duration::from_millis(100);
+        config.keepalive.interval = Duration::from_millis(100);
+        // A WINDOW A LOADED HOST CAN MEET, IN A RUN LONGER THAN IT: 100 ms
+        // closed the connection once before the client's pong was read
+        // (BrokenPipe, rust-ui-dev's observation 01a162d8), and a window
+        // longer than the whole run would pass on a server that ignored
+        // every pong. Answering for three windows keeps the claim: a pong
+        // not taken closes the connection inside the run.
+        config.keepalive.response_timeout = Duration::from_secs(1);
         config.keepalive.max_missed = 1;
         let harness = Harness::start(&fake, config);
         let mut client = Client::connect(&harness.paths.data).await;
         client.hello(DATA).await;
-        for _ in 0..3 {
+        let until = tokio::time::Instant::now() + Duration::from_secs(3);
+        while tokio::time::Instant::now() < until {
             let Some(Frame::Ping(ping)) = client.next_reply().await else {
                 panic!("a ping")
             };
