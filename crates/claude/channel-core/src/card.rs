@@ -77,7 +77,9 @@ impl CardDrop {
     ];
 
     /// The reason as `status` and stderr name it: fixed text, never
-    /// anything the card carried.
+    /// anything the card carried. The names are the contract's
+    /// (CHANNEL-EVENT.md §Content states all twelve, TOOL-SURFACE.md
+    /// §status lists them), so renaming one changes the contract.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
