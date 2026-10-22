@@ -266,7 +266,10 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
     };
     let json = std::mem::take(&mut flags.json);
     if json && !json_allowed {
-        return Err("--json applies to the verbs that print a result, not to this one".to_owned());
+        return Err(
+            "--json applies to the verbs that read, and to send, cancel, retry and unkeep"
+                .to_owned(),
+        );
     }
     if !flags.keep.is_empty() {
         return Err("--keep applies to read only".to_owned());
@@ -310,6 +313,10 @@ mod tests {
             &["--profile", "p", "send", &c, "hello"],
             &["--profile", "p", "send", &c, "-"],
             &["--profile", "p", "cancel", "p3"],
+            &["--profile", "p", "send", &c, "hello", "--json"],
+            &["--profile", "p", "cancel", "p3", "--json"],
+            &["--profile", "p", "retry", "p3", "--json"],
+            &["--profile", "p", "unkeep", "k3", "--json"],
             &["--profile", "p", "retry", "p3"],
             &["--profile", "p", "unkeep", "k3"],
             &["--profile", "p", "listen", "--json"],
@@ -325,6 +332,11 @@ mod tests {
         ];
         for args in cases {
             assert!(matches!(run(args), Ok(Command::Run { .. })), "{args:?}");
+            let json = args.contains(&"--json");
+            assert!(
+                matches!(run(args), Ok(Command::Run { json: j, .. }) if j == json),
+                "{args:?}: --json read"
+            );
         }
         for word in [
             "status",

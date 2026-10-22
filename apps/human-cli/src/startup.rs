@@ -105,8 +105,10 @@ pub(crate) fn lock(profile: &Profile) -> Result<HumanClientLock, Failure> {
 }
 
 /// Open the store, under the lock the caller holds, by the desktop's
-/// classes: recovery, not private, or not now. The file is never renamed,
-/// moved or deleted here.
+/// classes: recovery, not private, or not now. Nothing here touches the
+/// file but the store's open, which leaves a file needing recovery where
+/// it was (`crates/human/store/tests/storage_failure.rs`,
+/// `a_store_damaged_under_its_unread_rows_needs_recovery_and_never_reads_as_empty`).
 ///
 /// # Errors
 /// [`Failure::Store`] saying which.

@@ -61,7 +61,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 - **`--wait <ms>`** (default 5000) bounds how long a verb waits for the session and for an answer.
 - **`listen`** prints until SIGINT or SIGTERM, then exits 0, its lease released. What it prints as a `message` stays unread in the store.
 - **`send <conversation> -`** reads the message from stdin, without the one trailing newline a shell adds.
-- **`identities default --none`** clears the profile's default endpoint only when it is a human one; another client's default is `transportctl`'s to clear.
+- **`identities default --none`** clears the profile's default endpoint only when it is a human one; another client's default is `transportctl`'s to clear. It reads the default, then clears it: two admin calls, so a `transportctl` change between them is not seen. `identities default <endpoint>` makes one of this client's endpoints the default, whichever endpoint held it before.
 - **`trust allow` and `trust revoke`** of a peer already in that state exit 0, printing `(already)`.
 
 ## Tests
