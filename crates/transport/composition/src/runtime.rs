@@ -17,8 +17,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AddressChange, AddressRefusal, AddressSource, BootstrapAddress, Generation, TrustAdminView,
-    TrustSource, TrustedPeer,
+    AddressChange, AddressRefusal, AddressSource, BootstrapAddress, Generation, OwnAddresses,
+    TrustAdminView, TrustSource, TrustedPeer,
 };
 #[cfg(feature = "test-hooks")]
 use interweave_profile_config::PersistError;
@@ -225,6 +225,9 @@ pub(crate) enum Request {
     ),
     /// Every bootstrap address (`admin.peers.list_addresses`).
     Bootstrap(oneshot::Sender<Vec<BootstrapAddress>>),
+    /// This node's own addresses (`admin.peers.own_addresses`), as the
+    /// substrate selected them.
+    OwnAddresses(oneshot::Sender<Result<OwnAddresses, TransportError>>),
     /// A path change posted as if the substrate had reported it, through
     /// the same handling (`Driver::post_path_change`): how a test between
     /// real runtimes reaches it without a relay. Test builds only.
@@ -1275,6 +1278,16 @@ impl Driver {
             }
             Request::Bootstrap(reply) => {
                 let _ = reply.send(self.bootstrap_rows());
+            }
+            Request::OwnAddresses(reply) => {
+                // Selected and floored in the Swarm task, the one place
+                // that does (ADR-0062 decision 4); passed on untouched.
+                let own = self
+                    .swarm
+                    .own_addresses()
+                    .await
+                    .map_err(|_| TransportError::BackendUnavailable);
+                let _ = reply.send(own);
             }
             #[cfg(feature = "test-hooks")]
             Request::InjectPathChange(peer, previous, current, reply) => {
