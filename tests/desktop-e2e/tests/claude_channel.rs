@@ -1538,11 +1538,14 @@ const EVENT_LINE_BOUND: usize = 320 * 1024;
 ///
 /// CHANNEL-EVENT.md has since bounded one event on the host line at 320
 /// KiB (A 2026-10-22). A UTF-8 payload whose escaped line would exceed
-/// that goes as base64url instead. The bridge does not do this yet; the
-/// change is rust-services-dev-02's, after j41. This test pins today's
-/// line, about 1.18 MB, so it fails when that change lands. Its last
-/// assertion then turns around into the 320 KiB bound the plain case
-/// already holds to.
+/// that goes as base64url instead. The bridge does not do this yet; #376
+/// builds it, per event, in both forms. This test pins today's
+/// lines, so it fails when that change lands. By the contract's measure,
+/// the larger of the push line and the pulled form, both cases are over
+/// the bound today: the plain one in its pulled form (seven bytes a
+/// character), and the decoded one in both. Both then arrive as
+/// base64url, and the content and length assertions turn around into
+/// the 320 KiB bound.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_longest_host_line_a_legal_event_makes_is_measured() {
     use interweave_human_chat_protocol::{MAX_DECOMPRESSED_BYTES, encode_raw_envelope};
@@ -1586,19 +1589,36 @@ async fn the_longest_host_line_a_legal_event_makes_is_measured() {
             "{} for {decoded}",
             line.len()
         );
+        // The event's other host form (CHANNEL-EVENT.md §Content's
+        // measure): `receive`'s event serialised, then escaped a second
+        // time as its tool-result text, the quotes around it not counted.
+        // Each control character is seven bytes there.
+        let event = serde_json::to_string(
+            &json!({"kind": "direct", "content": n["content"], "meta": n["meta"]}),
+        )
+        .expect("serializes");
+        let pulled = serde_json::to_string(&event).expect("serializes").len() - 2;
+        assert!(pulled > 7 * decoded, "{pulled} for {decoded}");
         eprintln!(
-            "size: {decoded} control characters made a {}-byte host line ({overhead} bytes of frame and meta; the host-line ceiling is {})",
+            "size: {decoded} control characters made a {}-byte push line ({overhead} bytes of frame and meta) and a {pulled}-byte pulled form; the bound is {EVENT_LINE_BOUND}, the inbound ceiling {}",
             line.len(),
             host_line_ceiling()
         );
-        lines.push(line.len());
+        lines.push((line.len(), pulled));
     }
-    // The plain case, the 48 KiB payload ceiling escaped at JSON's worst,
-    // already keeps the contract's bound.
-    assert!(lines[0] <= EVENT_LINE_BOUND, "plain: {}", lines[0]);
+    // The plain case's push line keeps the contract's bound; its pulled
+    // form does not, so by the contract's measure (the larger of the two)
+    // it is over the bound today, and the decoded case is over it in both
+    // forms, past even the inbound ceiling.
+    assert!(lines[0].0 <= EVENT_LINE_BOUND, "plain push: {:?}", lines[0]);
     assert!(
-        lines[1] > host_line_ceiling(),
-        "the decoded case is past the inbound ceiling, which bounds nothing outbound: {}",
+        lines[0].1 > EVENT_LINE_BOUND,
+        "plain pulled: {:?}",
+        lines[0]
+    );
+    assert!(
+        lines[1].0 > host_line_ceiling(),
+        "the decoded case is past the inbound ceiling, which bounds nothing outbound: {:?}",
         lines[1]
     );
 }
