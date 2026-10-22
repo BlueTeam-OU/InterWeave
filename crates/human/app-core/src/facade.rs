@@ -13,15 +13,16 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{
-    ClientEvent, Destination, Diagnostics, OutboundUpdate, RowError, SendError,
+    ClientEvent, Destination, Diagnostics, Inbound, OutboundUpdate, RowError, SendError,
 };
+use interweave_human_store::identity_key::IdentityKey;
 use interweave_human_store::{ReadEphemeral, RowId, StoreError};
 use interweave_human_transport_client::{CancelledSend, TransportClient};
-use interweave_human_ui_model::{ConversationKey, Table};
+use interweave_human_ui_model::{ConversationKey, PhotoEdit, Proposal, ProposalContext, Table};
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 
-use crate::listing;
 use crate::protocol::{Command, Failure, Listing, Update};
+use crate::{cards, listing};
 
 /// How many read-and-unkept copies the facade side holds for a later
 /// Keep, at most. Each is a message's content, up to the 48 KiB payload
@@ -64,6 +65,10 @@ pub struct FacadeSide<B: DataSessionBinding, A: AdminBinding> {
     /// the facade holds as not confirmed reads "Sending" until its next
     /// attempt fails (#304 F10).
     outbound: BTreeMap<RowId, OutboundUpdate>,
+    /// The identity's own key, which signs its card: the root opens or
+    /// creates it at start (`identity_key`), and without it nothing is
+    /// shared.
+    identity: Option<IdentityKey>,
 }
 
 impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
@@ -81,7 +86,14 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             cancelled: VecDeque::new(),
             reported: None,
             outbound: BTreeMap::new(),
+            identity: None,
         }
+    }
+
+    /// The identity's own key, which signs the card Share sends. Its
+    /// endpoint must be the one the facade leases.
+    pub fn set_identity_key(&mut self, key: IdentityKey) {
+        self.identity = Some(key);
     }
 
     /// The facade, to read its state.
@@ -103,7 +115,18 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
     /// # Errors
     /// The store's, when it cannot be read.
     pub fn listing(&mut self) -> Result<Listing, StoreError> {
-        listing::list_all(self.client.store_mut())
+        let mut listing = listing::list_all(self.client.store_mut())?;
+        if let Some(key) = &self.identity {
+            let peer = self.client.local_peer().cloned();
+            let at = (self.wall)();
+            listing.identity = Some(cards::identity_view(
+                self.client.store_mut(),
+                key,
+                peer.as_ref(),
+                at,
+            )?);
+        }
+        Ok(listing)
     }
 
     /// One turn of the facade: run it, hand over what it received, and
@@ -113,8 +136,17 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         let mut updates = Vec::new();
         // Boxed: the facade's futures are large.
         Box::pin(self.client.tick(now)).await;
-        let received = Box::pin(self.client.drain(DRAIN_PER_TURN, now)).await;
-        updates.extend(received.into_iter().map(Update::Received));
+        let received = Box::pin(self.client.drain_inbound(DRAIN_PER_TURN, now)).await;
+        for inbound in received {
+            updates.push(match inbound {
+                Inbound::Message(received) => Update::Received(received),
+                Inbound::Card(card) => match cards::proposal(self.client.store_mut(), card) {
+                    Ok(proposal) => Update::ReceivedCard(Box::new(proposal)),
+                    // Committed unread: the next listing shows it.
+                    Err(e) => Update::UnreadNotListed(store_failure(&e)),
+                },
+            });
+        }
         while let Some(event) = self.client.next_event() {
             self.on_event(event, &mut updates);
         }
@@ -140,10 +172,18 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         if relist {
             // What the facade committed but could not hand over is in the
             // store: list it, so the person sees it now.
-            updates.push(match listing::list_unread(self.client.store_mut()) {
-                Ok((rows, undecodable)) => Update::UnreadListed { rows, undecodable },
-                Err(e) => Update::UnreadNotListed(store_failure(&e)),
-            });
+            match listing::list_unread(self.client.store_mut()) {
+                Ok((rows, cards, undecodable)) => {
+                    updates.push(Update::UnreadListed { rows, undecodable });
+                    for card in cards {
+                        updates.push(match cards::proposal(self.client.store_mut(), card) {
+                            Ok(proposal) => Update::ReceivedCard(Box::new(proposal)),
+                            Err(e) => Update::UnreadNotListed(store_failure(&e)),
+                        });
+                    }
+                }
+                Err(e) => updates.push(Update::UnreadNotListed(store_failure(&e))),
+            }
         }
     }
 
@@ -171,6 +211,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 let at = (self.wall)();
                 match self.copies.get(from) {
                     None => Err(Failure::CopyGone),
+                    // A card has no Keep, asked for through any path
+                    // (RETENTION.md): its copy stays for Accept or Decline.
+                    Some(held) if cards::holds_card(held) => Err(Failure::Refused),
                     Some(held) => match self.client.store_mut().keep(held, at) {
                         Ok(row) => {
                             self.copies.remove(from);
@@ -261,12 +304,277 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 });
                 Ok(())
             }
+            Command::AcceptCard { row, shown } => self.accept_card(*row, shown, &mut updates),
+            Command::DeclineCard(row) => self.decline_card(*row, &mut updates),
+            Command::ShareCard(key) => Box::pin(self.share_card(key, now, &mut updates)).await,
+            Command::SetOwnCard {
+                name,
+                surname,
+                photo,
+            } => self.set_own_card(name, surname.as_deref(), photo, &mut updates),
+            Command::RenameContact { contact_id, name } => {
+                self.rename_contact(contact_id, name, &mut updates)
+            }
+            Command::SetContactPhoto { contact_id, photo } => {
+                self.set_contact_photo(contact_id, photo, &mut updates)
+            }
         };
         updates.push(match outcome {
             Ok(()) => Update::Done(command),
             Err(why) => Update::Failed { command, why },
         });
         updates
+    }
+
+    /// Accept: the row is read, which removes its unread copy (a card has
+    /// no Keep), the card it held is verified again on its route, and the
+    /// contact written as the proposal said -- only when the store still
+    /// says what `shown` says. Whatever stops it short of the write puts
+    /// the copy back for this session, so nothing the person can still
+    /// decide is lost: a row that held no card, a context that changed
+    /// (given again as it stands), a write that failed.
+    fn accept_card(
+        &mut self,
+        row: RowId,
+        shown: &ProposalContext,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
+        let at = (self.wall)();
+        let (held, read_now) = self.held_card(row, at)?;
+        if read_now {
+            updates.push(Update::Read(row));
+        }
+        let Some((peer, endpoint, card)) = cards::card_of(&held) else {
+            self.copies.insert((Table::Unread, row), held);
+            return Err(Failure::NotACard);
+        };
+        let store = self.client.store_mut();
+        let written = match cards::context(store, &peer, &endpoint, &card) {
+            Err(e) => Err(store_failure(&e)),
+            Ok(now) if now != *shown => {
+                let received_at = held.received_at();
+                updates.push(Update::ReceivedCard(Box::new(Proposal {
+                    row,
+                    peer: peer.clone(),
+                    endpoint: endpoint.clone(),
+                    card: card.clone(),
+                    received_at,
+                    context: now,
+                })));
+                Err(Failure::ProposalChanged)
+            }
+            Ok(_) => {
+                let mut accepted = cards::accepted(&peer, &endpoint, &card);
+                accepted.photo = cards::kept_photo(&card);
+                store
+                    .accept_card(&accepted, at)
+                    .map(|_| ())
+                    .map_err(|e| store_failure(&e))
+            }
+        };
+        if let Err(why) = written {
+            self.copies.insert((Table::Unread, row), held);
+            return Err(why);
+        }
+        updates.push(Update::CardResolved(row));
+        updates.push(Update::ContactsListed(
+            cards::contact_views(self.client.store_mut()).map_err(|e| store_failure(&e))?,
+        ));
+        Ok(())
+    }
+
+    /// Decline: the row is read and dropped, which removes its unread copy
+    /// and writes nothing to the contacts.
+    fn decline_card(&mut self, row: RowId, updates: &mut Vec<Update>) -> Result<(), Failure> {
+        let at = (self.wall)();
+        self.held_card(row, at)?;
+        updates.push(Update::CardResolved(row));
+        Ok(())
+    }
+
+    /// The content of a card's row, its durable copy gone, and whether
+    /// this call read it: the copy this session holds if showing the
+    /// proposal read it, else read now. A proposal shown and past
+    /// [`READ_COPY_CAP`] is gone, as a message's copy is
+    /// ([`Failure::CopyGone`]).
+    fn held_card(&mut self, row: RowId, at: u64) -> Result<(ReadEphemeral, bool), Failure> {
+        if let Some(held) = self.copies.remove(&(Table::Unread, row)) {
+            return Ok((held, false));
+        }
+        match self.client.store_mut().mark_read(row, at) {
+            Ok(held) => Ok((held, true)),
+            Err(StoreError::NoSuchRow | StoreError::AlreadyRead) => Err(Failure::CopyGone),
+            Err(e) => Err(store_failure(&e)),
+        }
+    }
+
+    /// Share: the identity's own card, signed by its key for the route it
+    /// leaves on, this node's `PeerId` and the leased endpoint, sent to
+    /// the conversation's route and recorded as shared there.
+    async fn share_card(
+        &mut self,
+        key: &ConversationKey,
+        now: u64,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
+        let ConversationKey::Direct {
+            peer,
+            endpoint: Some(to),
+        } = key
+        else {
+            return Err(Failure::CardNotSent);
+        };
+        let identity = self.identity.as_ref().ok_or(Failure::NoIdentityKey)?;
+        let (Some(own), Some(from)) = (
+            self.client.local_peer().cloned(),
+            self.client.endpoint().cloned(),
+        ) else {
+            return Err(Failure::NoIdentityKey);
+        };
+        if &from != identity.endpoint() {
+            return Err(Failure::NoIdentityKey);
+        }
+        let at = (self.wall)();
+        let own_card = self
+            .client
+            .store_mut()
+            .ensure_own_card(&from, at)
+            .map_err(|e| store_failure(&e))?;
+        let text = interweave_human_chat_protocol::build_card(
+            &format!("{:032x}", rand::random::<u128>()),
+            interweave_human_chat_protocol::CardDraft {
+                name: &own_card.name,
+                surname: own_card.surname.as_deref(),
+                photo: own_card.photo.as_deref().map(|p| ("image/jpeg", p)),
+            },
+            identity.public_key(),
+            interweave_human_chat_protocol::CardRoute {
+                source_peer: &own,
+                source_endpoint: &from,
+            },
+            Some(at),
+            |message| identity.sign(message),
+        )
+        .map_err(|_| Failure::CardNotSent)?;
+        let row = Box::pin(self.client.send_card(peer.clone(), to.clone(), &text, now))
+            .await
+            .map_err(|_| Failure::CardNotSent)?;
+        self.client
+            .store_mut()
+            .mark_card_shared(peer, to, at)
+            .map_err(|e| store_failure(&e))?;
+        updates.push(Update::CardShared {
+            key: key.clone(),
+            row,
+            at,
+        });
+        Ok(())
+    }
+
+    /// The identity's own card, as the person edited it: held to the bounds
+    /// a receiver holds a card to, a chosen photo re-encoded with no
+    /// metadata block first (`card_photo`). Nothing is written otherwise.
+    fn set_own_card(
+        &mut self,
+        name: &str,
+        surname: Option<&str>,
+        photo: &PhotoEdit,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
+        let identity = self.identity.as_ref().ok_or(Failure::NoIdentityKey)?;
+        let at = (self.wall)();
+        let store = self.client.store_mut();
+        let current = store
+            .ensure_own_card(identity.endpoint(), at)
+            .map_err(|e| store_failure(&e))?;
+        let photo = match photo {
+            PhotoEdit::Keep => current.photo,
+            PhotoEdit::Remove => None,
+            PhotoEdit::Chosen(chosen) => Some(
+                crate::card_photo::prepare_photo(chosen)
+                    .map_err(|_| Failure::OutOfBounds)?
+                    .bytes,
+            ),
+        };
+        interweave_human_chat_protocol::check_draft(interweave_human_chat_protocol::CardDraft {
+            name,
+            surname,
+            photo: photo.as_deref().map(|p| ("image/jpeg", p)),
+        })
+        .map_err(|_| Failure::OutOfBounds)?;
+        store
+            .set_own_card(
+                &interweave_human_store::OwnCard {
+                    endpoint: identity.endpoint().clone(),
+                    name: name.to_owned(),
+                    surname: surname.map(str::to_owned),
+                    photo,
+                },
+                at,
+            )
+            .map_err(|e| store_failure(&e))?;
+        let peer = self.client.local_peer().cloned();
+        let view = cards::identity_view(self.client.store_mut(), identity, peer.as_ref(), at)
+            .map_err(|e| store_failure(&e))?;
+        updates.push(Update::IdentityShown(view));
+        Ok(())
+    }
+
+    /// The person's own name for a contact, held to a card name's bounds.
+    fn rename_contact(
+        &mut self,
+        contact_id: &str,
+        name: &str,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
+        interweave_human_chat_protocol::check_draft(interweave_human_chat_protocol::CardDraft {
+            name,
+            surname: None,
+            photo: None,
+        })
+        .map_err(|_| Failure::OutOfBounds)?;
+        let at = (self.wall)();
+        let store = self.client.store_mut();
+        if !store
+            .set_contact_name(contact_id, name, at)
+            .map_err(|e| store_failure(&e))?
+        {
+            return Err(Failure::NoSuchRow);
+        }
+        updates.push(Update::ContactsListed(
+            cards::contact_views(store).map_err(|e| store_failure(&e))?,
+        ));
+        Ok(())
+    }
+
+    /// The person's own photo for a contact, or its removal.
+    fn set_contact_photo(
+        &mut self,
+        contact_id: &str,
+        photo: &PhotoEdit,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
+        let photo = match photo {
+            PhotoEdit::Keep => return Ok(()),
+            PhotoEdit::Remove => None,
+            PhotoEdit::Chosen(chosen) => Some(
+                crate::card_photo::prepare_photo(chosen)
+                    .map_err(|_| Failure::OutOfBounds)?
+                    .bytes,
+            ),
+        };
+        let at = (self.wall)();
+        let store = self.client.store_mut();
+        if !store
+            .set_contact_photo(contact_id, photo.as_deref(), at)
+            .map_err(|e| store_failure(&e))?
+        {
+            return Err(Failure::NoSuchRow);
+        }
+        updates.push(Update::ContactsListed(
+            cards::contact_views(store).map_err(|e| store_failure(&e))?,
+        ));
+        Ok(())
     }
 
     /// Close the session: the endpoint lease is released. The daemon is
@@ -375,10 +683,10 @@ impl<V> ReadCopies<V> {
         self.by_row.get(from)
     }
 
-    fn remove(&mut self, from: &(Table, RowId)) {
-        if self.by_row.remove(from).is_some() {
-            self.order.retain(|k| k != from);
-        }
+    fn remove(&mut self, from: &(Table, RowId)) -> Option<V> {
+        let held = self.by_row.remove(from)?;
+        self.order.retain(|k| k != from);
+        Some(held)
     }
 
     #[cfg(test)]

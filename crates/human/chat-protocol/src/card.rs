@@ -246,6 +246,144 @@ pub fn canonical_card_bytes(
     Some(out)
 }
 
+/// Whether `text` is a contact card at all, by the same rule [`classify`]
+/// uses and before any of its faults is judged: a consumer that only
+/// discards cards (a card received over broadcast, which is ignored)
+/// asks this, with no route to verify a signature over.
+#[must_use]
+pub fn is_card(text: &str) -> bool {
+    any_top_level_kind_is_card(text)
+}
+
+/// What a person writes on their own card, before it is signed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CardDraft<'a> {
+    /// The name, as typed; it is sent after NFC.
+    pub name: &'a str,
+    /// The surname, if any.
+    pub surname: Option<&'a str>,
+    /// The photo, already re-encoded with no metadata block: its media
+    /// type and its bytes.
+    pub photo: Option<(&'a str, &'a [u8])>,
+}
+
+/// Why a card cannot be built: the draft is outside the bounds a
+/// receiver holds it to, so it would arrive malformed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardBuildError {
+    /// The name is outside its bounds after NFC.
+    Name,
+    /// The surname is outside its bounds after NFC.
+    Surname,
+    /// The photo's media type is not one of the two.
+    PhotoMediaType,
+    /// The photo is over [`MAX_CARD_PHOTO_BYTES`].
+    PhotoTooLarge,
+    /// A canonical field is past `u16`: never for a draft within bounds.
+    Unencodable,
+}
+
+/// Whether a receiver would hold `draft` within its bounds: the name and
+/// surname after NFC, the photo's media type and size. What a person's own
+/// card is held to when they edit it, so a card they share is never one a
+/// receiver refuses.
+///
+/// # Errors
+/// [`CardBuildError`] for the first bound it breaks.
+pub fn check_draft(draft: CardDraft<'_>) -> Result<(), CardBuildError> {
+    bounded_name(&serde_json::Value::from(draft.name)).ok_or(CardBuildError::Name)?;
+    if let Some(s) = draft.surname {
+        bounded_name(&serde_json::Value::from(s)).ok_or(CardBuildError::Surname)?;
+    }
+    if let Some((media_type, bytes)) = draft.photo {
+        if !CARD_PHOTO_MEDIA_TYPES.contains(&media_type) {
+            return Err(CardBuildError::PhotoMediaType);
+        }
+        if bytes.len() > MAX_CARD_PHOTO_BYTES {
+            return Err(CardBuildError::PhotoTooLarge);
+        }
+    }
+    Ok(())
+}
+
+/// The `contact_card` envelope `draft` makes, signed for the route it is
+/// sent on: `sender` is this node's `PeerId` and `endpoint` the identity
+/// the conversation speaks as, which the receiver takes from the
+/// connection and verifies the signature over. `sign` is the identity
+/// key's, and `identity_key` its public half.
+///
+/// What it returns is the raw JSON text, which [`classify`] answers with
+/// [`Classified::Card`] on that route, and only there.
+///
+/// # Errors
+/// [`CardBuildError`] for a draft a receiver would refuse.
+pub fn build_card(
+    app_message_id: &str,
+    draft: CardDraft<'_>,
+    identity_key: [u8; 32],
+    sender: CardRoute<'_>,
+    sent_at_ms: Option<u64>,
+    sign: impl FnOnce(&[u8]) -> [u8; 64],
+) -> Result<String, CardBuildError> {
+    check_draft(draft)?;
+    let name = bounded_name(&serde_json::Value::from(draft.name)).ok_or(CardBuildError::Name)?;
+    let surname = match draft.surname {
+        None => None,
+        Some(s) => Some(bounded_name(&serde_json::Value::from(s)).ok_or(CardBuildError::Surname)?),
+    };
+    let photo = match draft.photo {
+        None => None,
+        Some((media_type, bytes)) => {
+            let media_type = CARD_PHOTO_MEDIA_TYPES
+                .into_iter()
+                .find(|t| *t == media_type)
+                .ok_or(CardBuildError::PhotoMediaType)?;
+            if bytes.len() > MAX_CARD_PHOTO_BYTES {
+                return Err(CardBuildError::PhotoTooLarge);
+            }
+            Some((media_type, bytes))
+        }
+    };
+    let peer = bs58::decode(sender.source_peer.as_str())
+        .into_vec()
+        .map_err(|_| CardBuildError::Unencodable)?;
+    let message = canonical_card_bytes(
+        &name,
+        surname.as_deref(),
+        photo,
+        &peer,
+        sender.source_endpoint.as_str(),
+    )
+    .ok_or(CardBuildError::Unencodable)?;
+    let signature = sign(&message);
+
+    let mut card = serde_json::Map::new();
+    card.insert("name".to_owned(), name.into());
+    if let Some(surname) = surname {
+        card.insert("surname".to_owned(), surname.into());
+    }
+    if let Some((media_type, bytes)) = photo {
+        card.insert(
+            "photo".to_owned(),
+            serde_json::json!({ "media_type": media_type, "data": STANDARD.encode(bytes) }),
+        );
+    }
+    card.insert(
+        "identity_key".to_owned(),
+        STANDARD.encode(identity_key).into(),
+    );
+    card.insert("signature".to_owned(), STANDARD.encode(signature).into());
+    let mut envelope = serde_json::Map::new();
+    envelope.insert("v".to_owned(), 2.into());
+    envelope.insert("kind".to_owned(), CONTACT_CARD_KIND.into());
+    envelope.insert("app_message_id".to_owned(), app_message_id.into());
+    envelope.insert("card".to_owned(), card.into());
+    if let Some(at) = sent_at_ms {
+        envelope.insert("sent_at_ms".to_owned(), at.into());
+    }
+    Ok(serde_json::Value::Object(envelope).to_string())
+}
+
 /// Whether any top-level `kind` member is the string `contact_card`.
 ///
 /// Read apart from the strict parse, which refuses a duplicate before it
