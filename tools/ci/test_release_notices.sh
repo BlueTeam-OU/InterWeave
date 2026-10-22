@@ -181,6 +181,8 @@ src deep src/lib.rs 'mod inner;'
 src deep src/inner/mod.rs "$MITHDR"
 src docc src/lib.rs '//! Copyright 2020 Doc Writer: a doc comment, not a header.
 pub fn f() {}'
+src prose src/lib.rs '// This module preserves copyright notices when it rewrites files.
+pub fn f() {}'
 python3 - "$D" > "$D/metadata.json" <<'PY'
 import json, sys
 root = sys.argv[1] + "/crates"
@@ -191,7 +193,8 @@ def pkg(name, licence, authors=()):
             "targets": [{"kind": ["lib"], "src_path": f"{root}/{name}/src/lib.rs"}]}
 derived = [pkg("hdr", "MIT"), pkg("hdrtext", "MIT OR Apache-2.0"),
            pkg("std", "MIT", ["Ann Author <ann@example.invalid>"]),
-           pkg("spdxonly", "CC0-1.0"), pkg("deep", "MIT"), pkg("docc", "BSD-3-Clause")]
+           pkg("spdxonly", "CC0-1.0"), pkg("deep", "MIT"), pkg("docc", "BSD-3-Clause"),
+           pkg("prose", "MIT")]
 app = {"id": "app-id", "name": "app", "version": "1.0.0", "license": "Apache-2.0",
        "license_file": None, "manifest_path": f"{root}/app/Cargo.toml", "targets": []}
 normal = [{"kind": None, "target": None}]
@@ -199,7 +202,7 @@ nodes = [{"id": "app-id", "deps": [{"name": p["name"], "pkg": p["id"], "dep_kind
 nodes += [{"id": p["id"], "deps": []} for p in derived]
 print(json.dumps({"packages": [app] + derived, "workspace_members": ["app-id"], "resolve": {"nodes": nodes}}))
 PY
-printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\n' > "$D/compiled.txt"
+printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\n' > "$D/compiled.txt"
 # list <json lines>: the derived list, one crate object per argument.
 list() {
     local IFS=,
@@ -214,7 +217,8 @@ entry() {  # entry <name> <licence> <case> [file]
 }
 GOOD=("$(entry hdr MIT header src/lib.rs)" "$(entry hdrtext 'MIT OR Apache-2.0' header+text src/lib.rs)"
       "$(entry std MIT standard)" "$(entry spdxonly CC0-1.0 standard)"
-      "$(entry deep MIT header src/inner/mod.rs)" "$(entry docc BSD-3-Clause standard)")
+      "$(entry deep MIT header src/inner/mod.rs)" "$(entry docc BSD-3-Clause standard)"
+      "$(entry prose MIT standard)")
 drun() {
     NOTICE_DERIVED_JSON="$D/list.json" python3 "$D/tool/release_notices.py" "$D/metadata.json" \
         "$D/compiled.txt" "$SANDBOX/n.md" app >"$SANDBOX/stdout" 2>"$SANDBOX/err"
@@ -248,6 +252,9 @@ if drun; then
         && grep -qx 'Copyright (c) the docc authors. ' "$N" \
         && pass "a doc comment is not a header" \
         || fail "a doc comment was taken for a header" "$(cat "$N")"
+    grep -qF 'prose 1.0.0 publishes no notice of its own: this is the standard text of MIT' "$N" \
+        && pass "a comment that mentions copyright without a copyright line is not a header" \
+        || fail "a prose comment was taken for a header" "$(cat "$N")"
 else
     fail "the derived list was refused" "$(cat "$SANDBOX/err")"
 fi
@@ -273,6 +280,13 @@ list "${GOOD[@]:0:3}" "$(entry spdxonly CC0-1.0 header src/lib.rs)" "${GOOD[@]:4
 drefused "a header entry for an SPDX tag alone" "spdxonly 1.0.0 is listed as header but has no copyright header"
 list "${GOOD[@]}" "$(entry hdr MIT header src/lib.rs)"
 drefused "a crate listed twice" "lists hdr 1.0.0 twice"
+# The two header cases, checked against what the header carries.
+list "$(entry hdr MIT header+text src/lib.rs)" "${GOOD[@]:1}"
+drefused "header+text for a header carrying its licence's text" "hdr 1.0.0's header in src/lib.rs carries the MIT text already: list it as header"
+list "${GOOD[@]:0:1}" "$(entry hdrtext 'MIT OR Apache-2.0' header src/lib.rs)" "${GOOD[@]:2}"
+drefused "header for a header that only names its licence" "hdrtext 1.0.0's header in src/lib.rs does not carry the MIT text: list it as header+text"
+list "${GOOD[@]:0:6}" "$(entry prose MIT header src/lib.rs)"
+drefused "a header entry for a comment with no copyright line" "prose 1.0.0 is listed as header but has no copyright header"
 list "$(entry hdr MIT headers src/lib.rs)" "${GOOD[@]:1}"
 drefused "an unknown case" "has case 'headers'"
 list "$(entry hdr MIT header)" "${GOOD[@]:1}"
@@ -304,7 +318,15 @@ next(p for p in m["packages"] if p["name"] == "std")["license"] = "(MIT AND ISC)
 json.dump(m, open(sys.argv[1], "w"))
 PY
 list "${GOOD[@]:0:2}" "$(entry std '(MIT AND ISC) OR Apache-2.0' standard)" "${GOOD[@]:3}"
-drefused "an expression with no single first term" "has no single first term"
+drefused "an expression with an AND inside its first term" "is not a plain OR of single terms"
+python3 - "$D/metadata.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+next(p for p in m["packages"] if p["name"] == "std")["license"] = "(MIT OR Apache-2.0) AND Unicode-3.0"
+json.dump(m, open(sys.argv[1], "w"))
+PY
+list "${GOOD[@]:0:2}" "$(entry std '(MIT OR Apache-2.0) AND Unicode-3.0' standard)" "${GOOD[@]:3}"
+drefused "an expression owing an AND term beside its OR" "is not a plain OR of single terms"
 
 # --- --json KEY: the notices as a section of the release page ------------
 metadata

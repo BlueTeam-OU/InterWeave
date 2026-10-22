@@ -173,8 +173,28 @@ def load_derived(path: Path) -> dict:
     return derived
 
 
+# What a header must contain to carry its licence's text whole: the
+# grant and the disclaimer. A header-case entry must, a header+text one
+# must not (that is what the appended standard text is for).
+CARRIES = {
+    "MIT": ("Permission is hereby granted", "AS IS"),
+    "BSD-2-Clause": ("Redistribution and use", "AS IS"),
+    "BSD-3-Clause": ("Redistribution and use", "AS IS"),
+    "ISC": ("Permission to use, copy, modify", "AS IS"),
+}
+
+
+def carries_text(block: str, term: str) -> bool:
+    flat = " ".join(block.split())
+    return term in CARRIES and all(marker in flat for marker in CARRIES[term])
+
+
 def elected(expr: str) -> str:
-    """Decision 4: under a derived notice, the first term an OR lists."""
+    """Decision 4: under a derived notice, the first term an OR lists --
+    and only among OR alternatives: an AND or a WITH names a term that
+    is owed as well, so it is refused rather than dropped."""
+    if re.search(r"\b(AND|WITH)\b", expr):
+        raise ValueError(f"the licence expression {expr!r} is not a plain OR of single terms")
     first = expr.split(" OR ")[0].strip().strip("()").strip()
     if not re.fullmatch(r"[A-Za-z0-9.+-]+", first):
         raise ValueError(f"the licence expression {expr!r} has no single first term")
@@ -219,7 +239,9 @@ def comment_block(source: str):
             continue
         break
     block = "\n".join(out).strip()
-    return block if re.search(r"copyright", block, re.I) else None
+    # A copyright LINE, not the word: "preserves copyright notices" or a
+    # CC0 dedication is no notice.
+    return block if re.search(r"^\s*(copyright\b|\(c\)|\u00a9)", block, re.I | re.M) else None
 
 
 def header(package: dict):
@@ -252,6 +274,16 @@ def derived_notices(package: dict, entry: dict) -> list:
             raise ValueError(f"{name} {version} is listed as {entry['case']} but has no copyright header")
         if found[0] != entry["file"]:
             raise ValueError(f"{name} {version}'s header is in {found[0]}; notice_derived.json names {entry['file']}")
+        term = elected(expr)
+        carried = carries_text(found[1], term)
+        if entry["case"] == "header" and not carried:
+            raise ValueError(
+                f"{name} {version}'s header in {found[0]} does not carry the {term} text: list it as header+text"
+            )
+        if entry["case"] == "header+text" and carried:
+            raise ValueError(
+                f"{name} {version}'s header in {found[0]} carries the {term} text already: list it as header"
+            )
         notices = [(found[1] + "\n", f"header of {found[0]}")]
         if entry["case"] == "header+text":
             # The header carries the copyright line, so the text's own
