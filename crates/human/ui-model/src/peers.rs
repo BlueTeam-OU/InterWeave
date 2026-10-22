@@ -464,6 +464,8 @@ pub struct Peers {
     snacks: u64,
     focus: Option<PeersFocus>,
     focuses: u64,
+    /// Where focus went after the last removal, for an Undo refused.
+    after_remove: Option<PeersFocus>,
 }
 
 /// The field's lines as the add sends them: each line ending (LF, CR LF
@@ -500,6 +502,22 @@ fn listed(list: &AddressList, address: &str) -> bool {
 
 fn trust_allows(trust: &TrustSettings, peer: &TransportIdentity) -> bool {
     trust.list().is_some_and(|l| l.allows(peer))
+}
+
+/// `list` in the order Peers shows it: the addresses added here newest
+/// first, then the configuration's, in its order. Focus after a removal
+/// walks this order, never the runtime's.
+fn shown(list: &AddressList) -> impl Iterator<Item = &PeerAddress> {
+    let added = list
+        .addresses
+        .iter()
+        .filter(|a| a.origin == AddressOrigin::AddedHere)
+        .rev();
+    let configured = list
+        .addresses
+        .iter()
+        .filter(|a| a.origin == AddressOrigin::Configured);
+    added.chain(configured)
 }
 
 /// The peers `lines` reach, each once, in order.
@@ -1148,16 +1166,16 @@ impl Peers {
                         self.undone(address);
                     }
                     AddressOutcome::Refused(AddressRefused::Bound) => {
-                        self.undo_not_made(&address, PeersSnack::UndoRefused(Refusal::Limit));
+                        self.undo_not_made(PeersSnack::UndoRefused(Refusal::Limit));
                     }
                     AddressOutcome::Refused(AddressRefused::ListOff) => {
-                        self.undo_not_made(&address, PeersSnack::UndoRefused(Refusal::ListOff));
+                        self.undo_not_made(PeersSnack::UndoRefused(Refusal::ListOff));
                     }
                     AddressOutcome::Refused(_) | AddressOutcome::Removed => {
                         let snack = PeersSnack::UndoFailed {
                             address: address.clone(),
                         };
-                        self.undo_not_made(&address, snack);
+                        self.undo_not_made(snack);
                     }
                 }
             }
@@ -1168,7 +1186,7 @@ impl Peers {
                     let snack = PeersSnack::UndoFailed {
                         address: address.clone(),
                     };
-                    self.undo_not_made(&address, snack);
+                    self.undo_not_made(snack);
                 }
             }
             Err(AddressChangeFailure::Unconfirmed(_)) => {
@@ -1184,10 +1202,22 @@ impl Peers {
         self.ask_focus(PeersFocus::Row(address));
     }
 
-    fn undo_not_made(&mut self, address: &str, snack: PeersSnack) {
+    /// An Undo not made: focus as after the Remove it undid, while that
+    /// row is still listed; else the first row shown, else Add an
+    /// address.
+    fn undo_not_made(&mut self, snack: PeersSnack) {
         self.say(snack);
         let list = self.list.clone().unwrap_or_default();
-        self.focus_after(&list, address);
+        let kept = self.after_remove.take().filter(|f| match f {
+            PeersFocus::Row(row) => listed(&list, row),
+            _ => true,
+        });
+        let focus = kept.unwrap_or_else(|| {
+            shown(&list).next().map_or(PeersFocus::AddAddress, |a| {
+                PeersFocus::Row(a.address.clone())
+            })
+        });
+        self.ask_focus(focus);
     }
 
     fn removed(&mut self, address: &str, before: &AddressList, trust: &TrustSettings) {
@@ -1233,7 +1263,7 @@ impl Peers {
                     let snack = PeersSnack::UndoFailed {
                         address: address.clone(),
                     };
-                    self.undo_not_made(&address, snack);
+                    self.undo_not_made(snack);
                 }
             }
             Check::Remove { address, before } => {
@@ -1270,20 +1300,20 @@ impl Peers {
         }
     }
 
-    /// Focus after a removal: the next row, else the previous, else Add
-    /// an address, in `list` as it stood.
+    /// Focus after a removal: the next row shown, else the previous,
+    /// else Add an address, in `list` as it stood -- kept, so an Undo
+    /// refused goes as after the Remove (§8).
     fn focus_after(&mut self, list: &AddressList, address: &str) {
-        let rows: Vec<&str> = list.addresses.iter().map(|a| a.address.as_str()).collect();
-        let target = match rows.iter().position(|r| *r == address) {
-            Some(at) => rows
-                .get(at + 1)
-                .or_else(|| at.checked_sub(1).and_then(|p| rows.get(p))),
-            None => rows.last(),
-        };
-        match target {
-            Some(row) => self.ask_focus(PeersFocus::Row((*row).to_owned())),
-            None => self.ask_focus(PeersFocus::AddAddress),
-        }
+        let rows: Vec<&str> = shown(list).map(|a| a.address.as_str()).collect();
+        let target = rows.iter().position(|r| *r == address).and_then(|at| {
+            rows.get(at + 1)
+                .or_else(|| at.checked_sub(1).and_then(|p| rows.get(p)))
+        });
+        let focus = target.map_or(PeersFocus::AddAddress, |row| {
+            PeersFocus::Row((*row).to_owned())
+        });
+        self.after_remove = Some(focus.clone());
+        self.ask_focus(focus);
     }
 
     /// What the root carries out between turns: the read a change left
@@ -1403,16 +1433,7 @@ impl Peers {
                 RowState::NeedsTrust
             },
         };
-        let added = list
-            .addresses
-            .iter()
-            .filter(|a| a.origin == AddressOrigin::AddedHere)
-            .rev();
-        let configured = list
-            .addresses
-            .iter()
-            .filter(|a| a.origin == AddressOrigin::Configured);
-        added.chain(configured).map(row).collect()
+        shown(list).map(row).collect()
     }
 
     /// Whether the add page is open.

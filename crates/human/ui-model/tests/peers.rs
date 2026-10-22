@@ -554,6 +554,64 @@ fn a_removal_offers_undo_unless_the_list_is_off() {
     assert!(input(&mut m, PeersInput::Remove(at(&a))).is_empty());
 }
 
+/// Focus after a removal walks the rows as Peers shows them -- added
+/// newest first, then the configuration's -- never the runtime's order:
+/// the next row shown, else the previous; and an Undo refused goes as
+/// after the Remove it undid (§8).
+#[test]
+fn focus_after_a_removal_follows_the_rows_as_shown() {
+    let (me, a, b, c, cfg) = (peer(), peer(), peer(), peer(), peer());
+    let configured = PeerAddress {
+        origin: AddressOrigin::Configured,
+        ..added(&cfg)
+    };
+    // The runtime's order: the configuration's first, then A, B, C as
+    // added. Shown: C, B, A, then the configured row.
+    let rows = [configured.clone(), added(&a), added(&b), added(&c)];
+    let mut m = opened(&me, &[], &rows);
+    let shown: Vec<String> = m
+        .peers()
+        .rows(m.trust_settings())
+        .into_iter()
+        .map(|r| r.address)
+        .collect();
+    assert_eq!(shown, vec![at(&c), at(&b), at(&a), at(&cfg)]);
+
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    let after = [configured.clone(), added(&a), added(&c)];
+    m.address_removed(&at(&b), answer(AddressOutcome::Removed, &after));
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Row(at(&a))),
+        "B's next row shown"
+    );
+
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(
+        &[at(&b)],
+        answer(AddressOutcome::Refused(AddressRefused::Bound), &after),
+    );
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::UndoRefused(Refusal::Limit))
+    );
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Row(at(&a))),
+        "as after the Remove"
+    );
+
+    let _ = input(&mut m, PeersInput::SnackClosed);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    let after = [configured, added(&c)];
+    m.address_removed(&at(&a), answer(AddressOutcome::Removed, &after));
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Row(at(&cfg))),
+        "the oldest added row's next row shown is the configured one"
+    );
+}
+
 /// An Undo the runtime refuses leaves the address removed with that
 /// refusal's own words; one whose call fails offers Try again, which adds
 /// it again.
