@@ -516,6 +516,39 @@ impl HumanStore {
         Ok(changed == 1)
     }
 
+    /// Delete a contact: its row and its routes, and with them the name,
+    /// the photo and every identity key its routes recorded -- the person
+    /// removes a contact only by deleting it (ADR-0059 decision 3). The
+    /// routes are deleted by name as well as by the cascade, so the rule
+    /// does not rest on the connection's pragma. What was deleted leaves
+    /// the log before this returns, as released content does
+    /// (`a_deleted_contact_leaves_both_files_before_the_call_returns`). A
+    /// card from one of its routes is a new proposal afterwards, its key
+    /// unrecorded.
+    ///
+    /// # Errors
+    /// A storage error. Whether there was such a contact.
+    pub fn delete_contact(&mut self, contact_id: &str) -> Result<bool, StoreError> {
+        let result = (|| -> Result<bool, StoreError> {
+            let tx = self.conn.transaction()?;
+            tx.execute(
+                "DELETE FROM contact_routes WHERE contact_id = ?1",
+                params![contact_id],
+            )?;
+            let deleted = tx.execute(
+                "DELETE FROM contacts WHERE contact_id = ?1",
+                params![contact_id],
+            )?;
+            tx.commit()?;
+            Ok(deleted == 1)
+        })();
+        let deleted = result.map_err(|e| self.note_store_failure(e))?;
+        if deleted {
+            self.release_done();
+        }
+        Ok(deleted)
+    }
+
     /// Record that the conversation on this route shared its identity's
     /// card at `at_ms` (`conversation_index.card_shared_at`).
     ///

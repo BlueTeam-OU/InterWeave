@@ -375,3 +375,63 @@ fn a_card_replayed_under_the_key_its_route_changed_away_from_is_a_key_change_bac
         "the control: the recorded key is the same"
     );
 }
+
+#[test]
+fn a_deleted_contact_takes_its_routes_and_keys_and_a_later_card_starts_afresh() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let first = store.accept_card(&card(&p, &human, "Ada", 1), 10).expect("accepted");
+    let other = store
+        .accept_card(&card(&peer(Q), &human, "Grace", 2), 11)
+        .expect("accepted");
+    assert!(store.delete_contact(&first.contact_id).expect("deleted"));
+    assert!(store.contact(&first.contact_id).expect("read").is_none());
+    assert!(
+        store.contact_for_route(&p, &human).expect("read").is_none(),
+        "its route went with it"
+    );
+    assert!(
+        store.contact(&other.contact_id).expect("read").is_some(),
+        "and nothing else"
+    );
+    assert!(
+        !store.delete_contact(&first.contact_id).expect("asked"),
+        "a second delete finds nothing"
+    );
+    let again = store
+        .accept_card(&card(&p, &human, "Ada", 3), 20)
+        .expect("accepted again");
+    assert!(again.created, "a new contact");
+    assert_eq!(again.key, KeyStanding::Unrecorded, "no key survives the delete");
+}
+
+#[test]
+fn a_deleted_contact_leaves_both_files_before_the_call_returns() {
+    const GONE: &str = "Zebulon-deleted-marker";
+    const STAYS: &str = "Quentin-kept-marker";
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let holds = |p: &std::path::Path| {
+        std::fs::read(p)
+            .is_ok_and(|bytes| bytes.windows(GONE.len()).any(|w| w == GONE.as_bytes()))
+    };
+    let wal = path.with_extension("sqlite3-wal");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let (p, human) = (peer(P), endpoint("human"));
+    let gone = store.accept_card(&card(&p, &human, GONE, 1), 10).expect("accepted");
+    store
+        .accept_card(&card(&peer(Q), &human, STAYS, 2), 11)
+        .expect("accepted");
+    drop(store);
+    assert!(holds(&path), "the setup: the name reached the database file");
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    assert!(store.delete_contact(&gone.contact_id).expect("deleted"));
+    // Still open: the bound is the delete itself.
+    assert!(!holds(&path) && !holds(&wal), "the deleted name left both files");
+    let control = [&path, &wal].iter().any(|f| {
+        std::fs::read(f)
+            .is_ok_and(|bytes| bytes.windows(STAYS.len()).any(|w| w == STAYS.as_bytes()))
+    });
+    assert!(control, "the control: the search sees a kept contact");
+    drop(store);
+}
