@@ -476,7 +476,7 @@ fn the_authority_domain_is_not_a_frame_field() {
 /// covers nothing by itself -- `check_schemas_are_tested.sh` skips
 /// this list and counts only the sites below that read each schema, so a
 /// new schema needs a test that reads it, not only a line here.
-const IPC_SCHEMAS: [&str; 34] = [
+const IPC_SCHEMAS: [&str; 35] = [
     "architecture/contracts/schemas/ipc/admin-status.schema.json",
     "architecture/contracts/schemas/ipc/broadcast-received.schema.json",
     "architecture/contracts/schemas/ipc/capability.schema.json",
@@ -499,6 +499,7 @@ const IPC_SCHEMAS: [&str; 34] = [
     "architecture/contracts/schemas/ipc/peers-address-list.schema.json",
     "architecture/contracts/schemas/ipc/peers-address-params.schema.json",
     "architecture/contracts/schemas/ipc/peers-address-result.schema.json",
+    "architecture/contracts/schemas/ipc/peers-own-addresses.schema.json",
     "architecture/contracts/schemas/ipc/publish-params.schema.json",
     "architecture/contracts/schemas/ipc/query-params.schema.json",
     "architecture/contracts/schemas/ipc/request.schema.json",
@@ -1872,4 +1873,49 @@ fn the_peers_address_shapes_hold_what_the_contract_says() {
         refuses(list, wrong.clone());
         assert!(serde_json::from_value::<AddressList>(wrong).is_err());
     }
+}
+
+/// The show side's read (ADR-0062 decision 4), `approved` before its
+/// wire: one ordered list whose rows name their kind from a closed set,
+/// held to its 64-row bound, with this node's PeerId and whether rows
+/// were dropped. The Rust mirror joins this agreement with the batch
+/// that serves it.
+#[test]
+fn the_own_addresses_shape_holds_what_the_contract_says() {
+    let own = "architecture/contracts/schemas/ipc/peers-own-addresses.schema.json";
+    let refuses = |instance: Value| {
+        assert!(
+            !validator(own).is_valid(&instance),
+            "{own} admits {instance}"
+        );
+    };
+    let peer = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+    let row = |kind: &str| serde_json::json!({ "address": format!("/ip4/192.168.1.20/tcp/4001/p2p/{peer}"), "kind": kind });
+
+    assert_valid(
+        own,
+        &serde_json::json!({ "peer": peer, "addresses": [], "truncated": false }),
+    );
+    assert_valid(
+        own,
+        &serde_json::json!({ "peer": peer, "addresses": [
+            row("confirmed_external"), row("relay_circuit"), row("listen")
+        ], "truncated": false }),
+    );
+    assert_valid(
+        own,
+        &serde_json::json!({ "peer": peer, "addresses": vec![row("listen"); 64], "truncated": true }),
+    );
+    refuses(
+        serde_json::json!({ "peer": peer, "addresses": vec![row("listen"); 65], "truncated": true }),
+    );
+    refuses(
+        serde_json::json!({ "peer": peer, "addresses": [row("observed")], "truncated": false }),
+    );
+    refuses(serde_json::json!({ "peer": peer, "addresses": [] }));
+    refuses(serde_json::json!({ "addresses": [], "truncated": false }));
+    refuses(serde_json::json!({ "peer": "not-a-peer", "addresses": [], "truncated": false }));
+    refuses(serde_json::json!({ "peer": peer, "addresses": [
+        { "address": "", "kind": "listen" }
+    ], "truncated": false }));
 }
