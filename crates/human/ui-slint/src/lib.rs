@@ -2916,6 +2916,9 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         Intent::RecheckStorage => UiText::RecheckStorage,
         Intent::AllowNetwork => UiText::AllowNetwork,
         Intent::Authenticate => UiText::Authenticate,
+        Intent::AcceptCard(_) => UiText::CardAccept,
+        Intent::DeclineCard(_) => UiText::CardDecline,
+        Intent::ShareCard(_) => UiText::ShareCard,
         // A restore is an Undo's, never a button of its own.
         Intent::MarkRead(_)
         | Intent::Send { .. }

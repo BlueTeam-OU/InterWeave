@@ -31,6 +31,10 @@ pub use labels::{
     send_error_class, send_problem_class, session_problem_class, short_peer, visible_destination,
 };
 pub use look::{Avatar, AvatarHue, Day, LocalTime, Weekday, local_time};
+pub use model::cards::{
+    AcceptLine, ContactRef, ContactView, IdentityView, KeyView, Proposal, ProposalContext,
+    ProposalItem, ProposalNote, RouteView,
+};
 pub use model::{
     Announce, Composer, Confirmation, ConversationKey, ConversationSummary, DEDUP_CAP, Direction,
     FocusTarget, HELD_UPDATE_CAP, Intent, ItemDiagnostics, ItemKey, ItemStatus, LastMessage,
