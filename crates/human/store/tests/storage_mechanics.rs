@@ -12,6 +12,18 @@
 
 mod common;
 
+/// What v9 added (plan §29 step 2), undone on a file this build made: the
+/// older-version tests below fake an earlier schema that way, so each
+/// undoes the later migrations, this one included.
+const UNDO_V9: &str = "DROP TABLE own_cards;
+     ALTER TABLE contacts DROP COLUMN name_source;
+     ALTER TABLE contacts DROP COLUMN name_at;
+     ALTER TABLE contacts DROP COLUMN photo_source;
+     ALTER TABLE contacts DROP COLUMN photo_at;
+     ALTER TABLE contact_routes DROP COLUMN identity_key;
+     ALTER TABLE conversation_index DROP COLUMN card_shared_at;
+     ";
+
 use std::os::unix::fs::PermissionsExt;
 
 use interweave_human_core::retention::{StorageHealth, TerminalCause};
@@ -224,13 +236,15 @@ fn a_fresh_store_has_exactly_the_allowed_tables() {
             "contacts".to_owned(),
             "conversation_index".to_owned(),
             "kept_inbound".to_owned(),
+            "own_cards".to_owned(),
             "pending_outbound".to_owned(),
             "read_pairs".to_owned(),
             "settings".to_owned(),
             "unread_inbound".to_owned(),
         ],
         "the three retention tables and the content-free metadata (settings, contacts, \
-         their routes, the conversation index), nothing more"
+         their routes, the conversation index, the read pairs, each identity's own card), \
+         nothing more"
     );
 }
 
@@ -276,7 +290,7 @@ fn deleting_a_contact_deletes_its_routes() {
         "INSERT INTO contacts (contact_id, display_name, created_at, updated_at)
              VALUES ('c1', 'one', 0, 0), ('c2', 'two', 0, 0);
          INSERT INTO contact_routes (contact_id, peer_id, endpoint_id)
-             VALUES ('c1', 'p', 'human'), ('c1', 'p', 'agent'), ('c2', 'p', 'human');
+             VALUES ('c1', 'p', 'human'), ('c1', 'q', 'human'), ('c2', 'p', 'human');
          DELETE FROM contacts WHERE contact_id = 'c1';",
     )
     .expect("writes");
@@ -331,7 +345,9 @@ fn a_route_table_rebuilt_with_other_foreign_key_actions_is_refused() {
                  device_label       TEXT,
                  verification_note  TEXT,
                  last_seen          INTEGER,
-                 UNIQUE(contact_id, peer_id, endpoint_id)
+                 identity_key       BLOB,
+                 UNIQUE(contact_id, peer_id, endpoint_id),
+                 UNIQUE(contact_id, peer_id)
              );"
         ))
         .expect("rebuild with other actions");
@@ -458,8 +474,8 @@ fn a_v5_database_gains_transport_ids_keeping_its_rows_and_its_id_high_water() {
         second
     };
     let conn = rusqlite::Connection::open(&path).expect("reopen");
-    conn.execute_batch(
-        "CREATE TABLE pending_outbound_v5 (
+    conn.execute_batch(&format!(
+        "{UNDO_V9}CREATE TABLE pending_outbound_v5 (
              row_id                INTEGER PRIMARY KEY AUTOINCREMENT,
              app_message_id        TEXT    NOT NULL UNIQUE,
              destination_peer      TEXT    NOT NULL,
@@ -482,7 +498,7 @@ fn a_v5_database_gains_transport_ids_keeping_its_rows_and_its_id_high_water() {
           WHERE name = 'pending_outbound';
          DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received;
          PRAGMA user_version = 5;",
-    )
+    ))
     .expect("back to v5, its high-water mark intact");
     drop(conn);
 
@@ -538,7 +554,7 @@ fn a_v4_database_gains_the_three_tables_and_keeps_its_rows() {
     }
     let conn = rusqlite::Connection::open(&path).expect("reopen");
     conn.execute_batch(
-        "DROP TABLE contact_routes; DROP TABLE contacts; DROP TABLE conversation_index;
+        "DROP TABLE own_cards; DROP TABLE contact_routes; DROP TABLE contacts; DROP TABLE conversation_index;
          DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received;
          PRAGMA user_version = 4;",
     )
@@ -2870,7 +2886,7 @@ fn a_v6_database_gains_the_read_pairs_keeping_its_rows() {
             .expect("a v6-era row");
     }
     let conn = rusqlite::Connection::open(&path).expect("reopen");
-    conn.execute_batch("DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6;")
+    conn.execute_batch(&format!("{UNDO_V9}DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6;"))
         .expect("back to v6");
     drop(conn);
 
@@ -2921,10 +2937,10 @@ fn a_v7_database_gains_the_walk_indexes_keeping_its_rows() {
         }
     }
     let conn = rusqlite::Connection::open(&path).expect("reopen");
-    conn.execute_batch(
-        "DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received;
+    conn.execute_batch(&format!(
+        "{UNDO_V9}DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received;
          PRAGMA user_version = 7;",
-    )
+    ))
     .expect("back to v7");
     assert!(
         store_indexes(&conn, "unread_inbound").is_empty(),
@@ -3143,7 +3159,7 @@ fn a_migration_blocked_by_another_writer_is_not_a_file_needing_recovery() {
     let path = dir.path().join("state").join("human.sqlite3");
     drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
     let conn = rusqlite::Connection::open(&path).expect("raw");
-    conn.execute_batch("DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6;")
+    conn.execute_batch(&format!("{UNDO_V9}DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6;"))
         .expect("back to v6");
     conn.execute_batch("BEGIN IMMEDIATE;")
         .expect("a writer holds the file");
@@ -3170,7 +3186,7 @@ fn a_migration_of_a_file_this_user_cannot_write_is_not_a_file_needing_recovery()
         drop(HumanStore::open(&path, StoreOptions::default()).expect("opens"));
         let conn = rusqlite::Connection::open(&path).expect("raw");
         conn.execute_batch(&format!(
-            "DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6; PRAGMA journal_mode = {journal};"
+            "{UNDO_V9}DROP TABLE read_pairs; DROP INDEX unread_inbound_by_received; DROP INDEX kept_inbound_by_received; PRAGMA user_version = 6; PRAGMA journal_mode = {journal};"
         ))
         .expect("back to v6");
         drop(conn);
@@ -3217,4 +3233,163 @@ fn a_file_from_a_newer_build_is_refused_without_a_single_byte_written() {
         .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
         .collect();
     assert_eq!(names, ["human.sqlite3"], "no companions made");
+}
+
+fn columns_of(conn: &rusqlite::Connection, table: &str) -> Vec<String> {
+    conn.prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
+        .expect("table info")
+        .query_map([], |r| r.get(0))
+        .expect("columns")
+        .collect::<Result<_, _>>()
+        .expect("rows")
+}
+
+#[test]
+fn a_v8_database_gains_the_card_columns_keeping_its_rows() {
+    // Plan §29 step 2's v9: contacts' provenance, the route's identity
+    // key, the conversation's card_shared_at and each identity's own
+    // card (architect-cto's DECISION 01a161b2 Q1). A contact and a route
+    // from before keep every value, and their new columns are NULL: a
+    // typed value is the person's, and a typed route has no key.
+    let (_dir, path, conn) = raw_store();
+    conn.execute_batch(&format!(
+        "{UNDO_V9}PRAGMA user_version = 8;
+         INSERT INTO contacts (contact_id, display_name, created_at, updated_at)
+             VALUES ('c1', 'Ada', 1, 2);
+         INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, last_seen)
+             VALUES ('c1', 'p', 'human', 3);
+         INSERT INTO conversation_index (conversation_id, peer_id, endpoint_id, title)
+             VALUES ('v1', 'p', 'human', 'Ada');"
+    ))
+    .expect("back to v8, with a contact");
+    assert!(!columns_of(&conn, "contacts").contains(&"name_source".to_owned()));
+    drop(conn);
+
+    drop(HumanStore::open(&path, StoreOptions::default()).expect("migrates to v9"));
+    let conn = rusqlite::Connection::open(&path).expect("reopen");
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .expect("version");
+    assert_eq!(version, 9);
+    for (table, column) in [
+        ("contacts", "name_source"),
+        ("contacts", "name_at"),
+        ("contacts", "photo_source"),
+        ("contacts", "photo_at"),
+        ("contact_routes", "identity_key"),
+        ("conversation_index", "card_shared_at"),
+    ] {
+        assert!(
+            columns_of(&conn, table).contains(&column.to_owned()),
+            "{table}.{column}"
+        );
+    }
+    let contact: (String, i64, i64, Option<String>, Option<i64>) = conn
+        .query_row(
+            "SELECT display_name, created_at, updated_at, name_source, photo_at FROM contacts",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .expect("the contact");
+    assert_eq!(contact, ("Ada".to_owned(), 1, 2, None, None));
+    let route: (String, i64, Option<Vec<u8>>) = conn
+        .query_row(
+            "SELECT peer_id, last_seen, identity_key FROM contact_routes WHERE contact_id = 'c1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .expect("the route, carried by the rebuild");
+    assert_eq!(route, ("p".to_owned(), 3, None));
+    let title: String = conn
+        .query_row("SELECT title FROM conversation_index", [], |r| r.get(0))
+        .expect("the conversation");
+    assert_eq!(title, "Ada");
+    assert_eq!(
+        columns_of(&conn, "own_cards"),
+        [
+            "endpoint_id",
+            "name",
+            "surname",
+            "photo",
+            "created_at",
+            "updated_at"
+        ]
+    );
+}
+
+#[test]
+fn a_contact_holds_at_most_one_route_per_peer_id() {
+    // ADR-0061 decision 4: two endpoints of one PeerId are two contacts,
+    // never two routes of one.
+    let (_dir, _path, conn) = raw_store();
+    conn.execute_batch(
+        "INSERT INTO contacts (contact_id, display_name, created_at, updated_at)
+             VALUES ('c1', 'one', 0, 0), ('c2', 'two', 0, 0);
+         INSERT INTO contact_routes (contact_id, peer_id, endpoint_id) VALUES ('c1', 'p', 'human');",
+    )
+    .expect("a contact and its route");
+    let second = conn.execute(
+        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id) VALUES ('c1', 'p', 'agent')",
+        [],
+    );
+    assert!(
+        matches!(&second, Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation),
+        "a second route of one PeerId under one contact: {second:?}"
+    );
+    // The control: the same PeerId under another contact is legal.
+    conn.execute(
+        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id) VALUES ('c2', 'p', 'agent')",
+        [],
+    )
+    .expect("another contact may hold it");
+}
+
+#[test]
+fn the_card_columns_and_keys_are_part_of_the_verified_shape() {
+    // Each v9 addition is held by name: a file missing one, or carrying
+    // more, does not open.
+    for (what, sql) in [
+        (
+            "a contact without name_source",
+            "ALTER TABLE contacts DROP COLUMN name_source;",
+        ),
+        (
+            "a route without identity_key",
+            "ALTER TABLE contact_routes DROP COLUMN identity_key;",
+        ),
+        (
+            "a conversation without card_shared_at",
+            "ALTER TABLE conversation_index DROP COLUMN card_shared_at;",
+        ),
+        (
+            "an own card with a column more",
+            "ALTER TABLE own_cards ADD COLUMN phone TEXT;",
+        ),
+        ("no own cards", "DROP TABLE own_cards;"),
+        (
+            "routes without the one-per-PeerId key",
+            "PRAGMA foreign_keys = OFF;
+             CREATE TABLE r (
+                 contact_id         TEXT NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,
+                 peer_id            TEXT NOT NULL,
+                 endpoint_id        TEXT NOT NULL,
+                 device_label       TEXT,
+                 verification_note  TEXT,
+                 last_seen          INTEGER,
+                 identity_key       BLOB,
+                 UNIQUE(contact_id, peer_id, endpoint_id)
+             );
+             DROP TABLE contact_routes;
+             ALTER TABLE r RENAME TO contact_routes;",
+        ),
+    ] {
+        let (_dir, path, conn) = raw_store();
+        conn.execute_batch(sql).expect("the edit is legal SQLite");
+        drop(conn);
+        let refused = HumanStore::open(&path, StoreOptions::default());
+        assert!(
+            matches!(&refused, Err(StoreError::Migration(_))),
+            "{what}: must refuse the open, got {refused:?}"
+        );
+    }
 }

@@ -217,6 +217,13 @@ fn a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every
              DROP TABLE read_pairs;
              DROP INDEX unread_inbound_by_received;
              DROP INDEX kept_inbound_by_received;
+             DROP TABLE own_cards;
+             ALTER TABLE contacts DROP COLUMN name_source;
+             ALTER TABLE contacts DROP COLUMN name_at;
+             ALTER TABLE contacts DROP COLUMN photo_source;
+             ALTER TABLE contacts DROP COLUMN photo_at;
+             ALTER TABLE contact_routes DROP COLUMN identity_key;
+             ALTER TABLE conversation_index DROP COLUMN card_shared_at;
              CREATE INDEX read_pairs ON settings(key);
              PRAGMA user_version = 5;",
         )
