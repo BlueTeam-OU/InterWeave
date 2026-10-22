@@ -19,8 +19,10 @@
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AdminBinding, AdminCapability, AdminPort, DataCapability, DataSessionBinding, DataSessionPort,
-    LocalSessionEvent, SessionEvent, SessionRequest, TrustAdminView, TrustSource, TrustedPeer,
+    AddressChange, AddressRefusal, AddressSource, AdminBinding, AdminCapability, AdminPort,
+    BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort, LocalSessionEvent,
+    MAX_OWN_ADDRESSES, OwnAddressKind, SessionEvent, SessionRequest, TrustAdminView, TrustSource,
+    TrustedPeer,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MediaType, MessageId, Payload,
@@ -1258,6 +1260,170 @@ const UNLISTED_PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXT
 
 /// A trust view with its allowlist sorted, so two reads compare as sets:
 /// "changes nothing" is about the policy, not the order a binding lists it.
+/// Bootstrap-address administration (ADR-0062, LOCAL-IPC.md minor 2.7;
+/// LOCAL-CLIENT.md §7 item 13), the same at every binding: without
+/// `admin.peers` the add, the removal and the list are each
+/// `CapabilityDenied`; an address outside the grammar and one with a
+/// loopback component are each refused BY NAME, an answer and never an
+/// error, with nothing written; a new address is `added`, listed as
+/// `added` after every `authored` entry, and a second add of it is
+/// `unchanged`; the add grants no trust; its removal is `removed` and the
+/// next list is the first again; a removal of an address the overlay
+/// does not hold is `unchanged`, and of `authored` -- the entry this
+/// binding's profile authors -- `refused: authored`.
+///
+/// What no binding here can show: a port that predates the capability
+/// answers `ProtocolUnsupported` (the trait's default, and ipc-client's
+/// below 2.7, pinned by its scripted daemon), and the special-use
+/// classes past loopback (the composition's and the daemon's own tests).
+pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
+    binding: &B,
+    authored: &str,
+) {
+    let unlisted = TransportIdentity::parse(UNLISTED_PEER).expect("a peer id");
+    let fresh = format!("/ip4/10.255.255.1/tcp/4001/p2p/{}", unlisted.as_str());
+
+    let powerless = port(binding, &[AdminCapability::Status]).await;
+    assert_eq!(
+        powerless.add_bootstrap_address(fresh.clone()).await,
+        Err(TransportError::CapabilityDenied)
+    );
+    assert_eq!(
+        powerless.remove_bootstrap_address(fresh.clone()).await,
+        Err(TransportError::CapabilityDenied)
+    );
+    assert_eq!(
+        powerless.bootstrap_addresses().await,
+        Err(TransportError::CapabilityDenied)
+    );
+
+    let admin = port(binding, &[AdminCapability::Peers, AdminCapability::Trust]).await;
+    let first = admin.bootstrap_addresses().await.expect("the list");
+    assert_eq!(
+        first.first(),
+        Some(&BootstrapAddress {
+            address: authored.to_owned(),
+            source: AddressSource::Authored,
+            dialled: true,
+        }),
+        "the authored entry is listed first: {first:?}"
+    );
+    let trust = sorted(admin.trust().await.expect("the policy"));
+
+    let refusal = |change: Result<AddressChange, TransportError>| match change {
+        Ok(AddressChange::Refused { reason, .. }) => Some(reason),
+        other => panic!("a refusal is an answer: {other:?}"),
+    };
+    assert_eq!(
+        refusal(
+            admin
+                .add_bootstrap_address("not an address".to_owned())
+                .await
+        ),
+        Some(AddressRefusal::Grammar)
+    );
+    assert_eq!(
+        refusal(
+            admin
+                .add_bootstrap_address(format!("/ip4/127.0.0.1/tcp/4001/p2p/{}", unlisted.as_str()))
+                .await
+        ),
+        Some(AddressRefusal::SpecialUse)
+    );
+    assert_eq!(
+        admin.bootstrap_addresses().await.expect("the list"),
+        first,
+        "a refusal writes nothing"
+    );
+
+    assert_eq!(
+        admin.add_bootstrap_address(fresh.clone()).await,
+        Ok(AddressChange::Added)
+    );
+    let listed = admin.bootstrap_addresses().await.expect("the list");
+    let mut expected = first.clone();
+    expected.push(BootstrapAddress {
+        address: fresh.clone(),
+        source: AddressSource::Added,
+        dialled: true,
+    });
+    assert_eq!(listed, expected, "added after every authored entry");
+    assert_eq!(
+        admin.add_bootstrap_address(fresh.clone()).await,
+        Ok(AddressChange::Unchanged)
+    );
+    assert_eq!(
+        sorted(admin.trust().await.expect("the policy")),
+        trust,
+        "an address grants no trust"
+    );
+
+    assert_eq!(
+        admin.remove_bootstrap_address(fresh.clone()).await,
+        Ok(AddressChange::Removed)
+    );
+    assert_eq!(admin.bootstrap_addresses().await.expect("the list"), first);
+    assert_eq!(
+        admin.remove_bootstrap_address(fresh).await,
+        Ok(AddressChange::Unchanged)
+    );
+    assert_eq!(
+        refusal(admin.remove_bootstrap_address(authored.to_owned()).await),
+        Some(AddressRefusal::Authored)
+    );
+    assert_eq!(admin.bootstrap_addresses().await.expect("the list"), first);
+}
+
+/// The show side (ADR-0062 decision 4, LOCAL-IPC.md minor 2.8), the same
+/// at every binding: without `admin.peers` it is `CapabilityDenied`; with
+/// it, `shower`'s own `PeerId` and at most 64 rows, each ending in that
+/// `PeerId` -- and what it shows is what an add takes: its first row, added
+/// on `adder`, is `added`, and removed again.
+pub async fn own_addresses_are_what_an_add_takes<B: AdminBinding>(
+    shower: &B,
+    shower_peer: &TransportIdentity,
+    adder: &B,
+) {
+    assert_eq!(
+        port(shower, &[AdminCapability::Status])
+            .await
+            .own_addresses()
+            .await,
+        Err(TransportError::CapabilityDenied)
+    );
+    let own = port(shower, &[AdminCapability::Peers])
+        .await
+        .own_addresses()
+        .await
+        .expect("the list");
+    assert_eq!(&own.peer, shower_peer);
+    assert!(own.addresses.len() <= MAX_OWN_ADDRESSES);
+    assert!(!own.truncated, "{own:?}");
+    let suffix = format!("/p2p/{}", shower_peer.as_str());
+    for row in &own.addresses {
+        assert!(row.address.ends_with(&suffix), "{row:?}");
+    }
+    let first = own
+        .addresses
+        .first()
+        .expect("a node on a LAN shows a listener");
+    assert_eq!(
+        first.kind,
+        OwnAddressKind::Listen,
+        "nothing confirmed: {own:?}"
+    );
+    let adding = port(adder, &[AdminCapability::Peers]).await;
+    assert_eq!(
+        adding.add_bootstrap_address(first.address.clone()).await,
+        Ok(AddressChange::Added),
+        "a shown line is one an add takes"
+    );
+    assert_eq!(
+        adding.remove_bootstrap_address(first.address.clone()).await,
+        Ok(AddressChange::Removed)
+    );
+}
+
 fn sorted(mut view: TrustAdminView) -> TrustAdminView {
     view.allowed.sort();
     view
