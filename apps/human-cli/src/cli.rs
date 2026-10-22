@@ -43,7 +43,10 @@ Exit codes:
   3  no daemon answered for the profile
   4  another client holds this profile's message store
   5  the message store cannot be used: it needs recovery, is not
-     private to this user, or cannot be opened now";
+     private to this user, cannot be opened now, or (store health)
+     cannot hold new messages now
+  6  a message is still on its way when --wait ends: it stays pending
+     in the message store, and its id is printed";
 
 /// What the command line asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,13 +151,6 @@ pub(crate) fn conversation(text: &str) -> Result<ConversationKey, String> {
 }
 
 /// A conversation as [`conversation`] reads it back.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the read verbs, the next commits on this branch, print it"
-    )
-)]
 pub(crate) fn conversation_text(key: &ConversationKey) -> String {
     match key {
         ConversationKey::Channel(channel) => format!("#{}", channel.as_str()),

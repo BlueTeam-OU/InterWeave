@@ -1,0 +1,703 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Andrea Benetton
+//! The verbs that go through the session: each one scripts what a person
+//! would do in the window -- view a conversation, type and press Send,
+//! press Cancel on a row, confirm a trust change -- and the model resolves
+//! it into the commands the facade carries out. Nothing here calls the
+//! facade or the store: what a verb can do is what the model offers.
+
+use std::fmt::Write as _;
+use std::future::Future;
+use std::time::Instant;
+
+use interweave_human_app_core::{Command, Failure as Why, Problem, Update};
+use interweave_human_client_api::{ClientEvent, OutboundStatus, SessionState, TrustProblem};
+use interweave_human_ui_model::{
+    ConversationKey, EntryProblem, Intent, ItemKey, ItemStatus, TrustInput, TrustOutcome, ViewEvent,
+};
+use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_transport_api::TransportIdentity;
+use serde_json::json;
+
+use crate::Failure;
+use crate::cli::{Verb, conversation_text};
+use crate::output;
+use crate::session::{Opening, STEP, Session};
+
+/// What every verb is given.
+pub(crate) struct Run<'a> {
+    /// The profile's name, for what is said about it.
+    pub(crate) profile: &'a str,
+    /// Print JSON lines.
+    pub(crate) json: bool,
+    /// When waiting ends.
+    pub(crate) until: Instant,
+}
+
+/// Carry out `verb`, writing what it prints to `out`. `listen` is not
+/// one of these: it prints as it goes ([`listen`]).
+///
+/// # Errors
+/// The verb's [`Failure`]; `out` then holds what a script still needs,
+/// the id of a message that did not finish.
+pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    verb: &Verb,
+    r: &Run<'_>,
+    out: &mut String,
+) -> Result<(), Failure> {
+    match verb {
+        Verb::Status => status(s, r, out).await,
+        Verb::Conversations => {
+            look(s, r).await;
+            for c in s.model().conversations() {
+                out.push_str(&output::conversation(&c, r.json));
+            }
+            Ok(())
+        }
+        Verb::Messages(key) => {
+            look(s, r).await;
+            print_messages(s, key, r.json, out);
+            Ok(())
+        }
+        Verb::Read { conversation, keep } => read(s, r, conversation, keep, out).await,
+        Verb::Send {
+            conversation,
+            text: Some(text),
+        } => send(s, r, conversation, text, out).await,
+        Verb::Cancel(id) => row_action(s, r, RowVerb::Cancel, id, out).await,
+        Verb::Retry(id) => row_action(s, r, RowVerb::Retry, id, out).await,
+        Verb::Unkeep(id) => row_action(s, r, RowVerb::Unkeep, id, out).await,
+        Verb::TrustList => trust_list(s, r, out).await,
+        Verb::SetTrust(peer, allowed) => set_trust(s, r, peer, *allowed, out).await,
+        Verb::Send { text: None, .. }
+        | Verb::Listen
+        | Verb::IdentitiesList
+        | Verb::SetEnabled(..)
+        | Verb::SetDefault(_)
+        | Verb::StoreHealth => Err(Failure::Refused(
+            "this verb does not run through the session".to_owned(),
+        )),
+    }
+}
+
+/// Open the session for a verb that reads: what the store holds is shown
+/// whether or not it opens, and what the daemon held for this client is
+/// handed over first when it does. Why it did not open goes to stderr, for
+/// a person; a script reads `status`.
+async fn look<B: DataSessionBinding, A: AdminBinding>(s: &mut Session<B, A>, r: &Run<'_>) {
+    let opening = s.open(r.until).await;
+    if opening == Opening::Ready {
+        s.settle(r.until).await;
+    } else if let Some(failure) = opening.failure(r.profile) {
+        eprintln!(
+            "interweave-human: showing what the message store holds: {}",
+            failure.message()
+        );
+    }
+}
+
+/// Open the session for a verb that needs it, or fail as it did.
+async fn ready<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+) -> Result<(), Failure> {
+    s.open(r.until).await.failure(r.profile).map_or(Ok(()), Err)
+}
+
+fn print_messages<B: DataSessionBinding, A: AdminBinding>(
+    s: &Session<B, A>,
+    key: &ConversationKey,
+    json: bool,
+    out: &mut String,
+) {
+    for m in s.model().messages(key) {
+        out.push_str(&output::message(&m, json));
+    }
+}
+
+/// A command the model side reports as not carried out, as a failure.
+fn problems<B: DataSessionBinding, A: AdminBinding>(s: &mut Session<B, A>) -> Result<(), Failure> {
+    let Some(problem) = s.side().take_problems().into_iter().next() else {
+        return Ok(());
+    };
+    let (what, why) = match problem {
+        Problem::Command { command, why } => (command_name(&command), why),
+        Problem::UnreadNotListed(why) => ("listing the unread messages", why),
+    };
+    Err(match why {
+        Why::StorageUnavailable => {
+            Failure::Store(format!("{what}: the message store cannot record it now"))
+        }
+        Why::CopyGone => Failure::Refused(format!("{what}: its content is no longer held")),
+        Why::NoSuchRow => Failure::Refused(format!("{what}: no such message any more")),
+        Why::Refused => Failure::Refused(format!("{what}: the message store refused it")),
+        Why::Corrupt => Failure::Store(format!("{what}: a stored row could not be read back")),
+        Why::TooMany => Failure::Refused(format!("{what}: too many on their way")),
+    })
+}
+
+const fn command_name(command: &Command) -> &'static str {
+    match command {
+        Command::Send { .. } => "send",
+        Command::MarkRead(_) => "marking read",
+        Command::Keep { .. } => "keep",
+        Command::Unkeep(_) => "unkeep",
+        Command::Retry(_) => "retry",
+        Command::Cancel(_) => "cancel",
+        Command::Restore(_) => "restore",
+        Command::ForgetCancelled(_) | Command::ForgetCopy(_) => "releasing a held copy",
+        Command::Reopen => "reopen",
+        Command::RecheckStorage => "re-checking storage",
+        Command::ReadTrust => "reading trust",
+        Command::SetTrust(_) => "changing trust",
+    }
+}
+
+async fn status<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+    out: &mut String,
+) -> Result<(), Failure> {
+    if s.open(r.until).await == Opening::Ready {
+        s.settle(r.until).await;
+    }
+    let model = s.model();
+    let no_daemon =
+        model.session_notice() == Some(interweave_human_ui_model::SessionNotice::NoDaemon);
+    let session = output::session(s.state(), no_daemon);
+    let endpoint = match s.state() {
+        Some(SessionState::Ready {
+            endpoint: Some(endpoint),
+        }) => Some(endpoint.as_str().to_owned()),
+        _ => None,
+    };
+    let problem = match s.state() {
+        Some(SessionState::Refused { problem }) => Some(output::session_problem(*problem)),
+        _ => None,
+    };
+    let connectivity = output::connectivity(model.connectivity());
+    let (mut unread, mut pending, mut kept) = (0, 0, 0);
+    for c in model.conversations() {
+        for m in model.messages(&c.key) {
+            match output::status(&m.status) {
+                "unread" => unread += 1,
+                "sending" | "not-confirmed" | "needs-attention" => pending += 1,
+                _ => {}
+            }
+            kept += usize::from(m.kept);
+        }
+    }
+    let hidden = s.side().hidden_rows();
+    if r.json {
+        out.push_str(&output::json_line(&json!({
+            "session": session,
+            "problem": problem,
+            "endpoint": endpoint,
+            "connectivity": connectivity,
+            "unread": unread,
+            "pending": pending,
+            "kept": kept,
+            "undisplayable": hidden,
+        })));
+        return Ok(());
+    }
+    let _ = write!(out, "session       {session}");
+    if let Some(endpoint) = &endpoint {
+        let _ = write!(out, " (endpoint {endpoint})");
+    }
+    if let Some(problem) = problem {
+        let _ = write!(out, " ({problem})");
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "connectivity  {connectivity}");
+    let _ = writeln!(out, "unread        {unread}");
+    let _ = writeln!(out, "pending       {pending}");
+    let _ = writeln!(out, "kept          {kept}");
+    if hidden > 0 {
+        let _ = writeln!(out, "undisplayable {hidden}");
+    }
+    Ok(())
+}
+
+async fn read<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+    key: &ConversationKey,
+    keep: &[String],
+    out: &mut String,
+) -> Result<(), Failure> {
+    look(s, r).await;
+    // Every --keep names a message of this conversation, checked before
+    // anything is marked read: a mistyped id must not cost the read.
+    let shown = s.model().messages(key);
+    let mut to_keep: Vec<ItemKey> = Vec::new();
+    for (n, id) in keep.iter().enumerate() {
+        let item = s
+            .model()
+            .item_named(id)
+            .filter(|k| shown.iter().any(|m| m.key == *k))
+            .ok_or_else(|| {
+                Failure::Refused(format!(
+                    "--keep number {}: no message of this conversation has that id",
+                    n + 1
+                ))
+            })?;
+        to_keep.push(item);
+    }
+    let viewed = key.clone();
+    s.will(move |m| {
+        m.conversation_viewed(&viewed, true)
+            .into_iter()
+            .map(ViewEvent::Intent)
+            .collect()
+    });
+    s.step().await;
+    problems(s)?;
+    let mut intents = Vec::new();
+    for (n, item) in to_keep.iter().enumerate() {
+        let actions = s.model().actions(*item);
+        if let Some(keep) = actions.iter().find(|i| matches!(i, Intent::Keep { .. })) {
+            intents.push(keep.clone());
+        } else if !actions.iter().any(|i| matches!(i, Intent::Unkeep(_))) {
+            // Kept already is what was asked; anything else cannot be.
+            return Err(Failure::Refused(format!(
+                "--keep number {}: that message cannot be kept",
+                n + 1
+            )));
+        }
+    }
+    if !intents.is_empty() {
+        s.will(move |_| intents.into_iter().map(ViewEvent::Intent).collect());
+        s.step().await;
+        problems(s)?;
+    }
+    print_messages(s, key, r.json, out);
+    Ok(())
+}
+
+async fn send<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+    key: &ConversationKey,
+    text: &str,
+    out: &mut String,
+) -> Result<(), Failure> {
+    if text.is_empty() {
+        return Err(Failure::Refused("an empty message is not sent".to_owned()));
+    }
+    ready(s, r).await?;
+    s.take_updates();
+    let (typed, pressed, draft) = (key.clone(), key.clone(), text.to_owned());
+    s.will(move |_| vec![ViewEvent::DraftChanged { key: typed, draft }]);
+    s.will(move |m| {
+        m.send_draft(&pressed)
+            .map(ViewEvent::Intent)
+            .into_iter()
+            .collect()
+    });
+    s.step().await;
+    problems(s)?;
+    let mut row = None;
+    for update in s.take_updates() {
+        match update {
+            Update::SendRefused { error, .. } => {
+                return Err(Failure::Refused(format!(
+                    "the message was not sent: {}",
+                    output::send_error(&error)
+                )));
+            }
+            Update::Sent { row: sent, .. } => row = Some(sent),
+            _ => {}
+        }
+    }
+    let row = row.ok_or_else(|| Failure::Refused("the message was not sent".to_owned()))?;
+    let item = s
+        .model()
+        .item_named(&format!("p{}", row.get()))
+        .ok_or_else(|| Failure::Refused("the message sent is not shown".to_owned()))?;
+    until_done(s, r, key, item, out).await
+}
+
+/// Turn until `item`, an outbound message, is accepted or published, needs
+/// the person, or `--wait` ends: its id and status are printed whichever.
+async fn until_done<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+    key: &ConversationKey,
+    item: ItemKey,
+    out: &mut String,
+) -> Result<(), Failure> {
+    loop {
+        let status = s
+            .model()
+            .messages(key)
+            .into_iter()
+            .find(|m| m.key == item)
+            .map(|m| m.status);
+        let Some(status) = status else {
+            return Err(Failure::Refused(format!("{item} is no longer shown")));
+        };
+        let token = output::status(&status);
+        let line = |out: &mut String| {
+            if r.json {
+                out.push_str(&output::json_line(
+                    &json!({ "id": item.to_string(), "status": token }),
+                ));
+            } else {
+                let _ = writeln!(out, "{item} {token}");
+            }
+        };
+        match &status {
+            ItemStatus::Outbound(OutboundStatus::Accepted { .. } | OutboundStatus::Published) => {
+                line(out);
+                return Ok(());
+            }
+            ItemStatus::Outbound(OutboundStatus::NeedsAttention { problem, .. }) => {
+                line(out);
+                return Err(Failure::Refused(format!(
+                    "{item} needs attention ({}): retry or cancel it",
+                    output::send_problem(*problem)
+                )));
+            }
+            ItemStatus::Outbound(OutboundStatus::Cancelled { .. }) => {
+                line(out);
+                return Err(Failure::Refused(format!("{item} was cancelled")));
+            }
+            _ if Instant::now() >= r.until => {
+                line(out);
+                return Err(Failure::Pending(format!(
+                    "{item} is still on its way: it stays pending in the message store, and \
+                     the next client to open the session sends it again"
+                )));
+            }
+            _ => {}
+        }
+        s.step().await;
+        tokio::time::sleep(STEP).await;
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RowVerb {
+    Cancel,
+    Retry,
+    Unkeep,
+}
+
+async fn row_action<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+    verb: RowVerb,
+    id: &str,
+    out: &mut String,
+) -> Result<(), Failure> {
+    if matches!(verb, RowVerb::Retry) {
+        ready(s, r).await?;
+    }
+    let item = s
+        .model()
+        .item_named(id)
+        .ok_or_else(|| Failure::Refused("no message held has that id".to_owned()))?;
+    let intent = s
+        .model()
+        .actions(item)
+        .into_iter()
+        .find(|i| {
+            matches!(
+                (verb, i),
+                (RowVerb::Cancel, Intent::Cancel(_))
+                    | (RowVerb::Retry, Intent::Retry(_))
+                    | (RowVerb::Unkeep, Intent::Unkeep(_))
+            )
+        })
+        .ok_or_else(|| {
+            Failure::Refused(format!(
+                "{item} cannot be {} now",
+                match verb {
+                    RowVerb::Cancel => "cancelled",
+                    RowVerb::Retry => "retried",
+                    RowVerb::Unkeep => "unkept",
+                }
+            ))
+        })?;
+    s.will(move |_| vec![ViewEvent::Intent(intent)]);
+    s.step().await;
+    problems(s)?;
+    let done = match verb {
+        RowVerb::Retry => {
+            let key = s
+                .model()
+                .conversations()
+                .into_iter()
+                .map(|c| c.key)
+                .find(|k| s.model().messages(k).iter().any(|m| m.key == item))
+                .ok_or_else(|| Failure::Refused(format!("{item} is no longer shown")))?;
+            return until_done(s, r, &key, item, out).await;
+        }
+        RowVerb::Cancel => "cancelled",
+        RowVerb::Unkeep => "unkept",
+    };
+    if r.json {
+        out.push_str(&output::json_line(
+            &json!({ "id": item.to_string(), "status": done }),
+        ));
+    } else {
+        let _ = writeln!(out, "{item} {done}");
+    }
+    Ok(())
+}
+
+fn trust_failure(problem: TrustProblem) -> Failure {
+    match problem {
+        TrustProblem::Unavailable => {
+            Failure::Unreachable("the daemon's admin socket did not answer".to_owned())
+        }
+        TrustProblem::NotPermitted => {
+            Failure::Refused("this client may not administer trust on this daemon".to_owned())
+        }
+        TrustProblem::Refused => Failure::Refused("the daemon refused the change".to_owned()),
+        TrustProblem::Incompatible => Failure::Refused(
+            "the daemon and this client share no version of the trust methods: \
+             is the daemon another release?"
+                .to_owned(),
+        ),
+        TrustProblem::Internal => Failure::Refused("the daemon failed to answer".to_owned()),
+    }
+}
+
+/// Turn until the trust settings wait for nothing, or `--wait` ends.
+async fn trust_settled<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+) -> Result<(), Failure> {
+    loop {
+        s.step().await;
+        let trust = s.model().trust_settings();
+        if !trust.reading() && trust.in_flight().is_none() {
+            return Ok(());
+        }
+        if Instant::now() >= r.until {
+            return Err(Failure::Unreachable(
+                "the daemon did not answer in time".to_owned(),
+            ));
+        }
+        tokio::time::sleep(STEP).await;
+    }
+}
+
+/// Read the allowlist into the trust settings, as opening them does.
+async fn trust_opened<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+) -> Result<(), Failure> {
+    s.will(|_| vec![ViewEvent::Trust(TrustInput::Opened)]);
+    trust_settled(s, r).await?;
+    let trust = s.model().trust_settings();
+    if trust.list().is_some() {
+        return Ok(());
+    }
+    Err(match trust.outcome().0 {
+        Some(TrustOutcome::Problem(p) | TrustOutcome::NotReadAgain(p)) => trust_failure(*p),
+        _ => Failure::Refused("the allowlist was not read".to_owned()),
+    })
+}
+
+async fn trust_list<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+    out: &mut String,
+) -> Result<(), Failure> {
+    trust_opened(s, r).await?;
+    let Some(list) = s.model().trust_settings().list() else {
+        return Err(Failure::Refused("the allowlist was not read".to_owned()));
+    };
+    for row in &list.allowed {
+        let origin = match row.origin {
+            interweave_human_client_api::TrustOrigin::Configured => "configured",
+            interweave_human_client_api::TrustOrigin::AddedHere => "added",
+        };
+        if r.json {
+            out.push_str(&output::json_line(
+                &json!({ "peer": row.peer.as_str(), "origin": origin }),
+            ));
+        } else {
+            let _ = writeln!(out, "{}  {origin}", row.peer.as_str());
+        }
+    }
+    Ok(())
+}
+
+async fn set_trust<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    r: &Run<'_>,
+    peer: &TransportIdentity,
+    allowed: bool,
+    out: &mut String,
+) -> Result<(), Failure> {
+    trust_opened(s, r).await?;
+    let said = |out: &mut String, already: bool| {
+        let _ = writeln!(
+            out,
+            "{} {}{}",
+            if allowed { "allowed" } else { "revoked" },
+            peer.as_str(),
+            if already { " (already)" } else { "" }
+        );
+    };
+    let listed = s
+        .model()
+        .trust_settings()
+        .list()
+        .is_some_and(|l| l.allows(peer));
+    if listed == allowed {
+        said(out, true);
+        return Ok(());
+    }
+    let before = s.model().trust_settings().outcome().1;
+    let shown = peer.clone();
+    s.will(move |_| {
+        if allowed {
+            vec![
+                ViewEvent::Trust(TrustInput::EntryChanged(shown.as_str().to_owned())),
+                ViewEvent::Trust(TrustInput::ProposeAllow),
+            ]
+        } else {
+            vec![ViewEvent::Trust(TrustInput::ProposeRevoke(shown))]
+        }
+    });
+    // Confirmed only as the model shows it: the change the person would
+    // see on the confirmation, never one this verb built.
+    s.will(|m| {
+        m.trust_settings()
+            .pending()
+            .cloned()
+            .map(|change| vec![ViewEvent::Trust(TrustInput::Confirm(change))])
+            .unwrap_or_default()
+    });
+    trust_settled(s, r).await?;
+    let trust = s.model().trust_settings();
+    if trust.list().is_some_and(|l| l.allows(peer) == allowed) {
+        said(out, false);
+        return Ok(());
+    }
+    let (outcome, count) = trust.outcome();
+    Err(match outcome.filter(|_| count != before) {
+        Some(TrustOutcome::Entry(EntryProblem::OwnIdentity)) => {
+            Failure::Refused("that is this profile's own identity".to_owned())
+        }
+        Some(TrustOutcome::Unconfirmed(_)) => Failure::Refused(
+            "the daemon did not confirm the change, which may have been made: \
+             read the list again"
+                .to_owned(),
+        ),
+        Some(TrustOutcome::Problem(p) | TrustOutcome::NotReadAgain(p)) => trust_failure(*p),
+        _ => Failure::Refused("the change was not made".to_owned()),
+    })
+}
+
+/// One event `listen` prints, or `None` for what it does not.
+fn event_line<B: DataSessionBinding, A: AdminBinding>(
+    s: &Session<B, A>,
+    update: &Update,
+    json: bool,
+) -> Option<String> {
+    let model = s.model();
+    let (event, fields) = match update {
+        Update::Received(received) => {
+            let id = format!("u{}", received.row.get());
+            let item = model.item_named(&id)?;
+            let (key, message) = model.conversations().into_iter().find_map(|c| {
+                model
+                    .messages(&c.key)
+                    .into_iter()
+                    .find(|m| m.key == item)
+                    .map(|m| (c.key, m))
+            })?;
+            if !json {
+                return Some(format!(
+                    "message {}\n{}",
+                    conversation_text(&key),
+                    output::message(&message, false)
+                ));
+            }
+            let mut value = output::message_value(&message);
+            value["event"] = json!("message");
+            value["conversation"] = json!(conversation_text(&key));
+            return Some(output::json_line(&value));
+        }
+        Update::Client(ClientEvent::Outbound(update)) => (
+            "outbound",
+            json!({
+                "id": format!("p{}", update.row.get()),
+                "status": output::status(&ItemStatus::Outbound(update.status.clone())),
+            }),
+        ),
+        Update::Client(ClientEvent::Session(state)) => {
+            let no_daemon =
+                model.session_notice() == Some(interweave_human_ui_model::SessionNotice::NoDaemon);
+            (
+                "session",
+                json!({ "session": output::session(Some(state), no_daemon) }),
+            )
+        }
+        Update::Client(ClientEvent::Connectivity(c)) => (
+            "connectivity",
+            json!({ "connectivity": output::connectivity(*c) }),
+        ),
+        Update::Client(ClientEvent::PeerPath { peer, path }) => (
+            "path",
+            json!({ "peer": peer.as_str(), "path": path.label() }),
+        ),
+        Update::Client(ClientEvent::PeerDisconnected { peer }) => {
+            ("disconnected", json!({ "peer": peer.as_str() }))
+        }
+        _ => return None,
+    };
+    if json {
+        let mut value = fields;
+        value["event"] = json!(event);
+        return Some(output::json_line(&value));
+    }
+    let mut line = event.to_owned();
+    if let Some(map) = fields.as_object() {
+        for value in map.values() {
+            line.push(' ');
+            line.push_str(&output::printable(value.as_str().unwrap_or_default()));
+        }
+    }
+    line.push('\n');
+    Some(line)
+}
+
+/// Hold the session open and print one line (one JSON object with
+/// `--json`) per event, until `stop`. Received messages stay unread.
+///
+/// # Errors
+/// [`Failure::Refused`] when stdout cannot be written; a reader that went
+/// away ends it as `stop` does.
+pub(crate) async fn listen<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    json: bool,
+    out: &mut dyn std::io::Write,
+    stop: impl Future<Output = ()>,
+) -> Result<(), Failure> {
+    let mut stop = std::pin::pin!(stop);
+    loop {
+        s.step().await;
+        for update in s.take_updates() {
+            let Some(line) = event_line(s, &update, json) else {
+                continue;
+            };
+            match out.write_all(line.as_bytes()).and_then(|()| out.flush()) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => return Ok(()),
+                Err(e) => return Err(Failure::Refused(format!("stdout: {e}"))),
+            }
+        }
+        tokio::select! {
+            () = &mut stop => return Ok(()),
+            () = tokio::time::sleep(STEP) => {}
+        }
+    }
+}

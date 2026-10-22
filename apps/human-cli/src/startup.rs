@@ -25,10 +25,6 @@ pub(crate) const CLIENT_KIND: &str = "human-client";
 
 /// A resolved profile.
 #[derive(Debug, Clone)]
-#[expect(
-    dead_code,
-    reason = "the session the next commits on this branch build reads the endpoints and channels"
-)]
 pub(crate) struct Profile {
     /// Its paths.
     pub(crate) paths: ProfilePaths,
@@ -38,6 +34,10 @@ pub(crate) struct Profile {
     pub(crate) endpoints: Vec<EndpointId>,
     /// The channels it joins.
     pub(crate) channels: Vec<ChannelId>,
+    /// The daemon's data socket.
+    pub(crate) data_socket: PathBuf,
+    /// The daemon's admin socket.
+    pub(crate) admin_socket: PathBuf,
 }
 
 impl Profile {
@@ -89,9 +89,12 @@ pub(crate) fn resolve(profile: &str) -> Result<Profile, Failure> {
             paths.profile()
         )));
     }
+    let socket = |e: PersistError| Failure::Refused(format!("the daemon's socket paths: {e}"));
     Ok(Profile {
         endpoints,
         channels: config.channels.desired.clone(),
+        data_socket: paths.data_socket().map_err(socket)?,
+        admin_socket: paths.admin_socket().map_err(socket)?,
         paths,
     })
 }

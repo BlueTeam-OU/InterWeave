@@ -25,7 +25,22 @@ name = "interweave-human"
 path = "src/main.rs"
 
 [dependencies]
+interweave-human-app-core = { path = "../../crates/human/app-core" }
+interweave-human-client-api = { path = "../../crates/human/client-api" }
 interweave-human-store = { path = "../../crates/human/store" }
+interweave-human-transport-client = { path = "../../crates/human/transport-client" }
 interweave-human-ui-model = { path = "../../crates/human/ui-model" }
+interweave-local-client-api = { path = "../../crates/api/local-client-api" }
 interweave-profile-config = { path = "../../crates/config/profile-config" }
 interweave-transport-api = { path = "../../crates/api/transport-api" }
+serde_json = { workspace = true }
+
+# The desktop IPC binding is Unix-only, as the desktop client's is.
+[target.'cfg(unix)'.dependencies]
+interweave-ipc-client = { path = "../../crates/local/ipc-client" }
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync", "macros", "signal"] }
+
+[dev-dependencies]
+interweave-local-client-fake = { path = "../../tests/local-client-fake" }
+interweave-profile-identity = { path = "../../crates/identity/profile-identity" }
+tempfile = { workspace = true }
