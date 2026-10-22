@@ -1560,12 +1560,22 @@ impl Driver {
             return Ok(AddressesChange::Added(lines));
         };
         self.commit_bootstrap(moved)?;
-        for (address, _) in addresses.iter().zip(&added).filter(|(_, new)| **new) {
-            // A REMOVAL STILL PENDING FOR IT IS WITHDRAWN: retried, it
-            // would take the address off the door and out of the book
-            // after this answer said it was in force.
+        let new_lines = || {
+            addresses
+                .iter()
+                .zip(&added)
+                .filter_map(|(address, &new)| new.then_some(address))
+        };
+        // A REMOVAL STILL PENDING FOR A NEW LINE IS WITHDRAWN, for every
+        // line before the door is told of any: retried, it would take the
+        // address off the door and out of the book after the overlay took
+        // it, and a door call that fails partway must not leave the later
+        // lines' removals standing.
+        for address in new_lines() {
             self.pending_forget
                 .retain(|(_, pending)| pending != address);
+        }
+        for address in new_lines() {
             let (_, peer) = interweave_profile_config::split_peer_multiaddr(address)
                 .map_err(|_| TransportError::Internal)?;
             let parsed = address.parse().map_err(|_| TransportError::Internal)?;
