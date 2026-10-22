@@ -57,6 +57,13 @@
 *.sqlite-shm
 *.sqlite-wal
 
+# The Claude Code plugin's bridge binary. The plugin's `.mcp.json` starts
+# `${CLAUDE_PLUGIN_ROOT}/bin/claude-channel`, and
+# `packaging/claude-plugin/build.sh` assembles that directory OUTSIDE the
+# tree (it refuses an out-dir inside it). So a binary at this path in the
+# tree was put there by hand, and must not ship in a public commit.
+/packaging/claude-plugin/interweave/bin/
+
 # Local configuration and environment overrides
 .env
 .env.*
