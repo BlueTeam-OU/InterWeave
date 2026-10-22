@@ -122,10 +122,13 @@ fn plaintext_store(paths: &ProfilePaths) {
     let mut store = HumanStore::open(&db(paths), StoreOptions::default()).expect("plaintext");
     fill(&mut store);
     drop(store);
-    assert!(
-        holds(&paths.human_dir(), KEPT),
-        "the control: the seeded plaintext holds the content in clear"
-    );
+    for needle in [KEPT, NAME.as_bytes(), PEER.as_bytes()] {
+        assert!(
+            holds(&paths.human_dir(), needle),
+            "the control: the seeded plaintext holds {} in clear",
+            String::from_utf8_lossy(needle)
+        );
+    }
 }
 
 /// Every row the seed wrote is in `store`.
@@ -161,6 +164,8 @@ fn assert_no_plaintext(paths: &ProfilePaths) {
         KEPT,
         UNREAD,
         NAME.as_bytes(),
+        // The route: the PeerId the contact's card came from.
+        PEER.as_bytes(),
         b"SQLite format 3\0".as_slice(),
     ] {
         assert!(
