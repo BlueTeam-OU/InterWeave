@@ -1871,12 +1871,12 @@ export component AppWindow inherits Window {
     in property <string> field-note;
     in property <string> scan-note;
     in property <string> add-note;
-    // Step one's result, once done: the field and its controls give way to
-    // it, and step two appears under it.
     // Step one -- the field, its helper and Add -- is on show: the add
     // page with no result and no trust block (a row's Trust opens the
     // trust step alone).
     in property <bool> add-step-one;
+    // Step one's result, once done: the field and its controls give way to
+    // it, and step two appears under it.
     in property <string> add-result;
     in property <[PeerTrustBlock]> trust-blocks;
     in property <string> trust-step-body;
