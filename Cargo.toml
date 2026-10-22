@@ -648,8 +648,11 @@ overflow-checks = true
 # tests/security and tests/security-local and whose exit gate is
 # tests/SECURITY-MATRIX.md. STAGE 19 RUNS BESIDE STAGES 17 AND 18 by the
 # plan's section 22 record (activated 2026-10-20 on the owner's word):
-# packaging, migration and release. This value stays Stage 17 until section
-# 20's closing record moves it, because the guards read it as one number.
+# packaging, migration and release. STAGE 21 RUNS BESIDE STAGES 17, 18 AND
+# 19 by the plan's section 29 record (the owner's word of 2026-10-21):
+# contacts, cards and the encrypted store, in the human crates. This value
+# stays Stage 17 until section 20's closing record moves it, because the
+# guards read it as one number.
 status = "stage-17-android-human-client"
 architecture_root = "architecture"
 
