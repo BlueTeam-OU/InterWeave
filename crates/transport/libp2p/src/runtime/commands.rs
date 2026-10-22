@@ -532,6 +532,14 @@ pub(super) fn handle_command(
             let answer = super::dialing::learn_route(manager, &peer, &address.to_string(), now_ms);
             let _ = reply.send(answer);
         }
+        SwarmCommand::ForgetAddress {
+            peer,
+            address,
+            reply,
+        } => {
+            let answer = manager.forget_address(&peer, &address.to_string(), now_ms);
+            let _ = reply.send(answer);
+        }
         SwarmCommand::Learn {
             peer,
             addresses,

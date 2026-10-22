@@ -400,6 +400,42 @@ impl SwarmRuntime {
         answer.await.map_err(|_| SubstrateError::Stopped)
     }
 
+    /// Undo [`Self::add_address`] for an address the operator removed
+    /// (ADR-0062: a removed bootstrap address is dialled no more, without
+    /// a restart): out of the operator set, unless `keep_operator` -- an
+    /// address another operator input still names -- and out of the book.
+    ///
+    /// Returns whether it is out of the book: `false` for a live
+    /// quarantine the book cannot hand over yet, which stays quarantined
+    /// and is to be asked again (`ConnectionManager::forget_address`).
+    ///
+    /// # Errors
+    /// Returns [`SubstrateError::Stopped`] if the task is gone.
+    pub async fn forget_address(
+        &self,
+        peer: TransportIdentity,
+        address: Multiaddr,
+        keep_operator: bool,
+    ) -> Result<bool, SubstrateError> {
+        if !keep_operator {
+            let record = peer.as_str().parse::<libp2p::PeerId>().map_or_else(
+                |_| address.clone(),
+                |owner| crate::operator_set::probe_for(&address, &owner),
+            );
+            let _ = self.operator.remove(&record);
+        }
+        let (reply, answer) = oneshot::channel();
+        self.commands
+            .send(SwarmCommand::ForgetAddress {
+                peer,
+                address,
+                reply,
+            })
+            .await
+            .map_err(|_| SubstrateError::Stopped)?;
+        answer.await.map_err(|_| SubstrateError::Stopped)
+    }
+
     /// The status surface (plan §15): the computed `ConnectivitySummary`
     /// and the dial gate's introspection, photographed at one instant in
     /// the Swarm task. `peer`, when given, adds that peer's retry state.

@@ -140,6 +140,15 @@ impl OperatorSet {
         true
     }
 
+    /// Forget that `address` came in by the operator's door: an
+    /// operator's removal (ADR-0062). The caller keeps an address that
+    /// another operator input still names -- a static relay or AutoNAT
+    /// server -- since the set records the door, not who used it.
+    /// Returns whether it was held.
+    pub fn remove(&self, address: &Multiaddr) -> bool {
+        self.write().addresses.remove(&operator_key(address))
+    }
+
     /// Did `address` come in by the operator's door?
     #[must_use]
     pub fn contains(&self, address: &Multiaddr) -> bool {
@@ -474,6 +483,30 @@ mod tests {
         let read = written.clone();
         assert!(written.insert(&addr("/dns4/boot.example/tcp/4001")));
         assert!(read.contains(&addr("/dns4/boot.example/tcp/4001")));
+    }
+
+    /// An operator's removal: the address is no longer the operator's at
+    /// any door, the other entries stay (the control), and a circuit is
+    /// removed under the key it was inserted with, its destination kept.
+    #[test]
+    fn a_removed_address_is_no_longer_the_operators() {
+        let set = OperatorSet::new();
+        let kept = addr("/dns4/boot.example/tcp/4001");
+        let gone = addr("/ip4/192.168.1.20/tcp/4001");
+        assert!(set.insert(&kept) && set.insert(&gone));
+        assert!(set.remove(&gone));
+        assert!(!set.contains(&gone));
+        assert!(set.contains(&kept), "the other entry stays");
+        assert!(!set.remove(&gone), "removing it again holds nothing");
+
+        let relay = PeerId::random();
+        let target = PeerId::random();
+        let circuit = addr(&format!(
+            "/ip4/192.168.1.1/tcp/4001/p2p/{relay}/p2p-circuit/p2p/{target}"
+        ));
+        assert!(set.insert(&circuit));
+        assert!(set.remove(&circuit));
+        assert!(!set.contains(&circuit));
     }
 
     /// Bounded, and a refusal past the bound is counted rather than
