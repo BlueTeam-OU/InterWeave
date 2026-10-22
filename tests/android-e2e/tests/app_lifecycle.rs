@@ -17,7 +17,7 @@
 //!   second message from D, and the store holds both unread. The
 //!   example's profile is `stay-reachable`, so the restart is the
 //!   foreground service's (`device-runs/2026-10-20-gate-b.md` ran it by
-//!   hand). ActivityManager lengthens the restart delay of a service
+//!   hand). `ActivityManager` lengthens the restart delay of a service
 //!   that crashed minutes before, past `PATIENCE`: a rerun waits a few
 //!   minutes after the last (seen on the A40, 2026-10-22).
 //!
