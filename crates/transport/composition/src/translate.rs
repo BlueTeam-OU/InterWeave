@@ -65,6 +65,12 @@ pub enum CompositionError {
     /// overlay enables or disables. The runtime does not start, and the
     /// overlay is named as the cause.
     EndpointOverlayConflicts(Vec<ConfigError>),
+    /// The bootstrap-peers overlay cannot be trusted, holds an entry
+    /// outside the grammar, or composes with `config.yaml`'s entries
+    /// past the provider's bound of 64: the runtime does not start,
+    /// naming the overlay, never truncating it (ADR-0062, ADR-0028 A
+    /// 2026-10-21 (ii)).
+    BootstrapOverlay(interweave_profile_config::bootstrap_overlay::BootstrapOverlayError),
 }
 
 impl core::fmt::Display for CompositionError {
@@ -89,6 +95,7 @@ impl core::fmt::Display for CompositionError {
             ),
             Self::TrustOverlay(e) => write!(f, "{e}"),
             Self::EndpointOverlay(e) => write!(f, "{e}"),
+            Self::BootstrapOverlay(e) => write!(f, "{e}"),
             Self::EndpointOverlayConflicts(errors) => {
                 write!(
                     f,
@@ -390,6 +397,97 @@ fn refuse_unhonoured(profile: &ProfileConfig) -> Result<(), CompositionError> {
     match rows.into_iter().find(|(_, differs)| *differs) {
         Some((field, _)) => Err(CompositionError::Unhonoured { field }),
         None => Ok(()),
+    }
+}
+
+/// The priority a static-bootstrap provider is built at when the profile
+/// authors none and the bootstrap-peers overlay is to be emitted
+/// (ADR-0062 decision 2): the one the composite, remote-bootstrap and
+/// reachability examples author.
+pub const ADDED_BOOTSTRAP_PRIORITY: i32 = 30;
+
+/// Whether the profile authors the static-bootstrap provider, and how.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StaticAuthoring {
+    /// Authored and enabled: the overlay's entries follow the authored
+    /// ones, at the authored priority.
+    Enabled,
+    /// Authored `enabled: false`: nothing is emitted, an add is refused
+    /// by name, and entries already in the overlay are listed as not
+    /// dialled (ADR-0062 decision 2).
+    Disabled,
+    /// Not authored: a provider is built at
+    /// [`ADDED_BOOTSTRAP_PRIORITY`] for the overlay's entries, even with
+    /// none yet, so a first add takes effect without a restart.
+    NotAuthored,
+}
+
+/// How `profile` authors the static-bootstrap provider, and the entries
+/// it authors (empty when it authors none).
+#[must_use]
+pub fn static_authoring(profile: &ProfileConfig) -> (StaticAuthoring, Vec<String>) {
+    profile
+        .discovery
+        .providers
+        .iter()
+        .find(|p| p.provider_type == DiscoveryProviderType::StaticBootstrap)
+        .map_or((StaticAuthoring::NotAuthored, Vec::new()), |p| {
+            let how = if p.enabled {
+                StaticAuthoring::Enabled
+            } else {
+                StaticAuthoring::Disabled
+            };
+            (how, p.config.peers.clone())
+        })
+}
+
+/// One `multiaddr-with-peer-id` as the provider's entry.
+///
+/// # Errors
+/// [`CompositionError::Translation`] outside the grammar,
+/// [`CompositionError::Discovery`] when the provider refuses it.
+pub fn static_entry(peer: &str) -> Result<StaticEntry, CompositionError> {
+    let (address, id) = split_peer_multiaddr(peer).map_err(CompositionError::Translation)?;
+    StaticEntry::new(id, address)
+        .map_err(|e| CompositionError::Discovery(format!("static entry {peer}: {e:?}")))
+}
+
+impl Composition {
+    /// Put the bootstrap-peers overlay's `added` entries where the
+    /// authored ones go: after them in an authored, enabled provider; in a
+    /// provider of their own at [`ADDED_BOOTSTRAP_PRIORITY`] when none is
+    /// authored; nowhere under an authored `enabled: false` provider. And
+    /// through the operator's door at start, beside them (ADR-0052 rule
+    /// 9), wherever they are emitted.
+    ///
+    /// # Errors
+    /// As [`static_entry`], and the substrate's own validation of the
+    /// operator set's bound.
+    pub fn with_added_bootstrap(
+        mut self,
+        authoring: StaticAuthoring,
+        added: &[String],
+    ) -> Result<Self, CompositionError> {
+        if authoring == StaticAuthoring::Disabled {
+            return Ok(self);
+        }
+        let entries = added
+            .iter()
+            .map(|peer| static_entry(peer))
+            .collect::<Result<Vec<_>, _>>()?;
+        match &mut self.discovery.static_bootstrap {
+            Some((authored, _)) => authored.extend(entries),
+            None => {
+                self.discovery.static_bootstrap = Some((entries, ADDED_BOOTSTRAP_PRIORITY));
+            }
+        }
+        self.substrate
+            .operator_addresses
+            .extend(added.iter().cloned());
+        self.substrate
+            .validate()
+            .map_err(CompositionError::Substrate)?;
+        Ok(self)
     }
 }
 

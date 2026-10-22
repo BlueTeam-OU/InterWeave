@@ -244,7 +244,13 @@ fn starting_a_provider_makes_discovery_healthy_at_the_manager() {
     let cache = PeerCache::load(&dir.path().join("peers.json"), CacheLimits::default())
         .expect("empty cache");
     let mut cache_provider = PeerCacheDiscovery::new(cache);
-    let mut static_provider = StaticBootstrapDiscovery::new(Vec::new()).expect("empty is valid");
+    // ONE ENTRY: a static provider holding none can discover nothing and
+    // says Unavailable -- the manager's own default, so nothing is left
+    // silent (#367 review F5; the empty case is pinned at the end).
+    let mut static_provider = StaticBootstrapDiscovery::new(vec![
+        StaticEntry::new(peer(P1), "/ip4/10.0.0.1/tcp/4001").expect("within bounds"),
+    ])
+    .expect("one entry");
 
     manager
         .register(cache_provider.descriptor(), 10)
@@ -278,6 +284,31 @@ fn starting_a_provider_makes_discovery_healthy_at_the_manager() {
         ProviderHealth::Healthy,
         "and discovery as a whole is working"
     );
+
+    // AN EMPTY STATIC PROVIDER CARRIES NOTHING: beside a provider that has
+    // failed, it leaves the aggregate where that one puts it rather than
+    // reading Healthy.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("peers.json");
+    std::fs::write(&path, b"{ not json").expect("writes");
+    let mut failing = PeerCacheDiscovery::new(
+        PeerCache::load(&path, CacheLimits::default()).expect("quarantines"),
+    );
+    let mut empty = StaticBootstrapDiscovery::new(Vec::new()).expect("empty is valid");
+    let mut manager = DiscoveryManager::new();
+    manager
+        .register(failing.descriptor(), 10)
+        .expect("registers");
+    manager.register(empty.descriptor(), 30).expect("registers");
+    failing.start(0).expect("starts");
+    empty.start(0).expect("starts");
+    pump(&mut manager, &mut failing, 0, &nobody());
+    pump(&mut manager, &mut empty, 0, &nobody());
+    assert_eq!(
+        manager.provider_health("static-bootstrap"),
+        Some(ProviderHealth::Unavailable)
+    );
+    assert_eq!(manager.aggregate_health(), ProviderHealth::Degraded);
 }
 
 #[test]

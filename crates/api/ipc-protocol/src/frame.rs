@@ -243,6 +243,7 @@ impl HelloResponse {
                 AdminCapability::Endpoints => RequestedCapability::AdminEndpoints,
                 AdminCapability::Shutdown => RequestedCapability::AdminShutdown,
                 AdminCapability::Trust => RequestedCapability::AdminTrust,
+                AdminCapability::Peers => RequestedCapability::AdminPeers,
             }))
             .collect();
         Self {

@@ -4907,7 +4907,10 @@ the plugin on the organisation's `allowedChannelPlugins` with
 `channelsEnabled: true` or on Anthropic's remotely served allowlist,
 neither asked for nor tried (§22 carries it; PACKAGING.md says the
 same); `userConfig`
-substitution; organisation-policy gating (`channelsEnabled`,
+substitution — measured outside a session on 2026-10-22 (SPIKE-001
+S20: the plugin's declared defaults and `plugin install --config`
+values reach the bridge's argv and survive an update), inside a
+channel session still not established; organisation-policy gating (`channelsEnabled`,
 `allowedChannelPlugins`); permission relay (not declared, by design);
 size limits on `content` and `meta` and behaviour under load; a server
 negotiating the 2026-07-28 revision (the bridge stays legacy until a

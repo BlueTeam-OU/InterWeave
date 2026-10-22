@@ -1323,9 +1323,96 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
     !(documentation || six_to_four || protocol_assignments)
 }
 
+/// ADR-0052 rule 2's floor as ADR-0062's add applies it: every IP
+/// literal in `address` -- each host of a circuit route, the relay's
+/// prefix included -- must be public or private (RFC 1918, IPv6 ULA, a
+/// v4-mapped private address), and the first literal in any other
+/// class is returned: loopback, unspecified, link-local, multicast,
+/// documentation and the other special-use ranges [`is_probeable_address`]
+/// refuses. `None` when every literal passes.
+///
+/// A NAME IS NOT JUDGED HERE. Whether a DNS name may be added is the
+/// client's typed-only rule (ADR-0052 rule 9): the method that calls
+/// this carries no provenance. A literal that does not parse is the
+/// grammar's to refuse, which runs first, so it passes here.
+///
+/// THE FLOOR AT THE ADD, because nothing downstream applies it: an added
+/// entry enters the operator address set, which every store door admits
+/// whatever its class (rule 9). `the_add_floor_refuses_every_special_use_
+/// class_and_admits_private_and_public` holds each class.
+#[must_use]
+pub fn special_use_host(address: &str) -> Option<IpAddr> {
+    let components: Vec<&str> = address.split('/').collect();
+    components.windows(2).find_map(|pair| {
+        let ip = match pair[0] {
+            "ip4" => IpAddr::V4(pair[1].parse::<Ipv4Addr>().ok()?),
+            "ip6" => IpAddr::V6(pair[1].parse::<Ipv6Addr>().ok()?),
+            _ => return None,
+        };
+        let admitted = match ip {
+            IpAddr::V4(v4) => is_public_v4(v4) || v4.is_private(),
+            IpAddr::V6(v6) => {
+                is_public_v6(v6)
+                    || v6.segments()[0] & 0xfe00 == 0xfc00
+                    || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_private())
+            }
+        };
+        (!admitted).then_some(ip)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_add_floor_refuses_every_special_use_class_and_admits_private_and_public() {
+        let peer = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+        let at = |host: &str| format!("/{host}/tcp/4001/p2p/{peer}");
+        for refused in [
+            "ip4/127.0.0.1",
+            "ip4/0.0.0.0",
+            "ip4/0.1.2.3",
+            "ip4/169.254.1.1",
+            "ip4/224.0.0.251",
+            "ip4/255.255.255.255",
+            "ip4/192.0.2.1",
+            "ip4/198.51.100.1",
+            "ip4/203.0.113.1",
+            "ip4/100.64.0.1",
+            "ip4/198.18.0.1",
+            "ip4/192.0.0.1",
+            "ip4/240.0.0.1",
+            "ip6/::1",
+            "ip6/::",
+            "ip6/fe80::1",
+            "ip6/ff02::1",
+            "ip6/2001:db8::1",
+            "ip6/::ffff:127.0.0.1",
+        ] {
+            assert!(
+                special_use_host(&at(refused)).is_some(),
+                "{refused} admitted"
+            );
+        }
+        for admitted in [
+            "ip4/10.1.2.3",
+            "ip4/172.16.0.1",
+            "ip4/192.168.1.20",
+            "ip4/8.8.8.8",
+            "ip6/fd00::1",
+            "ip6/2a00:1450::1",
+            "ip6/::ffff:192.168.1.20",
+            "dns4/example.com",
+            "dns6/localhost",
+        ] {
+            assert_eq!(special_use_host(&at(admitted)), None, "{admitted} refused");
+        }
+        // Every host of a circuit route: the relay's prefix too.
+        let route = |relay: &str| format!("/{relay}/tcp/4001/p2p/{peer}/p2p-circuit/p2p/{peer}");
+        assert_eq!(special_use_host(&route("ip4/192.168.1.1")), None);
+        assert!(special_use_host(&route("ip4/127.0.0.1")).is_some());
+    }
 
     /// A report the manager must ACCEPT: every test but the refusal one
     /// speaks as a known server about a tracked address, and a refusal

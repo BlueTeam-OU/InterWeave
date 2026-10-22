@@ -102,7 +102,7 @@ struct Queued {
 }
 
 /// Configured bootstrap entries, presented as a discovery provider.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct StaticBootstrapDiscovery {
     /// peer -> the addresses configured for it.
     entries: BTreeMap<TransportIdentity, BTreeSet<String>>,
@@ -112,6 +112,23 @@ pub struct StaticBootstrapDiscovery {
     started: bool,
     stopped: bool,
     pending: Vec<Queued>,
+    /// The health last announced to the consumer, which learns it only
+    /// from `HealthChanged`.
+    announced: ProviderHealth,
+}
+
+/// The provider with no entries, as `new(Vec::new())` builds it.
+impl Default for StaticBootstrapDiscovery {
+    fn default() -> Self {
+        Self {
+            entries: BTreeMap::new(),
+            emitted: BTreeMap::new(),
+            started: false,
+            stopped: false,
+            pending: Vec::new(),
+            announced: ProviderHealth::Unavailable,
+        }
+    }
 }
 
 impl StaticBootstrapDiscovery {
@@ -144,6 +161,7 @@ impl StaticBootstrapDiscovery {
             started: false,
             stopped: false,
             pending: Vec::new(),
+            announced: ProviderHealth::Unavailable,
         })
     }
 
@@ -194,6 +212,27 @@ impl StaticBootstrapDiscovery {
     /// same reason.
     fn refresh(&mut self, now_ms: u64) {
         let mut queued: Vec<Queued> = Vec::new();
+        // HEALTH FOLLOWS THE ENTRIES: a provider holding none can
+        // discover nothing, and a Healthy one would carry the discovery
+        // aggregate for a profile whose real providers have failed
+        // (`an_empty_provider_is_unavailable_until_it_holds_an_entry`).
+        // Announced on the transition only; health events are never
+        // dropped by the bound, so nothing has to recompute one.
+        let health = if self.entries.is_empty() {
+            ProviderHealth::Unavailable
+        } else {
+            ProviderHealth::Healthy
+        };
+        if health != self.announced {
+            self.announced = health;
+            queued.push(Queued {
+                event: DiscoveryEvent::HealthChanged {
+                    source: SOURCE.to_owned(),
+                    health,
+                },
+                before: None,
+            });
+        }
 
         for (peer_id, addresses) in &self.emitted {
             match self.entries.get(peer_id) {
@@ -355,16 +394,9 @@ impl DiscoveryProvider for StaticBootstrapDiscovery {
         // THE INITIAL TRANSITION IS AN EVENT. The manager registers a
         // provider as Unavailable and learns health only from
         // `HealthChanged`, so a provider that merely becomes healthy
-        // internally leaves aggregate health wrong forever.
-        self.pending.push(Queued {
-            event: DiscoveryEvent::HealthChanged {
-                source: SOURCE.to_owned(),
-                health: ProviderHealth::Healthy,
-            },
-            before: None,
-        });
-        // The configured entries, as the difference from having told
-        // the consumer nothing.
+        // internally leaves aggregate health wrong forever. `refresh`
+        // announces it, beside the configured entries as the difference
+        // from having told the consumer nothing.
         self.refresh(now_ms);
         Ok(())
     }
@@ -400,11 +432,11 @@ impl DiscoveryProvider for StaticBootstrapDiscovery {
             return ProviderHealth::Unavailable;
         }
         // CONFIGURATION PARSED IS ALL THIS PROVIDER CAN SEE. It never
-        // resolves a name or opens a socket, so there is no failure mode
-        // for it to report — a DNS outage or an unreachable bootstrap host
-        // is a dial diagnostic, and claiming otherwise would be claiming
-        // visibility it does not have.
-        ProviderHealth::Healthy
+        // resolves a name or opens a socket, so its one failure mode is
+        // having nothing configured -- a DNS outage or an unreachable
+        // bootstrap host is a dial diagnostic, and claiming otherwise
+        // would be claiming visibility it does not have.
+        self.announced
     }
 
     fn shutdown(&mut self, _now_ms: u64) {
@@ -474,6 +506,54 @@ mod tests {
         let seen = observations(&p.drain_events(1_000, 8));
         assert_eq!(seen.len(), 2);
         assert!(seen.iter().any(|(id, _)| id == &peer(P1)));
+    }
+
+    /// HEALTH FOLLOWS THE ENTRIES: an empty provider -- the one a profile
+    /// authoring none gets for the bootstrap overlay (ADR-0062) -- is
+    /// Unavailable, announced so; the first entry makes it Healthy and the
+    /// last removal Unavailable again, each transition announced once.
+    /// The control: a provider started with entries is Healthy at once.
+    #[test]
+    fn an_empty_provider_is_unavailable_until_it_holds_an_entry() {
+        let health_events = |events: &[DiscoveryEvent]| -> Vec<ProviderHealth> {
+            events
+                .iter()
+                .filter_map(|e| match e {
+                    DiscoveryEvent::HealthChanged { health, .. } => Some(*health),
+                    _ => None,
+                })
+                .collect()
+        };
+        let mut p = StaticBootstrapDiscovery::new(Vec::new()).expect("empty");
+        p.start(0).expect("starts");
+        assert_eq!(p.health(), ProviderHealth::Unavailable);
+        assert!(
+            health_events(&p.drain_events(0, 8)).is_empty(),
+            "the manager's own default"
+        );
+
+        p.set_entries(vec![entry(P1, "/ip4/10.0.0.1/tcp/4001")], 1)
+            .expect("set");
+        assert_eq!(p.health(), ProviderHealth::Healthy);
+        assert_eq!(
+            health_events(&p.drain_events(1, 8)),
+            [ProviderHealth::Healthy]
+        );
+
+        p.set_entries(Vec::new(), 2).expect("set");
+        assert_eq!(p.health(), ProviderHealth::Unavailable);
+        assert_eq!(
+            health_events(&p.drain_events(2, 8)),
+            [ProviderHealth::Unavailable]
+        );
+
+        let mut q =
+            StaticBootstrapDiscovery::new(vec![entry(P1, "/ip4/10.0.0.1/tcp/4001")]).expect("one");
+        q.start(0).expect("starts");
+        assert_eq!(
+            health_events(&q.drain_events(0, 8)),
+            [ProviderHealth::Healthy]
+        );
     }
 
     #[test]

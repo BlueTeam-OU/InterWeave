@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:peers-address-params",
+  "title": "IPC admin.peers.add_address and admin.peers.remove_address params",
+  "description": "One bootstrap address (ADR-0062): a multiaddr-with-peer-id in the configuration's grammar, direct (/<ip4|ip6|dns4|dns6>/<host>/tcp/<port>/p2p/<peer>) or a circuit route through a relay (<relay route>/p2p/<relay>/p2p-circuit/p2p/<peer>). The method parses it by that grammar and nothing looser; a string that fails it is answered as a refusal by name, never an error. The length bound refuses an absurd string before it is parsed; it is not the grammar.",
+  "type": "object",
+  "required": [
+    "address"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    }
+  },
+  "x-contract": {
+    "name": "ipc.peers-address-params",
+    "status": "approved",
+    "version": "1.0.0",
+    "adr": [
+      "0062",
+      "0017",
+      "0028",
+      "0052"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}

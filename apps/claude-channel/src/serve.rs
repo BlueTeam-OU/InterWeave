@@ -38,6 +38,7 @@ use std::time::Duration;
 use interweave_claude_channel_core::{
     BROADCAST_ACCEPTED, BridgeState, CardDrop, ChannelMeta, ChannelNotification, ConvertError,
     Delivery, PullQueue, ReplyRoute, ToolCall, direct_accepted, error_text, parse_call,
+    rfc3339_utc,
 };
 use interweave_local_client_api::Generation;
 use interweave_local_client_api::{
@@ -182,6 +183,70 @@ struct Received<'a> {
     events: Vec<ReceivedEvent<'a>>,
     remaining: usize,
     paused: bool,
+    /// The first take after a regained lease carries its gap
+    /// (CHANNEL-EVENT.md §Delivery); every other take, nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lease_gap: Option<LeaseGap>,
+}
+
+/// A lease lost and regained: what was addressed to the bridge between
+/// `since` and `until` was never received, and nothing replays it
+/// (CHANNEL-EVENT.md §Delivery). State, never an event.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+struct LeaseGap {
+    lost_epoch: String,
+    epoch: String,
+    since: Option<String>,
+    until: Option<String>,
+}
+
+/// The lease's losses and regains, as `status.lease_gap` and the pull
+/// result report them (TOOL-SURFACE.md §status).
+#[derive(Default)]
+struct Gaps {
+    /// A lease lost and not yet regained: its epoch and when. A loss while
+    /// one is outstanding -- a lease regained and lost again before the
+    /// bridge served on it -- is the same gap, so the first is kept.
+    lost: Option<(String, u64)>,
+    /// The last lost-and-regained lease, until the next loss.
+    gap: Option<LeaseGap>,
+    /// Pull mode: the gap is not yet on a `receive`.
+    untaken: bool,
+}
+
+impl Gaps {
+    /// The lease held at `epoch` ended at `now_ms`.
+    fn lost(&mut self, epoch: &Generation, now_ms: u64) {
+        if self.lost.is_none() {
+            self.lost = Some((epoch.as_str().to_owned(), now_ms));
+        }
+        self.gap = None;
+        self.untaken = false;
+    }
+
+    /// A session serving on the lease at `epoch` from `now_ms`: the gap
+    /// since the outstanding loss, if there was one.
+    fn regained(&mut self, epoch: &Generation, now_ms: u64, pull: bool) {
+        let Some((lost_epoch, since)) = self.lost.take() else {
+            return;
+        };
+        self.gap = Some(LeaseGap {
+            lost_epoch,
+            epoch: epoch.as_str().to_owned(),
+            since: rfc3339_utc(since),
+            until: rfc3339_utc(now_ms),
+        });
+        self.untaken = pull;
+    }
+
+    /// The gap for a `receive`: the first after the regain, once.
+    fn take(&mut self) -> Option<LeaseGap> {
+        if !self.untaken {
+            return None;
+        }
+        self.untaken = false;
+        self.gap.clone()
+    }
 }
 
 #[derive(Serialize)]
@@ -249,6 +314,7 @@ struct Bridge<B: DataSessionBinding> {
     /// host has not taken survives the daemon going away. Full, it pauses
     /// the session's draining: nothing it took is ever dropped.
     pull: Option<Pull>,
+    gaps: Gaps,
 }
 
 /// Serve the host on `input` and `output` until `input` ends.
@@ -283,6 +349,7 @@ where
         opened_at: Instant::now(),
         health: None,
         pull: None,
+        gaps: Gaps::default(),
     };
     let mut lines = HostLines::new(input);
     loop {
@@ -355,6 +422,8 @@ struct Emit<'a, W> {
     out: &'a mut W,
     /// In pull mode, where each message goes instead of a push line.
     pull: Option<&'a mut Pull>,
+    /// A lease the daemon revokes in session is a loss like a closed one.
+    gaps: &'a mut Gaps,
 }
 
 impl<W> Emit<'_, W> {
@@ -378,7 +447,12 @@ impl<W: AsyncWrite + Unpin> Emit<'_, W> {
     async fn events(&mut self, events: Vec<SessionEvent>) -> std::io::Result<()> {
         for event in &events {
             if let SessionEvent::Local(notice) = event {
-                self.state.observe(notice);
+                let held = self.state.lease_held();
+                if self.state.observe(notice)
+                    && let Some((_, epoch)) = held
+                {
+                    self.gaps.lost(&epoch, (self.env.now_ms)());
+                }
                 if let LocalSessionEvent::ServerState {
                     health,
                     connectivity,
@@ -586,6 +660,7 @@ impl<B: DataSessionBinding> Bridge<B> {
             rejoin_refused,
             pending,
             pull,
+            gaps,
             ..
         } = self;
         let mut emit = Emit {
@@ -594,6 +669,7 @@ impl<B: DataSessionBinding> Bridge<B> {
             health,
             out,
             pull: pull.as_mut(),
+            gaps,
         };
         let mut died = false;
         for channel in joined {
@@ -626,7 +702,7 @@ impl<B: DataSessionBinding> Bridge<B> {
             }
         }
         if died {
-            self.state.lease_lost();
+            self.lease_lost();
             self.health = None;
             self.last_open_error = Some(TransportError::BackendUnavailable);
             self.schedule_reconnect();
@@ -635,13 +711,25 @@ impl<B: DataSessionBinding> Bridge<B> {
         self.session = Some(session);
         self.last_open_error = None;
         self.opened_at = Instant::now();
+        if let Some((_, epoch)) = self.state.lease_held() {
+            let pull = self.config.delivery == Delivery::Pull;
+            self.gaps.regained(&epoch, (self.env.now_ms)(), pull);
+        }
         Ok(())
+    }
+
+    /// The held lease ends, remembered as a loss until one is regained.
+    fn lease_lost(&mut self) {
+        if let Some((_, epoch)) = self.state.lease_held() {
+            self.gaps.lost(&epoch, (self.env.now_ms)());
+        }
+        self.state.lease_lost();
     }
 
     /// The session ended: its lease with it, and a fresh one is sought.
     fn lost(&mut self) {
         self.session = None;
-        self.state.lease_lost();
+        self.lease_lost();
         self.health = None;
         self.attempt = attempt_after(self.attempt, self.opened_at.elapsed());
         self.schedule_reconnect();
@@ -673,6 +761,7 @@ impl<B: DataSessionBinding> Bridge<B> {
             env,
             health,
             pull,
+            gaps,
             ..
         } = self;
         Emit {
@@ -681,6 +770,7 @@ impl<B: DataSessionBinding> Bridge<B> {
             health,
             out,
             pull: pull.as_mut(),
+            gaps,
         }
         .events(events)
         .await
@@ -799,6 +889,7 @@ impl<B: DataSessionBinding> Bridge<B> {
             rejoin_refused,
             pending,
             pull,
+            gaps,
             ..
         } = self;
         let Some(session) = session.as_ref() else {
@@ -816,6 +907,7 @@ impl<B: DataSessionBinding> Bridge<B> {
             health,
             out,
             pull: pull.as_mut(),
+            gaps,
         };
         Ok(Some(match call {
             ToolCall::Join(channel) => {
@@ -911,6 +1003,7 @@ impl<B: DataSessionBinding> Bridge<B> {
             rejoin_refused,
             pending,
             pull,
+            gaps,
             ..
         } = self;
         let Some(session) = session.as_ref() else {
@@ -922,6 +1015,7 @@ impl<B: DataSessionBinding> Bridge<B> {
             health,
             out,
             pull: pull.as_mut(),
+            gaps,
         };
         let ops: Vec<(ChannelId, PendingOp)> =
             pending.iter().map(|(c, op)| (c.clone(), *op)).collect();
@@ -1014,6 +1108,7 @@ impl<B: DataSessionBinding> Bridge<B> {
                 .collect(),
             remaining: take.remaining,
             paused: self.paused(),
+            lease_gap: self.gaps.take(),
         };
         serde_json::to_string(&received).unwrap_or_default()
     }
@@ -1080,6 +1175,10 @@ impl<B: DataSessionBinding> Bridge<B> {
                 .map(|(reason, count)| (reason.as_str().to_owned(), Value::from(count)))
                 .collect::<serde_json::Map<String, Value>>(),
         });
+        // Absent while the lease has never been lost and regained.
+        if let Some(gap) = &self.gaps.gap {
+            status["lease_gap"] = serde_json::to_value(gap).unwrap_or(Value::Null);
+        }
         // Pull mode: what waits for `receive`, whether the drain is
         // paused for it, and since when.
         if self.config.delivery == Delivery::Pull {

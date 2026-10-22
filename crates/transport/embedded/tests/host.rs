@@ -578,3 +578,67 @@ fn a_host_dropped_in_an_async_context_releases_the_profile() {
         .stop(Duration::from_secs(1))
         .expect("stops");
 }
+
+/// THE EMBEDDED HOST'S ADD (ADR-0062): the seam that writes the other
+/// overlays reaches the same function the daemon's `admin.peers` methods
+/// serve -- the special-use floor applied there, a private address
+/// admitted and kept in the overlay under the host's own root, listed as
+/// added, and still there after a restart, with no provider authored.
+#[test]
+fn the_host_adds_an_address_through_its_binding_and_keeps_it_under_its_root() {
+    use interweave_local_client_api::{AddressChange, AddressRefusal, AddressSource};
+    use interweave_profile_config::bootstrap_overlay::BootstrapOverlay;
+    const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+    let app = app();
+    let paths = provision(&app.dir, &document("embedded-android", false));
+    let private = format!("/ip4/192.168.1.20/tcp/4001/p2p/{PEER}");
+    let peers = |host: &EmbeddedHost| {
+        host.runtime()
+            .block_on(host.binding().admin([AdminCapability::Peers].into()))
+            .expect("a port")
+    };
+
+    let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
+    let port = peers(&host);
+    let refused = host
+        .runtime()
+        .block_on(port.add_bootstrap_address(format!("/ip4/127.0.0.1/tcp/4001/p2p/{PEER}")))
+        .expect("an answer");
+    assert!(
+        matches!(
+            refused,
+            AddressChange::Refused {
+                reason: AddressRefusal::SpecialUse,
+                ..
+            }
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        host.runtime()
+            .block_on(port.add_bootstrap_address(private.clone()))
+            .expect("an answer"),
+        AddressChange::Added
+    );
+    let file = BootstrapOverlay::path_for(&paths);
+    assert!(file.starts_with(&app.dir), "{}", file.display());
+    assert_eq!(
+        BootstrapOverlay::load_within(&file, &[], paths.boundary())
+            .expect("loads")
+            .peers(),
+        std::slice::from_ref(&private)
+    );
+    drop(port);
+    host.stop(Duration::from_secs(1)).expect("stops");
+
+    let host = EmbeddedHost::start(launch(&app.dir)).expect("starts again");
+    let listed = host
+        .runtime()
+        .block_on(peers(&host).bootstrap_addresses())
+        .expect("the list");
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0].address, private);
+    assert_eq!(listed[0].source, AddressSource::Added);
+    assert!(listed[0].dialled);
+    host.stop(Duration::from_secs(1)).expect("stops");
+}

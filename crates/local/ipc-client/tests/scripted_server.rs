@@ -1528,3 +1528,92 @@ async fn trust_is_read_only_at_two_three_and_set_is_sent_below_it() {
         );
     }
 }
+
+/// The `admin.peers` address methods are 2.7's: below it the capability
+/// is not asked and each method is refused `ProtocolUnsupported` with
+/// nothing sent; at it a refusal reads back as the rule it names, and the
+/// list as its rows.
+#[tokio::test]
+async fn the_address_methods_are_sent_only_at_two_seven_and_a_refusal_reads_back_by_name() {
+    use interweave_local_client_api::{
+        AddressChange, AddressRefusal, AddressSource, AdminBinding as _, AdminCapability,
+        AdminPort as _,
+    };
+    use interweave_transport_api::TransportError;
+    const ADDRESS: &str =
+        "/ip4/127.0.0.1/tcp/4001/p2p/QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    for minor in [6, 7] {
+        let script = Script::new();
+        let (admin, (mut server, asked)) = tokio::join!(
+            script.binding.admin([AdminCapability::Peers].into()),
+            async {
+                let (mut probe, _) = admin_hello(&script).await;
+                admin_response(&mut probe, minor, &[]).await;
+                assert!(probe.read().await.is_none());
+                drop(probe);
+                let (mut server, asked) = admin_hello(&script).await;
+                let granted: Vec<&str> = asked.iter().map(String::as_str).collect();
+                admin_response(&mut server, minor, &granted).await;
+                (server, asked)
+            }
+        );
+        let admin = admin.expect("a port");
+        if minor < 7 {
+            assert!(asked.is_empty(), "2.{minor}: {asked:?}");
+            let (refused, nothing) = tokio::join!(
+                tokio::time::timeout(PATIENCE, async {
+                    (
+                        admin.add_bootstrap_address(ADDRESS.to_owned()).await,
+                        admin.remove_bootstrap_address(ADDRESS.to_owned()).await,
+                        admin.bootstrap_addresses().await.map(|_| ()),
+                    )
+                }),
+                async { tokio::time::timeout(Duration::from_millis(200), server.read()).await }
+            );
+            let (add, remove, list) = refused.expect("answered without the daemon");
+            assert_eq!(add, Err(TransportError::ProtocolUnsupported));
+            assert_eq!(remove, Err(TransportError::ProtocolUnsupported));
+            assert_eq!(list, Err(TransportError::ProtocolUnsupported));
+            assert!(nothing.is_err(), "no request reached the daemon");
+            continue;
+        }
+        assert_eq!(asked, ["admin.peers"]);
+        let (add, ()) = tokio::join!(
+            tokio::time::timeout(PATIENCE, admin.add_bootstrap_address(ADDRESS.to_owned())),
+            async {
+                let Some(Frame::Request(request)) = server.read().await else {
+                    panic!("the add reaches the daemon");
+                };
+                assert_eq!(request.method.as_str(), "admin.peers.add_address");
+                server
+                    .write(&json!({"type": "response", "id": request.id.as_str(), "ok": true,
+                        "result": {"outcome": "refused", "refused": "special_use", "detail": "loopback"}}))
+                    .await;
+            }
+        );
+        assert_eq!(
+            add.expect("answered"),
+            Ok(AddressChange::Refused {
+                reason: AddressRefusal::SpecialUse,
+                detail: "loopback".to_owned()
+            })
+        );
+        let (list, ()) = tokio::join!(
+            tokio::time::timeout(PATIENCE, admin.bootstrap_addresses()),
+            async {
+                let Some(Frame::Request(request)) = server.read().await else {
+                    panic!("the list reaches the daemon");
+                };
+                assert_eq!(request.method.as_str(), "admin.peers.list_addresses");
+                server
+                    .write(&json!({"type": "response", "id": request.id.as_str(), "ok": true,
+                        "result": {"addresses": [{"address": ADDRESS, "source": "added", "dialled": true}]}}))
+                    .await;
+            }
+        );
+        let list = list.expect("answered").expect("the rows");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].source, AddressSource::Added);
+        assert!(list[0].dialled);
+    }
+}

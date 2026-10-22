@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:peers-address-list",
+  "title": "IPC admin.peers.list_addresses result",
+  "description": "Every bootstrap address the static-bootstrap provider holds or would hold (ADR-0062): config.yaml's authored entries, which the overlay cannot remove, then the overlay's added ones, each in the order it holds them. `dialled: false` with `not_dialled: provider_disabled` marks entries a profile that authors the provider enabled: false emits to nobody. At most 64 rows, the provider's bound, so one answer and no paging. Params: the empty object.",
+  "type": "object",
+  "required": [
+    "addresses"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "addresses": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": [
+          "address",
+          "source",
+          "dialled"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "source": {
+            "enum": [
+              "authored",
+              "added"
+            ]
+          },
+          "dialled": {
+            "type": "boolean"
+          },
+          "not_dialled": {
+            "enum": [
+              "provider_disabled"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "dialled": {
+                  "const": false
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "not_dialled"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "not_dialled"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "x-contract": {
+    "name": "ipc.peers-address-list",
+    "status": "approved",
+    "version": "1.0.0",
+    "adr": [
+      "0062",
+      "0017",
+      "0028"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}

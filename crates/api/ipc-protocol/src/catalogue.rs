@@ -66,6 +66,16 @@ pub enum Method {
     /// `admin.status`).
     #[serde(rename = "admin.peers.list")]
     AdminPeersList,
+    /// Add a bootstrap address to the static-bootstrap provider (2.7);
+    /// kept in the bootstrap overlay across restarts (ADR-0062).
+    #[serde(rename = "admin.peers.add_address")]
+    AdminPeersAddAddress,
+    /// Remove an address the overlay added (2.7).
+    #[serde(rename = "admin.peers.remove_address")]
+    AdminPeersRemoveAddress,
+    /// Every bootstrap address, authored and added (2.7).
+    #[serde(rename = "admin.peers.list_addresses")]
+    AdminPeersListAddresses,
 }
 
 /// One row of the catalogue.
@@ -85,7 +95,7 @@ impl Method {
     /// Every method, in catalogue order. `tests/schema_agreement.rs`
     /// holds this list to the enum's own variants, so a variant missing
     /// here fails a test rather than escaping one.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 17] = [
         Self::ChannelJoin,
         Self::ChannelLeave,
         Self::BroadcastPublish,
@@ -100,6 +110,9 @@ impl Method {
         Self::AdminTrustList,
         Self::AdminTrustSet,
         Self::AdminPeersList,
+        Self::AdminPeersAddAddress,
+        Self::AdminPeersRemoveAddress,
+        Self::AdminPeersListAddresses,
     ];
 
     /// THE table: an exhaustive match, so a new method does not compile
@@ -120,10 +133,16 @@ impl Method {
             | Self::AdminEndpointsSetDefault => (Admin, C::AdminEndpoints),
             Self::AdminShutdown => (Admin, C::AdminShutdown),
             Self::AdminTrustList | Self::AdminTrustSet => (Admin, C::AdminTrust),
+            Self::AdminPeersAddAddress
+            | Self::AdminPeersRemoveAddress
+            | Self::AdminPeersListAddresses => (Admin, C::AdminPeers),
         };
         let since_minor = match self {
             Self::AdminTrustList | Self::AdminTrustSet => 1,
             Self::AdminPeersList => 2,
+            Self::AdminPeersAddAddress
+            | Self::AdminPeersRemoveAddress
+            | Self::AdminPeersListAddresses => 7,
             _ => 0,
         };
         MethodEntry {
@@ -151,6 +170,9 @@ impl Method {
             Self::AdminTrustList => "admin.trust.list",
             Self::AdminTrustSet => "admin.trust.set",
             Self::AdminPeersList => "admin.peers.list",
+            Self::AdminPeersAddAddress => "admin.peers.add_address",
+            Self::AdminPeersRemoveAddress => "admin.peers.remove_address",
+            Self::AdminPeersListAddresses => "admin.peers.list_addresses",
         }
     }
 

@@ -980,3 +980,27 @@ fn released_rows_are_remembered_up_to_the_cap_forgetting_the_oldest() {
     model.unread_listed(vec![row(cap)]);
     assert_eq!(model.conversation_viewed(&key(&p), true).len(), before);
 }
+
+/// An item's text is its table letter and row: what a command line hands
+/// back, and what `item_named` finds again; a kept message answers to its
+/// new row too, and a text that names nothing held finds nothing.
+#[test]
+fn an_item_is_named_by_its_table_and_row_and_found_again_by_that_name() {
+    let p = peer();
+    let mut model = UiModel::new();
+    model.unread_listed(vec![listed(7, &p, envelope(1, "hello"), 1)]);
+    let item = model.messages(&key(&p))[0].key;
+    assert_eq!(item.to_string(), "u7");
+    assert_eq!(model.item_named("u7"), Some(item));
+    for nothing in ["u8", "k7", "u07", "u", "7", "x7", "u-7", "u 7", ""] {
+        assert_eq!(model.item_named(nothing), None, "{nothing:?}");
+    }
+    model.read(RowId::from_stored(7));
+    model.kept(item, RowId::from_stored(3));
+    assert_eq!(model.item_named("k3"), Some(item), "its kept row");
+    assert_eq!(
+        model.item_named("u7"),
+        Some(item),
+        "the name it was shown under"
+    );
+}
