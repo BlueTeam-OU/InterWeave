@@ -2484,7 +2484,8 @@ fn a_send_refused_for_trust_shows_the_not_trusted_reason() {
 #[test]
 fn every_needs_attention_problem_draws_its_reason_and_no_other_row_does() {
     use interweave_human_ui_model::{ErrorClass, send_problem_class};
-    // A problem added later fails to compile here until it is listed.
+    // A problem added to the enum fails to compile here until `listed`
+    // names it; the array must gain it too, which nothing enforces.
     const fn listed(problem: SendProblem) -> SendProblem {
         match problem {
             SendProblem::PeerUntrusted
