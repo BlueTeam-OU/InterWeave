@@ -5,7 +5,10 @@
 //! a file is judged by -- the file regular, not a link, this uid's,
 //! readable by nobody else, bounded in size, and for
 //! [`read_private_within`] its directory private under the boundary --
-//! are written once.
+//! are written once. [`read_private_within`] and [`PrivateReadError`]
+//! are public so a crate keeping its own private state file (the human
+//! store's identity keys, ADR-0063) reads it by these rules rather than
+//! a copy of them.
 
 use std::io::Read as _;
 use std::path::Path;
@@ -13,9 +16,11 @@ use std::path::Path;
 use crate::{PersistError, TrustBoundary, persist};
 
 /// Why a private file cannot be read; each caller maps it into its own
-/// error, which names the file.
+/// error, which names the file. Its text names what is wrong with the
+/// file, never anything read from it.
 #[derive(Debug)]
-pub(crate) enum PrivateReadError {
+#[non_exhaustive]
+pub enum PrivateReadError {
     /// The file is present and could not be read.
     Read(std::io::Error),
     /// The file, or its directory, is not private.
@@ -27,9 +32,40 @@ pub(crate) enum PrivateReadError {
     TooLarge,
 }
 
+impl std::fmt::Display for PrivateReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read(e) => write!(f, "could not be read: {e}"),
+            Self::NotPrivate { detail } => write!(f, "is not private: {detail}"),
+            Self::TooLarge => f.write_str("is larger than its bound"),
+        }
+    }
+}
+
+impl std::error::Error for PrivateReadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Read(e) => Some(e),
+            Self::NotPrivate { .. } | Self::TooLarge => None,
+        }
+    }
+}
+
 /// The text of the private file at `path`, its directory resolved under
 /// `boundary`: `None` when the file or its directory is absent.
-pub(crate) fn read_private_within(
+///
+/// Read only if the file is regular, not a link, this uid's, readable or
+/// writable by nobody else and at most `max_bytes`, and its directory is
+/// private under `boundary`; anything else is an error, never `None`
+/// (`tests/private_read.rs`).
+///
+/// # Errors
+///
+/// [`PrivateReadError::NotPrivate`] when the file or its directory fails
+/// one of those rules, [`PrivateReadError::TooLarge`] past `max_bytes`,
+/// and [`PrivateReadError::Read`] when the file is present and cannot be
+/// read.
+pub fn read_private_within(
     path: &Path,
     boundary: &TrustBoundary,
     max_bytes: u64,
