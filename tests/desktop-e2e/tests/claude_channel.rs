@@ -1528,10 +1528,16 @@ async fn a_direct_payload_at_the_ceiling_reaches_the_model_whole() {
 ///   ceiling and forwards unparsed, since it is not an envelope.
 ///
 /// Both lines are measured and their length pinned to that arithmetic.
-/// The plain one is under the host-line ceiling. The decoded one is NOT:
-/// the ceiling bounds what the bridge READS from its host (#330), not
-/// what it writes, and nothing bounds the outbound line. Its figure is
-/// recorded so the host's own limit can be judged against it.
+/// The plain one is under the host-line ceiling. The decoded one is not.
+/// That ceiling bounds what the bridge READS from its host (#330), not
+/// what it writes.
+///
+/// CHANNEL-EVENT.md has since bounded one event on the host line at 320
+/// KiB (A 2026-10-22). A UTF-8 payload whose escaped line would exceed
+/// that goes as base64url instead. The bridge does not do this yet; the
+/// change is rust-services-dev-02's, after j41. This test pins today's
+/// line, about 1.18 MB, so it fails when that change lands. Its last
+/// assertion then turns around into the 320 KiB bound.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_longest_host_line_a_legal_event_makes_is_measured() {
     use interweave_human_chat_protocol::{MAX_DECOMPRESSED_BYTES, encode_raw_envelope};
