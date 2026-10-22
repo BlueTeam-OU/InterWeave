@@ -118,6 +118,13 @@ Run on 2026-10-22 against **Claude Code 2.1.286**, by hand from this login's she
 25. `claude plugin install <plugin> --config KEY=VALUE` sets an option: `--config profile=work --config endpoint=bot` gave `--profile work --endpoint bot`. The values are kept in the user settings' `pluginConfigs`, and survive a `plugin update`. `plugin.json` with the two options passes `claude plugin validate --strict`.
 26. With a marketplace added from a directory, the plugin runs from that directory: `$CLAUDE_PLUGIN_ROOT` was the marketplace's own `interweave/`, and a binary changed there ran with no update at all. `installed_plugins.json` keeps a copy per version under the config's `plugins/cache/`, which did not change. `claude plugin update` reports a newer version and records it (`0.0.0` to `0.0.1`). At an equal version it reports "already at the latest version", while the changed binary still ran.
 
+## S21: a refused start, as Claude Code sees it
+
+Run on 2026-10-22 against **Claude Code 2.1.286**, like S20 by hand with no session (`runs/s21-refused-start/evidence.md`). Claude Code started the bridge with every `XDG_*` variable unset.
+
+27. Before 403295e7, the bridge exited on that start: Claude Code reported "Failed to connect", with the connection closed after 26 ms. From 403295e7 the same start is "Connected" in the legacy era, with tools and no prompts or resources, and it ends on Claude Code's SIGINT, "exited cleanly".
+28. Claude Code keeps a plugin server's stderr as `Server stderr:` entries in `~/.cache/claude-cli-nodejs/<working directory>/mcp-logs-plugin-<plugin>-<server>/<timestamp>.jsonl`, one file per start, connected or not.
+
 ## Where the architecture disagrees
 
 The documents are listed by document and sentence. Amending them is architect-cto's (`architecture/plugin/`) and the contract owner's (`contracts/CHANNEL-EVENT.md`, under ADR-0049).

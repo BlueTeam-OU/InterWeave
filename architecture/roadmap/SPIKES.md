@@ -166,7 +166,11 @@ endpoint as `userConfig`. With a marketplace added from a directory,
 the plugin runs from that directory, a rebuild at an equal version
 included, and `plugin update` reports only a higher version. Not
 established: `userConfig` inside a session started with a channel flag,
-and the interactive `/plugin configure` prompt.
+and the interactive `/plugin configure` prompt. S21 (the same day, the same way, `runs/s21-refused-start`): a
+start with `XDG_RUNTIME_DIR` unset, which Claude Code reported as
+"Failed to connect" while the bridge exited on it, is "Connected" since
+the bridge serves the refusal; and Claude Code keeps a plugin server's
+stderr in `~/.cache/claude-cli-nodejs/<working directory>/mcp-logs-plugin-<plugin>-<server>/`.
 ---
 
 ## SPIKE-002 — transport wire/race and GossipSub cache behavior
