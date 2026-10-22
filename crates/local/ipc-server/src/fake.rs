@@ -344,4 +344,30 @@ impl AdminPort for FakeAdmin {
             .call(format!("set_trust {} {allowed}", peer.as_str()));
         Ok(())
     }
+
+    async fn add_bootstrap_address(
+        &self,
+        address: String,
+    ) -> Result<interweave_local_client_api::AddressChange, TransportError> {
+        self.fake.call(format!("add_address {address}"));
+        Ok(interweave_local_client_api::AddressChange::Added)
+    }
+
+    async fn remove_bootstrap_address(
+        &self,
+        address: String,
+    ) -> Result<interweave_local_client_api::AddressChange, TransportError> {
+        self.fake.call(format!("remove_address {address}"));
+        Ok(interweave_local_client_api::AddressChange::Refused {
+            reason: interweave_local_client_api::AddressRefusal::Authored,
+            detail: "config.yaml's".to_owned(),
+        })
+    }
+
+    async fn bootstrap_addresses(
+        &self,
+    ) -> Result<Vec<interweave_local_client_api::BootstrapAddress>, TransportError> {
+        self.fake.call("list_addresses".to_owned());
+        Ok(Vec::new())
+    }
 }
