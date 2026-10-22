@@ -2436,27 +2436,37 @@ impl View {
         });
     }
 
-    /// Focus `target`, a control made by the same render that asks for
-    /// it -- a snackbar's action. Its `changed focus-seq` handler sees no
-    /// change on the first value it reads (measured: the first bump after
-    /// the snackbar was made focused nothing, a second one did), so the
-    /// target is set and bumped on the next turn as [`Self::focus_key`]
-    /// does, and bumped once more on the turn after. A request scheduled
-    /// before it is dropped, so this one wins.
+    /// Focus `target`, a control the same render that asks for it may
+    /// make -- Peers' blocks, snackbar action and list controls. Such a
+    /// control's `changed focus-seq` handler sees no change on the first
+    /// value it reads (measured: the first bump after the snackbar was
+    /// made focused nothing, a second one did), so the target is set and
+    /// bumped on the next turn as [`Self::focus_key`] does, and bumped
+    /// once more on the turn after. It shares `focus_key`'s one pending
+    /// request, so the newest wins. Not for the conversation views: a
+    /// late bump there took focus back from a row the person had moved
+    /// to (swipe.rs, measured).
     fn focus_key_after_draw(&self, target: String) {
-        self.focus_wanted.borrow_mut().take();
-        let window = swipe::weak(&self.window);
+        if self.focus_wanted.borrow_mut().replace(target).is_some() {
+            // Already scheduled: it applies this target instead.
+            return;
+        }
+        let (window, wanted) = (swipe::weak(&self.window), Rc::clone(&self.focus_wanted));
         defer(move || {
-            let Some(shown) = window.upgrade() else {
-                return;
-            };
-            shown.set_focus_target(target.into());
-            shown.set_focus_seq(shown.get_focus_seq().wrapping_add(1));
-            defer(move || {
-                if let Some(window) = window.upgrade() {
-                    window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
-                }
-            });
+            let target = wanted.borrow_mut().take();
+            if let (Some(shown), Some(target)) = (window.upgrade(), target) {
+                shown.set_focus_target(target.clone().into());
+                shown.set_focus_seq(shown.get_focus_seq().wrapping_add(1));
+                // Once more a turn later, unless a newer request came.
+                defer(move || {
+                    if let Some(window) = window.upgrade()
+                        && wanted.borrow().is_none()
+                        && window.get_focus_target().as_str() == target
+                    {
+                        window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
+                    }
+                });
+            }
         });
     }
 

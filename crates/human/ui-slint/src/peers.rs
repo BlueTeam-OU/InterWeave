@@ -248,12 +248,10 @@ impl View {
             self.peer_lists.focus_seen = focuses;
             if let Some(focus) = focus {
                 let target = self.focus_target(focus, peers.field());
-                // The snackbar's action is made by this render.
-                if *focus == PeersFocus::SnackAction {
-                    self.focus_key_after_draw(target);
-                } else {
-                    self.focus_key(target);
-                }
+                // Peers' focus mostly lands on a control the same render
+                // makes: a step-two block, the snackbar's action, the
+                // list's controls as the add page closes.
+                self.focus_key_after_draw(target);
             }
         }
         said
