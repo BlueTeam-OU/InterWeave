@@ -1605,3 +1605,22 @@ fn a_trust_retry_refused_focuses_the_line() {
         assert_eq!(focus(&m), Some(PeersFocus::TrustLine), "{refused:?}");
     }
 }
+
+/// With no trust read ever answered, the session's `PeerId` still names
+/// this device's own row: `ThisDevice`, and no trust step from it.
+#[test]
+fn this_device_is_known_from_the_session_without_trust() {
+    let me = peer();
+    let mut m = UiModel::new();
+    let _ = input(&mut m, PeersInput::Opened);
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    m.this_device(me.clone());
+    m.addresses_read(Ok(list(&[added(&me)])));
+    assert!(m.trust_settings().list().is_none(), "trust never read");
+    assert_eq!(
+        m.peers().rows(m.trust_settings())[0].state,
+        RowState::ThisDevice
+    );
+    assert!(input(&mut m, PeersInput::TrustRow(at(&me))).is_empty());
+    assert!(!m.peers().add_open());
+}

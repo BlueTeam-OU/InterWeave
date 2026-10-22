@@ -1224,6 +1224,11 @@ impl UiModel {
         self.peers.input(input, &mut self.trust)
     }
 
+    /// This node's `PeerId`, as the session that became ready knows it.
+    pub fn this_device(&mut self, peer: TransportIdentity) {
+        self.peers.this_device(peer);
+    }
+
     /// Read the addresses: at start, for the no-reach notice.
     pub fn read_addresses(&mut self) -> Option<Intent> {
         self.peers.read()

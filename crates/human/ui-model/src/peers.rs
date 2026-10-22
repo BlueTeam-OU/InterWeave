@@ -555,6 +555,9 @@ pub struct Peers {
     /// (§5.2) until a confirmed list speaks for them. At most one per
     /// step-two block.
     trusted_here: Vec<TransportIdentity>,
+    /// This node's `PeerId`, from the session; else the trust list as
+    /// last read names it.
+    this_device: Option<TransportIdentity>,
 }
 
 /// The field's lines as the add sends them: each line ending (LF, CR LF
@@ -883,7 +886,7 @@ impl Peers {
             .peer
             .clone()?;
         // This device's own row offers no Trust and gets no block (§5.3).
-        if trust.list().and_then(|l| l.local_peer.as_ref()) == Some(&peer) {
+        if self.own(trust) == Some(&peer) {
             return None;
         }
         self.page = Some(AddPage {
@@ -1253,18 +1256,19 @@ impl Peers {
 
     /// Step one done: the result line, the field cleared, and one block
     /// per peer of the add not trusted -- every peer while the trust list
-    /// is not the daemon's word (unread, or kept after a failed read), since a needless block costs a tap and a missing one
-    /// leaves a peer untrusted unprompted.
+    /// is not the daemon's word (unread, or kept after a failed read),
+    /// since a needless block costs a tap and a missing one leaves a peer
+    /// untrusted unprompted -- and none for this device.
     fn accepted(&mut self, result: AddResult, peers: &[TransportIdentity], trust: &TrustSettings) {
+        let own = self.own(trust).cloned();
         let Some(page) = self.page.as_mut() else {
             return;
         };
         page.result = Some(result);
         page.field.clear();
         page.note = None;
-        let own = trust.list().and_then(|l| l.local_peer.as_ref());
         for peer in peers {
-            if Some(peer) == own
+            if Some(peer) == own.as_ref()
                 || trust_allows(trust, peer)
                 || page.blocks.iter().any(|b| &b.peer == peer)
             {
@@ -1610,7 +1614,7 @@ impl Peers {
         let Some(list) = self.list.as_ref() else {
             return Vec::new();
         };
-        let own = trust.list().and_then(|l| l.local_peer.as_ref());
+        let own = self.own(trust);
         let row = |a: &PeerAddress| PeerRow {
             address: a.address.clone(),
             peer: a.peer.clone(),
@@ -1735,6 +1739,19 @@ impl Peers {
             _ if trust.list().is_none() && trust.reading() => None,
             _ => Some(TrustLine::Unread { retry: true }),
         }
+    }
+
+    /// This node's `PeerId`, as the session knows it.
+    pub fn this_device(&mut self, peer: TransportIdentity) {
+        self.this_device = Some(peer);
+    }
+
+    /// This node's `PeerId`: the session's, else the trust list's as
+    /// last read. It never changes, so either answers.
+    fn own<'a>(&'a self, trust: &'a TrustSettings) -> Option<&'a TransportIdentity> {
+        self.this_device
+            .as_ref()
+            .or_else(|| trust.list().and_then(|l| l.local_peer.as_ref()))
     }
 
     /// ADR-0062 decision 8's condition: the list read and empty, and
