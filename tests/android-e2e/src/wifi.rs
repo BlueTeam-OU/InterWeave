@@ -92,12 +92,13 @@ pub fn reversed() -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
-/// This host's established TCP connections to `peer`, as `ss` lists them.
+/// This host's established TCP connections to `peer`, as `ss` lists
+/// them: each one's local end and its peer's, `peer` itself.
 ///
 /// # Panics
 /// If `ss` cannot run or fails.
 #[must_use]
-pub fn established_to(peer: SocketAddrV4) -> Vec<String> {
+pub fn established_to(peer: SocketAddrV4) -> Vec<(String, String)> {
     let out = Command::new("ss")
         .args(["-Htn", "state", "established", "dst", &peer.to_string()])
         .output()
@@ -107,9 +108,13 @@ pub fn established_to(peer: SocketAddrV4) -> Vec<String> {
         "ss: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+    // `-H`, with a state given: Recv-Q, Send-Q, local, peer.
     String::from_utf8_lossy(&out.stdout)
         .lines()
-        .map(str::to_owned)
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace().skip(2);
+            Some((fields.next()?.to_owned(), fields.next()?.to_owned()))
+        })
         .collect()
 }
 
@@ -131,7 +136,9 @@ mod tests {
     }
 
     /// `ss` reads this host's own table: nothing before the connect (the
-    /// control), and the one connection this test holds after it.
+    /// control), and after it the one connection whose PEER is the
+    /// listener -- the dialling side's, not the accepted socket, whose
+    /// local end is the same address.
     #[test]
     fn established_to_lists_a_connection_this_host_holds() {
         let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind");
@@ -141,7 +148,12 @@ mod tests {
         assert!(established_to(at).is_empty(), "nothing connected yet");
         let client = TcpStream::connect(at).expect("connect");
         let (server, _) = listener.accept().expect("accept");
-        assert_eq!(established_to(at).len(), 1, "the one connection");
+        let local = client.local_addr().expect("the client's end").to_string();
+        assert_eq!(
+            established_to(at),
+            vec![(local, at.to_string())],
+            "the dialling side's connection, to the listener"
+        );
         drop((client, server));
     }
 }
