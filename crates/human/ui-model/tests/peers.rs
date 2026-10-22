@@ -564,7 +564,7 @@ fn a_rows_trust_opens_the_trust_step_without_step_one() {
     let mut m = opened(&me, &[], &[added(&a)]);
     assert!(!m.peers().step_one_shown(), "no page");
 
-    let _ = input(&mut m, PeersInput::Trust(a.clone()));
+    let _ = input(&mut m, PeersInput::TrustRow(at(&a)));
     assert!(m.peers().add_open());
     assert_eq!(m.peers().blocks(m.trust_settings()).len(), 1);
     assert!(!m.peers().step_one_shown(), "the trust step alone");
@@ -1252,7 +1252,7 @@ fn a_kept_trust_list_decides_no_block() {
     // its Trust proposed, Not now unknown.
     let mut m = stale();
     assert_eq!(
-        input(&mut m, PeersInput::Trust(p.clone())),
+        input(&mut m, PeersInput::TrustRow(at(&p))),
         vec![Intent::ReadTrust]
     );
     assert_eq!(
@@ -1269,7 +1269,7 @@ fn a_kept_trust_list_decides_no_block() {
         "the block's Trust goes to the daemon"
     );
     let mut m = stale();
-    let _ = input(&mut m, PeersInput::Trust(p.clone()));
+    let _ = input(&mut m, PeersInput::TrustRow(at(&p)));
     let _ = input(&mut m, PeersInput::NotNow(p.clone()));
     assert_ne!(m.peers().snack().0, Some(&PeersSnack::PeerTrusted));
 }
@@ -1370,4 +1370,24 @@ fn an_unknown_undo_focuses_its_try_again() {
         Some(&PeersSnack::UndoUnknown { address: at(&a) })
     );
     assert_eq!(focus(&m), Some(PeersFocus::SnackAction));
+}
+
+/// Two rows name one peer: the trust step a row's Trust opens returns
+/// focus to that row, not the other -- here the newest, shown first and
+/// last in the runtime's order (§8).
+#[test]
+fn a_rows_trust_returns_focus_to_that_row() {
+    let (me, p) = (peer(), peer());
+    let mut second = added(&p);
+    second.address = format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", p.as_str());
+    let mut m = opened(&me, &[], &[added(&p), second.clone()]);
+    let rows = m.peers().rows(m.trust_settings());
+    assert_eq!(rows[0].address, second.address, "newest first");
+    let _ = input(&mut m, PeersInput::TrustRow(second.address.clone()));
+    let _ = input(&mut m, PeersInput::NotNow(p.clone()));
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Row(second.address)),
+        "the row shown first, whose Trust it was"
+    );
 }

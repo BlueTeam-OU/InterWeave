@@ -437,8 +437,11 @@ pub enum PeersInput {
     Scanned(String),
     /// Back or Escape on step one, Done on step two.
     Close,
-    /// Trust on a block, or on a row needing trust.
+    /// Trust on a step-two block.
     Trust(TransportIdentity),
+    /// Trust on a row: the row's address, so the step it opens returns
+    /// focus to that row though another row names the same peer (§8).
+    TrustRow(String),
     /// Not now on a block.
     NotNow(TransportIdentity),
     /// Remove on an added row.
@@ -646,6 +649,7 @@ impl Peers {
                 Vec::new()
             }
             PeersInput::Trust(peer) => self.trust(&peer, trust).into_iter().collect(),
+            PeersInput::TrustRow(address) => self.trust_row(&address, trust).into_iter().collect(),
             PeersInput::NotNow(peer) => {
                 if let Some(block) = self.block_mut(&peer)
                     && !block.trusting
@@ -838,19 +842,25 @@ impl Peers {
             block.problem = None;
             return Some(intent);
         }
+        None
+    }
+
+    /// Trust on the row of `address`: the trust step for the peer that
+    /// row names, which returns focus to that row.
+    fn trust_row(&mut self, address: &str, trust: &mut TrustSettings) -> Option<Intent> {
         if self.page.is_some() {
             return None;
         }
-        let row = self
+        let peer = self
             .list
             .as_ref()?
             .addresses
             .iter()
-            .find(|a| a.peer.as_ref() == Some(peer))?
-            .address
-            .clone();
+            .find(|a| a.address == address)?
+            .peer
+            .clone()?;
         self.page = Some(AddPage {
-            from_row: Some(row),
+            from_row: Some(address.to_owned()),
             blocks: vec![TrustBlock::new(peer.clone(), trust)],
             ..AddPage::default()
         });
