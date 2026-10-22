@@ -1868,6 +1868,10 @@ export component AppWindow inherits Window {
     in property <string> add-note;
     // Step one's result, once done: the field and its controls give way to
     // it, and step two appears under it.
+    // Step one -- the field, its helper and Add -- is on show: the add
+    // page with no result and no trust block (a row's Trust opens the
+    // trust step alone).
+    in property <bool> add-step-one;
     in property <string> add-result;
     in property <[PeerTrustBlock]> trust-blocks;
     in property <string> trust-step-body;
@@ -3059,13 +3063,13 @@ export component AppWindow inherits Window {
                 // The add page, step one: the field, its helper, the scan
                 // controls this platform offers, Add, and the page's note
                 // where it is about.
-                if root.peers-add-open && root.add-result == "": Text {
+                if root.add-step-one: Text {
                     text: root.address-field-label;
                     font-size: Type.body-small;
                     font-weight: 700;
                     accessible-role: none;
                 }
-                if root.peers-add-open && root.add-result == "": address-box := Rectangle {
+                if root.add-step-one: address-box := Rectangle {
                     height: max(96px, address-input.preferred-height + 24px);
                     border-width: address-input.has-focus || root.field-note != "" ? 2px : 1px;
                     border-color: root.field-note != "" ? Palette.error
@@ -3107,7 +3111,7 @@ export component AppWindow inherits Window {
                         shown: address-input.has-focus;
                     }
                 }
-                if root.peers-add-open && root.add-result == "" && root.field-note != "": Text {
+                if root.add-step-one && root.field-note != "": Text {
                     text: root.field-note;
                     color: Palette.error;
                     font-size: Type.body-small;
@@ -3116,7 +3120,7 @@ export component AppWindow inherits Window {
                     accessible-role: text;
                     accessible-label: self.text;
                 }
-                if root.peers-add-open && root.add-result == "": Text {
+                if root.add-step-one: Text {
                     text: root.address-help;
                     font-size: Type.body-small;
                     wrap: word-wrap;
@@ -3125,7 +3129,7 @@ export component AppWindow inherits Window {
                     accessible-role: text;
                     accessible-label: self.text;
                 }
-                if root.peers-add-open && root.add-result == "" && (root.scan-camera || root.scan-images): HorizontalLayout {
+                if root.add-step-one && (root.scan-camera || root.scan-images): HorizontalLayout {
                     alignment: start;
                     spacing: 8px;
                     if root.scan-camera: ActionButton {
@@ -3157,7 +3161,7 @@ export component AppWindow inherits Window {
                     }
                 }
                 // About the scan controls: read after them, focus on it.
-                if root.peers-add-open && root.add-result == "" && root.scan-note != "": FocusNote {
+                if root.add-step-one && root.scan-note != "": FocusNote {
                     text: root.scan-note;
                     rtl: root.rtl;
                     focus-key: "add-page-note";
@@ -3165,7 +3169,7 @@ export component AppWindow inherits Window {
                     focus-wanted: root.focus-target == "add-page-note";
                     focused(k) => { root.focus-id = k; }
                 }
-                if root.peers-add-open && root.add-result == "": HorizontalLayout {
+                if root.add-step-one: HorizontalLayout {
                     alignment: start;
                     ActionButton {
                         text: root.add-action-label;
@@ -3178,7 +3182,7 @@ export component AppWindow inherits Window {
                         focused(k) => { root.focus-id = k; }
                     }
                 }
-                if root.peers-add-open && root.add-result == "" && root.add-note != "": Text {
+                if root.add-step-one && root.add-note != "": Text {
                     text: root.add-note;
                     font-size: Type.body-medium;
                     wrap: word-wrap;

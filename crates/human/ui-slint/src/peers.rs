@@ -333,6 +333,7 @@ impl View {
         let window = &self.window;
         let host = self.host;
         window.set_peers_add_open(peers.add_open());
+        window.set_add_step_one(peers.step_one_shown());
         let typing = self
             .shared
             .borrow()

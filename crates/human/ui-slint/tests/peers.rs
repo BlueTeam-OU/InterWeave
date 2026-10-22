@@ -427,3 +427,35 @@ fn peers_and_the_add_page_fit_a_320_px_window() {
     assert_eq!(view.window().get_trust_blocks().row_count(), 1);
     assert_eq!(overflowing(&view, 320.0), Vec::<String>::new(), "step two");
 }
+
+/// A row's Trust opens the trust step for its peer alone: no field and
+/// no Add above the block, so nothing drawn is a control a press would
+/// not reach. Add an address draws step one.
+#[test]
+fn a_rows_trust_draws_the_trust_step_without_step_one() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, u) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&u)]);
+    let row = view.window().get_peer_rows().row_data(0).expect("a row");
+    assert!(row.needs_trust);
+    view.window().invoke_row_trust(row.handle);
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_peers_add_open());
+    assert_eq!(view.window().get_trust_blocks().row_count(), 1);
+    assert!(!view.window().get_add_step_one());
+    assert!(
+        labelled(&view, text(UiText::AddAction)).is_empty(),
+        "no Add above the trust step"
+    );
+
+    // A second window: the testing platform is set up once per thread.
+    let mut view = View::new(RuntimeHost::Daemon).expect("a window");
+    view.window().show().expect("shown");
+    let mut model = UiModel::new();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    assert!(view.window().get_add_step_one());
+    assert!(!labelled(&view, text(UiText::AddAction)).is_empty());
+}
