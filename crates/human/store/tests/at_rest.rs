@@ -615,3 +615,32 @@ fn the_health_report_names_the_protection_the_key_and_the_files() {
         "no key literal in a report"
     );
 }
+
+#[test]
+fn a_plaintext_store_from_a_newer_build_is_refused_with_every_file_as_it_was() {
+    let (_dir, paths) = profile();
+    plaintext_store(&paths);
+    {
+        let conn = rusqlite::Connection::open(db(&paths)).unwrap();
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .unwrap();
+        conn.pragma_update(
+            None,
+            "user_version",
+            interweave_human_store::SCHEMA_VERSION + 1,
+        )
+        .unwrap();
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .unwrap();
+    }
+    let state = paths.state_dir();
+    let before = (snapshot(&paths.human_dir()), snapshot(state));
+    let err =
+        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap_err();
+    assert!(err.needs_recovery(), "{err:?}");
+    assert_eq!(
+        (snapshot(&paths.human_dir()), snapshot(state)),
+        before,
+        "no key, no marker, no copy: nothing written"
+    );
+}

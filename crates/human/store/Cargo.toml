@@ -55,6 +55,10 @@ zeroize = { version = "1", default-features = false, features = ["alloc"] }
 # a workspace-wide test build unifies it into every test's copy of the
 # store, where it is inert without the variable.
 crash-points = []
+# `at_rest::open_writable_for_tests`: a keyed connection that bypasses the
+# store's rules, for tests that put a store into a state no client
+# writes. Enabled by test crates' dev-dependencies and by no client.
+test-support = []
 
 [dev-dependencies]
 # This crate with its crash points, for tests/at_rest.rs.
@@ -63,3 +67,7 @@ tempfile = { workspace = true }
 # A software stand-in for the Keystore's AES-256-GCM key in
 # tests/identity_key.rs; the version the embedded host's tests use.
 aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"] }
+# AES-256 for tests/released_content_encrypted.rs, which decrypts the
+# store's pages itself to search them (RETENTION.md §8 on the encrypted
+# file); the version aes-gcm already resolves.
+aes = "0.8.4"

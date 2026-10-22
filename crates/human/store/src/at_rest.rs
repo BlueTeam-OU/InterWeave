@@ -311,6 +311,11 @@ pub(crate) fn open(
     // is read and written under it as resolved.
     let dir = private_dir(private_parent_of(&names.db()), paths.boundary())?;
     let names = Names { dir };
+    // A NEWER BUILD'S PLAINTEXT IS REFUSED BEFORE ANYTHING IS WRITTEN, the
+    // marker included, by its header alone (STATE.md Migrations): the
+    // refusal leaves every file as it was. An encrypted header names no
+    // version; the keyed open's migration refuses that one.
+    refuse_newer_plaintext(&names)?;
     // EVERY KEYED OPEN RAISES THE MARKER, a new store's too: a build from
     // before the encrypted store then refuses the profile by name, never
     // meeting a file it can only read as corruption (A 2026-10-21).
@@ -370,6 +375,50 @@ pub fn inspect(paths: &ProfilePaths, cipher: &dyn KeyCipher) -> Result<AtRestRep
         key,
         files,
     })
+}
+
+/// A read-only connection to the profile's encrypted store under its key,
+/// for diagnostics and for tests that count what a running client holds:
+/// no migration, no rewrite, no write, and no marker raised. A store that
+/// is not yet encrypted, or whose key does not open it, is refused as the
+/// open would refuse it.
+///
+/// # Errors
+/// [`StoreError`]: no store, no key, an invalidated or unusable key, or
+/// the engine's refusal.
+pub fn open_read_only(
+    paths: &ProfilePaths,
+    cipher: &dyn KeyCipher,
+) -> Result<Connection, StoreError> {
+    let names = Names::of(paths);
+    let key = read_key(paths, cipher)?.ok_or(StoreError::AtRest(AtRestRecovery::KeyMissing))?;
+    let conn = Connection::open_with_flags(
+        names.db(),
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    apply_key(&conn, &key)?;
+    conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))?;
+    Ok(conn)
+}
+
+/// A WRITABLE connection to the encrypted store under its key, bypassing
+/// every rule of [`HumanStore`]: for tests that must put a store into a
+/// state no client writes (a newer header). Compiled only with the
+/// `test-support` feature, which no client enables.
+///
+/// # Errors
+/// As [`open_read_only`].
+#[cfg(feature = "test-support")]
+pub fn open_writable_for_tests(
+    paths: &ProfilePaths,
+    cipher: &dyn KeyCipher,
+) -> Result<Connection, StoreError> {
+    let names = Names::of(paths);
+    let key = read_key(paths, cipher)?.ok_or(StoreError::AtRest(AtRestRecovery::KeyMissing))?;
+    let conn = Connection::open_with_flags(names.db(), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    apply_key(&conn, &key)?;
+    conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))?;
+    Ok(conn)
 }
 
 // ----- the rewrite (ADR-0060 decision 6 (a)-(c)) -----
@@ -450,17 +499,6 @@ fn remove(path: &Path) -> Result<(), StoreError> {
 
 /// (a), (b) and (c) over an intact plaintext.
 fn rewrite(paths: &ProfilePaths, cipher: &dyn KeyCipher, names: &Names) -> Result<(), StoreError> {
-    // A plaintext the store will not read is not exported: a newer
-    // build's file is refused by its header, as the open refuses it.
-    if let Some(version) = header_user_version(&names.db())?
-        && version > crate::schema::SCHEMA_VERSION
-    {
-        return Err(StoreError::Migration(format!(
-            "database is at schema version {version}, newer than this build's {}; \
-             refusing to downgrade",
-            crate::schema::SCHEMA_VERSION
-        )));
-    }
     // BEFORE THE MARK, as `open` raised it: from here a build older than
     // this one refuses the profile by its marker, naming both numbers, and
     // never meets the encrypted file's `NotADatabase` (A 2026-10-21).
@@ -470,6 +508,20 @@ fn rewrite(paths: &ProfilePaths, cipher: &dyn KeyCipher, names: &Names) -> Resul
     export(names, &key)?;
     scrub(names)?;
     take_copy(names)
+}
+
+/// A plaintext store whose header says a newer build wrote it.
+fn refuse_newer_plaintext(names: &Names) -> Result<(), StoreError> {
+    if let Some(version) = header_user_version(&names.db())?
+        && version > crate::schema::SCHEMA_VERSION
+    {
+        return Err(StoreError::Migration(format!(
+            "database is at schema version {version}, newer than this build's {}; \
+             refusing to downgrade",
+            crate::schema::SCHEMA_VERSION
+        )));
+    }
+    Ok(())
 }
 
 /// (a): the plaintext exported under the key to [`ENCRYPTING`], synced,
