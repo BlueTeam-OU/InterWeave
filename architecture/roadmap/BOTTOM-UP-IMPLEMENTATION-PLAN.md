@@ -6038,7 +6038,14 @@ decision 6.
    encrypted file, and §22's upgrade and rollback rows learning the case.
 4. **Desktop and Android screens, and the command-line client**
    (rust-ui-dev): the same `ui-model` on both; every action of steps
-   2 and 3 as a command, with no display (ADR-0059 decision 9); `human-client-ui.md` §13 acceptance criteria for steps 2 and 3,
+   2 and 3 as a command, with no display (ADR-0059 decision 9) —
+   **the command-line client first, ahead of the screens and ahead of
+   step 2's landing for what main already holds, on the owner's word
+   of 2026-10-22** ("delivering a working full fledge cli and claude
+   mcp is now maximum priority": the edge-hosting agent moves to the
+   stage/production host the week after, so a client usable with no
+   display and the Channel bridge installed from the release package
+   are what that host needs first; the screens follow); `human-client-ui.md` §13 acceptance criteria for steps 2 and 3,
    proposed by rust-ui-dev and ruled by architect-cto.
 5. **A peer by address, and one's own** (ADR-0062, A 2026-10-21):
    p2p-network-dev — the bootstrap-peers overlay in `profile-config`
