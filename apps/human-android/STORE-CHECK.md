@@ -134,16 +134,41 @@ classpath. On every change it is held by
 ADR-0057 decision 2 names (run by `cargo xtask checks` and CI); this
 section is the reading of 2026-10-19.
 
+## No address book, and no platform backup
+
+ADR-0059 decision 6's Android half and ADR-0060 decision 8: the app
+declares none of `READ_CONTACTS`, `WRITE_CONTACTS` or `GET_ACCOUNTS`
+(the permissions row above), reaches no contacts provider or picker
+and ships no contacts library; its manifest sets
+`android:allowBackup="false"` with no backup agent, and
+`res/xml/data_extraction_rules.xml` excludes every domain from both
+`cloud-backup` and `device-transfer`. On every change it is held by
+`tools/checks/check_android_contacts_and_backup.py`, over the manifests,
+the extraction rules, the Gradle lockfiles and scripts, and the Kotlin
+and Rust sources of the app (run by `cargo xtask checks` and CI). The
+rules are declared in the main manifest alone, and every shipped source
+set's copy of the rules file is read, in `res/xml` and in each qualified
+`res/xml-*` directory, since a variant's replaces main's at the resource
+merge and a qualified one is the copy the platform picks.
+
 ## SPIKE-008's target-SDK half
 
 ADR-0041's condition is that half alone (ADR-0057 decision 6): the
 `remoteMessaging` foreground service working under the target SDK the
 app declares, on a device of an API level that enforces it. It closes
-with plan §20 step 3's device run, which is not on record yet: the six
-device cases run on the Pixel 9a (API 37) by p2p-network-dev-02 on
-their `test/j36-android-e2e-values-as-text` (my build of it, j116,
-waits on the design review's round 2). This section records the run's
-API level and commit when it lands; until then the half is **open**.
+with plan §20 step 3's device run, now on record in
+`device-runs/2026-10-20-gate-b.md` ("Pixel 9a, API 37, build
+35c71169"): on the Pixel 9a at API 37, an app declaring targetSdk 36
+ran `.NetworkService` in the foreground with `types=0x00000200`
+(`remoteMessaging`) on the `reachable` channel, kept it foreground in
+the background, and restarted it as a foreground service after a
+process death with no person present. That record is the run this
+half waited for, and SPIKE-008's verdict in
+`architecture/roadmap/SPIKES.md` records it: its "Decision taken"
+paragraph ends with 2026-10-20, the target-SDK half measured by that
+run and ADR-0041's condition met.
+p2p-network-dev-02's six android-e2e cases ran on the same phone and
+build (`tests/android-e2e/runs/2026-10-20-pixel-9a-api37.md`).
 
 ## Why F-Droid was dropped (record)
 

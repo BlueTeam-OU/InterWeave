@@ -38,6 +38,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use interweave_human_chat_protocol::encode_outbound;
+use interweave_human_store::identity_key;
 use interweave_human_store::{
     AppMessageId, HumanStore, InboundOrigin, NewInbound, NewOutbound, OutboundDestination,
     SCHEMA_VERSION, StoreOptions,
@@ -426,9 +427,35 @@ async fn an_upgrade_reads_everything_the_previous_build_kept() {
         PROFILE_FORMAT,
         "the upgrade raised the marker to this build's format"
     );
+    // The previous build predates the identity key (ADR-0063), so the
+    // upgrade's first start makes the identity's: a new file, owner-only,
+    // an IDK1 record, and the one file beside the marker it may add.
+    let identity = identity_key::key_path(&home.paths, &human());
+    let identity_name = identity
+        .strip_prefix(home.root.path())
+        .expect("inside")
+        .display()
+        .to_string();
+    assert!(
+        !before.contains_key(Path::new(&identity_name)),
+        "the previous build made no identity key"
+    );
+    assert_eq!(
+        std::fs::metadata(&identity)
+            .expect("made at start")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert!(
+        identity_key::open(&home.paths, &human(), &identity_key::FilesystemCustody)
+            .expect("an IDK1 record")
+            .is_some()
+    );
     let rewritten: Vec<_> = rewritten
         .into_iter()
-        .filter(|name| *name != marker_name)
+        .filter(|name| *name != marker_name && *name != identity_name)
         .collect();
     assert!(
         rewritten.is_empty(),

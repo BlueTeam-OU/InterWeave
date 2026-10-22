@@ -36,8 +36,8 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use interweave_claude_channel_core::{
-    BROADCAST_ACCEPTED, BridgeState, ChannelMeta, ChannelNotification, ConvertError, Delivery,
-    PullQueue, ReplyRoute, ToolCall, direct_accepted, error_text, parse_call,
+    BROADCAST_ACCEPTED, BridgeState, CardDrop, ChannelMeta, ChannelNotification, ConvertError,
+    Delivery, PullQueue, ReplyRoute, ToolCall, direct_accepted, error_text, parse_call,
 };
 use interweave_local_client_api::Generation;
 use interweave_local_client_api::{
@@ -434,6 +434,9 @@ fn dropped(error: &ConvertError) -> &'static str {
         ConvertError::Content(_) => {
             "claude-channel: an inbound message was dropped: its payload did not decode"
         }
+        // The reason alone, never the parser's account: a card's own
+        // fields are peer text (CHANNEL-EVENT.md §Content).
+        ConvertError::Card(reason) => card_dropped(*reason),
         ConvertError::Meta(_) => {
             "claude-channel: an inbound message was dropped: a meta value was refused"
         }
@@ -443,6 +446,25 @@ fn dropped(error: &ConvertError) -> &'static str {
         ConvertError::Token(_) => {
             "claude-channel: an inbound message was dropped: the entropy repeated a live reply token"
         }
+    }
+}
+
+/// The stderr line for a contact card dropped, by its reason: fixed text,
+/// one line per reason of the closed set.
+const fn card_dropped(reason: CardDrop) -> &'static str {
+    match reason {
+        CardDrop::PhotoSize => "claude-channel: a contact card was dropped: photo_size",
+        CardDrop::PhotoEncoding => "claude-channel: a contact card was dropped: photo_encoding",
+        CardDrop::PhotoMediaType => "claude-channel: a contact card was dropped: photo_media_type",
+        CardDrop::Name => "claude-channel: a contact card was dropped: name",
+        CardDrop::MissingField => "claude-channel: a contact card was dropped: missing_field",
+        CardDrop::StrayMember => "claude-channel: a contact card was dropped: stray_member",
+        CardDrop::DuplicateMember => "claude-channel: a contact card was dropped: duplicate_member",
+        CardDrop::Unreadable => "claude-channel: a contact card was dropped: unreadable",
+        CardDrop::IdentityKey => "claude-channel: a contact card was dropped: identity_key",
+        CardDrop::Signature => "claude-channel: a contact card was dropped: signature",
+        CardDrop::Envelope => "claude-channel: a contact card was dropped: envelope",
+        CardDrop::Broadcast => "claude-channel: a contact card was dropped: broadcast",
     }
 }
 
@@ -1050,6 +1072,13 @@ impl<B: DataSessionBinding> Bridge<B> {
             "connectivity": connectivity,
             "last_connect_error": self.last_open_error.map(|e| format!("{e:?}")),
             "reply_tokens": self.state.live_tokens(now),
+            // Every reason of the closed set, zero included, so the shape
+            // does not depend on what has arrived (CHANNEL-EVENT.md §Content).
+            "dropped_cards": self
+                .state
+                .dropped_cards()
+                .map(|(reason, count)| (reason.as_str().to_owned(), Value::from(count)))
+                .collect::<serde_json::Map<String, Value>>(),
         });
         // Pull mode: what waits for `receive`, whether the drain is
         // paused for it, and since when.
@@ -1135,6 +1164,24 @@ mod tests {
             for carried in [TOKEN, "content_type", "4097", "987654321", "brotli at all"] {
                 assert!(!line.contains(carried), "{line:?} carries {carried:?}");
             }
+        }
+    }
+
+    /// A dropped card's line is fixed text naming its reason, one per
+    /// reason of the closed set, so it can carry nothing a card brought.
+    #[test]
+    fn a_dropped_cards_line_names_its_reason_alone() {
+        let mut seen = std::collections::BTreeSet::new();
+        for reason in CardDrop::ALL {
+            let line = dropped(&ConvertError::Card(reason));
+            assert_eq!(
+                line,
+                format!(
+                    "claude-channel: a contact card was dropped: {}",
+                    reason.as_str()
+                )
+            );
+            assert!(seen.insert(line), "{reason:?} has a line of its own");
         }
     }
 }

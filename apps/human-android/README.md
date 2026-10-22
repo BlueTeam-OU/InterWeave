@@ -8,18 +8,19 @@ its Service side hosts the embedded transport runtime
 (`crates/transport/embedded`) through `crates/human/android-platform`. It
 names no Slint crate itself: the toolkit is reached through ui-slint.
 
-**Current status:** Stage 17 steps 2-4, first batch. The network
-service hosts the runtime, store and facade; the Activity attaches to it;
-unread arrivals raise a count-only notification. On a device the APK
-draws the views and the service starts, and the embedded runtime does not
-yet bind its listener there, so no session has run on a phone. The debug
-APK runs on a stand-in profile. Its identity is the profile's seed
-wrapped by an AndroidKeyStore key (step 6, `src/keystore.rs` and
-`KeystoreCipher.kt`), unlocked at each start, so a restart keeps the
-`PeerId`. On a first run the debug APK creates and provisions that
-identity itself, until step 7's onboarding lets the person create or
-restore it; a release build starts nothing on a profile with no
-identity. No run on a device has exercised the Keystore yet.
+**Current status:** Stage 17 (plan section 20), closing. The
+network service hosts the embedded runtime, the store and the facade;
+the Activity attaches to it; unread arrivals raise a count-only
+notification. The person creates an identity or restores one from its
+recovery phrase on first run, and the profile's seed is wrapped by an
+AndroidKeyStore key (`src/keystore.rs`, `KeystoreCipher.kt`), behind a
+user-presence prompt where the profile asks for one. The debug APK
+runs on a stand-in profile. Sessions run on phones: the device runs
+are recorded under `device-runs/` (a Samsung A40 at API
+30 and the Pixel 9a at API 37, from 2026-10-20) and the android-e2e
+cases' runs under `tests/android-e2e/runs/`. Each record names what it
+did not show; the plan's closing record for section 20, which will name
+what the stage did not prove, is still to come.
 
 Build, on a host set up by `tools/host/android` (its README):
 

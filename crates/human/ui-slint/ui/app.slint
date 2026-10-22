@@ -1762,10 +1762,11 @@ export component AppWindow inherits Window {
         - max(root.safe-area-insets.bottom, root.keyboard-overlap);
     // M: the least message area worth showing, two one-line bubbles.
     property <length> least-messages: 120px;
-    // The pane's own padding and the spacing between its rows, which take
-    // height whatever steps aside: 12 px above and below, and 8 px after
-    // the bar, the messages' heading and the list.
-    property <length> pane-chrome: 48px;
+    // The pane's own padding and the spacing between its rows, while the
+    // bar shows: 12 px above and below, and 8 px after the bar and after
+    // the list. The messages' heading is placed, not a row, and the top
+    // padding goes with the bar.
+    property <length> pane-chrome: 40px;
     // C, B and the notice: last measured while shown, so a part that
     // steps aside keeps the height it would take back.
     property <length> composer-height: 48px;
@@ -1985,6 +1986,11 @@ export component AppWindow inherits Window {
                     if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
                 }
                 property <string> swipe-key: "c:" + row.handle;
+                // A selection is drawn only beside its open conversation: on
+                // a phone-wide window the list shows with nothing open, so
+                // the row a person came back from is not selected (section
+                // 5, Android review F17).
+                property <bool> shown-selected: row.selected && !root.narrow;
                 property <length> offset: root.swipe-key == self.swipe-key ? root.swipe-offset : 0px;
                 property <int> focus-seq: root.focus-seq;
                 changed focus-seq => {
@@ -1999,7 +2005,7 @@ export component AppWindow inherits Window {
                 accessible-item-count: root.conversations.length;
                 accessible-description: row.description;
                 accessible-item-selectable: true;
-                accessible-item-selected: row.selected;
+                accessible-item-selected: self.shown-selected;
                 accessible-action-default => { root.choose(row.handle); }
                 key-pressed(event) => {
                     if (event.text == Key.Return || event.text == " ") {
@@ -2048,12 +2054,29 @@ export component AppWindow inherits Window {
                             duration: root.swipe-tracking || root.reduced-motion ? 0ms : 200ms;
                             easing: ease-out;
                         }
-                        // The selection is a fill and a bar at the start
-                        // edge: the fill alone measures under 3:1 against
-                        // the pane (section 5).
-                        background: row.selected ? Palette.primary-container
-                            : root.narrow ? Palette.surface : Palette.surface-container;
+                        background: root.narrow ? Palette.surface : Palette.surface-container;
                         border-radius: 12px;
+                        // The selection is a fill and a bar at the start
+                        // edge, the fill alone measuring under 3:1 against
+                        // the pane (section 5). One element under the row's
+                        // content, placed so it takes no part in the row's
+                        // size: what is drawn is what
+                        // `a_phone_wide_list_shows_no_row_selected` reads.
+                        if conversation.shown-selected: selection := Rectangle {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: parent.height;
+                            background: Palette.primary-container;
+                            border-radius: 12px;
+                            Rectangle {
+                                x: root.rtl ? parent.width - self.width : 0px;
+                                y: 0px;
+                                width: 4px;
+                                height: parent.height;
+                                background: Palette.primary;
+                            }
+                        }
                         summary := HorizontalLayout {
                             padding-left: 16px;
                             padding-right: 16px;
@@ -2139,13 +2162,6 @@ export component AppWindow inherits Window {
                                     hue: row.avatar-hue;
                                 }
                             }
-                        }
-                        if row.selected: Rectangle {
-                            x: root.rtl ? parent.width - self.width : 0px;
-                            y: 0px;
-                            width: 4px;
-                            height: parent.height;
-                            background: Palette.primary;
                         }
                         TapArea {
                             radius: 12px;
@@ -2478,6 +2494,11 @@ export component AppWindow inherits Window {
         if !root.trust-page: VerticalLayout {
             visible: root.pane-shown;
             padding: 12px;
+            // With the app bar aside, the list begins at the pane's top: the
+            // padding was there to set the bar off the window's edge, and
+            // the strip left to the messages has no 12 px to spare
+            // (#304 F9 step 5).
+            padding-top: root.bar-aside ? 0px : 12px;
             spacing: 8px;
             // The top app bar (section 6): Back on a narrow screen, the
             // avatar, the name over the connectivity line and, once known,
@@ -2589,12 +2610,17 @@ export component AppWindow inherits Window {
                 pressed => { root.notice-pressed(); }
                 focused(k) => { root.focus-id = k; }
             }
+            // The list, and over its top corner its heading. The heading is
+            // placed, so it is not a row of the pane and costs it no spacing:
+            // with the keyboard up in landscape the strip left to the
+            // messages is the pane's height less its chrome, and an empty
+            // row's 8 px were a fifth of it (#304 F9 step 5).
+            Rectangle {
+                vertical-stretch: 1;
             // Not drawn: the bubbles show where the messages are. Kept as a
             // heading a screen reader can move to (section 6), clipped to
             // a point rather than hidden, which would take it out of the
             // tree.
-            Rectangle {
-                height: 0px;
                 Rectangle {
                     x: 0;
                     y: 0;
@@ -2607,13 +2633,13 @@ export component AppWindow inherits Window {
                         accessible-label: self.text;
                     }
                 }
-            }
             // A long conversation scrolls; the composer stays in view. The
             // built-in Flickable, not std-widgets' ScrollView, whose icons
             // need an image feature the graph does not carry: it scrolls
             // by wheel and touch, with no visible scrollbar.
             Flickable {
-                vertical-stretch: 1;
+                width: parent.width;
+                height: parent.height;
                 content-height: messages-column.preferred-height;
                 // A row tracking a swipe holds its touch: the list does
                 // not scroll for it (swipe spec section 4).
@@ -3131,6 +3157,7 @@ export component AppWindow inherits Window {
                         shown: item.has-focus;
                     }
                 }
+            }
             }
             }
             }

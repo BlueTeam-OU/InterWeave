@@ -4,8 +4,10 @@
 //! and the unread rows again when the facade held content it could not
 //! hand over.
 
-use interweave_human_chat_protocol::{HumanChatV2, decode_envelope_bytes, parse_media_type};
-use interweave_human_client_api::{Destination, Origin};
+use interweave_human_chat_protocol::{
+    CardRoute, Classified, HumanChatV2, classify, decode_envelope_bytes, parse_media_type,
+};
+use interweave_human_client_api::{Destination, Origin, ReceivedCard};
 use interweave_human_store::{
     Cursor, HumanStore, InboundOrigin, OutboundDestination, Page, PageLimits, PendingOutbound,
     StoreError, StoredInbound,
@@ -38,9 +40,15 @@ pub(crate) fn list_all(store: &HumanStore) -> Result<Listing, StoreError> {
             None => listing.undecodable_other += 1,
         }
     }
-    let (unread, undecodable) = list_unread(store)?;
+    let (unread, cards, undecodable) = list_unread(store)?;
     listing.unread = unread;
     listing.undecodable_unread = undecodable;
+    for card in cards {
+        listing
+            .unread_cards
+            .push(crate::cards::proposal(store, card)?);
+    }
+    listing.contacts = crate::cards::contact_views(store)?;
     for row in walk(|after| store.kept_inbound_page(after, limits()))? {
         match inbound(&row) {
             Some(listed) => listing.kept.push(listed),
@@ -50,20 +58,59 @@ pub(crate) fn list_all(store: &HumanStore) -> Result<Listing, StoreError> {
     Ok(listing)
 }
 
-/// Every unread row, decoded, with how many could not be.
+/// Every unread row, decoded: the messages, the cards, and how many rows
+/// were neither.
 ///
 /// # Errors
 /// The store's, when a page cannot be read.
-pub(crate) fn list_unread(store: &HumanStore) -> Result<(Vec<ListedInbound>, usize), StoreError> {
+pub(crate) fn list_unread(
+    store: &HumanStore,
+) -> Result<(Vec<ListedInbound>, Vec<ReceivedCard>, usize), StoreError> {
     let mut listed = Vec::new();
+    let mut cards = Vec::new();
     let mut undecodable = 0;
     for row in walk(|after| store.unread_inbound_page(after, limits()))? {
-        match inbound(&row) {
-            Some(item) => listed.push(item),
-            None => undecodable += 1,
+        if let Some(item) = inbound(&row) {
+            listed.push(item);
+        } else if let Some(card) = card(&row) {
+            cards.push(card);
+        } else {
+            undecodable += 1;
         }
     }
-    Ok((listed, undecodable))
+    Ok((listed, cards, undecodable))
+}
+
+/// A row that holds a card, verified on the route it was stored with:
+/// the same steps the facade takes on receipt, so a card shown as a
+/// proposal when it arrived is one again after a restart.
+fn card(row: &StoredInbound) -> Option<ReceivedCard> {
+    let InboundOrigin {
+        peer,
+        endpoint: Some(endpoint),
+        channel: None,
+    } = &row.origin
+    else {
+        return None;
+    };
+    let info = parse_media_type(row.media_type.as_ref()?.as_str()).ok()?;
+    let text = decode_envelope_bytes(&row.payload, info.encoding).ok()?;
+    let Classified::Card(card) = classify(
+        &text,
+        CardRoute {
+            source_peer: peer,
+            source_endpoint: endpoint,
+        },
+    ) else {
+        return None;
+    };
+    Some(ReceivedCard {
+        row: row.row_id,
+        peer: peer.clone(),
+        endpoint: endpoint.clone(),
+        card,
+        received_at: row.received_at,
+    })
 }
 
 fn walk<T>(

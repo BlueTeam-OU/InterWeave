@@ -11,11 +11,13 @@
 
 use std::collections::BTreeSet;
 
+use interweave_human_chat_protocol::parse_media_type;
 use interweave_local_client_api::{
     Generation, LocalSessionEvent, ReceivedBroadcast, ReceivedDirect, SessionEvent,
 };
-use interweave_transport_api::{ChannelId, EndpointId, TransportError, base64url};
+use interweave_transport_api::{ChannelId, EndpointId, Payload, TransportError, base64url};
 
+use crate::card::{self, CardDrop};
 use crate::content::{Undecodable, channel_content};
 use crate::meta::{ChannelMeta, MetaError, MetaKey};
 use crate::received_at::rfc3339_utc;
@@ -45,6 +47,9 @@ pub struct ChannelNotification {
 pub enum ConvertError {
     /// A `;ce=br` payload that did not decode within the cap.
     Content(Undecodable),
+    /// A contact card dropped: malformed, or received over broadcast
+    /// (CHANNEL-EVENT.md §Content). Counted under its reason.
+    Card(CardDrop),
     /// A `meta` value the bridge's bound refused.
     Meta(MetaError),
     /// A receipt time RFC3339 cannot write.
@@ -61,6 +66,7 @@ impl core::fmt::Display for ConvertError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Content(e) => e.fmt(f),
+            Self::Card(reason) => write!(f, "a contact card was dropped: {}", reason.as_str()),
             Self::Meta(e) => e.fmt(f),
             Self::ReceivedAt { ms } => write!(f, "received_at {ms} ms is not writable as RFC3339"),
             Self::Token(e) => e.fmt(f),
@@ -82,6 +88,9 @@ pub struct BridgeState {
     lease: Option<(EndpointId, Generation)>,
     joined: BTreeSet<ChannelId>,
     tokens: ReplyTokenTable,
+    /// Contact cards dropped, by [`CardDrop::index`], since start: a
+    /// count only (`status.dropped_cards`), nothing a card carried.
+    dropped_cards: [u64; CardDrop::ALL.len()],
 }
 
 impl Default for BridgeState {
@@ -99,7 +108,17 @@ impl BridgeState {
             lease: None,
             joined: BTreeSet::new(),
             tokens: ReplyTokenTable::new(DEFAULT_TTL_MS, DEFAULT_MAX_TOKENS),
+            dropped_cards: [0; CardDrop::ALL.len()],
         }
+    }
+
+    /// Every reason a contact card is dropped under, with the cards
+    /// dropped under it since start, zero included, in [`CardDrop::ALL`]
+    /// order.
+    pub fn dropped_cards(&self) -> impl Iterator<Item = (CardDrop, u64)> + '_ {
+        CardDrop::ALL
+            .iter()
+            .map(|reason| (*reason, self.dropped_cards[reason.index()]))
     }
 
     /// The session's open granted `endpoint` at `epoch`: direct messages
@@ -193,11 +212,16 @@ impl BridgeState {
         entropy: [u8; REPLY_TOKEN_ENTROPY_BYTES],
         now_ms: u64,
     ) -> Result<Option<ChannelNotification>, ConvertError> {
-        let (mut meta, content, route) = match event {
-            SessionEvent::Direct(message) => Self::direct(message, lease)?,
-            SessionEvent::Broadcast(message) => broadcast(message)?,
+        let converted = match event {
+            SessionEvent::Direct(message) => Self::direct(message, lease),
+            SessionEvent::Broadcast(message) => broadcast(message),
             SessionEvent::Local(_) => return Ok(None),
         };
+        if let Err(ConvertError::Card(reason)) = &converted {
+            let count = &mut self.dropped_cards[reason.index()];
+            *count = count.saturating_add(1);
+        }
+        let (mut meta, content, route) = converted?;
         if let Some(route) = route {
             let token = base64url::encode(&entropy);
             meta.set(MetaKey::ReplyToken, token.clone())?;
@@ -233,6 +257,7 @@ impl BridgeState {
             &message.message_id.to_string(),
             message.received_at_ms,
             &message.payload,
+            Origin::Direct(&message.source_peer, &message.source_endpoint),
         )?;
         let route = lease
             .filter(|(endpoint, _)| *endpoint == message.destination_endpoint)
@@ -282,6 +307,7 @@ fn broadcast(
         &message.message_id.to_string(),
         message.received_at_ms,
         &message.payload,
+        Origin::Broadcast(&message.source_peer),
     )?;
     let route = ReplyRoute::Broadcast {
         channel: message.channel.clone(),
@@ -289,14 +315,43 @@ fn broadcast(
     Ok((meta, content, Some(route)))
 }
 
-/// The keys both modes carry, and the content.
+/// Where a message came from, as the card parser needs it.
+#[derive(Clone, Copy)]
+enum Origin<'a> {
+    /// The authenticated source peer and its peer-asserted endpoint.
+    Direct(
+        &'a interweave_transport_api::TransportIdentity,
+        &'a EndpointId,
+    ),
+    /// The authenticated publisher.
+    Broadcast(&'a interweave_transport_api::TransportIdentity),
+}
+
+/// The keys both modes carry, and the content: a `HumanChatV2` contact card
+/// as `meta` with `content` empty, anything else as its text.
 fn common(
     meta: &mut ChannelMeta,
     message_id: &str,
     received_at_ms: u64,
-    payload: &interweave_transport_api::Payload,
+    payload: &Payload,
+    origin: Origin<'_>,
 ) -> Result<String, ConvertError> {
     let content = channel_content(payload).map_err(ConvertError::Content)?;
+    let card = if is_human_chat(payload) {
+        match origin {
+            Origin::Direct(peer, endpoint) => match card::direct(&content.text, peer, endpoint) {
+                Ok(card::Kind::Card(card)) => Some(card),
+                Ok(card::Kind::Text) => None,
+                Err(reason) => return Err(ConvertError::Card(reason)),
+            },
+            Origin::Broadcast(publisher) => {
+                card::broadcast(&content.text, publisher).map_err(ConvertError::Card)?;
+                None
+            }
+        }
+    } else {
+        None
+    };
     meta.set(MetaKey::MessageId, message_id)?;
     let received_at =
         rfc3339_utc(received_at_ms).ok_or(ConvertError::ReceivedAt { ms: received_at_ms })?;
@@ -305,7 +360,21 @@ fn common(
     if let Some(content_type) = content.content_type {
         meta.set(MetaKey::ContentType, content_type)?;
     }
-    Ok(content.text)
+    match card {
+        Some(card) => {
+            card::set_meta(meta, &card)?;
+            Ok(String::new())
+        }
+        None => Ok(content.text),
+    }
+}
+
+/// Whether `payload` declares `HumanChatV2`, plain or `;ce=br`: the one
+/// media type whose text can be a contact card.
+fn is_human_chat(payload: &Payload) -> bool {
+    payload
+        .media_type()
+        .is_some_and(|m| parse_media_type(m.as_str()).is_ok())
 }
 
 #[cfg(test)]
@@ -531,6 +600,10 @@ mod tests {
             Err(ConvertError::Content(_))
         ));
         assert_eq!(bridge.live_tokens(NOW), 0);
+        assert!(
+            bridge.dropped_cards().all(|(_, count)| count == 0),
+            "a payload that is not a card counts as no card"
+        );
     }
 
     /// The same entropy twice is a broken generator: refused, the first

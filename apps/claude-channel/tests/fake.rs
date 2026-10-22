@@ -296,7 +296,12 @@ impl World {
     }
 
     async fn start_in(delivery: interweave_claude_channel_core::Delivery) -> Self {
-        let (a, b) = FakeNetwork::pair(config(), config());
+        Self::start_with(delivery, config()).await
+    }
+
+    /// The bridge on A, and B as `b` configures it: its peer, for one.
+    async fn start_with(delivery: interweave_claude_channel_core::Delivery, b: FakeConfig) -> Self {
+        let (a, b) = FakeNetwork::pair(config(), b);
         let record = Arc::new(Record::default());
         let binding = Recorded {
             node: a.clone(),
@@ -415,6 +420,22 @@ impl World {
             let line = self.line().await;
             if line["method"] == json!("notifications/claude/channel") {
                 return line["params"].clone();
+            }
+        }
+    }
+
+    /// The next channel notification as the host reads it: the line's
+    /// own text, every byte the bridge wrote for it.
+    async fn notification_text(&mut self) -> String {
+        loop {
+            let line = tokio::time::timeout(PATIENCE, self.host_out.next_line())
+                .await
+                .expect("a line in time")
+                .expect("readable")
+                .expect("not closed");
+            let value: Value = serde_json::from_str(&line).expect("one JSON value per line");
+            if value["method"] == json!("notifications/claude/channel") {
+                return line;
             }
         }
     }
@@ -1891,4 +1912,131 @@ async fn a_disconnected_reply_with_a_join_pending_answers_by_membership() {
         error && text.starts_with("ChannelNotJoined"),
         "re-join pending: {text}"
     );
+}
+
+/// The frozen contact-card vectors (HUMAN-CHAT.md §Fixture cases).
+fn card_vector(name: &str) -> Value {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/human-chat-v2/human-chat-v2-contact-card.json");
+    let doc: Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("the frozen vectors"))
+            .expect("JSON");
+    doc["vectors"]
+        .as_array()
+        .expect("vectors")
+        .iter()
+        .find(|v| v["name"] == name)
+        .unwrap_or_else(|| panic!("no vector {name}"))
+        .clone()
+}
+
+/// A contact card at the photo bound, sent by B's `human` to the bridge,
+/// reaches the host as what it is (CHANNEL-EVENT.md §Content's one parsing
+/// exception, ADR-0059 decision 7): `content` empty, and `meta` carrying
+/// the kind, the authenticated source peer and its endpoint, the name and
+/// surname, "a photo of 24576 bytes" as a number and a type, and the
+/// identity key as received. Nothing of the photo is in the line the host
+/// reads, and nothing of the signature. Then a card over its photo bound
+/// is dropped: no notification for it, and `status.dropped_cards` counts
+/// it under `photo_size`, every other reason still zero. The text message
+/// after it is the control that the bridge kept forwarding.
+#[tokio::test]
+async fn a_contact_card_at_the_photo_bound_reaches_the_host_as_meta_alone() {
+    const MEDIA_TYPE: &str = "application/vnd.interweave-human-chat+json;v=2";
+    let card = card_vector("valid-at-the-bounds");
+    let over = card_vector("photo-over-the-bound");
+    // The vectors are signed for this peer's `human`, which B becomes.
+    let signer = card["received_on"]["peer_id"].as_str().expect("a peer");
+    assert_eq!(over["received_on"]["peer_id"], signer, "one route for both");
+    let mut b = config();
+    b.peer = TransportIdentity::parse(signer).expect("a peer id");
+    let mut w = World::start_with(interweave_claude_channel_core::Delivery::Push, b).await;
+    let a_peer = w.a.peer().clone();
+    let send = |v: &Value, id: u8| {
+        let bytes = serde_json::to_vec(&v["envelope"]).expect("serializes");
+        let payload = Payload::new(
+            Some(interweave_transport_api::MediaType::parse(MEDIA_TYPE).expect("a type")),
+            bytes,
+            MAX_PAYLOAD_BYTES,
+        )
+        .expect("a payload");
+        (
+            DirectDestination {
+                peer: a_peer.clone(),
+                endpoint: Some(endpoint("claude")),
+            },
+            MessageId::from_bytes([id; 16]),
+            payload,
+        )
+    };
+
+    let (to, id, payload) = send(&card, 21);
+    w.peer.send_direct(to, id, payload).await.expect("accepted");
+    let line = w.notification_text().await;
+    let n: Value = serde_json::from_str(&line).expect("JSON");
+    let params = &n["params"];
+    assert_eq!(params["content"], json!(""), "{line}");
+    let meta = &params["meta"];
+    assert_eq!(meta["delivery_mode"], json!("direct"));
+    assert_eq!(meta["source_peer"], json!(signer));
+    assert_eq!(meta["source_endpoint"], json!("human"));
+    assert_eq!(meta["app_kind"], json!("contact_card"));
+    assert!(
+        meta["card_name"].is_string() && meta["card_surname"].is_string(),
+        "{meta}"
+    );
+    assert_eq!(meta["card_photo_bytes"], json!("24576"));
+    assert_eq!(
+        meta["card_photo_type"],
+        card["envelope"]["card"]["photo"]["media_type"]
+    );
+    assert_eq!(
+        meta["card_identity_key"],
+        card["envelope"]["card"]["identity_key"]
+    );
+    assert!(
+        meta["reply_token"].is_string(),
+        "the sender can be answered"
+    );
+    let photo = card["envelope"]["card"]["photo"]["data"]
+        .as_str()
+        .expect("base64");
+    let chars: Vec<char> = photo.chars().collect();
+    assert!(
+        chars
+            .windows(8)
+            .all(|w| !line.contains(&w.iter().collect::<String>())),
+        "no run of the photo's base64 reaches the host"
+    );
+    let signature = card["envelope"]["card"]["signature"]
+        .as_str()
+        .expect("a signature");
+    assert!(!line.contains(signature), "nor the signature");
+
+    let (to, id, payload) = send(&over, 22);
+    w.peer.send_direct(to, id, payload).await.expect("accepted");
+    w.peer
+        .send_direct(
+            DirectDestination {
+                peer: w.a.peer().clone(),
+                endpoint: Some(endpoint("claude")),
+            },
+            MessageId::from_bytes([23; 16]),
+            Payload::new(None, b"after the card".to_vec(), MAX_PAYLOAD_BYTES).expect("payload"),
+        )
+        .await
+        .expect("accepted");
+    let next = w.notification().await;
+    assert_eq!(
+        next["content"],
+        json!("after the card"),
+        "the dropped card wrote nothing"
+    );
+    let dropped = w.status().await["dropped_cards"].clone();
+    let reasons = dropped.as_object().expect("an object, every reason named");
+    assert_eq!(reasons.len(), 12, "{dropped}");
+    for (reason, count) in reasons {
+        let expected = u64::from(reason == "photo_size");
+        assert_eq!(count, &json!(expected), "{reason}: {dropped}");
+    }
 }
