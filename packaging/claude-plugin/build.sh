@@ -43,7 +43,8 @@ esac
 # below. A whole-directory copy shipped anything a developer had left under
 # interweave/ -- a stale binary in its ignored bin/, which git status never
 # shows -- so any file here that git does not track (ignored ones included)
-# fails the build instead of shipping or being skipped silently.
+# fails the build instead of shipping or being skipped silently
+# (apps/claude-channel/tests/packaging_build.rs).
 stray="$(git -C "$here" ls-files --others -- .claude-plugin interweave)" \
     || { echo "$0: cannot list $here with git; build from a checkout" >&2; exit 1; }
 [[ -z "$stray" ]] || { printf '%s: untracked files in the package source, remove them:\n%s\n' "$0" "$stray" >&2; exit 1; }
@@ -54,14 +55,16 @@ while IFS= read -r -d '' f; do tracked+=("$f"); done \
 
 # Assembled beside <out-dir> and renamed into place only once complete, so a
 # failed run -- a tracked file deleted from the working tree, a failed
-# install -- leaves no partial <out-dir> to be refused as existing next time.
-# -P: a tracked symlink is copied as the link, never as what it points at.
+# install -- leaves no partial <out-dir> to be refused as existing next time
+# (apps/claude-channel/tests/packaging_build.rs). The trap is set first, so
+# no exit after mktemp leaves the staging directory.
+stage=""
+trap '[[ -n "$stage" ]] && rm -rf "$stage"' EXIT
 stage="$(mktemp -d "$parent/.$(basename "$out").XXXXXX")"
-trap 'rm -rf "$stage"' EXIT
 chmod 0755 "$stage"
 for f in "${tracked[@]}"; do
     mkdir -p "$stage/$(dirname "$f")"
-    cp -pP "$here/$f" "$stage/$f"
+    cp -p "$here/$f" "$stage/$f"
 done
 mkdir -p "$stage/interweave/bin"
 install -m 0755 "$binary" "$stage/interweave/bin/claude-channel"
