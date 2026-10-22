@@ -68,7 +68,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 - **What a proposal says is the sender's claim**, except the `PeerId`, the route and the key's fingerprint. `key.state` is `new`, `same` or `changed`; a `changed` key is shown with the fingerprint the route recorded, and accepting it replaces the key on that route alone.
 - **`card set <name> [<surname>]`** sets the whole own card. `--photo <file>` reads at most 32 MiB, which the client re-encodes to the card's bound; `--no-photo` removes it; with neither, the photo stays as it is.
 - **A contact's name or photo set with `contacts rename` or `contacts photo`** is the person's: no later card replaces it.
-- **`contacts delete`** deletes the contact, its routes and their recorded keys, out of the store's files before it returns. The next card from one of its routes is a new proposal, its key `new`. The trust allowlist is separate and is not changed.
+- **`contacts delete`** deletes the contact, its routes and their recorded keys. They leave the store's files before it returns, unless another process is reading the store's log at that moment, in which case they leave it at the next write that releases content, or the next open or close. The next card from one of its routes is a new proposal, its key `new`. The trust allowlist is separate and is not changed.
 - **`listen`** prints a card that arrives as a `proposal` event, and leaves it unread.
 - **`trust allow` and `trust revoke`** of a peer already in that state exit 0, printing `(already)`.
 
@@ -76,7 +76,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 
 - `src/verbs_tests.rs` and `src/cards_tests.rs`: each verb through the model and the facade, against the in-memory node pair app-core's own tests use, over a file store where the next run is the claim.
 - `tests/process.rs`: the binary's `--help`, a usage error and a refused profile.
-- `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1 and 2 run as the binary against two real daemons.
+- `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1 and 2 run as the binary against two real daemons; `card set --photo` and `contacts photo <file>` are run at the model level only, since the run carries no image.
 
 ## Not yet
 
