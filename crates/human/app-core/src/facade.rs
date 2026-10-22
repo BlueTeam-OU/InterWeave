@@ -521,7 +521,6 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         Ok(())
     }
 
-    /// The person's own name for a contact, held to a card name's bounds.
     /// Delete a contact (ADR-0059 decision 3): the store deletes it, its
     /// routes and their keys, and the contacts are listed again.
     fn delete_contact(
@@ -542,6 +541,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         Ok(())
     }
 
+    /// The person's own name for a contact, held to a card name's bounds.
     fn rename_contact(
         &mut self,
         contact_id: &str,
