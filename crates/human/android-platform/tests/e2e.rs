@@ -40,6 +40,7 @@ fn a_case_on_the_hub_hears_the_listing_commands_the_facade_and_hears_the_stop() 
                 app_data_dir: dir.clone(),
                 profile: PROFILE.to_owned(),
                 identity: interweave_profile_identity::ProfileIdentity::generate(),
+                store_cipher: Box::new(interweave_human_store::key_custody::FilesystemCustody),
             },
             Arc::clone(&tap),
         )
@@ -117,6 +118,7 @@ fn on_the_runtime_alone_a_case_leases_human_itself_and_not_beside_the_facade() {
             app_data_dir: dir.clone(),
             profile: PROFILE.to_owned(),
             identity: interweave_profile_identity::ProfileIdentity::generate(),
+            store_cipher: Box::new(interweave_human_store::key_custody::FilesystemCustody),
         };
         if alone {
             service

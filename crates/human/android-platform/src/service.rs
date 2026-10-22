@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use interweave_human_app_core::FacadeSide;
+use interweave_human_store::at_rest;
+use interweave_human_store::key_custody::KeyCipher;
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_local_client_api::DataSessionBinding;
@@ -48,6 +50,11 @@ pub struct ServiceLaunch {
     pub profile: String,
     /// The profile's identity, unlocked by the caller.
     pub identity: ProfileIdentity,
+    /// The platform's custody of the store key (ADR-0060 decision 3): the
+    /// Keystore at `background-compatible` under the store's own alias,
+    /// whatever the seed's policy is, so the store opens on an unattended
+    /// restart.
+    pub store_cipher: Box<dyn KeyCipher + Send>,
 }
 
 /// Why the client did not start. Closed, so the Service maps each to its
@@ -63,14 +70,42 @@ pub enum StartRefused {
     /// client's kind.
     NoHumanEndpoint,
     /// The message store needs recovery: corrupt, from a newer version,
-    /// or its migration failed. It was not renamed, moved or deleted.
+    /// its migration failed, or its key is missing or does not open it
+    /// (ADR-0060 decision 6). It was not renamed, moved or deleted; the
+    /// recovery screen offers the confirmed Discard and recreate
+    /// ([`ServiceHost::plan_store_discard`]).
     StoreNeedsRecovery,
+    /// The Keystore has invalidated the store's key (ADR-0060 decision 6):
+    /// the client offers Discard and recreate directly. A store condition,
+    /// never an identity one.
+    StoreKeyInvalidated,
     /// The message store, or its directory, is not private to the app.
     StoreNotPrivate(String),
     /// The message store could not be opened now; trying again may work.
     StoreUnavailable(String),
     /// The facade's thread could not be started.
     Thread(String),
+}
+
+/// Why a store action was not taken.
+#[derive(Debug)]
+pub enum StoreActionRefused {
+    /// The client is running and holds the store: stop it first.
+    Running,
+    /// The app's data directory or the profile's paths were refused.
+    Profile(String),
+    /// The store's own refusal.
+    Store(StoreError),
+}
+
+fn embedded_paths(
+    app_data_dir: &std::path::Path,
+    profile: &str,
+) -> Result<ProfilePaths, StoreActionRefused> {
+    let boundary =
+        TrustBoundary::new(app_data_dir).map_err(|e| StoreActionRefused::Profile(e.to_string()))?;
+    ProfilePaths::resolve_embedded(profile, boundary)
+        .map_err(|e| StoreActionRefused::Profile(e.to_string()))
 }
 
 /// Why the wait for the client's end returned.
@@ -168,6 +203,62 @@ impl ServiceHost {
     #[must_use]
     pub fn is_running(&self) -> bool {
         self.lock().is_some()
+    }
+
+    /// The store at rest, as the recovery screen and diagnostics show it
+    /// (ADR-0060): the custody, the key's presence and the files. Reads
+    /// only; a running client is no obstacle.
+    ///
+    /// # Errors
+    /// [`StoreActionRefused`].
+    pub fn store_health(
+        &self,
+        app_data_dir: &std::path::Path,
+        profile: &str,
+        store_cipher: &dyn KeyCipher,
+    ) -> Result<at_rest::AtRestReport, StoreActionRefused> {
+        let paths = embedded_paths(app_data_dir, profile)?;
+        at_rest::inspect(&paths, store_cipher).map_err(StoreActionRefused::Store)
+    }
+
+    /// What Discard and recreate would remove now, for the screen that asks
+    /// the person to confirm it (ADR-0060 decision 6). Writes nothing.
+    ///
+    /// # Errors
+    /// [`StoreActionRefused::Running`] while the client holds the store.
+    pub fn plan_store_discard(
+        &self,
+        app_data_dir: &std::path::Path,
+        profile: &str,
+        store_cipher: &dyn KeyCipher,
+    ) -> Result<at_rest::DiscardPlan, StoreActionRefused> {
+        if self.lock().is_some() {
+            return Err(StoreActionRefused::Running);
+        }
+        let paths = embedded_paths(app_data_dir, profile)?;
+        at_rest::plan_discard(&paths, store_cipher).map_err(StoreActionRefused::Store)
+    }
+
+    /// Run the Discard the person confirmed; the next start recreates the
+    /// store. Held under the host's lock so no start opens the store while
+    /// it goes.
+    ///
+    /// # Errors
+    /// [`StoreActionRefused`]; [`StoreError::DiscardChanged`] inside it
+    /// when the store moved since the plan, nothing removed.
+    pub fn discard_store(
+        &self,
+        app_data_dir: &std::path::Path,
+        profile: &str,
+        store_cipher: &dyn KeyCipher,
+        confirmed: at_rest::ConfirmedDiscard,
+    ) -> Result<at_rest::Discarded, StoreActionRefused> {
+        let running = self.lock();
+        if running.is_some() {
+            return Err(StoreActionRefused::Running);
+        }
+        let paths = embedded_paths(app_data_dir, profile)?;
+        at_rest::discard(&paths, store_cipher, confirmed).map_err(StoreActionRefused::Store)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<Running>> {
@@ -304,7 +395,11 @@ impl ServiceHost {
         let Some(endpoint) = human_endpoint(&config) else {
             return refuse(host, StartRefused::NoHumanEndpoint);
         };
-        let store = match HumanStore::open_profile(host.paths(), StoreOptions::default()) {
+        let store = match HumanStore::open_profile(
+            host.paths(),
+            &*launch.store_cipher,
+            StoreOptions::default(),
+        ) {
             Ok(store) => store,
             Err(e) => return refuse(host, classify(&e)),
         };
@@ -351,6 +446,7 @@ impl ServiceHost {
         &self,
         app_data_dir: &std::path::Path,
         profile: &str,
+        store_cipher: &dyn KeyCipher,
     ) -> Result<(), StartRefused> {
         let mut running = self.lock();
         if running.is_some() {
@@ -362,8 +458,8 @@ impl ServiceHost {
             ProfilePaths::resolve_embedded(profile, boundary).map_err(|e| refused(e.into()))?;
         let config = ProfileConfig::load(&paths).map_err(|e| refused(e.into()))?;
         let endpoint = human_endpoint(&config).ok_or(StartRefused::NoHumanEndpoint)?;
-        let store =
-            HumanStore::open_profile(&paths, StoreOptions::default()).map_err(|e| classify(&e))?;
+        let store = HumanStore::open_profile(&paths, store_cipher, StoreOptions::default())
+            .map_err(|e| classify(&e))?;
         let executor = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("interweave-offline")
@@ -593,6 +689,9 @@ fn client_config(
 }
 
 fn classify(error: &StoreError) -> StartRefused {
+    if matches!(error, StoreError::KeyInvalidated) {
+        return StartRefused::StoreKeyInvalidated;
+    }
     if error.needs_recovery() {
         return StartRefused::StoreNeedsRecovery;
     }

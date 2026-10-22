@@ -41,6 +41,6 @@ pub use network::{Link, NetworkReport, Told, addresses_from_wire};
 pub use notice::Notices;
 pub use service::{
     AvailabilityMode, CLIENT_KIND, Ended, LogLevel, ServiceHost, ServiceLaunch, StartRefused,
-    Stopped, profile_log_level,
+    Stopped, StoreActionRefused, profile_log_level,
 };
 pub use view_side::{ListingFailed, ViewSide};
