@@ -5,9 +5,9 @@
 #
 # Self-test for check_android_target.sh, with cargo and the NDK faked: the
 # target, NDK and API level come from the pins (the LOWEST platform), the
-# linker, CC and AR reach cargo for that target, the default packages are
-# checked only when the workspace has them, and every missing input is a
-# loud exit 2 — a cargo check failure exit 1.
+# linker, CC, AR and RANLIB reach cargo for that target, the default
+# packages are checked only when the workspace has them, and every
+# missing input is a loud exit 2 — a cargo check failure exit 1.
 set -uo pipefail
 HERE="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" && pwd )"
 SUT="$HERE/check_android_target.sh"
@@ -39,7 +39,8 @@ PKG_6=ndk;28.2.13676358@28.2.13676358
 RUST_ANDROID_TARGET=aarch64-linux-android
 P
 # The fake cargo: metadata lists $FAKE_PKGS; check records its argv and
-# the three variables, and fails when FAKE_CHECK_FAIL is set.
+# the target's LINKER, CC, AR, RANLIB and ANDROID_JAR, and fails when
+# FAKE_CHECK_FAIL is set.
 cat > "$S/cargo" <<'C'
 #!/usr/bin/env bash
 case "$1" in

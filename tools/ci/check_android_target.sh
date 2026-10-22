@@ -121,9 +121,11 @@ for f in "${ANDROID_CHECK_FEATURES[@]}"; do
 done
 T="${target//-/_}"
 # RANLIB too: a C dependency built by its own make (openssl-src, under
-# rusqlite's vendored SQLCipher) runs ranlib, and the cc crate falls back
-# to <triple>-ranlib, which the NDK does not ship. cargo-ndk sets it for
-# the Gradle build; this script is what CI's android check runs instead.
+# rusqlite's vendored SQLCipher) runs ranlib, and with no RANLIB_<target>
+# the cc crate looks for llvm-ranlib on PATH -- where the NDK's bin
+# directory is not, in CI -- and then for <triple>-ranlib, which the NDK
+# does not ship. cargo-ndk sets it for the Gradle build; this script is
+# what CI's android check runs instead.
 export "CARGO_TARGET_${T^^}_LINKER=$clang" "CC_$T=$clang" "AR_$T=$bin/llvm-ar" "RANLIB_$T=$bin/llvm-ranlib"
 echo "$me: $target, NDK $ndk at $ndk_home, API $api: ${pkgs[*]}"
 args=(); for p in "${pkgs[@]}"; do args+=(-p "$p"); done
