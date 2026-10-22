@@ -245,6 +245,10 @@ ui_texts! {
     /// `{time}`, the clock time it reached this app, as the bubble shows
     /// it; the day is said once per run by the day separator.
     Item => "{author}: {body}. {status}, {time}",
+    /// The same for a message that needs the person and says why:
+    /// `{reason}` is its error class's text, a full sentence, read last
+    /// so the status and time keep `Item`'s order (Android review F16).
+    ItemWithReason => "{author}: {body}. {status}, {time}. {reason}",
     /// A link's control, after the message body: `{destination}` is the
     /// link's full destination as `visible_destination` shows it -- every
     /// character as sent, a hidden one as its code point -- so the person
@@ -272,6 +276,9 @@ ui_texts! {
     /// One of this client's messages in the open conversation changed
     /// status. `{status}` is the status's text.
     AnnounceOwnStatus => "Your message: {status}.",
+    /// The same for a status that comes with a reason: `{reason}` is its
+    /// error class's text, a full sentence with its own period.
+    AnnounceOwnStatusReason => "Your message: {status}. {reason}",
     /// More than one of them changed status at once. `{count}` is a
     /// number.
     AnnounceOwnStatuses => "Your messages changed status: {count}.",
@@ -1115,6 +1122,18 @@ pub const fn send_problem_class(problem: SendProblem) -> ErrorClass {
     }
 }
 
+/// Why a pending row needs the person, or `None` for a row that does
+/// not: a needs-attention row shows its problem's class beside its status
+/// (design/2026-10-16-android-look.md section 6, Composer), since the
+/// facade will not retry it and the status alone does not say what to fix.
+#[must_use]
+pub const fn attention_class(status: &OutboundStatus) -> Option<ErrorClass> {
+    match status {
+        OutboundStatus::NeedsAttention { problem, .. } => Some(send_problem_class(*problem)),
+        _ => None,
+    }
+}
+
 /// The class of a send the facade refused with no row.
 #[must_use]
 pub const fn send_error_class(error: &SendError) -> ErrorClass {
@@ -1204,11 +1223,10 @@ mod tests {
         }
     }
 
-    /// Every class, state and host text, as `host` reads it: what the
-    /// platform-value tests walk. An exhaustive match keeps the lists
-    /// whole: a variant added to either enum fails to compile until it is
-    /// named here.
-    fn host_dependent(host: RuntimeHost) -> Vec<&'static str> {
+    /// Every error class. The exhaustive match fails to compile on a
+    /// class added to the enum until it is named there; the array must
+    /// gain it too, which nothing enforces.
+    fn every_class() -> [ErrorClass; 14] {
         const fn listed(class: ErrorClass) -> ErrorClass {
             match class {
                 ErrorClass::PeerNotTrusted
@@ -1227,16 +1245,7 @@ mod tests {
                 | ErrorClass::Internal => class,
             }
         }
-        const fn state(state: Connectivity) -> Connectivity {
-            match state {
-                Connectivity::OnlineDirect
-                | Connectivity::OnlineRelay
-                | Connectivity::OnlinePartial
-                | Connectivity::Offline
-                | Connectivity::Unknown => state,
-            }
-        }
-        let classes = [
+        [
             ErrorClass::PeerNotTrusted,
             ErrorClass::RouteUnavailable,
             ErrorClass::NoNetworkPath,
@@ -1251,7 +1260,26 @@ mod tests {
             ErrorClass::EndpointInUse,
             ErrorClass::EndpointNotAvailable,
             ErrorClass::Internal,
-        ];
+        ]
+        .map(listed)
+    }
+
+    /// Every class, state and host text, as `host` reads it: what the
+    /// platform-value tests walk. A `Connectivity` variant fails to
+    /// compile until `state` names it, and an `ErrorClass` one until
+    /// `every_class` does; each array must gain it too, which nothing
+    /// enforces.
+    fn host_dependent(host: RuntimeHost) -> Vec<&'static str> {
+        const fn state(state: Connectivity) -> Connectivity {
+            match state {
+                Connectivity::OnlineDirect
+                | Connectivity::OnlineRelay
+                | Connectivity::OnlinePartial
+                | Connectivity::Offline
+                | Connectivity::Unknown => state,
+            }
+        }
+        let classes = every_class();
         let states = [
             Connectivity::OnlineDirect,
             Connectivity::OnlineRelay,
@@ -1261,7 +1289,7 @@ mod tests {
         ];
         let mut texts: Vec<&str> = classes
             .iter()
-            .map(|c| placeholder_en::error(host, listed(*c)))
+            .map(|c| placeholder_en::error(host, *c))
             .collect();
         texts.extend(
             states
@@ -1274,6 +1302,51 @@ mod tests {
                 .map(|t| placeholder_en::host_text(host, *t)),
         );
         texts
+    }
+
+    /// The punctuation the status templates are written around: a
+    /// status fills `{status}` before a comma or a period the template
+    /// adds, so no status ends with one; an error class fills `{reason}`
+    /// last, so each is a sentence with its own period (`ItemWithReason`,
+    /// `AnnounceOwnStatusReason`, `NotSent`, `Refused`).
+    #[test]
+    fn statuses_end_bare_and_every_reason_ends_with_a_period() {
+        // Listed by hand: a waiting text added later is not walked here
+        // until it is added.
+        let waiting = [
+            UiText::WaitingSending,
+            UiText::WaitingSendingNoPath,
+            UiText::WaitingSendingRoute,
+            UiText::WaitingSendingBusy,
+            UiText::WaitingMaybe,
+            UiText::WaitingMaybeNoPath,
+            UiText::WaitingMaybeRoute,
+            UiText::WaitingMaybeBusy,
+            UiText::UnreadAlsoKept,
+        ]
+        .map(placeholder_en::text);
+        for &host in RuntimeHost::ALL {
+            let unavailable = [
+                HostText::WaitingSendingUnavailable,
+                HostText::WaitingMaybeUnavailable,
+            ]
+            .map(|t| placeholder_en::host_text(host, t));
+            let statuses = LabelKey::ALL
+                .iter()
+                .map(|l| placeholder_en::label(*l))
+                .chain(waiting)
+                .chain(unavailable);
+            for status in statuses {
+                assert!(!status.ends_with('.'), "{host:?}: {status}");
+            }
+            for class in every_class() {
+                let reason = placeholder_en::error(host, class);
+                assert!(
+                    reason.ends_with('.') && !reason.ends_with(".."),
+                    "{host:?} {class:?}: {reason}"
+                );
+            }
+        }
     }
 
     /// Android has no daemon (relay 01a12495): no text it can show names
