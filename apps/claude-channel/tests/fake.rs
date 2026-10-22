@@ -825,6 +825,50 @@ async fn a_regained_lease_reports_its_gap_in_status_until_the_next_loss() {
     }
 }
 
+/// A lease the daemon revokes inside a live session is a loss like a
+/// closed session: the gap, once the lease is regained, names the revoked
+/// epoch and the revocation's instant, not the later close.
+#[tokio::test]
+async fn a_lease_revoked_in_session_is_the_gap_once_regained() {
+    use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+    let mut w = World::start().await;
+    w.wait_connected().await;
+    let revoked = w.status().await["endpoint_lease_epoch"].clone();
+
+    w.clock.store(NOW_MS + 1_000, Ordering::SeqCst);
+    let admin =
+        w.a.admin([AdminCapability::Endpoints].into())
+            .await
+            .expect("admin port");
+    admin
+        .revoke_endpoint(endpoint("claude"))
+        .await
+        .expect("revoked");
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while w.status().await["endpoint_lease_state"] != json!("not held") {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the revocation never reached the bridge"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        w.status().await.get("lease_gap").is_none(),
+        "not regained yet"
+    );
+
+    away_and_back(&mut w, NOW_MS + 31_000, NOW_MS + 61_000).await;
+    let after = w.status().await;
+    let gap = &after["lease_gap"];
+    assert_eq!(gap["lost_epoch"], revoked, "the revoked epoch: {after}");
+    assert_eq!(
+        gap["since"],
+        json!("2026-10-05T19:07:03.497Z"),
+        "the revocation's instant, not the close's"
+    );
+    assert_eq!(gap["epoch"], after["endpoint_lease_epoch"]);
+}
+
 /// Pull mode: the first `receive` after the regain carries the same gap,
 /// and only the first; `status` keeps it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
