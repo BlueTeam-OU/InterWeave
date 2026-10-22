@@ -1459,10 +1459,10 @@ impl Peers {
     }
 
     /// A block whose Trust is no longer on its way takes trust's answer:
-    /// trusted, a problem in the block, or an answer that leaves the
-    /// list unconfirmed (lost, or made but not read back) checked on
-    /// the trust list read again. A trusted peer's block keeps no
-    /// problem, whatever read listed it.
+    /// trusted -- also when answered as made with its list not read back
+    /// (§5.3) --, a problem in the block, or a lost answer checked on the
+    /// trust list read again. A trusted peer's block keeps no problem,
+    /// whatever read listed it.
     fn trust_answers(&mut self, trust: &TrustSettings) {
         let Some(page) = self.page.as_mut() else {
             return;
@@ -1493,9 +1493,12 @@ impl Peers {
                 moved = true;
                 if !block.allowed(trust) {
                     match trust.outcome().0 {
-                        Some(TrustOutcome::Unconfirmed(c) | TrustOutcome::Changed(c))
-                            if c.peer == block.peer =>
-                        {
+                        // Answered as made, though its list was not read
+                        // back: known, trusted (§5.3).
+                        Some(TrustOutcome::Changed(c)) if c.peer == block.peer => {
+                            block.known = Some(true);
+                        }
+                        Some(TrustOutcome::Unconfirmed(c)) if c.peer == block.peer => {
                             block.checking = true;
                             block.known = None;
                         }
