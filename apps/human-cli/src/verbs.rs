@@ -399,39 +399,47 @@ async fn row_action<B: DataSessionBinding, A: AdminBinding>(
         .model()
         .item_named(id)
         .ok_or_else(|| Failure::Refused("no message held has that id".to_owned()))?;
-    let intent = s
-        .model()
-        .actions(item)
-        .into_iter()
-        .find(|i| {
-            matches!(
-                (verb, i),
-                (RowVerb::Cancel, Intent::Cancel(_))
-                    | (RowVerb::Retry, Intent::Retry(_))
-                    | (RowVerb::Unkeep, Intent::Unkeep(_))
-            )
+    let offered = s.model().actions(item).into_iter().find(|i| {
+        matches!(
+            (verb, i),
+            (RowVerb::Cancel, Intent::Cancel(_))
+                | (RowVerb::Retry, Intent::Retry(_))
+                | (RowVerb::Unkeep, Intent::Unkeep(_))
+        )
+    });
+    // Opening the session attempts every pending message: one it sent
+    // before a retry was asked is what the retry was for.
+    if offered.is_none()
+        && matches!(verb, RowVerb::Retry)
+        && let Some(key) = conversation_of(s, item)
+        && s.model().messages(&key).iter().any(|m| {
+            m.key == item
+                && matches!(
+                    m.status,
+                    ItemStatus::Outbound(
+                        OutboundStatus::Accepted { .. } | OutboundStatus::Published
+                    )
+                )
         })
-        .ok_or_else(|| {
-            Failure::Refused(format!(
-                "{item} cannot be {} now",
-                match verb {
-                    RowVerb::Cancel => "cancelled",
-                    RowVerb::Retry => "retried",
-                    RowVerb::Unkeep => "unkept",
-                }
-            ))
-        })?;
+    {
+        return until_done(s, r, &key, item, out).await;
+    }
+    let intent = offered.ok_or_else(|| {
+        Failure::Refused(format!(
+            "{item} cannot be {} now",
+            match verb {
+                RowVerb::Cancel => "cancelled",
+                RowVerb::Retry => "retried",
+                RowVerb::Unkeep => "unkept",
+            }
+        ))
+    })?;
     s.will(move |_| vec![ViewEvent::Intent(intent)]);
     s.step().await;
     problems(s)?;
     let done = match verb {
         RowVerb::Retry => {
-            let key = s
-                .model()
-                .conversations()
-                .into_iter()
-                .map(|c| c.key)
-                .find(|k| s.model().messages(k).iter().any(|m| m.key == item))
+            let key = conversation_of(s, item)
                 .ok_or_else(|| Failure::Refused(format!("{item} is no longer shown")))?;
             return until_done(s, r, &key, item, out).await;
         }
@@ -446,6 +454,18 @@ async fn row_action<B: DataSessionBinding, A: AdminBinding>(
         let _ = writeln!(out, "{item} {done}");
     }
     Ok(())
+}
+
+/// The conversation `item` is shown in.
+fn conversation_of<B: DataSessionBinding, A: AdminBinding>(
+    s: &Session<B, A>,
+    item: ItemKey,
+) -> Option<ConversationKey> {
+    s.model()
+        .conversations()
+        .into_iter()
+        .map(|c| c.key)
+        .find(|k| s.model().messages(k).iter().any(|m| m.key == item))
 }
 
 fn trust_failure(problem: TrustProblem) -> Failure {
