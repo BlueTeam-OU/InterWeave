@@ -719,10 +719,12 @@ jobs:
         run: bash tools/checks/check_android_no_play_services.sh
 
       # ADR-0059 decision 6 (its Android half) and ADR-0060 decision 8:
-      # no contacts permission, provider or library, allowBackup "false",
-      # and every domain excluded from cloud-backup and device-transfer,
-      # read from the app's manifests, its extraction rules and its
-      # sources. Standard-library python3 only, as this job's others.
+      # no contacts permission, provider or library; allowBackup "false",
+      # no backupAgent, fullBackupContent or fullBackupOnly; and every
+      # domain excluded from cloud-backup and device-transfer, with no
+      # <include> -- read from the app's manifests, its extraction rules
+      # and its sources. Standard-library python3 only: it needs none of
+      # the validator dependencies installed above.
       - name: No address book and no platform backup in the Android app
         run: python3 tools/checks/check_android_contacts_and_backup.py
 
