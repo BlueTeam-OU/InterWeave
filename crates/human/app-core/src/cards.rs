@@ -51,11 +51,25 @@ fn refs(contacts: &[Contact]) -> Vec<ContactRef> {
 
 /// The proposal for a card committed unread: what Accept would do.
 pub(crate) fn proposal(store: &HumanStore, received: ReceivedCard) -> Result<Proposal, StoreError> {
-    let standing = store.card_standing(&accepted(
-        &received.peer,
-        &received.endpoint,
-        &received.card,
-    ))?;
+    let context = context(store, &received.peer, &received.endpoint, &received.card)?;
+    Ok(Proposal {
+        row: received.row,
+        peer: received.peer,
+        endpoint: received.endpoint,
+        card: received.card,
+        received_at: received.received_at,
+        context,
+    })
+}
+
+/// What Accept of `card` on its route would do, as the store stands now.
+pub(crate) fn context(
+    store: &HumanStore,
+    peer: &TransportIdentity,
+    endpoint: &EndpointId,
+    card: &Card,
+) -> Result<ProposalContext, StoreError> {
+    let standing = store.card_standing(&accepted(peer, endpoint, card))?;
     let CardStanding {
         updates,
         shares_node,
@@ -78,16 +92,20 @@ pub(crate) fn proposal(store: &HumanStore, received: ReceivedCard) -> Result<Pro
                 recorded: fingerprint(&recorded),
             },
         },
-        fingerprint: fingerprint(&received.card.identity_key),
+        fingerprint: fingerprint(&card.identity_key),
     };
-    Ok(Proposal {
-        row: received.row,
-        peer: received.peer,
-        endpoint: received.endpoint,
-        card: received.card,
-        received_at: received.received_at,
-        context,
-    })
+    Ok(context)
+}
+
+/// The photo Accept keeps: the card's, as received, when it decodes with
+/// the memory-safe decoder within 256 × 256, and none when it does not
+/// (HUMAN-CHAT.md: such a photo is discarded and the card kept without
+/// it). The bytes kept are decoded again at display (STATE.md).
+pub(crate) fn kept_photo(card: &Card) -> Option<&[u8]> {
+    card.photo
+        .as_ref()
+        .filter(|p| crate::card_photo::decode_received(p).is_some())
+        .map(|p| p.bytes.as_slice())
 }
 
 /// Every contact, as the model shows it.

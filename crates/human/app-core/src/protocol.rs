@@ -14,7 +14,7 @@ use interweave_human_client_api::{
 use interweave_human_store::RowId;
 use interweave_human_ui_model::{
     ContactView, ConversationKey, IdentityView, ItemKey, ListedInbound, ListedOutbound, PhotoEdit,
-    Proposal, Table, TrustChange,
+    Proposal, ProposalContext, Table, TrustChange,
 };
 
 /// A person's intent, resolved by the model, for the facade side to carry
@@ -63,7 +63,14 @@ pub enum Command {
     SetTrust(TrustChange),
     /// Accept the card an unread row holds: the row is read, the card
     /// verified again, and the contact written as its proposal said.
-    AcceptCard(RowId),
+    AcceptCard {
+        /// The row.
+        row: RowId,
+        /// The context the person was shown. The facade reads it again
+        /// from the store and writes nothing when the two differ
+        /// ([`Failure::ProposalChanged`]).
+        shown: Box<ProposalContext>,
+    },
     /// Decline it: the row is read, and nothing more is written.
     DeclineCard(RowId),
     /// Send this identity's own card on a direct conversation's route.
@@ -259,4 +266,9 @@ pub enum Failure {
     /// or holding a control character, or a photo that cannot be read or
     /// made to fit. Nothing was written.
     OutOfBounds,
+    /// What Accept would do changed since the proposal was shown -- another
+    /// card accepted on its route, a key recorded, a contact renamed.
+    /// Nothing was written, and the proposal is given again as it stands
+    /// ([`Update::ReceivedCard`]) for the person to decide.
+    ProposalChanged,
 }

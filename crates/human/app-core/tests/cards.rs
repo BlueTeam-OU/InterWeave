@@ -18,10 +18,10 @@ use std::collections::VecDeque;
 use base64::Engine as _;
 use interweave_human_app_core::{Command, FacadeSide, Failure, ModelSide, Opener, Surface, Update};
 use interweave_human_store::identity_key::{self, FilesystemCustody, IdentityKey};
-use interweave_human_store::{HumanStore, StoreOptions};
+use interweave_human_store::{HumanStore, OwnCard, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
-    AcceptLine, ConversationKey, Intent, KeyView, PhotoEdit, UiModel, ViewEvent,
+    AcceptLine, ConversationKey, Intent, KeyView, PhotoEdit, Table, UiModel, ViewEvent,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_config::TrustBoundary;
@@ -375,6 +375,198 @@ async fn a_shown_card_is_still_accepted_from_the_sessions_copy() {
 }
 
 #[tokio::test]
+async fn two_cards_on_one_route_before_any_accept_never_take_the_second_key_unseen() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    let first_key = key_of(&pa).fingerprint().to_string();
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(1).await;
+    alice.pump(2).await;
+    // A new key on Alice's side, and a second card, before Bob acts.
+    identity_key::remove(&pa.paths, &human(), &FilesystemCustody).expect("removed");
+    let second = key_of(&pa);
+    let second_key = second.fingerprint().to_string();
+    alice.facade.set_identity_key(second);
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(3).await;
+    alice.pump(4).await;
+    bob.pump(5).await;
+    let from_alice = direct(a.peer());
+    let both = bob.model().proposals(&from_alice);
+    assert_eq!(both.len(), 2, "{:?}", bob.updates);
+    assert!(
+        both.iter().all(|p| p.key == KeyView::New),
+        "both shown against an empty route"
+    );
+    let (one, two) = if both[0].fingerprint == first_key {
+        (both[0].row, both[1].row)
+    } else {
+        (both[1].row, both[0].row)
+    };
+    bob.will(Intent::AcceptCard(one));
+    bob.pump(6).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+
+    // The second, still shown as new, is refused and given again.
+    bob.will(Intent::AcceptCard(two));
+    bob.pump(7).await;
+    assert!(
+        bob.failed()
+            .iter()
+            .any(|(_, why)| *why == Failure::ProposalChanged),
+        "{:?}",
+        bob.failed()
+    );
+    assert_eq!(
+        bob.model().contacts()[0].routes[0].fingerprint.as_deref(),
+        Some(first_key.as_str()),
+        "nothing written: the route keeps the first key"
+    );
+    let again = bob.model().proposals(&from_alice);
+    assert_eq!(again.len(), 1);
+    assert_eq!(
+        again[0].key,
+        KeyView::Changed {
+            recorded: first_key.clone()
+        },
+        "given again as the key change it now is"
+    );
+    // Accepted as shown now, it writes: the copy was put back.
+    bob.will(Intent::AcceptCard(two));
+    bob.pump(8).await;
+    assert_eq!(
+        bob.model().contacts()[0].routes[0].fingerprint.as_deref(),
+        Some(second_key.as_str())
+    );
+    assert!(bob.model().proposals(&from_alice).is_empty());
+}
+
+#[tokio::test]
+async fn a_keep_of_a_shown_cards_copy_is_refused_and_the_card_stays_decidable() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    // A message too, for an item a Keep can name.
+    alice.will(Intent::Send {
+        key: direct(b.peer()),
+        draft: "hello".to_owned(),
+    });
+    alice.pump(1).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let item = bob.model().messages(&from_alice)[0].key;
+    let row = bob.model().proposals(&from_alice)[0].row;
+    for intent in bob.model().proposals_viewed(&from_alice, true) {
+        let Intent::MarkRead(r) = intent else {
+            panic!("{intent:?}")
+        };
+        bob.facade.execute(Command::MarkRead(r), 5).await;
+    }
+    let updates = bob
+        .facade
+        .execute(
+            Command::Keep {
+                item,
+                from: (Table::Unread, row),
+            },
+            6,
+        )
+        .await;
+    assert!(
+        updates.iter().any(|u| matches!(
+            u,
+            Update::Failed {
+                why: Failure::Refused,
+                ..
+            }
+        )),
+        "{updates:?}"
+    );
+    let shown = bob
+        .model()
+        .proposal_context(row)
+        .expect("still offered")
+        .clone();
+    let updates = bob
+        .facade
+        .execute(
+            Command::AcceptCard {
+                row,
+                shown: Box::new(shown),
+            },
+            7,
+        )
+        .await;
+    assert!(
+        updates
+            .iter()
+            .any(|u| matches!(u, Update::CardResolved(r) if *r == row)),
+        "the copy is still there for Accept: {updates:?}"
+    );
+    Box::pin(bob.facade.close()).await;
+    drop(bob);
+    let store = HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("reopen");
+    assert!(
+        store.kept_inbound().expect("read").is_empty(),
+        "no card kept: nothing else was asked to be"
+    );
+}
+
+/// A JPEG of `width` × `height`, written straight into the identity's
+/// own card: a sender that skipped the re-encode, as a remote one may.
+fn own_photo(profile: &Profile, width: u32, height: u32) {
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(image::RgbImage::new(width, height))
+        .write_to(&mut bytes, image::ImageFormat::Jpeg)
+        .expect("encoded");
+    let mut store =
+        HumanStore::open_profile(&profile.paths, StoreOptions::default()).expect("store");
+    store
+        .set_own_card(
+            &OwnCard {
+                endpoint: human(),
+                name: "Ada".to_owned(),
+                surname: None,
+                photo: Some(bytes.into_inner()),
+            },
+            WALL,
+        )
+        .expect("set");
+}
+
+#[tokio::test]
+async fn accept_keeps_a_photo_only_when_it_decodes_within_256_by_256() {
+    for (width, kept) in [(257, None), (256, Some(true))] {
+        let (a, b) = FakeNetwork::pair(node(), node());
+        let (pa, pb) = (profile(), profile());
+        own_photo(&pa, width, 8);
+        let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+        let mut bob = Root::new(facade(&b, &pb, None));
+        alice.pump(0).await;
+        bob.pump(0).await;
+        alice.will(Intent::ShareCard(direct(b.peer())));
+        alice.pump(1).await;
+        alice.pump(2).await;
+        bob.pump(3).await;
+        let proposal = bob.model().proposals(&direct(a.peer()))[0].clone();
+        assert!(proposal.has_photo, "the card carried one, {width} wide");
+        bob.will(Intent::AcceptCard(proposal.row));
+        bob.pump(4).await;
+        assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+        let contact = &bob.model().contacts()[0];
+        assert_eq!(contact.name, "Ada", "the card is kept");
+        assert_eq!(contact.photo_from_card, kept, "{width} wide");
+    }
+}
+
+#[tokio::test]
 async fn share_without_a_key_sends_nothing() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let pa = profile();
@@ -541,4 +733,12 @@ async fn the_identity_key_never_enters_the_store() {
             "the control: the store's own file was read, {scanned:?}"
         );
     }
+}
+
+#[test]
+fn the_model_holds_as_many_read_proposals_as_the_facade_holds_copies() {
+    assert_eq!(
+        interweave_human_ui_model::READ_PROPOSAL_CAP,
+        interweave_human_app_core::READ_COPY_CAP
+    );
 }

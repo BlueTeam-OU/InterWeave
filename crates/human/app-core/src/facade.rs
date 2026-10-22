@@ -18,7 +18,7 @@ use interweave_human_client_api::{
 use interweave_human_store::identity_key::IdentityKey;
 use interweave_human_store::{ReadEphemeral, RowId, StoreError};
 use interweave_human_transport_client::{CancelledSend, TransportClient};
-use interweave_human_ui_model::{ConversationKey, PhotoEdit, Table};
+use interweave_human_ui_model::{ConversationKey, PhotoEdit, Proposal, ProposalContext, Table};
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
 
 use crate::protocol::{Command, Failure, Listing, Update};
@@ -211,6 +211,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 let at = (self.wall)();
                 match self.copies.get(from) {
                     None => Err(Failure::CopyGone),
+                    // A card has no Keep, asked for through any path
+                    // (RETENTION.md): its copy stays for Accept or Decline.
+                    Some(held) if cards::card_of(held).is_some() => Err(Failure::Refused),
                     Some(held) => match self.client.store_mut().keep(held, at) {
                         Ok(row) => {
                             self.copies.remove(from);
@@ -301,7 +304,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 });
                 Ok(())
             }
-            Command::AcceptCard(row) => self.accept_card(*row, &mut updates),
+            Command::AcceptCard { row, shown } => self.accept_card(*row, shown, &mut updates),
             Command::DeclineCard(row) => self.decline_card(*row, &mut updates),
             Command::ShareCard(key) => Box::pin(self.share_card(key, now, &mut updates)).await,
             Command::SetOwnCard {
@@ -325,19 +328,57 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
 
     /// Accept: the row is read, which removes its unread copy (a card has
     /// no Keep), the card it held is verified again on its route, and the
-    /// contact written as the proposal said. A row that held no card is
-    /// read and nothing else is written.
-    fn accept_card(&mut self, row: RowId, updates: &mut Vec<Update>) -> Result<(), Failure> {
+    /// contact written as the proposal said -- only when the store still
+    /// says what `shown` says. Whatever stops it short of the write puts
+    /// the copy back for this session, so nothing the person can still
+    /// decide is lost: a row that held no card, a context that changed
+    /// (given again as it stands), a write that failed.
+    fn accept_card(
+        &mut self,
+        row: RowId,
+        shown: &ProposalContext,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
         let at = (self.wall)();
-        let held = self.held_card(row, at)?;
-        updates.push(Update::CardResolved(row));
+        let (held, read_now) = self.held_card(row, at)?;
+        if read_now {
+            updates.push(Update::Read(row));
+        }
+        let Some((peer, endpoint, card)) = cards::card_of(&held) else {
+            self.copies.insert((Table::Unread, row), held);
+            return Err(Failure::NotACard);
+        };
         let store = self.client.store_mut();
-        let (peer, endpoint, card) = cards::card_of(&held).ok_or(Failure::NotACard)?;
-        store
-            .accept_card(&cards::accepted(&peer, &endpoint, &card), at)
-            .map_err(|e| store_failure(&e))?;
+        let written = match cards::context(store, &peer, &endpoint, &card) {
+            Err(e) => Err(store_failure(&e)),
+            Ok(now) if now != *shown => {
+                let received_at = held.received_at();
+                updates.push(Update::ReceivedCard(Box::new(Proposal {
+                    row,
+                    peer: peer.clone(),
+                    endpoint: endpoint.clone(),
+                    card: card.clone(),
+                    received_at,
+                    context: now,
+                })));
+                Err(Failure::ProposalChanged)
+            }
+            Ok(_) => {
+                let mut accepted = cards::accepted(&peer, &endpoint, &card);
+                accepted.photo = cards::kept_photo(&card);
+                store
+                    .accept_card(&accepted, at)
+                    .map(|_| ())
+                    .map_err(|e| store_failure(&e))
+            }
+        };
+        if let Err(why) = written {
+            self.copies.insert((Table::Unread, row), held);
+            return Err(why);
+        }
+        updates.push(Update::CardResolved(row));
         updates.push(Update::ContactsListed(
-            cards::contact_views(store).map_err(|e| store_failure(&e))?,
+            cards::contact_views(self.client.store_mut()).map_err(|e| store_failure(&e))?,
         ));
         Ok(())
     }
@@ -351,16 +392,17 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         Ok(())
     }
 
-    /// The content of a card's row, its durable copy gone: the copy this
-    /// session holds if showing the proposal read it, else read now. A
-    /// proposal shown and past [`READ_COPY_CAP`] is gone, as a message's
-    /// copy is ([`Failure::CopyGone`]).
-    fn held_card(&mut self, row: RowId, at: u64) -> Result<ReadEphemeral, Failure> {
+    /// The content of a card's row, its durable copy gone, and whether
+    /// this call read it: the copy this session holds if showing the
+    /// proposal read it, else read now. A proposal shown and past
+    /// [`READ_COPY_CAP`] is gone, as a message's copy is
+    /// ([`Failure::CopyGone`]).
+    fn held_card(&mut self, row: RowId, at: u64) -> Result<(ReadEphemeral, bool), Failure> {
         if let Some(held) = self.copies.remove(&(Table::Unread, row)) {
-            return Ok(held);
+            return Ok((held, false));
         }
         match self.client.store_mut().mark_read(row, at) {
-            Ok(held) => Ok(held),
+            Ok(held) => Ok((held, true)),
             Err(StoreError::NoSuchRow | StoreError::AlreadyRead) => Err(Failure::CopyGone),
             Err(e) => Err(store_failure(&e)),
         }

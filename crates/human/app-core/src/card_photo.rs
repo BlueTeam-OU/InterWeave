@@ -11,8 +11,11 @@
 //! nothing of the original file but its pixels reaches the encoder.
 //!
 //! **The receiver** decodes a card's photo only after the person accepts
-//! the card, with a memory-safe decoder held to 256 × 256: a photo that
-//! fails to decode, or is larger, is dropped and the card kept without it.
+//! the card, with a memory-safe decoder held to 256 × 256: Accept keeps
+//! the photo as received only when it decodes so, and a photo that fails
+//! to decode, or is larger, is dropped and the card kept without it
+//! (`cards::kept_photo`); the view decodes the kept bytes again to show
+//! them.
 //! Both decoders are the `image` crate's pure-Rust ones (`png`,
 //! `zune-jpeg`), already in the graph under the toolkit.
 

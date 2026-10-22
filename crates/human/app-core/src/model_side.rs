@@ -233,8 +233,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     // The content is gone: stop offering what cannot work.
                     self.model.copy_gone(*item);
                 }
-                if let (Command::AcceptCard(row) | Command::DeclineCard(row), Failure::CopyGone) =
-                    (&command, why)
+                if let (
+                    Command::AcceptCard { row, .. } | Command::DeclineCard(row),
+                    Failure::CopyGone,
+                ) = (&command, why)
                 {
                     // The card's copy is gone: so is its proposal.
                     self.model.card_resolved(*row);
@@ -439,7 +441,12 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Intent::RecheckStorage => Command::RecheckStorage,
             Intent::ReadTrust => Command::ReadTrust,
             Intent::SetTrust(change) => Command::SetTrust(change),
-            Intent::AcceptCard(row) => Command::AcceptCard(row),
+            // Accept carries the context the person was shown; a proposal
+            // already gone has nothing to accept.
+            Intent::AcceptCard(row) => Command::AcceptCard {
+                row,
+                shown: Box::new(self.model.proposal_context(row)?.clone()),
+            },
             Intent::DeclineCard(row) => Command::DeclineCard(row),
             Intent::ShareCard(key) => Command::ShareCard(key),
             Intent::SetOwnCard {
