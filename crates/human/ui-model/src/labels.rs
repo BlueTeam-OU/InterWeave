@@ -248,7 +248,7 @@ ui_texts! {
     /// The same for a message that needs the person and says why:
     /// `{reason}` is its error class's text, a full sentence, read last
     /// so the status and time keep `Item`'s order (Android review F16).
-    ItemWithReason => "{author}: {body}. {status}, {time}. {reason}", // PLACEHOLDER (en)
+    ItemWithReason => "{author}: {body}. {status}, {time}. {reason}",
     /// A link's control, after the message body: `{destination}` is the
     /// link's full destination as `visible_destination` shows it -- every
     /// character as sent, a hidden one as its code point -- so the person
@@ -278,7 +278,7 @@ ui_texts! {
     AnnounceOwnStatus => "Your message: {status}.",
     /// The same for a status that comes with a reason: `{reason}` is its
     /// error class's text, a full sentence with its own period.
-    AnnounceOwnStatusReason => "Your message: {status}. {reason}", // PLACEHOLDER (en)
+    AnnounceOwnStatusReason => "Your message: {status}. {reason}",
     /// More than one of them changed status at once. `{count}` is a
     /// number.
     AnnounceOwnStatuses => "Your messages changed status: {count}.",
