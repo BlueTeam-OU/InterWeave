@@ -165,17 +165,19 @@ fn store_health(store: &mut HumanStore, json: bool) -> Outcome {
     }
 }
 
-/// What stops `listen`: an interrupt or a terminate.
-async fn stopped() {
+/// What stops `listen`: an interrupt or a terminate. Registered when it is
+/// made, not when first polled, so a signal that arrives while the
+/// session is still opening ends `listen` as cleanly as a later one.
+fn stopped() -> std::io::Result<impl std::future::Future<Output = ()>> {
     use tokio::signal::unix::{SignalKind, signal};
-    let Ok(mut term) = signal(SignalKind::terminate()) else {
-        let _ = tokio::signal::ctrl_c().await;
-        return;
-    };
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {}
-        _ = term.recv() => {}
-    }
+    let mut term = signal(SignalKind::terminate())?;
+    let mut interrupt = signal(SignalKind::interrupt())?;
+    Ok(async move {
+        tokio::select! {
+            _ = term.recv() => {}
+            _ = interrupt.recv() => {}
+        }
+    })
 }
 
 fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
@@ -194,6 +196,16 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
     {
         Ok(runtime) => runtime,
         Err(e) => return Failure::Refused(format!("the runtime: {e}")).into(),
+    };
+    // Before the lock: from here a signal is `listen`'s to answer.
+    let stop = if *verb == cli::Verb::Listen {
+        let _entered = runtime.enter();
+        match stopped() {
+            Ok(stop) => Some(stop),
+            Err(e) => return Failure::Refused(format!("the signal handlers: {e}")).into(),
+        }
+    } else {
+        None
     };
     let mut out = String::new();
     if matches!(
@@ -220,8 +232,8 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
             ))
         })?;
         let mut session = session::Session::new(facade, move || ProfileLock::is_held(&paths).ok())?;
-        let result = if *verb == cli::Verb::Listen {
-            verbs::listen(&mut session, json, &mut std::io::stdout(), stopped()).await
+        let result = if let Some(stop) = stop {
+            verbs::listen(&mut session, json, &mut std::io::stdout(), stop).await
         } else {
             let r = verbs::Run {
                 profile: &name,
@@ -293,5 +305,27 @@ fn main() -> ExitCode {
         }
         Ok(()) if written.is_err() => ExitCode::from(1),
         Ok(()) => ExitCode::SUCCESS,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn a_signal_before_listen_first_polls_its_stop_ends_it_cleanly() {
+        let stop = super::stopped().expect("handlers");
+        // Raised before `stop` is ever polled: had the handlers waited for
+        // the first poll, the default disposition would end this process.
+        let raised = std::process::Command::new("kill")
+            .args(["-TERM", &std::process::id().to_string()])
+            .status()
+            .expect("kill runs");
+        assert!(raised.success());
+        tokio::time::timeout(Duration::from_secs(5), stop)
+            .await
+            .expect("the signal was caught and ends the wait");
     }
 }
