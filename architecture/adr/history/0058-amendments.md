@@ -17,3 +17,16 @@ as the case header+text; a header carrying a full permission notice
 ships alone. Decision 3's list records the three cases and is keyed by
 name and version. Propagation: decisions 2 and 3; this note; the log
 row; the digest entry.
+
+### Amendment 2026-10-22 — The APK page's crate notices have a placeholder of their own, `{crate_notices}`
+
+Decision 5 said the APK page carries the crate notices "under
+`{third_party_notice_texts}`". At the first fill (j99's
+`release_notices.py --json crate_notices`, 379 crates), rust-ui-dev
+supplied a placeholder of its own after that one, with an introducing
+sentence, and p2p-network-dev asked which holds: one value joined by
+the step, or two placeholders each filled by its own tool. Ruled the
+second, as they recommended: no string joining in the release step,
+and the page itself says which texts are the native C libraries' and
+which the Rust crates'. Propagation: decision 5; this note; the log
+row; the digest entry.

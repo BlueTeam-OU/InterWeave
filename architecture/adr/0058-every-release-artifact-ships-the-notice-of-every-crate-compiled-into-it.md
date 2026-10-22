@@ -21,7 +21,7 @@ What this repository already holds: CLAUDE.md §8 forbids stripping an upstream 
 
 4. **No licence election is recorded.** An `OR` expression is satisfied by the term whose text the crate publishes (both, when it publishes both); under 2.iii, by the first term the expression lists. This record relicenses nothing and widens `deny.toml` by nothing.
 
-5. **Android owes the same notices.** The APK's release page carries, under `{third_party_notice_texts}`, the notices of every crate compiled into the native library for the Android target, produced by the same tool from the same rule, beside the native libraries' notices it already carries. ADR-0057 decision 5 is amended to say so.
+5. **Android owes the same notices.** The APK's release page carries the notices of every crate compiled into the native library for the Android target, produced by the same tool from the same rule, after the native libraries' notices it already carries under `{third_party_notice_texts}` and under a placeholder of its own, `{crate_notices}`, each filled by its own tool with no joining of values, the page saying in its own sentence which texts are the native C libraries' and which the Rust crates' (A 2026-10-22, the first fill of the page). ADR-0057 decision 5 is amended to say so.
 
 6. **Until the derivation lands, the tool stays fail-closed** (56d0ae4a): a crate with no licence file refuses the artifact, and no release runs. A release that ships a crate without its notice is the failure this record exists to prevent; a release that does not ship is the lesser one.
 
@@ -57,3 +57,4 @@ A crate of 2.iii publishing a notice upstream (its entry moves or goes); a tool 
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-22 | A header without a copyright line is no notice; a header naming an unpublished licence file ships with the standard text | Decision 2.ii: a lone SPDX tag falls to 2.iii; the case header+text (the header whole, then the elected term's standard text, no invented copyright line); decision 3's list records three cases, keyed by name and version. |
+| 2026-10-22 | The APK page's crate notices have a placeholder of their own, `{crate_notices}` | Decision 5: after `{third_party_notice_texts}`, each placeholder filled by its own tool, the page's sentence naming which texts are whose; "under" was the first wording. |

@@ -380,6 +380,7 @@ Accepted 2026-10-21 (architect-cto's decision, the owner's word the same day) on
 - Rules: the set is the artifact's own resolve (target and packages); the notice is read from the pinned registry copy in order — the crate's licence files, else its source-header notice (the same evidence as a file, under the same checksum), else the declared licence's standard text under the crate's `authors` with one sentence saying it publishes no notice; crates under the last two cases are named in a reviewed list in `tools/ci/` and an unlisted one fails the artifact, a stale entry is reported; no licence election is recorded (an `OR` is met by the term the crate publishes, else the first); the Android release page carries the same notices for the native library's crates (ADR-0057 decision 5 amended); the tool stays fail-closed until the derivation lands, and no release runs.
 - Not taken: expression and URL alone; hand-copied per-crate files; an Apache-2.0 election; refusing forever.
 - The header cases (Amendment 2026-10-22): a header counts only with a copyright line (a lone SPDX tag falls to the standard text); a header naming an unpublished licence file ships whole followed by the elected term's standard text (case header+text); the list records the case, keyed by name and version.
+- The APK page (Amendment 2026-10-22): the Rust crates' notices under their own `{crate_notices}` after the native libraries' `{third_party_notice_texts}`, each filled by its own tool.
 
 ## Cluster 7 — Identity and key material
 
