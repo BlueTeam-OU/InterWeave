@@ -1348,6 +1348,23 @@ impl ConnectionManager {
         self.policy.preferred_addresses(peer, &known, now_ms)
     }
 
+    /// Take `address` out of `peer`'s book: an operator's removal
+    /// (ADR-0062: a removed bootstrap address is dialled no more, without
+    /// a restart). Its state goes back to the policy table as a displaced
+    /// entry's does ([`Self::learn_address`]), so a live quarantine
+    /// leaves only into room the table can give it and leaving launders
+    /// nothing.
+    ///
+    /// Returns whether the address is out of the book: `true` too when it
+    /// was never in it, and `false` only for a live quarantine the table
+    /// cannot take yet, which stays -- quarantined, so not dialled -- for
+    /// the caller to ask again (`a_forgotten_address_leaves_the_book`,
+    /// `a_quarantine_the_table_cannot_take_is_forgotten_later`).
+    pub fn forget_address(&mut self, peer: &TransportIdentity, address: &str, now_ms: u64) -> bool {
+        self.observe(now_ms);
+        self.hand_over(peer, address, now_ms)
+    }
+
     /// How many addresses are remembered for `peer`.
     #[must_use]
     pub fn known_addresses(&self, peer: &TransportIdentity) -> usize {
@@ -4809,6 +4826,50 @@ mod tests {
         let _ = m.set_trust(trusting(&[P1], &[]), &[]);
         assert!(m.learn_address(&peer(P1), A1, 0));
         assert_eq!(m.known_addresses(&peer(P1)), 1);
+    }
+
+    #[test]
+    fn a_forgotten_address_leaves_the_book() {
+        let mut m = manager(8);
+        assert!(m.learn_address(&peer(P1), A2, 0));
+        assert!(m.learn_address(&peer(P1), "/ip4/198.51.100.9/tcp/1", 0));
+        assert!(m.forget_address(&peer(P1), A2, 0));
+        assert_eq!(
+            m.known_addresses(&peer(P1)),
+            1,
+            "the other stays: the control"
+        );
+        assert!(
+            m.forget_address(&peer(P1), A2, 0),
+            "an address not in the book is out of it"
+        );
+        assert!(
+            m.learn_address(&peer(P1), A2, 0),
+            "and may be learned again"
+        );
+    }
+
+    #[test]
+    fn a_quarantine_the_table_cannot_take_is_forgotten_later() {
+        let mut m = full_book_with_a_quarantine(1);
+        m.policy.max_addresses = 2;
+        let quarantined = "/ip4/198.51.100.3/tcp/1";
+        let held = m
+            .handle()
+            .admit(&request(P2, "/ip4/198.51.100.1/tcp/1"), 0)
+            .expect("admitted, its outcome reserving the one free slot");
+        let before = m.known_addresses(&peer(P1));
+        assert!(
+            !m.forget_address(&peer(P1), quarantined, 0),
+            "the free slot is promised: the quarantine stays in the book"
+        );
+        assert_eq!(m.known_addresses(&peer(P1)), before);
+        drop(held);
+        assert!(
+            m.forget_address(&peer(P1), quarantined, 0),
+            "asked again, it leaves"
+        );
+        assert_eq!(m.known_addresses(&peer(P1)), before - 1);
     }
 
     #[test]
