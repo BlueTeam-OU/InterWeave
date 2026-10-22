@@ -460,21 +460,26 @@ client prepares what will be sent from the picked image:
   the rest of the metadata below and a photo stripped of it unturned
   would arrive sideways;
 - then crops the largest centred square and scales it to exactly
-  256 × 256 pixels, the size of its largest use: the 96 dp circle on a
-  contact page and in this editor (252 px on a 420 dpi phone, 192 px on
-  a desktop at 2×), every smaller use (the 40 dp list avatar, the 36 dp
-  app bar) being drawn from it on the receiving device. A picture
-  smaller than 256 px a side is sent at its own size, never enlarged.
-  (The owner, 2026-10-21: "my advice for the contact image is to resize
-  exactly to the use we do before sending it over transport base64
-  encoded", read as one fixed size and confirmed; until then this
-  scaled to at most 256 and stepped down to 192 and 128 px.) It lays
-  any transparency over plain white and encodes it as JPEG, always, at
-  the highest quality from 90 down to 50 that fits 24,576 bytes
-  (HUMAN-CHAT.md): a 256 px photograph fits at quality 50 with room to
-  spare, so there is no smaller size to fall back to, and an image that
-  still does not fit is unusable (below). JPEG always, because a
-  lossless PNG of a photograph seldom fits and has no quality to lower.
+  256 × 256 pixels, HUMAN-CHAT.md's bound, which covers the photo's
+  largest use, the 96 dp circle on a contact page and in this editor,
+  at common densities (252 px on a 420 dpi phone, 192 px on a desktop
+  at 2×; a denser screen scales it up a little); every smaller use (the
+  40 dp list avatar, the 36 dp app bar) is drawn from it on the
+  receiving device. A picture smaller than 256 px a side is sent at its
+  own size, never enlarged. (The owner, 2026-10-21: "my advice for the
+  contact image is to resize exactly to the use we do before sending
+  it over transport base64 encoded", read as one fixed size and
+  confirmed; until then this scaled to at most 256 and stepped down to
+  192 and 128 px.) It lays any transparency over plain white and
+  encodes it as JPEG, always, with 4:2:0 chroma subsampling, at the
+  highest quality from 90 down to 20 that fits 24,576 bytes
+  (HUMAN-CHAT.md). A camera photograph fits at quality 50 or above; the
+  lower qualities are for a picture of fine texture or noise, which at
+  256 px can exceed the bound at 50 (measured: uniform noise 27,478
+  bytes at quality 50, 23,260 at 40, 13,620 at 20), so the size stays
+  fixed and the quality gives. An image that still does not fit at 20
+  is unusable (below). JPEG always, because a lossless PNG of a
+  photograph seldom fits and has no quality to lower.
   The bytes go into the card as HUMAN-CHAT.md's base64, which the
   client never re-encodes in transit;
 - the preview shows the prepared bytes, decoded, not the original, so
