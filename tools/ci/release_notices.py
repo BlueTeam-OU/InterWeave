@@ -9,7 +9,12 @@
 # programs: every crate compiled into them, with its licence and the
 # licence texts the crate itself publishes.
 #
-#   tools/ci/release_notices.py <metadata.json> <compiled.txt> <out.md> <package>...
+#   tools/ci/release_notices.py [--json KEY] <metadata.json> <compiled.txt> <out> <package>...
+#
+# With --json KEY, <out> is {"KEY": the notices} for release_page.py: the
+# page's own title line dropped and every heading one level down, so the
+# text sits under a section of the release page (ADR-0058 decision 5, the
+# APK's notices); a line inside a fenced licence text is never touched.
 #
 # <compiled.txt> says WHICH crates: `cargo tree --locked -e normal
 # --target <target> -p <package>... --prefix none -f '{p}'`, the crates
@@ -343,12 +348,31 @@ def render(third: list, derived: dict) -> tuple:
     return "\n".join(out) + "\n", len(order)
 
 
+def as_section(page: str) -> str:
+    """The page without its title line, each heading one level down,
+    fenced text left as it is."""
+    out, fenced = [], False
+    for line in page.splitlines()[1:]:
+        if line.startswith("```"):
+            fenced = not fenced
+        elif not fenced and line.startswith("#"):
+            line = "#" + line
+        out.append(line)
+    return "\n".join(out).strip("\n") + "\n"
+
+
 def run(argv: list) -> int:
     if len(argv) == 2 and argv[1] in ("-h", "--help"):
         sys.stdout.write(help_text())
         return 0
+    key = None
+    if len(argv) > 1 and argv[1] == "--json":
+        if len(argv) < 3:
+            sys.stderr.write("usage: release_notices.py [--json KEY] <metadata.json> <compiled.txt> <out> <package>...\n")
+            return 2
+        key, argv = argv[2], argv[:1] + argv[3:]
     if len(argv) < 5:
-        sys.stderr.write("usage: release_notices.py <metadata.json> <compiled.txt> <out.md> <package>...\n")
+        sys.stderr.write("usage: release_notices.py [--json KEY] <metadata.json> <compiled.txt> <out> <package>...\n")
         return 2
     try:
         metadata = json.loads(Path(argv[1]).read_text())
@@ -359,6 +383,8 @@ def run(argv: list) -> int:
     except (OSError, ValueError, KeyError) as err:
         sys.stderr.write(f"release_notices: {err}\n")
         return 1
+    if key is not None:
+        page = json.dumps({key: as_section(page)}) + "\n"
     publish(Path(argv[3]), page)
     print(f"{len(third)} crates, {distinct} distinct licence texts")
     return 0
@@ -380,7 +406,8 @@ def main(argv: list) -> int:
     # write, an exception -- leaves no file of that name, an earlier run's
     # included, so what is there after a failure is never taken for this
     # run's.
-    out = Path(argv[3]) if len(argv) >= 5 else None
+    rest = argv[2:] if len(argv) > 2 and argv[1] == "--json" else argv
+    out = Path(rest[3]) if len(rest) >= 5 else None
     status = 1
     try:
         status = run(argv)
