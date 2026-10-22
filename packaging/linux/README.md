@@ -96,9 +96,14 @@ A release ships these files as
 `interweave-<version>-x86_64-unknown-linux-gnu.tar.gz`, built by
 `tools/ci/release_linux_archive.sh`: one directory holding `bin/` (the
 three programs), `systemd/` (the two templates), `install.sh`,
-`uninstall.sh`, this README, `LICENSE` and `THIRD-PARTY-NOTICES.md`, the
-licence files of every crate compiled into the programs (a crate that
-publishes none fails the archive, since its notice cannot be shipped). The archive has no
+`uninstall.sh`, this README, `LICENSE`, `THIRD-PARTY-NOTICES.md`, the
+licence files of every crate compiled into the programs and the Claude Code
+bridge (a crate that publishes none fails the archive, since its notice cannot
+be shipped), and `claude-plugin/`, the Claude Code plugin marketplace with the
+bridge inside it. `install.sh` does not install the plugin; Claude Code adds
+it, from a copy of `claude-plugin/` kept where it stays, with
+`claude plugin marketplace add <that copy>` and then
+`claude plugin install interweave@interweave`. The archive has no
 signature; its SHA-256 is on the release page and in the `.sha256` file
 beside it, and the same sources and `SOURCE_DATE_EPOCH` give the same
 bytes. The first build of it is `evidence/2026-10-20-release-archive.md`.

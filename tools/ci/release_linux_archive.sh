@@ -20,14 +20,17 @@
 #   bin/transport-daemon  bin/transportctl  bin/human-desktop
 #   systemd/interweave-daemon@.service  systemd/interweave-client@.service
 #   install.sh  uninstall.sh  README.md  LICENSE  THIRD-PARTY-NOTICES.md
+#   claude-plugin/   the Claude Code marketplace packaging/claude-plugin/build.sh
+#                    assembles, with claude-channel in interweave/bin/; it is
+#                    added with `claude plugin marketplace add`, not by install.sh
 #
-# Without --bin-dir the three programs are built here, `cargo build
-# --release --locked` for x86_64-unknown-linux-gnu; with it, DIR holds
-# them already built (the self-test's stand-ins). THIRD-PARTY-NOTICES.md
-# is release_notices.py over `cargo tree --locked -e normal` of the three
-# packages for that target (which crates) and `cargo metadata --locked`
-# (what each is), or over the files RELEASE_COMPILED_LIST and
-# RELEASE_METADATA_JSON name.
+# Without --bin-dir the three programs and claude-channel are built here,
+# `cargo build --release --locked` for x86_64-unknown-linux-gnu; with it,
+# DIR holds all four already built (the self-test's stand-ins).
+# THIRD-PARTY-NOTICES.md is release_notices.py over `cargo tree --locked
+# -e normal` of the four packages for that target (which crates) and
+# `cargo metadata --locked` (what each is), or over the files
+# RELEASE_COMPILED_LIST and RELEASE_METADATA_JSON name.
 #
 # The archive is byte-for-byte reproducible from the same inputs: names
 # sorted, owner and group 0, modes fixed whatever the umask, every mtime
@@ -35,7 +38,7 @@
 # name or time.
 #
 # REFUSED when <version> is not MAJOR.MINOR.PATCH, or a program, a unit
-# or a script is missing. On any failure once <version> is checked, a
+# or a script is missing, or build.sh refuses the plugin. On any failure once <version> is checked, a
 # refusal or a step after the checks, none of the three outputs is left
 # in <out-dir>: all three are written in scratch and moved together at
 # the end, and a failure removes every one of their names from <out-dir>,
@@ -52,8 +55,13 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 target=x86_64-unknown-linux-gnu
-packages=(interweave-transport-daemon interweave-transportctl interweave-human-desktop)
+# The bridge is built and its crates noticed with the three, but it ships
+# only inside the plugin, never in bin/: the plugin's .mcp.json starts
+# ${CLAUDE_PLUGIN_ROOT}/bin/claude-channel, and Claude Code, not install.sh,
+# is what runs it.
+packages=(interweave-transport-daemon interweave-transportctl interweave-human-desktop interweave-claude-channel)
 programs=(transport-daemon transportctl human-desktop)
+bridge=claude-channel
 units=(interweave-daemon@.service interweave-client@.service)
 
 usage() {
@@ -107,7 +115,7 @@ if [[ -z "$bin_dir" ]]; then
     [[ -n "$target_dir" ]] || die "cargo metadata did not name the target directory"
     bin_dir="$target_dir/$target/release"
 fi
-for p in "${programs[@]}"; do
+for p in "${programs[@]}" "$bridge"; do
     [[ -f "$bin_dir/$p" && -x "$bin_dir/$p" ]] || die "no executable $bin_dir/$p"
 done
 for f in packaging/linux/install.sh packaging/linux/uninstall.sh packaging/linux/README.md LICENSE \
@@ -126,6 +134,13 @@ install -m 0755 "$root/packaging/linux/install.sh" "$stage/install.sh"
 install -m 0755 "$root/packaging/linux/uninstall.sh" "$stage/uninstall.sh"
 install -m 0644 "$root/packaging/linux/README.md" "$stage/README.md"
 install -m 0644 "$root/LICENSE" "$stage/LICENSE"
+bash "$root/packaging/claude-plugin/build.sh" "$stage/claude-plugin" "$bin_dir/$bridge" >/dev/null \
+    || die "packaging/claude-plugin/build.sh refused the plugin"
+# build.sh's copies take the builder's umask; the archive's modes are fixed
+# like the rest.
+find "$stage/claude-plugin" -type d -exec chmod 0755 {} +
+find "$stage/claude-plugin" -type f -exec chmod 0644 {} +
+chmod 0755 "$stage/claude-plugin/interweave/bin/$bridge"
 
 metadata="${RELEASE_METADATA_JSON-}"
 if [[ -z "$metadata" ]]; then
