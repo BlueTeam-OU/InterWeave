@@ -1762,10 +1762,11 @@ export component AppWindow inherits Window {
         - max(root.safe-area-insets.bottom, root.keyboard-overlap);
     // M: the least message area worth showing, two one-line bubbles.
     property <length> least-messages: 120px;
-    // The pane's own padding and the spacing between its rows, which take
-    // height whatever steps aside: 12 px above and below, and 8 px after
-    // the bar, the messages' heading and the list.
-    property <length> pane-chrome: 48px;
+    // The pane's own padding and the spacing between its rows, while the
+    // bar shows: 12 px above and below, and 8 px after the bar and after
+    // the list. The messages' heading is placed, not a row, and the top
+    // padding goes with the bar.
+    property <length> pane-chrome: 40px;
     // C, B and the notice: last measured while shown, so a part that
     // steps aside keeps the height it would take back.
     property <length> composer-height: 48px;
@@ -2483,6 +2484,11 @@ export component AppWindow inherits Window {
         if !root.trust-page: VerticalLayout {
             visible: root.pane-shown;
             padding: 12px;
+            // With the app bar aside, the list begins at the pane's top: the
+            // padding was there to set the bar off the window's edge, and
+            // the strip left to the messages has no 12 px to spare
+            // (#304 F9 step 5).
+            padding-top: root.bar-aside ? 0px : 12px;
             spacing: 8px;
             // The top app bar (section 6): Back on a narrow screen, the
             // avatar, the name over the connectivity line and, once known,
@@ -2594,12 +2600,17 @@ export component AppWindow inherits Window {
                 pressed => { root.notice-pressed(); }
                 focused(k) => { root.focus-id = k; }
             }
+            // The list, and over its top corner its heading. The heading is
+            // placed, so it is not a row of the pane and costs it no spacing:
+            // with the keyboard up in landscape the strip left to the
+            // messages is the pane's height less its chrome, and an empty
+            // row's 8 px were a fifth of it (#304 F9 step 5).
+            Rectangle {
+                vertical-stretch: 1;
             // Not drawn: the bubbles show where the messages are. Kept as a
             // heading a screen reader can move to (section 6), clipped to
             // a point rather than hidden, which would take it out of the
             // tree.
-            Rectangle {
-                height: 0px;
                 Rectangle {
                     x: 0;
                     y: 0;
@@ -2612,13 +2623,9 @@ export component AppWindow inherits Window {
                         accessible-label: self.text;
                     }
                 }
-            }
-            // A long conversation scrolls; the composer stays in view. The
-            // built-in Flickable, not std-widgets' ScrollView, whose icons
-            // need an image feature the graph does not carry: it scrolls
-            // by wheel and touch, with no visible scrollbar.
             Flickable {
-                vertical-stretch: 1;
+                width: parent.width;
+                height: parent.height;
                 content-height: messages-column.preferred-height;
                 // A row tracking a swipe holds its touch: the list does
                 // not scroll for it (swipe spec section 4).
@@ -3136,6 +3143,7 @@ export component AppWindow inherits Window {
                         shown: item.has-focus;
                     }
                 }
+            }
             }
             }
             }

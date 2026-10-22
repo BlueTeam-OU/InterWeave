@@ -1891,8 +1891,9 @@ fn a_long_status_wraps_and_its_time_stays_whole_inside_the_bubble() {
 /// #304 F9 step 5, on the phone's own figures (ux-designer-01, round 3:
 /// the Pixel in landscape, keyboard up): the strip left to the messages
 /// ends at the composer, and the newest message's end, its status and
-/// time, are in it. An empty refused-send line kept 25 px between them,
-/// most of that strip.
+/// time, are in it, and a one-line message whole. An empty refused-send
+/// line kept 25 px between them, most of that strip; the pane's top
+/// padding and the heading's row took 20 px more above it.
 #[test]
 fn with_the_keyboard_up_in_landscape_the_newest_message_ends_at_the_composer() {
     let mut model = UiModel::new();
@@ -1924,7 +1925,7 @@ fn with_the_keyboard_up_in_landscape_the_newest_message_ends_at_the_composer() {
             .find(|e| e.id().as_deref() == Some("AppWindow::composer-box"))
             .expect("the composer"),
     );
-    let (_, message_end) = top_end(
+    let (message_top, message_end) = top_end(
         found
             .iter()
             .find(|e| {
@@ -1932,6 +1933,19 @@ fn with_the_keyboard_up_in_landscape_the_newest_message_ends_at_the_composer() {
                     .is_some_and(|l| l.contains("message number 1"))
             })
             .expect("the message"),
+    );
+    // The strip is the pane's whole height above the composer: with the
+    // bar aside, no top padding and no row for the heading, which took
+    // 20 px of it on the phone (round 3).
+    assert!(
+        list_top <= 0.5,
+        "the list begins at the pane's top: {list_top}"
+    );
+    // A one-line message fits whole in what is left, its text as well as
+    // its status and time.
+    assert!(
+        message_top >= list_top,
+        "the whole message in view: {message_top}..{message_end} from {list_top}"
     );
     // The list's padding (5 px) and the pane's spacing (8 px).
     assert!(
