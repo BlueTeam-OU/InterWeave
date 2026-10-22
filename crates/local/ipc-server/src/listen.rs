@@ -216,13 +216,15 @@ fn prepare_run_dir(paths: &SocketPaths) -> Result<u32, BindError> {
         move |source| BindError::Io { path, source }
     };
     let uid = effective_uid().map_err(io(&paths.run_dir))?;
-    match std::fs::symlink_metadata(&paths.run_dir) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => DirBuilder::new()
-            .mode(RUN_DIR_MODE)
-            .create(&paths.run_dir)
-            .map_err(io(&paths.run_dir))?,
+    // Create, and take "already there" as an answer: the directory is
+    // shared by every profile of this uid, so another daemon starting at
+    // the same moment -- two units started together at boot -- can make
+    // it between a lookup and a create. Whatever is there is judged
+    // below either way (`two_daemons_preparing_one_run_directory_both_succeed`).
+    match DirBuilder::new().mode(RUN_DIR_MODE).create(&paths.run_dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(e) => return Err(io(&paths.run_dir)(e)),
-        Ok(_) => {}
     }
     let meta = std::fs::symlink_metadata(&paths.run_dir).map_err(io(&paths.run_dir))?;
     judge_run_dir(&paths.run_dir, &meta, uid)?;
@@ -382,6 +384,46 @@ mod tests {
         assert_eq!(mode(&paths.admin), 0o600);
         assert!(bound.admin_error().is_none());
         assert_eq!(bound.owner_uid(), effective_uid().expect("uid"));
+    }
+
+    /// Every profile of a uid shares the run directory, and two daemons
+    /// started together both create it. Many threads released at once
+    /// on a fresh directory all prepare it; with the lookup-then-create
+    /// this replaced, the losers failed `AlreadyExists` (seen as one of
+    /// two daemons dying at start). The control is the directory it
+    /// leaves, judged owner-only like any other.
+    #[test]
+    fn two_daemons_preparing_one_run_directory_both_succeed() {
+        const RACERS: usize = 8;
+        for _ in 0..50 {
+            let root = tempfile::tempdir().expect("tempdir");
+            let run_dir = root.path().join("interweave");
+            let barrier = std::sync::Barrier::new(RACERS);
+            let results: Vec<_> = std::thread::scope(|scope| {
+                let racers: Vec<_> = (0..RACERS)
+                    .map(|i| {
+                        let (run_dir, barrier) = (&run_dir, &barrier);
+                        scope.spawn(move || {
+                            let paths = SocketPaths {
+                                data: run_dir.join(format!("{i}.sock")),
+                                admin: run_dir.join(format!("{i}.admin.sock")),
+                                run_dir: run_dir.clone(),
+                            };
+                            barrier.wait();
+                            prepare_run_dir(&paths).map(|_| ())
+                        })
+                    })
+                    .collect();
+                racers
+                    .into_iter()
+                    .map(|r| r.join().expect("joined"))
+                    .collect()
+            });
+            for result in results {
+                result.expect("every racer prepares the shared run directory");
+            }
+            assert_eq!(mode(&run_dir), 0o700);
+        }
     }
 
     #[tokio::test]
