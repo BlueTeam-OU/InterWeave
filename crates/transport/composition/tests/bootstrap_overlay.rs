@@ -16,12 +16,16 @@ use std::time::Duration;
 
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AdminBinding as _, AdminCapability,
-    AdminPort as _, BootstrapAddress,
+    AdminPort as _, BootstrapAddress, DataCapability, DataSessionBinding as _,
+    DataSessionPort as _, SessionRequest,
 };
 use interweave_profile_config::ProfileConfig;
 use interweave_profile_config::bootstrap_overlay::BOOTSTRAP_OVERLAY_FILE;
 use interweave_profile_identity::ProfileIdentity;
-use interweave_transport_api::{TransportEvent, TransportIdentity, TransportRuntime as _};
+use interweave_transport_api::{
+    DirectDestination, EndpointId, MessageId, Payload, TransportEvent, TransportIdentity,
+    TransportRuntime as _,
+};
 use interweave_transport_composition::{ComposedRuntime, CompositionError, CompositionOptions};
 
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -530,12 +534,38 @@ async fn a_removed_address_is_dialled_no_more_without_a_restart() {
     assert_eq!(remove(&subject, &b_addr).await, AddressChange::Removed);
     target.shutdown().await.expect("clean shutdown");
     let target = start_target(bound).await;
+    // A SEND TO THE PEER is what reads the book (`DialPeer`): with the
+    // route still there it would dial and connect.
+    let sending = subject
+        .sessions()
+        .open(
+            SessionRequest::new(
+                "human-client",
+                Some(EndpointId::parse("human").expect("valid")),
+                [DataCapability::Commands],
+            )
+            .expect("in bounds"),
+        )
+        .await
+        .expect("a leases");
+    let sent = sending
+        .send_direct(
+            DirectDestination {
+                peer: b.clone(),
+                endpoint: Some(EndpointId::parse("human").expect("valid")),
+            },
+            MessageId::from_bytes([7; 16]),
+            Payload::at_ceiling(None, b"to a removed address".to_vec()).expect("in bounds"),
+        )
+        .await;
+    assert!(sent.is_err(), "a send found a route: {sent:?}");
     assert!(
         tokio::time::timeout(window, wait_connected(&mut subject, &b))
             .await
             .is_err(),
         "a removed address was dialled within {window:?}"
     );
+    drop(sending);
     subject.shutdown().await.expect("clean shutdown");
     target.shutdown().await.expect("clean shutdown");
 }
