@@ -821,7 +821,7 @@ reproduced, so not filed.
 | 1 | F4 Trust's look and PeerIds | built, re-reviewed: partly. Met except Trust at 200 % font in light theme, which no round walked (Trust dark at 1.0 in round 3, Details at 200 % and light in round 4); carried by name to a person's check or the next window |
 | 1 | F8 status bar in light theme | built, re-reviewed: pass (round 1) |
 | 1 | F9 landscape keyboard | built, re-reviewed: pass (round 5) |
-| 1 | F16 composer focus and untrusted send | built, re-reviewed: pass (first half round 3, second half round 6) |
+| 1 | F16 composer focus and untrusted send | built, re-reviewed: first half pass (round 3); second half pass except acceptance 23's network-denied clause, not walked in any round (round 6), owed for architect-cto-01 to carry by name or not |
 | 2 | F5 focus ring on touch | built: pass (round 2) |
 | 2 | F6 "/ human" in titles | built: no "/ human" in the titles round 5 saw (its F6 row); F6's truncation at 200 % was not re-checked |
 | 2 | F7 app bar subtitle | built: pass (round 2) |
@@ -848,11 +848,13 @@ kept), at the phone's address 192.168.100.50:33259. By script through
 
 | finding | result |
 |---|---|
-| F16 | Second half pass: a send in …x6gY6Eri, whose peer Trust does not list, becomes a pending row whose reason reads "This peer is not trusted for this profile." on a line of its own, in the error colour, above "Not sent, send again or cancel · 15:03", the time still on the bubble's last line (look spec acceptance 23's second clause). The two earlier pending rows to the same peer show the same reason above their may-have-reached status. The test row was cancelled at once by a drag left ("Sending canceled", the undo window let run out), so the phone holds nothing of the check. The reason as TalkBack reads it was not checked: TalkBack does not reach the Android app yet (look spec §7). Acceptance 23's third clause, the network-denied state (no composer and no Send drawn, the `NetworkDenied` notice under the app bar), was walked in no round: it needs the app's network access withheld on the owner's phone, a person's check carried by name. F16's own requirement does not depend on it. |
+| F16 | Second half pass: a send in …x6gY6Eri, whose peer Trust does not list, becomes a pending row whose reason reads "This peer is not trusted for this profile." on a line of its own, in the error colour, above "Not sent, send again or cancel · 15:03", the time still on the bubble's last line (look spec acceptance 23's second clause). The two earlier pending rows to the same peer show the same reason above their may-have-reached status. The test row was cancelled at once by a drag left ("Sending canceled", the undo window let run out), so the phone holds nothing of the check. The reason as TalkBack reads it was not checked: TalkBack does not reach the Android app yet (look spec §7). Acceptance 23's third clause, the network-denied state (no composer and no Send drawn, the `NetworkDenied` notice under the app bar), was walked in no round: it needs INTERNET revoked on the owner's phone (`pm revoke`, the inverse of the `pm grant` this phone was set up with), which ends the app's process and was not done without the owner's word. It is owed for the close, for architect-cto-01 to carry by name or not. |
 
 With round 6, every rank-1 finding is built and re-reviewed, F3's
 handle and F4's Trust at 200 % in light theme carried by name as the
-close table states.
+close table states. One clause is owed rather than carried: F16's
+acceptance 23 with the app's network access withheld, walked in no
+round, for architect-cto-01 to carry by name or not.
 
 ## 8. The swipe spec's acceptance on the same build
 
