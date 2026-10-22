@@ -369,6 +369,39 @@ pub fn create(
     }
 }
 
+/// Open `endpoint`'s key from its file, under `cipher`'s custody: `None`
+/// when the identity has no key file.
+///
+/// The file is read by profile-config's one reader of private state
+/// files: regular, not a link, this uid's, readable by nobody else,
+/// bounded, its directory private under the boundary. Every refusal of
+/// [`IdentityKey::from_record`] applies after it.
+///
+/// # Errors
+/// A persistence refusal of the file, or the record's refusal.
+pub fn open(
+    paths: &ProfilePaths,
+    endpoint: &EndpointId,
+    cipher: &dyn IdentityKeyCipher,
+) -> Result<Option<IdentityKey>, IdentityKeyFileError> {
+    let Some(line) = interweave_profile_config::read_private_within(
+        &key_path(paths, endpoint),
+        paths.boundary(),
+        MAX_RECORD_BYTES,
+    )
+    .map_err(|e| IdentityKeyFileError::Persist(e.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let line = Zeroizing::new(line);
+    Ok(Some(IdentityKey::from_record(
+        &line,
+        paths.profile(),
+        endpoint,
+        cipher,
+    )?))
+}
+
 /// Delete `endpoint`'s key file and retire its platform key (ADR-0063
 /// A 2026-10-22: Remove of an added identity deletes both). Whether
 /// there was a file.

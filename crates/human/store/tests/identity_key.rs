@@ -353,3 +353,42 @@ fn remove_deletes_the_file_and_retires_the_platform_key() {
     // Removing again is no error and finds nothing.
     assert_eq!(identity_key::remove(&paths, &work, &keystore), Ok(false));
 }
+
+#[test]
+fn open_finds_no_key_where_none_was_made_and_refuses_a_file_others_can_read() {
+    let (_dir, paths) = desktop_paths();
+    let human = endpoint("human");
+    assert_eq!(
+        identity_key::open(&paths, &human, &FilesystemCustody).map(|k| k.is_some()),
+        Ok(false),
+        "no key file is no key, never an error"
+    );
+    identity_key::create(&paths, &human, &FilesystemCustody).expect("created");
+    let file = identity_key::key_path(&paths, &human);
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).expect("chmod");
+    assert!(
+        matches!(
+            identity_key::open(&paths, &human, &FilesystemCustody),
+            Err(IdentityKeyFileError::Persist(_))
+        ),
+        "a key file others can read is refused, not opened"
+    );
+}
+
+#[test]
+fn a_renamed_key_file_is_refused_at_open() {
+    // human.key copied over work.key: the record names `human`.
+    let (_dir, paths) = desktop_paths();
+    let (human, work) = (endpoint("human"), endpoint("work"));
+    identity_key::create(&paths, &human, &FilesystemCustody).expect("created");
+    let from = identity_key::key_path(&paths, &human);
+    let to = identity_key::key_path(&paths, &work);
+    std::fs::copy(&from, &to).expect("copy");
+    std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o600)).expect("chmod");
+    assert_eq!(
+        identity_key::open(&paths, &work, &FilesystemCustody).map(|k| k.map(|k| k.public_key())),
+        Err(IdentityKeyFileError::Key(
+            IdentityKeyError::EndpointMismatch
+        ))
+    );
+}
