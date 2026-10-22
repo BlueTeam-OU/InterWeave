@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 
 use interweave_ipc_client::{IpcAdmin, IpcBinding, SocketPaths};
 use interweave_local_client_api::{
-    AdminBinding as _, AdminCapability, AdminPort as _, TrustSource,
+    AddressChange, AddressSource, AdminBinding as _, AdminCapability, AdminPort as _, TrustSource,
 };
 use interweave_profile_config::{ProfileLock, ProfilePaths, XdgRoots};
 use interweave_transport_api::TransportError;
@@ -42,6 +42,9 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
         Admin::Status | Admin::PeersList => AdminCapability::Status,
         Admin::Shutdown(_) => AdminCapability::Shutdown,
         Admin::TrustList | Admin::SetTrust(..) => AdminCapability::Trust,
+        Admin::AddAddress(_) | Admin::RemoveAddress(_) | Admin::ListAddresses => {
+            AdminCapability::Peers
+        }
         _ => AdminCapability::Endpoints,
     };
     let port = match binding.admin([capability].into()).await {
@@ -55,9 +58,32 @@ pub(crate) async fn run(profile: &str, action: Admin, json: bool) -> Result<Stri
     // back without it: said here, rather than as the refusal a request
     // would draw.
     if !port.port().holds(capability) {
+        let minor = if capability == AdminCapability::Peers {
+            "2.7"
+        } else {
+            "2.1"
+        };
         return Err(Failure::Refused(format!(
-            "the daemon does not grant {capability:?} (it is IPC 2.1's: is the daemon older?)"
+            "the daemon does not grant {capability:?} (it is IPC {minor}'s: is the daemon older?)"
         )));
+    }
+    // A REFUSED MOVE EXITS AS REFUSED, naming the daemon's rule, so a
+    // script cannot read "nothing changed" as success.
+    if let Admin::AddAddress(address) | Admin::RemoveAddress(address) = &action {
+        let change = if matches!(action, Admin::AddAddress(_)) {
+            port.add_bootstrap_address(address.clone()).await
+        } else {
+            port.remove_bootstrap_address(address.clone()).await
+        };
+        return match change.map_err(code)? {
+            AddressChange::Added => Ok("added\n".to_owned()),
+            AddressChange::Removed => Ok("removed\n".to_owned()),
+            AddressChange::Unchanged => Ok("unchanged\n".to_owned()),
+            AddressChange::Refused { reason, detail } => Err(Failure::Refused(format!(
+                "refused {}: {detail}",
+                reason.as_str()
+            ))),
+        };
     }
     let peers = action == Admin::PeersList;
     call(&port, action, json).await.map_err(|e| match e {
@@ -253,6 +279,32 @@ async fn call(port: &IpcAdmin, action: Admin, json: bool) -> Result<String, Tran
             }
             out
         }
+        Admin::ListAddresses => {
+            if json {
+                to_json(&port.addresses_result().await?)
+            } else {
+                let mut out = String::new();
+                for row in port.bootstrap_addresses().await? {
+                    let _ = writeln!(
+                        out,
+                        "{}  {}{}",
+                        row.address,
+                        match row.source {
+                            AddressSource::Authored => "authored",
+                            AddressSource::Added => "added",
+                        },
+                        if row.dialled {
+                            ""
+                        } else {
+                            "  not dialled: the provider is disabled"
+                        }
+                    );
+                }
+                out
+            }
+        }
+        // Answered above, before any printing.
+        Admin::AddAddress(_) | Admin::RemoveAddress(_) => unreachable!("a move is answered in run"),
         Admin::SetTrust(peer, allowed) => {
             port.set_trust(peer.clone(), allowed).await?;
             format!(
