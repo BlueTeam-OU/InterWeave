@@ -2115,25 +2115,36 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
         serde_json::json!({ "outcome": "refused", "refused": "grammar", "index": 0, "detail": "d".repeat(513) }),
     );
 
-    // THE RUST MIRROR, the server's side.
+    // THE RUST MIRROR, the server's side: each answer beside the length
+    // of the list it answers.
     let line = |n: usize| AddressesChange::Refused {
         reason: AddressRefusal::Bound,
         line: Some(n),
         detail: "d".repeat(600),
     };
-    for change in [
-        AddressesChange::Added(vec![LineChange::Added, LineChange::Unchanged]),
-        AddressesChange::Added(vec![LineChange::Unchanged; 16]),
-        line(15),
-        AddressesChange::Refused {
-            reason: AddressRefusal::ProviderDisabled,
-            line: None,
-            detail: String::new(),
-        },
+    let whole = |reason| AddressesChange::Refused {
+        reason,
+        line: None,
+        detail: String::new(),
+    };
+    let at = |reason, n| AddressesChange::Refused {
+        reason,
+        line: Some(n),
+        detail: String::new(),
+    };
+    for (change, lines) in [
+        (
+            AddressesChange::Added(vec![LineChange::Added, LineChange::Unchanged]),
+            2,
+        ),
+        (AddressesChange::Added(vec![LineChange::Unchanged; 16]), 16),
+        (line(15), 16),
+        (whole(AddressRefusal::ProviderDisabled), 3),
     ] {
-        let wire =
-            serde_json::to_value(AddressesResult::from_view(change.clone()).expect("carried"))
-                .expect("ser");
+        let wire = serde_json::to_value(
+            AddressesResult::from_view(change.clone(), lines).expect("carried"),
+        )
+        .expect("ser");
         assert_valid(result, &wire);
         let back: AddressesChange = serde_json::from_value::<AddressesResult>(wire)
             .expect("reads back")
@@ -2159,40 +2170,31 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
     }
     assert_eq!(
         serde_json::to_value(
-            AddressesResult::from_view(AddressesChange::Added(vec![
-                LineChange::Added,
-                LineChange::Unchanged
-            ]))
+            AddressesResult::from_view(
+                AddressesChange::Added(vec![LineChange::Added, LineChange::Unchanged]),
+                2
+            )
             .expect("carried")
         )
         .expect("ser")["lines"],
         serde_json::json!([{ "outcome": LineChange::Added.as_str() }, { "outcome": LineChange::Unchanged.as_str() }]),
         "the wire names are LineChange::as_str's"
     );
-    for broken in [
-        AddressesChange::Added(Vec::new()),
-        AddressesChange::Added(vec![LineChange::Added; 17]),
-        line(16),
-        AddressesChange::Refused {
-            reason: AddressRefusal::Grammar,
-            line: None,
-            detail: String::new(),
-        },
-        AddressesChange::Refused {
-            reason: AddressRefusal::ProviderDisabled,
-            line: Some(0),
-            detail: String::new(),
-        },
-        AddressesChange::Refused {
-            reason: AddressRefusal::Authored,
-            line: Some(0),
-            detail: String::new(),
-        },
+    for (broken, lines) in [
+        (AddressesChange::Added(Vec::new()), 0),
+        (AddressesChange::Added(vec![LineChange::Added; 2]), 3),
+        (AddressesChange::Added(vec![LineChange::Added; 3]), 2),
+        (AddressesChange::Added(vec![LineChange::Added; 17]), 17),
+        (line(16), 17),
+        (line(2), 2),
+        (whole(AddressRefusal::Grammar), 1),
+        (at(AddressRefusal::ProviderDisabled, 0), 1),
+        (at(AddressRefusal::Authored, 0), 1),
     ] {
         assert_eq!(
-            AddressesResult::from_view(broken.clone()),
+            AddressesResult::from_view(broken.clone(), lines),
             Err(TransportError::Internal),
-            "{broken:?}"
+            "{broken:?} for {lines} lines"
         );
     }
 }

@@ -1004,25 +1004,25 @@ pub enum LineOutcome {
 }
 
 impl AddressesResult {
-    /// The port's answer.
+    /// The port's answer to a list of `lines` addresses.
     ///
     /// # Errors
     /// [`TransportError::Internal`] for an answer the contract cannot
-    /// carry -- no row, more than [`MAX_ADDRESSES_PER_ADD`], a refusal
+    /// carry -- a row count other than `lines`, so rows a client cannot
+    /// match to its lines, more than [`MAX_ADDRESSES_PER_ADD`], a refusal
     /// `authored`, a line named where the rule names none or none where
     /// it names one: a port that answered that broke its own rule, and
     /// the server answers so rather than mending it.
-    pub fn from_view(change: AddressesChange) -> Result<Self, TransportError> {
+    pub fn from_view(change: AddressesChange, lines: usize) -> Result<Self, TransportError> {
         Ok(match change {
-            AddressesChange::Added(lines) => {
-                if lines.is_empty() || lines.len() > MAX_ADDRESSES_PER_ADD {
+            AddressesChange::Added(rows) => {
+                if rows.len() != lines || rows.is_empty() || rows.len() > MAX_ADDRESSES_PER_ADD {
                     return Err(TransportError::Internal);
                 }
                 Self {
                     outcome: "added",
                     lines: Some(
-                        lines
-                            .into_iter()
+                        rows.into_iter()
                             .map(|line| LineRow {
                                 outcome: match line {
                                     LineChange::Added => LineOutcome::Added,
@@ -1044,7 +1044,7 @@ impl AddressesResult {
                 let whole = reason == AddressRefusal::ProviderDisabled;
                 if reason == AddressRefusal::Authored
                     || whole != line.is_none()
-                    || line.is_some_and(|line| line >= MAX_ADDRESSES_PER_ADD)
+                    || line.is_some_and(|line| line >= lines.min(MAX_ADDRESSES_PER_ADD))
                 {
                     return Err(TransportError::Internal);
                 }
