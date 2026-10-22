@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
 //! What the command line needs before a verb runs: the profile's paths,
-//! the endpoints a human client may lease and its channels, by the
-//! desktop client's rule (`apps/human-desktop/src/startup.rs` `resolve`,
-//! copied, since that crate brings the toolkit; no test yet holds the two
-//! alike, and one is owed before this client ships); the instance lock,
-//! so this client and the desktop one never hold the store at once; and
-//! the store, opened or refused by class.
+//! the endpoints a human client may lease and its channels, by the rule
+//! the desktop client uses (`interweave_human_app_core::leasable_endpoints`);
+//! the instance lock, so this client and the desktop one never hold the
+//! store at once; and the store, opened or refused by class.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
+use interweave_human_app_core::leasable_endpoints;
 use interweave_human_store::{HumanStore, STORE_FILE, StoreError, StoreOptions};
 use interweave_profile_config::{
     HumanClientLock, PersistError, ProfileConfig, ProfilePaths, XdgRoots,
@@ -21,7 +20,7 @@ use crate::Failure;
 
 /// The client kind this client leases under: the human client's, the
 /// same as the desktop's, since the profile's endpoints allow that kind.
-pub(crate) const CLIENT_KIND: &str = "human-client";
+pub(crate) use interweave_human_app_core::CLIENT_KIND;
 
 /// A resolved profile.
 #[derive(Debug, Clone)]
@@ -72,17 +71,7 @@ pub(crate) fn resolve(profile: &str) -> Result<Profile, Failure> {
     }
     let config = ProfileConfig::load(&paths)
         .map_err(|e| Failure::Refused(format!("the profile's configuration: {e}")))?;
-    let endpoints: Vec<EndpointId> = config
-        .endpoints
-        .entries
-        .iter()
-        .filter(|e| {
-            e.allowed_client_kinds
-                .iter()
-                .any(|k| k.as_str() == CLIENT_KIND)
-        })
-        .map(|e| e.id.clone())
-        .collect();
+    let endpoints = leasable_endpoints(&config);
     if endpoints.is_empty() {
         return Err(Failure::Refused(format!(
             "profile {:?} configures no endpoint a human client may use",

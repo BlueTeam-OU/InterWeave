@@ -72,4 +72,3 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 ## Not yet
 
 - The release lists (`tools/ci/release_linux_archive.sh`, `packaging/linux`) do not carry the binary yet. Adding it is devex-tooling's.
-- No test yet holds `src/startup.rs`'s endpoint rule equal to the desktop client's (`apps/human-desktop/src/startup.rs`), which it copies.
