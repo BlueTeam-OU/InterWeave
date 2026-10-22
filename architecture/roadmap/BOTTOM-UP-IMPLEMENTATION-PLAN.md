@@ -4899,9 +4899,12 @@ reply-after-leave case (a broadcast reply token after `leave` fails
 `ChannelNotJoined`, in the integration tests above).
 
 Carried by name, from SPIKE-001 (not established, 2026-10-03):
-marketplace distribution and `--channels` with a published plugin — the
-release path, Stage 19's with the bridge's packaging (§22 carries it;
-PACKAGING.md says the same); `userConfig`
+marketplace distribution — measured 2026-10-22 for the development-flag
+path only (S19: a local-marketplace install registers the channel under
+the flag) — and `--channels` with a published plugin, which stays
+carried: it needs the plugin on the organisation's or Anthropic's
+allowlist, neither asked for nor tried (§22 carries it; PACKAGING.md
+says the same); `userConfig`
 substitution; organisation-policy gating (`channelsEnabled`,
 `allowedChannelPlugins`); permission relay (not declared, by design);
 size limits on `content` and `meta` and behaviour under load; a server
