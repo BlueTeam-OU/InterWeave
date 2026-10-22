@@ -99,6 +99,11 @@ fn tree_checks() -> Vec<Task> {
             &["tools/checks/check_android_no_play_services.sh"],
         ),
         Task::new(
+            "no address book and no platform backup in the Android app",
+            "python3",
+            &["tools/checks/check_android_contacts_and_backup.py"],
+        ),
+        Task::new(
             "the discovery schema's config keys are all representable",
             "bash",
             &["tools/checks/check_discovery_config_keys.sh"],
