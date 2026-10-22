@@ -337,7 +337,7 @@ async fn a_decision_that_fails_after_the_read_still_prints_the_proposals() {
 }
 
 #[tokio::test]
-async fn a_contact_is_renamed_and_its_photo_removed_by_the_person() {
+async fn a_contact_is_renamed_its_photo_removed_and_deleted_by_the_person() {
     let (alice, _bob, mut b_run) = shared().await;
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
@@ -369,7 +369,7 @@ async fn a_contact_is_renamed_and_its_photo_removed_by_the_person() {
     )
     .await;
     removed.expect("removed");
-    let (out, _) = run(&mut b_run, Verb::ContactShow(contact), true).await;
+    let (out, _) = run(&mut b_run, Verb::ContactShow(contact.clone()), true).await;
     let shown = &lines(&out)[0];
     assert_eq!(shown["name"], "Countess");
     assert_eq!(
@@ -383,6 +383,13 @@ async fn a_contact_is_renamed_and_its_photo_removed_by_the_person() {
     )
     .await;
     assert!(matches!(unknown, Err(Failure::Refused(_))), "{unknown:?}");
+    let (out, deleted) = run(&mut b_run, Verb::ContactDelete(contact.clone()), false).await;
+    deleted.expect("deleted");
+    assert_eq!(out, format!("{contact} deleted\n"));
+    let (out, _) = run(&mut b_run, Verb::Contacts, true).await;
+    assert!(out.is_empty(), "{out}");
+    let (_, again) = run(&mut b_run, Verb::ContactDelete(contact), false).await;
+    assert!(matches!(again, Err(Failure::Refused(_))), "{again:?}");
 }
 
 #[tokio::test]

@@ -525,3 +525,20 @@ pub(crate) async fn contact_edit<B: DataSessionBinding, A: AdminBinding>(
     out.push_str(&contact(c, false, false));
     Ok(())
 }
+
+/// `contacts delete`: as the model offers it, for a contact it holds.
+pub(crate) async fn contact_delete<B: DataSessionBinding, A: AdminBinding>(
+    s: &mut Session<B, A>,
+    id: &str,
+    out: &mut String,
+) -> Result<(), Failure> {
+    let intent = s
+        .model()
+        .delete_contact(id)
+        .ok_or_else(|| Failure::Refused("no contact has that id".to_owned()))?;
+    s.will(move |_| vec![ViewEvent::Intent(intent)]);
+    s.step().await;
+    problems(s)?;
+    let _ = writeln!(out, "{id} deleted");
+    Ok(())
+}

@@ -37,6 +37,7 @@ usage:
   interweave-human --profile <name> contacts show <contact> [--json]
   interweave-human --profile <name> contacts rename <contact> <name>
   interweave-human --profile <name> contacts photo <contact> <file>|--none
+  interweave-human --profile <name> contacts delete <contact>
 
   --wait <ms>   how long to wait for the session and for an answer
                 (default 5000)
@@ -155,6 +156,8 @@ pub(crate) enum Verb {
     ContactRename(String, String),
     /// The person's own photo for a contact, or its removal.
     ContactPhoto(String, PhotoArg),
+    /// Delete a contact, its routes and their keys.
+    ContactDelete(String),
 }
 
 /// What a photo argument asks.
@@ -368,6 +371,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             Verb::ContactPhoto((*id).to_owned(), PhotoArg::Remove),
             false,
         ),
+        ["contacts", "delete", id] => (Verb::ContactDelete((*id).to_owned()), false),
         ["contacts", "photo", id, file] => (
             Verb::ContactPhoto((*id).to_owned(), PhotoArg::File((*file).into())),
             false,
@@ -476,6 +480,7 @@ mod tests {
             &["--profile", "p", "contacts", "rename", "c1", "Ada"],
             &["--profile", "p", "contacts", "photo", "c1", "a.jpg"],
             &["--profile", "p", "contacts", "photo", "c1", "--none"],
+            &["--profile", "p", "contacts", "delete", "c1"],
         ];
         for args in cases {
             assert!(matches!(run(args), Ok(Command::Run { .. })), "{args:?}");
@@ -506,6 +511,7 @@ mod tests {
             "contacts show",
             "contacts rename",
             "contacts photo",
+            "contacts delete",
         ] {
             assert!(USAGE.contains(word), "{word} in the usage");
         }
