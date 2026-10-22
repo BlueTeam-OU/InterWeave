@@ -1829,6 +1829,9 @@ fn the_peers_address_shapes_hold_what_the_contract_says() {
         serde_json::json!({ "outcome": "refused", "refused": "dns" }),
         serde_json::json!({ "outcome": "moved" }),
         serde_json::json!({ "outcome": "refused", "refused": "bound", "detail": "d".repeat(513) }),
+        // An explicit null is not an absent key: refused by both.
+        serde_json::json!({ "outcome": "added", "refused": null }),
+        serde_json::json!({ "outcome": "refused", "refused": "bound", "detail": null }),
     ] {
         refuses(result, wrong.clone());
         assert!(serde_json::from_value::<AddressResult>(wrong).is_err());
@@ -1863,6 +1866,8 @@ fn the_peers_address_shapes_hold_what_the_contract_says() {
         serde_json::json!({ "addresses": [{ "address": address, "source": "added",
             "dialled": true, "not_dialled": "provider_disabled" }] }),
         serde_json::json!({ "addresses": [row("added", false)] }),
+        serde_json::json!({ "addresses": [{ "address": address, "source": "added",
+            "dialled": true, "not_dialled": null }] }),
     ] {
         refuses(list, wrong.clone());
         assert!(serde_json::from_value::<AddressList>(wrong).is_err());

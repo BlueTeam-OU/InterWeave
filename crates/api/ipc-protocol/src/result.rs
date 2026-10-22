@@ -638,6 +638,15 @@ impl PeerRow {
     }
 }
 
+/// A key that is present holds a value: an explicit `null` is refused,
+/// as the schemas refuse it, where `Option`'s own reading would take it
+/// for an absent key (`the_peers_address_shapes_hold_what_the_contract_says`).
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
+}
+
 fn absent_or_millis<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
     u64::deserialize(d).map(Some)
 }
@@ -918,9 +927,9 @@ impl<'de> Deserialize<'de> for AddressResult {
         #[serde(deny_unknown_fields)]
         struct Wire {
             outcome: String,
-            #[serde(default)]
+            #[serde(default, deserialize_with = "present")]
             refused: Option<String>,
-            #[serde(default)]
+            #[serde(default, deserialize_with = "present")]
             detail: Option<String>,
         }
         let wire = Wire::deserialize(d)?;
@@ -1043,7 +1052,7 @@ impl<'de> Deserialize<'de> for AddressRow {
             address: String,
             source: RowSource,
             dialled: bool,
-            #[serde(default)]
+            #[serde(default, deserialize_with = "present")]
             not_dialled: Option<NotDialled>,
         }
         let wire = Wire::deserialize(d)?;
