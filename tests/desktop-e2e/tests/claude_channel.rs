@@ -1813,10 +1813,14 @@ async fn pull_mode_under_load(queue: u32, pause: Duration, keepalive: Option<&st
         max_depth: 0,
     };
 
-    let started = tokio::time::Instant::now();
-    let mut next_status = started;
+    // The pause is timed from the first accepted send: before it the pair
+    // may not be connected yet, and a send then is refused for want of
+    // the peer, which says nothing about the pull queue.
+    let connecting = tokio::time::Instant::now();
+    let mut started: Option<tokio::time::Instant> = None;
+    let mut next_status = connecting;
     let mut n = 1;
-    while started.elapsed() < pause {
+    while started.is_none_or(|at| at.elapsed() < pause) {
         match b_claude
             .send_direct(
                 DirectDestination {
@@ -1829,9 +1833,15 @@ async fn pull_mode_under_load(queue: u32, pause: Duration, keepalive: Option<&st
             .await
         {
             Ok(_) => {
+                started.get_or_insert_with(tokio::time::Instant::now);
                 figures.accepted.push(n);
                 n += 1;
             }
+            Err(TransportError::PeerUnreachable) if started.is_none() => assert!(
+                connecting.elapsed() < PATIENCE,
+                "the pair never connected\n{}",
+                logs(&daemons)
+            ),
             Err(TransportError::Overloaded) => figures.overloaded += 1,
             Err(TransportError::RemoteEndpointUnavailable) => figures.unavailable += 1,
             Err(e) => panic!("pull {n}: {e:?}\n{}", logs(&daemons)),
