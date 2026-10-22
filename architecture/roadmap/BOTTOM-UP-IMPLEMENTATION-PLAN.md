@@ -4902,9 +4902,11 @@ Carried by name, from SPIKE-001 (not established, 2026-10-03):
 marketplace distribution — measured 2026-10-22 for the development-flag
 path only (S19: a local-marketplace install registers the channel under
 the flag) — and `--channels` with a published plugin, which stays
-carried: it needs the plugin on the organisation's or Anthropic's
-allowlist, neither asked for nor tried (§22 carries it; PACKAGING.md
-says the same); `userConfig`
+carried: read from the 2.1.286 binary, not measured (fact 23), it needs
+the plugin on the organisation's `allowedChannelPlugins` with
+`channelsEnabled: true` or on Anthropic's remotely served allowlist,
+neither asked for nor tried (§22 carries it; PACKAGING.md says the
+same); `userConfig`
 substitution; organisation-policy gating (`channelsEnabled`,
 `allowedChannelPlugins`); permission relay (not declared, by design);
 size limits on `content` and `meta` and behaviour under load; a server
