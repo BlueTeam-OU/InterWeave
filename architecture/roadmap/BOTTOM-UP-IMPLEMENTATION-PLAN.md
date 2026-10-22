@@ -5242,10 +5242,14 @@ the relayed-path fix that the first Pixel run failed one in five on); of
 `tests/interoperability`'s three items the independent codecs and the
 upgrade matrices are proved there, and the desktop ↔ Android platform
 matrix comparing the decoded envelope fields is RE-CARRIED to Stage 18
-with the reason: `android-e2e` validates each handed payload against the
-schema and counts them (`human_chat.rs`'s
-`assert_captured_payloads_validate` is the whole check) and does not
-compare the decoded fields across the two platforms; the relayed route
+with the reason: `android-e2e` compares the whole decoded envelope in
+ONE direction — what the desktop facade decoded against what the phone
+composed, `human_chat.rs`'s `arrived as composed` assertion on
+`HumanChatV2`'s equality — and in the other reads the phone's inbound
+text and author only (`android-e2e-cases`' `human_chat.rs`), beside
+validating every handed payload against the schema
+(`assert_captured_payloads_validate`); the matrix asks every decoded
+field both ways, on both platforms' real decoders; the relayed route
 indicator was NOT proved live on this path — it is read at the ui-model
 and the route named in `paths.rs` is the test's own classification —
 which §21 (Stage 18) holds its own carry against, as this clause
@@ -5296,10 +5300,11 @@ rank-3 finding built or carried to the owner's release gate by name in
 its close table — F10's retry state never seen on a phone, F6's
 truncation at 200 % not re-checked, look spec acceptance 23's
 network-denied state unwalked (revoking INTERNET on the owner's phone
-ends the app) — beside what the review lists as not the app's (N1, the
-permission toast of the target SDK; N2, the strings under an Arabic app
-locale, language-culture's) and as carried unranked (the accessibility
-reach, with TalkBack); the identity screens of ADR-0061 are Stage 22's
+is expected to end the app, unverified) — beside what the review lists
+as not the app's (N1, the permission toast of the target SDK, carried
+unranked to the target-SDK decision below; N2, the strings under an
+Arabic app locale, language-culture's) and as carried unranked (the
+accessibility reach, with TalkBack); the identity screens of ADR-0061 are Stage 22's
 and were not in this review's scope. No contract flipped
 at this gate.
 
@@ -5314,7 +5319,9 @@ Android path (both Stage 18's); the accessibility reach and TalkBack
 (the release gate); from the design review's close table, F3's toolkit
 handle, F4's Trust at 200 % in light theme, F10's retry state on a
 phone, F6's truncation at 200 % and acceptance 23's network-denied
-state (the release gate); the relayed-paths fix on the Pixel, measured
+state (the release gate); N1, the permission toast the target SDK
+raises, unranked (architect-cto's target-SDK decision, taken with the
+`dataExtractionRules` doubt above); the relayed-paths fix on the Pixel, measured
 on the A40 only (p2p-network-dev's second device run, when the phone is
 re-paired). Of SPIKE-008's not-established items, closed by this stage:
 the current target API's enforcement (the Pixel 9a at API 37, gate
@@ -5324,11 +5331,18 @@ Sleeping apps, cellular transitions, `batterystats` and `netstats`, B4
 device-to-device and B5 Smart Switch, duplicate suppression and the
 byte search across a reboot, a power loss mid-truncate, L2 with the
 screen off or unplugged, R2 on other launchers and API levels, freed
-pages after `VACUUM` and media remanence, API 33+'s
-`POST_NOTIFICATIONS` grant (above); B2 and the Play items are closed by
+pages after `VACUUM` or reuse, the one-time rewrite's cost on a large
+store (SPIKE-007's row when the store is re-sealed) and media
+remanence, API 33+'s `POST_NOTIFICATIONS` grant (above); B2 and the Play items are closed by
 ADR-0057 (no store, no backup on Google). Of SPIKE-009's items carried
-to steps 7–8: the restart diagnostic is closed by record (gate-b's line
-8, the A40); the picker's host tests are step 8's above and its
+to steps 7–8: the restart diagnostic is split — the person-visible
+Unlock prompt on a cold launch and after process death under the
+default `foreground-only` profile is closed by record (gate-b's by-hand
+table, the A40), while `background_restart_requires_user_authentication`
+after a `stay-reachable` service restart, the case SPIKE-009 named, was
+not read before the phone was handed back (gate-b's own words) and has
+no host test, so it is carried to the release gate with the
+user-presence case; the picker's host tests are step 8's above and its
 instrumented tests, `FLAG_SECURE` around it, the IME-free path and the
 clipboard refusal on a device are carried to the release gate with the
 user-presence case; StrongBox reporting and API 34+ behaviour on another
