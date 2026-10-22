@@ -71,7 +71,7 @@ async fn an_arrival_while_no_window_has_focus_posts_a_count_notice() {
     let (mut phone, d, mut side) = started().await;
     let log = || format!("D:\n{}\nphone:\n{}", d.log(), phone.log());
 
-    shade(true);
+    let shade = Shade::open();
     until(&log, "the window giving up focus", || !app_focused());
     assert!(notice().is_none(), "control: no notice before the arrival");
 
@@ -97,7 +97,7 @@ async fn an_arrival_while_no_window_has_focus_posts_a_count_notice() {
 
     // The window back in front: what waited is read there, and the
     // notice goes.
-    shade(false);
+    drop(shade);
     until(&log, "the window taking focus back", app_focused);
     until(&log, "the notice withdrawn", || notice().is_none());
     phone.stop();
@@ -338,14 +338,25 @@ fn sdk() -> u32 {
         .expect("an API level")
 }
 
-/// The notification shade over the window, or put away.
-fn shade(open: bool) {
-    let verb = if open {
-        "expand-notifications"
-    } else {
-        "collapse"
-    };
-    adb(&["shell", "cmd", "statusbar", verb]);
+/// The notification shade over the window while held: put away when
+/// dropped, a failing case's unwind included, so no run leaves the
+/// device with a shade it did not find.
+struct Shade;
+
+impl Shade {
+    fn open() -> Self {
+        adb(&["shell", "cmd", "statusbar", "expand-notifications"]);
+        Self
+    }
+}
+
+impl Drop for Shade {
+    fn drop(&mut self) {
+        // Never a second panic while unwinding: the result is not asserted.
+        let _ = Command::new("adb")
+            .args(["shell", "cmd", "statusbar", "collapse"])
+            .output();
+    }
 }
 
 /// Whether the app's window has the platform's input focus.
