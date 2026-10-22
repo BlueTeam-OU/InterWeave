@@ -30,6 +30,7 @@ Each run's `evidence.md` names the model its session used.
 - `run_tty.py` drives an interactive session through a pseudo-terminal. It answers the folder-trust screen and the development-channel warning, then types a prompt.
 - `validate.py` runs `claude plugin validate --strict`.
 - `s16_run.py` is Stage 16's host run (plan §19 step 5), not part of the spike's campaign. It starts two daemons, loads the packaged bridge as the plugin in an interactive session, drives a second bridge on the far daemon as the peer, and types `prompt-s16.txt`. The nested session authenticates with this login's long-term token, passed as one named variable.
+- `s19_channels.py` is the Stage 16 carry's run (plan §22), not part of the spike's campaign either: four interactive sessions on the packaged bridge, installed from a local marketplace or loaded with `--plugin-dir`, differing only in the plugin and channel flags. It answers only the development-channel warning and types nothing else. It authenticates as `s16_run.py` does, and it writes no evidence if the token appears in any raw file. See "S19" below.
 
 Each run starts from a scratch directory outside this repository, with `--setting-sources local`. The run is given an allow-listed environment, so none of the launching session's tokens, markers or model overrides reach it. Its raw output is written outside the repository. The drivers share this setup through `spike_common.py`. `extract.py` distils the raw output into the committed `runs/<name>/evidence.md` and a redacted `stub.jsonl`.
 
@@ -93,6 +94,22 @@ Each fact names the run that shows it.
     The stub catches both signals and keeps reading stdin for 500 ms, which is what kept it alive. Without a handler, the process ends at the SIGINT. In all eight runs that logged it, the 500 ms window completed, and stdin was never closed during it. (`r1-default`, `r2-delay-2s`, `r3-two-turns`, `r4-negotiation-auto`, `r4-negotiation-legacy`, `t4-delivery`, `t5-no-dev-flag`, `t7-plugin-inline`)
 19. A server that exits mid-session is not restarted: its log shows one start. Afterwards its tools cannot be called: the model's ToolSearch finds none of them. The model says the server "failed to connect" this session, which repeats a Claude Code notice that is not itself in the committed evidence. The events delivered before the exit stay in the conversation. (`t6-crash`)
 
+## S19: the packaged plugin, from a marketplace (plan §22)
+
+Run on 2026-10-22 against **Claude Code 2.1.286** (the binary and its debug log agree), on this login's account, by `s19_channels.py`. This is the Stage 16 carry, not part of the 2026-10-03 campaign. The plugin is the bridge itself: `packaging/claude-plugin/build.sh` assembles the marketplace from the release build of `interweave-claude-channel` into a scratch directory. Each run then has its own scratch `CLAUDE_CONFIG_DIR`. Runs b to d add that directory with `claude plugin marketplace add` and install `interweave@interweave` at user scope from it; run a loads it with `--plugin-dir`. Onboarding and folder trust are pre-seeded. No daemon runs and no prompt is typed: the question is registration, which the debug log answers once the bridge answers `initialize`.
+
+| Run | How the plugin is loaded | Channel flag | Debug log for `plugin:interweave:interweave` |
+|---|---|---|---|
+| `s19-a-dev-plugin-dir` | `--plugin-dir` | `--dangerously-load-development-channels plugin:interweave@inline` | `Channel notifications registered` |
+| `s19-b-dev-marketplace` | installed from the local marketplace | `--dangerously-load-development-channels plugin:interweave@interweave` | `Channel notifications registered` |
+| `s19-c-channels` | installed from the local marketplace | `--channels plugin:interweave@interweave` | `skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)` |
+| `s19-d-no-flag` | installed from the local marketplace | none (control) | `skipped: server plugin:interweave:interweave not in --channels list for this session` |
+
+20. The marketplace `build.sh` assembles is accepted by `plugin marketplace add`, and the plugin installs from it, enabled at user scope (b to d). An installed plugin's server is named `plugin:<plugin>:<server>`, as an inline one's is, and the flag value naming it is `plugin:<plugin>@<marketplace>`.
+21. The development flag registers the channel from a marketplace install as it does from `--plugin-dir`. Both show the warning of fact 5, naming the channel by its flag value, and accepting it registers (a, b).
+22. `--channels` names the installed plugin correctly (it passes the marketplace check, which comes before the allowlist in the code below), and is refused because the plugin is not on the approved allowlist (c). No organisation policy refused any run.
+23. Read from the 2.1.286 binary, not measured: the order of the checks, and where the allowlist comes from. The checks run in this order: the server declares `claude/channel`; the legacy protocol era; a first-party provider; the remote `tengu_harbor` switch; the organisation's `channelsEnabled`; the session's channel list; and the installed plugin's marketplace. Only after those does a non-development entry need the allowlist. That allowlist is the organisation's `allowedChannelPlugins` from managed settings when that is set, and otherwise the remote `tengu_harbor_ledger` list of `{plugin, marketplace}` pairs, which Anthropic serves. So for `--channels` to register this plugin without the development flag, either Anthropic must list `interweave` in the marketplace it is installed from, or an organisation must set `channelsEnabled: true` and list it in `allowedChannelPlugins`. Neither path was tried. The first needs a publication. The second needs managed settings, which is host-wide and outside this login.
+
 ## Where the architecture disagrees
 
 The documents are listed by document and sentence. Amending them is architect-cto's (`architecture/plugin/`) and the contract owner's (`contracts/CHANNEL-EVENT.md`, under ADR-0049).
@@ -106,7 +123,7 @@ The documents are listed by document and sentence. Amending them is architect-ct
 
 ## Not established
 
-- Marketplace distribution and `--channels` with a published plugin. A non-Anthropic channel needs the development flag during the research preview.
+- `--channels` with a published plugin. A plugin installed from a local marketplace is refused by `--channels` and registers only with the development flag (S19, facts 20 to 22). A listing on Anthropic's allowlist, or an organisation's `allowedChannelPlugins`, is what would change that (fact 23), and neither was tried.
 - `userConfig` substitution into the server's environment.
 - Organisation-policy gating (`channelsEnabled`, `allowedChannelPlugins`): this account has no organisation.
 - Permission relay, which the design does not declare.
