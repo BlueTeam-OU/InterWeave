@@ -40,6 +40,7 @@ mod clock;
 mod gesture;
 mod identity;
 mod refusal;
+mod store_screen;
 mod swipe;
 
 pub use gesture::{SNACKBAR_MAX_MS, SNACKBAR_MIN_MS, TouchSettings, snackbar_ms};
@@ -47,6 +48,7 @@ pub use identity::{
     IdentityInput, apply as apply_identity, grouped as grouped_peer, page as identity_page,
 };
 pub use refusal::{RefusalPage, RefusalView};
+pub use store_screen::{StoreOutcome, apply_store, store_page};
 
 #[allow(
     missing_docs,

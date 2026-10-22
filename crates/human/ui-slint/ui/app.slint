@@ -208,9 +208,15 @@ export struct IdentityPage {
     grid: [IdSlot],
     primary: string,
     primary-enabled: bool,
+    // The store's key-lost screen: the primary deletes stored data, in
+    // `error` (design 2026-10-21 section 7.1).
+    primary-danger: bool,
     // A progress line in place of the primary action ("Going offline…").
     waiting: string,
     secondary: string,
+    // The store's recovery screen: the secondary deletes stored data,
+    // outlined in `error`.
+    secondary-danger: bool,
     tertiary: string,
     // Plain text below the actions (K1's way out, R3's no-paper line).
     footnote: string,
@@ -218,6 +224,15 @@ export struct IdentityPage {
     dialog-title: string,
     dialog-delete: string,
     dialog-keep: string,
+    // The store's discard confirmation (design 2026-10-21 section 7.2):
+    // the list's lead-in, what goes one item per line, what stays and
+    // what the device may still hold; the delete action filled in
+    // `error` when it loses data.
+    dialog-lead: string,
+    dialog-items: [string],
+    dialog-note-a: string,
+    dialog-note-b: string,
+    dialog-danger: bool,
 }
 
 // Whether the person is using the keyboard: focus that came by Tab sets
@@ -1389,7 +1404,8 @@ component IdentityScreen inherits FocusScope {
         if root.page.waiting == "" && root.page.primary != "": Rectangle {
             min-height: 48px;
             border-radius: 24px;
-            background: root.page.primary-enabled ? Palette.primary : Palette.surface-container-high;
+            background: !root.page.primary-enabled ? Palette.surface-container-high
+                : root.page.primary-danger ? Palette.error : Palette.primary;
             accessible-role: button;
             accessible-label: root.page.primary;
             accessible-enabled: root.page.primary-enabled;
@@ -1398,7 +1414,8 @@ component IdentityScreen inherits FocusScope {
                 text: root.page.primary;
                 font-size: Type.label-large;
                 font-weight: 500;
-                color: root.page.primary-enabled ? Palette.on-primary : Palette.on-surface-variant;
+                color: !root.page.primary-enabled ? Palette.on-surface-variant
+                    : root.page.primary-danger ? Palette.on-error : Palette.on-primary;
                 horizontal-alignment: center;
                 vertical-alignment: center;
                 accessible-role: none;
@@ -1412,7 +1429,8 @@ component IdentityScreen inherits FocusScope {
             alignment: center;
             ActionButton {
                 text: root.page.secondary;
-                text-button: true;
+                text-button: !root.page.secondary-danger;
+                danger: root.page.secondary-danger;
                 target: 48px;
                 pressed => { root.secondary(); }
             }
@@ -1455,12 +1473,57 @@ component IdentityScreen inherits FocusScope {
                     accessible-role: text;
                     accessible-label: self.text;
                 }
+                if root.page.dialog-lead != "": Text {
+                    text: root.page.dialog-lead;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                for item in root.page.dialog-items: HorizontalLayout {
+                    spacing: 8px;
+                    accessible-role: list-item;
+                    accessible-label: item;
+                    Text {
+                        text: "•";
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface;
+                        accessible-role: none;
+                    }
+                    Text {
+                        text: item;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface;
+                        wrap: word-wrap;
+                        horizontal-stretch: 1;
+                        accessible-role: none;
+                    }
+                }
+                if root.page.dialog-note-a != "": Text {
+                    text: root.page.dialog-note-a;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface-variant;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
+                if root.page.dialog-note-b != "": Text {
+                    text: root.page.dialog-note-b;
+                    font-size: Type.body-medium;
+                    color: Palette.on-surface-variant;
+                    wrap: word-wrap;
+                    accessible-role: text;
+                    accessible-label: self.text;
+                }
                 HorizontalLayout {
                     spacing: 8px;
                     alignment: end;
                     ActionButton {
                         text: root.page.dialog-delete;
-                        text-button: true;
+                        text-button: !root.page.dialog-danger;
+                        filled: root.page.dialog-danger;
+                        danger: root.page.dialog-danger;
                         target: 48px;
                         pressed => { root.dialog(true); }
                     }
