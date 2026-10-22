@@ -672,9 +672,10 @@ fn older_store(paths: &ProfilePaths) {
 }
 
 /// The rewrite of a store an older build wrote, killed after each step
-/// that leaves a complete copy beside the plaintext: the copy is at the
-/// older schema, it opens under its key, so the next open promotes and
-/// migrates it with every row, and a discard planned meanwhile removes
+/// that leaves a complete copy beside the plaintext: the open migrates
+/// the plaintext before it exports it, so the copy is at this build's
+/// schema, opens under its key, and the next open promotes it with every
+/// row, and a discard planned meanwhile removes
 /// the unfinished plaintext alone (ADR-0060 decision 6; review F1 of #377).
 #[test]
 fn an_older_stores_rewrite_killed_beside_its_copy_loses_no_row_and_keeps_the_copy() {
