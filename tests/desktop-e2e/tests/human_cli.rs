@@ -7,8 +7,9 @@
 //! peer; B's client is `listen` when B must receive.
 //!
 //! What this does not show: a person reading the output (nothing here
-//! looks at a terminal), the binary from an installed package (the
-//! package lists do not carry it yet), and another host.
+//! looks at a terminal), and another host. Run with
+//! `INTERWEAVE_PACKAGE_BIN` naming an installed package's `bin/`, it
+//! runs that package's `interweave-human`.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -25,8 +26,24 @@ use serde_json::Value;
 
 use common::{Daemon, Home, PATIENCE, example, free_port, workspace_binary};
 
+/// The binary under test: the installed package's when
+/// `INTERWEAVE_PACKAGE_BIN` names one, as `human_app`'s cases take theirs
+/// (`human_app/package.rs`), else the workspace's own. A package without
+/// it fails by name, never falls back to the workspace: that would test
+/// a build the package does not ship.
 fn binary() -> std::path::PathBuf {
-    workspace_binary("interweave-human", "interweave-human-cli")
+    match std::env::var_os("INTERWEAVE_PACKAGE_BIN") {
+        Some(dir) => {
+            let bin = std::path::Path::new(&dir).join("interweave-human");
+            assert!(
+                bin.is_file(),
+                "INTERWEAVE_PACKAGE_BIN names {}, which holds no interweave-human",
+                std::path::Path::new(&dir).display()
+            );
+            bin
+        }
+        None => workspace_binary("interweave-human", "interweave-human-cli"),
+    }
 }
 
 /// `interweave-human` for `home`'s profile, with its environment cleared
