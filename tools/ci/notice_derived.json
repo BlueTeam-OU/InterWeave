@@ -8,6 +8,7 @@
    "file": "src/lib.rs",
    "headers": 2,
    "extra_texts": [
+    "Apache-2.0",
     "BSD-3-Clause"
    ]
   },
@@ -19,6 +20,7 @@
    "file": "src/lib.rs",
    "headers": 5,
    "extra_texts": [
+    "Apache-2.0",
     "BSD-3-Clause"
    ]
   },
@@ -30,6 +32,7 @@
    "file": "src/lib.rs",
    "headers": 5,
    "extra_texts": [
+    "Apache-2.0",
     "BSD-3-Clause"
    ]
   },
@@ -39,7 +42,10 @@
    "license": "MIT OR Apache-2.0",
    "case": "header+text",
    "file": "src/lib.rs",
-   "headers": 5
+   "headers": 5,
+   "extra_texts": [
+    "Apache-2.0"
+   ]
   },
   {
    "name": "accesskit_winit",
@@ -353,7 +359,11 @@
    "license": "MIT OR Apache-2.0",
    "case": "header+text",
    "file": "src/lib.rs",
-   "headers": 2
+   "headers": 2,
+   "extra_texts": [
+    "Apache-2.0",
+    "CC0-1.0"
+   ]
   },
   {
    "name": "yamux",
@@ -361,7 +371,10 @@
    "license": "Apache-2.0 OR MIT",
    "case": "header+text",
    "file": "src/lib.rs",
-   "headers": 3
+   "headers": 3,
+   "extra_texts": [
+    "MIT"
+   ]
   }
  ]
 }
