@@ -6123,7 +6123,9 @@ A 2026-10-22; device rows: an instrumented test or a dated device-run
 record, as §20 (b) defines them), and no camera use exists outside the
 Scan screen (the tree check of step 2: the camera APIs referenced from
 the Scan module and nowhere else in `apps/human-android`, broken on
-purpose once); a string outside the
+purpose once); the no-reach notice shows with the overlay empty and the
+trust set empty, and one overlay entry or one trusted peer hides it
+(ADR-0062 decision 8, A 2026-10-22; a ui-model test); a string outside the
 grammar is refused by name and nothing is stored; the 65th entry is
 refused, and a profile whose authored and added entries exceed 64 fails
 to start naming the overlay; every special-use class of ADR-0052 rule 2

@@ -15,10 +15,11 @@ Scan module. Decision 8's "no LAN peer" was read as a
 discovery fact the client could see; it cannot — `LOCAL-CLIENT.md`'s
 `ServerState` carries health and the connectivity summary only — so
 the notice keys on the overlay empty and the trust set empty, two
-facts the client holds whole, and on no connection or path signal (a
-session's per-peer path state exists only for peers it has exchanged
-a message with; the round-3 review of #362 found the first wording
-reading it).
+facts the client holds whole, and on no connection or path signal (the
+round-1 wording read the connectivity summary, whose counts name no
+peer; the round-2 wording read a session's per-peer path state, which
+exists only for peers it has exchanged a message with, as #362's
+round-3 review found).
 Propagation: decision 8; this note; the log row; the digest entry;
 plan §29 step 2 (the allow-list and the tree check) and its exit gate
 (e) (the cases);
