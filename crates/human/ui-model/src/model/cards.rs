@@ -186,6 +186,10 @@ pub struct IdentityView {
 #[derive(Debug, Clone, Default)]
 pub(super) struct Cards {
     proposals: BTreeMap<RowId, Proposal>,
+    /// The proposals shown and so read: their durable copy is gone, and
+    /// they last until the session ends unless the person acts
+    /// (RETENTION.md: unread until shown, gone at exit once shown).
+    read: std::collections::BTreeSet<RowId>,
     contacts: Vec<ContactView>,
     identity: Option<IdentityView>,
     /// When each conversation last shared its identity's card, this
@@ -194,6 +198,22 @@ pub(super) struct Cards {
 }
 
 impl Cards {
+    /// The unread proposals of a conversation: what showing it reads.
+    pub(super) fn unread_in(&self, peer: &TransportIdentity, endpoint: &EndpointId) -> Vec<RowId> {
+        self.proposals
+            .values()
+            .filter(|p| &p.peer == peer && &p.endpoint == endpoint && !self.read.contains(&p.row))
+            .map(|p| p.row)
+            .collect()
+    }
+
+    /// A row was marked read: if it is a proposal's, it is shown now.
+    pub(super) fn read(&mut self, row: RowId) {
+        if self.proposals.contains_key(&row) {
+            self.read.insert(row);
+        }
+    }
+
     /// The contact holding a direct route, if any.
     pub(super) fn contact_for(
         &self,
@@ -227,10 +247,37 @@ impl UiModel {
         self.cards.proposals.insert(proposal.row, proposal);
     }
 
-    /// A proposal the person accepted or declined: it is gone from the
+    /// What showing a conversation's card proposals reads: each unread
+    /// one's [`Intent::MarkRead`], which removes its durable copy, so a
+    /// proposal shown and left undecided is gone at the session's end
+    /// (RETENTION.md: a card is unread content until shown). A view calls
+    /// it when it renders the proposals, never from
+    /// [`UiModel::conversation_viewed`]: a conversation shown without
+    /// them has not shown the card.
+    #[must_use]
+    pub fn proposals_viewed(&self, key: &ConversationKey, focused: bool) -> Vec<Intent> {
+        let ConversationKey::Direct {
+            peer,
+            endpoint: Some(at),
+        } = key
+        else {
+            return Vec::new();
+        };
+        if !focused {
+            return Vec::new();
+        }
+        self.cards
+            .unread_in(peer, at)
+            .into_iter()
+            .map(Intent::MarkRead)
+            .collect()
+    }
+
+    /// A proposal the person accepted or declined, or whose copy is gone: it is gone from the
     /// conversation, whatever the store did.
     pub fn card_resolved(&mut self, row: RowId) {
         self.cards.proposals.remove(&row);
+        self.cards.read.remove(&row);
     }
 
     /// This identity's card was shared on `key` at `at`.

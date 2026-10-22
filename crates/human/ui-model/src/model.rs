@@ -819,6 +819,7 @@ impl UiModel {
     /// the content stays for this session unless another row holds it.
     pub fn read(&mut self, row: RowId) {
         self.release(Table::Unread, row);
+        self.cards.read(row);
     }
 
     /// The content a Keep of `key` would keep is no longer held this
