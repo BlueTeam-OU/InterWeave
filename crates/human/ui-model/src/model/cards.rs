@@ -425,6 +425,14 @@ impl UiModel {
         }
     }
 
+    /// Delete a contact the model holds, by the person's act alone.
+    #[must_use]
+    pub fn delete_contact(&self, contact_id: &str) -> Option<Intent> {
+        self.contact(contact_id).map(|c| Intent::DeleteContact {
+            contact_id: c.contact_id.clone(),
+        })
+    }
+
     /// The contacts, by name.
     #[must_use]
     pub fn contacts(&self) -> &[ContactView] {
@@ -676,6 +684,36 @@ mod tests {
                 placeholder_en::text(UiText::ContactTitle),
                 &[("name", "Ada"), ("peer", &crate::labels::short_peer(P))]
             )
+        );
+    }
+
+    #[test]
+    fn delete_is_offered_for_a_contact_held_and_only_while_it_is() {
+        let mut model = UiModel::new();
+        assert_eq!(
+            model.delete_contact("c1"),
+            None,
+            "nothing held, nothing offered"
+        );
+        model.contacts_listed(vec![ContactView {
+            contact_id: "c1".to_owned(),
+            name: "Ada".to_owned(),
+            name_from_card: true,
+            photo_from_card: None,
+            routes: Vec::new(),
+        }]);
+        let delete = model.delete_contact("c1").expect("offered");
+        assert_eq!(
+            delete,
+            Intent::DeleteContact {
+                contact_id: "c1".to_owned()
+            }
+        );
+        assert!(model.offers(&delete));
+        model.contacts_listed(Vec::new());
+        assert!(
+            !model.offers(&delete),
+            "a contact gone is not deleted twice"
         );
     }
 }
