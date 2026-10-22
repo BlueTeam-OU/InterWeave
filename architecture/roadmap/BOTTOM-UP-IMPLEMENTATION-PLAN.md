@@ -6025,7 +6025,15 @@ decision 6.
    its self-test, lands here, and pins ADR-0060 decision 8's
    declarations too: `allowBackup="false"` and extraction rules that
    exclude every domain from `cloud-backup` and `device-transfer`
-   (the retention conformance suite's item 13, unprovable there).
+   (the retention conformance suite's item 13, unprovable there); and
+   it pins the app's permission set as an allow-list (A 2026-10-22,
+   ADR-0062): exactly `INTERNET`, `ACCESS_NETWORK_STATE`,
+   `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_REMOTE_MESSAGING`,
+   `POST_NOTIFICATIONS`, `USE_BIOMETRIC` and, from step 5, `CAMERA`
+   with `<uses-feature android:name="android.hardware.camera"
+   android:required="false"/>` beside it — any other permission or a
+   required camera feature fails the check by name, so a permission
+   enters the app only through a record that names it here.
 3. **The encrypted store** (rust-ui-dev, after SPIKE-011): the store
    key, its versioned sealed file, the Android sealing in its own
    alias namespace apart from the seed custody under
@@ -6060,7 +6068,11 @@ decision 6.
 ### Exit gate
 
 (a) Steps 1–5 landed with their tests green on `main`; (b) the
-conformance cases, by name: a valid card accepted creates the contact
+conformance cases, by name: on Android the camera permission is asked
+at the first Scan and at no other moment, a refusal leaves the Scan
+screen offering typing, and no camera use exists outside that screen
+(ADR-0062 decision 8, A 2026-10-22; the manifest check's allow-list
+holds `CAMERA` with the camera feature not required); a valid card accepted creates the contact
 and names the conversation; a card from an unknown kind or over a bound
 is rejected locally with no network effect; a card over broadcast is
 ignored; a second card from the same route is a new proposal and
