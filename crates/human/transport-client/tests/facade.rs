@@ -2053,7 +2053,6 @@ async fn a_cancel_on_degraded_storage_offers_no_restore() {
     );
 }
 
-
 // --- cards (plan §29 step 2) -------------------------------------------------
 
 fn signing_key() -> ed25519_dalek::SigningKey {
@@ -2159,7 +2158,10 @@ async fn a_malformed_card_is_counted_as_a_card_and_never_stored() {
     )
     .await
     .expect("accepted by the queue");
-    assert!(receiver.drain_inbound(16, 1).await.is_empty(), "nothing presented");
+    assert!(
+        receiver.drain_inbound(16, 1).await.is_empty(),
+        "nothing presented"
+    );
     assert!(
         receiver
             .store_mut()
@@ -2195,7 +2197,10 @@ async fn a_card_received_over_broadcast_is_ignored_and_shows_nothing() {
     )
     .await
     .expect("published");
-    assert!(receiver.drain_inbound(16, 1).await.is_empty(), "nothing presented");
+    assert!(
+        receiver.drain_inbound(16, 1).await.is_empty(),
+        "nothing presented"
+    );
     assert!(
         receiver
             .store_mut()
