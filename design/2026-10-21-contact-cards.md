@@ -1128,7 +1128,7 @@ PeerId:
 | condition (ADR-0060 d. 6 order) | screen | Discard and recreate is |
 |---|---|---|
 | key invalidated (Android only) | **K**, key no longer accepted | the primary action, still confirmed |
-| a key that does not open the file, no key file, an unlisted combination of names, a failed migration | **R**, the recovery screen | a third action beside Close and Try again |
+| a key that does not open the file, no key file, an unlisted combination of names, a failed migration | **R**, the recovery screen | a third action, on the desktop on its own line above Close and Try again |
 
 **Desktop**: R is today's `RefusalWindow` page for
 `RefusalStoreRecovery`. Its actions become, from the start: **Delete
@@ -1143,7 +1143,7 @@ keeps Close and Try again where a desktop dialog's actions sit, at the
 bottom end, and keeps the destructive action apart from the primary one
 by its line and its side; a press on it only opens the confirmation
 (§7.2), so its place cannot lose data. Tab follows the reading order:
-Delete stored data…, Close, Try again. The ellipsis says a further step
+the file path, then Delete stored data…, Close, Try again. The ellipsis says a further step
 follows.
 `RefusalStoreRecovery`'s text ("Nothing was changed…") stays
 true until the person confirms; its sentence on
@@ -1160,8 +1160,7 @@ task). No file path: the person cannot reach it. **K** has heading
 `StoreKeyLostTitle`, body `StoreKeyLostBody` (the phone no longer accepts
 the key that protects the app's stored data, which happens after some
 changes to the screen lock; the stored data cannot be read again; the
-device's PeerId and recovery phrase are not affected, and neither are the
-identities, which are configuration; and the way forward: Delete stored
+device's PeerId and recovery phrase are not affected; and the way forward: Delete stored
 data, which shows what is lost before anything is deleted), primary **Delete stored data…**, then
 **Close**. K has no Try again: the platform has said the key is gone.
 
@@ -1181,7 +1180,8 @@ reason):
   list's lead-in says (ADR-0061 d. 9: no action whose scope the person
   cannot see): your contacts and their routes; messages waiting to be
   sent; unread and kept messages; your conversation list; the names and
-  photos of your identities; the app's settings; and the record of the
+  photos of your identities; the app's settings other than your network
+  settings; and the record of the
   messages you already received (without it, one of them might show
   again; it is an item of the list because the lead-in says what is
   deleted);
@@ -1695,10 +1695,10 @@ and are for them to write.
 | `ContactYourIdentitiesNote` | This contact sees your PeerId, which all your identities share. If this contact also talks to another of your identities, this contact can see that both identities are on the same device. | contact page with two or more identities; must say the PeerId is shared by all the person's identities and what a contact who knows two can tell; names no identity |
 | `MoveRouteNoneSameDevice` | Contacts that already have a conversation with this conversation's device are not listed. A contact can have only one conversation with each device. | Move picker |
 | `StoreRecoveryTitle` | InterWeave cannot read its stored data | Android R heading |
-| `RefusalStoreRecovery` (revised) | InterWeave cannot read its stored data, which includes your messages and contacts. Nothing was changed. The data opens only with its key on this device, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. If a newer version of InterWeave wrote this data, install and start the newest version that you have used, or a newer one. Restoring this device's PeerId from its recovery phrase does not bring back this data. | desktop R body (Android R has its own, `StoreRecoveryBody`): its backup-copy sentence assumes a plaintext file a person can swap; the store is now encrypted and a copy opens only with its key. Must still say the file was not changed until the person chooses. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). **L1**: "Restoring your identity" means the recovery phrase's identity, the device's |
-| `StoreRecoveryBody` | InterWeave cannot read its stored data, which includes your messages and contacts. Nothing was changed. The data opens only with its key on this phone, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. Restoring this device's PeerId from its recovery phrase does not bring back this data. | Android R body (new key): Android cannot install an older version over a newer one, so the desktop's newer-version advice is not true here, and Android shows no path. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). **L1**: "Restoring your identity" means the recovery phrase's identity, the device's |
+| `RefusalStoreRecovery` (revised) | InterWeave cannot read its stored data, which includes your messages and contacts. Nothing was changed. The data opens only with its key on this device, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. If a newer version of InterWeave wrote this data, install and start the newest version that you have used, or a newer one. Restoring this device's PeerId from its recovery phrase does not bring back this data. | desktop R body (Android R has its own, `StoreRecoveryBody`): its backup-copy sentence assumes a plaintext file a person can swap; the store is now encrypted and a copy opens only with its key. Must still say the file was not changed until the person chooses. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). **L1**: "Restoring this device's PeerId" means the recovery phrase's identity, the device's |
+| `StoreRecoveryBody` | InterWeave cannot read its stored data, which includes your messages and contacts. Nothing was changed. The data opens only with its key on this phone, so there is no copy of it that you can put back. You can try again, close InterWeave, or choose Delete stored data. InterWeave shows what you lose before it deletes anything. Restoring this device's PeerId from its recovery phrase does not bring back this data. | Android R body (new key): Android cannot install an older version over a newer one, so the desktop's newer-version advice is not true here, and Android shows no path. Since architect-cto's A5 (§12) it must also say: the stored data opens only with its key on this device, and a copy without its key opens nothing, so there is no backup copy to put back; the way back is Try again, Close, or Delete stored data, which loses what it lists; the recovery phrase restores the identity alone, never this data. It must not say to replace the file with a backup, and must not suggest moving the key or the data between devices (ADR-0060 d. 8). **L1**: "Restoring this device's PeerId" means the recovery phrase's identity, the device's |
 | `StoreKeyLostTitle` | The key to your stored data no longer works | K heading |
-| `StoreKeyLostBody` | This phone no longer accepts the key that protects InterWeave's stored data. This can happen after some changes to the screen lock. The data cannot be read again. This device's PeerId and recovery phrase are not affected. To use InterWeave again, choose Delete stored data. InterWeave shows what you lose before it deletes anything. | K body; **L1**: its "Your identity is not affected" means the PeerId |
+| `StoreKeyLostBody` | This phone no longer accepts the key that protects InterWeave's stored data. This can happen after some changes to the screen lock. The data cannot be read again. This device's PeerId and recovery phrase are not affected. To use InterWeave again, choose Delete stored data. InterWeave shows what you lose before it deletes anything. | K body; **L1**: "This device's PeerId" is the device's identity, not a contact-card identity |
 | `DiscardStore` | Delete stored data… | R, K action |
 | `StoreChecking` | Checking the stored data… | §7.2 progress |
 | `DiscardStoreTitle` | Delete all stored data? | full dialog title |
