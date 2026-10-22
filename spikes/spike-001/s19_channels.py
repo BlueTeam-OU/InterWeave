@@ -98,7 +98,9 @@ def cli(config, *args):
 
 
 def option_number(screen, label):
-    m = re.search(r"(\d)\.\s*" + re.escape(label), screen)
+    # Matched with every space removed: the TUI lays a line out with
+    # cursor moves, so "1. I am using" reaches the pty as "1.Iamusing".
+    m = re.search(r"(\d)\." + re.escape("".join(label.split())), "".join(screen.split()))
     return m.group(1) if m else None
 
 
@@ -217,7 +219,11 @@ def distil(out, name, *scratch_paths):
     """runs/s19-<run>/evidence.md: the run record with every host path
     replaced by a placeholder and debug-log timestamps dropped."""
     record = json.loads((out / "run.json").read_text())
-    subs = [(p, "$SCRATCH") for p in scratch_paths] + [(str(out), "$RAW"), (str(pathlib.Path.home()), "$HOME")]
+    home = str(pathlib.Path.home())
+    # The TUI prints a path under the home directory in its "~/" form.
+    tilde = [p.replace(home, "~", 1) for p in scratch_paths if p.startswith(home)]
+    subs = ([(p, "$SCRATCH") for p in [*scratch_paths, *tilde]]
+            + [(str(out), "$RAW"), (home, "$HOME")])
 
     def redact(s):
         for old, new in subs:
