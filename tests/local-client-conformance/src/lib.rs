@@ -1374,11 +1374,14 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
     assert_eq!(admin.bootstrap_addresses().await.expect("the list"), first);
 }
 
-/// The show side (ADR-0062 decision 4, LOCAL-IPC.md minor 2.8), the same
-/// at every binding: without `admin.peers` it is `CapabilityDenied`; with
+/// The show side (ADR-0062 decision 4, LOCAL-IPC.md minor 2.8;
+/// LOCAL-CLIENT.md §7 item 14's cross-check), the same at every binding: without `admin.peers` it is `CapabilityDenied`; with
 /// it, `shower`'s own `PeerId` and at most 64 rows, each ending in that
 /// `PeerId` -- and what it shows is what an add takes: its first row, added
-/// on `adder`, is `added`, and removed again.
+/// on `adder`, is `added`, and removed again. Item 14's control, a
+/// loopback-only node answering no listen row, needs a node no runner
+/// here can connect: it is the composition's
+/// `a_loopback_only_node_shows_no_listen_row`.
 pub async fn own_addresses_are_what_an_add_takes<B: AdminBinding>(
     shower: &B,
     shower_peer: &TransportIdentity,
