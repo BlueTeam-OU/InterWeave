@@ -431,6 +431,37 @@ async fn a_card_shared_accepted_edited_and_deleted_across_two_daemons() {
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let out = human(&b, &["contacts", "show", &contact, "--json"], "");
     assert_eq!(lines(&out)[0]["name_from"], "own", "{}", said(&out));
+    let out = human(&b, &["contacts", "photo", &contact, "--none"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(lines(&out)[0]["photo_from"], "own", "{}", said(&out));
+
+    // A second card, declined: nothing written.
+    let listener = Listener::start(&b);
+    listener.until("the session ready", |l| {
+        l["event"] == "session" && l["session"] == "ready"
+    });
+    let out = human(&a, &["--wait", "15000", "card", "share", &to_b], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    listener.until("the second proposal", |l| l["event"] == "proposal");
+    listener.stop();
+    let out = human(&b, &["proposals", "--json"], "");
+    let second = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    let out = human(
+        &b,
+        &["proposals", "read", &to_a, "--decline", &second, "--json"],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["status"], "declined", "{}", said(&out));
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["name"],
+        "Countess",
+        "declining wrote nothing: {}",
+        said(&out)
+    );
+
     let out = human(&b, &["contacts", "delete", &contact], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let out = human(&b, &["contacts", "--json"], "");
