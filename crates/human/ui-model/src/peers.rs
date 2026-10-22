@@ -868,8 +868,9 @@ impl Peers {
             ..AddPage::default()
         });
         self.ask_focus(PeersFocus::Block(peer.clone()));
-        // The trust step reads the set itself (§5.2): with the list not
-        // the daemon's word, its block waits on that read.
+        // The trust step reads the set itself (§5.2) while the list is
+        // not the daemon's word; its block takes Trust meanwhile, and a
+        // read that lists the peer decides it Trusted.
         if trust.confirmed_list().is_none() {
             return trust.opened();
         }
