@@ -213,7 +213,7 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                     None => Err(Failure::CopyGone),
                     // A card has no Keep, asked for through any path
                     // (RETENTION.md): its copy stays for Accept or Decline.
-                    Some(held) if cards::card_of(held).is_some() => Err(Failure::Refused),
+                    Some(held) if cards::holds_card(held) => Err(Failure::Refused),
                     Some(held) => match self.client.store_mut().keep(held, at) {
                         Ok(row) => {
                             self.copies.remove(from);

@@ -6,7 +6,7 @@
 //! card a read row held, verified again before Accept writes anything.
 
 use interweave_human_chat_protocol::{
-    Card, CardRoute, Classified, classify, decode_envelope_bytes, parse_media_type,
+    Card, CardRoute, Classified, classify, decode_envelope_bytes, is_card, parse_media_type,
 };
 use interweave_human_client_api::ReceivedCard;
 use interweave_human_store::identity_key::{Fingerprint, IdentityKey};
@@ -149,6 +149,16 @@ pub(crate) fn identity_view(
         fingerprint: key.fingerprint().to_string(),
         peer: peer.cloned(),
     })
+}
+
+/// Whether a read row holds a contact card by its kind, verified or not:
+/// what Keep refuses (RETENTION.md: a card has no Keep), so a card that
+/// would no longer verify is not keepable either.
+pub(crate) fn holds_card(held: &ReadEphemeral) -> bool {
+    held.media_type()
+        .and_then(|m| parse_media_type(m.as_str()).ok())
+        .and_then(|info| decode_envelope_bytes(held.payload(), info.encoding).ok())
+        .is_some_and(|text| is_card(&text))
 }
 
 /// The route and card a read row held, verified again on that route: a
