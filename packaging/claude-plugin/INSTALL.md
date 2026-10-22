@@ -38,6 +38,12 @@ transportctl identity init --profile claude      # prints this profile's PeerId,
 
 Keep the printed PeerId: it is what other peers trust (step 4). The key never leaves this account.
 
+`identity init` puts the key under `~/.local/share/interweave` and creates no configuration directory, so make that directory, readable by this account only:
+
+```sh
+mkdir -p -m 0700 ~/.config/interweave ~/.config/interweave/profiles ~/.config/interweave/profiles/claude
+```
+
 Write `~/.config/interweave/profiles/claude/config.yaml`. The bridge's endpoint is declared under `endpoints.entries`. In the file below, it is also the default endpoint, so a message a peer sends without naming an endpoint reaches the bridge. The example `architecture/config/examples/human-and-claude.yaml` shows the same endpoint beside a human one.
 
 ```yaml
@@ -62,7 +68,7 @@ endpoints:
       outbound: inherit_profile_trust
 ```
 
-The configuration directory and the file must be this account's and not writable by anyone else. The daemon and the bridge both refuse a configuration that is.
+The configuration directory and the file must be this account's and not writable by anyone else. The daemon and the bridge both refuse a configuration that is. The port, `4001` here, must be free on the host: another profile, or another account's daemon, on the same port is a conflict (`packaging/linux/README.md`).
 
 ## 4. Trust the peers the bridge talks to
 
