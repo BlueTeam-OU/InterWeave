@@ -1229,9 +1229,7 @@ impl Peers {
     fn unknown(&mut self, check: Check) {
         match check {
             Check::Add(lines) => self.page_note(
-                AddNote::Unknown {
-                    lines: lines.len(),
-                },
+                AddNote::Unknown { lines: lines.len() },
                 PeersFocus::AddButton,
             ),
             Check::Undo(address) => self.say(PeersSnack::UndoUnknown { address }),
