@@ -146,8 +146,11 @@ ran `.NetworkService` in the foreground with `types=0x00000200`
 (`remoteMessaging`) on the `reachable` channel, kept it foreground in
 the background, and restarted it as a foreground service after a
 process death with no person present. That record is the run this
-half waited for; the spike's verdict is recorded in
-`architecture/roadmap/SPIKES.md`, by architect-cto.
+half waited for: SPIKE-008's result in `architecture/roadmap/SPIKES.md`
+names the enforcement as "Measured since (2026-10-20, Stage 17 gate
+(b)'s device run ...)" and takes it off the list it carries; that
+section's "Decision taken" paragraph is architect-cto's to bring in
+line.
 p2p-network-dev-02's six android-e2e cases ran on the same phone and
 build (`tests/android-e2e/runs/2026-10-20-pixel-9a-api37.md`).
 
