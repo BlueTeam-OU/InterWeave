@@ -153,7 +153,8 @@ pub(crate) fn identity_view(
 
 /// Whether a read row holds a contact card by its kind, verified or not:
 /// what Keep refuses (RETENTION.md: a card has no Keep), so a card that
-/// would no longer verify is not keepable either.
+/// would no longer verify is not keepable either (`tests/cards.rs`,
+/// `a_keep_of_a_card_that_no_longer_verifies_is_refused_by_its_kind`).
 pub(crate) fn holds_card(held: &ReadEphemeral) -> bool {
     held.media_type()
         .and_then(|m| parse_media_type(m.as_str()).ok())

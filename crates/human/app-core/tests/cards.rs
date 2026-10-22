@@ -18,7 +18,9 @@ use std::collections::VecDeque;
 use base64::Engine as _;
 use interweave_human_app_core::{Command, FacadeSide, Failure, ModelSide, Opener, Surface, Update};
 use interweave_human_store::identity_key::{self, FilesystemCustody, IdentityKey};
-use interweave_human_store::{HumanStore, OwnCard, StoreOptions};
+use interweave_human_store::{
+    AppMessageId, HumanStore, InboundOrigin, NewInbound, OwnCard, StoreOptions,
+};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
     AcceptLine, ConversationKey, Intent, KeyView, PhotoEdit, Table, UiModel, ViewEvent,
@@ -740,5 +742,85 @@ fn the_model_holds_as_many_read_proposals_as_the_facade_holds_copies() {
     assert_eq!(
         interweave_human_ui_model::READ_PROPOSAL_CAP,
         interweave_human_app_core::READ_COPY_CAP
+    );
+}
+
+/// A Keep is refused for a card by its kind, verified or not: a stored
+/// card that would no longer verify on its route is not keepable either.
+#[tokio::test]
+async fn a_keep_of_a_card_that_no_longer_verifies_is_refused_by_its_kind() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let pb = profile();
+    let row = {
+        let mut store =
+            HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("store");
+        store
+            .commit_unread_inbound(&NewInbound {
+                app_message_id: AppMessageId::parse("0000000000000000000000000000000c".to_owned())
+                    .expect("id"),
+                origin: InboundOrigin {
+                    peer: a.peer().clone(),
+                    endpoint: Some(human()),
+                    channel: None,
+                },
+                media_type: Some(
+                    interweave_transport_api::MediaType::parse(
+                        "application/vnd.interweave-human-chat+json;v=2",
+                    )
+                    .expect("media type"),
+                ),
+                // A card by its kind, with no key and no signature: one
+                // `classify` gives as malformed.
+                payload: br#"{"v":2,"kind":"contact_card","app_message_id":"0000000000000000000000000000000c","name":"Ada"}"#
+                    .to_vec(),
+                received_at: 1,
+            })
+            .expect("committed")
+    };
+    let mut bob = facade(&b, &pb, None);
+    let read = bob.execute(Command::MarkRead(row), 1).await;
+    assert!(
+        read.iter()
+            .any(|u| matches!(u, Update::Read(r) if *r == row)),
+        "{read:?}"
+    );
+    let mut alice = Root::new(facade(&a, &profile(), None));
+    let mut bob = Root::new(bob);
+    alice.pump(0).await;
+    bob.pump(0).await;
+    alice.will(Intent::Send {
+        key: direct(b.peer()),
+        draft: "an item to name".to_owned(),
+    });
+    alice.pump(1).await;
+    alice.pump(2).await;
+    bob.pump(3).await;
+    let item = bob.model().messages(&direct(a.peer()))[0].key;
+    let updates = bob
+        .facade
+        .execute(
+            Command::Keep {
+                item,
+                from: (Table::Unread, row),
+            },
+            3,
+        )
+        .await;
+    assert!(
+        updates.iter().any(|u| matches!(
+            u,
+            Update::Failed {
+                why: Failure::Refused,
+                ..
+            }
+        )),
+        "{updates:?}"
+    );
+    Box::pin(bob.facade.close()).await;
+    drop(bob);
+    let store = HumanStore::open_profile(&pb.paths, StoreOptions::default()).expect("reopen");
+    assert!(
+        store.kept_inbound().expect("read").is_empty(),
+        "nothing kept"
     );
 }
