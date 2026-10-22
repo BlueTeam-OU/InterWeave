@@ -1,6 +1,6 @@
 # Deploying a daemon on a new host
 
-From the three programs to a running `interweave-daemon@<profile>` unit
+From the four programs to a running `interweave-daemon@<profile>` unit
 for one account, with that account's own privileges and nothing installed
 system-wide. One account runs one profile here; a host with many profiles
 runs one account per profile (ADR-0055 decision 5), and repeats this for
@@ -88,9 +88,8 @@ included -- the reason in brackets is the one that counts.
 
 ## 1. The programs
 
-From a release archive, once one exists for the version (the release run
-builds it; ADR-0058 decision 6 keeps it from building until the notice
-derivation lands):
+From the release archive of the version, which the release run builds
+and the release page links:
 
 ```sh
 sha256sum -c interweave-<version>-x86_64-unknown-linux-gnu.tar.gz.sha256   # beside the .tar.gz
@@ -99,22 +98,23 @@ cd interweave-<version>-x86_64-unknown-linux-gnu
 ./install.sh
 ```
 
-Until then, from a release build of a named commit of the repository, on
-any host with the toolchain (the build host needs fontconfig's
-development files for `human-desktop`; the target host does not):
+Or from a release build of a named commit of the repository, on any
+host with the toolchain (the build host needs fontconfig's development
+files for `human-desktop`; the target host does not):
 
 ```sh
 git checkout <commit>
 cargo build --locked --release -p interweave-transport-daemon \
-    -p interweave-transportctl -p interweave-human-desktop
+    -p interweave-transportctl -p interweave-human-desktop -p interweave-human-cli
 packaging/linux/install.sh target/release
 ```
 
-Either way `install.sh` puts `transport-daemon`, `transportctl` and
-`human-desktop` in `~/.local/bin` and the two unit templates in
-`~/.config/systemd/user`, and enables nothing. `human-desktop` is the
-desktop client and is unused on a server; `install.sh` installs it
-because the archive carries it. Put `~/.local/bin` on `PATH` if it is
+Either way `install.sh` puts `transport-daemon`, `transportctl`,
+`human-desktop` and `interweave-human` in `~/.local/bin` and the two unit
+templates in `~/.config/systemd/user`, and enables nothing; it refuses,
+installing nothing, when any of the four is missing. `interweave-human`
+is the command-line human client; `human-desktop` is the desktop client
+and is unused on a server, installed because the archive carries it. Put `~/.local/bin` on `PATH` if it is
 not.
 
 ## 2. The identity
@@ -264,9 +264,8 @@ journal.
   (`packaging/claude-plugin/`), run by the Claude Code session of the
   same account, which gives it the same `XDG_RUNTIME_DIR`. Its
   `--profile` and `--endpoint` are this profile and the `claude` row.
-  The plugin comes from the archive's `claude-plugin/` directory, which
-  arrives with the change that lets the archive build; from a source
-  build, it is built by
+  The plugin comes from the archive's `claude-plugin/` directory; from a
+  source build, it is built by
   `cargo build --locked --release -p interweave-claude-channel` and
   `packaging/claude-plugin/build.sh <new directory> target/release/claude-channel`.
 - An automated client: `interweave-client@<profile>` (`README.md`).

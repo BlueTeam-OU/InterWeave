@@ -98,9 +98,10 @@ A release ships these files as
 `tools/ci/release_linux_archive.sh`: one directory holding `bin/` (the
 four programs), `systemd/` (the two templates), `install.sh`,
 `uninstall.sh`, this README, `LICENSE`, `THIRD-PARTY-NOTICES.md`, the
-licence files of every crate compiled into the programs and the Claude Code
-bridge (a crate that publishes none fails the archive, since its notice cannot
-be shipped), and `claude-plugin/`, the Claude Code plugin marketplace with the
+notice of every crate compiled into the programs and the Claude Code
+bridge -- the licence files it publishes, or for a crate that publishes none
+a notice derived as `tools/ci/notice_derived.json` lists it (ADR-0058); a
+crate with neither fails the archive -- and `claude-plugin/`, the Claude Code plugin marketplace with the
 bridge inside it. `install.sh` does not install the plugin; Claude Code adds
 it, from a copy of `claude-plugin/` kept where it stays, with
 `claude plugin marketplace add <that copy>` and then
