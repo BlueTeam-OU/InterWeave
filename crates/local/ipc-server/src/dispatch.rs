@@ -12,8 +12,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use interweave_ipc_protocol::{
     AddressList, AddressResult, AdminStatusResult, DirectoryResult, ENDPOINT_PERSISTED_SINCE_MINOR,
-    EmptyResult, EndpointList, PeerList, Request, RequestId, ResponseFrame, SendResult,
-    SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList,
+    EmptyResult, EndpointList, OwnAddressList, PeerList, Request, RequestId, ResponseFrame,
+    SendResult, SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList,
 };
 use interweave_local_client_api::{AdminPort, DataSessionPort};
 use interweave_transport_api::{BroadcastMessageV1, DirectDestination, TransportError};
@@ -78,7 +78,8 @@ pub(crate) async fn data<S: DataSessionPort>(
         | Request::AdminPeersList(_)
         | Request::AdminPeersAddAddress(_)
         | Request::AdminPeersRemoveAddress(_)
-        | Request::AdminPeersListAddresses => {
+        | Request::AdminPeersListAddresses
+        | Request::AdminPeersOwnAddresses => {
             ResponseFrame::failure(id, TransportError::CapabilityDenied)
         }
     }
@@ -181,6 +182,13 @@ pub(crate) async fn admin<A: AdminPort>(
         }
         Request::AdminPeersListAddresses => match port.bootstrap_addresses().await {
             Ok(rows) => match AddressList::from_views(rows) {
+                Ok(list) => ResponseFrame::success(id, &list),
+                Err(code) => ResponseFrame::failure(id, code),
+            },
+            Err(code) => ResponseFrame::failure(id, code),
+        },
+        Request::AdminPeersOwnAddresses => match port.own_addresses().await {
+            Ok(own) => match OwnAddressList::from_view(own) {
                 Ok(list) => ResponseFrame::success(id, &list),
                 Err(code) => ResponseFrame::failure(id, code),
             },
@@ -392,6 +400,11 @@ mod tests {
                 Method::AdminPeersListAddresses,
                 serde_json::json!({}),
                 "list_addresses",
+            ),
+            (
+                Method::AdminPeersOwnAddresses,
+                serde_json::json!({}),
+                "own_addresses",
             ),
             (
                 Method::AdminTrustSet,

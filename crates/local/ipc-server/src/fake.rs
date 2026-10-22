@@ -370,4 +370,18 @@ impl AdminPort for FakeAdmin {
         self.fake.call("list_addresses".to_owned());
         Ok(Vec::new())
     }
+
+    async fn own_addresses(
+        &self,
+    ) -> Result<interweave_local_client_api::OwnAddresses, TransportError> {
+        self.fake.call("own_addresses".to_owned());
+        Ok(interweave_local_client_api::OwnAddresses {
+            peer: peer(),
+            addresses: vec![interweave_local_client_api::OwnAddress {
+                address: format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", peer().as_str()),
+                kind: interweave_local_client_api::OwnAddressKind::Listen,
+            }],
+            truncated: false,
+        })
+    }
 }
