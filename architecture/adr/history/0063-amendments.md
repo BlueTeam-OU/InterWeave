@@ -22,8 +22,8 @@ device rows, are in `human-client-ui.md` §13 with their record lines.
 Plan §29 step 2 found the desktop with no wrapping key (ADR-0060
 decision 3's filesystem-only floor until SPIKE-007) and asked what the
 IDK1 file is there and what Android does with such a file. Ruled: the
-header carries a custody field under the associated data; the four open
-refusals (magic, version, EndpointId against the file name, public key
+header carries a custody field under the associated data; the five open
+refusals (magic, version, a custody this build does not know, EndpointId against the file name, public key
 against the secret) hold on every platform, the AEAD on top where a
 wrapping key exists; a platform that holds a wrapping key refuses a
 filesystem-only record at open as a downgrade, named, and the person
@@ -31,8 +31,9 @@ creates a new key (a key change, decision 5); a desktop refuses a sealed
 record as unreadable here; the one re-seal is upward and at adoption —
 the desktop re-sealing its own key files when it joins the SPIKE-007
 envelope, as the store key does (ADR-0060 decision 3), never at open,
-never downward, never for a record that arrived from elsewhere — and a
-custody this build does not know is refused at open with the version.
+never downward, never on arrival from another device — the hand-copied
+state root's files are the desktop's own by then and are re-sealed with
+the rest.
 The reason is the copy: a key file moved to a weaker platform must not
 quietly become as weak as that platform. Propagation: decision 2; this
 note; the log row; the digest entry.

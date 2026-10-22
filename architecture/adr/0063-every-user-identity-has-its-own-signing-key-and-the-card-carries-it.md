@@ -48,6 +48,7 @@ rust-ui-dev: the key pair and its custody in the shared crates — sealed as the
 ## Revisit conditions
 
 When ADR-0064 is accepted (the key becomes the root of the protocol's agreement and the multi-device device list); when a verification screen compares full keys; when the owner wants the identity key restorable from a phrase of its own.
+- SPIKE-007's passphrase envelope landing on the desktop (ADR-0038): the adoption step re-seals the identity-key files with the store key (decision 2, A 2026-10-22), and its criterion is written then.
 
 ## Amendments
 
