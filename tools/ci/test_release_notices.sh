@@ -218,10 +218,18 @@ src core tests/smoke.rs '// Copyright 2019 Test Writer.
 fn main() {}'
 # A header with the grant and AS IS but not the notice condition or the
 # liability clause is not the whole MIT notice (it ships as header+text).
-src trunc src/lib.rs '// Copyright 2020 Short Notice Ltd.
-// Permission is hereby granted to use this file.
-// THE SOFTWARE IS PROVIDED "AS IS".
-pub fn f() {}'
+# Two near-whole MIT notices, each missing one clause: the notice
+# condition, then the liability clause.
+src trunc src/lib.rs "$(printf '%s\n' "$MITHDR" | grep -v 'The above copyright notice\|all copies or substantial')"
+src trunc2 src/lib.rs "$(printf '%s\n' "$MITHDR" | sed 's/ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR//; /ANY CLAIM, DAMAGES/d')"
+# One header naming the crate's own licence and a foreign one (as the
+# Chromium-derived accesskit header names MIT and BSD): the BSD text is
+# owed even though MIT is answered.
+src mixed src/lib.rs "$MITHDR"
+src mixed src/m.rs '// Copyright 2019 Mixed Holder. Licensed under the MIT license.
+// Derived from Browser, Copyright 2018 The Browser Authors, under a
+// BSD-style license found in the LICENSE.browser file.
+pub fn m() {}'
 # Apache-first, with the whole MIT notice in its header: MIT satisfies
 # the OR (decision 4), so it is a header case.
 src apfirst src/lib.rs "$MITHDR"
@@ -255,7 +263,8 @@ derived = [pkg("hdr", "MIT"), pkg("hdrtext", "MIT OR Apache-2.0"),
            pkg("spdxonly", "CC0-1.0"), pkg("deep", "MIT"), pkg("docc", "BSD-3-Clause"),
            pkg("prose", "MIT"), pkg("core", "MIT"), pkg("zbsd", "MIT"),
            pkg("trunc", "MIT"), pkg("apfirst", "Apache-2.0 OR MIT"),
-           pkg("apx", "MIT OR Apache-2.0"), pkg("reusehdr", "MIT")]
+           pkg("apx", "MIT OR Apache-2.0"), pkg("reusehdr", "MIT"),
+           pkg("trunc2", "MIT"), pkg("mixed", "MIT")]
 app = {"id": "app-id", "name": "app", "version": "1.0.0", "license": "Apache-2.0",
        "license_file": None, "manifest_path": f"{root}/app/Cargo.toml", "targets": []}
 normal = [{"kind": None, "target": None}]
@@ -263,7 +272,7 @@ nodes = [{"id": "app-id", "deps": [{"name": p["name"], "pkg": p["id"], "dep_kind
 nodes += [{"id": p["id"], "deps": []} for p in derived]
 print(json.dumps({"packages": [app] + derived, "workspace_members": ["app-id"], "resolve": {"nodes": nodes}}))
 PY
-printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\ncore v1.0.0\nzbsd v1.0.0\ntrunc v1.0.0\napfirst v1.0.0\napx v1.0.0\nreusehdr v1.0.0\n' > "$D/compiled.txt"
+printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\ncore v1.0.0\nzbsd v1.0.0\ntrunc v1.0.0\napfirst v1.0.0\napx v1.0.0\nreusehdr v1.0.0\ntrunc2 v1.0.0\nmixed v1.0.0\n' > "$D/compiled.txt"
 # list <json lines>: the derived list, one crate object per argument.
 list() {
     local IFS=,
@@ -284,7 +293,8 @@ GOOD=("$(entry hdr MIT header src/lib.rs)" "$(entry hdrtext 'MIT OR Apache-2.0' 
       "$(entry zbsd MIT header src/lib.rs 2 '["BSD-3-Clause"]')"
       "$(entry trunc MIT header+text src/lib.rs)" "$(entry apfirst 'Apache-2.0 OR MIT' header src/lib.rs)"
       "$(entry apx 'MIT OR Apache-2.0' header src/lib.rs 2 '["Apache-2.0"]')"
-      "$(entry reusehdr MIT header+text src/lib.rs)")
+      "$(entry reusehdr MIT header+text src/lib.rs)" "$(entry trunc2 MIT header+text src/lib.rs)"
+      "$(entry mixed MIT header src/lib.rs 2 '["BSD-3-Clause"]')")
 drun() {
     NOTICE_DERIVED_JSON="$D/list.json" python3 "$D/tool/release_notices.py" "$D/metadata.json" \
         "$D/compiled.txt" "$SANDBOX/n.md" app >"$SANDBOX/stdout" 2>"$SANDBOX/err"
@@ -327,7 +337,7 @@ if drun; then
         && pass "every distinct header of the compiled files ships, the root module's first; tests/ is not read" \
         || fail "a crate's several headers did not ship as decision 2.ii says" "$(grep -n 'core\|Holder\|Test Writer' "$N")"
     grep -qF 'Used by zbsd 1.0.0 (header of src/z.rs).' "$N" \
-        && grep -qF 'Used by zbsd 1.0.0 (standard BSD-3-Clause text).' "$N" \
+        && grep -F 'Used by ' "$N" | grep -qF 'zbsd 1.0.0 (standard BSD-3-Clause text)' \
         && ! grep -qF '<year> <owner>' "$N" \
         && pass "a second holder's header naming BSD ships with the BSD text, no placeholder line" \
         || fail "the BSD-style header did not bring its text" "$(grep -n 'zbsd' "$N")"
@@ -400,10 +410,14 @@ list "${GOOD[@]:0:10}" "$(entry apfirst 'Apache-2.0 OR MIT' header+text src/lib.
 drefused "header+text for a header carrying one OR term's whole text" "apfirst 1.0.0's headers carry the MIT text already: list it as header"
 list "${GOOD[@]:0:11}" "$(entry apx 'MIT OR Apache-2.0' header src/lib.rs 2)" "${GOOD[@]:12}"
 drefused "a second holder's header naming the crate's other term, without its text" "apx 1.0.0's header in src/other.rs names Apache-2.0, whose text it does not carry"
-list "${GOOD[@]:0:12}" "$(entry reusehdr MIT standard)"
+list "${GOOD[@]:0:12}" "$(entry reusehdr MIT standard)" "${GOOD[@]:13}"
 drefused "a REUSE header listed as standard" "reusehdr 1.0.0 has a copyright header in src/lib.rs"
 list "${GOOD[@]:0:2}" '{"name": "std", "version": "1.0.0", "license": "MIT", "case": "standard", "extra_texts": ["BSD-3-Clause"]}' "${GOOD[@]:3}"
 drefused "extra_texts on a standard entry" "std 1.0.0 has extra_texts, which only a header case ships"
+list "${GOOD[@]:0:13}" "$(entry trunc2 MIT header src/lib.rs)" "${GOOD[@]:14}"
+drefused "an MIT notice without its liability clause listed as header" "trunc2 1.0.0's headers carry no whole text of MIT: list it as header+text"
+list "${GOOD[@]:0:14}" "$(entry mixed MIT header src/lib.rs 2)"
+drefused "a header naming its crate's licence and a foreign one, without the foreign text" "mixed 1.0.0's header in src/m.rs names BSD-3-Clause, whose text it does not carry"
 # A file-less crate now publishing a file: its entry must go.
 printf 'the MIT text\n' > "$D/crates/hdr/LICENSE"
 list "${GOOD[@]}"
