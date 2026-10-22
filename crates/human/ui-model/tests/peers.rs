@@ -1536,3 +1536,51 @@ fn this_devices_own_row_offers_no_trust() {
     m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
     assert_eq!(state(&m), RowState::ThisDevice, "trust unread too");
 }
+
+/// A row whose peer a step-two Trust was just answered as made for reads
+/// Trusted though the trust list is not read back yet (§5.2), and the
+/// list read back speaks for it from then on.
+#[test]
+fn a_row_trusted_from_this_page_reads_trusted_before_the_read_back() {
+    let (me, them) = (peer(), peer());
+    let state = |m: &UiModel| m.peers().rows(m.trust_settings())[0].state;
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&them)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&them)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(them.clone()),
+            },
+            &[added(&them)],
+        ),
+    );
+    let _ = input(&mut m, PeersInput::Trust(them.clone()));
+    m.trust_settings_mut().set(
+        TrustChange {
+            peer: them.clone(),
+            allowed: true,
+        },
+        Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    assert!(!m.peers().add_open());
+    assert_eq!(state(&m), RowState::Trusted, "just confirmed here");
+    assert_eq!(
+        m.trust_settings_mut().take_reread(),
+        Some(Intent::ReadTrust)
+    );
+    // Revoked elsewhere meanwhile: the list read back is the word.
+    m.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me),
+        allowed: Vec::new(),
+    }));
+    let _ = m.peers_turn();
+    assert_eq!(state(&m), RowState::NeedsTrust);
+    // And a later failed read leaves it unknown, never Trusted again.
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    let _ = m.peers_turn();
+    assert_eq!(state(&m), RowState::TrustUnknown);
+}
