@@ -76,7 +76,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 
 - `src/verbs_tests.rs` and `src/cards_tests.rs`: each verb through the model and the facade, against the in-memory node pair app-core's own tests use, over a file store where the next run is the claim.
 - `tests/process.rs`: the binary's `--help`, a usage error and a refused profile.
-- `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1 and 2 run as the binary against two real daemons; `card set --photo` and `contacts photo <file>` are run at the model level only, since the run carries no image.
+- `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1 and 2 run as the binary against two real daemons; `card set --photo <file>` and `contacts photo <file>` are not run with an image anywhere in this crate: the file read and its bound are tested here (`a_photo_file_past_the_bound_is_refused_unread`), and what the facade does with the bytes is app-core's.
 
 ## Not yet
 
