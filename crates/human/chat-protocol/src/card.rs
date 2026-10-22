@@ -246,6 +246,15 @@ pub fn canonical_card_bytes(
     Some(out)
 }
 
+/// Whether `text` is a contact card at all, by the same rule [`classify`]
+/// uses and before any of its faults is judged: a consumer that only
+/// discards cards (a card received over broadcast, which is ignored)
+/// asks this, with no route to verify a signature over.
+#[must_use]
+pub fn is_card(text: &str) -> bool {
+    any_top_level_kind_is_card(text)
+}
+
 /// What a person writes on their own card, before it is signed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CardDraft<'a> {
