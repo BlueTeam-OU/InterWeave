@@ -1442,6 +1442,29 @@ mod tests {
         assert!(2 * bytes > crate::framing::MAX_BODY_BYTES);
     }
 
+    /// `admin.peers.list_addresses` answers in one body, unpaged: its 64
+    /// rows at the schema's longest address -- 1024 characters, past the
+    /// longest entry the configuration's rule admits -- each with
+    /// `not_dialled`, fit with room for the frame. A row is ASCII, as the
+    /// grammar admits nothing else, so a character is a byte.
+    #[test]
+    fn a_full_address_list_of_the_longest_rows_fits_the_body() {
+        let row = AddressRow {
+            address: "a".repeat(crate::MAX_BOOTSTRAP_ADDRESS_CHARS),
+            source: RowSource::Authored,
+            dialled: false,
+            not_dialled: Some(NotDialled::ProviderDisabled),
+        };
+        let list = AddressList {
+            addresses: vec![row; MAX_BOOTSTRAP_ADDRESS_ROWS],
+        };
+        let bytes = serde_json::to_vec(&list).expect("serializes").len();
+        assert!(
+            bytes + 1_024 <= crate::framing::MAX_BODY_BYTES,
+            "{bytes} bytes for {MAX_BOOTSTRAP_ADDRESS_ROWS} rows"
+        );
+    }
+
     #[test]
     fn a_peer_list_pages_in_order_and_says_when_more_remain() {
         // Two full pages and one row, offered out of order and with one
