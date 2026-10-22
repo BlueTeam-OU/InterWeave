@@ -521,10 +521,11 @@ impl HumanStore {
     /// removes a contact only by deleting it (ADR-0059 decision 3). The
     /// routes are deleted by name as well as by the cascade, so the rule
     /// does not rest on the connection's pragma. What was deleted leaves
-    /// the log before this returns, as released content does
-    /// (`a_deleted_contact_leaves_both_files_before_the_call_returns`). A
-    /// card from one of its routes is a new proposal afterwards, its key
-    /// unrecorded.
+    /// the log as released content does (`release_done`): before this
+    /// returns (`a_deleted_contact_leaves_both_files_before_the_call_returns`),
+    /// unless another reader holds the log then, and at the next release,
+    /// open or close if so. A card from one of its routes is a new
+    /// proposal afterwards, its key unrecorded.
     ///
     /// # Errors
     /// A storage error. Whether there was such a contact.
