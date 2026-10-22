@@ -1394,8 +1394,8 @@ fn connectivity_of(health: Health, summary: Option<&ConnectivitySummary>) -> Opt
     }
 }
 
-/// The neutral row in the client's words: a peer both configured and
-/// administered is already `Configured` (the daemon normalises it).
+/// The list in the daemon's order; an address authored in the
+/// configuration is `Configured`, one added at runtime `AddedHere`.
 async fn read_addresses<P: AdminPort>(admin: &P) -> Result<AddressList, AddressProblem> {
     let rows = admin
         .bootstrap_addresses()
@@ -1417,6 +1417,8 @@ async fn read_addresses<P: AdminPort>(admin: &P) -> Result<AddressList, AddressP
     })
 }
 
+/// The neutral row in the client's words: a peer both configured and
+/// administered is already `Configured` (the daemon normalises it).
 fn trust_row(row: interweave_local_client_api::TrustedPeer) -> TrustRow {
     TrustRow {
         peer: row.peer,
