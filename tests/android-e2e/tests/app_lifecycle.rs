@@ -115,6 +115,23 @@ async fn a_process_death_restarts_the_service_into_the_same_store() {
     side.send(&phone.peer(), 1, &chat_text(1, "D", false)).await;
     side.until_accepted(&log, 1).await;
     until_some(&log, "the first notice", notice);
+    // The first process's notice withdrawn before the crash, by the window
+    // taking focus (it reads nothing: the list shows, no conversation),
+    // so a notice after the restart can only be the new process's: a
+    // crash runs no cancel, and a notice the platform kept would satisfy
+    // the wait below.
+    adb(&[
+        "shell",
+        "am",
+        "start",
+        "-W",
+        "-n",
+        &format!("{PACKAGE}/.MainActivity"),
+    ]);
+    until(&log, "the window in front again", app_focused);
+    until(&log, "the first notice withdrawn", || notice().is_none());
+    adb(&["shell", "input", "keyevent", "KEYCODE_HOME"]);
+    until(&log, "the window leaving again", || !app_focused());
 
     let before = app_pid().expect("the app's process");
     adb(&["shell", "am", "crash", PACKAGE]);
