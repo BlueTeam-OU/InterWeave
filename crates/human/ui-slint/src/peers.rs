@@ -14,7 +14,8 @@ use interweave_human_client_api::{AddressOrigin, TrustProblem};
 use interweave_human_ui_model::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, CODE_LINES, HostText,
     LineSelection, ListProblem, Peers, PeersFocus, PeersInput, PeersSnack, Refusal, RowState,
-    RuntimeHost, TYPED_LINES, TrustSettings, UiModel, UiText, fill, placeholder_en, short_peer,
+    RuntimeHost, TYPED_LINES, TrustLine, TrustSettings, UiModel, UiText, fill, placeholder_en,
+    short_peer,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{ModelRc, SharedString, VecModel};
@@ -120,6 +121,7 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     let s = Rc::clone(shared);
     window.on_close_peers(move || enqueue(&s, Input::PeersPage(false)));
     window.on_peers_read_again(on(shared, PeersInput::ReadAgain));
+    window.on_peers_trust_read_again(on(shared, PeersInput::TrustReadAgain));
     window.on_peers_open_add(on(shared, PeersInput::OpenAdd));
     window.on_peers_add_closed(on(shared, PeersInput::Close));
     window.on_peers_add(on(shared, PeersInput::Add));
@@ -266,6 +268,15 @@ impl View {
         window.set_peers_problem(problem.map_or("", |p| p.0).into());
         window.set_peers_problem_retry(problem.is_some_and(|p| p.1));
         window.set_peers_list_read(peers.list().is_some());
+        let trust_line = peers.trust_line(trust).map(|l| match l {
+            TrustLine::Unread { retry } => (text(UiText::PeersTrustUnread), retry),
+            TrustLine::NotPermitted => (
+                placeholder_en::host_text(self.host, HostText::PeersTrustNotPermitted),
+                false,
+            ),
+        });
+        window.set_peers_trust_line(trust_line.map_or("", |l| l.0).into());
+        window.set_peers_trust_retry(trust_line.is_some_and(|l| l.1));
         window.set_peers_add_note(
             peers
                 .add_note()
@@ -297,18 +308,22 @@ impl View {
                     peer: short.clone().into(),
                     host: host_port(&r.address).into(),
                     address: r.address.clone().into(),
-                    state: text(match r.state {
-                        RowState::Trusted => UiText::PeerStateTrusted,
-                        RowState::NeedsTrust => UiText::PeerStateNeedsTrust,
-                        RowState::ProviderOff => UiText::PeerStateProviderOff,
-                    })
+                    // Trust unknown: no state at all, neither trusted nor
+                    // not, the trust line saying why (section 5.2).
+                    state: match r.state {
+                        RowState::Trusted => text(UiText::PeerStateTrusted),
+                        RowState::NeedsTrust => text(UiText::PeerStateNeedsTrust),
+                        RowState::ProviderOff => text(UiText::PeerStateProviderOff),
+                        RowState::TrustUnknown => "",
+                    }
                     .into(),
                     origin: text(match r.origin {
                         AddressOrigin::AddedHere => UiText::TrustAddedHere,
                         AddressOrigin::Configured => UiText::PeerFromConfig,
                     })
                     .into(),
-                    needs_trust: r.state == RowState::NeedsTrust && r.peer.is_some(),
+                    needs_trust: matches!(r.state, RowState::NeedsTrust | RowState::TrustUnknown)
+                        && r.peer.is_some(),
                     removable: r.origin == AddressOrigin::AddedHere,
                     menu_label: fill(text(UiText::PeerMenu), &[("peer", &short)]).into(),
                 }
@@ -388,6 +403,7 @@ impl View {
                     state: match b.state {
                         BlockState::Trusted => text(UiText::TrustStepDone).to_owned(),
                         BlockState::Later => text(UiText::TrustStepLater).to_owned(),
+                        BlockState::LaterUnknown => text(UiText::TrustStepLaterUnknown).to_owned(),
                         BlockState::Checking => fill(
                             placeholder_en::host_text(host, HostText::TrustUnconfirmed),
                             &[("peer", b.peer.as_str())],
@@ -524,6 +540,7 @@ impl View {
             }
             PeersFocus::AddAddressNote => "add-address-note".to_owned(),
             PeersFocus::ListProblem => "peers-problem".to_owned(),
+            PeersFocus::TrustRetry => "trust-retry".to_owned(),
         }
     }
 }

@@ -459,3 +459,54 @@ fn a_rows_trust_draws_the_trust_step_without_step_one() {
     assert!(view.window().get_add_step_one());
     assert!(!labelled(&view, text(UiText::AddAction)).is_empty());
 }
+
+/// The trust list unread: every row is drawn with no trust state, the
+/// trust-unread line stands where the line on what trust means would,
+/// and its Try again reads trust again (section 5.2's trust unread).
+#[test]
+fn an_unread_trust_list_draws_its_line_and_no_row_state() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, t) = (peer(), peer());
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::PeersTitle));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::ReadTrust, Intent::ReadAddresses]
+    );
+    model
+        .trust_settings_mut()
+        .read(Err(interweave_human_client_api::TrustProblem::Unavailable));
+    model.addresses_read(Ok(AddressList {
+        addresses: vec![added(&t)],
+    }));
+    view.render(&model);
+
+    let row = view.window().get_peer_rows().row_data(0).expect("a row");
+    assert_eq!(row.state, "", "no trust state claimed");
+    assert!(row.needs_trust, "Trust stays offered");
+    assert_eq!(
+        view.window().get_peers_trust_line(),
+        text(UiText::PeersTrustUnread)
+    );
+    assert!(!labelled(&view, text(UiText::PeersTrustUnread)).is_empty());
+    assert!(
+        labelled(&view, text(UiText::PeersNoTrust)).is_empty(),
+        "the trust line stands in its place"
+    );
+    for state in [UiText::PeerStateTrusted, UiText::PeerStateNeedsTrust] {
+        assert!(labelled(&view, text(state)).is_empty());
+    }
+
+    press(&view, text(UiText::TryAgain));
+    assert_eq!(intents(&mut view, &mut model), vec![Intent::ReadTrust]);
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me),
+        allowed: vec![TrustRow::added_here(t)],
+    }));
+    let _ = model.peers_turn();
+    view.render(&model);
+    assert_eq!(view.window().get_peers_trust_line(), "");
+    let row = view.window().get_peer_rows().row_data(0).expect("a row");
+    assert_eq!(row.state, text(UiText::PeerStateTrusted));
+}

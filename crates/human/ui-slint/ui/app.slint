@@ -1832,6 +1832,11 @@ export component AppWindow inherits Window {
     // Under Add an address: why it opened nothing.
     in property <string> peers-add-note;
     in property <string> peers-no-trust;
+    // The trust list is not the daemon's word (section 5.2's trust
+    // unread): the line in peers-no-trust's place, and whether Try again
+    // is offered.
+    in property <string> peers-trust-line;
+    in property <bool> peers-trust-retry;
     in property <string> peers-empty;
     in property <[PeerAddressRow]> peer-rows;
     in property <string> copy-address-label;
@@ -1943,6 +1948,7 @@ export component AppWindow inherits Window {
     callback open-peers();
     callback close-peers();
     callback peers-read-again();
+    callback peers-trust-read-again();
     callback peers-open-add();
     callback peers-add-closed();
     callback address-edited(string);
@@ -2900,7 +2906,27 @@ export component AppWindow inherits Window {
                     focus-wanted: root.focus-target == "add-address-note";
                     focused(k) => { root.focus-id = k; }
                 }
-                if !root.peers-add-open && root.peers-list-read: Text {
+                if !root.peers-add-open && root.peers-list-read && root.peers-trust-line != "": FocusNote {
+                    text: root.peers-trust-line;
+                    rtl: root.rtl;
+                    focus-key: "trust-line";
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "trust-line";
+                    focused(k) => { root.focus-id = k; }
+                }
+                if !root.peers-add-open && root.peers-list-read && root.peers-trust-line != "" && root.peers-trust-retry: HorizontalLayout {
+                    alignment: start;
+                    ActionButton {
+                        text: root.try-again-label;
+                        target: 48px;
+                        focus-key: "trust-retry";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "trust-retry";
+                        pressed => { root.peers-trust-read-again(); }
+                        focused(k) => { root.focus-id = k; }
+                    }
+                }
+                if !root.peers-add-open && root.peers-list-read && root.peers-trust-line == "": Text {
                     text: root.peers-no-trust;
                     wrap: word-wrap;
                     min-width: 0;
@@ -2938,7 +2964,7 @@ export component AppWindow inherits Window {
                             }
                             accessible-role: text;
                             accessible-label: row.peer;
-                            accessible-description: row.host + ". " + row.state + ". " + row.origin;
+                            accessible-description: row.state == "" ? row.host + ". " + row.origin : row.host + ". " + row.state + ". " + row.origin;
                             VerticalLayout {
                                 spacing: 2px;
                                 Text {
@@ -2955,7 +2981,7 @@ export component AppWindow inherits Window {
                                     color: Palette.on-surface-variant;
                                     accessible-role: none;
                                 }
-                                Text {
+                                if row.state != "": Text {
                                     text: row.state;
                                     font-size: Type.body-medium;
                                     wrap: word-wrap;
