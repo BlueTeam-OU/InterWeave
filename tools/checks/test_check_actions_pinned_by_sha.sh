@@ -20,7 +20,9 @@ UNDER_TEST="$SCRIPT_DIR/check_actions_pinned_by_sha.sh"
 failures=0
 pass() { echo "  ok   $1"; }
 fail() { echo "  FAIL $1"; [[ -n "${2:-}" ]] && printf '%s\n' "$2" | sed 's/^/       /'; failures=$((failures+1)); }
-SANDBOX="$(realpath -- "$(mktemp -d)")"; trap 'rm -rf "$SANDBOX"' EXIT
+SANDBOX="$(realpath -- "$(mktemp -d)")"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_actions_pinned_by_sha: no sandbox (mktemp failed)" >&2; exit 1; }
+trap 'rm -rf "$SANDBOX"' EXIT
 
 # A working copy with the forwarder and its lookup, a stub fabric beside
 # it whose check records argv, and a stub Python that runs it with bash.

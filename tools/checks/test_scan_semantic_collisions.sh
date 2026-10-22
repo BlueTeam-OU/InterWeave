@@ -18,6 +18,7 @@ ok()  { printf '  ✓ %s\n' "$1"; pass=$((pass + 1)); }
 bad() { printf '  ✗ %s\n' "$1" >&2; fail=$((fail + 1)); }
 
 TMP="$(mktemp -d)"
+[ -n "$TMP" ] && [ -d "$TMP" ] || { echo "test_scan_semantic_collisions: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
 
 # make_tree <dir> — a valid ADR tree with two distinctly numbered ADRs.
@@ -95,6 +96,7 @@ bash "$SCAN" --root >/dev/null 2>&1
 # what the hand-over itself promises, against a recording stub.
 hcheck() { if eval "$2"; then ok "$1"; else bad "$1" "$hout"; fi; }
 hstub="$(mktemp -d)"
+[ -n "$hstub" ] && [ -d "$hstub" ] || { echo "test_scan_semantic_collisions: no sandbox (mktemp failed)" >&2; exit 1; }
 # The module stub is a shell script; a fake interpreter runs it with bash.
 printf '#!/bin/sh\nexec bash "$@"\n' > "$hstub/fake-python"; chmod +x "$hstub/fake-python"
 export AGENT_FABRIC_PYTHON="$hstub/fake-python"

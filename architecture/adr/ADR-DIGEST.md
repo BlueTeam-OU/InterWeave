@@ -381,6 +381,7 @@ Accepted 2026-10-21 (architect-cto's decision, the owner's word the same day) on
 - Not taken: expression and URL alone; hand-copied per-crate files; an Apache-2.0 election; refusing forever.
 - The header cases (Amendment 2026-10-22): every distinct header of the compiled files ships, not the first found; a header counts only with a copyright line (a lone SPDX tag falls to the standard text); a header naming a licence the notice does not otherwise carry ships whole followed by that licence's standard text (case header+text); the list records the case, the header count and the texts attached, keyed by name and version.
 - The APK page (Amendments 2026-10-22): the native libraries' notices in the body under `{third_party_notice_texts}`; the Rust crates' notices a release asset, `THIRD-PARTY-NOTICES-android.md` beside the APK with its SHA-256 in the hash list, `{crate_notices}` holding the link and `{crate_notices_sha256}` the hash, each filled by its own tool; the publish step refuses a page over the release-body limit (measured 2026-10-22: the crate notices alone are about 6× that limit).
+- The list pins each header (Amendment 2026-10-22 (iii)): a header case's entry carries the SHA-256 of each distinct header text, whitespace folded, in place of a count; a header whose digest is not listed refuses the artifact, a listed digest no header carries is reported; the licence-word scan stays a tripwire, since no rule over free prose finds every licence a header names.
 
 ## Cluster 7 — Identity and key material
 

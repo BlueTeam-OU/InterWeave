@@ -43,9 +43,21 @@
 #                followed by the standard text of the licence's first term;
 # and, beside either, the standard text of every licence a header names
 # that the notice does not otherwise carry, as the entry's extra_texts
-# list it (a header naming BSD with no BSD text attached is refused).
-# Each header-case entry also names the root header's file and the count
-# of distinct headers, so a header a version adds is looked at again.
+# list it (a header naming BSD with no BSD text attached is refused, and
+# so is one naming a licence whose text is not committed under
+# tools/ci/licence_texts/, or a name the scan reads and does not
+# recognise: a "<name> license" phrase in any case, an SPDX id, an
+# id-shaped variant such as BSD-4-Clause). That scan is a tripwire and
+# closes nothing (ADR-0058 A 2026-10-22 (iii)): it cannot read a licence
+# named without the word, a version or a variant written apart from its
+# name ("MIT No Attribution"), or a name beside a known one ("Frob and MIT
+# licenses").
+# Each header-case entry also names the root header's file and the SHA-256
+# of each distinct header's text, whitespace folded (runs of whitespace one
+# space, the ends trimmed). A header whose digest the entry does not list
+# is refused, naming the crate, the file and the digest, and so is a listed
+# digest no header carries: the list is where a person has read every
+# header text that ships, and its extra_texts say what that reading found.
 #   standard     no copyright header anywhere: the standard text of the
 #                first term, under the crate's `authors` (or "the <crate>
 #                authors"), after one sentence saying so.
@@ -172,10 +184,18 @@ def load_derived(path: Path) -> dict:
         header_case = e["case"] != "standard"
         if header_case != ("file" in e) or header_case != ("headers" in e):
             raise ValueError(
-                f"{path.name}: {key[0]} {key[1]} names a file and a header count exactly when its case is a header"
+                f"{path.name}: {key[0]} {key[1]} names a file and its headers' digests exactly when its case is a header"
             )
-        if header_case and not (isinstance(e["headers"], int) and e["headers"] >= 1):
-            raise ValueError(f"{path.name}: {key[0]} {key[1]}'s header count is not a positive number")
+        if header_case and not (
+            isinstance(e["headers"], list)
+            and e["headers"]
+            and all(isinstance(d, str) and re.fullmatch(r"[0-9a-f]{64}", d) for d in e["headers"])
+            and len(set(e["headers"])) == len(e["headers"])
+        ):
+            raise ValueError(
+                f"{path.name}: {key[0]} {key[1]}'s headers is not a list of distinct SHA-256 digests"
+                " (ADR-0058 A 2026-10-22 (iii): one per header text read, not a count)"
+            )
         if "extra_texts" in e and not header_case:
             raise ValueError(f"{path.name}: {key[0]} {key[1]} has extra_texts, which only a header case ships")
         for t in e.get("extra_texts", []):
@@ -187,35 +207,231 @@ def load_derived(path: Path) -> dict:
 
 # A header carries its licence's text only when it holds the committed
 # standard text whole, from where the grant begins (the copyright line
-# above it is the header's own), compared with whitespace and case
-# folded: a notice cut anywhere, even after its last marker, does not
-# count. A term with no committed text, or a header that rewords it (a
-# BSD header naming its organisation), is header+text -- the standard
-# text ships beside it.
-BODY_STARTS = {"MIT": "Permission is hereby granted", "BSD-3-Clause": "Redistribution and use"}
+# above it is the header's own; Apache's title is its start) to where
+# the terms end (Apache's appendix, a how-to with its own placeholder,
+# is not the terms),
+# compared with whitespace and case folded: a notice cut anywhere, even
+# after its last marker, does not count. A term with no committed text,
+# or a header that rewords it (a BSD header naming its organisation), is
+# header+text -- the standard text ships beside it.
+BODY = {
+    "MIT": ("Permission is hereby granted", None),
+    "BSD-3-Clause": ("Redistribution and use", None),
+    "Apache-2.0": ("Apache License", "END OF TERMS AND CONDITIONS"),
+}
 
 
 def folded(text: str) -> str:
     return " ".join(text.split()).lower()
 
 
-# A licence a header may name, by the words it is named with, and the
-# standard texts any one of which answers it (decision 2.ii: a header
-# naming a licence the notice does not otherwise carry brings its text).
-NAMED = (
-    (re.compile(r"\bBSD\b"), ("BSD-2-Clause", "BSD-3-Clause")),
-    (re.compile(r"\bApache License\b|\bApache-2\.0\b"), ("Apache-2.0",)),
-    (re.compile(r"\bMIT\b"), ("MIT",)),
-    (re.compile(r"\bISC\b"), ("ISC",)),
-    (re.compile(r"\bCC0\b|Public Domain Dedication"), ("CC0-1.0",)),
+# A licence a header may name, by the words it is named with in any
+# case, and the standard texts any one of which answers it (decision
+# 2.ii: a header naming a licence the notice does not otherwise carry
+# brings its text). A licence with no committed text is listed too: its
+# name is recognised, and since extra_texts holds only committed texts,
+# a header naming it refuses the run until its text is committed.
+NAMED = tuple(
+    (re.compile(words, re.I), answers)
+    for words, answers in (
+        (r"\bBSD\b", ("BSD-2-Clause", "BSD-3-Clause")),
+        (r"\bApache\b", ("Apache-2.0",)),
+        (r"\bMIT\b", ("MIT",)),
+        (r"\bISC\b", ("ISC",)),
+        (r"\bCC0\b|\bpublic domain dedication\b", ("CC0-1.0",)),
+        (r"\bzlib\b", ("Zlib",)),
+        (r"\bMPL\b|\bMozilla Public License\b", ("MPL-2.0",)),
+        (
+            r"\b(?:L|A)?GPL\b|\bGeneral Public License\b",
+            ("GPL-2.0-only", "GPL-3.0-only", "LGPL-2.1-only", "LGPL-3.0-only", "AGPL-3.0-only"),
+        ),
+        (r"\bUnlicense\b", ("Unlicense",)),
+        (r"\bBoost Software License\b|\bBSL-1\.0\b", ("BSL-1.0",)),
+        (r"\bUnicode License\b|\bUnicode-(?:DFS-2016|3\.0)\b", ("Unicode-3.0", "Unicode-DFS-2016")),
+    )
+)
+
+# Words that say a header names SOME licence. A header that says so and
+# names none NAMED recognises is refused rather than read as naming
+# nothing: the list is closed, and what it does not know is never
+# waved through (`a header naming an unrecognised licence is refused`).
+LICENCE_WORDS = re.compile(
+    r"\blicen[cs](?:e|ed|es|ing)\b|\bpublic domain\b|\bSPDX-License-Identifier\b", re.I
 )
 
 
+# A licence named in a header beside one NAMED knows is checked too, once
+# the committed texts the header carries whole are set aside (their own
+# "Grant of Copyright License" names no licence):
+#   - the words next before each "license" or "licence", in any case,
+#     must name a licence NAMED knows, unless they are generic ("found in
+#     the LICENSE file", "Grant of Patent License");
+#   - each SPDX id, on an SPDX-License-Identifier line in any case, and
+#     each id-shaped variant of a known name in prose ("BSD-4-Clause",
+#     "MIT-0", "Apache-1.1"), must be an id NAMED answers exactly.
+# A word scan cannot close this: a licence named with no licence word
+# ("and Frob", "GPLv3"), or a version written apart from its name
+# ("Apache License, Version 1.1"), is beyond what it can read, and the
+# reviewed list's reading of each header is what covers them.
+# Not a file's or a URL's "LICENSE": LICENSE-APACHE, LICENSE.chromium,
+# .../licenses/MIT.
+# No "/" inside a word: "MIT/Frob License" is read as "Frob License".
+NAME_PHRASE = re.compile(r"((?:[\w.+\"'()-]+\s+){1,4})(?<![/\w])licen[cs]es?\b(?![-./]\w)", re.I)
+CONNECTIVES = {
+    "a", "additional", "all", "an", "and", "any", "applicable", "by", "compatible", "different",
+    "each", "entire", "following", "for", "found", "from", "full", "in", "its", "of", "or",
+    "original", "other", "our", "permissive", "respective", "same", "see", "separate", "such",
+    "that", "the", "their", "these", "this", "to", "under", "with", "your",
+    # A grant's adjectives: "a perpetual, irrevocable, unconditional License".
+    "irrevocable", "limited", "non-exclusive", "non-sublicensable", "non-transferable",
+    "perpetual", "royalty-free", "unconditional", "worldwide",
+}
+# Words that, standing alone before "License", name no licence.
+GENERIC = {"copyright", "patent", "public", "software", "grant", "no"}
+SPDX_LINE = re.compile(r"spdx-license-identifier\s*:?[ \t]*([^\n]*)", re.I)
+# A variant carries a number (BSD-4-Clause, MIT-0); "BSD-style" names none.
+# It ends on a letter, digit or "+", never a sentence's full stop.
+ID_SHAPED = re.compile(r"\b(?:A?GPL|LGPL|BSD|MIT|Apache|CC0|MPL|ISC|Zlib|BSL|Unicode)-(?=[\w.+-]*\d)[\w.+-]*[\w+]", re.I)
+
+
+
+def known_ids() -> dict:
+    """Every id NAMED answers with, and every committed text, by lower case."""
+    ids = {t for _, answers in NAMED for t in answers} | set(STANDARD)
+    return {t.lower(): t for t in ids}
+
+
+def unrecognised_names(block: str) -> list:
+    """The licence names in `block` NAMED does not recognise."""
+    text = " ".join(block.split())
+    lowered = text.lower()
+    for term, (start, end) in BODY.items():
+        if carries_text(block, term):
+            body = folded(standard_text(term)[0])
+            body = body[body.index(folded(start)):]
+            if end:
+                body = body[: body.index(folded(end)) + len(folded(end))]
+            at = lowered.index(body)
+            text, lowered = text[:at] + text[at + len(body):], lowered[:at] + lowered[at + len(body):]
+    found = []
+    for m in NAME_PHRASE.finditer(text):
+        words = m.group(1).split()
+        # A name does not run across a sentence or out of a parenthesis:
+        # "Trademarks. This License", "(... this section) patent license".
+        while any(w[-1] in ".:;,()" for w in words[:-1]):
+            words = words[1:]
+        words = [w.strip("\"'(),.:;") for w in words]
+        run = []
+        for w in reversed(words):
+            if w.lower() in CONNECTIVES or not w:
+                break
+            run.insert(0, w)
+        if not run or all(w.lower() in GENERIC for w in run):
+            continue
+        if not any(n.search(" ".join(run) + " License") for n, _ in NAMED):
+            found.append(" ".join(run) + " License")
+    ids = known_ids()
+    found += [t for t in id_tokens(text, block) if t.lower() not in ids]
+    return list(dict.fromkeys(found))
+
+
+def id_tokens(text: str, block: str) -> list:
+    """Every id the header writes: its SPDX lines' and the id-shaped words
+    in its prose, a sentence's punctuation trimmed."""
+    tokens = []
+    for m in SPDX_LINE.finditer(block):
+        # An expression wrapped onto the header's next line -- cut where an
+        # id is due ("MIT OR" / "Apache-2.0"), or with the next line opening
+        # on an operator ("MIT" / "OR LicenseRef-Frob") -- goes on into it,
+        # as a reflow of the same words reads; one line at a time, so a
+        # copyright line or a licence body after it is not read as ids. It
+        # is refused as cut short only where no line follows.
+        line = m.group(1)
+        rest = [r for r in block[m.end():].splitlines()[1:] if r.strip()]
+        ids = spdx_expression(line)
+        while rest and (
+            ids[-1] == CUT_SHORT
+            or rest[0].split()[0].upper() in ("AND", "OR", "WITH")
+            or rest[0].split()[0] in ("/", "|", "+")
+        ):
+            line, rest = f"{line} {rest[0]}", rest[1:]
+            ids = spdx_expression(line)
+        tokens += ids
+    tokens += [m.group(0) for m in ID_SHAPED.finditer(text)]
+    return [t.rstrip(".") for t in tokens if t.rstrip(".")]
+
+
+CUT_SHORT = "an SPDX expression cut short"
+
+
+def spdx_expression(line: str) -> list:
+    """The ids of the SPDX expression that opens `line`: an id, then an
+    operator (AND, OR, WITH in any case, or the legacy "/", "|", "+")
+    before each further id, parentheses aside. Where an operator is due,
+    it ends only at a word with no letter or digit, a parenthesis standing
+    alone excepted ("MIT -- see LICENSE",
+    "MIT */") or after an id that ends a sentence ("MIT. See the notice");
+    any other word there is read as an id, so an unknown one refuses the
+    run rather than being dropped. A word that is not a clean id
+    ("MIT/Frob"), and an expression cut where an id is due ("MIT OR" at
+    the line's end, its id wrapped onto the next line), are returned as
+    they stand, so the lookup refuses them rather than reading less than
+    the line names; and after the expression ends, an id-shaped word left
+    on the line is read too: a name, a hyphen and a version ("MIT --
+    EPL-2.0 for x.c"), a LicenseRef-, or an id this tool knows (ISC), each
+    without the punctuation that follows it in prose."""
+    ids, want_id, ended = [], True, False
+    words = line.split()
+    for at, word in enumerate(words):
+        # A parenthesis standing alone groups, wherever it stands: it is
+        # neither an id nor the prose that ends the expression ("( MIT ) OR X").
+        if re.fullmatch(r"[()]+", word):
+            continue
+        bare = word.rstrip(".").strip("()").rstrip(".")
+        if want_id:
+            if not bare:
+                continue
+            ids.append(bare if re.fullmatch(r"[A-Za-z0-9.+-]+", bare) else f"{word} (not an SPDX id)")
+            want_id, ended = False, word.endswith(".")
+        elif bare.upper() in ("AND", "OR", "WITH") or word in ("/", "|", "+"):
+            want_id = True
+        elif ended or not re.search(r"[A-Za-z0-9]", word):
+            known = known_ids()
+            for w in words[at:]:
+                w = w.strip("()\"'").rstrip(".,;:").strip("()\"'").rstrip(".,;:")
+                if (
+                    re.fullmatch(r"[A-Za-z][A-Za-z0-9.+]*-[A-Za-z0-9.+-]*\d[A-Za-z0-9.+-]*", w)
+                    or re.fullmatch(r"LicenseRef-[A-Za-z0-9.+-]+", w)
+                    or w.lower() in known
+                ):
+                    ids.append(w)
+            break
+        else:
+            ids.append(bare if re.fullmatch(r"[A-Za-z0-9.+-]+", bare) else f"{word} (not an SPDX id)")
+            ended = word.endswith(".")
+    if want_id:
+        ids.append(CUT_SHORT)
+    return ids
+
+
+def owed_ids(block: str) -> list:
+    """The known licence ids the header writes, in an SPDX line or its
+    prose, each owed its own text: BSD-2-Clause is not answered by the
+    BSD-3-Clause text."""
+    ids = known_ids()
+    text = " ".join(block.split())
+    return [ids[t.lower()] for t in id_tokens(text, block) if t.lower() in ids]
+
+
 def carries_text(block: str, term: str) -> bool:
-    if term not in BODY_STARTS:
+    if term not in BODY:
         return False
     text = standard_text(term)[0]
-    return folded(text[text.index(BODY_STARTS[term]):]) in folded(block)
+    start, end = BODY[term]
+    body = text[text.index(start):]
+    if end:
+        body = body[: body.index(end) + len(end)]
+    return folded(body) in folded(block)
 
 
 def elected(expr: str) -> str:
@@ -274,6 +490,13 @@ def comment_block(source: str):
     return block if re.search(line, block, re.I | re.M) else None
 
 
+def header_digest(text: str) -> str:
+    """The SHA-256 of a header's text with its whitespace folded: runs of
+    whitespace one space, the ends trimmed. Case is kept: a changed letter
+    is a text a person reads again."""
+    return hashlib.sha256(" ".join(text.split()).encode()).hexdigest()
+
+
 def headers(package: dict) -> list:
     """[(path, text)] of every distinct copyright header among the files
     compiled in -- the root module, src/ and build.rs; tests/, examples/
@@ -317,10 +540,19 @@ def derived_notices(package: dict, entry: dict) -> list:
             raise ValueError(f"{name} {version} is listed as {entry['case']} but has no copyright header")
         if found[0][0] != entry["file"]:
             raise ValueError(f"{name} {version}'s header is in {found[0][0]}; notice_derived.json names {entry['file']}")
-        if len(found) != entry["headers"]:
+        # Decision 3 (A 2026-10-22 (iii)): every header that ships is one a
+        # person read, by its digest; a word-scan pass below proves nothing.
+        listed = set(entry["headers"])
+        for path, text in found:
+            if header_digest(text) not in listed:
+                raise ValueError(
+                    f"{name} {version}'s header in {path} has digest {header_digest(text)}, which"
+                    f" notice_derived.json does not list: read the header, record what it names in"
+                    f" extra_texts, and add the digest"
+                )
+        for stale in sorted(listed - {header_digest(text) for _, text in found}):
             raise ValueError(
-                f"{name} {version} has {len(found)} distinct copyright header(s); notice_derived.json says"
-                f" {entry['headers']}: look at them again"
+                f"{name} {version}'s entry lists digest {stale}, which no header carries: remove it"
             )
         term = elected(expr)
         # Decision 4: an OR is satisfied by any term whose text the crate
@@ -346,8 +578,26 @@ def derived_notices(package: dict, entry: dict) -> list:
         # so it asks for every one; a text too many costs nothing.
         shipped = carried | set(extra) | ({term} if entry["case"] == "header+text" else set())
         for path, text in found:
-            for answers in (a for words, a in NAMED if words.search(text)):
+            named = [a for words, a in NAMED if words.search(text)]
+            unknown = unrecognised_names(text)
+            if unknown or (not named and LICENCE_WORDS.search(text)):
+                said = f" ({', '.join(unknown)})" if unknown else ""
+                raise ValueError(
+                    f"{name} {version}'s header in {path} names a licence this tool does not recognise{said}:"
+                    f" add its words to NAMED and its text under {TEXTS.name}/"
+                )
+            # An SPDX id is owed its own text, never a sibling's: BSD-2-Clause
+            # is not answered by the BSD-3-Clause text.
+            for answers in named + [(t,) for t in owed_ids(text)]:
                 if not (set(answers) & shipped or any(carries_text(text, x) for x in answers)):
+                    if not set(answers) & set(STANDARD):
+                        # extra_texts takes committed texts only, so the
+                        # remedy is the text first (`a header naming zlib`).
+                        raise ValueError(
+                            f"{name} {version}'s header in {path} names {' or '.join(answers)}, whose standard"
+                            f" text is not committed: commit and pin it under {TEXTS.name}/, then add it to"
+                            f" the entry's extra_texts"
+                        )
                     raise ValueError(
                         f"{name} {version}'s header in {path} names {answers[-1]}, whose text it does not carry:"
                         f" add it to the entry's extra_texts"

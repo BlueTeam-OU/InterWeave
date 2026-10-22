@@ -46,6 +46,7 @@ fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2
 # tree lays them out: spikes/<name>/harness/{Cargo.toml,Cargo.lock,src}.
 new_sandbox() {
     SANDBOX="$(mktemp -d)"
+    [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_spike_locks: no sandbox (mktemp failed)" >&2; exit 1; }
     mkdir -p "$SANDBOX/tools/checks" "$SANDBOX/spikes/spike-test/harness/src"
     cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
     cat > "$SANDBOX/spikes/spike-test/harness/Cargo.toml" <<'EOF'
@@ -71,6 +72,7 @@ new_provenance_sandbox() {
     # pinned crate anywhere in a spike is traced the same way.
     local spike_only="$1" merged="${2:-yes}" crate="${3:-harness}"
     SANDBOX="$(mktemp -d)"
+    [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_spike_locks: no sandbox (mktemp failed)" >&2; exit 1; }
     mkdir -p "$SANDBOX/tools/checks"
     cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
     git -C "$SANDBOX" init -q
@@ -538,6 +540,7 @@ rm -rf "$SANDBOX"; SANDBOX=""
 # provenance phase reads them.
 for where in harness node; do
     SANDBOX="$(mktemp -d)"
+    [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_spike_locks: no sandbox (mktemp failed)" >&2; exit 1; }
     mkdir -p "$SANDBOX/tools/checks" "$SANDBOX/spikes/spike-test/$where"
     cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
     printf '[package]\nname = "x"\nversion = "0.0.0"\n' > "$SANDBOX/spikes/spike-test/$where/Cargo.toml"

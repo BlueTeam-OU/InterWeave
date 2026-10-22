@@ -21,6 +21,7 @@ UNDER_TEST="$SCRIPT_DIR/check_independent_codecs.sh"
 
 failures=0
 SANDBOX="$(mktemp -d)"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_independent_codecs: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 
 pass() { echo "  ✓ $1"; }

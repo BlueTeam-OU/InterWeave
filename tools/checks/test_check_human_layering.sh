@@ -28,6 +28,7 @@ UNDER_TEST="$SCRIPT_DIR/check_human_layering.sh"
 
 failures=0
 SANDBOX="$(mktemp -d)"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_human_layering: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 WS="$SANDBOX/ws"
 mkdir -p "$WS" "$SANDBOX/bin"
