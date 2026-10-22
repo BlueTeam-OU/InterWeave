@@ -417,6 +417,8 @@ pub enum PeersFocus {
     ListProblem,
     /// Try again on the trust-unread line.
     TrustRetry,
+    /// The trust-unread line itself, when it offers no Try again.
+    TrustLine,
     /// The snackbar's action: Try again on a removal or Undo whose
     /// outcome is unknown (§8).
     SnackAction,
@@ -1476,9 +1478,14 @@ impl Peers {
         if self.again == Some(Again::Trust) && !trust.reading() {
             self.again = None;
             if self.page.is_none() {
+                // Only a control the render draws: Try again while it is
+                // offered, else the line that says why it is not.
                 match self.trust_line(trust) {
                     None => self.ask_focus(PeersFocus::Title),
-                    Some(_) => self.ask_focus(PeersFocus::TrustRetry),
+                    Some(TrustLine::Unread { retry: true }) => {
+                        self.ask_focus(PeersFocus::TrustRetry);
+                    }
+                    Some(_) => self.ask_focus(PeersFocus::TrustLine),
                 }
             }
         }

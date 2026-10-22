@@ -1584,3 +1584,24 @@ fn a_row_trusted_from_this_page_reads_trusted_before_the_read_back() {
     let _ = m.peers_turn();
     assert_eq!(state(&m), RowState::TrustUnknown);
 }
+
+/// The trust line's Try again answered with a failure no retry mends --
+/// not permitted, or incompatible -- leaves no Try again drawn, so focus
+/// goes to the line that says why (§8), never to the gone control.
+#[test]
+fn a_trust_retry_refused_focuses_the_line() {
+    let p = peer();
+    for refused in [TrustProblem::NotPermitted, TrustProblem::Incompatible] {
+        let mut m = UiModel::new();
+        let _ = input(&mut m, PeersInput::Opened);
+        m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+        m.addresses_read(Ok(list(&[added(&p)])));
+        assert_eq!(
+            input(&mut m, PeersInput::TrustReadAgain),
+            vec![Intent::ReadTrust]
+        );
+        m.trust_settings_mut().read(Err(refused));
+        let _ = m.peers_turn();
+        assert_eq!(focus(&m), Some(PeersFocus::TrustLine), "{refused:?}");
+    }
+}
