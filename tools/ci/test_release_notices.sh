@@ -197,11 +197,11 @@ src core tests/smoke.rs '// Copyright 2019 Test Writer.
 fn main() {}'
 # A header with the grant and AS IS but not the notice condition or the
 # liability clause is not the whole MIT notice (it ships as header+text).
-# Two near-whole MIT notices, each missing one clause: the notice
-# condition, then the liability clause.
+# Two near-whole MIT notices: one without the notice condition, one cut
+# inside the liability clause.
 src trunc src/lib.rs "$(printf '%s\n' "$MITHDR" | grep -v 'The above copyright notice\|portions of the Software')"
-# Cut right after "IN NO EVENT SHALL": every marker a fragment check
-# would look for is still there.
+# Cut after the liability clause's first line ("... OTHER LIABILITY,
+# WHETHER"): every marker a fragment check would look for is still there.
 src trunc2 src/lib.rs "$(printf '%s\n' "$MITHDR" | sed '/IN AN ACTION OF CONTRACT/,/DEALINGS IN THE SOFTWARE/d')"
 # One header naming the crate's own licence and a foreign one (as the
 # Chromium-derived accesskit header names MIT and BSD): the BSD text is
@@ -224,6 +224,21 @@ pub fn k() {}'
 # (The tag is split so this file declares no licence of its own.)
 src reusehdr src/lib.rs "$(printf '%s\n%s\n%s' '// SPDX-FileCopyrightText: 2024 Jane Doe' \
     '// SPDX-License-''Identifier: MIT' 'pub fn f() {}')"
+# One comment block holding a whole MIT notice and a second holder's
+# Apache line: the Apache text is owed though MIT is the crate's own and
+# carried (decision 2.ii as written: every licence a header names).
+src combo src/lib.rs "// Copyright 2017 Example Ltd.
+//
+$MITBODY
+//
+// Portions Copyright 2019 Other Holder, under the Apache License, Version 2.0.
+pub fn f() {}"
+# A second holder's CC0 dedication in an MIT crate: the CC0 text is
+# attached too.
+src cczero src/lib.rs "$MITHDR"
+src cczero src/old.rs '// Copyright 2014 Old Holder.
+// Dedicated to the public domain under the CC0 Public Domain Dedication.
+pub fn o() {}'
 # A header whose only copyright line is a "Portions Copyright" line.
 src portions src/lib.rs '// Portions Copyright 2010 Some Holder.
 // Licensed under the MIT license.
@@ -249,7 +264,8 @@ derived = [pkg("hdr", "MIT"), pkg("hdrtext", "MIT OR Apache-2.0"),
            pkg("prose", "MIT"), pkg("core", "MIT"), pkg("zbsd", "MIT"),
            pkg("trunc", "MIT"), pkg("apfirst", "Apache-2.0 OR MIT"),
            pkg("apx", "MIT OR Apache-2.0"), pkg("reusehdr", "MIT"),
-           pkg("trunc2", "MIT"), pkg("mixed", "MIT"), pkg("portions", "MIT")]
+           pkg("trunc2", "MIT"), pkg("mixed", "MIT"), pkg("portions", "MIT"),
+           pkg("combo", "MIT OR Apache-2.0"), pkg("cczero", "MIT")]
 app = {"id": "app-id", "name": "app", "version": "1.0.0", "license": "Apache-2.0",
        "license_file": None, "manifest_path": f"{root}/app/Cargo.toml", "targets": []}
 normal = [{"kind": None, "target": None}]
@@ -257,7 +273,7 @@ nodes = [{"id": "app-id", "deps": [{"name": p["name"], "pkg": p["id"], "dep_kind
 nodes += [{"id": p["id"], "deps": []} for p in derived]
 print(json.dumps({"packages": [app] + derived, "workspace_members": ["app-id"], "resolve": {"nodes": nodes}}))
 PY
-printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\ncore v1.0.0\nzbsd v1.0.0\ntrunc v1.0.0\napfirst v1.0.0\napx v1.0.0\nreusehdr v1.0.0\ntrunc2 v1.0.0\nmixed v1.0.0\nportions v1.0.0\n' > "$D/compiled.txt"
+printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\ncore v1.0.0\nzbsd v1.0.0\ntrunc v1.0.0\napfirst v1.0.0\napx v1.0.0\nreusehdr v1.0.0\ntrunc2 v1.0.0\nmixed v1.0.0\nportions v1.0.0\ncombo v1.0.0\ncczero v1.0.0\n' > "$D/compiled.txt"
 # list <json lines>: the derived list, one crate object per argument.
 list() {
     local IFS=,
@@ -280,7 +296,9 @@ GOOD=("$(entry hdr MIT header src/lib.rs)" "$(entry hdrtext 'MIT OR Apache-2.0' 
       "$(entry apx 'MIT OR Apache-2.0' header src/lib.rs 2 '["Apache-2.0"]')"
       "$(entry reusehdr MIT header+text src/lib.rs)" "$(entry trunc2 MIT header+text src/lib.rs)"
       "$(entry mixed MIT header src/lib.rs 2 '["BSD-3-Clause"]')"
-      "$(entry portions MIT header+text src/lib.rs)")
+      "$(entry portions MIT header+text src/lib.rs)"
+      "$(entry combo 'MIT OR Apache-2.0' header src/lib.rs 1 '["Apache-2.0"]')"
+      "$(entry cczero MIT header src/lib.rs 2 '["CC0-1.0"]')")
 drun() {
     NOTICE_DERIVED_JSON="$D/list.json" python3 "$D/tool/release_notices.py" "$D/metadata.json" \
         "$D/compiled.txt" "$SANDBOX/n.md" app >"$SANDBOX/stdout" 2>"$SANDBOX/err"
@@ -404,8 +422,12 @@ list "${GOOD[@]:0:13}" "$(entry trunc2 MIT header src/lib.rs)" "${GOOD[@]:14}"
 drefused "an MIT notice without its liability clause listed as header" "trunc2 1.0.0's headers carry no whole text of MIT: list it as header+text"
 list "${GOOD[@]:0:14}" "$(entry mixed MIT header src/lib.rs 2)" "${GOOD[@]:15}"
 drefused "a header naming its crate's licence and a foreign one, without the foreign text" "mixed 1.0.0's header in src/m.rs names BSD-3-Clause, whose text it does not carry"
-list "${GOOD[@]:0:15}" "$(entry portions MIT standard)"
+list "${GOOD[@]:0:15}" "$(entry portions MIT standard)" "${GOOD[@]:16}"
 drefused "a Portions Copyright header listed as standard" "portions 1.0.0 has a copyright header in src/lib.rs"
+list "${GOOD[@]:0:16}" "$(entry combo 'MIT OR Apache-2.0' header src/lib.rs 1)" "${GOOD[@]:17}"
+drefused "one block holding a whole MIT notice and another holder's Apache line, without the Apache text" "combo 1.0.0's header in src/lib.rs names Apache-2.0, whose text it does not carry"
+list "${GOOD[@]:0:17}" "$(entry cczero MIT header src/lib.rs 2)"
+drefused "a CC0 dedication header without the CC0 text" "cczero 1.0.0's header in src/old.rs names CC0-1.0, whose text it does not carry"
 # A file-less crate now publishing a file: its entry must go.
 printf 'the MIT text\n' > "$D/crates/hdr/LICENSE"
 list "${GOOD[@]}"

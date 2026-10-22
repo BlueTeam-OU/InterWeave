@@ -207,6 +207,7 @@ NAMED = (
     (re.compile(r"\bApache License\b|\bApache-2\.0\b"), ("Apache-2.0",)),
     (re.compile(r"\bMIT\b"), ("MIT",)),
     (re.compile(r"\bISC\b"), ("ISC",)),
+    (re.compile(r"\bCC0\b|Public Domain Dedication"), ("CC0-1.0",)),
 )
 
 
@@ -335,23 +336,18 @@ def derived_notices(package: dict, entry: dict) -> list:
                 f"{name} {version}'s headers carry the {sorted(carried)[0]} text already: list it as header"
             )
         extra = entry.get("extra_texts", [])
-        # Every licence a header names must have its text in what ships --
+        # Every licence any header names has its text in what ships --
         # carried by a header, the standard text header+text adds, or an
-        # extra text -- whether or not it is one of the crate's own terms
-        # (a second holder's header binds by its own licence). A header
-        # naming several (an "at your option" header) is answered by any.
+        # extra text -- the crate's own terms included, and an "at your
+        # option" header's every alternative too (decision 2.ii as written:
+        # a header naming a licence whose text the notice does not
+        # otherwise carry brings that text). One comment block can hold
+        # several holders' statements and the tool cannot tell them apart,
+        # so it asks for every one; a text too many costs nothing.
         shipped = carried | set(extra) | ({term} if entry["case"] == "header+text" else set())
         for path, text in found:
-            named = [answers for words, answers in NAMED if words.search(text)]
-            if named and not any(set(a) & shipped or any(carries_text(text, x) for x in a) for a in named):
-                raise ValueError(
-                    f"{name} {version}'s header in {path} names {named[0][-1]}, whose text it does not carry:"
-                    f" add it to the entry's extra_texts"
-                )
-            for answers in named:
-                if not set(answers) & set(own) and not (
-                    set(answers) & shipped or any(carries_text(text, x) for x in answers)
-                ):
+            for answers in (a for words, a in NAMED if words.search(text)):
+                if not (set(answers) & shipped or any(carries_text(text, x) for x in answers)):
                     raise ValueError(
                         f"{name} {version}'s header in {path} names {answers[-1]}, whose text it does not carry:"
                         f" add it to the entry's extra_texts"
