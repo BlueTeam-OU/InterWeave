@@ -572,6 +572,37 @@ drun && pass "a known id wrapped onto the next line" || fail "an expression wrap
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// OR LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drefused "an unknown id wrapped after its operator" "names a licence this tool does not recognise (LicenseRef-Frob)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// OR Apache-2.0\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "a known id wrapped after its operator" || fail "an expression wrapped before OR was refused" "$(cat "$SANDBOX/err")"
+# A next line opening on the word in another case is prose unless an id
+# follows it; a blank line ends the tag, so nothing past it is read on.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// or LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an unknown id after a lower-case operator on the next line" "names a licence this tool does not recognise (LicenseRef-Frob)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// With contributions from the Y project\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drun && pass "a prose line opening on With after a complete tag" || fail "prose opening on With was read as ids" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n//\n// OR LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drun && pass "an operator line past a blank line" || fail "a line past a blank line was read on" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT OR\n//\n// Apache-2.0\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drefused "an expression cut short before a blank line" "names a licence this tool does not recognise (an SPDX expression cut short)"
+# The next line is read as the expression reads it: parentheses aside,
+# and an operator glued to its word still an operator.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( MIT OR Apache-2.0\n// ) AND LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drefused "an unknown id wrapped after a closing parenthesis" "names a licence this tool does not recognise (LicenseRef-Frob)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( MIT OR Apache-2.0\n// ) AND Apache-2.0\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "a known id wrapped after a closing parenthesis" || fail "a wrap after a closing parenthesis was refused" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// OR(LicenseRef-Frob)\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an operator glued to the wrapped id" "OR(LicenseRef-Frob) (not an SPDX id)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// /LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "a legacy separator glued to the wrapped id" "/LicenseRef-Frob (not an SPDX id)"
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT OR\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drefused "an SPDX expression cut at the header's last line" "names a licence this tool does not recognise (an SPDX expression cut short)"

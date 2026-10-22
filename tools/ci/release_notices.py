@@ -341,19 +341,15 @@ def id_tokens(text: str, block: str) -> list:
     tokens = []
     for m in SPDX_LINE.finditer(block):
         # An expression wrapped onto the header's next line -- cut where an
-        # id is due ("MIT OR" / "Apache-2.0"), or with the next line opening
-        # on an operator ("MIT" / "OR LicenseRef-Frob") -- goes on into it,
-        # as a reflow of the same words reads; one line at a time, so a
-        # copyright line or a licence body after it is not read as ids. It
-        # is refused as cut short only where no line follows.
+        # id is due ("MIT OR" / "Apache-2.0"), or with the next line going
+        # on with it (wraps_on) -- goes on into it, as a reflow of the same
+        # words reads; one line at a time, so a copyright line or a licence
+        # body after it is not read as ids. A blank line ends it: cut short
+        # there, or with no line after it, it is refused as cut short.
         line = m.group(1)
-        rest = [r for r in block[m.end():].splitlines()[1:] if r.strip()]
+        rest = block[m.end():].splitlines()[1:]
         ids = spdx_expression(line)
-        while rest and (
-            ids[-1] == CUT_SHORT
-            or rest[0].split()[0].upper() in ("AND", "OR", "WITH")
-            or rest[0].split()[0] in ("/", "|", "+")
-        ):
+        while rest and rest[0].strip() and (ids[-1] == CUT_SHORT or wraps_on(rest[0])):
             line, rest = f"{line} {rest[0]}", rest[1:]
             ids = spdx_expression(line)
         tokens += ids
@@ -362,6 +358,29 @@ def id_tokens(text: str, block: str) -> list:
 
 
 CUT_SHORT = "an SPDX expression cut short"
+# An id as a wrapped line may open with one after an operator: a name, a
+# hyphen and a version, a LicenseRef-, or an id this tool knows.
+ID_WORD = re.compile(r"[A-Za-z][A-Za-z0-9.+]*-[A-Za-z0-9.+-]*\d[A-Za-z0-9.+-]*|LicenseRef-[A-Za-z0-9.+-]+")
+
+
+def wraps_on(next_line: str) -> bool:
+    """Whether the line after a complete SPDX expression goes on with it:
+    it opens, parentheses aside, on an operator -- glued to its word or
+    not ("OR(LicenseRef-Frob)", ") AND X", "/LicenseRef-Frob") -- in upper
+    case, or in any other case before an id ("or LicenseRef-Frob"), so a
+    sentence opening on the word ("With contributions from ...") is prose.
+    A line of parentheses alone closes the expression and goes on too."""
+    head = next_line.strip().lstrip("()").lstrip()
+    if not head or head[0] in "/|+":
+        return True
+    op = re.match(r"(AND|OR|WITH)(?![A-Za-z0-9.+-])", head, re.I)
+    if not op:
+        return False
+    if op.group(1).isupper():
+        return True
+    word = head[op.end():].split()[0:1]
+    word = word[0].strip("()\"'").rstrip(".,;:") if word else ""
+    return bool(ID_WORD.fullmatch(word)) or word.lower() in known_ids()
 
 
 def spdx_expression(line: str) -> list:
@@ -373,13 +392,14 @@ def spdx_expression(line: str) -> list:
     "MIT */") or after an id that ends a sentence ("MIT. See the notice");
     any other word there is read as an id, so an unknown one refuses the
     run rather than being dropped. A word that is not a clean id
-    ("MIT/Frob"), and an expression cut where an id is due ("MIT OR" at
-    the line's end, its id wrapped onto the next line), are returned as
-    they stand, so the lookup refuses them rather than reading less than
-    the line names; and after the expression ends, an id-shaped word left
+    ("MIT/Frob") is returned as it stands, so the lookup refuses it rather
+    than reading less than the line names; and after the expression ends, an id-shaped word left
     on the line is read too: a name, a hyphen and a version ("MIT --
     EPL-2.0 for x.c"), a LicenseRef-, or an id this tool knows (ISC), each
-    without the punctuation that follows it in prose."""
+    without the punctuation that follows it in prose. An expression cut
+    where an id is due ("MIT OR" at the line's end) is returned with
+    CUT_SHORT last, which id_tokens reads on into the next line and the
+    lookup refuses where none follows."""
     ids, want_id, ended = [], True, False
     words = line.split()
     for at, word in enumerate(words):
@@ -399,11 +419,7 @@ def spdx_expression(line: str) -> list:
             known = known_ids()
             for w in words[at:]:
                 w = w.strip("()\"'").rstrip(".,;:").strip("()\"'").rstrip(".,;:")
-                if (
-                    re.fullmatch(r"[A-Za-z][A-Za-z0-9.+]*-[A-Za-z0-9.+-]*\d[A-Za-z0-9.+-]*", w)
-                    or re.fullmatch(r"LicenseRef-[A-Za-z0-9.+-]+", w)
-                    or w.lower() in known
-                ):
+                if ID_WORD.fullmatch(w) or w.lower() in known:
                     ids.append(w)
             break
         else:
