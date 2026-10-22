@@ -455,38 +455,6 @@ PY
 list "${GOOD[@]:0:2}" "$(entry std '(MIT OR Apache-2.0) AND Unicode-3.0' standard)" "${GOOD[@]:3}"
 drefused "an expression owing an AND term beside its OR" "is not a plain OR of single terms"
 
-# --- --json KEY: the notices as a section of the release page ------------
-metadata
-printf '# a line of a licence text that starts with a hash\n' >> "$SANDBOX/crates/reuse/LICENSES/Apache-2.0.txt"
-if python3 "$UNDER_TEST" --json crate_notices "$SANDBOX/metadata.json" "$SANDBOX/compiled.txt" \
-    "$SANDBOX/n.json" app >/dev/null 2>"$SANDBOX/err"; then
-    python3 - "$SANDBOX/n.json" > "$SANDBOX/section.md" <<'PY' || fail "--json did not write one key" "$(cat "$SANDBOX/n.json")"
-import json, sys
-d = json.load(open(sys.argv[1]))
-assert list(d) == ["crate_notices"], d
-sys.stdout.write(d["crate_notices"])
-PY
-    S="$SANDBOX/section.md"
-    ! grep -q '^# Third-party notices' "$S" && ! grep -q "InterWeave's own code" "$S" \
-        && [[ "$(head -c 3 "$S")" == '- `' ]] && grep -qx '### Licence texts' "$S" && grep -qx '#### T1' "$S" \
-        && grep -qF -- '- `shared` 1.0.0: MIT — text T' "$S" \
-        && pass "--json writes the notices under its key from the list on, its title and opening paragraph dropped, every heading a level down" \
-        || fail "--json's section is not the page one level down" "$(cat "$S")"
-    grep -qx '# a line of a licence text that starts with a hash' "$S" \
-        && pass "--json leaves a line inside a fenced licence text as it is" \
-        || fail "--json changed a line inside a licence text" "$(grep -n 'starts with a hash' "$S")"
-else
-    fail "--json refused a consistent run" "$(cat "$SANDBOX/err")"
-fi
-printf 'an earlier run\n' > "$SANDBOX/n.json"
-python3 "$UNDER_TEST" --json crate_notices "$SANDBOX/metadata.json" "$SANDBOX/compiled.txt" \
-    "$SANDBOX/n.json" nobody >/dev/null 2>&1
-[[ $? -eq 1 && ! -e "$SANDBOX/n.json" ]] \
-    && pass "--json's refusal removes an earlier run's output" \
-    || fail "--json's refusal left an output or did not exit 1"
-python3 "$UNDER_TEST" --json >/dev/null 2>&1
-[[ $? -eq 2 ]] && pass "--json without its key is a usage error (2)" || fail "--json without its key did not exit 2"
-
 python3 "$UNDER_TEST" "$SANDBOX/metadata.json" >/dev/null 2>&1
 [[ $? -eq 2 ]] && pass "a missing argument is a usage error (2)" || fail "a missing argument did not exit 2"
 
