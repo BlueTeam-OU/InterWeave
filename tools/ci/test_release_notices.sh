@@ -559,9 +559,22 @@ drun && pass "prose after an SPDX expression on its line" || fail "prose after a
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT or LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drefused "a lower-case operator before an unknown id" "names a licence this tool does not recognise (LicenseRef-Frob)"
+# An expression wrapped where an id is due goes on into the next line,
+# as the same words reflowed read: the wrapped id is read, an unknown one
+# refusing and a known one accepted; cut at the header's last line, it
+# is refused as cut short.
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT OR\n// LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
-drefused "an SPDX expression cut at the line's end" "names a licence this tool does not recognise (an SPDX expression cut short)"
+drefused "an unknown id wrapped onto the next line" "names a licence this tool does not recognise (LicenseRef-Frob)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT OR\n// Apache-2.0\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "a known id wrapped onto the next line" || fail "an expression wrapped after OR was refused" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// OR LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an unknown id wrapped after its operator" "names a licence this tool does not recognise (LicenseRef-Frob)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT OR\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an SPDX expression cut at the header's last line" "names a licence this tool does not recognise (an SPDX expression cut short)"
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT/LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drefused "an SPDX word that is not a clean id" "MIT/LicenseRef-Frob (not an SPDX id)"

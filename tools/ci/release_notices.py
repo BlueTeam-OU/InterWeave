@@ -338,9 +338,30 @@ def unrecognised_names(block: str) -> list:
 def id_tokens(text: str, block: str) -> list:
     """Every id the header writes: its SPDX lines' and the id-shaped words
     in its prose, a sentence's punctuation trimmed."""
-    tokens = [t for m in SPDX_LINE.finditer(block) for t in spdx_expression(m.group(1))]
+    tokens = []
+    for m in SPDX_LINE.finditer(block):
+        # An expression wrapped onto the header's next line -- cut where an
+        # id is due ("MIT OR" / "Apache-2.0"), or with the next line opening
+        # on an operator ("MIT" / "OR LicenseRef-Frob") -- goes on into it,
+        # as a reflow of the same words reads; one line at a time, so a
+        # copyright line or a licence body after it is not read as ids. It
+        # is refused as cut short only where no line follows.
+        line = m.group(1)
+        rest = [r for r in block[m.end():].splitlines()[1:] if r.strip()]
+        ids = spdx_expression(line)
+        while rest and (
+            ids[-1] == CUT_SHORT
+            or rest[0].split()[0].upper() in ("AND", "OR", "WITH")
+            or rest[0].split()[0] in ("/", "|", "+")
+        ):
+            line, rest = f"{line} {rest[0]}", rest[1:]
+            ids = spdx_expression(line)
+        tokens += ids
     tokens += [m.group(0) for m in ID_SHAPED.finditer(text)]
     return [t.rstrip(".") for t in tokens if t.rstrip(".")]
+
+
+CUT_SHORT = "an SPDX expression cut short"
 
 
 def spdx_expression(line: str) -> list:
@@ -389,7 +410,7 @@ def spdx_expression(line: str) -> list:
             ids.append(bare if re.fullmatch(r"[A-Za-z0-9.+-]+", bare) else f"{word} (not an SPDX id)")
             ended = word.endswith(".")
     if want_id:
-        ids.append("an SPDX expression cut short")
+        ids.append(CUT_SHORT)
     return ids
 
 
