@@ -671,43 +671,43 @@ ui_texts! {
     /// shares a name with another: `{name}` is the contact's name as the
     /// person accepted or edited it, `{peer}` the short `PeerId` that tells
     /// the two apart (human-client-ui.md §13). Plain text, never markdown.
-    ContactTitle => "{name} / {peer}", // PLACEHOLDER (en)
+    ContactTitle => "{name} ({peer})",
     /// CARD PROPOSAL, in a conversation, before Accept: what the
     /// counterparty says about themselves. `{name}` is the card's name and
     /// surname as plain text; the full `PeerId` is shown beside it, always.
-    CardProposal => "This peer says they are {name}", // PLACEHOLDER (en)
+    CardProposal => "This peer says they are {name}",
     /// CARD PROPOSAL: the control that writes the contact. Its context line
     /// (one of the two below) says what it will do before it runs.
-    CardAccept => "Accept", // PLACEHOLDER (en)
+    CardAccept => "Accept",
     /// CARD PROPOSAL: the control that discards the card, writing nothing.
-    CardDecline => "Decline", // PLACEHOLDER (en)
+    CardDecline => "Decline",
     /// CARD PROPOSAL, Accept's context line when no contact holds the
     /// card's route.
-    CardWillCreate => "Accept adds a new contact.", // PLACEHOLDER (en)
+    CardWillCreate => "If you accept, a new contact is saved.",
     /// CARD PROPOSAL, Accept's context line when a contact holds the
     /// route: `{contact}` is that contact's name. The person's own edits
     /// stay, and the line says so.
-    CardWillUpdate => "Accept updates {contact}. Anything you changed yourself stays as you set it.", // PLACEHOLDER (en)
+    CardWillUpdate => "If you accept, your contact {contact} is updated. If you chose a name or photo yourself, it does not change.",
     /// CARD PROPOSAL, the same-name note: `{contact}` is a contact of this
     /// identity with the same name on another `PeerId`.
-    CardSameName => "You already have a contact named {contact}, on another device.", // PLACEHOLDER (en)
+    CardSameName => "One of your contacts is named {contact} and has a different PeerId. Compare the two PeerIds before you accept.",
     /// CARD PROPOSAL: the card came from another identity of a device one
     /// of this identity's contacts is on; `{contact}` is that contact.
-    CardSharesNode => "This card comes from the same device as your contact {contact}.", // PLACEHOLDER (en)
+    CardSharesNode => "This card comes from the same device as your contact {contact}.",
     /// CARD PROPOSAL, a key change, before Accept: the words human-client-
     /// ui.md §3 asks for. `{old}` and `{new}` are the recorded and the
     /// presented fingerprints, 16 hex characters each, in that order.
-    CardKeyChange => "This route now presents a different identity key: a reinstall, or someone else. Recorded key {old}, new key {new}.", // PLACEHOLDER (en)
+    CardKeyChange => "The identity key in this conversation has changed. The person might have installed InterWeave again, or this might be someone else. Previous key fingerprint: {old}. New key fingerprint: {new}.",
     /// CARD PROPOSAL: the card's key is one a contact of this identity
     /// holds on another `PeerId`; `{contact}` is that contact.
-    CardKeyMatches => "This card's key matches your contact {contact} on another device.", // PLACEHOLDER (en)
+    CardKeyMatches => "This card has the same identity key as your contact {contact}, but it comes from a different PeerId.",
     /// A conversation's action: send this identity's own card to the
     /// counterparty. Offered in a direct conversation only, never sent
     /// on its own.
-    ShareCard => "Share a card", // PLACEHOLDER (en)
+    ShareCard => "Share a card",
     /// The identity and contact pages: the label beside an identity key's
     /// fingerprint, 16 lowercase hex characters.
-    Fingerprint => "Fingerprint", // PLACEHOLDER (en)
+    Fingerprint => "Key fingerprint",
 }
 
 /// Where the transport runtime runs, which decides how a text that names
