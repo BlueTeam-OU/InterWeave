@@ -447,6 +447,14 @@ impl LocalAdminPort {
         &self.port_id
     }
 
+    /// Every administrative authority this port holds: what a server
+    /// admits a request against, read whole so a capability added later
+    /// is not lost to a list of the ones that existed before it.
+    #[must_use]
+    pub const fn capabilities(&self) -> &BTreeSet<AdminCapability> {
+        &self.capabilities
+    }
+
     /// Whether this port holds a given administrative authority.
     #[must_use]
     pub fn holds(&self, capability: AdminCapability) -> bool {
