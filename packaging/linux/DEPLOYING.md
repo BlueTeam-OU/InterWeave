@@ -76,14 +76,15 @@ for an account set up otherwise:
 - **A profile name** is 1 to 64 characters of `A-Z a-z 0-9 _ -`, not
   starting with a dot.
 
-A refusal names the path, its owner, its mode and the rule, and the
-daemon exits 1 (its unit retries every 5 s). Two wordings mislead, so
-read past them: a directory "must be owner-only before key-equivalent
-material is written into it" means it must not be writable by another
-account (a 0755 home is fine); and from an `identity` command, "lock is
-held -- stop its daemon first" is printed for any refusal of the
-profile's lock, a directory's mode included -- the reason in brackets
-is the one that counts.
+A refusal names the path and the rule it broke, and the daemon exits 1
+(its unit retries every 5 s). Two wordings mislead, so read past them.
+A directory "must be owner-only before key-equivalent material is
+written into it" means, for a directory above the profile or the config
+directory, that no other account may write to it (a 0755 home is fine),
+and for the profile's state or data directory, literally 0700. And from
+an `identity` command, "lock is held -- stop its daemon first" is
+printed for any refusal of the profile's lock, a directory's mode
+included -- the reason in brackets is the one that counts.
 
 ## 1. The programs
 
