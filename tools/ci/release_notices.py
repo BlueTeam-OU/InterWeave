@@ -47,11 +47,17 @@
 # so is one naming a licence whose text is not committed under
 # tools/ci/licence_texts/, or a name the scan reads and does not
 # recognise: a "<name> license" phrase in any case, an SPDX id, an
-# id-shaped variant such as BSD-4-Clause). The scan cannot read a licence
-# named without the word, or a version written apart from its name; the
-# reviewed list's reading of each header is what covers those.
-# Each header-case entry also names the root header's file and the count
-# of distinct headers, so a header a version adds is looked at again.
+# id-shaped variant such as BSD-4-Clause). That scan is a tripwire and
+# closes nothing (ADR-0058 A 2026-10-22 (iii)): it cannot read a licence
+# named without the word, a version or a variant written apart from its
+# name ("MIT No Attribution"), or a name beside a known one ("Frob and MIT
+# licenses").
+# Each header-case entry also names the root header's file and the SHA-256
+# of each distinct header's text, whitespace folded (runs of whitespace one
+# space, the ends trimmed). A header whose digest the entry does not list
+# is refused, naming the crate, the file and the digest, and so is a listed
+# digest no header carries: the list is where a person has read every
+# header text that ships, and its extra_texts say what that reading found.
 #   standard     no copyright header anywhere: the standard text of the
 #                first term, under the crate's `authors` (or "the <crate>
 #                authors"), after one sentence saying so.
@@ -178,13 +184,18 @@ def load_derived(path: Path) -> dict:
         header_case = e["case"] != "standard"
         if header_case != ("file" in e) or header_case != ("headers" in e):
             raise ValueError(
-                f"{path.name}: {key[0]} {key[1]} names a file and a header count exactly when its case is a header"
+                f"{path.name}: {key[0]} {key[1]} names a file and its headers' digests exactly when its case is a header"
             )
-        # bool is an int to isinstance: `true` is not a count.
         if header_case and not (
-            isinstance(e["headers"], int) and not isinstance(e["headers"], bool) and e["headers"] >= 1
+            isinstance(e["headers"], list)
+            and e["headers"]
+            and all(isinstance(d, str) and re.fullmatch(r"[0-9a-f]{64}", d) for d in e["headers"])
+            and len(set(e["headers"])) == len(e["headers"])
         ):
-            raise ValueError(f"{path.name}: {key[0]} {key[1]}'s header count is not a positive number")
+            raise ValueError(
+                f"{path.name}: {key[0]} {key[1]}'s headers is not a list of distinct SHA-256 digests"
+                " (ADR-0058 A 2026-10-22 (iii): one per header text read, not a count)"
+            )
         if "extra_texts" in e and not header_case:
             raise ValueError(f"{path.name}: {key[0]} {key[1]} has extra_texts, which only a header case ships")
         for t in e.get("extra_texts", []):
@@ -412,6 +423,13 @@ def comment_block(source: str):
     return block if re.search(line, block, re.I | re.M) else None
 
 
+def header_digest(text: str) -> str:
+    """The SHA-256 of a header's text with its whitespace folded: runs of
+    whitespace one space, the ends trimmed. Case is kept: a changed letter
+    is a text a person reads again."""
+    return hashlib.sha256(" ".join(text.split()).encode()).hexdigest()
+
+
 def headers(package: dict) -> list:
     """[(path, text)] of every distinct copyright header among the files
     compiled in -- the root module, src/ and build.rs; tests/, examples/
@@ -455,10 +473,19 @@ def derived_notices(package: dict, entry: dict) -> list:
             raise ValueError(f"{name} {version} is listed as {entry['case']} but has no copyright header")
         if found[0][0] != entry["file"]:
             raise ValueError(f"{name} {version}'s header is in {found[0][0]}; notice_derived.json names {entry['file']}")
-        if len(found) != entry["headers"]:
+        # Decision 3 (A 2026-10-22 (iii)): every header that ships is one a
+        # person read, by its digest; a word-scan pass below proves nothing.
+        listed = set(entry["headers"])
+        for path, text in found:
+            if header_digest(text) not in listed:
+                raise ValueError(
+                    f"{name} {version}'s header in {path} has digest {header_digest(text)}, which"
+                    f" notice_derived.json does not list: read the header, record what it names in"
+                    f" extra_texts, and add the digest"
+                )
+        for stale in sorted(listed - {header_digest(text) for _, text in found}):
             raise ValueError(
-                f"{name} {version} has {len(found)} distinct copyright header(s); notice_derived.json says"
-                f" {entry['headers']}: look at them again"
+                f"{name} {version}'s entry lists digest {stale}, which no header carries: remove it"
             )
         term = elected(expr)
         # Decision 4: an OR is satisfied by any term whose text the crate
