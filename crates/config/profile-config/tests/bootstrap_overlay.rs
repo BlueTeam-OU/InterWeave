@@ -223,3 +223,59 @@ fn an_entry_the_configuration_refuses_is_refused_here() {
     put(&path, &file(&[fits]));
     load(&path, &[]).expect("the control loads");
 }
+
+/// THE ALL-OR-NONE ADD (ADR-0062 decision 4) names the line it refuses
+/// and changes nothing: a grammar refusal anywhere in the list is found
+/// before the bound, whichever comes first, and the bound counts only new
+/// lines -- a line already authored, added or earlier in the list costs
+/// nothing. The controls: the same lists made right are taken whole, one
+/// flag per line in the order given.
+#[test]
+fn an_add_of_many_is_all_or_none_and_names_the_line() {
+    let authored = vec![entry(1)];
+    let overlay = BootstrapOverlay::default()
+        .add(&authored, &entry(2))
+        .expect("admitted")
+        .expect("a change");
+
+    let (next, added) = overlay
+        .add_all(
+            &authored,
+            &[entry(3), entry(1), entry(2), entry(3), entry(4)],
+        )
+        .expect("admitted");
+    assert_eq!(added, [true, false, false, false, true]);
+    assert_eq!(
+        next.expect("a change").peers(),
+        [entry(2), entry(3), entry(4)]
+    );
+    assert_eq!(
+        overlay.add_all(&authored, &[entry(1), entry(2)]),
+        Ok((None, vec![false, false])),
+        "nothing new, nothing to write"
+    );
+
+    let refused = overlay.add_all(&authored, &[entry(3), "not an address".to_owned()]);
+    assert!(
+        matches!(refused, Err((MoveRefusal::Grammar(_), 1))),
+        "{refused:?}"
+    );
+
+    // 62 authored + 1 added: room for one more. Two new lines refuse the
+    // second; a list whose second line is a repeat of its first is taken.
+    let full: Vec<String> = (100..162).map(entry).collect();
+    assert_eq!(
+        overlay.add_all(&full, &[entry(3), entry(4)]),
+        Err((MoveRefusal::Bound, 1))
+    );
+    let (_, added) = overlay
+        .add_all(&full, &[entry(3), entry(3), entry(100)])
+        .expect("the repeats cost nothing");
+    assert_eq!(added, [true, false, false]);
+    // The bound comes after every line's grammar: a list past the bound
+    // whose last line is not an address is a grammar refusal.
+    assert!(matches!(
+        overlay.add_all(&full, &[entry(3), entry(4), "x".to_owned()]),
+        Err((MoveRefusal::Grammar(_), 2))
+    ));
+}
