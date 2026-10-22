@@ -1439,3 +1439,33 @@ fn a_trust_retry_answered_under_a_trust_step_keeps_its_focus() {
     let _ = m.peers_turn();
     assert_eq!(focus(&m), Some(PeersFocus::Block(p)));
 }
+
+/// A restored row parked for focus is dropped with the list a failed
+/// read takes away: the list's Try again that succeeds then goes to
+/// Peers' title, as on opening (§8), not to that row.
+#[test]
+fn a_parked_restored_row_gives_way_to_the_lists_try_again() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[added(&b)]));
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(
+        &[at(&a)],
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            list: Err(AddressProblem::Unavailable),
+        }),
+    );
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem));
+    assert_eq!(
+        input(&mut m, PeersInput::ReadAgain),
+        vec![Intent::ReadAddresses]
+    );
+    m.addresses_read(Ok(list(&[added(&a), added(&b)])));
+    assert_eq!(focus(&m), Some(PeersFocus::Title));
+}

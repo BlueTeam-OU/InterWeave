@@ -1054,6 +1054,9 @@ impl Peers {
                 if self.list.take().is_some() {
                     self.ask_focus(PeersFocus::ListProblem);
                 }
+                // A row restored while unread is not drawn with no list;
+                // its Try again succeeding goes as on opening (§8).
+                self.restored = None;
                 self.list_problem = Some(match problem {
                     AddressProblem::Unavailable => ListProblem::Unavailable,
                     AddressProblem::Internal => ListProblem::Failed,
