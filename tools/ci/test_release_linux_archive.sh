@@ -339,8 +339,11 @@ echo "release_notices.py:"
 cp "$C" "$SANDBOX/c2.txt"
 echo "buildonly v1.0.0" >> "$SANDBOX/c2.txt"
 python3 "$NOTICES" "$M" "$SANDBOX/c2.txt" "$SANDBOX/n.md" interweave-transport-daemon \
-    interweave-transportctl interweave-human-desktop >/dev/null 2>"$SANDBOX/err"
-[[ $? -eq 1 ]] && grep -qF 'compiled but not reached from the packages in the metadata: buildonly 1.0.0' "$SANDBOX/err" \
+    interweave-transportctl interweave-human-desktop interweave-human-cli >/dev/null 2>"$SANDBOX/err"
+# buildonly is the ONLY stray: the needle ends the message, so a second
+# one (a root left out of this call) fails the case rather than sorting
+# after it.
+[[ $? -eq 1 ]] && grep -qE 'compiled but not reached from the packages in the metadata: buildonly 1\.0\.0$' "$SANDBOX/err" \
     && [[ ! -e "$SANDBOX/n.md" ]] \
     && pass "a compiled crate the metadata's normal walk does not reach is refused" \
     || fail "a compiled crate outside the walk was not refused" "$(cat "$SANDBOX/err")"
