@@ -60,7 +60,11 @@ pub fn is_allowed_link_scheme(destination: &str) -> bool {
         .any(|s| scheme.eq_ignore_ascii_case(s))
 }
 
-/// The only v2 message kind.
+/// The kind of a v2 message.
+///
+/// A `contact_card` envelope is not a message and is not parsed here:
+/// [`crate::card::classify`] answers for it, and [`HumanChatV2::parse`]
+/// refuses it as [`EnvelopeError::UnsupportedKind`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageKind {
     /// A text message; `text` carries markdown.
@@ -78,7 +82,8 @@ pub enum EnvelopeError {
     },
     /// `v` was not 2.
     UnsupportedVersion,
-    /// `kind` was not `text`.
+    /// `kind` was not `text`: an unknown kind, or a contact card, which
+    /// [`crate::card::classify`] parses.
     UnsupportedKind,
     /// An id was not 32 lowercase hex characters.
     MalformedId {
@@ -158,7 +163,7 @@ pub struct HumanChatV2 {
     pub from_endpoint: Option<EndpointId>,
 }
 
-fn is_canonical_id(value: &str) -> bool {
+pub(crate) fn is_canonical_id(value: &str) -> bool {
     value.len() == 32
         && value
             .bytes()
@@ -186,7 +191,7 @@ fn is_canonical_id(value: &str) -> bool {
 /// compatibility, which means a later version WILL read them; an
 /// ambiguity parked inside one is ambiguous for that reader, and this is
 /// the only pass over those bytes that could have refused it.
-struct StrictValue(serde_json::Value);
+pub(crate) struct StrictValue(pub(crate) serde_json::Value);
 
 impl<'de> serde::Deserialize<'de> for StrictValue {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -273,6 +278,17 @@ impl<'de> serde::de::Visitor<'de> for StrictVisitor {
 /// internal and never appears in `EnvelopeError`'s own Display.
 const DUPLICATE_MEMBER_PREFIX: &str = "interweave-duplicate-member:";
 
+/// The member a [`StrictValue`] parse refused as repeated, if that is why
+/// it failed.
+pub(crate) fn duplicate_member(error: &serde_json::Error) -> Option<String> {
+    let detail = error.to_string();
+    let at = detail.find(DUPLICATE_MEMBER_PREFIX)?;
+    let rest = &detail[at + DUPLICATE_MEMBER_PREFIX.len()..];
+    // serde_json appends " at line L column C"; the member name is
+    // everything before it.
+    Some(rest.split(" at line ").next().unwrap_or(rest).to_owned())
+}
+
 impl HumanChatV2 {
     /// Parse and validate an envelope from its raw JSON text.
     ///
@@ -282,20 +298,11 @@ impl HumanChatV2 {
     /// or a malformed `from_endpoint`.
     pub fn parse(text: &str) -> Result<Self, EnvelopeError> {
         let StrictValue(raw) = serde_json::from_str::<StrictValue>(text).map_err(|e| {
-            let detail = e.to_string();
-            detail.find(DUPLICATE_MEMBER_PREFIX).map_or(
-                EnvelopeError::NotJson {
-                    detail: detail.clone(),
+            duplicate_member(&e).map_or_else(
+                || EnvelopeError::NotJson {
+                    detail: e.to_string(),
                 },
-                |at| {
-                    let rest = &detail[at + DUPLICATE_MEMBER_PREFIX.len()..];
-                    // serde_json appends " at line L column C"; the member
-                    // name is everything before it.
-                    let name = rest.split(" at line ").next().unwrap_or(rest);
-                    EnvelopeError::DuplicateMember {
-                        name: name.to_owned(),
-                    }
-                },
+                |name| EnvelopeError::DuplicateMember { name },
             )
         })?;
 
