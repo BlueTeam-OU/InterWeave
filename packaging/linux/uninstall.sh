@@ -4,7 +4,7 @@
 #
 # Uninstall InterWeave for the account that runs this: stop and disable
 # every interweave-daemon@ and interweave-client@ instance, then remove the
-# two unit templates and the three executables install.sh put in place.
+# two unit templates and the four programs install.sh put in place.
 # See README.md (plan section 22, packaging/linux).
 #
 # IT NEVER REMOVES A PROFILE. Every profile's config.yaml, identity key,
@@ -151,7 +151,7 @@ fi
 for unit in interweave-daemon@.service interweave-client@.service; do
     rm -f "$unit_dest/$unit"
 done
-for exe in transport-daemon transportctl human-desktop; do
+for exe in transport-daemon transportctl human-desktop interweave-human; do
     rm -f "$bin_dest/$exe"
 done
 if [ "$manager" = yes ]; then
