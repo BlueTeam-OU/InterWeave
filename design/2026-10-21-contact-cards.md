@@ -1128,7 +1128,7 @@ PeerId:
 | condition (ADR-0060 d. 6 order) | screen | Discard and recreate is |
 |---|---|---|
 | key invalidated (Android only) | **K**, key no longer accepted | the primary action, still confirmed |
-| a key that does not open the file, no key file, an unlisted combination of names, a failed migration | **R**, the recovery screen | a third action, on the desktop on its own line above Close and Try again |
+| a key that does not open the file, no key file, an unlisted combination of names, a failed migration | **R**, the recovery screen | a third action, on the desktop on its own line at the start side, above Close and Try again at the end |
 
 **Desktop**: R is today's `RefusalWindow` page for
 `RefusalStoreRecovery`. Its actions become, from the start: **Delete
@@ -1435,14 +1435,19 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     the photo" and nothing is sent before the person presses it.
 13. R shows Delete stored data… as a third action on both clients (on
     the desktop on its own line at the start side, above Close and Try
-    again at the end side, at every width, Try again focused at open, Tab running the file path, Delete
-    stored data…, Close, Try again); K (Android, key invalidated) shows
-    it as the primary with no Try again; both confirm before deleting.
-14. The full-discard dialog lists exactly §7.2's items, saying with two
-    identities that it is every identity's data, and with one identity
-    naming identities in neither list: the lead-in without "for all
-    your identities", the item "the name and photo on your card", and
-    the note without "All your identities are kept"; with a complete
+    again at the end side, at every width, Try again focused at open,
+    Tab running the file path, Delete stored data…, Close, Try again);
+    K (Android, key invalidated) shows it as the primary with no Try
+    again; both confirm before deleting.
+14. The full-discard dialog's two lists are §10's `DiscardStoreLoses`
+    and `DiscardStoreKeeps` in the form for the number of identities
+    held, and nothing more: with two or more, the lead-in says "for all
+    your identities" and the keeps list says every identity stays,
+    named by its label until renamed; with one, neither list names
+    identities (the lead-in without "for all your identities", the item
+    "the name and photo on your card", the keeps list only that this
+    device's PeerId and recovery phrase, the peers you trust and your
+    network settings are not affected); with a complete
     `human.sqlite.encrypted` the partial dialog shows instead and the
     data is present after the next open; with that copy unopenable the
     full dialog shows and no second dialog follows.
