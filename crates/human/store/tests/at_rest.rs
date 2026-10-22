@@ -649,3 +649,157 @@ fn a_plaintext_store_from_a_newer_build_is_refused_with_every_file_as_it_was() {
         "no key, no marker, no copy: nothing written"
     );
 }
+
+/// A store an earlier build wrote: the Stage 19 upgrade tree's, at
+/// schema 7 (`test-data/upgrade/d3a193e9/tree.json`), one pending, one
+/// unread and one kept message.
+fn older_store(paths: &ProfilePaths) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let from = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../../test-data/upgrade/d3a193e9/state/interweave/profiles/human-desktop/human/human.sqlite",
+    );
+    let to = db(paths);
+    std::fs::copy(&from, &to).expect("the upgrade tree's store");
+    std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let version: i64 = rusqlite::Connection::open(&to)
+        .unwrap()
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert!(
+        version < interweave_human_store::SCHEMA_VERSION,
+        "the control: the tree's store is older than this build ({version})"
+    );
+}
+
+/// The rewrite of a store an older build wrote, killed after each step
+/// that leaves a complete copy beside the plaintext: the copy is at the
+/// older schema, it opens under its key, so the next open promotes and
+/// migrates it with every row, and a discard planned meanwhile removes
+/// the unfinished plaintext alone (ADR-0060 decision 6; review F1 of #377).
+#[test]
+fn an_older_stores_rewrite_killed_beside_its_copy_loses_no_row_and_keeps_the_copy() {
+    for step in [
+        RewriteStep::Marked,
+        RewriteStep::ScrubDeleted,
+        RewriteStep::Scrubbed,
+    ] {
+        let (dir, paths) = profile();
+        older_store(&paths);
+        crash_after(dir.path(), step);
+        assert_eq!(
+            at_rest::plan_discard(&paths, &FilesystemCustody)
+                .unwrap()
+                .scope(),
+            DiscardScope::UnfinishedPlaintext,
+            "after {step:?}: the complete copy opens and is kept"
+        );
+        let store = HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default())
+            .unwrap_or_else(|e| panic!("after {step:?}: {e}"));
+        assert_eq!(store.pending_outbound().unwrap().len(), 1, "after {step:?}");
+        assert_eq!(store.unread_inbound().unwrap().len(), 1, "after {step:?}");
+        assert_eq!(store.kept_inbound().unwrap().len(), 1, "after {step:?}");
+        drop(store);
+        assert_eq!(names_in(&paths.human_dir()), [STORE_FILE], "after {step:?}");
+    }
+}
+
+/// A stalled rewrite an EARLIER build left: its complete copy at that
+/// build's schema (the v7 tree's store exported under the key, as that
+/// build's step (a) would have), the plaintext beside it. The copy opens
+/// under its key, so it is kept by a planned discard, and the open
+/// promotes and migrates it with every row: the copy is judged by whether
+/// it opens, never by this build's shape (#377 review F1).
+#[test]
+fn a_copy_an_earlier_build_left_at_its_schema_is_kept_and_migrated() {
+    use base64::Engine as _;
+    let (_dir, paths) = profile();
+    older_store(&paths);
+    store_key::create(&paths, &FilesystemCustody).expect("a key");
+    let line = std::fs::read_to_string(store_key::key_path(&paths)).unwrap();
+    let record = base64::engine::general_purpose::STANDARD
+        .decode(line.trim_end())
+        .unwrap();
+    let hex: String = record[6..].iter().fold(String::new(), |mut s, b| {
+        use std::fmt::Write as _;
+        let _ = write!(s, "{b:02x}");
+        s
+    });
+    let copy = paths.human_dir().join(at_rest::ENCRYPTED);
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&copy)
+            .unwrap();
+        let plain = rusqlite::Connection::open(db(&paths)).unwrap();
+        plain
+            .execute_batch(&format!(
+                "ATTACH DATABASE '{}' AS c KEY \"x'{hex}'\";
+                 SELECT sqlcipher_export('c');
+                 PRAGMA c.user_version = 7;
+                 DETACH DATABASE c;",
+                copy.display()
+            ))
+            .unwrap();
+    }
+    assert_eq!(
+        at_rest::inspect(&paths, &FilesystemCustody).unwrap().files,
+        StoreFiles::ScrubUnfinished,
+        "the setup: a complete copy beside the plaintext"
+    );
+    assert_eq!(
+        at_rest::plan_discard(&paths, &FilesystemCustody)
+            .unwrap()
+            .scope(),
+        DiscardScope::UnfinishedPlaintext
+    );
+    let store =
+        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap();
+    assert_eq!(store.pending_outbound().unwrap().len(), 1);
+    assert_eq!(store.unread_inbound().unwrap().len(), 1);
+    assert_eq!(store.kept_inbound().unwrap().len(), 1);
+    drop(store);
+    assert_eq!(names_in(&paths.human_dir()), [STORE_FILE]);
+    assert_no_plaintext_header(&paths);
+}
+
+fn assert_no_plaintext_header(paths: &ProfilePaths) {
+    assert!(!holds(&paths.human_dir(), b"SQLite format 3\0"));
+}
+
+/// A newer build's plaintext store whose version is only in its
+/// write-ahead log -- the header still older -- is refused before the
+/// marker, a key or a copy is written: the plaintext's own migration
+/// reads the log and refuses, ahead of the rewrite (#377 review, risk 1).
+#[test]
+fn a_newer_plaintext_known_only_from_its_log_is_refused_before_any_write() {
+    let (_dir, paths) = profile();
+    std::mem::forget(HumanStore::open(&db(&paths), StoreOptions::default()).unwrap());
+    let raw = rusqlite::Connection::open(db(&paths)).unwrap();
+    raw.pragma_update(
+        None,
+        "user_version",
+        interweave_human_store::SCHEMA_VERSION + 1,
+    )
+    .unwrap();
+    // Killed: the version stays in the log, the header older.
+    std::mem::forget(raw);
+    assert_eq!(
+        at_rest::inspect(&paths, &FilesystemCustody).unwrap().files,
+        StoreFiles::Plaintext,
+        "the setup: a plaintext store"
+    );
+    let marker = profile_format::path_for(&paths);
+    let err =
+        HumanStore::open_profile(&paths, &FilesystemCustody, StoreOptions::default()).unwrap_err();
+    assert!(err.needs_recovery(), "{err:?}");
+    assert!(!marker.exists(), "no marker raised");
+    assert!(!store_key::exists(&paths).unwrap(), "no key made");
+    let names = names_in(&paths.human_dir());
+    assert!(
+        !names.iter().any(|n| n.contains(".encrypt")),
+        "no copy written: {names:?}"
+    );
+}

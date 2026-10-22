@@ -316,11 +316,25 @@ pub(crate) fn open(
     // refusal leaves every file as it was. An encrypted header names no
     // version; the keyed open's migration refuses that one.
     refuse_newer_plaintext(&names)?;
+    let found = survey(&names)?;
+    // A PLAINTEXT ABOUT TO BE REWRITTEN IS FIRST MIGRATED, as a plaintext
+    // open migrates it: the copy is then this build's schema, and a
+    // newer build's store -- its version in the header or only in the
+    // log -- is refused here, before the marker or any copy is written
+    // (#377 review F1 and its risk).
+    if matches!(found, StoreFiles::Plaintext | StoreFiles::ExportUnfinished) {
+        drop(HumanStore::open_within(
+            &names.db(),
+            paths.boundary(),
+            options,
+            None,
+        )?);
+    }
     // EVERY KEYED OPEN RAISES THE MARKER, a new store's too: a build from
     // before the encrypted store then refuses the profile by name, never
     // meeting a file it can only read as corruption (A 2026-10-21).
     profile_format::raise(paths).map_err(|e| StoreError::ProfileFormat(e.to_string()))?;
-    match survey(&names)? {
+    match found {
         StoreFiles::ExportUnfinished => {
             remove(&names.encrypting())?;
             sync_dir(&names.dir)?;
@@ -622,9 +636,13 @@ fn take_copy(names: &Names) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// Whether the copy at `path` opens read-only under `key` and holds the
-/// store's schema. Found by trying, as decision 6 orders: a damaged copy
-/// and a key that does not open it both answer `false`.
+/// Whether the copy at `path` opens read-only under `key` at a schema
+/// version this build can migrate. Found by trying, as decision 6 orders:
+/// a damaged copy and a key that does not open it both answer `false`.
+/// NOT this build's exact shape: a copy an earlier build left stalled is
+/// at that build's version and is migrated by the open that promotes it
+/// -- requiring the current shape stranded it in recovery mode and made
+/// the discard take it (#377 review F1).
 fn copy_opens(path: &Path, key: &StoreKey) -> bool {
     let Ok(conn) = Connection::open_with_flags(
         path,
@@ -636,8 +654,12 @@ fn copy_opens(path: &Path, key: &StoreKey) -> bool {
         return false;
     }
     conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
-        .is_ok_and(|v| v > 0)
-        && crate::schema::verify_shape(&conn).is_ok()
+        .is_ok_and(|v| (1..=crate::schema::SCHEMA_VERSION).contains(&v))
+        && conn
+            .query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .is_ok()
 }
 
 // ----- Discard and recreate -----
