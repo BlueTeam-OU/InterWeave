@@ -662,24 +662,20 @@ overflow-checks = true
 # the Claude Code Channel bridge, crates/claude/channel-core and
 # apps/claude-channel, delivered the network to an installed Claude Code
 # session as a Channel, proved against two daemons and inside Claude Code
-# 2.1.288. STAGE 17 IS OPEN by this status: the Android human client
-# (§20), whose prerequisites — SPIKE-008 and SPIKE-009 — are its first
-# work; no §20 package is created before those spikes close and the
-# stage's record lands. Nothing here is server-mode reachability
-# evidence for ADR-0034 §7's release gate: that decision is separate.
-# Read architecture/roadmap/BOTTOM-UP-IMPLEMENTATION-PLAN.md §20
-# (Stage 17) before creating a package. STAGE 18 RUNS BESIDE STAGE 17
-# by the plan's section 21 record (paragraph 0, under ADR-0046's
-# allowance): the adversarial/security gate, whose packages are
+# 2.1.288. STAGE 17 CLOSED on 2026-10-22 (the plan's §20 closing record,
+# on the owner's word): the Android human client, apps/human-android and
+# the embedded runtime, proved on two phones with what it did not prove
+# carried by name. Nothing here is server-mode reachability evidence for
+# ADR-0034 §7's release gate: that decision is separate. STAGE 18 IS OPEN
+# by this status: the adversarial/security gate (§21, opened beside Stage
+# 17 by its paragraph 0 under ADR-0046's allowance), whose packages are
 # tests/security and tests/security-local and whose exit gate is
-# tests/SECURITY-MATRIX.md. STAGE 19 RUNS BESIDE STAGES 17 AND 18 by the
-# plan's section 22 record (activated 2026-10-20 on the owner's word):
-# packaging, migration and release. STAGE 21 RUNS BESIDE STAGES 17, 18 AND
-# 19 by the plan's section 29 record (the owner's word of 2026-10-21):
-# contacts, cards and the encrypted store, in the human crates. STAGE 17
-# CLOSED 2026-10-22 on the owner's word (section 20's closing record):
-# this value names Stage 18, the lowest open stage, with 19 and 21 running
-# beside it, because the guards read it as one number.
+# tests/SECURITY-MATRIX.md. STAGE 19 RUNS BESIDE IT by the plan's section
+# 22 record (activated 2026-10-20 on the owner's word): packaging,
+# migration and release. STAGE 21 RUNS BESIDE IT by the plan's section 29
+# record (the owner's word of 2026-10-21): contacts, cards and the
+# encrypted store, in the human crates. This value names the lowest open
+# stage because the guards read it as one number.
 status = "stage-18-adversarial-security-gate"
 architecture_root = "architecture"
 
