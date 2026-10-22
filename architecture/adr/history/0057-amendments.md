@@ -22,3 +22,17 @@
 
 **Propagation.** Decision 5; this note; the log row; the digest line. The page template is rust-ui-dev's, the tool and the release run p2p-network-dev's (ADR-0058, Implementation implications).
 
+### Amendment 2026-10-21 — `deny.toml` judges the Android target and names its two Slint crates
+
+Decision 3 said the licence admission "does not yet cover" the Android
+graph: `deny.toml` judged `x86_64-unknown-linux-gnu` alone and named the
+desktop's crates. #314 (p2p-network-dev, merged 2026-10-20) put
+`aarch64-linux-android` in `[graph] targets` and the two Android Slint
+crates among the exceptions, with `unused-license-exception = "deny"` so
+that dropping the target fails the check. The sentence is now past
+tense with the merge date; the owed list keeps only the Skia notice set
+and the release-gate run, the latter held by the same invocation;
+decision 5 says "as admitted"; `apps/human-android/STORE-CHECK.md`'s
+paragraph was rewritten the same way on #348 (it dates #314 by its
+commit, 2026-10-19; this record dates it by its merge). Propagation: decisions 3 and 5; this
+note; the log row; the digest entry.

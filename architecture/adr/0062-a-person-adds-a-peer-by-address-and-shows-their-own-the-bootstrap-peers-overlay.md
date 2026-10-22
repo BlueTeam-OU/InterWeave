@@ -36,7 +36,7 @@ Today only an operator who edits `config.yaml` can set one, and `config.yaml` is
 
 ## Consequences
 
-ADR-0028 is amended (A 2026-10-21 (ii)): a fourth persisted overlay, its shape, normalisation and bound. `discovery/providers/static-bootstrap.md` reads the overlay beside the authored entries. LOCAL-IPC.md gains the `admin.peers` capability and its three methods (p2p-network-dev's rows, an IPC minor). `human-client-ui.md` §2 step 3 and a §3 paragraph carry the screens' rules; the Android specification its first-run note. Plan §29 (Stage 21, which opens at Stage 17's close) gains step 5 and its conformance cases, so the phone has its first address with the same stage that gives it contacts. `transportctl` gains three verbs. Nothing on the wire changes: an added address is dialled as a configured one is.
+ADR-0028 is amended (A 2026-10-21 (ii)): a fourth persisted overlay, its shape, normalisation and bound. `discovery/providers/static-bootstrap.md` reads the overlay beside the authored entries. LOCAL-IPC.md gains the `admin.peers` capability and its three methods (p2p-network-dev's rows, an IPC minor). `human-client-ui.md` §2 step 3 and a §3 paragraph carry the screens' rules; the Android specification its first-run note. Plan §29 (Stage 21, running beside Stage 17 by its record since 2026-10-21) gains step 5 and its conformance cases, so the phone has its first address with the same stage that gives it contacts. `transportctl` gains three verbs. Nothing on the wire changes: an added address is dialled as a configured one is.
 
 ## Security implications
 

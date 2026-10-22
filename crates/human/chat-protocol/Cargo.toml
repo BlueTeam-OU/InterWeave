@@ -20,11 +20,19 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+base64 = { workspace = true }
 brotli = { workspace = true }
+bs58 = { workspace = true }
+ed25519-dalek = { workspace = true }
 pulldown-cmark = { workspace = true, optional = true }
 interweave-transport-api = { path = "../../api/transport-api" }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+# `raw_value`: the card's kind scan takes a `kind` copy as written, so a
+# value serde_json cannot represent cannot hide a card (card.rs).
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2 = { workspace = true }
+unicode-general-category = { workspace = true }
+unicode-normalization = { workspace = true }
 
 [features]
 # The render model (plan §17 (3)): a client renders, the bridge decodes
