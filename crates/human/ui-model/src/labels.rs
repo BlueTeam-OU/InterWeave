@@ -912,6 +912,9 @@ ui_texts! {
     /// A step-two block: the trust answer was lost and could not be
     /// checked; `{peer}` the short `PeerId`.
     TrustStepUnknown => "This device could not check whether {peer} is trusted. Choose Trust to try again.", // PLACEHOLDER (en)
+    /// A step-two block: the trust read back after a lost answer does not
+    /// list the peer. (PR #380's proposal, 4e6562f6.)
+    TrustStepNotMade => "{peer} is not trusted yet. Choose Trust to try again.", // PLACEHOLDER (en)
     /// Under Add: a daemon with the one-address add only did not take
     /// several lines; `{n}` the lines. Daemon only: the embedded runtime
     /// is this app's own version.

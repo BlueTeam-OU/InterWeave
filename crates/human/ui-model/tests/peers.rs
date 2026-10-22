@@ -745,3 +745,110 @@ fn an_add_on_its_way_keeps_its_page_and_a_refused_scan_focuses_its_note() {
     assert!(!m.peers().add_open(), "step one closes once answered");
     assert_eq!(focus(&m), Some(PeersFocus::Opener));
 }
+
+/// A removal answered not permitted puts Peers in its unreadable state,
+/// focus on that line, with no snackbar; Try again that then reads the
+/// list focuses as when Peers opens.
+#[test]
+fn a_barred_removal_makes_peers_unreadable_and_try_again_reopens_it() {
+    let (me, a) = (peer(), peer());
+    let mut m = opened(&me, &[], &[added(&a)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(
+        &at(&a),
+        Err(AddressChangeFailure::NotMade(AddressProblem::NotPermitted)),
+    );
+    assert_eq!(
+        m.peers().list_problem(),
+        Some(ListProblem::Barred(Barred::NotPermitted))
+    );
+    assert_eq!(m.peers().list(), None, "nothing read is shown");
+    assert_eq!(m.peers().snack().0, None);
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem));
+
+    assert_eq!(
+        input(&mut m, PeersInput::ReadAgain),
+        vec![Intent::ReadAddresses]
+    );
+    m.addresses_read(Ok(list(&[added(&a)])));
+    assert_eq!(m.peers().list_problem(), None);
+    assert_eq!(focus(&m), Some(PeersFocus::Title));
+}
+
+/// A removal whose answer and read back were both lost is read again
+/// once its snackbar leaves.
+#[test]
+fn an_unknown_removal_is_read_again_when_its_snackbar_leaves() {
+    let (me, a) = (peer(), peer());
+    let mut m = opened(&me, &[], &[added(&a)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(
+        &at(&a),
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveUnknown { address: at(&a) })
+    );
+    assert_eq!(m.peers_turn(), None, "not while the snackbar is up");
+    let _ = input(&mut m, PeersInput::SnackClosed);
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+}
+
+/// A Trust whose answer was lost is checked on the trust list read
+/// back: not listed, the block says the trust was not made and stays
+/// undecided.
+#[test]
+fn a_lost_trust_answer_read_back_unlisted_is_not_made() {
+    let (me, them) = (peer(), peer());
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&them)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&them)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(them.clone()),
+            },
+            &[added(&them)],
+        ),
+    );
+    let change = TrustChange {
+        peer: them.clone(),
+        allowed: true,
+    };
+    let _ = input(&mut m, PeersInput::Trust(them.clone()));
+    m.trust_settings_mut().set(
+        change,
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    assert_eq!(
+        m.peers().blocks(m.trust_settings())[0].state,
+        BlockState::Trusting,
+        "checking"
+    );
+    assert_eq!(
+        m.trust_settings_mut().take_reread(),
+        Some(Intent::ReadTrust)
+    );
+    m.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me),
+        allowed: Vec::new(),
+    }));
+    let _ = m.peers_turn();
+    assert_eq!(
+        m.peers().blocks(m.trust_settings())[0],
+        BlockView {
+            peer: them.clone(),
+            state: BlockState::Undecided,
+            problem: Some(BlockProblem::NotMade),
+        }
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::BlockProblem(them)));
+}

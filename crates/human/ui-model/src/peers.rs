@@ -158,9 +158,9 @@ pub enum BlockState {
 pub enum BlockProblem {
     /// Trust's own class, in its words.
     Trust(TrustProblem),
-    /// The answer was lost and the trust list read back does not list
-    /// the peer: not trusted.
-    NotTrusted,
+    /// The answer was lost, or none came, and the trust list read back
+    /// does not list the peer: the trust was not made.
+    NotMade,
     /// The answer was lost and the trust list could not be read back.
     Unknown,
 }
@@ -284,8 +284,6 @@ pub enum PeersSnack {
         /// The address.
         address: String,
     },
-    /// The boundary cannot be used.
-    Barred(Barred),
     /// The add page closed with an address added.
     Added,
     /// The add page closed with every block trusted.
@@ -331,6 +329,8 @@ pub enum PeersFocus {
     RowMenu(String),
     /// Peers' Add an address.
     AddAddress,
+    /// Peers' unreadable line, in place of the list.
+    ListProblem,
     /// The note under Add an address (at the bound, or list off).
     AddAddressNote,
 }
@@ -428,6 +428,9 @@ pub struct Peers {
     list: Option<AddressList>,
     list_problem: Option<ListProblem>,
     reading: bool,
+    /// The read on its way is Try again's: once it succeeds, focus goes as
+    /// when Peers opens.
+    read_again: bool,
     reread: bool,
     check: Option<Check>,
     page: Option<AddPage>,
@@ -497,7 +500,11 @@ impl Peers {
                 self.ask_focus(PeersFocus::Title);
                 intents
             }
-            PeersInput::ReadAgain => self.read().into_iter().collect(),
+            PeersInput::ReadAgain => {
+                let read = self.read();
+                self.read_again = read.is_some();
+                read.into_iter().collect()
+            }
             PeersInput::OpenAdd => {
                 self.open_add();
                 Vec::new()
@@ -538,6 +545,11 @@ impl Peers {
             PeersInput::Undo => self.undo().into_iter().collect(),
             PeersInput::TryAgain => self.try_again().into_iter().collect(),
             PeersInput::SnackClosed => {
+                // A removal unknown is read again once its snackbar goes,
+                // so the row shows what the runtime holds.
+                if matches!(self.snack, Some(PeersSnack::RemoveUnknown { .. })) {
+                    self.reread = true;
+                }
                 self.snack = None;
                 Vec::new()
             }
@@ -872,10 +884,14 @@ impl Peers {
     ) {
         self.reading = false;
         let check = self.check.take();
+        let again = std::mem::take(&mut self.read_again);
         match answer {
             Ok(list) => {
                 self.list = Some(list);
                 self.list_problem = None;
+                if again {
+                    self.ask_focus(PeersFocus::Title);
+                }
                 if self.add_note.is_some() && self.add_blocked().is_none() {
                     self.add_note = None;
                 }
@@ -960,13 +976,13 @@ impl Peers {
         }
     }
 
-    /// Not permitted or incompatible: the snackbar says so, and Peers is
-    /// unreadable when next shown.
+    /// A Remove or an Undo answered not permitted or incompatible: Peers
+    /// goes to its unreadable state with that line, focus on it.
     fn bar(&mut self, b: Barred) {
         self.list = None;
         self.list_problem = Some(ListProblem::Barred(b));
-        self.say(PeersSnack::Barred(b));
-        self.ask_focus(PeersFocus::Title);
+        self.snack = None;
+        self.ask_focus(PeersFocus::ListProblem);
     }
 
     fn page_answered(
@@ -1264,7 +1280,7 @@ impl Peers {
                         Some(TrustOutcome::Problem(p)) => {
                             block.problem = Some(BlockProblem::Trust(*p));
                         }
-                        _ => block.problem = Some(BlockProblem::NotTrusted),
+                        _ => block.problem = Some(BlockProblem::NotMade),
                     }
                 }
             } else if block.checking && !trust.reading() && !trust.reread_owed() {
@@ -1273,7 +1289,7 @@ impl Peers {
                 if !trust_allows(trust, &block.peer) {
                     block.problem = Some(match trust.outcome().0 {
                         Some(TrustOutcome::NotReadAgain(_)) => BlockProblem::Unknown,
-                        _ => BlockProblem::NotTrusted,
+                        _ => BlockProblem::NotMade,
                     });
                 }
             }
