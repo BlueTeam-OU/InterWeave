@@ -1001,18 +1001,16 @@ impl<'de> Deserialize<'de> for AddressList {
 }
 
 /// One `peers-address-list` row.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AddressRow {
     /// The address, as the provider holds it.
-    #[serde(deserialize_with = "crate::request::bounded_address")]
     pub address: String,
     /// `authored` or `added`.
     pub source: RowSource,
     /// Whether the provider emits it.
     pub dialled: bool,
     /// Why not, present exactly when `dialled` is false.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub not_dialled: Option<NotDialled>,
 }
 
@@ -1032,6 +1030,35 @@ pub enum RowSource {
 pub enum NotDialled {
     /// The profile authors the static-bootstrap provider `enabled: false`.
     ProviderDisabled,
+}
+
+impl<'de> Deserialize<'de> for AddressRow {
+    /// The schema's row, `not_dialled` present exactly when `dialled` is
+    /// false (`the_peers_address_shapes_hold_what_the_contract_says`).
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            #[serde(deserialize_with = "crate::request::bounded_address")]
+            address: String,
+            source: RowSource,
+            dialled: bool,
+            #[serde(default)]
+            not_dialled: Option<NotDialled>,
+        }
+        let wire = Wire::deserialize(d)?;
+        if wire.dialled == wire.not_dialled.is_some() {
+            return Err(serde::de::Error::custom(
+                "not_dialled is present exactly when dialled is false",
+            ));
+        }
+        Ok(Self {
+            address: wire.address,
+            source: wire.source,
+            dialled: wire.dialled,
+            not_dialled: wire.not_dialled,
+        })
+    }
 }
 
 impl From<BootstrapAddress> for AddressRow {

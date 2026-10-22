@@ -40,7 +40,30 @@
               "provider_disabled"
             ]
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "dialled": {
+                  "const": false
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "not_dialled"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "not_dialled"
+                ]
+              }
+            }
+          }
+        ]
       }
     }
   },

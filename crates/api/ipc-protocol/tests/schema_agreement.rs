@@ -1719,10 +1719,11 @@ fn a_schema_only_bound_counts_characters() {
     assert!(response.outcome::<EndpointList>().is_ok());
 }
 
-/// The `admin.peers` address shapes (ADR-0062), `approved` before their
-/// wire: each holds what LOCAL-IPC.md says of it, a refusal tied to its
-/// named reason both ways and a list held to the provider's bound. The
-/// Rust mirror joins this agreement with the batch that serves them.
+/// The `admin.peers` address shapes (ADR-0062) and their Rust mirror:
+/// each holds what LOCAL-IPC.md says of it, a refusal tied to its named
+/// reason both ways, a row's `not_dialled` tied to `dialled: false` both
+/// ways, and a list held to the provider's bound -- the schema and the
+/// parser refusing the same instances.
 #[test]
 fn the_peers_address_shapes_hold_what_the_contract_says() {
     let params = "architecture/contracts/schemas/ipc/peers-address-params.schema.json";
@@ -1858,7 +1859,12 @@ fn the_peers_address_shapes_hold_what_the_contract_says() {
     for wrong in [
         serde_json::json!({ "addresses": vec![row("added", true); 65] }),
         serde_json::json!({ "addresses": [row("scanned", true)] }),
+        // `not_dialled` without `dialled: false`, and the reverse.
+        serde_json::json!({ "addresses": [{ "address": address, "source": "added",
+            "dialled": true, "not_dialled": "provider_disabled" }] }),
+        serde_json::json!({ "addresses": [row("added", false)] }),
     ] {
+        refuses(list, wrong.clone());
         assert!(serde_json::from_value::<AddressList>(wrong).is_err());
     }
 }

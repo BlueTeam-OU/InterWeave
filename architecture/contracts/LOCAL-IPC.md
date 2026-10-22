@@ -465,7 +465,7 @@ the implementing batch and its mirror, as above.
 `hello.ipc_version.major` accepts any positive integer, so an unsupported
 major is a well-formed hello: the server answers
 `close{code: VersionIncompatible, supported: [{major: 2, minor: IPC_MAX_MINOR}]}`
-— the server's highest minor, 6 since the route-hold peer row (A 2026-10-21; 5 since the endpoint overlay, A 2026-10-11; 4 since the route-begin notices, A 2026-10-09; 3 since the trust overlay, A 2026-10-07),
+— the server's highest minor, 7 since the `admin.peers` address methods (ADR-0062; 6 since the route-hold peer row, A 2026-10-21; 5 since the endpoint overlay, A 2026-10-11; 4 since the route-begin notices, A 2026-10-09; 3 since the trust overlay, A 2026-10-07),
 never a literal older than the server — and closes. For major 2 the server selects `minor = min(client, server)` and
 returns it in `hello_response`. The client holds the server to that
 rule: a `hello_response` whose minor is above the minor the client
