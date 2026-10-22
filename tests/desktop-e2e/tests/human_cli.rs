@@ -427,16 +427,10 @@ async fn a_card_shared_accepted_edited_and_deleted_across_two_daemons() {
     assert_eq!(shown["name"], "Ada Lovelace");
     assert_eq!(shown["routes"][0]["peer"], a_peer.as_str());
     assert_eq!(shown["routes"][0]["fingerprint"], fingerprint.as_str());
-    let out = human(&b, &["contacts", "rename", &contact, "Countess"], "");
+    // A second card under another name, declined before any edit of the
+    // contact: an accept would make the contact's name the new one.
+    let out = human(&a, &["card", "set", "Augusta", "King"], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
-    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
-    assert_eq!(lines(&out)[0]["name_from"], "own", "{}", said(&out));
-    let out = human(&b, &["contacts", "photo", &contact, "--none"], "");
-    assert_eq!(code(&out), Some(0), "{}", said(&out));
-    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
-    assert_eq!(lines(&out)[0]["photo_from"], "own", "{}", said(&out));
-
-    // A second card, declined: nothing written.
     let listener = Listener::start(&b);
     listener.until("the session ready", |l| {
         l["event"] == "session" && l["session"] == "ready"
@@ -475,10 +469,82 @@ async fn a_card_shared_accepted_edited_and_deleted_across_two_daemons() {
         said(&out)
     );
 
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["name"],
+        "Ada Lovelace",
+        "declined, not accepted: {}",
+        said(&out)
+    );
+    assert_eq!(lines(&out)[0]["name_from"], "card", "{}", said(&out));
+
+    let out = human(&b, &["contacts", "rename", &contact, "Countess"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(lines(&out)[0]["name_from"], "own", "{}", said(&out));
+    let out = human(&b, &["contacts", "photo", &contact, "--none"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(lines(&out)[0]["photo_from"], "own", "{}", said(&out));
+
     let out = human(&b, &["contacts", "delete", &contact], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let out = human(&b, &["contacts", "--json"], "");
     assert!(lines(&out).is_empty(), "deleted: {}", said(&out));
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_peer_added_by_address_is_listed_refused_by_class_and_removed() {
+    let (a, mut a_daemon, _a_peer, _b, mut b_daemon, b_peer) = two_daemons().await;
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let address = format!("/ip4/{ip}/tcp/4999/p2p/{}", b_peer.as_str());
+
+    let out = human(&a, &["peers", "add", &address], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "added\n");
+    let out = human(&a, &["peers", "add", &address], "");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "unchanged\n",
+        "{}",
+        said(&out)
+    );
+    let out = human(&a, &["peers", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert!(
+        lines(&out)
+            .iter()
+            .any(|row| row["address"] == address.as_str() && row["source"] == "added"),
+        "{}",
+        said(&out)
+    );
+    // transportctl lists what the client added, as ADR-0062's gate asks.
+    let listed = a.transportctl(&["peers", "addresses", "--json"], "");
+    assert!(
+        String::from_utf8_lossy(&listed.stdout).contains(&address),
+        "{listed:?}"
+    );
+
+    let loopback = format!("/ip4/127.0.0.1/tcp/4999/p2p/{}", b_peer.as_str());
+    let out = human(&a, &["peers", "add", &loopback], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    let said_err = String::from_utf8_lossy(&out.stderr);
+    assert!(said_err.contains("special_use"), "{said_err}");
+
+    let out = human(&a, &["peers", "remove", &address], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "removed\n");
+    let out = human(&a, &["peers", "--json"], "");
+    assert!(
+        !lines(&out)
+            .iter()
+            .any(|row| row["address"] == address.as_str()),
+        "{}",
+        said(&out)
+    );
 
     a_daemon.terminate().await;
     b_daemon.terminate().await;
