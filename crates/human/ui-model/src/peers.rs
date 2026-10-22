@@ -289,6 +289,9 @@ pub enum RowState {
     /// Trust not read back): neither Trusted nor not is claimed, and
     /// Trust stays offered (§5.2's trust unread).
     TrustUnknown,
+    /// Its peer is this device: no trust state and no Trust, whatever
+    /// the trust list says (§5.2).
+    ThisDevice,
 }
 
 /// Why the rows show no trust state while the list is on show: in place
@@ -872,6 +875,10 @@ impl Peers {
             .find(|a| a.address == address)?
             .peer
             .clone()?;
+        // This device's own row offers no Trust and gets no block (§5.3).
+        if trust.list().and_then(|l| l.local_peer.as_ref()) == Some(&peer) {
+            return None;
+        }
         self.page = Some(AddPage {
             from_row: Some(address.to_owned()),
             blocks: vec![TrustBlock::new(peer.clone(), trust)],
@@ -1585,12 +1592,16 @@ impl Peers {
         let Some(list) = self.list.as_ref() else {
             return Vec::new();
         };
+        let own = trust.list().and_then(|l| l.local_peer.as_ref());
         let row = |a: &PeerAddress| PeerRow {
             address: a.address.clone(),
             peer: a.peer.clone(),
             origin: a.origin,
             state: match trust.confirmed_list() {
                 _ if !a.dialled => RowState::ProviderOff,
+                // This profile's identity never changes, so the list as
+                // kept answers it.
+                _ if a.peer.is_some() && a.peer.as_ref() == own => RowState::ThisDevice,
                 None => RowState::TrustUnknown,
                 Some(l) if a.peer.as_ref().is_some_and(|p| l.allows(p)) => RowState::Trusted,
                 Some(_) => RowState::NeedsTrust,

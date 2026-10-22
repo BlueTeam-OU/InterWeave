@@ -1520,3 +1520,19 @@ fn the_closing_snackbar_says_what_the_add_did() {
         Some(&PeersSnack::AddedChecked { lines: 1 })
     );
 }
+
+/// A row naming this device reads as this device's own address, with no
+/// trust state and no Trust, whatever the trust list says -- read or
+/// unread -- and its Trust opens no step (§5.2, §5.3).
+#[test]
+fn this_devices_own_row_offers_no_trust() {
+    let me = peer();
+    let state = |m: &UiModel| m.peers().rows(m.trust_settings())[0].state;
+    let mut m = opened(&me, &[], &[added(&me)]);
+    assert_eq!(state(&m), RowState::ThisDevice);
+    assert!(input(&mut m, PeersInput::TrustRow(at(&me))).is_empty());
+    assert!(!m.peers().add_open(), "no trust step for this device");
+    let _ = input(&mut m, PeersInput::Opened);
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    assert_eq!(state(&m), RowState::ThisDevice, "trust unread too");
+}

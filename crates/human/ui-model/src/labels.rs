@@ -799,6 +799,8 @@ ui_texts! {
     PeerStateTrusted => "Trusted: this device tries to connect to this address",
     /// A row's state: its peer is not trusted.
     PeerStateNeedsTrust => "Not trusted: this device does not connect to this address",
+    /// A row's state: its peer is this device, whatever trust says.
+    PeerStateThisDevice => "Own address: this address belongs to this device and does not lead to any other device",
     /// A row's state: the configuration turns the list off.
     PeerStateProviderOff => "Not used: this device's configuration turns this list off",
     /// A row's origin: the device's configuration.
