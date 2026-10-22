@@ -5918,14 +5918,24 @@ the timing.
 Recorded 2026-10-21 on the owner's direction of that day; the decisions
 are ADR-0059 (a contact is built from a card the counterparty sends and
 the person accepts) and ADR-0060 (the human store is encrypted at rest
-under a key the platform seals). **This section opens nothing by
-itself; the owner's word of 2026-10-21 opens the stage when Stage 17
-closes** ("open stage 21 after 17 closes"): from the landing of Stage
-17's closing record (§20) the stage runs beside Stage 18 and Stage 19
-as §19's Stage 16 ran beside Stage 15, the closing record names it as
-opened, and the status value stays the lowest open stage, Stage 18's
-slug once Stage 17 has closed. It is numbered after §28 so that no citation of
-§23–§28 moves. It takes over Stage 15's carry 11 (§18: a new conversation
+under a key the platform seals). **The stage runs beside Stage 17,
+Stage 18 and Stage 19 from the landing of this paragraph's amendment of
+2026-10-21, on the owner's word of that evening** — the morning's "open
+stage 21 after 17 closes", under which this section first landed
+opening nothing, superseded that evening, with the stage's three lanes
+idle on main and Stage 17 waiting on device runs and its closing
+record, by "agents must work" on the proposal to run it beside (this
+paragraph is that word's record); as §19's
+Stage 16 ran beside Stage 15 and §22's Stage 19 runs beside Stage 17.
+The status value stays the lowest open stage,
+`stage-17-android-human-client`, and this record is the authorisation
+for the stage's work (`CLAUDE.md` §3): no new crate but the
+command-line client under Activate, added to `[workspace].members` in
+the change that creates it. The precedent's two constraints hold: no
+`Proof::Stage(21)` deferral and no `stage-21` deadline is written while
+the stage runs beside the open one, since the guards expire a deferral
+only once the status passes it. It is numbered after §28 so that no
+citation of §23–§28 moves. It takes over Stage 15's carry 11 (§18: a new conversation
 by PeerId, the contacts UX and the owner's privacy review); ADR-0059
 decisions 2, 3 and 6 are input to that review, which the owner answers
 at the exit gate's (d).

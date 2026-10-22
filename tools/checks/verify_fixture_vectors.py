@@ -594,6 +594,18 @@ def _card_bytes(name: str, surname: str | None, photo: tuple[str, bytes] | None,
     )
 
 
+def _s_plus_order(s: int) -> int:
+    """S raised by the group order, refused unless it stays below 2^253.
+
+    An honest S reaches the refusal with probability about 2^-126, so no
+    seed exercises it; it is a function so the self-test can hand it one.
+    """
+    raised = s + _ED_L
+    if raised >= 2**253:
+        raise ValueError("S plus the group order reaches 2^253, so a top-bits check would refuse it too")
+    return raised
+
+
 def _card_verifies_strictly(key: bytes, signature: bytes, message: bytes) -> bool:
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -680,7 +692,11 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
     bytes; a test-only signer's public key is its seed's, and the card's
     signature is that seed's over the bytes `signed_over` names (Ed25519
     signing is deterministic, so a malformed vector fails for its rule and
-    not for a signature nobody made); a small-order signer's key is small
+    not for a signature nobody made) -- or, where `signer.constructed`
+    names one, that construction from it: `small-order-r` (R the identity
+    point, S recomputed for it) and `s-plus-order` (S raised by the group
+    order), each with `lax_verifies` recomputed against OpenSSL, which
+    accepts the first and refuses the second; a small-order signer's key is small
     order and its signature's R is not, and `lax_verifies` says whether
     OpenSSL's cofactorless verify accepts it, which is what makes the
     strict rule on the key the one that refuses; a stated
@@ -724,8 +740,42 @@ def human_chat_v2_contact_card_v1(vector: dict) -> dict:
             over.get("peer_id", ctx["peer_id"]),
             over.get("source_endpoint", ctx["source_endpoint"]),
         )
-        if card.get("signature") != base64.b64encode(sk.sign(signed)).decode("ascii"):
+        honest = sk.sign(signed)
+        constructed = signer.get("constructed")
+        if constructed is None:
+            expected = honest
+        elif constructed == "small-order-r":
+            # R the identity point, S = H(R || A || M) * a mod l with a the
+            # clamped scalar: the cofactorless equation holds, so only a
+            # small-order-R check refuses it. A replaced R with the honest
+            # S fails every verifier and would pin nothing.
+            h = bytearray(hashlib.sha512(bytes.fromhex(signer["test_only_seed_hex"])).digest()[:32])
+            h[0] &= 248
+            h[31] &= 127
+            h[31] |= 64
+            r_bytes = (1).to_bytes(32, "little")
+            k = int.from_bytes(hashlib.sha512(r_bytes + pub + signed).digest(), "little") % _ED_L
+            s = (k * int.from_bytes(h, "little")) % _ED_L
+            expected = r_bytes + s.to_bytes(32, "little")
+        elif constructed == "s-plus-order":
+            # The honest signature with S raised by l: the same signature
+            # modulo l, refused only by the canonical-S check. Below 2^253
+            # so the top three bits stay clear and no other check sees it.
+            expected = honest[:32] + _s_plus_order(int.from_bytes(honest[32:], "little")).to_bytes(32, "little")
+        else:
+            raise ValueError(f"signer.constructed '{constructed}' is not a construction this verifier knows")
+        if card.get("signature") != base64.b64encode(expected).decode("ascii"):
+            if constructed is not None:
+                raise ValueError(f"the card's signature is not the {constructed} construction from the test-only key's")
             raise ValueError("the card's signature is not the test-only key's over the bytes signed_over names")
+        if constructed is not None:
+            try:
+                Ed25519PublicKey.from_public_bytes(pub).verify(expected, message or b"")
+                lax = True
+            except InvalidSignature:
+                lax = False
+            if signer.get("lax_verifies") is not lax:
+                raise ValueError(f"lax_verifies is {signer.get('lax_verifies')}, OpenSSL's verify says {lax}")
     elif "small_order_public_key_hex" in signer:
         key = bytes.fromhex(signer["small_order_public_key_hex"])
         pt = _ed_decode(key)

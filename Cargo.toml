@@ -194,6 +194,23 @@ sha2 = "0.10"
 # base58check payload and enabling it would pull sha2 into a crate that
 # does not hash.
 bs58 = { version = "0.5", default-features = false, features = ["std"] }
+# The contact card's strict Ed25519 verification (ADR-0063, HUMAN-CHAT.md
+# §Contact card): `verify_strict`, which refuses a small-order key and a
+# small-order R. The version libp2p-identity already resolves, so this
+# adds no crate and no licence term. `legacy_compatibility` stays OFF in
+# the graph -- it would let a non-canonical S decode -- and the frozen
+# S-plus-order card fails the moment anything turns it on.
+ed25519-dalek = { version = "3", default-features = false }
+# The card's identity key, signature and photo are RFC 4648 §4 standard
+# base64, padded, canonical; the STANDARD engine refuses anything else.
+# The version the Slint toolkit already resolves.
+base64 = { version = "0.23", default-features = false, features = ["std"] }
+# NFC for the card's name and surname, the form their bounds are checked
+# and signed in. Already in the graph via bip39.
+unicode-normalization = { version = "0.1", default-features = false, features = ["std"] }
+# The card's names refuse format characters (Cf), which no std predicate
+# names. Already in the graph via jsonschema; Apache-2.0, no dependencies.
+unicode-general-category = "1.1"
 # Brotli for the HumanChatV2 fit-fallback decode path. Used through its
 # streaming interface so the decompressed ceiling aborts mid-stream.
 brotli = { version = "8", default-features = false, features = ["std"] }
@@ -648,8 +665,11 @@ overflow-checks = true
 # tests/security and tests/security-local and whose exit gate is
 # tests/SECURITY-MATRIX.md. STAGE 19 RUNS BESIDE STAGES 17 AND 18 by the
 # plan's section 22 record (activated 2026-10-20 on the owner's word):
-# packaging, migration and release. This value stays Stage 17 until section
-# 20's closing record moves it, because the guards read it as one number.
+# packaging, migration and release. STAGE 21 RUNS BESIDE STAGES 17, 18 AND
+# 19 by the plan's section 29 record (the owner's word of 2026-10-21):
+# contacts, cards and the encrypted store, in the human crates. This value
+# stays Stage 17 until section 20's closing record moves it, because the
+# guards read it as one number.
 status = "stage-17-android-human-client"
 architecture_root = "architecture"
 
