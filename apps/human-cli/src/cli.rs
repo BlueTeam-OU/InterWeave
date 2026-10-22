@@ -18,8 +18,8 @@ usage:
   interweave-human --profile <name> conversations [--json]
   interweave-human --profile <name> messages <conversation> [--json]
   interweave-human --profile <name> read <conversation> [--keep <id>]... [--json]
-  interweave-human --profile <name> send <conversation> <text>|-
-  interweave-human --profile <name> cancel|retry|unkeep <id>
+  interweave-human --profile <name> send <conversation> <text>|- [--json]
+  interweave-human --profile <name> cancel|retry|unkeep <id> [--json]
   interweave-human --profile <name> listen [--json]
   interweave-human --profile <name> trust list [--json]
   interweave-human --profile <name> trust allow|revoke <peer>
@@ -237,18 +237,18 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
                 conversation: conversation(c)?,
                 text: None,
             },
-            false,
+            true,
         ),
         ["send", c, text] => (
             Verb::Send {
                 conversation: conversation(c)?,
                 text: Some((*text).to_owned()),
             },
-            false,
+            true,
         ),
-        ["cancel", id] => (Verb::Cancel((*id).to_owned()), false),
-        ["retry", id] => (Verb::Retry((*id).to_owned()), false),
-        ["unkeep", id] => (Verb::Unkeep((*id).to_owned()), false),
+        ["cancel", id] => (Verb::Cancel((*id).to_owned()), true),
+        ["retry", id] => (Verb::Retry((*id).to_owned()), true),
+        ["unkeep", id] => (Verb::Unkeep((*id).to_owned()), true),
         ["listen"] => (Verb::Listen, true),
         ["trust", "list"] => (Verb::TrustList, true),
         ["trust", "allow", id] => (Verb::SetTrust(peer(id)?, true), false),
@@ -266,7 +266,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
     };
     let json = std::mem::take(&mut flags.json);
     if json && !json_allowed {
-        return Err("--json applies to the verbs that read, not to this one".to_owned());
+        return Err("--json applies to the verbs that print a result, not to this one".to_owned());
     }
     if !flags.keep.is_empty() {
         return Err("--keep applies to read only".to_owned());
@@ -382,7 +382,7 @@ mod tests {
     fn flags_that_do_not_apply_are_usage_errors() {
         let c = format!("{PEER}/human");
         for args in [
-            vec!["--profile", "p", "send", &c, "hi", "--json"],
+            vec!["--profile", "p", "trust", "allow", PEER, "--json"],
             vec!["--profile", "p", "messages", &c, "--keep", "u1"],
             vec!["--profile", "p", "status", "--none"],
             vec!["--profile", "p", "status", "--wait", "soon"],
