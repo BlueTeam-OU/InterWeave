@@ -245,6 +245,46 @@ LICENCE_WORDS = re.compile(
 )
 
 
+# A licence named in a header beside one NAMED knows is checked too: each
+# capitalised "<Name> License" phrase and each SPDX id must be a name
+# NAMED recognises, once the committed texts the header carries whole are
+# set aside (their own "Grant of Copyright License" names no licence).
+# Generic words before "License" name none. What is phrased otherwise
+# ("the Frobnicate Agreement") is beyond the words this can read.
+NAME_PHRASE = re.compile(r"((?:[A-Z][\w.+-]*\s+){1,4})[Ll]icen[cs]e\b")
+GENERIC = {"A", "Any", "Copyright", "Grant", "No", "Patent", "Public", "Such", "The", "This", "Your"}
+SPDX_LINE = re.compile(r"SPDX-License-Identifier:\s*([^\n]*)")
+
+
+def unrecognised_names(block: str) -> list:
+    """The licence names in `block` NAMED does not recognise."""
+    text = " ".join(block.split())
+    lowered = text.lower()
+    for term, (start, end) in BODY.items():
+        if carries_text(block, term):
+            body = folded(standard_text(term)[0])
+            body = body[body.index(folded(start)):]
+            if end:
+                body = body[: body.index(folded(end)) + len(folded(end))]
+            at = lowered.index(body)
+            text, lowered = text[:at] + text[at + len(body):], lowered[:at] + lowered[at + len(body):]
+    found = []
+    for m in NAME_PHRASE.finditer(text):
+        words = m.group(1).split()
+        # A name does not run across a sentence: "Trademarks. This License".
+        while any(w[-1] in ".:;," for w in words[:-1]):
+            words = words[1:]
+        while words and words[0] in GENERIC:
+            words = words[1:]
+        if words and not any(w.search(" ".join(words) + " License") for w, _ in NAMED):
+            found.append(" ".join(words) + " License")
+    for m in SPDX_LINE.finditer(block):
+        for token in re.findall(r"[A-Za-z0-9.+-]+", m.group(1)):
+            if token not in ("AND", "OR", "WITH") and not any(w.search(token) for w, _ in NAMED):
+                found.append(token)
+    return found
+
+
 def carries_text(block: str, term: str) -> bool:
     if term not in BODY:
         return False
@@ -385,9 +425,11 @@ def derived_notices(package: dict, entry: dict) -> list:
         shipped = carried | set(extra) | ({term} if entry["case"] == "header+text" else set())
         for path, text in found:
             named = [a for words, a in NAMED if words.search(text)]
-            if not named and LICENCE_WORDS.search(text):
+            unknown = unrecognised_names(text)
+            if unknown or (not named and LICENCE_WORDS.search(text)):
+                said = f" ({', '.join(unknown)})" if unknown else ""
                 raise ValueError(
-                    f"{name} {version}'s header in {path} names a licence this tool does not recognise:"
+                    f"{name} {version}'s header in {path} names a licence this tool does not recognise{said}:"
                     f" add its words to NAMED and its text under {TEXTS.name}/"
                 )
             for answers in named:

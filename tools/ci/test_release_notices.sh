@@ -478,6 +478,14 @@ printf '// Copyright 2012 Extra Holder. Licensed under the zlib License.\npub fn
 drefused "a header naming zlib, whose text is not committed" "hdr 1.0.0's header in src/x.rs names Zlib, whose standard text is not committed: commit and pin it under licence_texts/"
 printf '// Copyright 2012 Extra Holder. Licensed under the Frobnicate License 1.0.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 drefused "a header naming an unrecognised licence" "hdr 1.0.0's header in src/x.rs names a licence this tool does not recognise"
+# Beside a licence it recognises, an unrecognised one is refused all the
+# same: in prose, after a whole MIT notice, and as an SPDX id. The combo
+# crate's whole MIT notice beside an Apache line, accepted above, is the
+# control.
+printf '// Copyright 2012 Extra Holder.\n//\n%s\n//\n// Portions licensed under the Frobnicate License 1.0.\npub fn x() {}\n' "$MITBODY" > "$D/crates/hdr/src/x.rs"
+drefused "an unrecognised licence beside a whole MIT notice" "hdr 1.0.0's header in src/x.rs names a licence this tool does not recognise (Frobnicate License)"
+printf '// Copyright 2012 Extra Holder.\n// SPDX-License-''Identifier: MIT OR LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+drefused "an unrecognised SPDX id beside MIT" "hdr 1.0.0's header in src/x.rs names a licence this tool does not recognise (LicenseRef-Frob)"
 rm "$D/crates/hdr/src/x.rs"
 list "$(entry hdr MIT header src/lib.rs true)" "${GOOD[@]:1}"
 drefused "a header count of true" "hdr 1.0.0's header count is not a positive number"
