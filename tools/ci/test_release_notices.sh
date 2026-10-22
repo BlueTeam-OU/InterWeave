@@ -467,7 +467,7 @@ assert list(d) == ["crate_notices"], d
 sys.stdout.write(d["crate_notices"])
 PY
     S="$SANDBOX/section.md"
-    ! grep -q '^# Third-party notices' "$S" && ! grep -q 'These programs' "$S" \
+    ! grep -q '^# Third-party notices' "$S" && ! grep -q "InterWeave's own code" "$S" \
         && [[ "$(head -c 3 "$S")" == '- `' ]] && grep -qx '### Licence texts' "$S" && grep -qx '#### T1' "$S" \
         && grep -qF -- '- `shared` 1.0.0: MIT — text T' "$S" \
         && pass "--json writes the notices under its key from the list on, its title and opening paragraph dropped, every heading a level down" \

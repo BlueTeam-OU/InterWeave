@@ -440,10 +440,12 @@ def render(third: list, derived: dict) -> tuple:
     out = [
         "# Third-party notices",
         "",
-        "These programs are InterWeave's own, under the Apache License 2.0",
-        "(`LICENSE`), and they contain the following crates, each under its",
-        "own licence. A licence text that several crates share is printed",
-        "once, below the list, and named by each.",
+        # Draft English, for language-culture-en to finalise: the same
+        # page ships in the Linux archive and beside the Android app.
+        "InterWeave's own code is under the Apache License 2.0 (`LICENSE`",
+        "in its source). What this release ships also contains the following",
+        "crates, each under its own licence. A licence text that several",
+        "crates share is printed once, below the list, and named by each.",
         "",
         *lines,
         "",
