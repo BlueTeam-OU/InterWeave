@@ -210,6 +210,20 @@ fn identity(i: &IdentityView, json: bool) -> String {
     )
 }
 
+/// A proposal as `listen` prints it: an event, unread.
+pub(crate) fn proposal_line(p: &ProposalItem, key: &ConversationKey, json: bool) -> String {
+    if json {
+        let mut value = proposal_value(p, key, "unread");
+        value["event"] = json!("proposal");
+        return json_line(&value);
+    }
+    format!(
+        "proposal {}\n{}",
+        conversation_text(key),
+        proposal(p, key, "unread", false)
+    )
+}
+
 /// `card show`.
 pub(crate) async fn card_show<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,

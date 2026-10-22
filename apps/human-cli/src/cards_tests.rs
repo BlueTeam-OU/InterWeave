@@ -430,3 +430,41 @@ fn a_photo_file_past_the_bound_is_refused_unread() {
         Ok(interweave_human_ui_model::PhotoEdit::Chosen(bytes)) if bytes == b"not checked here"
     ));
 }
+
+#[tokio::test]
+async fn listen_prints_a_card_as_a_proposal_and_leaves_it_unread() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (alice, bob) = (Side::new(a), Side::new(b));
+    let mut b_run = bob.session();
+    run(&mut b_run, Verb::Status, false)
+        .await
+        .1
+        .expect("status");
+    let mut a_run = alice.session();
+    run(&mut a_run, set("Ada", None), false)
+        .await
+        .1
+        .expect("set");
+    run(&mut a_run, Verb::CardShare(bob.route()), false)
+        .await
+        .1
+        .expect("shared");
+    let mut out = Vec::new();
+    verbs::listen(
+        &mut b_run,
+        true,
+        &mut out,
+        tokio::time::sleep(Duration::from_millis(500)),
+    )
+    .await
+    .expect("listened");
+    let out = String::from_utf8(out).expect("utf-8");
+    let card = lines(&out)
+        .into_iter()
+        .find(|e| e["event"] == "proposal")
+        .unwrap_or_else(|| panic!("a proposal event: {out}"));
+    assert_eq!(card["name"], "Ada");
+    assert_eq!(card["status"], "unread");
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    assert_eq!(lines(&out)[0]["status"], "unread", "still unread: {out}");
+}

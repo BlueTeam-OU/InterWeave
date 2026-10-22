@@ -705,6 +705,19 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
             value["conversation"] = json!(conversation_text(&key));
             return Some(output::json_line(&value));
         }
+        Update::ReceivedCard(card) => {
+            // Said as the proposals list says it, read by no one: the card
+            // stays unread for `proposals read`.
+            let key = ConversationKey::Direct {
+                peer: card.peer.clone(),
+                endpoint: Some(card.endpoint.clone()),
+            };
+            let item = model
+                .proposals(&key)
+                .into_iter()
+                .find(|p| p.row == card.row)?;
+            return Some(crate::cards::proposal_line(&item, &key, json));
+        }
         Update::Client(ClientEvent::Outbound(update)) => (
             "outbound",
             json!({
