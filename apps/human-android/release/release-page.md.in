@@ -171,10 +171,12 @@ The credit that FreeType asks for, and the licence texts, follow.
 
 The Android app also contains Rust libraries (called crates), in the
 versions used to build this release. Each of them is under its own
-licence. Their notices are in a separate file attached to this
-release: each line names a crate, its version and its licence, and
-gives the label of its licence text (T1, T2 and so on), and the
-licence texts follow the list. The link to the file and its SHA-256
-follow.
+licence. Their notices are in a separate file, attached to this
+release. The file begins with a list: each line names a crate, its
+version and its licence, and gives the labels of its licence texts
+(T1, T2 and so on). The licence texts follow the list, under the
+heading "Licence texts". The link to the file and its SHA-256 are
+below. Use the SHA-256 to check that the file is the one published
+here.
 
 {crate_notices}
