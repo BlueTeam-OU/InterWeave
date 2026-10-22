@@ -28,10 +28,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AdminBinding, AdminCapability, AdminPort, AdminStatus, DataCapability, DataSessionBinding,
-    DataSessionPort, EndpointAdminView, Generation, IngressCounts, LocalAdminPort,
-    LocalDataSession, PeerGateView, PreAuthCounts, ReceivedBroadcast, ReceivedDirect, SessionEvent,
-    SessionRequest, TrustAdminView,
+    AddressChange, AdminBinding, AdminCapability, AdminPort, AdminStatus, BootstrapAddress,
+    DataCapability, DataSessionBinding, DataSessionPort, EndpointAdminView, Generation,
+    IngressCounts, LocalAdminPort, LocalDataSession, PeerGateView, PreAuthCounts,
+    ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, DirectMessageV2, EndpointDirectoryV1,
@@ -809,6 +809,35 @@ impl AdminPort for InProcessAdmin {
                 last_outcome: row.last_outcome.map(crate::gate::LastOutcome::to_view),
             })
             .collect())
+    }
+
+    async fn add_bootstrap_address(
+        &self,
+        address: String,
+    ) -> Result<AddressChange, TransportError> {
+        self.require(AdminCapability::Peers)?;
+        // Through the driver, which holds the bootstrap overlay: it is
+        // written before the provider is told (ADR-0062).
+        ask_driver(&self.driver()?, |reply| {
+            Request::AddBootstrap(address, reply)
+        })
+        .await?
+    }
+
+    async fn remove_bootstrap_address(
+        &self,
+        address: String,
+    ) -> Result<AddressChange, TransportError> {
+        self.require(AdminCapability::Peers)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::RemoveBootstrap(address, reply)
+        })
+        .await?
+    }
+
+    async fn bootstrap_addresses(&self) -> Result<Vec<BootstrapAddress>, TransportError> {
+        self.require(AdminCapability::Peers)?;
+        ask_driver(&self.driver()?, Request::Bootstrap).await
     }
 
     async fn set_trust(

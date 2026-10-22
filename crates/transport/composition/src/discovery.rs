@@ -231,6 +231,27 @@ impl Discovery {
         self.trust = trust;
     }
 
+    /// Replace the static-bootstrap provider's entries (ADR-0062: an
+    /// added or removed bootstrap address takes effect without a
+    /// restart). The provider queues the DIFFERENCE, so the next round
+    /// observes what is new and retracts what is gone.
+    ///
+    /// # Errors
+    /// [`CompositionError::Discovery`] when no provider runs -- one is
+    /// always built unless the profile authors it `enabled: false`, where
+    /// nothing is to change -- or it refuses the entries.
+    pub(crate) fn set_static_entries(
+        &mut self,
+        entries: Vec<interweave_discovery_static::StaticEntry>,
+        now_ms: u64,
+    ) -> Result<(), CompositionError> {
+        self.statics
+            .as_mut()
+            .ok_or_else(|| CompositionError::Discovery("no static-bootstrap provider".to_owned()))?
+            .set_entries(entries, now_ms)
+            .map_err(|e| CompositionError::Discovery(format!("static-bootstrap: {e:?}")))
+    }
+
     /// Drain every provider into the manager. A refused event is the
     /// manager's contract working (an untrusted or malformed candidate)
     /// and is counted there, not here.
