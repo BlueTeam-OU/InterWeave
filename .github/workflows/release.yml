@@ -75,8 +75,9 @@ defaults:
 
 concurrency:
   # One run per tag, never cancelled: a half-published release is worse
-  # than a second run refused by gh release create.
-  group: release-${{ github.ref }}
+  # than a second run refused by gh release create. The trigger is in the
+  # group, so a dry run never queues behind, or displaces, a tag's run.
+  group: release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -90,6 +91,8 @@ jobs:
       # A dispatch's version is checked as a tag would be; it reaches the
       # script through the environment, never into the script's text.
       TAG: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
+      EVENT: ${{ github.event_name }}
+      REF: ${{ github.ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,15 +103,21 @@ jobs:
       # The trigger's glob admits v1.2.3-rc1 and v01.2.3; the scripts take
       # MAJOR.MINOR.PATCH and refuse the rest, but a tag off main would
       # pass them. Both are refused here, and every other job needs this.
-      # A dry run is held to the same: its commit is on main, so a
-      # dispatch from another branch builds nothing.
+      # A dry run is held to the same, and is dispatched from main itself:
+      # a branch whose head is on main's history would pass the ancestry
+      # check alone. A refused version is printed %q-quoted, since a
+      # dispatched one is typed text and a newline in it would otherwise
+      # start a workflow command of its own in the log.
       - name: The tag is v<MAJOR>.<MINOR>.<PATCH> and on main
         id: version
         run: |
+          if [[ "$EVENT" == workflow_dispatch && "$REF" != refs/heads/main ]]; then
+            printf '::error::a dry run is dispatched from main, not %q\n' "$REF"; exit 1
+          fi
           [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
-            || { echo "::error::tag $TAG is not v<MAJOR>.<MINOR>.<PATCH>"; exit 1; }
+            || { printf '::error::tag %q is not v<MAJOR>.<MINOR>.<PATCH>\n' "$TAG"; exit 1; }
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
-            || { echo "::error::tag $TAG ($GITHUB_SHA) is not on main"; exit 1; }
+            || { printf '::error::tag %q (%s) is not on main\n' "$TAG" "$GITHUB_SHA"; exit 1; }
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
   apk:
