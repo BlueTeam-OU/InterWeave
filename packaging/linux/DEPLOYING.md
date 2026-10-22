@@ -28,6 +28,16 @@ have no safe place to live (`NoRuntimeDir`).
   Another account's daemon on the same port fails to start and its unit
   retries every 5 s; two profiles of one account on one port both start
   silently (`SO_REUSEPORT`), so give every profile its own.
+- The XDG base directories at their defaults, or set where the user
+  manager reads them. The paths below (`~/.config`, `~/.local/share`,
+  `~/.local/state`, `~/.cache`) are the defaults. The user manager --
+  and so the unit -- does not read a shell profile's exports: an
+  `XDG_DATA_HOME` exported only in `~/.profile` sends `identity init`'s
+  key where the daemon never looks, and the daemon exits naming the
+  default path, restarted every 5 s. Leave `XDG_*_HOME` unset; a host
+  that needs them sets the same values for the manager
+  (`~/.config/environment.d/*.conf`) and for the shell the commands run
+  in, which does not read that directory.
 - No root, no display, no D-Bus session bus, no keyring and no terminal:
   none of the daemon, `transportctl identity init|show` or the bridge
   asks for one.
@@ -72,16 +82,8 @@ transportctl --profile <profile> identity init
 mints the profile's key at `~/.local/share/interweave/profiles/<profile>/identity.key`
 (owner-only) and prints its PeerId -- the name every other profile
 allows and dials. The unit does not create a key: a daemon started
-without one exits naming the path. Back the key up as its recovery
-record before anything depends on this PeerId:
-
-```sh
-transportctl --profile <profile> identity backup --to-file <new path>
-```
-
-(the record is a secret; keep it off the host). The `identity` commands
-take the profile's lock, so they run while the profile's daemon is
-stopped; with it running they are refused, naming the lock.
+without one exits naming the path. The key is backed up in step 4,
+once `config.yaml` exists.
 
 ## 3. `config.yaml`
 
@@ -141,14 +143,29 @@ observability: { log_level: info }
   this file.
 - **Sockets** need no configuration: the data socket is
   `$XDG_RUNTIME_DIR/interweave/<profile>.sock` and the admin socket
-  `<profile>.admin.sock` beside it, both owner-only. Their path must fit
-  a socket address (108 bytes), so a very long profile name is refused.
+  `<profile>.admin.sock` beside it, both owner-only. A profile name is
+  at most 64 bytes, and under `/run/user/<uid>` every such name fits a
+  socket address (108 bytes); only an unusually long
+  `XDG_RUNTIME_DIR` makes the bind fail.
 
 The examples under `architecture/config/examples/` listen on
 `0.0.0.0:4001`; copied unchanged onto a host with more than one profile,
 they all ask for the same port.
 
-## 4. Start it
+## 4. Back up the key, then start it
+
+Back the key up as its recovery record before anything depends on this
+PeerId:
+
+```sh
+transportctl --profile <profile> identity backup --to-file <new path>
+```
+
+The record is a secret; keep it off the host. This is the one window
+for it: `backup` reads `config.yaml`, so it is refused before step 3,
+and like every `identity` command it takes the profile's lock, so it is
+refused while the daemon runs (stop it first:
+`systemctl --user stop interweave-daemon@<profile>`).
 
 ```sh
 systemctl --user daemon-reload
@@ -189,8 +206,8 @@ journalctl --user -u interweave-daemon@<profile>          # -f to follow
 ```
 
 The level is `observability.log_level` (`error`, `warn`, `info` -- the
-default -- or `debug`); no environment variable changes it. Libraries'
-own lines are capped at `warn`, and trust changes are logged at every
+default -- or `debug`); no environment variable changes it. Third-party
+libraries' lines (libp2p and below) are capped at `warn`, and trust changes are logged at every
 level. A refusal before the profile is loaded (a missing key, an
 unreadable `config.yaml`) is a plain line on standard error, in the same
 journal.
@@ -198,10 +215,14 @@ journal.
 ## 7. Next
 
 - The Claude bridge on this profile: the plugin's own procedure
-  (`packaging/claude-plugin/`), from the archive's `claude-plugin/`
-  directory, run by the Claude Code session of the same account, which
-  gives it the same `XDG_RUNTIME_DIR`. Its `--profile` and `--endpoint`
-  are this profile and the `claude` row.
+  (`packaging/claude-plugin/`), run by the Claude Code session of the
+  same account, which gives it the same `XDG_RUNTIME_DIR`. Its
+  `--profile` and `--endpoint` are this profile and the `claude` row.
+  The plugin comes from the archive's `claude-plugin/` directory, which
+  arrives with the change that lets the archive build; from a source
+  build, it is built by
+  `cargo build --locked --release -p interweave-claude-channel` and
+  `packaging/claude-plugin/build.sh <new directory> target/release/claude-channel`.
 - An automated client: `interweave-client@<profile>` (`README.md`).
 - Upgrading is `install.sh` again and a restart; uninstalling is
   `uninstall.sh`, which keeps every profile (`README.md`).
