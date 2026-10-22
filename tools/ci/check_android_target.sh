@@ -88,6 +88,7 @@ arch="${target%%-*}"
 clang="$bin/$arch-linux-android$api-clang"
 [[ -x "$clang" ]] || die "no $clang in NDK $ndk at $ndk_home (an NDK without API $api's clang?)"
 [[ -x "$bin/llvm-ar" ]] || die "no $bin/llvm-ar in NDK $ndk"
+[[ -x "$bin/llvm-ranlib" ]] || die "no $bin/llvm-ranlib in NDK $ndk"
 
 # Which packages the workspace has, by name, from cargo's own metadata.
 have="$(cd "$REPO" && "$CARGO" metadata --no-deps --format-version 1 --locked 2>/dev/null \
@@ -119,7 +120,11 @@ for f in "${ANDROID_CHECK_FEATURES[@]}"; do
     for p in "${pkgs[@]}"; do [[ "${f%%/*}" == "$p" ]] && features+=("$f"); done
 done
 T="${target//-/_}"
-export "CARGO_TARGET_${T^^}_LINKER=$clang" "CC_$T=$clang" "AR_$T=$bin/llvm-ar"
+# RANLIB too: a C dependency built by its own make (openssl-src, under
+# rusqlite's vendored SQLCipher) runs ranlib, and the cc crate falls back
+# to <triple>-ranlib, which the NDK does not ship. cargo-ndk sets it for
+# the Gradle build; this script is what CI's android check runs instead.
+export "CARGO_TARGET_${T^^}_LINKER=$clang" "CC_$T=$clang" "AR_$T=$bin/llvm-ar" "RANLIB_$T=$bin/llvm-ranlib"
 echo "$me: $target, NDK $ndk at $ndk_home, API $api: ${pkgs[*]}"
 args=(); for p in "${pkgs[@]}"; do args+=(-p "$p"); done
 (( ${#features[@]} )) && args+=(--features "$(IFS=,; echo "${features[*]}")")
