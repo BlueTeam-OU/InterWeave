@@ -335,6 +335,8 @@ async fn an_authored_address_cannot_be_removed_and_an_added_one_leaves_at_once()
 /// enabled provider lists as dialled.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_disabled_provider_refuses_the_add_and_lists_the_overlay_as_not_dialled() {
+    // The subscriber before the first start, or its diagnostic is lost.
+    let _ = logged();
     let (identity, _) = id();
     let (_, b) = id();
     let authored = vec![at(1, &b)];
@@ -365,6 +367,18 @@ async fn a_disabled_provider_refuses_the_add_and_lists_the_overlay_as_not_dialle
         ]
     );
     runtime.shutdown().await.expect("clean shutdown");
+    // THE LOAD-TIME DIAGNOSTIC names the overlay and the disabled
+    // provider, once for the one start that loaded entries under it.
+    let named = |text: &str| {
+        text.lines()
+            .filter(|line| {
+                line.contains("nothing dials")
+                    && line.contains("enabled: false")
+                    && line.contains(&path.display().to_string())
+            })
+            .count()
+    };
+    assert_eq!(named(&logged()), 1, "{}", logged());
 
     let runtime = ComposedRuntime::start(
         &identity,
@@ -382,6 +396,42 @@ async fn a_disabled_provider_refuses_the_add_and_lists_the_overlay_as_not_dialle
         "the control"
     );
     runtime.shutdown().await.expect("clean shutdown");
+    assert_eq!(
+        named(&logged()),
+        1,
+        "the control: no diagnostic when enabled"
+    );
+}
+
+/// Everything the runtimes in this binary have logged so far: ONE
+/// subscriber for the binary, installed once, as `trust_overlay.rs`
+/// explains -- per-test scoped ones race on tracing's callsite cache.
+fn logged() -> String {
+    static LOG: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<Vec<u8>>>> =
+        std::sync::OnceLock::new();
+    let log = LOG.get_or_init(|| {
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = std::sync::Arc::clone(&log);
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || Writer(std::sync::Arc::clone(&sink)))
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber).expect("the one subscriber");
+        log
+    });
+    String::from_utf8(log.lock().expect("lock").clone()).expect("utf-8")
+}
+
+struct Writer(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Writer {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().expect("lock").extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Authored and added entries past 64 stop the start, naming the

@@ -438,8 +438,12 @@ impl ComposedRuntime {
         // THE LOAD-TIME DIAGNOSTIC (ADR-0062 decision 2): entries an
         // authored `enabled: false` provider emits to nobody load, are
         // listed as not dialled, and are named here.
-        if static_how == StaticAuthoring::Disabled && !bootstrap.peers().is_empty() {
+        if let (StaticAuthoring::Disabled, Some(path)) =
+            (static_how, options.bootstrap_overlay_file.as_ref())
+            && !bootstrap.peers().is_empty()
+        {
             tracing::warn!(
+                overlay = %path.display(),
                 "the bootstrap overlay holds {} address(es) that nothing dials: config.yaml \
                  authors the static-bootstrap provider enabled: false",
                 bootstrap.peers().len()
