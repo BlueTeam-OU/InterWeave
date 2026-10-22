@@ -2633,6 +2633,10 @@ export component AppWindow inherits Window {
                         accessible-label: self.text;
                     }
                 }
+            // A long conversation scrolls; the composer stays in view. The
+            // built-in Flickable, not std-widgets' ScrollView, whose icons
+            // need an image feature the graph does not carry: it scrolls
+            // by wheel and touch, with no visible scrollbar.
             Flickable {
                 width: parent.width;
                 height: parent.height;
