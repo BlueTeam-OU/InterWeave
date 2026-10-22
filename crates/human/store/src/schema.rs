@@ -28,15 +28,20 @@ use rusqlite::{Connection, OptionalExtension as _, Transaction};
 use crate::StoreError;
 
 /// The schema version this build writes and expects.
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
+
+/// The three tables ADR-0044 lets hold content.
+const RETENTION_TABLES: &[&str] = &["pending_outbound", "unread_inbound", "kept_inbound"];
 
 /// Every table the store is allowed to contain.
 ///
 /// Checked on open. The three content tables are the retention states of
 /// ADR-0044; the rest is content-free metadata that cannot reconstruct a
 /// deleted body: `settings`, since v5 the contacts, their routes and
-/// the conversation index (`RETENTION.md` §5, plan §17 (4)), and since
-/// v7 the read pairs (STATE.md, plan §18 (5)).
+/// the conversation index (`RETENTION.md` §5, plan §17 (4)), since v7
+/// the read pairs (STATE.md, plan §18 (5)), and since v9 each identity's
+/// own card (STATE.md `own_cards`, plan §29 step 2), the person's own
+/// presentation and no one else's content.
 pub const REQUIRED_TABLES: &[&str] = &[
     "pending_outbound",
     "unread_inbound",
@@ -46,6 +51,7 @@ pub const REQUIRED_TABLES: &[&str] = &[
     "contact_routes",
     "conversation_index",
     "read_pairs",
+    "own_cards",
 ];
 
 /// Table names that would make this a conversation archive.
@@ -136,12 +142,85 @@ pub fn migrate(conn: &mut Connection) -> Result<(), StoreError> {
     if current < 8 {
         migration_8(&tx)?;
     }
+    if current < 9 {
+        migration_9(&tx)?;
+    }
     // The version bump rides the SAME transaction as the DDL above, which
     // is what makes a crashed migration a no-op rather than a schema the
     // store misreads on the next open.
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     Ok(())
+}
+
+/// v9 — contact cards (plan §29 step 2; ADR-0059, ADR-0063; architect-cto's
+/// DECISION 01a161b2 Q1): STATE.md's columns for them, added in place.
+///
+/// - `contacts.name_source`, `name_at`, `photo_source`, `photo_at`: where
+///   the name and the photo came from (`card` or `person`) and when, so
+///   an accepted card never overwrites a local edit and the contact page
+///   says which is which. NULL on every contact from before: those were
+///   typed, and a typed value is the person's.
+/// - `contacts.photo`: the accepted card's encoded photo as received,
+///   within the card's 24,576-byte bound, kept only when it decodes
+///   within 256 × 256 at Accept and decoded again at display; and
+///   `avatar_ref` dropped, since a photo is bytes and never a reference
+///   (ADR-0059 A 2026-10-22 (iv)). No writer ever set it.
+/// - `contact_routes.identity_key`: the 32-byte key the first accepted
+///   card on the route recorded, NULL until then and on a typed route.
+/// - `UNIQUE(contact_id, peer_id)` on `contact_routes`: a contact holds at
+///   most one route per `PeerId` (ADR-0061 decision 4). A table constraint,
+///   as every unique key of the store is, so the table is rebuilt (no
+///   AUTOINCREMENT to carry, its rows copied). No writer made routes
+///   before v9, so no row can break it; one that did would fail the
+///   migration loudly, never be dropped.
+/// - `conversation_index.card_shared_at`: when the conversation's
+///   identity last shared its card there.
+/// - `own_cards`: each identity's own card, keyed by its `EndpointId` —
+///   what the person writes about themselves, outside ADR-0044's three
+///   states, and nobody else's content.
+///
+/// `local_endpoint_id` and the composite foreign key are Stage 22's
+/// (ADR-0061), not this migration's. No content table changes, and the
+/// identity's private key is in a file beside the store and never here.
+fn migration_9(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "
+        ALTER TABLE contacts ADD COLUMN name_source TEXT;
+        ALTER TABLE contacts ADD COLUMN name_at INTEGER;
+        ALTER TABLE contacts ADD COLUMN photo_source TEXT;
+        ALTER TABLE contacts ADD COLUMN photo_at INTEGER;
+        ALTER TABLE contacts ADD COLUMN photo BLOB;
+        ALTER TABLE contacts DROP COLUMN avatar_ref;
+        CREATE TABLE contact_routes_v9 (
+            contact_id         TEXT NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,
+            peer_id            TEXT NOT NULL,
+            endpoint_id        TEXT NOT NULL,
+            device_label       TEXT,
+            verification_note  TEXT,
+            last_seen          INTEGER,
+            identity_key       BLOB,
+            UNIQUE(contact_id, peer_id, endpoint_id),
+            UNIQUE(contact_id, peer_id)
+        );
+        INSERT INTO contact_routes_v9
+            (contact_id, peer_id, endpoint_id, device_label, verification_note, last_seen)
+            SELECT contact_id, peer_id, endpoint_id, device_label, verification_note, last_seen
+            FROM contact_routes;
+        DROP TABLE contact_routes;
+        ALTER TABLE contact_routes_v9 RENAME TO contact_routes;
+        ALTER TABLE conversation_index ADD COLUMN card_shared_at INTEGER;
+        CREATE TABLE own_cards (
+            endpoint_id  TEXT    NOT NULL PRIMARY KEY,
+            name         TEXT    NOT NULL,
+            surname      TEXT,
+            photo        BLOB,
+            created_at   INTEGER NOT NULL,
+            updated_at   INTEGER NOT NULL
+        );
+        ",
+    )
+    .map_err(migration_error)
 }
 
 /// v8 — the inbound walk's sort key is indexed: `(received_at, row_id)`
@@ -1136,10 +1215,14 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             // hold any number of NULLs otherwise.
             ("contact_id", "TEXT", true, true),
             col("display_name", "TEXT", true),
-            col("avatar_ref", "TEXT", false),
             col("notes", "TEXT", false),
             col("created_at", "INTEGER", true),
             col("updated_at", "INTEGER", true),
+            col("name_source", "TEXT", false),
+            col("name_at", "INTEGER", false),
+            col("photo_source", "TEXT", false),
+            col("photo_at", "INTEGER", false),
+            col("photo", "BLOB", false),
         ],
         unique_keys: &[&["contact_id"]],
         generated: &[],
@@ -1156,8 +1239,12 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("device_label", "TEXT", false),
             col("verification_note", "TEXT", false),
             col("last_seen", "INTEGER", false),
+            col("identity_key", "BLOB", false),
         ],
-        unique_keys: &[&["contact_id", "peer_id", "endpoint_id"]],
+        unique_keys: &[
+            &["contact_id", "peer_id", "endpoint_id"],
+            &["contact_id", "peer_id"],
+        ],
         generated: &[],
         autoincrement: false,
         indexes: &[],
@@ -1178,8 +1265,25 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("channel_id", "TEXT", false),
             col("title", "TEXT", false),
             col("last_activity", "INTEGER", false),
+            col("card_shared_at", "INTEGER", false),
         ],
         unique_keys: &[&["conversation_id"]],
+        generated: &[],
+        autoincrement: false,
+        indexes: &[],
+        foreign_keys: &[],
+    },
+    TableShape {
+        name: "own_cards",
+        columns: &[
+            ("endpoint_id", "TEXT", true, true),
+            col("name", "TEXT", true),
+            col("surname", "TEXT", false),
+            col("photo", "BLOB", false),
+            col("created_at", "INTEGER", true),
+            col("updated_at", "INTEGER", true),
+        ],
+        unique_keys: &[&["endpoint_id"]],
         generated: &[],
         autoincrement: false,
         indexes: &[],
@@ -1540,11 +1644,17 @@ pub fn verify_shape(conn: &Connection) -> Result<(), StoreError> {
                     .iter()
                     .any(|shape| shape.indexes.iter().any(|(n, _)| *n == name.as_str())) => {}
             _ => {
+                let metadata = REQUIRED_TABLES
+                    .iter()
+                    .filter(|t| !RETENTION_TABLES.contains(t))
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 return Err(StoreError::Migration(format!(
                     "{kind} `{name}` is not part of this store's schema; ADR-0044 allows the \
-                     three retention tables (pending_outbound, unread_inbound, kept_inbound) \
-                     and content-free metadata (settings, contacts, contact_routes, \
-                     conversation_index), and anything else must be an explicit decision"
+                     three retention tables ({}) and content-free metadata ({metadata}), and \
+                     anything else must be an explicit decision",
+                    RETENTION_TABLES.join(", ")
                 )));
             }
         }

@@ -30,6 +30,8 @@ use crate::records::{
 };
 use crate::schema::{migrate, verify_shape};
 
+pub mod contacts;
+
 /// A stored timestamp, refusing a negative one rather than flattening it.
 ///
 /// `unwrap_or(0)` looked like a harmless normalization and was not. A

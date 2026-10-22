@@ -3526,6 +3526,8 @@ dependencies = [
 name = "interweave-human-app-core"
 version = "0.0.0"
 dependencies = [
+ "base64 0.23.1",
+ "image",
  "interweave-human-chat-protocol",
  "interweave-human-client-api",
  "interweave-human-store",
@@ -3646,17 +3648,24 @@ dependencies = [
 name = "interweave-human-store"
 version = "0.0.0"
 dependencies = [
+ "aes-gcm",
+ "base64 0.23.1",
+ "ed25519-dalek",
  "interweave-human-core",
  "interweave-profile-config",
  "interweave-transport-api",
+ "rand 0.10.3",
  "rusqlite",
+ "sha2 0.10.9",
  "tempfile",
+ "zeroize",
 ]
 
 [[package]]
 name = "interweave-human-transport-client"
 version = "0.0.0"
 dependencies = [
+ "ed25519-dalek",
  "interweave-human-chat-protocol",
  "interweave-human-client-api",
  "interweave-human-core",
