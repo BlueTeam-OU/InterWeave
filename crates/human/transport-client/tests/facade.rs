@@ -16,9 +16,9 @@ use std::sync::{Arc, Mutex};
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{
-    ClientConfig, ClientEvent, Connectivity, Destination, Origin, OutboundStatus, Received,
-    SendError, SendProblem, SessionProblem, SessionState, TransportClient, TrustList, TrustProblem,
-    TrustRow, TrustSetFailure,
+    ClientConfig, ClientEvent, Connectivity, Destination, Inbound, Origin, OutboundStatus,
+    Received, SendError, SendProblem, SessionProblem, SessionState, TransportClient, TrustList,
+    TrustProblem, TrustRow, TrustSetFailure,
 };
 use interweave_local_client_api::{
     AdminBinding, AdminCapability, AdminPort, DataCapability, DataSessionBinding, DataSessionPort,
@@ -27,8 +27,8 @@ use interweave_local_client_api::{
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{
-    ChannelId, DirectDestination, EndpointId, MediaType, MessageId, Payload, TransportError,
-    TransportIdentity,
+    BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MediaType, MessageId, Payload,
+    TransportError, TransportIdentity,
 };
 
 const LIMIT: usize = 49_152;
@@ -2051,4 +2051,158 @@ async fn a_cancel_on_degraded_storage_offers_no_restore() {
         sender.cancel(kept).expect("cancelled").is_none(),
         "a restore could not be written, so none is offered"
     );
+}
+
+
+// --- cards (plan §29 step 2) -------------------------------------------------
+
+fn signing_key() -> ed25519_dalek::SigningKey {
+    ed25519_dalek::SigningKey::from_bytes(&[42u8; 32])
+}
+
+/// A card for `name`, signed by the test key for the route `sender` /
+/// `endpoint`.
+fn card_text(sender: &TransportIdentity, endpoint: &EndpointId, name: &str) -> String {
+    use ed25519_dalek::Signer as _;
+    let key = signing_key();
+    interweave_human_chat_protocol::build_card(
+        &format!("{:032x}", rand_id()),
+        interweave_human_chat_protocol::CardDraft {
+            name,
+            surname: None,
+            photo: None,
+        },
+        key.verifying_key().to_bytes(),
+        interweave_human_chat_protocol::CardRoute {
+            source_peer: sender,
+            source_endpoint: endpoint,
+        },
+        None,
+        |m| key.sign(m).to_bytes(),
+    )
+    .expect("a card within bounds")
+}
+
+fn human_chat_media() -> MediaType {
+    MediaType::parse("application/vnd.interweave-human-chat+json;v=2").expect("valid")
+}
+
+#[tokio::test]
+async fn a_shared_card_arrives_verified_as_a_card_and_is_held_unread() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut sender = client(&a, agent(), memory());
+    let mut receiver = client(&b, human(), memory());
+    ready(&mut sender, 0).await;
+    ready(&mut receiver, 0).await;
+    assert_eq!(
+        sender.local_peer(),
+        Some(a.peer()),
+        "the session says this node's PeerId"
+    );
+    let text = card_text(a.peer(), &agent(), "Ada");
+    sender
+        .send_card(b.peer().clone(), human(), &text, 0)
+        .await
+        .expect("a pending row");
+    sender.tick(0).await;
+    let got = receiver.drain_inbound(16, 1).await;
+    assert_eq!(got.len(), 1, "{got:?}");
+    let Inbound::Card(card) = &got[0] else {
+        panic!("a card, got {got:?}");
+    };
+    assert_eq!(&card.peer, a.peer());
+    assert_eq!(card.endpoint, agent(), "the remote identity it presents");
+    assert_eq!(card.card.name, "Ada");
+    assert_eq!(
+        card.card.identity_key,
+        signing_key().verifying_key().to_bytes()
+    );
+    assert_eq!(
+        receiver.store_mut().unread_inbound().expect("read").len(),
+        1,
+        "inbound content under RETENTION.md until the person acts"
+    );
+}
+
+#[tokio::test]
+async fn a_card_that_would_not_verify_on_its_own_route_is_refused_before_any_row() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut sender = client(&a, agent(), memory());
+    ready(&mut sender, 0).await;
+    // Signed as if sent from another identity of this node.
+    let text = card_text(a.peer(), &human(), "Ada");
+    assert_eq!(
+        sender.send_card(b.peer().clone(), human(), &text, 0).await,
+        Err(SendError::InvalidEnvelope)
+    );
+    assert!(
+        sender
+            .store_mut()
+            .pending_outbound()
+            .expect("read")
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn a_malformed_card_is_counted_as_a_card_and_never_stored() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut receiver = client(&b, human(), memory());
+    ready(&mut receiver, 0).await;
+    let from = raw(&a, Some(agent())).await;
+    // Signed for another PeerId: a replay from another node.
+    let replayed = card_text(b.peer(), &agent(), "Ada");
+    from.send_direct(
+        DirectDestination::to_default(b.peer().clone()),
+        MessageId::from_bytes([7; 16]),
+        Payload::at_ceiling(Some(human_chat_media()), replayed.into_bytes()).expect("fits"),
+    )
+    .await
+    .expect("accepted by the queue");
+    assert!(receiver.drain_inbound(16, 1).await.is_empty(), "nothing presented");
+    assert!(
+        receiver
+            .store_mut()
+            .unread_inbound()
+            .expect("read")
+            .is_empty(),
+        "nothing stored"
+    );
+    let d = receiver.diagnostics();
+    assert_eq!(d.malformed_card, 1);
+    assert_eq!(
+        d.malformed_invalid_envelope, 0,
+        "counted as a card, not as an unknown kind"
+    );
+}
+
+#[tokio::test]
+async fn a_card_received_over_broadcast_is_ignored_and_shows_nothing() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut receiver = client(&b, human(), memory());
+    ready(&mut receiver, 0).await;
+    let from = raw(&a, Some(agent())).await;
+    from.join(room()).await.expect("joined");
+    let valid = card_text(a.peer(), &agent(), "Ada");
+    from.broadcast(
+        room(),
+        BroadcastMessageV1 {
+            message_id: MessageId::from_bytes([8; 16]),
+            sent_at_ms: 0,
+            payload: Payload::at_ceiling(Some(human_chat_media()), valid.into_bytes())
+                .expect("fits"),
+        },
+    )
+    .await
+    .expect("published");
+    assert!(receiver.drain_inbound(16, 1).await.is_empty(), "nothing presented");
+    assert!(
+        receiver
+            .store_mut()
+            .unread_inbound()
+            .expect("read")
+            .is_empty(),
+        "nothing stored"
+    );
+    assert_eq!(receiver.diagnostics().card_over_broadcast, 1);
 }
