@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use interweave_local_client_api::{
-    AdminBinding, AdminCapability, AdminPort, TrustAdminView, TrustSource, TrustedPeer,
+    AdminBinding, AdminCapability, AdminPort, TrustAdminView, TrustChange, TrustSource, TrustedPeer,
 };
 use interweave_profile_config::ProfileConfig;
 use interweave_profile_config::trust_overlay::TRUST_OVERLAY_FILE;
@@ -110,6 +110,8 @@ pub(crate) async fn set(
         .expect("a port")
         .set_trust(peer.clone(), allowed)
         .await
+        // One port at a time here, so nothing supersedes a set.
+        .map(|change| assert_eq!(change, TrustChange::Set))
 }
 
 pub(crate) fn row(peer: &TransportIdentity, persisted: bool, source: TrustSource) -> TrustedPeer {

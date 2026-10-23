@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use interweave_local_client_api::{
     AdminBinding, AdminCapability, AdminPort, DataCapability, DataSessionBinding, DataSessionPort,
-    LocalSessionEvent, SessionEvent, SessionRequest,
+    LocalSessionEvent, SessionEvent, SessionRequest, TrustChange,
 };
 use interweave_profile_config::ProfileConfig;
 use interweave_profile_identity::ProfileIdentity;
@@ -576,12 +576,17 @@ async fn a_trust_change_connects_and_revokes_and_is_reported_as_policy() {
         Err(TransportError::InvalidArgument),
         "the local peer is not a remote to trust"
     );
-    admin
-        .set_trust(b.clone(), false)
-        .await
-        .expect("an unlisted peer is a no-op");
+    assert_eq!(
+        admin.set_trust(b.clone(), false).await,
+        Ok(TrustChange::Set),
+        "an unlisted peer is a no-op"
+    );
 
-    admin.set_trust(b.clone(), true).await.expect("allowed");
+    assert_eq!(
+        admin.set_trust(b.clone(), true).await,
+        Ok(TrustChange::Set),
+        "allowed"
+    );
     assert_eq!(
         admin
             .trust()
@@ -592,13 +597,18 @@ async fn a_trust_change_connects_and_revokes_and_is_reported_as_policy() {
             .collect::<Vec<_>>(),
         std::slice::from_ref(&b)
     );
-    admin
-        .set_trust(b.clone(), true)
-        .await
-        .expect("a listed peer is a no-op");
+    assert_eq!(
+        admin.set_trust(b.clone(), true).await,
+        Ok(TrustChange::Set),
+        "a listed peer is a no-op"
+    );
     while !connected(&next_within(&mut subject).await) {}
 
-    admin.set_trust(b.clone(), false).await.expect("revoked");
+    assert_eq!(
+        admin.set_trust(b.clone(), false).await,
+        Ok(TrustChange::Set),
+        "revoked"
+    );
     let reason = loop {
         if let TransportEvent::PeerDisconnected {
             peer, reason_class, ..
