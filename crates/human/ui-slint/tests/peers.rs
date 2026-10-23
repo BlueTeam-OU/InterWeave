@@ -1216,8 +1216,8 @@ fn a_refused_line_is_drawn_alone_between_its_words() {
     assert_eq!(view.window().get_refused_line().as_str(), "");
 }
 
-/// A refusal of the whole add -- the device at its bound, a code of too
-/// many lines -- names no line (design section 5.3): it draws the lead
+/// A refusal of the whole add -- the list off, a code of too many lines --
+/// names no line (design section 5.3): it draws the lead
 /// and the reason only, its label the two read together, and a typed one
 /// leaves the caret at the field's end with nothing selected.
 #[test]
@@ -1241,16 +1241,13 @@ fn a_refusal_of_the_whole_add_names_no_line() {
     model.addresses_added(
         std::slice::from_ref(&line),
         Ok(AddressAnswer {
-            outcome: AddressOutcome::Refused(AddressRefused::Bound),
+            outcome: AddressOutcome::Refused(AddressRefused::ListOff),
             list: Ok(AddressList::default()),
         }),
     );
     settle(&mut view, &mut model);
     let w = view.window();
-    let reason = fill(
-        text(UiText::RefusedLimit),
-        &[("max", &interweave_human_ui_model::ADDRESS_BOUND.to_string())],
-    );
+    let reason = text(UiText::RefusedListOff).to_owned();
     let label = format!("{} {reason}", text(UiText::AddRefusedLead));
     assert_eq!(w.get_field_note().as_str(), label, "lead and reason");
     assert_eq!(w.get_refused_head().as_str(), text(UiText::AddRefusedLead));

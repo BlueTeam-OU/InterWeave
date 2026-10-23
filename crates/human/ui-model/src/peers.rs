@@ -85,7 +85,11 @@ impl Refusal {
     /// list off -- which names none (add-a-peer §5.3).
     #[must_use]
     pub const fn names_line(self) -> bool {
-        !matches!(self, Self::TooMany | Self::Limit | Self::ListOff)
+        // The device's bound names a line -- the first new one past it, as
+        // the method's index does (§5.3) -- while too many lines and the
+        // list off are of the whole add
+        // (`each_runtime_refusal_is_named_and_stores_nothing`).
+        !matches!(self, Self::TooMany | Self::ListOff)
     }
 }
 

@@ -333,9 +333,10 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
 }
 
 /// The runtime's refusals are rendered by name, nothing stored; one of a
-/// line selects that line, one of the whole add -- the device at its
-/// bound, the list off -- selects nothing, the caret at the end (§5.3);
-/// a removal's refusal answering an add is a failure, never a reason.
+/// line selects that line -- the device at its bound names the first new
+/// line past it -- and one of the whole add, the list off, selects
+/// nothing, the caret at the end (§5.3); a removal's refusal answering an
+/// add is a failure, never a reason.
 #[test]
 fn each_runtime_refusal_is_named_and_stores_nothing() {
     let me = peer();
@@ -379,7 +380,7 @@ fn each_runtime_refusal_is_named_and_stores_nothing() {
                 );
                 assert_eq!(
                     why.names_line(),
-                    !matches!(why, Refusal::Limit | Refusal::ListOff),
+                    !matches!(why, Refusal::ListOff),
                     "{refused:?}"
                 );
             }

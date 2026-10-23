@@ -863,8 +863,10 @@ ui_texts! {
     RefusedDnsFromScan => "This address uses a name instead of numbers, and a scanned code cannot add such an address. If you know that the address is correct, type it in the field.",
     /// A refusal: a code over its bound; `{max}` the code's bound.
     RefusedTooMany => "This code has more than {max} addresses.",
-    /// A refusal: the device's bound; `{max}` that bound.
-    RefusedLimit => "This device already holds {max} addresses.",
+    /// A refusal: the device's bound, naming the line past it; `{max}`
+    /// that bound.
+    // PLACEHOLDER (en)
+    RefusedLimit => "This device can hold at most {max} addresses. With this address, it would hold more than {max}. Nothing was added.",
     /// A refusal: the list is off.
     RefusedListOff => "This device's configuration turns the list of addresses off, so no address can be added.",
     /// Step one's result, one line; `{peer}` the short `PeerId`.
