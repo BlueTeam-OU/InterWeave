@@ -2019,30 +2019,49 @@ fn a_snackbar_gone_before_its_close_is_taken_still_reports_its_focus() {
 }
 
 /// A row's menu open when the add page or a row's trust step covers the
-/// list: the menu goes with the list, so one Back or Escape closes the
-/// page (design section 5.3), not a menu that is no longer drawn.
+/// list: the menu goes with the list, so one Back closes the page (design
+/// section 5.3), not a menu that is no longer drawn, and focus goes where
+/// closing the page sends it (section 8): Add an address, or the row.
 #[test]
 fn a_row_menu_open_under_the_add_page_leaves_back_to_the_page() {
-    row_menu_under_a_page(false);
+    row_menu_under_a_page(Under::AddPage, Close::Back);
 }
 
 /// The same with a row's trust step opened over the open menu.
 #[test]
 fn a_row_menu_open_under_a_trust_step_leaves_back_to_the_page() {
-    row_menu_under_a_page(true);
+    row_menu_under_a_page(Under::TrustStep, Close::Back);
 }
 
-fn row_menu_under_a_page(trust_step: bool) {
+/// The page closed by its own back arrow instead: the menu does not come
+/// back with the rows to take focus from where closing sends it.
+#[test]
+fn a_row_menu_covered_by_a_page_does_not_come_back_when_it_closes() {
+    row_menu_under_a_page(Under::AddPage, Close::Arrow);
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Under {
+    AddPage,
+    TrustStep,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Close {
+    Back,
+    Arrow,
+}
+
+fn row_menu_under_a_page(under: Under, close: Close) {
     use interweave_human_ui_model::PeersInput;
-    use slint::platform::{Key, WindowEvent};
     let mut view = view();
     let mut model = UiModel::new();
     let (me, a, b) = (peer(), peer(), peer());
     open_peers(&mut view, &mut model, &me, &[], &[added(&a), added(&b)]);
     settle_view(&mut view, &mut model);
-    let a_handle = row_handle(&view, &at(&a));
+    let (a_handle, b_handle) = (row_handle(&view, &at(&a)), row_handle(&view, &at(&b)));
     view.window().set_peer_menu(a_handle);
-    if trust_step {
+    if under == Under::TrustStep {
         let _ = model.peers_input(PeersInput::TrustRow(at(&b)));
     } else {
         press(&view, text(UiText::AddAddress));
@@ -2055,16 +2074,23 @@ fn row_menu_under_a_page(trust_step: bool) {
         -1,
         "the menu went with the list"
     );
-    let escape: slint::SharedString = Key::Escape.into();
-    let window = view.window().window();
-    window.dispatch_event(WindowEvent::KeyPressed {
-        text: escape.clone(),
-    });
-    window.dispatch_event(WindowEvent::KeyReleased { text: escape });
+    match close {
+        Close::Back => assert!(view.back(), "Back taken"),
+        Close::Arrow => {
+            let _ = model.peers_input(PeersInput::Close);
+        }
+    }
     let _ = intents(&mut view, &mut model);
+    settle_view(&mut view, &mut model);
     settle_view(&mut view, &mut model);
     assert!(
         !view.window().get_peers_add_open(),
         "one Back closes the page"
     );
+    assert_eq!(view.window().get_peer_menu(), -1, "no menu back");
+    let wanted = match under {
+        Under::AddPage => "add-address".to_owned(),
+        Under::TrustStep => format!("row:{b_handle}"),
+    };
+    assert_eq!(view.window().get_focus_id().as_str(), wanted);
 }
