@@ -10,12 +10,10 @@
 //! The id is the first twelve hex digits, never git's abbreviation, which
 //! grows with the repository's object count: a release's shallow clone and
 //! a full one would stamp the same commit differently. Built from no
-//! checkout, the commit is `unknown`. `claude-channel`'s own build script
-//! (#398) has the same rules but for one: it does not watch for a packed
-//! branch's first loose ref with reflogs off (below), so it can stamp a
-//! commit stale there. `tools/ci/test_commit_stamp.sh` is this one's test.
+//! checkout, the commit is `unknown`. `tools/ci/test_commit_stamp.sh` is
+//! this script's test.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
@@ -47,6 +45,11 @@ fn main() {
     // directory for changes, and the commit's new file is one (reflogs
     // off and refs packed, measured; #386 review). Any other path that
     // does not exist is left out, since cargo reruns every build for one.
+    // A reftable repository has none of those but HEAD, a stub no move
+    // touches: every ref and reflog update writes a table into a reftable/
+    // directory -- the shared refs' in the common directory, a linked
+    // worktree's HEAD in its own, which `--git-path` alone names -- so
+    // both directories are watched where they exist (#386 review).
     let mut watched = vec![
         ("logs/HEAD".to_owned(), false),
         ("HEAD".to_owned(), false),
@@ -55,15 +58,23 @@ fn main() {
     if let Some(branch) = git(dir, &["symbolic-ref", "-q", "HEAD"]) {
         watched.push((branch, true));
     }
+    let mut paths = Vec::new();
     for (name, or_its_directory) in watched {
-        let Some(path) = git(
+        if let Some(path) = git(
             dir,
             &["rev-parse", "--path-format=absolute", "--git-path", &name],
-        ) else {
-            continue;
-        };
-        let path = Path::new(&path);
-        let watch = if or_its_directory {
+        ) {
+            paths.push((PathBuf::from(path), or_its_directory));
+        }
+    }
+    for which in ["--git-dir", "--git-common-dir"] {
+        if let Some(path) = git(dir, &["rev-parse", "--path-format=absolute", which]) {
+            paths.push((Path::new(&path).join("reftable"), false));
+        }
+    }
+    for (path, or_its_directory) in &paths {
+        let path = path.as_path();
+        let watch = if *or_its_directory {
             path.ancestors().find(|p| p.exists())
         } else {
             path.exists().then_some(path)
