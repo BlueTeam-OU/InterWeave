@@ -445,8 +445,11 @@ impl View {
                         BlockState::Undecided => String::new(),
                     }
                     .into(),
+                    // While its Trust is awaited the waiting line stands in
+                    // place of any earlier line (design section 5.3).
                     problem: b
                         .problem
+                        .filter(|_| b.state != BlockState::Trusting)
                         .map(|p| block_problem(host, p, &short))
                         .unwrap_or_default()
                         .into(),
