@@ -131,9 +131,9 @@ impl FacadeLoop {
                             // A view attaching to a facade that has run
                             // for a while missed the events that set its
                             // state: they went out with no view to take
-                            // them. It is told the session, connectivity,
-                            // counters and each pending row's status as
-                            // they are now. NOT a peer's
+                            // them. It is told this node's PeerId, the
+                            // session, connectivity, counters and each
+                            // pending row's status as they are now. NOT a peer's
                             // path: the facade keeps no current path to
                             // replay, so a route indicator shows nothing
                             // until the path next changes (carried to the
