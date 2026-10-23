@@ -54,13 +54,16 @@ case "$parent/" in
     "$repo"/*) echo "$0: $out is inside the repository; the binary is never committed" >&2; exit 1 ;;
 esac
 
-# Read with tomllib rather than `cargo metadata`, which would need every
-# workspace member's manifest beside it; the two agree while
-# check_workspace_version.sh holds every member to this one value.
+# Read with tomllib (Python 3.11) rather than `cargo metadata`, which would
+# need every workspace member's manifest beside it; the two agree while
+# check_workspace_version.sh holds every member to this one value. A
+# missing python3 or tomllib is said as that, not as a manifest's fault.
+python3 -c 'import tomllib' \
+    || { echo "$0: python3 with tomllib (3.11 or later) is needed to read the workspace version" >&2; exit 1; }
 version="$(python3 -c '
 import sys, tomllib
 with open(sys.argv[1], "rb") as f:
-    print(tomllib.load(f)["workspace"]["package"]["version"])' "$repo/Cargo.toml" 2>/dev/null)" \
+    print(tomllib.load(f)["workspace"]["package"]["version"])' "$repo/Cargo.toml")" \
     || { echo "$0: no [workspace.package] version in $repo/Cargo.toml" >&2; exit 1; }
 [[ -n "$version" ]] || { echo "$0: an empty [workspace.package] version in $repo/Cargo.toml" >&2; exit 1; }
 [[ -z "$release" || "$release" == "$version" ]] \
