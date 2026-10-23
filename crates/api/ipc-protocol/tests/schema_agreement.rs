@@ -13,11 +13,12 @@ use interweave_ipc_protocol::{
     AddressList, AddressParams, AddressResult, AddressesParams, AddressesResult, AdminStatusResult,
     AuthorityDomain, Cancel, ChannelParams, ClientInfo, Close, DirectoryResult, EmptyResult,
     EndpointList, EndpointParams, Event, EventType, Frame, GrantedLease, HandshakeOutcome, Hello,
-    HelloResponse, HelloTag, IPC_MAJOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED, Method, Nonce,
-    OwnAddressList, PeerList, PeerListParams, Ping, PublishParams, QueryParams, Request, RequestId,
-    RequestedCapability, ResponseFrame, SendParams, SendResult, ServerCounters, ServerState,
-    SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams, TrustList,
-    TrustListParams, TrustSetParams, UnsupportedMajor, encode_frame, supported,
+    HelloResponse, HelloTag, IPC_MAJOR, IPC_MAX_MINOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED,
+    Method, Nonce, OwnAddressList, PeerList, PeerListParams, Ping, PublishParams, QueryParams,
+    Request, RequestId, RequestedCapability, ResponseFrame, SUPERSEDED_SINCE_MINOR, SendParams,
+    SendResult, ServerCounters, ServerState, SetDefaultParams, SetEnabledParams, SetEnabledResult,
+    ShutdownParams, TrustList, TrustListParams, TrustSetParams, TrustSetResult, UnsupportedMajor,
+    encode_frame, supported,
 };
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminCapability, AdminStatus,
@@ -477,7 +478,7 @@ fn the_authority_domain_is_not_a_frame_field() {
 /// covers nothing by itself -- `check_schemas_are_tested.sh` skips
 /// this list and counts only the sites below that read each schema, so a
 /// new schema needs a test that reads it, not only a line here.
-const IPC_SCHEMAS: [&str; 37] = [
+const IPC_SCHEMAS: [&str; 38] = [
     "architecture/contracts/schemas/ipc/admin-status.schema.json",
     "architecture/contracts/schemas/ipc/broadcast-received.schema.json",
     "architecture/contracts/schemas/ipc/capability.schema.json",
@@ -515,6 +516,7 @@ const IPC_SCHEMAS: [&str; 37] = [
     "architecture/contracts/schemas/ipc/trust-list-params.schema.json",
     "architecture/contracts/schemas/ipc/trust-list.schema.json",
     "architecture/contracts/schemas/ipc/trust-set-params.schema.json",
+    "architecture/contracts/schemas/ipc/trust-set-result.schema.json",
 ];
 
 fn all_schema_docs(dir: &std::path::Path, out: &mut Vec<Value>) {
@@ -1741,6 +1743,102 @@ fn a_schema_only_bound_counts_characters() {
 /// reason both ways, a row's `not_dialled` tied to `dialled: false` both
 /// ways, and a list held to the provider's bound -- the schema and the
 /// parser refusing the same instances.
+/// `trust-set-result` (2.10): `set`, or a refusal naming its rule from
+/// the contract crate's closed set, never the two mixed; and the Rust
+/// mirror agrees both ways.
+#[test]
+fn the_trust_set_result_holds_what_the_contract_says() {
+    use interweave_local_client_api::{TrustChange, TrustRefusal};
+    let result = "architecture/contracts/schemas/ipc/trust-set-result.schema.json";
+    let refuses = |instance: Value| {
+        assert!(
+            !validator(result).is_valid(&instance),
+            "{result} admits {instance}"
+        );
+        assert!(
+            serde_json::from_value::<TrustSetResult>(instance.clone()).is_err(),
+            "the mirror admits {instance}"
+        );
+    };
+    assert_valid(result, &serde_json::json!({ "outcome": "set" }));
+    for reason in TrustRefusal::ALL.map(TrustRefusal::as_str) {
+        assert_valid(
+            result,
+            &serde_json::json!({ "outcome": "refused", "refused": reason, "detail": "why" }),
+        );
+    }
+    refuses(serde_json::json!({}));
+    refuses(serde_json::json!({ "outcome": "refused" }));
+    refuses(serde_json::json!({ "outcome": "set", "refused": "superseded" }));
+    refuses(serde_json::json!({ "outcome": "refused", "refused": "grammar" }));
+    refuses(serde_json::json!({ "outcome": "unchanged" }));
+    refuses(serde_json::json!({ "outcome": "set", "peer": "x" }));
+    refuses(
+        serde_json::json!({ "outcome": "refused", "refused": "superseded", "detail": "d".repeat(513) }),
+    );
+
+    let changes =
+        std::iter::once(TrustChange::Set).chain(TrustRefusal::ALL.map(TrustChange::Refused));
+    for change in changes {
+        let wire = serde_json::to_value(TrustSetResult::from(change)).expect("ser");
+        assert_valid(result, &wire);
+        let back: TrustChange = serde_json::from_value::<TrustSetResult>(wire)
+            .expect("parses")
+            .into();
+        assert_eq!(change, back);
+    }
+}
+
+/// Below 2.10 a superseded write is answered the error `Internal`, and
+/// every other answer is served as before; at 2.10 it is a refusal by
+/// name, in both address results.
+#[test]
+fn superseded_is_named_from_2_10_and_internal_below() {
+    let superseded = || AddressChange::Refused {
+        reason: AddressRefusal::Superseded,
+        detail: "a later connection's write stands".to_owned(),
+    };
+    assert_eq!(
+        AddressResult::for_minor(superseded(), SUPERSEDED_SINCE_MINOR - 1),
+        Err(interweave_transport_api::TransportError::Internal)
+    );
+    let named = AddressResult::for_minor(superseded(), SUPERSEDED_SINCE_MINOR).expect("named");
+    assert_eq!(AddressChange::from(named), superseded());
+    // The control: an older refusal is still served below 2.10.
+    assert!(AddressResult::for_minor(AddressChange::Unchanged, SUPERSEDED_SINCE_MINOR - 1).is_ok());
+
+    let listed = || AddressesChange::Refused {
+        reason: AddressRefusal::Superseded,
+        line: Some(1),
+        detail: String::new(),
+    };
+    assert_eq!(
+        AddressesResult::from_view(listed(), 2, SUPERSEDED_SINCE_MINOR - 1),
+        Err(interweave_transport_api::TransportError::Internal)
+    );
+    let wire = serde_json::to_value(
+        AddressesResult::from_view(listed(), 2, SUPERSEDED_SINCE_MINOR).expect("named"),
+    )
+    .expect("ser");
+    assert_valid(
+        "architecture/contracts/schemas/ipc/peers-addresses-result.schema.json",
+        &wire,
+    );
+    assert_eq!(
+        AddressesChange::from(serde_json::from_value::<AddressesResult>(wire).expect("parses")),
+        listed()
+    );
+    assert!(
+        AddressesResult::from_view(
+            AddressesChange::Added(vec![LineChange::Added]),
+            1,
+            SUPERSEDED_SINCE_MINOR - 1
+        )
+        .is_ok()
+    );
+    const { assert!(SUPERSEDED_SINCE_MINOR <= IPC_MAX_MINOR) };
+}
+
 #[test]
 fn the_peers_address_shapes_hold_what_the_contract_says() {
     let params = "architecture/contracts/schemas/ipc/peers-address-params.schema.json";
@@ -2152,7 +2250,7 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
         (whole(AddressRefusal::ProviderDisabled), 3),
     ] {
         let wire = serde_json::to_value(
-            AddressesResult::from_view(change.clone(), lines).expect("carried"),
+            AddressesResult::from_view(change.clone(), lines, IPC_MAX_MINOR).expect("carried"),
         )
         .expect("ser");
         assert_valid(result, &wire);
@@ -2182,7 +2280,8 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
         serde_json::to_value(
             AddressesResult::from_view(
                 AddressesChange::Added(vec![LineChange::Added, LineChange::Unchanged]),
-                2
+                2,
+                IPC_MAX_MINOR
             )
             .expect("carried")
         )
@@ -2202,7 +2301,7 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
         (at(AddressRefusal::Authored, 0), 1),
     ] {
         assert_eq!(
-            AddressesResult::from_view(broken.clone(), lines),
+            AddressesResult::from_view(broken.clone(), lines, IPC_MAX_MINOR),
             Err(TransportError::Internal),
             "{broken:?} for {lines} lines"
         );

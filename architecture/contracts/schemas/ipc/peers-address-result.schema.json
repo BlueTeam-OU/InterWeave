@@ -18,14 +18,15 @@
       ]
     },
     "refused": {
-      "$comment": "Present exactly when outcome is refused. grammar: not a multiaddr-with-peer-id. own_peer: an add of an address whose PeerId is this node's own (from minor 2.9; below it the same add is refused grammar). special_use: a component of a refused class of ADR-0052 rule 2 (loopback, link-local, unspecified, multicast or another special-use range; private ranges are admitted). bound: authored and added entries would exceed 64. provider_disabled: the profile authors the static-bootstrap provider enabled: false (an add only). authored: the address is config.yaml's (a removal only).",
+      "$comment": "Present exactly when outcome is refused. grammar: not a multiaddr-with-peer-id. own_peer: an add of an address whose PeerId is this node's own (from minor 2.9; below it the same add is refused grammar). special_use: a component of a refused class of ADR-0052 rule 2 (loopback, link-local, unspecified, multicast or another special-use range; private ranges are admitted). bound: authored and added entries would exceed 64. provider_disabled: the profile authors the static-bootstrap provider enabled: false (an add only). authored: the address is config.yaml's (a removal only). superseded: a write every other rule admits, from an admin connection admitted before the one whose write for the same address the daemon last applied, so the later connection's write stands (from minor 2.10; below it the same write is the error Internal, nothing changed).",
       "enum": [
         "grammar",
         "own_peer",
         "special_use",
         "bound",
         "provider_disabled",
-        "authored"
+        "authored",
+        "superseded"
       ]
     },
     "detail": {
@@ -59,7 +60,7 @@
   "x-contract": {
     "name": "ipc.peers-address-result",
     "status": "approved",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "adr": [
       "0062",
       "0017",
