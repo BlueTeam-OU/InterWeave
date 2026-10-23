@@ -39,7 +39,7 @@
   "sandbox": "bwrap: the host's /etc entries read-only, /etc/claude-code a scratch directory read-only",
   "steps": [
     {
-      "channel_decision_at_s": 3.7,
+      "channel_decision_at_s": 2.1,
       "registered": false
     }
   ],
@@ -54,7 +54,7 @@
   "versions_in_debug_log": [
     "2.1.286"
   ],
-  "channel_decision": "2026-10-23T05:33:01.701Z [DEBUG] MCP server \"plugin:interweave:interweave\": Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)",
+  "channel_decision": "2026-10-23T05:34:31.472Z [DEBUG] MCP server \"plugin:interweave:interweave\": Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)",
   "env_passed": [
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CONFIG_DIR",
@@ -78,10 +78,10 @@
 ## Claude Code debug log: the run's own server only
 
 ```text
-2026-10-23T05:33:01.008Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
-2026-10-23T05:33:01.507Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 502ms
-2026-10-23T05:33:01.511Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.0.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
-2026-10-23T05:33:01.701Z [DEBUG] MCP server "plugin:interweave:interweave": Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)
-2026-10-23T05:33:05.750Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
-2026-10-23T05:33:05.939Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
+2026-10-23T05:34:31.353Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
+2026-10-23T05:34:31.459Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 108ms
+2026-10-23T05:34:31.460Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.0.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
+2026-10-23T05:34:31.472Z [DEBUG] MCP server "plugin:interweave:interweave": Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)
+2026-10-23T05:34:34.981Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
+2026-10-23T05:34:35.032Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
 ```
