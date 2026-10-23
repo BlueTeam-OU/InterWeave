@@ -23,8 +23,11 @@
 #     otherwise drop its value silently, and the placeholder above
 #     catches only the half of a typo that is in the template);
 #   - an empty value, or a value that is not a string;
-#   - a `version` that is not MAJOR.MINOR.PATCH, the form RELEASE.md
-#     gives the version name and the archive and APK names carry;
+#   - a `version` that is not a Semantic Versioning 2.0.0 version
+#     without build metadata, MAJOR.MINOR.PATCH[-pre-release]: the grammar
+#     of release_tag.sh, which the tag job applies before the version
+#     reaches this page (ADR-0065; the self-test holds the two to one
+#     answer over a table of versions);
 #   - a hash that is not bound to this release: release_android_apk.sh
 #     writes `check:apk_version` beside apk_sha256 and cert_sha256, and
 #     release_linux_archive.sh `check:linux_version` beside linux_sha256,
@@ -55,7 +58,11 @@ from pathlib import Path
 
 PLACEHOLDER = re.compile(r"\{([a-z0-9_]+)\}")
 COMMENT = re.compile(r"<!--.*?-->\n?", re.DOTALL)
-VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+NUM = r"(0|[1-9][0-9]*)"
+# A pre-release identifier: numeric with no leading zero, or alphanumeric
+# with at least one non-digit (Semantic Versioning 2.0.0, section 9).
+IDENT = rf"({NUM}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+VERSION = re.compile(rf"{NUM}\.{NUM}\.{NUM}(-{IDENT}(\.{IDENT})*)?", re.ASCII)
 # Which check binds which hash to the version it was made for.
 BOUND = {
     "apk_sha256": "check:apk_version",
@@ -89,7 +96,10 @@ def fill(template: str, values: dict) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"the value of {name} is empty or not a string")
     if "version" in values and not VERSION.fullmatch(values["version"]):
-        raise ValueError(f"version {values['version']!r} is not MAJOR.MINOR.PATCH")
+        raise ValueError(
+            f"version {values['version']!r} is not MAJOR.MINOR.PATCH[-pre-release]"
+            " (Semantic Versioning 2.0.0, no build metadata)"
+        )
     for name, check in sorted(BOUND.items()):
         if name not in values:
             continue

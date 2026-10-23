@@ -95,6 +95,33 @@ refused "an unknown check" \
     '{"version": "1.2.3", "apk_sha256": "ab", "check:apk_version": "1.2.3", "check:apk_versoin": "1.2.3", "notices": "n"}' 'unknown check check:apk_versoin'
 refused "a version with a leading zero" \
     '{"version": "1.02.3", "apk_sha256": "ab", "notices": "n"}' "'1.02.3'"
+refused "a version with build metadata" \
+    '{"version": "1.2.3+b.1", "apk_sha256": "ab", "notices": "n"}' "'1.2.3+b.1'"
+printf '{"version": "1.2.3-rc.1", "apk_sha256": "ab", "check:apk_version": "1.2.3-rc.1", "notices": "n"}' > "$SANDBOX/v.json"
+run "$T" "$SANDBOX/out.md" "$SANDBOX/v.json" && grep -qF '# InterWeave 1.2.3-rc.1' "$SANDBOX/out.md" \
+    && pass "a pre-release version fills the page" \
+    || fail "a pre-release version was refused" "$(cat "$SANDBOX/err")"
+
+# One grammar with release_tag.sh, which the tag job applies first: over a
+# table of versions, the page refuses exactly those release_tag.sh refuses
+# as a shape (its other refusal, not the workspace's, is not the page's).
+disagree=""
+for v in 1.2.3 0.0.0 10.20.30 1.2.3-rc.1 1.0.0-alpha.beta 1.0.0-0.3.7 1.0.0-x-y 1.0.0-x.7.z.92 \
+    1.0.0--- 1.0.0-0a 1.2 1.2.3.4 01.2.3 1.02.3 1.2.03 1.2.3- 1.2.3-01 1.2.3-rc..1 1.2.3-rc.1. \
+    1.2.3+b 1.2.3-rc+b v1.2.3 ' 1.2.3' 1.2.3-r_c 1.2.3-é; do
+    tag_shape=ok
+    bash "$SCRIPT_DIR/release_tag.sh" "v$v" --manifest >"$SANDBOX/tag-err" 2>&1 \
+        || ! grep -qF 'is not v<MAJOR>' "$SANDBOX/tag-err" || tag_shape=refused
+    "$PY" - "$UNDER_TEST" "$v" >"$SANDBOX/page-shape" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("release_page", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print("ok" if m.VERSION.fullmatch(sys.argv[2]) else "refused")
+PY
+    [[ "$(cat "$SANDBOX/page-shape")" == "$tag_shape" ]] || disagree+=" '$v'(tag:$tag_shape)"
+done
+[[ -z "$disagree" ]] && pass "the page's version grammar is release_tag.sh's over 26 versions" \
+    || fail "the page and release_tag.sh disagree on" "$disagree"
 
 printf '[]' > "$SANDBOX/v.json"
 if run "$T" "$SANDBOX/out.md" "$SANDBOX/v.json"; then
