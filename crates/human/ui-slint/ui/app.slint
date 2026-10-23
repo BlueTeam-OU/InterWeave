@@ -443,7 +443,11 @@ component ActionButton inherits FocusScope {
         }
         reject
     }
+    // Each change of focus, kept or lost: a control that goes while it
+    // holds focus says nothing more, so its last word stands.
+    callback focus-changed(bool);
     changed has-focus => {
+        root.focus-changed(self.has-focus);
         if (self.has-focus) { root.focused(root.focus-key); }
     }
     // On the notice banner, which is light in both schemes: the label,
@@ -1042,6 +1046,9 @@ component Snackbar inherits Rectangle {
     callback undo-pressed(int);
     callback dismissed(int);
     callback focused(string);
+    // The action's focus as it changes: true while it holds focus, and
+    // still true once the snackbar goes from under it.
+    callback action-focus-changed(bool);
     // Material's snackbar (section 7): the inverse surface, 4 px corners,
     // at least 48 px tall.
     background: Palette.inverse-surface;
@@ -1097,6 +1104,7 @@ component Snackbar inherits Rectangle {
             focus-wanted: root.action-focus-wanted;
             pressed => { root.undo-pressed(root.snack-id); }
             focused(k) => { root.focused(k); }
+            focus-changed(f) => { root.action-focus-changed(f); }
         }
     }
     // The Undo's width, from its label as ActionButton draws it (8 px each
@@ -2002,6 +2010,9 @@ export component AppWindow inherits Window {
     in property <string> peers-snack-text;
     in property <bool> peers-snack-action-shown;
     in property <string> peers-snack-action;
+    // Whether the snackbar's action held focus when it last changed: so
+    // a snackbar leaving says whether focus went with its Try again.
+    in-out property <bool> peers-snack-action-focused;
     // Chats' no-reach notice (section 5.6): a state, not news, so it has
     // no Close; its action opens Peers.
     in property <bool> no-reach-shown;
@@ -3513,6 +3524,7 @@ export component AppWindow inherits Window {
                     undo-pressed(id) => { root.peers-snack-pressed(id); }
                     dismissed(id) => { root.peers-snack-closed(id); }
                     focused(k) => { root.focus-id = k; }
+                    action-focus-changed(f) => { root.peers-snack-action-focused = f; }
                 }
             }
         }

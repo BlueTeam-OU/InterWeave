@@ -1497,11 +1497,13 @@ impl View {
                 }
                 Input::PeersSnackClosed(id) => {
                     if model.peers().snack().1 == id && model.peers().snack().0.is_some() {
-                        // Its action leaves with it: focus-id still names
-                        // it, since only another control taking focus
-                        // writes it.
-                        let from_action =
-                            self.window.get_focus_id().as_str() == "peers-snack-action";
+                        // Its action leaves with it, so ask the two records
+                        // that outlive it: the action's own last focus
+                        // change, and focus-id, which only another control
+                        // taking focus rewrites. Either alone can be stale
+                        // (`a_stale_focus_id_alone_sends_no_focus_to_the_row_menu`).
+                        let from_action = self.window.get_peers_snack_action_focused()
+                            && self.window.get_focus_id().as_str() == "peers-snack-action";
                         out.push(ViewEvent::Peers(PeersInput::SnackClosed { from_action }));
                         return out;
                     }

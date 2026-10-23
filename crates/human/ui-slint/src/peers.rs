@@ -684,6 +684,8 @@ impl View {
             window.set_peers_snack_action(action.map(text).unwrap_or_default().into());
             if self.peer_lists.snack_timed != snacks {
                 self.peer_lists.snack_timed = snacks;
+                // A new snackbar's action holds no focus until it takes it.
+                window.set_peers_snack_action_focused(false);
                 let shared = Rc::clone(&self.shared);
                 let ms = self.shared.borrow().touch.snackbar_ms;
                 slint::Timer::single_shot(Duration::from_millis(ms), move || {

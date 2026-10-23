@@ -1775,6 +1775,47 @@ fn row_handle(view: &View, address: &str) -> i32 {
         .handle
 }
 
+/// A removal left unknown, focus moved off its Try again before its
+/// snackbar goes, `focus-id` left naming the action (no control having
+/// rewritten it): the action's own focus says it was not there, so
+/// focus is sent to no row menu (design section 8: focus anywhere else
+/// stays).
+#[test]
+fn a_stale_focus_id_alone_sends_no_focus_to_the_row_menu() {
+    use interweave_human_client_api::{AddressChangeFailure, AddressProblem};
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b) = (peer(), peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a), added(&b)]);
+    let _ = model.peers_input(PeersInput::Remove(at(&b)));
+    model.address_removed(
+        &at(&b),
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    let _ = model.peers_turn();
+    model.addresses_read(Err(AddressProblem::Unavailable));
+    settle_view(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id().as_str(), "peers-snack-action");
+    view.window().set_focus_target("add-address".into());
+    view.window()
+        .set_focus_seq(view.window().get_focus_seq().wrapping_add(1));
+    settle_view(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id().as_str(), "add-address");
+    // The stale record: what a control with no focus handler would leave.
+    view.window().set_focus_id("peers-snack-action".into());
+    let id = view.window().get_peers_snack_id();
+    view.window().invoke_peers_snack_closed(id);
+    let _ = intents(&mut view, &mut model);
+    assert_ne!(
+        model.peers().focus().0,
+        Some(interweave_human_ui_model::PeersFocus::RowMenu(at(&b))),
+        "no row menu asked"
+    );
+}
+
 /// Focus on a row a read drops is sent to the row after its place; a
 /// second read dropping that row too before the move applies sends it
 /// on from the first row's place, said once (design section 8).
@@ -1865,4 +1906,32 @@ fn an_undo_refused_by_name_is_drawn_in_its_own_words_without_an_action() {
         text(UiText::RefusedOwnAddress)
     );
     assert!(!view.window().get_peers_snack_action_shown());
+}
+
+/// A new snackbar's action holds no focus until it takes it: a record
+/// left true by an earlier snackbar that went from under focus does not
+/// carry over to one whose action is never focused -- here a removal's,
+/// which sends focus to the next row.
+#[test]
+fn a_new_snackbar_starts_with_its_action_unfocused() {
+    use interweave_human_client_api::{AddressAnswer, AddressOutcome};
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b) = (peer(), peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a), added(&b)]);
+    view.window().set_peers_snack_action_focused(true);
+    let _ = model.peers_input(PeersInput::Remove(at(&b)));
+    model.address_removed(
+        &at(&b),
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Removed,
+            list: Ok(AddressList {
+                addresses: vec![added(&a)],
+            }),
+        }),
+    );
+    settle_view(&mut view, &mut model);
+    assert!(view.window().get_peers_snack_shown());
+    assert!(!view.window().get_peers_snack_action_focused());
 }
