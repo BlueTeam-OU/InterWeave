@@ -76,8 +76,17 @@ fn intents(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
     }
 }
 
+/// The window's announcement slots: they carry what is said, not an item
+/// a person moves to.
+fn announcement(e: &ElementHandle) -> bool {
+    e.id()
+        .is_some_and(|id| id.ends_with("announce-a") || id.ends_with("announce-b"))
+}
+
 fn labelled(view: &View, label: &str) -> Vec<ElementHandle> {
-    ElementHandle::find_by_accessible_label(view.window(), label).collect()
+    ElementHandle::find_by_accessible_label(view.window(), label)
+        .filter(|e| !announcement(e))
+        .collect()
 }
 
 fn press(view: &View, label: &str) {
@@ -350,6 +359,7 @@ fn overflowing(view: &View, width: f32) -> Vec<String> {
         .find_all()
         .into_iter()
         .filter(|e| e.accessible_label().is_some_and(|l| !l.is_empty()) && e.size().width > 0.0)
+        .filter(|e| !announcement(e))
         .filter(|e| e.absolute_position().x + e.size().width > width + 0.5)
         .map(|e| {
             format!(
@@ -1422,4 +1432,65 @@ fn a_trust_retry_that_fails_again_says_the_line_again() {
         assert!(after.iter().any(|s| s.contains(line)), "{after:?}");
         assert_eq!(view.window().get_focus_id().as_str(), "trust-retry");
     }
+}
+
+/// A note under the field is said once each time it is set, the first
+/// time included, focus staying on the field or not (design section 5.3):
+/// the field no longer carries it as its description, so a focus move
+/// does not say it twice. The barred line under Add, which focus is sent
+/// to, is not live, for the same reason.
+#[test]
+fn a_note_under_the_field_is_said_once_each_time_it_is_set() {
+    use interweave_human_client_api::AddressProblem;
+    use interweave_human_ui_model::PeersInput;
+    let slots = |view: &View| {
+        [
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        ]
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    view.render(&model);
+    // Add with the field empty.
+    let _ = model.peers_input(PeersInput::Add);
+    view.render(&model);
+    let needed = text(UiText::AddressNeeded);
+    assert!(
+        slots(&view).iter().any(|s| s == needed),
+        "{:?}",
+        slots(&view)
+    );
+    // This device's own address, twice: said the first time, and again.
+    let own = at(&me);
+    let _ = model.peers_input(PeersInput::FieldChanged(own.clone()));
+    for round in 0..2 {
+        let before = slots(&view);
+        let _ = model.peers_input(PeersInput::Add);
+        view.render(&model);
+        let note = view.window().get_field_note().to_string();
+        assert!(note.contains(&own), "{note}");
+        assert_ne!(slots(&view), before, "round {round}: said");
+        assert!(slots(&view).contains(&note), "{:?}", slots(&view));
+    }
+    let field = ElementHandle::find_by_accessible_label(view.window(), text(UiText::AddressField))
+        .next()
+        .expect("the field");
+    assert_eq!(field.accessible_description(), None, "not carried");
+
+    // Not permitted: the line under Add takes focus, and is not live.
+    let _ = model.peers_input(PeersInput::FieldChanged(at(&peer())));
+    let _ = model.peers_input(PeersInput::Add);
+    let line = model.peers().field().to_owned();
+    model.addresses_added(
+        &[line],
+        Err(interweave_human_client_api::AddressChangeFailure::NotMade(
+            AddressProblem::NotPermitted,
+        )),
+    );
+    view.render(&model);
+    assert!(!view.window().get_add_note_live());
 }

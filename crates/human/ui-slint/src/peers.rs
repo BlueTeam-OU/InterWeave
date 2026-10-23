@@ -259,14 +259,17 @@ impl View {
         self.render_peer_list(peers, trust, model);
         self.render_add_page(peers, trust);
         let said = self.render_peers_snack(peers, on_page);
-        // A note set again with the same words -- an unknown add retried
-        // without a write -- changes nothing a live region hears, so it
-        // is said here (design section 5.7).
+        // A note under the field -- focus kept on the field, which no
+        // longer carries it as its description -- is said once each time it
+        // is set (design section 5.3); any other set again with the same
+        // words -- an unknown add retried without a write -- changes nothing
+        // a live region hears, so it is said here too (section 5.7).
         let (note, notes) = peers.add_note_said();
         let text = note.map(|n| note_text(self.host, n)).unwrap_or_default();
+        let in_field = !self.window.get_field_note().is_empty();
         let again = notes != self.peer_lists.note_seen
             && !text.is_empty()
-            && text == self.peer_lists.note_text;
+            && (in_field || text == self.peer_lists.note_text);
         self.peer_lists.note_seen = notes;
         self.peer_lists.note_text.clone_from(&text);
         let mut said = said.or_else(|| (on_page && again).then_some(text));
@@ -464,6 +467,9 @@ impl View {
         window.set_field_note(field.into());
         window.set_scan_note(scan.into());
         window.set_add_note(under_add.into());
+        // A barred add sends focus to its line, which then says it: live
+        // as well, it would be heard twice.
+        window.set_add_note_live(!matches!(peers.add_page_note(), Some(AddNote::Barred(_))));
         let (head, line, tail) = match peers.add_page_note() {
             Some(AddNote::Refused { line, why }) => (
                 text(UiText::AddRefusedLead).to_owned(),

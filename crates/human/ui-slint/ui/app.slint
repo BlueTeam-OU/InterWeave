@@ -1973,6 +1973,8 @@ export component AppWindow inherits Window {
     in property <string> field-note;
     // An add or its check is on its way: the field is held.
     in property <bool> peers-add-busy;
+    // The note under Add speaks as it changes, unless focus is sent to it.
+    in property <bool> add-note-live: true;
     // A refused add's words in their three lines (RefusedLines), under the
     // field or the scan controls, wherever its note is; empty otherwise.
     in property <string> refused-head;
@@ -3255,7 +3257,6 @@ export component AppWindow inherits Window {
                             // takes no edit then either).
                             read-only: root.peers-add-busy;
                             accessible-label: root.address-field-label;
-                            accessible-description: root.field-note;
                             edited => { root.address-edited(self.text); }
                             changed has-focus => {
                                 if (self.has-focus) { root.focus-id = "address-field"; }
@@ -3369,7 +3370,7 @@ export component AppWindow inherits Window {
                     if root.add-step-one && root.add-note != "": FocusNote {
                         text: root.add-note;
                         rtl: root.rtl;
-                        live: true;
+                        live: root.add-note-live;
                         focus-key: "add-note";
                         focus-seq: root.focus-seq;
                         focus-wanted: root.focus-target == "add-note";
