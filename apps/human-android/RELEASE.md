@@ -13,7 +13,7 @@ and under which licences, is `STORE-CHECK.md`.
 | | |
 |---|---|
 | application id | `org.interweave.human`, for the app's whole life: a person's update installs over the same id and key, and a new id is a new app beside the old one, its data not carried |
-| version name | the release tag's version, `MAJOR.MINOR.PATCH` (today `0.0.0`, unreleased) |
+| version name | the release tag's version, `MAJOR.MINOR.PATCH[-pre-release]` with no build metadata, as `tools/ci/release_tag.sh` takes it (today `0.0.0`, unreleased); `release_android_apk.sh` refuses an APK whose `versionName` is not that version |
 | version code | strictly increasing per release, never reused: Android refuses an update whose code is not higher than the installed one |
 | ABI | `arm64-v8a` only, as `android/app/build.gradle.kts` builds |
 | file | `interweave-<version>-arm64-v8a.apk` |
