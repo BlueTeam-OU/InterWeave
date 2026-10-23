@@ -2213,3 +2213,61 @@ fn focus_after_a_removal_skips_rows_removed_elsewhere() {
     m.address_removed(&at(&b), answer(AddressOutcome::Removed, &[]));
     assert_eq!(focus(&m), Some(PeersFocus::AddAddress), "none left");
 }
+
+/// Any list read that succeeds is the runtime's word and ends what was
+/// unknown (§5.7, "until a read shows it"): a read back that shows an
+/// add not made, or a list that came with another row's answer. A retry
+/// that writes nothing after it says not written.
+#[test]
+fn a_read_that_shows_it_ends_an_unknown_change() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let lost = || {
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        ))
+    };
+    let not_written = || Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable));
+
+    // An add: unknown, then lost again with a read back that does not
+    // list it, then a retry that writes nothing.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&a)], lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Unknown { lines: 1 })
+    );
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&a)], lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Ok(list(&[])));
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::Failed));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&a)], not_written());
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Failed),
+        "the read showed it: not unknown"
+    );
+
+    // A removal: unknown, then another row's answer brings a list that
+    // still has it, then a retry that writes nothing.
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(&at(&b), answer(AddressOutcome::Removed, &[added(&a)]));
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), not_written());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveFailed { address: at(&a) }),
+        "B's answer listed A: known not removed"
+    );
+}

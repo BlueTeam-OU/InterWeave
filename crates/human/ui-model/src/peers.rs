@@ -1110,8 +1110,7 @@ impl Peers {
                 self.list = Some(list);
                 self.list_problem = None;
                 self.held = Held::AsRead;
-                // A read shows it: no change is unknown any more.
-                self.unknown_change = None;
+                self.read_shows();
                 if again == Some(Again::List) {
                     self.ask_focus(PeersFocus::Title);
                 }
@@ -1544,9 +1543,20 @@ impl Peers {
             self.list = Some(list);
             self.list_problem = None;
             self.held = Held::AsRead;
+            self.read_shows();
         } else {
             self.reread = true;
             self.held = Held::MayHaveChanged;
+        }
+    }
+
+    /// A list read that succeeded -- alone, or with any change's answer --
+    /// is the runtime's word: no change, a removal, an Undo or an add's
+    /// lines, is unknown any more (§5.7, "until a read shows it").
+    fn read_shows(&mut self) {
+        self.unknown_change = None;
+        if let Some(page) = self.page.as_mut() {
+            page.unknown = None;
         }
     }
 
