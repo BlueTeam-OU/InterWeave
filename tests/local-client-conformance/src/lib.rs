@@ -1273,7 +1273,7 @@ fn outside_the_bound(peer: &TransportIdentity) -> [String; 2] {
 /// Bootstrap-address administration (ADR-0062, LOCAL-IPC.md minor 2.7;
 /// LOCAL-CLIENT.md §7 item 13), the same at every binding: without
 /// `admin.peers` the add, the removal and the list are each
-/// `CapabilityDenied`; a string that is no address, a well-formed address
+/// `CapabilityDenied`, whatever the address; a string that is no address, a well-formed address
 /// outside the grammar, one naming this node's own `PeerId`, one with a
 /// loopback component, and one outside the
 /// schema's length bound (empty, or of 1025 characters) are each refused
@@ -1310,6 +1310,18 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
         powerless.bootstrap_addresses().await,
         Err(TransportError::CapabilityDenied)
     );
+    // Whatever the address: one a binding could answer without the
+    // daemon is refused for the capability first, as the server judges it.
+    for line in outside_the_bound(&unlisted) {
+        assert_eq!(
+            powerless.add_bootstrap_address(line.clone()).await,
+            Err(TransportError::CapabilityDenied)
+        );
+        assert_eq!(
+            powerless.remove_bootstrap_address(line).await,
+            Err(TransportError::CapabilityDenied)
+        );
+    }
 
     let admin = port(binding, &[AdminCapability::Peers, AdminCapability::Trust]).await;
     let first = admin.bootstrap_addresses().await.expect("the list");
@@ -1421,7 +1433,7 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
 
 /// The all-or-none add (ADR-0062 decision 4, LOCAL-IPC.md minor 2.9),
 /// the same at every binding: without `admin.peers` it is
-/// `CapabilityDenied`; a list of no line or of 17 is `InvalidArgument`; a
+/// `CapabilityDenied` whatever the list holds; a list of no line or of 17 is `InvalidArgument`; a
 /// list with one line outside the grammar, or one in a special-use class,
 /// is refused BY NAME naming that line -- an answer, never an error --
 /// with nothing written, not even its good lines; a line outside the
@@ -1445,13 +1457,23 @@ pub async fn a_list_is_added_all_or_none_at_every_binding<B: AdminBinding>(
     let fresh = |n: u8| format!("/ip4/10.255.255.{n}/tcp/4001/p2p/{}", unlisted.as_str());
     let loopback = format!("/ip4/127.0.0.1/tcp/4001/p2p/{}", unlisted.as_str());
 
-    assert_eq!(
-        port(binding, &[AdminCapability::Status])
-            .await
-            .add_bootstrap_addresses(vec![fresh(1)])
-            .await,
-        Err(TransportError::CapabilityDenied)
-    );
+    let powerless = port(binding, &[AdminCapability::Status]).await;
+    // Whatever the list, a count or a line the binding could judge
+    // without the daemon included: the capability is judged first.
+    let [_, long] = outside_the_bound(&unlisted);
+    for list in [
+        vec![fresh(1)],
+        Vec::new(),
+        vec![fresh(1); MAX_ADDRESSES_PER_ADD + 1],
+        vec![long],
+    ] {
+        assert_eq!(
+            powerless.add_bootstrap_addresses(list.clone()).await,
+            Err(TransportError::CapabilityDenied),
+            "{} lines",
+            list.len()
+        );
+    }
     let admin = port(binding, &[AdminCapability::Peers, AdminCapability::Trust]).await;
     let first = admin.bootstrap_addresses().await.expect("the list");
     let trust = sorted(admin.trust().await.expect("the policy"));

@@ -477,6 +477,12 @@ impl AdminPort for IpcAdmin {
         if self.minor < Method::AdminPeersAddAddresses.entry().since_minor {
             return Err(TransportError::ProtocolUnsupported);
         }
+        // The capability before any local answer, in the server's own
+        // order: a port without `admin.peers` is `CapabilityDenied` for
+        // every list, as at every other binding.
+        if !self.port.holds(AdminCapability::Peers) {
+            return Err(TransportError::CapabilityDenied);
+        }
         let lines = addresses.len();
         if lines == 0 || lines > interweave_local_client_api::MAX_ADDRESSES_PER_ADD {
             return Err(TransportError::InvalidArgument);
@@ -579,6 +585,11 @@ impl IpcAdmin {
     ) -> Result<AddressChange, TransportError> {
         if self.minor < method.entry().since_minor {
             return Err(TransportError::ProtocolUnsupported);
+        }
+        // The capability first, as the server judges it before the params
+        // (`bootstrap_addresses_answer_alike_at_every_binding`).
+        if !self.port.holds(AdminCapability::Peers) {
+            return Err(TransportError::CapabilityDenied);
         }
         // Answered here as the method answers it, since the schema's
         // length bound would make it a params error, `InvalidArgument`:
