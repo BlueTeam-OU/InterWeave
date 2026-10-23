@@ -2088,17 +2088,6 @@ impl Peers {
         Some(self.drawn_focus(&PeersFocus::Row(address.to_owned())))
     }
 
-    /// Whether the last focus asked for named `address`'s row or its
-    /// menu: the person's own act on it, after which its going is said
-    /// (`PeerRowGone`, §8).
-    #[must_use]
-    pub fn asked_row(&self, address: &str) -> bool {
-        matches!(
-            self.focus.as_ref(),
-            Some(PeersFocus::Row(row) | PeersFocus::RowMenu(row)) if row == address
-        )
-    }
-
     /// Whether the focus asked for is a row a read showed gone, removed
     /// elsewhere: `PeerRowGone` is announced before focus moves (§8).
     #[must_use]
