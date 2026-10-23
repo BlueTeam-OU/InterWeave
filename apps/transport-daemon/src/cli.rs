@@ -44,16 +44,18 @@ pub(crate) const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("I
 pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String> {
     let mut profile = None;
     let mut create_identity = false;
-    let mut args = args.into_iter().peekable();
-    // Alone, or not a version request: a start line that also asks for the
-    // version is a mistake, not a run that prints and then starts.
-    if args.peek().map(String::as_str) == Some("--version") {
-        args.next();
-        return match args.next() {
-            None => Ok(Command::Version),
-            Some(other) => Err(format!("--version takes no other argument, not {other:?}")),
+    let args: Vec<String> = args.into_iter().collect();
+    // Alone, or not a version request -- judged over the whole line before
+    // anything else reads it, so neither `--help` ahead of it nor an option
+    // taking it as a value decides (#386 review): a start line that also
+    // asks for the version is a mistake, not a run that prints or starts.
+    if args.iter().any(|a| a == "--version") {
+        return match args.as_slice() {
+            [_] => Ok(Command::Version),
+            _ => Err("--version takes no other argument".to_owned()),
         };
     }
+    let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" | "-h" => return Ok(Command::Help),
@@ -108,7 +110,15 @@ mod tests {
         assert!(parsed(&["--profile"]).is_err());
         assert!(parsed(&["--profile", "a", "--profile", "b"]).is_err());
         assert!(parsed(&["--profile", "a", "--verbose"]).is_err());
-        assert!(parsed(&["--version", "--profile", "a"]).is_err());
-        assert!(parsed(&["--profile", "a", "--version"]).is_err());
+        for line in [
+            &["--version", "--profile", "a"][..],
+            &["--profile", "a", "--version"][..],
+            &["--help", "--version"][..],
+            &["-h", "--version"][..],
+            &["--version", "--help"][..],
+            &["--profile", "--version"][..],
+        ] {
+            assert!(parsed(line).is_err(), "{line:?} should be refused");
+        }
     }
 }

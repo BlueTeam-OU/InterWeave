@@ -177,16 +177,18 @@ struct Flags {
 pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String> {
     let mut flags = Flags::default();
     let mut words = Vec::new();
-    let mut args = args.into_iter().peekable();
-    // Alone, or not a version request; the refusal names no argument, as
-    // no usage error here does.
-    if args.peek().map(String::as_str) == Some("--version") {
-        args.next();
-        return match args.next() {
-            None => Ok(Command::Version),
-            Some(_) => Err("--version takes no other argument".to_owned()),
+    let args: Vec<String> = args.into_iter().collect();
+    // Alone, or not a version request -- judged over the whole line before
+    // anything else reads it, so neither `--help` ahead of it nor a flag
+    // taking it as a value decides (#386 review). The refusal names no
+    // argument, as no usage error here does.
+    if args.iter().any(|a| a == "--version") {
+        return match args.as_slice() {
+            [_] => Ok(Command::Version),
+            _ => Err("--version takes no other argument".to_owned()),
         };
     }
+    let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         let mut value = |slot: &mut Option<String>, name: &str| -> Result<(), String> {
             let v = args.next().ok_or_else(|| format!("{name} needs a value"))?;
@@ -542,8 +544,11 @@ mod tests {
         assert_eq!(parse_str("--version"), Ok(Command::Version));
         for line in [
             "--version --help",
+            "--help --version",
+            "-h --version",
             "--version --profile p status",
             "--profile p --version",
+            "--profile --version status",
             "--profile p status --version",
         ] {
             assert!(parse_str(line).is_err(), "{line:?} should be refused");

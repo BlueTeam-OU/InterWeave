@@ -76,6 +76,7 @@ fn version_beside_another_argument_is_a_usage_error() {
     for args in [
         &["--version", "--profile", "a"][..],
         &["--profile", "a", "--version"][..],
+        &["--help", "--version"][..],
     ] {
         let out = daemon().args(args).output().expect("runs");
         assert_eq!(out.status.code(), Some(2), "{args:?}");
