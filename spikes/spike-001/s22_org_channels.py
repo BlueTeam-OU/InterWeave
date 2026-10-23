@@ -43,7 +43,7 @@ s16_run.py and s19_channels.py do, passed as one named variable and
 recorded by name only. Raw output goes outside the repository
 (spike_common.raw_dir); runs/s22-<run>/evidence.md is extract.py's
 distillation, kept only once neither it nor any raw file holds the
-token. EVIDENCE ONLY.
+token; a raw directory that holds it is removed too. EVIDENCE ONLY.
 """
 
 import json
