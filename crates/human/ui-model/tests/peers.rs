@@ -2971,3 +2971,32 @@ fn a_trust_made_here_is_dropped_by_any_later_change_of_its_peer() {
     m.client_event(ClientEvent::Session(SessionState::Ready { endpoint: None }));
     assert_eq!(state(&m), RowState::TrustUnknown, "a new session");
 }
+
+/// Peers opened again with its add page still held -- the Trust page
+/// opened from it while a block's Trust was on its way -- shows that
+/// page: focus goes back where the page last asked, so the block's line
+/// for an answer that landed off screen is said on return (§8), not
+/// the list's title. With no page held, the title.
+#[test]
+fn peers_opened_with_its_add_page_held_returns_focus_to_it() {
+    let (me, p) = (peer(), peer());
+    let change = TrustChange {
+        peer: p.clone(),
+        allowed: true,
+    };
+    let mut m = opened(&me, &[], &[added(&p)]);
+    let _ = input(&mut m, PeersInput::TrustRow(at(&p)));
+    let _ = input(&mut m, PeersInput::Trust(p.clone()));
+    // Answered while the Trust page is on show: nothing closed the page.
+    m.trust_settings_mut().set(
+        change,
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    let _ = input(&mut m, PeersInput::Opened);
+    assert_eq!(focus(&m), Some(PeersFocus::BlockProblem(p.clone())));
+
+    let mut m = opened(&me, &[], &[added(&p)]);
+    let _ = input(&mut m, PeersInput::Opened);
+    assert_eq!(focus(&m), Some(PeersFocus::Title), "the control");
+}

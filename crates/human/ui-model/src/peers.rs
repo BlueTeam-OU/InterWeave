@@ -685,7 +685,13 @@ impl Peers {
                     self.again = Some(Again::Open);
                 }
                 intents.extend(read);
-                self.ask_focus(PeersFocus::Title);
+                // The add page still held is what shows: focus goes back
+                // where it last asked, so a block answered while Peers was
+                // off screen says its line on return (§8).
+                match (&self.page, self.focus.clone()) {
+                    (Some(_), Some(focus)) => self.ask_focus(focus),
+                    _ => self.ask_focus(PeersFocus::Title),
+                }
                 intents
             }
             PeersInput::TrustReadAgain => {
