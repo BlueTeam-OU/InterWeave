@@ -1293,7 +1293,7 @@ impl Peers {
     ) {
         if self.orphan.as_deref() == Some(lines) {
             self.orphan = None;
-            self.orphan_answered(answer);
+            self.orphan_answered(lines, answer);
             return;
         }
         match self.in_flight.take() {
@@ -1362,18 +1362,34 @@ impl Peers {
     /// page's to show -- no note, no result, no snackbar -- the list it
     /// brings, or the read a lost answer owes, shows what is stored, and
     /// a barred answer still says Peers cannot be used (§5.3).
-    fn orphan_answered(&mut self, answer: Result<AddressAnswer, AddressChangeFailure>) {
+    fn orphan_answered(
+        &mut self,
+        lines: &[String],
+        answer: Result<AddressAnswer, AddressChangeFailure>,
+    ) {
         match answer {
             Ok(answer) => self.take_list(answer.list),
             Err(AddressChangeFailure::Unconfirmed(_)) => {
                 self.reread = true;
                 self.held = Held::MayHaveChanged;
             }
-            Err(AddressChangeFailure::NotMade(problem)) => {
-                if let Some(b) = barred(problem) {
-                    self.bar(b);
+            Err(AddressChangeFailure::NotMade(problem)) => match barred(problem) {
+                // A runtime with the one-address add only: Peers still
+                // reads, as for an open page (§5.7).
+                Some(Barred::Incompatible) if lines.len() > 1 => {}
+                // Focus to the line saying why, only where a list was on
+                // show to have held it (§8), as a failed read does.
+                Some(b) => {
+                    let had_list = self.list.is_some();
+                    self.list = None;
+                    self.list_problem = Some(ListProblem::Barred(b));
+                    self.snack = None;
+                    if had_list {
+                        self.ask_focus(PeersFocus::ListProblem);
+                    }
                 }
-            }
+                None => {}
+            },
         }
     }
 

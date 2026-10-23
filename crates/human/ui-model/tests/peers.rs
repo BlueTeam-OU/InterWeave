@@ -3345,8 +3345,10 @@ fn a_closed_pages_add_lands_on_no_page_opened_after_it() {
     assert_eq!(m.peers().add_result(), None);
     assert_eq!(m.peers().snack().0, None);
 
-    // Answered not permitted: Peers says it cannot be used.
+    // Answered not permitted: Peers says it cannot be used, focus sent
+    // to why -- a new request, which is what the view moves on.
     let mut m = closed(&[]);
+    let asked = m.peers().focus().1;
     m.addresses_added(
         &[at(&a)],
         Err(AddressChangeFailure::NotMade(AddressProblem::NotPermitted)),
@@ -3355,4 +3357,19 @@ fn a_closed_pages_add_lands_on_no_page_opened_after_it() {
         m.peers().list_problem(),
         Some(ListProblem::Barred(Barred::NotPermitted))
     );
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem));
+    assert_ne!(m.peers().focus().1, asked, "asked anew");
+
+    // A scanned code of two lines answered incompatible -- a runtime with
+    // the one-address add only -- leaves Peers readable.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let two = vec![at(&a), at(&t)];
+    let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
+    let _ = input(&mut m, PeersInput::Close);
+    m.addresses_added(
+        &two,
+        Err(AddressChangeFailure::NotMade(AddressProblem::Incompatible)),
+    );
+    assert_eq!(m.peers().list_problem(), None, "still readable");
 }
