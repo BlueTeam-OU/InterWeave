@@ -1758,6 +1758,77 @@ fn removal_read_back(kept: bool, moved: bool) {
     assert_eq!(view.window().get_focus_id().as_str(), wanted, "{case}");
 }
 
+fn settle_view(view: &mut View, model: &mut UiModel) {
+    view.render(model);
+    for _ in 0..3 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    }
+    view.render(model);
+}
+
+fn row_handle(view: &View, address: &str) -> i32 {
+    let rows = view.window().get_peer_rows();
+    (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .find(|r| r.address.as_str() == address)
+        .expect("the row")
+        .handle
+}
+
+/// Focus on a row a read drops is sent to the row after its place; a
+/// second read dropping that row too before the move applies sends it
+/// on from the first row's place, said once (design section 8).
+#[test]
+fn a_scheduled_move_whose_target_a_read_drops_is_aimed_again() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    // Added rows show newest first: C, B, A.
+    open_peers(
+        &mut view,
+        &mut model,
+        &me,
+        &[],
+        &[added(&a), added(&b), added(&c)],
+    );
+    settle_view(&mut view, &mut model);
+    let (b_handle, c_handle) = (row_handle(&view, &at(&b)), row_handle(&view, &at(&c)));
+    let key = format!("row:{b_handle}");
+    view.window().set_focus_target(key.clone().into());
+    view.window()
+        .set_focus_seq(view.window().get_focus_seq().wrapping_add(1));
+    settle_view(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id().as_str(), key, "on B");
+    let slots = |view: &View| {
+        [
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        ]
+    };
+    model.addresses_read(Ok(AddressList {
+        addresses: vec![added(&a), added(&c)],
+    }));
+    view.render(&model);
+    let said = slots(&view);
+    assert!(
+        said.iter()
+            .any(|s| s.starts_with(text(UiText::PeerRowGone))),
+        "{said:?}"
+    );
+    // Before the move to A applies, A goes too.
+    model.addresses_read(Ok(AddressList {
+        addresses: vec![added(&c)],
+    }));
+    view.render(&model);
+    assert_eq!(slots(&view), said, "said once");
+    settle_view(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("row:{c_handle}"),
+        "from B's place: none after, C before"
+    );
+}
+
 /// An Undo refused by name shows that refusal's own words, and no Try
 /// again (design section 5.2).
 #[test]

@@ -374,7 +374,7 @@ impl View {
         // gone, PeerRowGone said first (design section 8's second row-gone
         // row). Not that row's own read back, above. Focus elsewhere stays.
         if free
-            && let Some(address) = held_row
+            && let Some(address) = held_row.clone()
             && back_row.as_deref() != Some(address.as_str())
             && let Some(target) = peers.focus_after_gone(&address)
         {
@@ -394,6 +394,19 @@ impl View {
             self.peer_lists.focus_sent.clone_from(&key);
             self.peer_lists.gone_move = Some(address);
             self.focus_key_after_draw(key);
+        } else if free
+            && held_row.is_none()
+            && let Some(row) = self.peer_lists.gone_move.clone()
+            && let Some(target) = peers.focus_after_gone(&row)
+        {
+            // A move still scheduled whose target a later read dropped
+            // too: aimed again from the row it left, said once already
+            // (`a_scheduled_move_whose_target_a_read_drops_is_aimed_again`).
+            let key = self.focus_target(&target, peers.field());
+            if key != self.peer_lists.focus_sent {
+                self.peer_lists.focus_sent.clone_from(&key);
+                self.focus_key_after_draw(key);
+            }
         }
         said
     }
