@@ -624,6 +624,13 @@ drefused "an unknown id after spaced opening parentheses and a lower-case operat
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( ( MIT OR Apache-2.0\n// ) ) AND Apache-2.0\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist '["Apache-2.0"]'
 drun && pass "a known id wrapped after spaced closing parentheses" || fail "a wrap after spaced closing parentheses was refused" "$(cat "$SANDBOX/err")"
+# A no-break space before the operator is whitespace too (\302\240).
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n//\302\240OR LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an unknown id wrapped after a no-break space" "names a licence this tool does not recognise (LicenseRef-Frob)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( MIT OR Apache-2.0\n//\302\240) AND WTFPL\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drefused "an unknown id wrapped after a no-break space and a parenthesis" "names a licence this tool does not recognise (WTFPL)"
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// OR(LicenseRef-Frob)\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drefused "an operator glued to the wrapped id" "OR(LicenseRef-Frob) (not an SPDX id)"
