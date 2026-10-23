@@ -5,9 +5,10 @@
 # version a Semantic Versioning 2.0.0 one and the workspace's (ADR-0065),
 # builds the signed Android APK and the Linux archive and publishes them,
 # with the release page, as the tag's release; a pre-release tag
-# (v0.4.0-rc.1) publishes as a pre-release, never as the latest. The steps, and their
-# order, are packaging/android/README.md's "The release run"; every one is
-# a tools/ci script with a self-test beside it, so this file holds no
+# (v0.4.0-rc.1) publishes as a pre-release, never as the latest
+# (tools/ci/release_publish.sh, test_release_publish.sh). The steps, and
+# their order, are packaging/android/README.md's "The release run"; every
+# one is a tools/ci script with a self-test beside it, so this file holds no
 # release logic of its own -- only where each script runs, what it is
 # handed, and which job may hold what.
 #
@@ -384,24 +385,11 @@ jobs:
       - name: The page fits a release body
         run: bash tools/ci/check_release_body.sh "$RUNNER_TEMP/page.md"
 
-      # Step 9. --verify-tag: the release is the pushed tag's, never one
-      # gh would create at another commit. A pre-release tag publishes
-      # marked as one and never as the latest release (ADR-0065 decision
-      # 6); a release is left to the platform's own choice of latest.
+      # Step 9: tools/ci/release_publish.sh creates the tag's release, a
+      # pre-release tag marked as one and never as the latest release
+      # (ADR-0065 decision 6; test_release_publish.sh).
       - name: Publishing
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          in="$RUNNER_TEMP/in"
-          kind=()
-          case "$PRERELEASE" in
-            true) kind=(--prerelease --latest=false) ;;
-            false) ;;
-            *) echo "::error::the tag job reported prerelease=$PRERELEASE"; exit 1 ;;
-          esac
-          gh release create "$TAG" --verify-tag "${kind[@]}" --title "InterWeave $VERSION" \
-            --notes-file "$RUNNER_TEMP/page.md" \
-            "$in"/interweave-*-arm64-v8a.apk "$in"/interweave-*-arm64-v8a.apk.sha256 \
-            "$in"/interweave-*-x86_64-unknown-linux-gnu.tar.gz "$in"/interweave-*-x86_64-unknown-linux-gnu.tar.gz.sha256 \
-            "$in"/THIRD-PARTY-NOTICES-android.md "$in"/THIRD-PARTY-NOTICES-android.md.sha256
+        run: bash tools/ci/release_publish.sh "$TAG" "$VERSION" "$PRERELEASE" "$RUNNER_TEMP/page.md" "$RUNNER_TEMP/in"
