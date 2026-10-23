@@ -631,6 +631,9 @@ drefused "an unknown id wrapped after a no-break space" "names a licence this to
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( MIT OR Apache-2.0\n//\302\240) AND WTFPL\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist '["Apache-2.0"]'
 drefused "an unknown id wrapped after a no-break space and a parenthesis" "names a licence this tool does not recognise (WTFPL)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( MIT OR Apache-2.0\n//\302\240) AND Apache-2.0\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "a known id wrapped after a no-break space and a parenthesis" || fail "a wrap after a no-break space was refused" "$(cat "$SANDBOX/err")"
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// OR(LicenseRef-Frob)\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drefused "an operator glued to the wrapped id" "OR(LicenseRef-Frob) (not an SPDX id)"
