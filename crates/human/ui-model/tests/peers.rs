@@ -1868,6 +1868,54 @@ fn the_sessions_peer_id_names_this_device_over_the_trust_lists() {
     );
 }
 
+/// An add left unknown -- its answer lost, its read back failed -- stays
+/// unknown when Add again on the same line writes nothing, said again;
+/// an add of another line that writes nothing says so of itself (§5.7).
+#[test]
+fn an_unknown_add_stays_unknown_after_a_retry_that_writes_nothing() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let not_written = || Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable));
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Unknown { lines: 1 })
+    );
+    let said = m.peers().add_note_said().1;
+
+    assert_eq!(
+        input(&mut m, PeersInput::Add),
+        vec![Intent::AddAddresses(vec![at(&a)])]
+    );
+    m.addresses_added(&[at(&a)], not_written());
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Unknown { lines: 1 }),
+        "never AddFailed: the first add may have landed"
+    );
+    assert_ne!(m.peers().add_note_said().1, said, "said again");
+    assert_eq!(focus(&m), Some(PeersFocus::AddButton));
+
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&b)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&b)], not_written());
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Failed),
+        "of itself"
+    );
+}
+
 /// The unknown stays with the change, not the snackbar (§5.7): a Try
 /// again whose snackbar closed -- timed out, or swiped away -- before its
 /// answer wrote nothing still says the change is unknown, shown anew,

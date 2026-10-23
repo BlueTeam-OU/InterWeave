@@ -527,6 +527,11 @@ struct AddPage {
     scanning: bool,
     /// Opened from this row's Trust, not from Add an address.
     from_row: Option<String>,
+    /// The lines an add left unknown -- its answer lost and the read back
+    /// failed: a retry of them that writes nothing leaves them so (§5.7).
+    unknown: Option<Vec<String>>,
+    /// Bumped at every note set, so the same note twice is still news.
+    notes: u64,
 }
 
 /// The Peers page and its add page, as a view renders them.
@@ -1245,7 +1250,13 @@ impl Peers {
         trust: &TrustSettings,
     ) {
         let answer = match answer {
-            Ok(answer) => answer,
+            Ok(answer) => {
+                // A real answer decides the add: nothing is unknown now.
+                if let Some(page) = self.page.as_mut() {
+                    page.unknown = None;
+                }
+                answer
+            }
             Err(AddressChangeFailure::NotMade(problem)) => {
                 let note = match barred(problem) {
                     // A runtime with the one-address add only: an add of
@@ -1257,6 +1268,11 @@ impl Peers {
                         self.list = None;
                         self.list_problem = Some(ListProblem::Barred(b));
                         AddNote::Barred(b)
+                    }
+                    // A retry of an add left unknown that writes nothing
+                    // settles nothing: still unknown, said again (§5.7).
+                    None if self.page.as_ref().and_then(|p| p.unknown.as_ref()) == Some(&lines) => {
+                        AddNote::Unknown { lines: lines.len() }
                     }
                     None => AddNote::Failed,
                 };
@@ -1320,6 +1336,7 @@ impl Peers {
     fn page_note(&mut self, note: AddNote, focus: PeersFocus) {
         if let Some(page) = self.page.as_mut() {
             page.note = Some(note);
+            page.notes = page.notes.wrapping_add(1);
         }
         self.ask_focus(focus);
     }
@@ -1499,10 +1516,13 @@ impl Peers {
     /// A lost answer whose list could not be read back either.
     fn unknown(&mut self, check: Check) {
         match check {
-            Check::Add(lines) => self.page_note(
-                AddNote::Unknown { lines: lines.len() },
-                PeersFocus::AddButton,
-            ),
+            Check::Add(lines) => {
+                let count = lines.len();
+                if let Some(page) = self.page.as_mut() {
+                    page.unknown = Some(lines);
+                }
+                self.page_note(AddNote::Unknown { lines: count }, PeersFocus::AddButton);
+            }
             // Unknown, the snackbar's Try again is where to go next: the
             // row menu that opened it may be gone (§8).
             Check::Undo(address) => {
@@ -1762,6 +1782,15 @@ impl Peers {
     #[must_use]
     pub fn field(&self) -> &str {
         self.page.as_ref().map_or("", |p| p.field.as_str())
+    }
+
+    /// The add page's note and a count bumped at every note set: the same
+    /// note set again is said again.
+    #[must_use]
+    pub fn add_note_said(&self) -> (Option<&AddNote>, u64) {
+        self.page
+            .as_ref()
+            .map_or((None, 0), |p| (p.note.as_ref(), p.notes))
     }
 
     /// The note on the add page.
