@@ -439,6 +439,29 @@ impl UiModel {
         &self.cards.contacts
     }
 
+    /// The names of every contact of the identity in front with a route
+    /// on `peer`, for Peers' rows (add-a-peer design section 5.2): one
+    /// per line, never joined, since a typed name may hold "and" or a
+    /// comma. Ordered case-insensitively, then by the exact name, in
+    /// place of the locale's collation, which no part of the client has
+    /// yet.
+    #[must_use]
+    pub fn contact_names_on(&self, peer: &TransportIdentity) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .cards
+            .contacts
+            .iter()
+            .filter(|c| c.routes.iter().any(|r| &r.peer == peer))
+            .map(|c| c.name.clone())
+            .collect();
+        names.sort_by(|a, b| {
+            a.to_lowercase()
+                .cmp(&b.to_lowercase())
+                .then_with(|| a.cmp(b))
+        });
+        names
+    }
+
     /// One contact.
     #[must_use]
     pub fn contact(&self, contact_id: &str) -> Option<&ContactView> {

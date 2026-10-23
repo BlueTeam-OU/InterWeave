@@ -2153,3 +2153,41 @@ fn a_read_ends_only_the_trusts_sent_before_it() {
     );
     assert!(!t.is_pending(&p), "answered as made");
 }
+
+/// The contact names on a row's PeerId (§5.2): every contact of the
+/// identity in front with a route on it, one name each, in order --
+/// case set aside, then the exact name -- and none for another PeerId.
+#[test]
+fn a_rows_contact_names_are_every_contact_on_its_peer_in_order() {
+    use interweave_human_ui_model::{ContactView, RouteView};
+    use interweave_transport_api::EndpointId;
+    let (p, q) = (peer(), peer());
+    let contact = |id: &str, name: &str, on: &TransportIdentity, endpoint: &str| ContactView {
+        contact_id: id.to_owned(),
+        name: name.to_owned(),
+        name_from_card: true,
+        photo_from_card: None,
+        routes: vec![RouteView {
+            peer: on.clone(),
+            endpoint: EndpointId::parse(endpoint).expect("valid"),
+            fingerprint: None,
+        }],
+    };
+    let mut m = UiModel::new();
+    m.contacts_listed(vec![
+        contact("1", "zoe", &p, "work"),
+        contact("2", "Smith, John", &p, "home"),
+        contact("3", "Alice", &q, "home"),
+        contact("4", "Mum and Dad", &p, "family"),
+    ]);
+    assert_eq!(
+        m.contact_names_on(&p),
+        vec![
+            "Mum and Dad".to_owned(),
+            "Smith, John".to_owned(),
+            "zoe".to_owned()
+        ]
+    );
+    assert_eq!(m.contact_names_on(&q), vec!["Alice".to_owned()]);
+    assert!(m.contact_names_on(&peer()).is_empty());
+}
