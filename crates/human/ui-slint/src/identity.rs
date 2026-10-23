@@ -219,13 +219,21 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::Done => return page,
     };
     page.title = text(title).into();
-    // Last, after what the screen is for: the warning the flow owes
-    // before R2 takes a word (ADR-0043, item 11), on whichever screen
-    // the model says carries it.
+    // Last, after what the screen is for: the statements the flow owes
+    // before R2 takes a word -- ADR-0043's warning (item 11), then the
+    // identities' new keys (item 12) -- on whichever screen the model
+    // says carries each.
     let warning = flow
         .warns_active_elsewhere()
         .then_some(UiText::IdActiveElsewhere);
-    page.paragraphs = strings(paragraphs.into_iter().chain(warning).map(text));
+    let new_keys = flow.says_new_keys().then_some(UiText::IdR1NewKeys);
+    page.paragraphs = strings(
+        paragraphs
+            .into_iter()
+            .chain(warning)
+            .chain(new_keys)
+            .map(text),
+    );
     page.primary = primary.map(text).unwrap_or_default().into();
 
     if screen == ScreenId::W && flow.void_paper() {
@@ -395,22 +403,24 @@ mod tests {
         page(flow)
     }
 
-    /// The page binds the model's ADR-0043 warning as the screen's last
-    /// paragraph on R1 and on K1 with a restore, and R2 shows none.
+    /// The page binds the model's ADR-0043 warning after the screen's own
+    /// paragraphs on R1 and on K1 with a restore, and Welcome, R2 and K1
+    /// with no restore show none; where it stands beside item 12's line is
+    /// `the_new_keys_line_follows_the_warning_where_the_model_says`'s.
     #[test]
-    fn r1_and_k1_show_the_active_elsewhere_warning_last() {
-        let warning = Some(en(UiText::IdActiveElsewhere));
-        let last = |page: &IdentityPage| {
+    fn r1_and_k1_show_the_active_elsewhere_warning() {
+        let shows = |page: &IdentityPage| {
             page.paragraphs
-                .row_data(page.paragraphs.row_count().saturating_sub(1))
+                .iter()
+                .any(|p| p == en(UiText::IdActiveElsewhere))
         };
         let mut fresh = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
-        assert_ne!(last(&page(&fresh)), warning, "Welcome restores nothing");
+        assert!(!shows(&page(&fresh)), "Welcome restores nothing");
         let r1 = page_of(&mut fresh, &[IdentityInput::Secondary]);
         assert_eq!(r1.paragraphs.row_data(1), Some(en(UiText::IdR1Settings)));
-        assert_eq!(last(&r1), warning);
+        assert!(shows(&r1));
         let r2 = page_of(&mut fresh, &[IdentityInput::Primary]);
-        assert!(!r2.paragraphs.iter().any(|p| Some(p) == warning));
+        assert!(!shows(&r2));
 
         let k1 = |expected| {
             page(&IdentityFlow::new(
@@ -418,6 +428,7 @@ mod tests {
                 Start::Recovery {
                     reason: RecoveryReason::Key,
                     expected,
+                    new_keys: false,
                 },
             ))
         };
@@ -426,8 +437,52 @@ mod tests {
             with_restore.paragraphs.row_data(0),
             Some(en(UiText::IdQReasonKey))
         );
-        assert_eq!(last(&with_restore), warning);
-        assert_ne!(last(&k1(None)), warning, "no restore, no phrase taken");
+        assert!(shows(&with_restore));
+        assert!(!shows(&k1(None)), "no restore, no phrase taken");
+    }
+
+    /// The page binds item 12's line right after the ADR-0043 warning,
+    /// as the last paragraph: on R1, and on K1 with a restore only when
+    /// the root found no `identity-keys/`; R2 shows neither.
+    #[test]
+    fn the_new_keys_line_follows_the_warning_where_the_model_says() {
+        let tail = |page: &IdentityPage| {
+            let n = page.paragraphs.row_count();
+            (n.checked_sub(2).and_then(|i| page.paragraphs.row_data(i)))
+                .into_iter()
+                .chain(n.checked_sub(1).and_then(|i| page.paragraphs.row_data(i)))
+                .collect::<Vec<_>>()
+        };
+        let both = vec![en(UiText::IdActiveElsewhere), en(UiText::IdR1NewKeys)];
+        let shows_new_keys =
+            |page: &IdentityPage| page.paragraphs.iter().any(|p| p == en(UiText::IdR1NewKeys));
+
+        let mut fresh = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        let r1 = page_of(&mut fresh, &[IdentityInput::Secondary]);
+        assert_eq!(tail(&r1), both);
+        let r2 = page_of(&mut fresh, &[IdentityInput::Primary]);
+        assert!(!shows_new_keys(&r2));
+
+        let k1 = |new_keys| {
+            page(&IdentityFlow::new(
+                LIST,
+                Start::Recovery {
+                    reason: RecoveryReason::Key,
+                    expected: Some(mine()),
+                    new_keys,
+                },
+            ))
+        };
+        assert_eq!(tail(&k1(true)), both);
+        let kept = k1(false);
+        assert!(
+            !shows_new_keys(&kept),
+            "the identities' keys are still here"
+        );
+        assert_eq!(
+            kept.paragraphs.row_data(kept.paragraphs.row_count() - 1),
+            Some(en(UiText::IdActiveElsewhere))
+        );
     }
 
     #[test]
@@ -492,6 +547,7 @@ mod tests {
             interweave_human_ui_model::Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
+                new_keys: false,
             },
         );
         let k1 = page(&flow);
