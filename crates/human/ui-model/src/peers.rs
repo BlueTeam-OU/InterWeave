@@ -831,9 +831,13 @@ impl Peers {
     /// The field now reads `text`; a note about an empty or a full field
     /// goes once the field no longer is.
     fn field_changed(&mut self, text: String) {
-        // Held while its add or that add's check is on its way: the
-        // answer clears or selects in what was sent, and an edit made
-        // meanwhile would be cleared unsent or leave no line to select.
+        // Held while any change is on its way (`busy`). For the page's own
+        // add or its check, the answer clears or selects in what was sent,
+        // and an edit made meanwhile would be cleared unsent or leave no
+        // line to select. For an add Back left out, a page opened since
+        // waits as the page that sent it would: one add at a time, its Add
+        // held too, the field read-only while an add is on its way (#396
+        // §5.3), rather than taking a line its Add cannot send yet.
         if self.busy() {
             return;
         }

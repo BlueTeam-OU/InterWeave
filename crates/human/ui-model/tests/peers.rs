@@ -3287,9 +3287,9 @@ fn the_field_is_held_while_its_add_is_on_its_way() {
 /// An add whose page Back closed lands on no page opened after it -- Add
 /// an address again, or a row's trust step -- whatever its answer: no
 /// note, no result, no blocks, no snackbar; the list it brings shows the
-/// row. The page opened meanwhile is held -- its field and its Add --
-/// until it is answered, so one add is out at a time. A barred answer
-/// still says Peers cannot be used.
+/// row. The page opened meanwhile waits as the page that sent it would --
+/// its field read-only and its Add held -- until it is answered, one add
+/// out at a time. A barred answer still says Peers cannot be used.
 #[test]
 fn a_closed_pages_add_lands_on_no_page_opened_after_it() {
     let (me, a, t) = (peer(), peer(), peer());
