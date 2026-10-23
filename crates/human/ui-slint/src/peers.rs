@@ -124,6 +124,7 @@ fn selection_offsets(field: &str, selection: &LineSelection) -> Option<(i32, i32
             (*s, *e)
         }
         LineSelection::From(index) => (lines.get(*index)?.1, field.len()),
+        LineSelection::End => (field.len(), field.len()),
     };
     Some((i32::try_from(from).ok()?, i32::try_from(to).ok()?))
 }

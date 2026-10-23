@@ -848,6 +848,10 @@ ui_texts! {
     /// Under the field: the add stored nothing. `{line}` the line,
     /// `{reason}` one Refused* value.
     AddRefused => "Not added: {line}. {reason}",
+    /// The refusal's first drawn text, above the refused line, when it
+    /// names one, and the reason; with no line, it and the reason read
+    /// together are the label.
+    AddRefusedLead => "Not added:", // PLACEHOLDER (en)
     /// A refusal: the grammar.
     RefusedGrammar => "This is not an InterWeave address.",
     /// A refusal: a special-use address.

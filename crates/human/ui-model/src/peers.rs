@@ -79,6 +79,16 @@ pub enum Refusal {
     OwnAddress,
 }
 
+impl Refusal {
+    /// Whether the refusal is of one line, which it names: not a refusal
+    /// of the whole add -- too many lines, the device at its bound, the
+    /// list off -- which names none (add-a-peer §5.3).
+    #[must_use]
+    pub const fn names_line(self) -> bool {
+        !matches!(self, Self::TooMany | Self::Limit | Self::ListOff)
+    }
+}
+
 /// Where an add's lines came from: the client's DNS rule applies to a
 /// scan, and only a typed line is selected in the field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -108,7 +118,8 @@ pub enum AddNote {
     ScanAfterField,
     /// The add stored nothing: the first refused line, and why.
     Refused {
-        /// The line, as sent.
+        /// The line, as sent; named only when the refusal is of one line
+        /// ([`Refusal::names_line`]).
         line: String,
         /// Why.
         why: Refusal,
@@ -391,6 +402,8 @@ pub enum LineSelection {
     /// The line at this index among the field's lines, and every one
     /// after it.
     From(usize),
+    /// Nothing: the caret at the field's end.
+    End,
 }
 
 /// Where focus goes, as the view is asked (§8 item 1).
@@ -1386,9 +1399,16 @@ impl Peers {
                     }
                 };
                 let line = lines.first().cloned().unwrap_or_default();
+                // A refusal of the whole add names no line: the caret at
+                // the field's end, nothing selected (§5.3).
+                let select = if why.names_line() {
+                    LineSelection::Line(line.clone())
+                } else {
+                    LineSelection::End
+                };
                 let focus = match source {
                     LineSource::Typed => PeersFocus::Field {
-                        select: Some(LineSelection::Line(line.clone())),
+                        select: Some(select),
                     },
                     LineSource::Scanned => PeersFocus::Note,
                 };
