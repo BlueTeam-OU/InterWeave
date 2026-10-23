@@ -1258,17 +1258,31 @@ pub async fn trust_administration_revokes_as_policy<B: DataSessionBinding + Admi
 /// of the pair before relying on it.
 const UNLISTED_PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
+/// The lines outside `peers-address-params`' length bound, which no entry
+/// of the grammar is: the empty one, and one a character past 1024 that
+/// reads as an address up to its last component. Over IPC the schema
+/// would make either a params error; every binding answers it as the
+/// method does.
+fn outside_the_bound(peer: &TransportIdentity) -> [String; 2] {
+    let address = format!("/ip4/10.0.0.1/tcp/4001/p2p/{}", peer.as_str());
+    let long = format!("{address}{}", "a".repeat(1025 - address.chars().count()));
+    assert_eq!(long.chars().count(), 1025);
+    [String::new(), long]
+}
+
 /// Bootstrap-address administration (ADR-0062, LOCAL-IPC.md minor 2.7;
 /// LOCAL-CLIENT.md §7 item 13), the same at every binding: without
 /// `admin.peers` the add, the removal and the list are each
 /// `CapabilityDenied`; a string that is no address, a well-formed address
-/// outside the grammar and one with a loopback component are each refused
+/// outside the grammar, one with a loopback component, and one outside the
+/// schema's length bound (empty, or of 1025 characters) are each refused
 /// BY NAME, an answer and never an
 /// error, with nothing written; a new address is `added`, listed as
 /// `added` after every `authored` entry, and a second add of it is
 /// `unchanged`; the add grants no trust; its removal is `removed` and the
 /// next list is the first again; a removal of an address the overlay
-/// does not hold is `unchanged`, and of `authored` -- the entry this
+/// does not hold -- one outside the length bound among them -- is
+/// `unchanged`, and of `authored` -- the entry this
 /// binding's profile authors -- `refused: authored`.
 ///
 /// What no binding here can show: a port that predates the capability
@@ -1339,6 +1353,18 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
         ),
         Some(AddressRefusal::SpecialUse)
     );
+    for line in outside_the_bound(&unlisted) {
+        assert_eq!(
+            refusal(admin.add_bootstrap_address(line.clone()).await),
+            Some(AddressRefusal::Grammar),
+            "{} characters",
+            line.chars().count()
+        );
+        assert_eq!(
+            admin.remove_bootstrap_address(line).await,
+            Ok(AddressChange::Unchanged)
+        );
+    }
     assert_eq!(
         admin.bootstrap_addresses().await.expect("the list"),
         first,
@@ -1388,7 +1414,9 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
 /// `CapabilityDenied`; a list of no line or of 17 is `InvalidArgument`; a
 /// list with one line outside the grammar, or one in a special-use class,
 /// is refused BY NAME naming that line -- an answer, never an error --
-/// with nothing written, not even its good lines; a list of good lines is
+/// with nothing written, not even its good lines; a line outside the
+/// schema's length bound is outside the grammar, so the line named is the
+/// FIRST outside the grammar, before any special-use line; a list of good lines is
 /// taken whole, one row per line in the order given, a line already
 /// present (`authored` among them) or repeated being `unchanged`; the
 /// single add then sees the list's lines; the add grants no trust.
@@ -1439,11 +1467,29 @@ pub async fn a_list_is_added_all_or_none_at_every_binding<B: AdminBinding>(
     assert_eq!(
         refusal(
             admin
-                .add_bootstrap_addresses(vec![fresh(1), fresh(2), loopback])
+                .add_bootstrap_addresses(vec![fresh(1), fresh(2), loopback.clone()])
                 .await
         ),
         (AddressRefusal::SpecialUse, Some(2))
     );
+    for line in outside_the_bound(&unlisted) {
+        let n = line.chars().count();
+        for (list, named) in [
+            (vec![fresh(1), line.clone()], 1),
+            // The grammar of every line before any special-use floor: the
+            // control that the bound is answered where the grammar is.
+            (vec![loopback.clone(), line.clone()], 1),
+            // The first line outside the grammar, not the bound's.
+            (vec!["not an address".to_owned(), line.clone()], 0),
+            (vec![line.clone(), "not an address".to_owned()], 0),
+        ] {
+            assert_eq!(
+                refusal(admin.add_bootstrap_addresses(list).await),
+                (AddressRefusal::Grammar, Some(named)),
+                "{n} characters"
+            );
+        }
+    }
     assert_eq!(
         admin.bootstrap_addresses().await.expect("the list"),
         first,

@@ -8,14 +8,15 @@ use std::time::Duration;
 use interweave_ipc_protocol::{
     AddressList, AddressParams, AddressResult, AddressesParams, AddressesResult, AdminStatusResult,
     ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, EndpointParams,
-    MAX_SHUTDOWN_GRACE_MS, Method, OwnAddressList, PeerList, PeerListParams, Request,
-    RequestedCapability, SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams,
-    TRUST_SOURCE_SINCE_MINOR, TrustList, TrustListParams, TrustSetParams,
+    MAX_BOOTSTRAP_ADDRESS_CHARS, MAX_SHUTDOWN_GRACE_MS, Method, OwnAddressList, PeerList,
+    PeerListParams, Request, RequestedCapability, SetDefaultParams, SetEnabledParams,
+    SetEnabledResult, ShutdownParams, TRUST_SOURCE_SINCE_MINOR, TrustList, TrustListParams,
+    TrustSetParams,
 };
 use interweave_local_client_api::{
-    AddressChange, AddressesChange, AdminBinding, AdminCapability, AdminPort, AdminStatus,
-    BootstrapAddress, EndpointAdminView, Generation, LocalAdminPort, OwnAddresses, PeerGateView,
-    TrustAdminView, TrustedPeer,
+    AddressChange, AddressRefusal, AddressesChange, AdminBinding, AdminCapability, AdminPort,
+    AdminStatus, BootstrapAddress, EndpointAdminView, Generation, LocalAdminPort, OwnAddresses,
+    PeerGateView, TrustAdminView, TrustedPeer,
 };
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
 
@@ -459,6 +460,16 @@ impl AdminPort for IpcAdmin {
     /// lines) is refused `InvalidArgument` without one too. An answer
     /// whose rows do not match the lines sent one for one is the daemon's
     /// `ProtocolViolation`: a client could not say which line each row is.
+    ///
+    /// A LINE OUTSIDE THE SCHEMA'S LENGTH BOUND IS SENT AS [`WITHHELD`], so
+    /// the list is answered as the embedded binding answers it: every
+    /// line's grammar is checked first, in order, and the first line that
+    /// fails is named -- an earlier line outside the grammar, or the
+    /// withheld one, which no entry of the grammar is that long or empty
+    /// to pass. Refusing the withheld line locally instead would name it
+    /// over an earlier bad line; sending it would make the whole list a
+    /// params error, `InvalidArgument`, where the method names a line
+    /// (`a_list_is_added_all_or_none_at_every_binding`).
     async fn add_bootstrap_addresses(
         &self,
         addresses: Vec<String>,
@@ -470,6 +481,17 @@ impl AdminPort for IpcAdmin {
         if lines == 0 || lines > interweave_local_client_api::MAX_ADDRESSES_PER_ADD {
             return Err(TransportError::InvalidArgument);
         }
+        let withheld = addresses.iter().position(|a| outside_the_bound(a));
+        let addresses = addresses
+            .into_iter()
+            .map(|a| {
+                if outside_the_bound(&a) {
+                    WITHHELD.to_owned()
+                } else {
+                    a
+                }
+            })
+            .collect();
         let change: AddressesChange = self
             .connection
             .call::<AddressesResult>(Request::AdminPeersAddAddresses(AddressesParams {
@@ -477,14 +499,37 @@ impl AdminPort for IpcAdmin {
             }))
             .await?
             .into();
-        match &change {
-            AddressesChange::Added(rows) if rows.len() != lines => {
-                Err(TransportError::ProtocolViolation)
+        match (change, withheld) {
+            (AddressesChange::Added(rows), None) if rows.len() == lines => {
+                Ok(AddressesChange::Added(rows))
             }
-            AddressesChange::Refused {
-                line: Some(line), ..
-            } if *line >= lines => Err(TransportError::ProtocolViolation),
-            _ => Ok(change),
+            (
+                AddressesChange::Refused {
+                    reason,
+                    line: Some(line),
+                    detail,
+                },
+                withheld,
+            ) if line < lines
+                && withheld.is_none_or(|w| reason == AddressRefusal::Grammar && line <= w) =>
+            {
+                let detail = if withheld == Some(line) {
+                    BOUND_DETAIL.to_owned()
+                } else {
+                    detail
+                };
+                Ok(AddressesChange::Refused {
+                    reason,
+                    line: Some(line),
+                    detail,
+                })
+            }
+            (change @ AddressesChange::Refused { line: None, .. }, None) => Ok(change),
+            // Rows that do not match the lines, a line out of range, or --
+            // with a line withheld -- anything but a grammar refusal at or
+            // before it: the grammar is checked first, and the withheld
+            // line fails it.
+            _ => Err(TransportError::ProtocolViolation),
         }
     }
 
@@ -511,6 +556,21 @@ impl AdminPort for IpcAdmin {
     }
 }
 
+/// What a line outside the schema's length bound is sent as in an
+/// all-or-none add: inside the bound, and outside the grammar, which
+/// every entry of needs a `/p2p/` component.
+const WITHHELD: &str = "a line outside 1..=1024 characters, withheld by the client";
+
+/// The refusal's detail for a line outside the bound.
+const BOUND_DETAIL: &str = "the address is not 1..=1024 characters";
+
+/// Outside `peers-address-params`' bound: empty, or more than
+/// [`MAX_BOOTSTRAP_ADDRESS_CHARS`] characters (counted as the schema
+/// counts, in characters).
+fn outside_the_bound(address: &str) -> bool {
+    address.is_empty() || address.chars().count() > MAX_BOOTSTRAP_ADDRESS_CHARS
+}
+
 impl IpcAdmin {
     async fn address_move(
         &self,
@@ -519,6 +579,20 @@ impl IpcAdmin {
     ) -> Result<AddressChange, TransportError> {
         if self.minor < method.entry().since_minor {
             return Err(TransportError::ProtocolUnsupported);
+        }
+        // Answered here as the method answers it, since the schema's
+        // length bound would make it a params error, `InvalidArgument`:
+        // no entry of the grammar is that long or empty, so an add is a
+        // grammar refusal and a removal finds nothing to remove.
+        if outside_the_bound(&address) {
+            return Ok(if method == Method::AdminPeersAddAddress {
+                AddressChange::Refused {
+                    reason: AddressRefusal::Grammar,
+                    detail: BOUND_DETAIL.to_owned(),
+                }
+            } else {
+                AddressChange::Unchanged
+            });
         }
         let params = AddressParams { address };
         let request = if method == Method::AdminPeersAddAddress {
