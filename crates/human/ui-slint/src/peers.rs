@@ -684,7 +684,9 @@ impl View {
             window.set_peers_snack_action(action.map(text).unwrap_or_default().into());
             if self.peer_lists.snack_timed != snacks {
                 self.peer_lists.snack_timed = snacks;
-                // A new snackbar's action holds no focus until it takes it.
+                // A new snackbar's action holds no focus until it says so:
+                // its own report follows the id, on a new element or one
+                // kept under focus.
                 window.set_peers_snack_action_focused(false);
                 let shared = Rc::clone(&self.shared);
                 let ms = self.shared.borrow().touch.snackbar_ms;

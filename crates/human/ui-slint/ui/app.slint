@@ -444,12 +444,16 @@ component ActionButton inherits FocusScope {
         reject
     }
     // Each change of focus, kept or lost: a control that goes while it
-    // holds focus says nothing more, so its last word stands.
+    // holds focus says nothing more, so its last word stands. A change of
+    // `report-seq` says it again, kept or not: a reader that cleared its
+    // record hears what still holds.
     callback focus-changed(bool);
+    in property <int> report-seq;
     changed has-focus => {
         root.focus-changed(self.has-focus);
         if (self.has-focus) { root.focused(root.focus-key); }
     }
+    changed report-seq => { root.focus-changed(self.has-focus); }
     // On the notice banner, which is light in both schemes: the label,
     // border and ring take its colours, or a dark scheme's light label
     // was all but invisible on it (seen in the rendered window).
@@ -1104,6 +1108,10 @@ component Snackbar inherits Rectangle {
             focus-wanted: root.action-focus-wanted;
             pressed => { root.undo-pressed(root.snack-id); }
             focused(k) => { root.focused(k); }
+            // A snackbar replacing another on this same action, focus
+            // kept, says so again (`a_try_again_that_writes_nothing_keeps_
+            // its_action_focused_for_the_read_back`).
+            report-seq: root.snack-id;
             focus-changed(f) => { root.action-focus-changed(f); }
         }
     }

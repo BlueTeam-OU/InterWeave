@@ -1935,3 +1935,48 @@ fn a_new_snackbar_starts_with_its_action_unfocused() {
     assert!(view.window().get_peers_snack_shown());
     assert!(!view.window().get_peers_snack_action_focused());
 }
+
+/// A removal left unknown, its Try again pressed from the snackbar and
+/// writing nothing: the new snackbar comes up on the same focused action
+/// (design section 8: a Try again that writes nothing stays on Try
+/// again). When it goes, focus that was on that Try again still waits on
+/// the row's menu button while the list is read again.
+#[test]
+fn a_try_again_that_writes_nothing_keeps_its_action_focused_for_the_read_back() {
+    use interweave_human_client_api::{AddressChangeFailure, AddressProblem};
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b) = (peer(), peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a), added(&b)]);
+    let _ = model.peers_input(PeersInput::Remove(at(&b)));
+    model.address_removed(
+        &at(&b),
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    let _ = model.peers_turn();
+    model.addresses_read(Err(AddressProblem::Unavailable));
+    settle_view(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id().as_str(), "peers-snack-action");
+    let first = view.window().get_peers_snack_id();
+    view.window().invoke_peers_snack_pressed(first);
+    let asked = intents(&mut view, &mut model);
+    assert_eq!(asked, vec![Intent::RemoveAddress(at(&b))], "Try again");
+    model.address_removed(
+        &at(&b),
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    settle_view(&mut view, &mut model);
+    let second = view.window().get_peers_snack_id();
+    assert_ne!(second, first, "a new snackbar");
+    assert_eq!(view.window().get_focus_id().as_str(), "peers-snack-action");
+    view.window().invoke_peers_snack_closed(second);
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        model.peers().focus().0,
+        Some(interweave_human_ui_model::PeersFocus::RowMenu(at(&b))),
+        "on B's menu button while it reads"
+    );
+}
