@@ -1266,10 +1266,17 @@ impl UiModel {
         self.peers.remove_answer(address, answer, &self.trust);
     }
 
-    /// What Peers asks between turns: a read a change left owed, and
-    /// closing the add page once trust's answers decided it.
+    /// What Peers asks between turns: a read a change left owed, the
+    /// trust set's read a trust step an add opened owes, and closing the
+    /// add page once trust's answers decided it.
     pub fn peers_turn(&mut self) -> Option<Intent> {
-        self.peers.turn(&self.trust)
+        let intent = self.peers.turn(&self.trust);
+        // A trust step an add opened reads the trust set itself, once the
+        // turn asks nothing else.
+        if intent.is_none() && self.peers.take_trust_read() {
+            return self.trust.opened();
+        }
+        intent
     }
 
     /// Whether Chats shows the no-reach notice (ADR-0062 decision 8).

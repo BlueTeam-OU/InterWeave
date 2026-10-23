@@ -3013,3 +3013,67 @@ fn peers_opened_with_its_add_page_held_returns_focus_to_it() {
     let _ = input(&mut m, PeersInput::Opened);
     assert_eq!(focus(&m), Some(PeersFocus::Title), "the control");
 }
+
+/// A trust step an add opens with the trust list not the daemon's word
+/// reads the set itself, once, as a row's does (§5.2, §5.3): a read that
+/// shows the peer already trusted settles its block, so no Trust is
+/// asked for nothing. Typed, or decided by a read after a lost answer;
+/// with the list read, the step asks nothing.
+#[test]
+fn a_trust_step_an_add_opens_reads_the_trust_set_itself() {
+    let (me, a) = (peer(), peer());
+    let unread = |m: &mut UiModel| {
+        let _ = m.trust_settings_mut().opened();
+        m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    };
+    let trusted = || TrustList {
+        local_peer: Some(me.clone()),
+        allowed: vec![TrustRow::added_here(a.clone())],
+    };
+    let added_a = || {
+        answer(
+            AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            &[added(&a)],
+        )
+    };
+
+    let mut m = opened(&me, &[], &[]);
+    unread(&mut m);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&a)], added_a());
+    assert_eq!(m.peers().blocks(m.trust_settings()).len(), 1);
+    assert_eq!(m.peers_turn(), Some(Intent::ReadTrust), "the step reads");
+    assert_eq!(m.peers_turn(), None, "once");
+    m.trust_settings_mut().read(Ok(trusted()));
+    let _ = m.peers_turn();
+    assert!(!m.peers().add_open(), "already trusted: settled, closed");
+
+    // An add whose answer was lost, decided by the read back.
+    let mut m = opened(&me, &[], &[]);
+    unread(&mut m);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Ok(list(&[added(&a)])));
+    assert_eq!(m.peers_turn(), Some(Intent::ReadTrust), "checked: reads");
+
+    // The control: the list read, the step asks nothing.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&a)], added_a());
+    assert_eq!(m.peers().blocks(m.trust_settings()).len(), 1);
+    assert_eq!(m.peers_turn(), None, "the list read");
+}

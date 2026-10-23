@@ -566,6 +566,10 @@ pub struct Peers {
     /// succeeds sends focus as when Peers opens, or the trust line's.
     again: Option<Again>,
     reread: bool,
+    /// A trust step an add opened, the trust list not the daemon's word:
+    /// the step reads the set itself (§5.2, §5.3), as a row's does, once
+    /// nothing else is asked ([`Self::take_trust_read`]).
+    trust_read_owed: bool,
     /// A change may have reached the runtime since the list was last
     /// read: its rows stay on show as last read (§5.7), but its
     /// emptiness is no fact until a read succeeds.
@@ -1451,10 +1455,18 @@ impl Peers {
         match page.blocks.first() {
             Some(block) => {
                 let peer = block.peer.clone();
+                self.trust_read_owed = trust.confirmed_list().is_none();
                 self.ask_focus(PeersFocus::Block(peer));
             }
             None => self.finish(trust),
         }
+    }
+
+    /// Whether a trust step an add opened owes its read of the trust set,
+    /// once: the root asks it with [`TrustSettings::opened`], which a read
+    /// already on its way answers instead.
+    pub fn take_trust_read(&mut self) -> bool {
+        std::mem::take(&mut self.trust_read_owed)
     }
 
     fn undo_answered(
