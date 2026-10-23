@@ -1264,9 +1264,7 @@ impl Peers {
                 match again {
                     Some(Again::List) => self.ask_focus(PeersFocus::ListProblem),
                     Some(Again::Open) => {}
-                    // Not past an open page, where the line is not drawn:
-                    // closing it sends focus there (§8).
-                    _ if had_list && self.page.is_none() => self.ask_focus(PeersFocus::ListProblem),
+                    _ if had_list => self.ask_focus(PeersFocus::ListProblem),
                     _ => {}
                 }
                 // A row restored while unread is not drawn with no list;
@@ -1381,9 +1379,7 @@ impl Peers {
                     self.list = None;
                     self.list_problem = Some(ListProblem::Barred(b));
                     self.snack = None;
-                    // Not while a page is open: the line is drawn only
-                    // past it, and closing it then sends focus there.
-                    if had_list && self.page.is_none() {
+                    if had_list {
                         self.ask_focus(PeersFocus::ListProblem);
                     }
                 }
@@ -2008,6 +2004,25 @@ impl Peers {
     }
 
     fn ask_focus(&mut self, focus: PeersFocus) {
+        // A control of the list pane asked for while the add page is open
+        // is not drawn: the page's own focus stands, and closing the page
+        // sends focus to the list (§8). A Remove, an Undo or a read can be
+        // answered under the page
+        // (`a_list_control_asked_under_the_add_page_leaves_its_focus`).
+        let list_pane = matches!(
+            focus,
+            PeersFocus::Opener
+                | PeersFocus::Row(_)
+                | PeersFocus::RowMenu(_)
+                | PeersFocus::AddAddress
+                | PeersFocus::AddAddressNote
+                | PeersFocus::ListProblem
+                | PeersFocus::TrustLine
+                | PeersFocus::TrustRetry
+        );
+        if list_pane && self.page.is_some() {
+            return;
+        }
         self.focus = Some(focus);
         self.focuses = self.focuses.wrapping_add(1);
     }

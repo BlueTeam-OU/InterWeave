@@ -3528,3 +3528,54 @@ fn a_failed_read_asks_no_focus_past_an_open_page() {
     assert!(!m.peers().add_open());
     assert_eq!(focus(&m), Some(PeersFocus::ListProblem), "then to why");
 }
+
+/// A control of the list pane asked for while the add page is open is
+/// not drawn there, so the page keeps its own focus -- a Remove answered
+/// under the page, a barred one, an Undo pressed from the snackbar over
+/// it -- and closing the page sends focus to the list (§8).
+#[test]
+fn a_list_control_asked_under_the_add_page_leaves_its_focus() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let rows = [added(&a), added(&b)];
+
+    // A Remove answered under the page.
+    let mut m = opened(&me, &[], &rows);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let asked = m.peers().focus();
+    m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[added(&b)]));
+    assert!(matches!(
+        m.peers().snack().0,
+        Some(PeersSnack::Removed { .. })
+    ));
+    assert_eq!(m.peers().focus(), asked, "the page keeps its focus");
+
+    // An Undo pressed from that snackbar over the page, answered.
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(
+        &[at(&a)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            &rows,
+        ),
+    );
+    assert_eq!(m.peers().focus(), asked, "still the page's");
+    let _ = input(&mut m, PeersInput::Close);
+    assert_eq!(focus(&m), Some(PeersFocus::Opener), "closed: to the list");
+
+    // A Remove answered not permitted under the page; closing it goes to
+    // the line saying why.
+    let mut m = opened(&me, &[], &rows);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let asked = m.peers().focus();
+    m.address_removed(
+        &at(&a),
+        Err(AddressChangeFailure::NotMade(AddressProblem::NotPermitted)),
+    );
+    assert_eq!(m.peers().focus(), asked);
+    let _ = input(&mut m, PeersInput::Close);
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem));
+}
