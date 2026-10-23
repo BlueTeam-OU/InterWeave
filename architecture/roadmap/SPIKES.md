@@ -152,7 +152,8 @@ flag, a plugin channel needs `{plugin, marketplace}` on the
 organisation's `allowedChannelPlugins` (with `channelsEnabled: true`)
 or, without one, on the allowlist Anthropic serves remotely. So
 `--channels` with a published plugin needs Anthropic to list it, and
-that, like the organisation path, stays not established.
+that stays not established; the organisation path was then measured
+in S22.
 
 **Carried measurement, S20 (2026-10-22, Claude Code 2.1.286,
 rust-services-dev): the plugin's settings and upgrades, measured
@@ -170,6 +171,28 @@ start with `XDG_RUNTIME_DIR` unset, which Claude Code reported as
 "Failed to connect" while the bridge exited on it, is "Connected" since
 the bridge serves the refusal; and Claude Code keeps a plugin server's
 stderr in `~/.cache/claude-cli-nodejs/<working directory>/mcp-logs-plugin-<plugin>-<server>/`.
+
+**Carried measurement, S22 (2026-10-23, Claude Code 2.1.286,
+rust-services-dev, plan §22): the organisation path for `--channels`
+works without the development flag.** Read off
+`spikes/spike-001/README.md` §S22 (facts 29–33, runs `s22-*`). The
+plugin and its install were S19's. The organisation's managed settings
+are read on Linux from `/etc/claude-code/managed-settings.json` and
+every `*.json` in `/etc/claude-code/managed-settings.d/`; both were
+read, presented to the session under bubblewrap because this login
+cannot write `/etc`. With `channelsEnabled: true` and
+`allowedChannelPlugins` naming `{"plugin": "interweave",
+"marketplace": "interweave"}`, `--channels plugin:interweave@interweave`
+registers the channel with no warning screen. A peer's message reached
+the model, and its `reply` reached the peer. Without the setting, the
+session is refused as S19's was. With the list naming another plugin,
+it is refused by "your org's approved channels list".
+`channelsEnabled: false` did not refuse on this login: read from the
+binary, a claude.ai login reads it only on a Team or Enterprise
+subscription, and any other login is refused by any policy without it.
+So `allowedChannelPlugins` decides here, and that refusal stays not
+established, as do a file in the host's own `/etc`, server-managed or
+MDM policy, and Anthropic's allowlist.
 
 ---
 
