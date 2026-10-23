@@ -231,9 +231,9 @@ enabled.
 - Back → R1. The entered words are dropped; a dialog confirms first if
   any are entered (§7).
 
-**R3, Is this your identity?** The PeerId the words derive to, in full
+**R3, Is this your PeerId?** The PeerId the words derive to, in full
 (§5). Above it, the question: is this the PeerId you wrote down?
-- Primary: yes, restore this identity (→ R4).
+- Primary: yes, restore this PeerId (→ R4).
 - Secondary: no, check my words (→ R2, with every word kept, to find
   the one that is wrong).
 - Back does the same as the secondary.
@@ -491,7 +491,9 @@ The text is final (language-culture, 2026-10-19; the keys added on
 01a1589d-e769 and 01a1589f-7882; `IdS1Unlock` on 2026-10-21,
 language-culture-en, REPLY 01a15d22-6abd, at the owner's asking for
 Unlock; `IdActiveElsewhere` and `IdR1NewKeys` on 2026-10-23,
-language-culture-en, REPLY 01a16717). No string contains
+language-culture-en, REPLY 01a16717; the PeerId rewording of W, C1,
+C4, R1, R4, K1 and the storage and other-PeerId states on 2026-10-23,
+language-culture-en, REPLYs 01a16739 and 01a1673f). No string contains
 a word of a person's phrase, and no placeholder can hold one: `{n}`
 (a number, in digits) and `{peer_id}` are the only placeholders. The
 words are plain and calm. A person on K1 did nothing wrong, so no
@@ -523,7 +525,7 @@ names are suggestions; rust-ui-dev names them.
 | `UnlockPromptTitle` (the app's, #313, not yet on main) | Unlock InterWeave | The system prompt's title for a key operation or a launch; S1's prompt keeps its own |
 | `CopyPeerId`, `PeerIdCopied` (the app's, #313, not yet on main) | Copy PeerId · PeerId copied | The button under a PeerId and its confirmation below Android 13 (§5) |
 | `IdStorageUnknown` (new) | The app could not tell whether your PeerId was saved. Try again to check. | §6's notice when the read-back fails, two lines, with `TryAgain`. It never says that nothing changed. "To check" is true, because Try again reads back before it writes |
-| `IdRestoreOther` (new) | Your PeerId was not restored. This phone already has another PeerId saved, shown below. | §6's another-identity-on-record row, at a restore (a record that names a PeerId other than the one restored), two lines, the PeerId in full below it. "With the PeerId below" ties the PeerId to the other identity, so it is not read as the person's own |
+| `IdRestoreOther` (new) | Your PeerId was not restored. This phone already has another PeerId saved, shown below. | §6's another-identity-on-record row, at a restore (a record that names a PeerId other than the one restored), two lines, the PeerId in full below it. "Another PeerId saved, shown below" ties the shown PeerId to the phone's record, so it is not read as the person's own |
 | `IdWordsTitle` | Your 24 words | C2's and S2's title |
 | `IdPeerIdLabel` (new value) | Write it on the same paper as your words. It is not a password, and it is safe to share. | The note under the PeerId (§5) on C2's PeerId page, where the person writes. It no longer starts with "Your PeerId": the page's title says that just above it (language-culture-en, REPLY 01a1589d-e769). The page's title is the PeerId's accessible name; this note is its description |
 | `IdPeerIdNoteShown` (new) | It is the one on your paper. It is not a password, and it is safe to share. | The note under the PeerId on S2's PeerId page, whose title already says "Your PeerId"; the title is the PeerId's accessible name |
@@ -540,7 +542,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdShowAgain` | Show my words again | C3's action after an error |
 | `TryAgain` (exists) | Try again | C3's other action after an error, and the retry action of §6's notices. The key exists, and a second key with the same text would fail `every_ui_text_appears_once_in_all`. One action has one name, so §6 says "Try again" too |
 | `IdCreatedTitle` | PeerId created | C4's title |
-| `IdRestoredTitle` (new) | PeerId restored | R4's title. "Identity created" would be false after a restore |
+| `IdRestoredTitle` (new) | PeerId restored | R4's title. "PeerId created" would be false after a restore |
 | `IdCreatedBody` | When you continue, the app connects to the network with this PeerId. | C4's and R4's body |
 | `IdContinue` | Continue | C4's and R4's primary |
 | `IdR1Title` | Restore your PeerId | R1's title |
@@ -549,7 +551,7 @@ names are suggestions; rust-ui-dev names them.
 | `IdActiveElsewhere` (new) | If another device still uses this PeerId, a restore here puts the same PeerId on two devices. One PeerId must never be on two devices, and this phone cannot check whether another device uses it. | R1, and K1 when it offers a restore, before the primary (§3.3, §3.4); `human-client-ui.md` §9, ADR-0043; must say the phone cannot check, and ask nothing |
 | `IdR1NewKeys` (new) | Your words do not restore the keys of your identities. Each identity gets a new key, and your contacts will see that each key changed. | R1 and K1, each when the state root has no `identity-keys/` (always on R1 after a fresh install), before the primary; `human-client-ui.md` §9, ADR-0063 decision 1; must say the phrase restores the device, not the identities' keys, and that contacts see a key change |
 | `IdCheckWords` | Check my words | R2's primary |
-| `IdR1Settings` | Your words restore your PeerId only. Your name and photo, contacts, trust, settings and messages are not part of them. | R1's line under the body, two lines: the same statement, with nothing asked |
+| `IdR1Settings` | Your words restore your PeerId only. Your name and photo, contacts, trust, settings and messages are not part of them. | R1's line under the body, three lines: the same statement, with nothing asked |
 | `IdR3NoPeerId` | If the PeerId is not on your paper, ask a contact for the one they have for the phone that had these words. Restore only if it matches. | R3, under the question: about three lines at 100 %, one over the space. A contact can hold one PeerId per device, so the text names which one |
 | `IdR3Question` | Is this the PeerId that you wrote down? If it is not, a word may be wrong. | R3's question, two lines. It asks; it never says the PeerId is right, and it says what a "no" usually means |
 | `IdR3Yes` | Yes, restore it | R3's primary |
