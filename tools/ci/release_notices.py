@@ -358,37 +358,28 @@ def id_tokens(text: str, block: str) -> list:
 
 
 CUT_SHORT = "an SPDX expression cut short"
-# An id as a wrapped line may open with one after an operator: a name, a
-# hyphen and a version, a LicenseRef-, or an id this tool knows.
+# An id among the words after the prose that ends an expression: a name,
+# a hyphen and a version, a LicenseRef-, or an id this tool knows.
 ID_WORD = re.compile(r"[A-Za-z][A-Za-z0-9.+]*-[A-Za-z0-9.+-]*\d[A-Za-z0-9.+-]*|LicenseRef-[A-Za-z0-9.+-]+")
 
 
 def wraps_on(next_line: str) -> bool:
     """Whether the line after a complete SPDX expression goes on with it:
-    it opens, parentheses aside, on an operator -- glued to its word or
-    not ("OR(LicenseRef-Frob)", ") AND X", "/LicenseRef-Frob") -- in upper
-    case, or in any other case before an id ("or LicenseRef-Frob"), so a
-    sentence opening on the word ("With contributions from ...") is prose.
-    "Any other case before an id" is read wide: only a plain lower-case
-    word that is no id this tool knows makes the line prose, so an id of
-    any other shape ("with LLVM-exception", "or WTFPL") or one behind a
-    parenthesis standing alone ("or ( LicenseRef-Frob )") goes on, and
-    the lookup refuses it if it is unknown, as it does on one line (#386
-    review). A line of parentheses alone closes the expression and goes
-    on too."""
+    it opens, parentheses aside, on an operator in ANY case -- glued to
+    its word or not ("OR(LicenseRef-Frob)", ") AND X", "/LicenseRef-Frob",
+    "or curl") -- or is a line of parentheses alone, which closes the
+    expression. SPDX operators and ids are case-insensitive, so no case
+    or shape of the next word can tell an id from prose: every guess at
+    prose was a wrap whose id was dropped with no error, where the same
+    words on one line refuse it (`or ( LicenseRef-Frob )`, `with
+    LLVM-exception`, `or WTFPL`, `or wtfpl`, `or curl`: #386's reviews,
+    two rounds). So a sentence opening on the word ("With contributions
+    from ...") is read on and refused, which a reviewer sees, rather than
+    an id passing unread, which nothing would."""
     head = next_line.strip().lstrip("()").lstrip()
     if not head or head[0] in "/|+":
         return True
-    op = re.match(r"(AND|OR|WITH)(?![A-Za-z0-9.+-])", head, re.I)
-    if not op:
-        return False
-    if op.group(1).isupper():
-        return True
-    word = head[op.end():].split()[0:1]
-    word = word[0].strip("()\"'").rstrip(".,;:") if word else ""
-    if ID_WORD.fullmatch(word) or word.lower() in known_ids():
-        return True
-    return not re.fullmatch(r"[a-z]+", word)
+    return bool(re.match(r"(AND|OR|WITH)(?![A-Za-z0-9.+-])", head, re.I))
 
 
 def spdx_expression(line: str) -> list:

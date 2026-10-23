@@ -575,17 +575,19 @@ drefused "an unknown id wrapped after its operator" "names a licence this tool d
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// OR Apache-2.0\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist '["Apache-2.0"]'
 drun && pass "a known id wrapped after its operator" || fail "an expression wrapped before OR was refused" "$(cat "$SANDBOX/err")"
-# A next line opening on the word in another case is prose unless an id
-# follows it; a blank line ends the tag, so nothing past it is read on.
+# A next line opening on the word in any case goes on with the
+# expression, a sentence opening on it too: no case or shape of the next
+# word tells an id from prose, so prose is refused rather than an id
+# dropped (#386's reviews). A blank line ends the tag, so nothing past it
+# is read on.
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// or LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drefused "an unknown id after a lower-case operator on the next line" "names a licence this tool does not recognise (LicenseRef-Frob)"
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// With contributions from the Y project\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
-drun && pass "a prose line opening on With after a complete tag" || fail "prose opening on With was read as ids" "$(cat "$SANDBOX/err")"
-# Prose is only a plain lower-case word after it: an id of any other
-# shape, or one behind a parenthesis standing alone, is read on and the
-# lookup refuses it as it would on one line (#386 review).
+drefused "a prose line opening on With after a complete tag" "names a licence this tool does not recognise (contributions"
+# An id of any case and shape, or one behind a parenthesis standing
+# alone, is read on, and the lookup refuses it as it would on one line.
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// or ( LicenseRef-Frob )\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drefused "an unknown id behind a parenthesis after a lower-case operator" "names a licence this tool does not recognise (LicenseRef-Frob)"
@@ -595,6 +597,9 @@ drefused "an exception of no id shape after a lower-case operator" "names a lice
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// or WTFPL\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drefused "an upper-case id with no version after a lower-case operator" "names a licence this tool does not recognise (WTFPL)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// or curl\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "a lower-case id after a lower-case operator" "names a licence this tool does not recognise (curl)"
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n//\n// OR LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drun && pass "an operator line past a blank line" || fail "a line past a blank line was read on" "$(cat "$SANDBOX/err")"
