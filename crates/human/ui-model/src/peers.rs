@@ -1075,18 +1075,18 @@ impl Peers {
         if self.page.is_some() {
             return None;
         }
+        // Only a row that offers Trust as drawn now opens the step: one
+        // needing trust, or whose trust is not known (§5.2, §5.3). A press
+        // taken after a read showed its peer trusted -- or on this
+        // device's own row, which offers none -- opens nothing, since a
+        // block already decided would leave a page with nothing to press
+        // (`a_rows_trust_taken_after_its_peer_is_trusted_opens_nothing`).
         let peer = self
-            .list
-            .as_ref()?
-            .addresses
-            .iter()
-            .find(|a| a.address == address)?
-            .peer
-            .clone()?;
-        // This device's own row offers no Trust and gets no block (§5.3).
-        if self.own(trust) == Some(&peer) {
-            return None;
-        }
+            .rows(trust)
+            .into_iter()
+            .find(|r| r.address == address)
+            .filter(|r| matches!(r.state, RowState::NeedsTrust | RowState::TrustUnknown))?
+            .peer?;
         self.page = Some(AddPage {
             from_row: Some(address.to_owned()),
             blocks: vec![TrustBlock::new(peer.clone(), trust)],

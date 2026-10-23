@@ -3028,8 +3028,8 @@ fn a_verdict_on_an_earlier_unknown_change_never_takes_a_later_ones_place() {
 /// the trust list unread, only while that answer is the last word on its
 /// peer (§5.2): any later change of the peer that may have been written
 /// -- a revoke on the Trust page made, read back or not, or left
-/// unconfirmed; a later Trust unconfirmed or lost with its page -- and a
-/// new session leave it not known. A revoke that wrote nothing leaves it
+/// unconfirmed; a later Trust unconfirmed -- and a new session leave it
+/// not known. A revoke that wrote nothing leaves it
 /// Trusted, and a read that confirms the list decides it, however the
 /// next one fares.
 #[test]
@@ -3150,21 +3150,20 @@ fn a_trust_made_here_is_dropped_by_any_later_change_of_its_peer() {
         assert_eq!(state(&m), RowState::TrustUnknown, "Q listed: {q_listed}");
     }
 
-    // A later Trust of P unconfirmed, or lost with its page.
+    // A later Trust of P unconfirmed: from the Trust page, since P's row,
+    // shown trusted, offers no Trust and no trust step of its own
+    // (`a_rows_trust_taken_after_its_peer_is_trusted_opens_nothing`).
     let mut m = made();
-    let _ = input(&mut m, PeersInput::TrustRow(at(&p)));
-    let _ = input(&mut m, PeersInput::Trust(p.clone()));
-    m.trust_settings_mut().set(
+    let settings = m.trust_settings_mut();
+    let _ = settings.input(TrustInput::EntryChanged(p.as_str().to_owned()));
+    let _ = settings.input(TrustInput::ProposeAllow);
+    let _ = settings.input(TrustInput::Confirm(allow.clone()));
+    settings.set(
         allow.clone(),
         Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
     );
     let _ = m.peers_turn();
     assert_eq!(state(&m), RowState::TrustUnknown, "unconfirmed");
-    let mut m = made();
-    let _ = input(&mut m, PeersInput::TrustRow(at(&p)));
-    let _ = input(&mut m, PeersInput::Trust(p.clone()));
-    let _ = input(&mut m, PeersInput::Close);
-    assert_eq!(state(&m), RowState::TrustUnknown, "lost with its page");
 
     // A new session: the runtime may be another.
     let mut m = made();
@@ -3907,4 +3906,20 @@ fn an_unknown_add_edited_away_and_back_is_still_unknown_on_a_retry() {
         Some(&AddNote::Unknown { lines: 1 }),
         "never AddFailed: the first add may have landed"
     );
+}
+
+/// A row's Trust taken after the row stopped offering it -- a press
+/// queued while the trust list was being read, and the read lists the
+/// peer -- opens no trust step: the step is offered only for a peer not
+/// yet trusted (§5.3), and a block already trusted would leave a page
+/// with nothing to press. The control: a peer still needing trust opens
+/// it.
+#[test]
+fn a_rows_trust_taken_after_its_peer_is_trusted_opens_nothing() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let mut m = opened(&me, std::slice::from_ref(&a), &[added(&a), added(&b)]);
+    assert_eq!(input(&mut m, PeersInput::TrustRow(at(&a))), vec![]);
+    assert!(!m.peers().add_open(), "no step for a trusted peer");
+    let _ = input(&mut m, PeersInput::TrustRow(at(&b)));
+    assert!(m.peers().add_open(), "the control: B needs trust");
 }
