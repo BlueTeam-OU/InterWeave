@@ -133,7 +133,17 @@ pub struct TrustSettings {
     /// answer lands: any later change of the peer that may have been
     /// written drops it, as does its answer lost or a new session
     /// (`a_trust_made_here_is_dropped_by_any_later_change_of_its_peer`).
-    made_here: Vec<TransportIdentity>,
+    made_here: Vec<(TransportIdentity, u64)>,
+    /// How many changes were sent when the read that gave the kept list
+    /// started -- a change's own read-back counting that change: a read
+    /// that started earlier never replaces it
+    /// (`a_read_speaks_only_for_what_was_sent_before_it_started`).
+    list_from: u64,
+    /// The latest change that may have been written with no list read
+    /// back since -- made but not read back, unconfirmed, or lost with
+    /// its page -- by its count: a read started before it is not the
+    /// daemon's word.
+    unread_write: u64,
 }
 
 /// Whether a list kept is the daemon's word.
@@ -280,6 +290,9 @@ impl TrustSettings {
         self.reading = false;
         let rereading = std::mem::take(&mut self.rereading);
         match answer {
+            // Older than the list kept -- a change's read-back came after
+            // it started: it says nothing the kept list does not.
+            Ok(_) if self.read_from < self.list_from => {}
             Ok(list) => {
                 if self
                     .pending
@@ -289,12 +302,18 @@ impl TrustSettings {
                     self.pending = None;
                 }
                 self.list = Some(list);
-                self.held = Held::AsRead;
-                self.made_here.clear();
                 // A read ends what was sent before it started, never a
-                // change sent while it was on its way.
+                // change sent while it was on its way: one lost since
+                // keeps the list from being the daemon's word (§5.3).
                 let from = self.read_from;
+                self.list_from = from;
                 self.lost.retain(|(_, sent)| *sent > from);
+                self.made_here.retain(|(_, sent)| *sent > from);
+                self.held = if self.unread_write > from {
+                    Held::MayHaveChanged
+                } else {
+                    Held::AsRead
+                };
             }
             Err(problem) => {
                 // The list as last read stays on show, but it is no
@@ -339,7 +358,7 @@ impl TrustSettings {
         // A later change of the peer that may have been written: what an
         // earlier allow made here said of it no longer stands.
         if !matches!(answer, Err(TrustSetFailure::NotMade(_))) {
-            self.made_here.retain(|p| p != &change.peer);
+            self.made_here.retain(|(p, _)| p != &change.peer);
         }
         // Answered as made: what a lost change of this peer left pending
         // is known now. Unconfirmed sets it pending again below.
@@ -351,29 +370,27 @@ impl TrustSettings {
             // administrator may have changed the same peer in between: a
             // list that says otherwise is not reported as the change made.
             Ok(list) if list.allows(&change.peer) != change.allowed => {
-                self.list = Some(list);
-                self.held = Held::AsRead;
-                self.made_here.clear();
+                self.read_back(list);
                 self.reread = true;
                 self.say(TrustOutcome::Unconfirmed(change), from);
             }
             Ok(list) => {
                 self.made(&change);
-                self.list = Some(list);
-                self.held = Held::AsRead;
-                self.made_here.clear();
+                self.read_back(list);
                 self.say(TrustOutcome::Changed(change), from);
             }
             Err(TrustSetFailure::MadeNotReadBack(_)) => {
                 self.made(&change);
+                self.unread_write = self.sent;
                 if change.allowed && from == OutcomeFrom::TrustStep {
-                    self.made_here.push(change.peer.clone());
+                    self.made_here.push((change.peer.clone(), self.sent));
                 }
                 self.held = Held::MayHaveChanged;
                 self.reread = true;
                 self.say(TrustOutcome::Changed(change), from);
             }
             Err(TrustSetFailure::Unconfirmed(_)) => {
+                self.unread_write = self.sent;
                 self.lost.retain(|(peer, _)| peer != &change.peer);
                 self.lost.push((change.peer.clone(), self.sent));
                 self.held = Held::MayHaveChanged;
@@ -384,6 +401,17 @@ impl TrustSettings {
                 self.say(TrustOutcome::Problem(problem), from);
             }
         }
+    }
+
+    /// A change's list read back: a read started after that change and
+    /// every one before it was sent -- changes go one at a time -- so it
+    /// ends every lost one and is the daemon's word (§5.3, "any read").
+    fn read_back(&mut self, list: TrustList) {
+        self.list = Some(list);
+        self.list_from = self.sent;
+        self.lost.clear();
+        self.made_here.clear();
+        self.held = Held::AsRead;
     }
 
     fn made(&mut self, change: &TrustChange) {
@@ -430,8 +458,9 @@ impl TrustSettings {
         };
         self.lost.retain(|(p, _)| p != peer);
         self.lost.push((peer.clone(), self.sent));
+        self.unread_write = self.sent;
         self.held = Held::MayHaveChanged;
-        self.made_here.retain(|p| p != peer);
+        self.made_here.retain(|(p, _)| p != peer);
         self.unanswered = Some(change);
     }
 
@@ -446,7 +475,7 @@ impl TrustSettings {
     /// is not the daemon's word.
     #[must_use]
     pub fn trusted_here(&self, peer: &TransportIdentity) -> bool {
-        self.made_here.contains(peer)
+        self.made_here.iter().any(|(p, _)| p == peer)
     }
 
     /// Whether a change of `peer`'s trust is pending: its answer lost,

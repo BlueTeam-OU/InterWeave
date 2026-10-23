@@ -3077,3 +3077,94 @@ fn a_trust_step_an_add_opens_reads_the_trust_set_itself() {
     assert_eq!(m.peers().blocks(m.trust_settings()).len(), 1);
     assert_eq!(m.peers_turn(), None, "the list read");
 }
+
+/// A read speaks only for what was sent before it started (§5.3): one on
+/// its way when a Trust is sent, answering after it, never makes the
+/// list the daemon's word while that Trust is pending -- lost with its
+/// page, or unconfirmed -- never replaces the Trust's own read-back,
+/// and never takes back a Trust answered as made; while a change's
+/// read-back, read after every earlier change was sent, ends every one
+/// lost before it.
+#[test]
+fn a_read_speaks_only_for_what_was_sent_before_it_started() {
+    let (me, p, q) = (peer(), peer(), peer());
+    let allow = |peer: &TransportIdentity| TrustChange {
+        peer: peer.clone(),
+        allowed: true,
+    };
+    let listing = |peers: &[TransportIdentity]| TrustList {
+        local_peer: Some(me.clone()),
+        allowed: peers.iter().cloned().map(TrustRow::added_here).collect(),
+    };
+    let unavailable = || TrustProblem::Unavailable;
+    // P's row, the trust list unread: the step reads it, and Trust is
+    // pressed while that read is on its way.
+    let step = || {
+        let mut m = opened(&me, &[], &[added(&p)]);
+        let _ = m.trust_settings_mut().opened();
+        m.trust_settings_mut().read(Err(unavailable()));
+        assert_eq!(
+            input(&mut m, PeersInput::TrustRow(at(&p))),
+            vec![Intent::ReadTrust]
+        );
+        assert_eq!(
+            input(&mut m, PeersInput::Trust(p.clone())),
+            vec![Intent::SetTrust(allow(&p))]
+        );
+        m
+    };
+    let state = |m: &UiModel| m.peers().rows(m.trust_settings())[0].state;
+
+    // Lost with its page, then the older read answers without P.
+    let mut m = step();
+    let _ = input(&mut m, PeersInput::Close);
+    m.trust_settings_mut().read(Ok(listing(&[])));
+    assert_eq!(state(&m), RowState::TrustUnknown, "lost: still pending");
+    assert!(m.trust_settings().is_pending(&p));
+
+    // Unconfirmed, then the older read answers without P.
+    let mut m = step();
+    m.trust_settings_mut()
+        .set(allow(&p), Err(TrustSetFailure::Unconfirmed(unavailable())));
+    m.trust_settings_mut().read(Ok(listing(&[])));
+    assert_eq!(state(&m), RowState::TrustUnknown, "unconfirmed: pending");
+
+    // Answered with its read-back, then the older read answers without P.
+    let mut m = step();
+    m.trust_settings_mut()
+        .set(allow(&p), Ok(listing(std::slice::from_ref(&p))));
+    m.trust_settings_mut().read(Ok(listing(&[])));
+    assert_eq!(state(&m), RowState::Trusted, "the newer list stands");
+
+    // Answered as made, not read back, then the older read without P.
+    let mut m = step();
+    m.trust_settings_mut().set(
+        allow(&p),
+        Err(TrustSetFailure::MadeNotReadBack(unavailable())),
+    );
+    let _ = m.peers_turn();
+    m.trust_settings_mut().read(Ok(listing(&[])));
+    assert_eq!(state(&m), RowState::Trusted, "made: still trusted");
+
+    // A lost Trust of P, its re-read failed; Q's change read back ends it.
+    let mut m = step();
+    m.trust_settings_mut()
+        .set(allow(&p), Err(TrustSetFailure::Unconfirmed(unavailable())));
+    m.trust_settings_mut().read(Err(unavailable()));
+    let _ = m.trust_settings_mut().take_reread();
+    m.trust_settings_mut().read(Err(unavailable()));
+    let _ = input(&mut m, PeersInput::Close);
+    assert!(m.trust_settings().is_pending(&p));
+    let settings = m.trust_settings_mut();
+    let _ = settings.input(interweave_human_ui_model::TrustInput::EntryChanged(
+        q.as_str().to_owned(),
+    ));
+    let _ = settings.input(interweave_human_ui_model::TrustInput::ProposeAllow);
+    let _ = settings.input(interweave_human_ui_model::TrustInput::Confirm(allow(&q)));
+    settings.set(allow(&q), Ok(listing(std::slice::from_ref(&q))));
+    assert!(
+        !m.trust_settings().is_pending(&p),
+        "Q's read-back speaks for P"
+    );
+    assert_eq!(state(&m), RowState::NeedsTrust);
+}
