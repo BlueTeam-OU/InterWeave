@@ -9,14 +9,14 @@ use interweave_ipc_protocol::{
     AddressList, AddressParams, AddressResult, AddressesParams, AddressesResult, AdminStatusResult,
     ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, EndpointParams,
     MAX_BOOTSTRAP_ADDRESS_CHARS, MAX_SHUTDOWN_GRACE_MS, Method, OwnAddressList, PeerList,
-    PeerListParams, Request, RequestedCapability, SetDefaultParams, SetEnabledParams,
-    SetEnabledResult, ShutdownParams, TRUST_SOURCE_SINCE_MINOR, TrustList, TrustListParams,
-    TrustSetParams,
+    PeerListParams, Request, RequestedCapability, SUPERSEDED_SINCE_MINOR, SetDefaultParams,
+    SetEnabledParams, SetEnabledResult, ShutdownParams, TRUST_SOURCE_SINCE_MINOR, TrustList,
+    TrustListParams, TrustSetParams, TrustSetResult,
 };
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressesChange, AdminBinding, AdminCapability, AdminPort,
     AdminStatus, BootstrapAddress, EndpointAdminView, Generation, LocalAdminPort, OwnAddresses,
-    PeerGateView, TrustAdminView, TrustedPeer,
+    PeerGateView, TrustAdminView, TrustChange, TrustedPeer,
 };
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
 
@@ -403,7 +403,7 @@ impl AdminPort for IpcAdmin {
     /// refused `ProtocolUnsupported` without a round trip, as
     /// [`AdminPort::peers`] is below 2.2 (`LOCAL-IPC.md` `admin.trust`;
     /// architect-cto's ruling, relay seq 15229). `set_trust` carries no
-    /// row and is unchanged from 2.1.
+    /// row.
     async fn trust(&self) -> Result<TrustAdminView, TransportError> {
         if self.minor < TRUST_SOURCE_SINCE_MINOR {
             return Err(TransportError::ProtocolUnsupported);
@@ -432,15 +432,27 @@ impl AdminPort for IpcAdmin {
         })
     }
 
+    /// The result is the one the connection negotiated: from 2.10
+    /// `trust-set-result`, which names a superseded set; below it the
+    /// empty result, which is a set made, and the daemon answers a
+    /// superseded set `Internal`.
     async fn set_trust(
         &self,
         peer: TransportIdentity,
         allowed: bool,
-    ) -> Result<(), TransportError> {
-        self.connection
-            .call::<EmptyResult>(Request::AdminTrustSet(TrustSetParams { peer, allowed }))
-            .await
-            .map(|_| ())
+    ) -> Result<TrustChange, TransportError> {
+        let request = Request::AdminTrustSet(TrustSetParams { peer, allowed });
+        if self.minor >= SUPERSEDED_SINCE_MINOR {
+            self.connection
+                .call::<TrustSetResult>(request)
+                .await
+                .map(TrustChange::from)
+        } else {
+            self.connection
+                .call::<EmptyResult>(request)
+                .await
+                .map(|_| TrustChange::Set)
+        }
     }
 
     /// Below 2.7 the method does not exist, so it is refused
