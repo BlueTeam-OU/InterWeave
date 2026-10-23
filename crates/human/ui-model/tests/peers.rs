@@ -4175,3 +4175,109 @@ fn the_pages_add_waits_while_it_is_out() {
     let _ = input(&mut m, PeersInput::Close);
     assert!(!m.peers().add_waiting(), "left out by Back");
 }
+
+fn left_unknown(m: &mut UiModel, p: &TransportIdentity) {
+    assert_eq!(
+        input(m, PeersInput::Remove(at(p))),
+        vec![Intent::RemoveAddress(at(p))]
+    );
+    m.address_removed(
+        &at(p),
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+}
+
+fn not_written() -> Result<AddressAnswer, AddressChangeFailure> {
+    Err(AddressChangeFailure::NotMade(AddressProblem::Internal))
+}
+
+/// An Undo of A left unknown, then a removal of A that writes nothing:
+/// a removal is no retry of an Undo, and says its own outcome -- A is
+/// listed, still in the list (§5.7) -- never the Undo's unknown line,
+/// whose Try again would add A back.
+#[test]
+fn a_removal_is_no_retry_of_an_unknown_undo() {
+    let (me, a, x) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[added(&a), added(&x)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[added(&x)]));
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::UndoUnknown { address: at(&a) })
+    );
+    // Another removal's answer lists A: the Undo landed, A's row is drawn.
+    let _ = input(&mut m, PeersInput::Remove(at(&x)));
+    m.address_removed(&at(&x), answer(AddressOutcome::Removed, &[added(&a)]));
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), not_written());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveFailed { address: at(&a) })
+    );
+}
+
+/// Two removals left unknown, B's line on show, then another removal's
+/// answer bringing the list: it shows the device as it is, so it decides
+/// A, whose line is not on show, as a read would -- a later removal of A
+/// that writes nothing is not made, still in the list.
+#[test]
+fn an_answers_list_decides_the_changes_left_unknown_off_show() {
+    let (me, a, b, x) = (peer(), peer(), peer(), peer());
+    let rows = [added(&a), added(&b), added(&x)];
+    let mut m = opened(&me, &[], &rows);
+    left_unknown(&mut m, &a);
+    left_unknown(&mut m, &b);
+    let _ = input(&mut m, PeersInput::Remove(at(&x)));
+    m.address_removed(
+        &at(&x),
+        answer(AddressOutcome::Removed, &[added(&a), added(&b)]),
+    );
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), not_written());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveFailed { address: at(&a) }),
+        "decided by the list"
+    );
+}
+
+/// Two removals left unknown, B's line on show, then an answer for A
+/// itself, its list not read back: the answer decides A, though its line
+/// is not on show -- a later removal of A that writes nothing is not
+/// made.
+#[test]
+fn an_answer_decides_its_own_change_left_unknown_off_show() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let rows = [added(&a), added(&b)];
+    let mut m = opened(&me, &[], &rows);
+    left_unknown(&mut m, &a);
+    left_unknown(&mut m, &b);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(
+        &at(&a),
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Refused(AddressRefused::Configured),
+            list: Err(AddressProblem::Unavailable),
+        }),
+    );
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), not_written());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveFailed { address: at(&a) }),
+        "decided by its answer"
+    );
+}

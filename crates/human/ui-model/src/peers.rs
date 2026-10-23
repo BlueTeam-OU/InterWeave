@@ -660,8 +660,9 @@ pub struct Peers {
     /// ([`Self::read_decides`]).
     unknown_change: Option<Check>,
     /// Every removal and Undo left unknown and not yet decided, oldest
-    /// first, one per address: each stays unknown until a read shows it
-    /// or an answer for it decides it, whichever line is on show (§5.7),
+    /// first, one per address: each stays unknown until a read shows it,
+    /// an answer for it decides it, or a list another answer brings shows
+    /// the device as it is, whichever line is on show (§5.7),
     /// so a retry of an earlier one that writes nothing is still unknown,
     /// never "still in the list"
     /// (`every_removal_left_unknown_stays_unknown_until_decided`). At most
@@ -1308,12 +1309,16 @@ impl Peers {
         }
     }
 
-    /// Whether this address's removal or Undo was left unknown and is
-    /// not decided yet: a retry of it that writes nothing leaves it so.
-    fn still_unknown(&self, address: &str) -> bool {
-        self.pending
-            .iter()
-            .any(|c| pending_address(c) == Some(address))
+    /// Whether this address's removal (`undo` false) or Undo (`undo`
+    /// true) was left unknown and is not decided yet: a retry of it that
+    /// writes nothing leaves it so. A change of the other kind is no retry
+    /// of it, and says its own outcome (§5.7; `a_removal_is_no_retry_of_an_unknown_undo`).
+    fn still_unknown(&self, address: &str, undo: bool) -> bool {
+        self.pending.iter().any(|c| match c {
+            Check::Undo(a) => undo && a == address,
+            Check::Remove { address: a, .. } => !undo && a == address,
+            Check::Add(_) => false,
+        })
     }
 
     /// An address's removal or Undo left unknown, kept until decided.
@@ -1345,11 +1350,15 @@ impl Peers {
     /// is said again -- the snackbar shown anew if it had closed or another
     /// had taken its place -- read to the screen reader once more, focus on
     /// its Try again (§5.7, §8).
-    fn still_unknown_again(&mut self, address: &str) {
+    fn still_unknown_again(&mut self, address: &str, undo: bool) {
         let change = self
             .pending
             .iter()
-            .find(|c| pending_address(c) == Some(address))
+            .find(|c| match c {
+                Check::Undo(a) => undo && a == address,
+                Check::Remove { address: a, .. } => !undo && a == address,
+                Check::Add(_) => false,
+            })
             .cloned();
         match &change {
             Some(Check::Undo(a)) => self.say(PeersSnack::UndoUnknown { address: a.clone() }),
@@ -1505,7 +1514,9 @@ impl Peers {
                 Some(b) => self.bar(b),
                 // A Try again that wrote nothing settles nothing: after an
                 // unknown removal the change stays unknown (§5.7).
-                None if self.still_unknown(address) => self.still_unknown_again(address),
+                None if self.still_unknown(address, false) => {
+                    self.still_unknown_again(address, false);
+                }
                 None => self.remove_failed(address),
             },
             Err(AddressChangeFailure::Unconfirmed(_)) => {
@@ -1739,9 +1750,9 @@ impl Peers {
             Err(AddressChangeFailure::NotMade(problem)) => {
                 if let Some(b) = barred(problem) {
                     self.bar(b);
-                } else if self.still_unknown(&address) {
+                } else if self.still_unknown(&address, true) {
                     // As for a removal: an unknown Undo stays unknown.
-                    self.still_unknown_again(&address);
+                    self.still_unknown_again(&address, true);
                 } else {
                     let snack = PeersSnack::UndoFailed {
                         address: address.clone(),
@@ -1974,13 +1985,12 @@ impl Peers {
         if not_made {
             self.unknown_change = None;
         }
-        // The same for every other change left unknown: a list showing it
-        // not made decides it.
-        self.pending.retain(|c| match c {
-            Check::Remove { address, .. } => !listed(list, address),
-            Check::Undo(address) => listed(list, address),
-            Check::Add(_) => true,
-        });
+        // Every other change left unknown is decided by this list as by a
+        // read: it shows the device as it is now, after each was sent.
+        // Only the line on show waits, as above, to be said where it is
+        // (`an_answers_list_decides_the_changes_left_unknown_off_show`).
+        let on_show = self.unknown_change.clone();
+        self.pending.retain(|c| on_show.as_ref() == Some(c));
         let missing = self
             .page
             .as_ref()
@@ -2573,9 +2583,9 @@ mod tests {
             peers.pend(Check::Undo(address(n)));
             assert!(peers.pending.len() <= PLACES_BOUND, "after {n}");
         }
-        assert!(!peers.still_unknown(&address(0)), "the oldest went");
+        assert!(!peers.still_unknown(&address(0), true), "the oldest went");
         assert!(
-            peers.still_unknown(&address(PLACES_BOUND + 9)),
+            peers.still_unknown(&address(PLACES_BOUND + 9), true),
             "the latest kept"
         );
         peers.pend(Check::Undo(address(PLACES_BOUND + 9)));
