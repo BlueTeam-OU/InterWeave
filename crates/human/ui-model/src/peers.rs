@@ -80,9 +80,9 @@ pub enum Refusal {
 }
 
 impl Refusal {
-    /// Whether the refusal is of one line, which it names: not a refusal
-    /// of the whole add -- too many lines, the device at its bound, the
-    /// list off -- which names none (add-a-peer §5.3).
+    /// Whether the refusal is of one line, which it names -- the device's
+    /// bound included -- not a refusal of the whole add, too many lines or
+    /// the list off, which names none (add-a-peer §5.3).
     #[must_use]
     pub const fn names_line(self) -> bool {
         // The device's bound names a line -- the first new one past it, as
@@ -1969,10 +1969,12 @@ impl Peers {
         asked
     }
 
-    /// A list that came with another change's answer: it ends what was
-    /// unknown only where it shows that change not made -- an add's line
-    /// missing, a removed address still listed, an undone one absent --
-    /// and leaves the rest unknown, its answer being another row's.
+    /// A list that came with another change's answer. The change whose
+    /// line is on show -- and an add left unknown on the page -- it ends
+    /// only where it shows it not made: an add's line missing, a removed
+    /// address still listed, an undone one absent; that line is the
+    /// read's to decide aloud. Every other change left unknown it decides
+    /// as a read does, showing the device as it is.
     fn shown_not_made(&mut self) {
         let Some(list) = self.list.as_ref() else {
             return;
