@@ -256,6 +256,8 @@ impl View {
         self.window.set_peers_page(on_page);
         self.window.set_no_reach_shown(model.no_reach());
         let (peers, trust) = (model.peers(), model.trust_settings());
+        // The row focus is in, read before the list retires its handle.
+        let held_row = self.focused_peer_row();
         self.render_peer_list(peers, trust, model);
         self.render_add_page(peers, trust);
         let said = self.render_peers_snack(peers, on_page);
@@ -331,7 +333,55 @@ impl View {
                 }
             }
         }
+        // Focus still in a row, or a control in it, that a later read
+        // dropped -- its request carried out, so neither fresh nor pending
+        // -- goes as for any row gone (design sections 7 and 8), and
+        // PeerRowGone is said where the person acted on it. Focus moved
+        // to a live control is the person's and stays.
+        let handled = on_page && (fresh || pending);
+        if on_page
+            && !handled
+            && !peers.add_open()
+            && let Some(address) = held_row
+            && let Some(target) = peers.focus_after_gone(&address)
+        {
+            if peers.asked_row(&address) {
+                let gone = placeholder_en::text(UiText::PeerRowGone).to_owned();
+                said = Some(said.map_or_else(
+                    || gone.clone(),
+                    |rest| {
+                        fill(
+                            placeholder_en::text(UiText::AnnounceBoth),
+                            &[("first", &gone), ("rest", &rest)],
+                        )
+                    },
+                ));
+            }
+            // Its menu, if open, went with it.
+            self.window.set_peer_menu(-1);
+            let key = self.focus_target(&target, peers.field());
+            self.peer_lists.focus_sent.clone_from(&key);
+            self.focus_key_after_draw(key);
+        }
         said
+    }
+
+    /// The address of the row focus is in -- on the row itself or a
+    /// control in it, by the window's `focus-id` -- while its handle lives.
+    fn focused_peer_row(&self) -> Option<String> {
+        let id = self.window.get_focus_id();
+        let handle = [
+            "row:",
+            "row-menu:",
+            "row-trust:",
+            "row-copy:",
+            "row-remove:",
+        ]
+        .iter()
+        .find_map(|prefix| id.strip_prefix(prefix))?
+        .parse::<i32>()
+        .ok()?;
+        self.peer_lists.row_handles.key_of(handle).cloned()
     }
 
     /// Peers' list, or why it is not on show.

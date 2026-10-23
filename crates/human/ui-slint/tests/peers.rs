@@ -1494,3 +1494,122 @@ fn a_note_under_the_field_is_said_once_each_time_it_is_set() {
     view.render(&model);
     assert!(!view.window().get_add_note_live());
 }
+
+/// Focus that has landed back on a row after the person's act -- a row's
+/// trust step closed, a failed removal's menu -- and a later read drops
+/// that row: focus goes to the row after its place, `PeerRowGone` said
+/// first (design sections 7 and 8). Focus the person moved elsewhere
+/// since stays, and nothing is said.
+#[test]
+fn a_focused_row_a_later_read_drops_is_said_and_focus_follows() {
+    row_held_then_dropped(Held::TrustStep);
+}
+
+/// The menu of a row whose removal failed, focused, then dropped.
+#[test]
+fn a_focused_row_menu_a_later_read_drops_is_said_and_focus_follows() {
+    row_held_then_dropped(Held::RemoveFailed);
+}
+
+/// The control: the person moved focus elsewhere before the read.
+#[test]
+fn a_dropped_row_focus_moved_from_is_left_alone() {
+    row_held_then_dropped(Held::MovedAway);
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Held {
+    TrustStep,
+    RemoveFailed,
+    MovedAway,
+}
+
+fn row_held_then_dropped(held: Held) {
+    use interweave_human_client_api::{AddressChangeFailure, AddressProblem};
+    use interweave_human_ui_model::PeersInput;
+    let settle = |view: &mut View, model: &mut UiModel| {
+        view.render(model);
+        for _ in 0..3 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        }
+        view.render(model);
+    };
+    let slots = |view: &View| {
+        [
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        ]
+    };
+    let handle_of = |view: &View, address: &str| {
+        let rows = view.window().get_peer_rows();
+        (0..rows.row_count())
+            .filter_map(|i| rows.row_data(i))
+            .find(|r| r.address.as_str() == address)
+            .expect("the row")
+            .handle
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    // Added rows show newest first: C, B, A.
+    open_peers(
+        &mut view,
+        &mut model,
+        &me,
+        &[],
+        &[added(&a), added(&b), added(&c)],
+    );
+    let b_handle = handle_of(&view, &at(&b));
+    match held {
+        Held::TrustStep | Held::MovedAway => {
+            let _ = model.peers_input(PeersInput::TrustRow(at(&b)));
+            settle(&mut view, &mut model);
+            let _ = model.peers_input(PeersInput::NotNow(b.clone()));
+            settle(&mut view, &mut model);
+            assert_eq!(
+                view.window().get_focus_id().as_str(),
+                format!("row:{b_handle}"),
+                "landed on B"
+            );
+        }
+        Held::RemoveFailed => {
+            let _ = model.peers_input(PeersInput::Remove(at(&b)));
+            model.address_removed(
+                &at(&b),
+                Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+            );
+            settle(&mut view, &mut model);
+            assert_eq!(
+                view.window().get_focus_id().as_str(),
+                format!("row-menu:{b_handle}"),
+                "landed on B's menu"
+            );
+        }
+    }
+    if held == Held::MovedAway {
+        view.window().set_focus_id("add-address".into());
+    }
+    let before = slots(&view);
+    model.addresses_read(Ok(AddressList {
+        addresses: vec![added(&a), added(&c)],
+    }));
+    view.render(&model);
+    if held == Held::MovedAway {
+        assert_eq!(slots(&view), before, "nothing said");
+        settle(&mut view, &mut model);
+        assert_eq!(view.window().get_focus_id().as_str(), "add-address");
+        return;
+    }
+    let gone = text(UiText::PeerRowGone);
+    assert!(
+        slots(&view).iter().any(|s| s.starts_with(gone)),
+        "{:?}",
+        slots(&view)
+    );
+    settle(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("row:{}", handle_of(&view, &at(&a))),
+        "the row after B's place"
+    );
+}
