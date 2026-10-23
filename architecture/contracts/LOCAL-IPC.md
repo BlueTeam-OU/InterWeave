@@ -632,8 +632,8 @@ on can enter the driver's queue after the client has written again on
 another connection. The daemon bounds that without a wire change: every
 admin connection that holds `admin.trust` or `admin.peers` is stamped
 with its admission order where its port is opened, and the driver keeps,
-per key — a PeerId for `admin.trust.*`, an address in the overlay's
-normalised form for `admin.peers.*` — the stamp of the connection whose
+per key — a PeerId for `admin.trust.*`, an address exactly as written for
+`admin.peers.*`, as the overlay tells its entries apart — the stamp of the connection whose
 write for that key it last applied, an `unchanged` answer counting as
 applied since that write's intent is the state that stands. A write from
 a connection older than that stamp is refused, not applied: `superseded`,
@@ -651,10 +651,11 @@ LATER READ on another connection — never after a later write for the
 same key — so a client that lost an answer re-reads and shows what it
 holds meanwhile as pending; a client that keeps one admin connection open
 while writing on another orders nothing between them. The two cases are
-pinned: a write buffered on one connection, abandoned, a later write on
-another applied, the first dispatched after it and refused with the audit
-line; and the same with a later read, the first write applied after it
-(`tests/local-client-conformance`, at every binding).
+pinned at every binding as two admin ports opened in order
+(`tests/local-client-conformance`): a write on the later port, then one
+on the earlier, refused `superseded`; a read on the later port, then a
+write on the earlier, applied. A write that outlives its connection, and
+the audit line, are the composition's own tests.
 
 ## Peer identity, lock and stale sockets (Unix)
 
