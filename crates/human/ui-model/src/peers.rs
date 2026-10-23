@@ -561,10 +561,11 @@ pub struct Peers {
     /// A row an Undo restored while its list was unread, focused once a
     /// read lists it.
     restored: Option<String>,
-    /// The address whose removal or Undo was left unknown -- its answer
-    /// lost, its read back failed. It stays unknown until a read shows
-    /// it or the runtime answers it (§5.7), whatever the snackbar does.
-    unknown_change: Option<String>,
+    /// The removal or Undo left unknown -- its answer lost, its read back
+    /// failed -- as the check a read decides it by. It stays unknown until
+    /// a read shows it or the runtime answers it (§5.7), whatever the
+    /// snackbar does.
+    unknown_change: Option<Check>,
     /// Peers a Trust from this page was answered as made for while the
     /// trust list is not the daemon's word: their rows read Trusted
     /// (§5.2) until a confirmed list speaks for them. At most one per
@@ -1068,19 +1069,20 @@ impl Peers {
     /// Whether this address's removal or Undo was left unknown: a retry
     /// of it that writes nothing leaves it so.
     fn still_unknown(&self, address: &str) -> bool {
-        self.unknown_change.as_deref() == Some(address)
+        matches!(
+            &self.unknown_change,
+            Some(Check::Remove { address: a, .. } | Check::Undo(a)) if a == address
+        )
     }
 
     /// A retry of an unknown change that wrote nothing: its unknown line
     /// is said again -- the snackbar shown anew if it had closed -- read to
     /// the screen reader once more, focus on its Try again (§5.7, §8).
-    fn still_unknown_again(&mut self, undo: bool) {
-        if let Some(address) = self.unknown_change.clone() {
-            self.say(if undo {
-                PeersSnack::UndoUnknown { address }
-            } else {
-                PeersSnack::RemoveUnknown { address }
-            });
+    fn still_unknown_again(&mut self) {
+        match self.unknown_change.clone() {
+            Some(Check::Undo(address)) => self.say(PeersSnack::UndoUnknown { address }),
+            Some(Check::Remove { address, .. }) => self.say(PeersSnack::RemoveUnknown { address }),
+            Some(Check::Add(_)) | None => {}
         }
         self.ask_focus(PeersFocus::SnackAction);
     }
@@ -1110,7 +1112,6 @@ impl Peers {
                 self.list = Some(list);
                 self.list_problem = None;
                 self.held = Held::AsRead;
-                self.read_shows();
                 if again == Some(Again::List) {
                     self.ask_focus(PeersFocus::Title);
                 }
@@ -1120,6 +1121,7 @@ impl Peers {
                 if let Some(check) = check {
                     self.checked(check, trust);
                 }
+                self.read_decides(trust);
                 if let Some(address) = self.restored.take() {
                     let focus = self.list.as_ref().and_then(|l| {
                         if listed(l, &address) {
@@ -1218,7 +1220,7 @@ impl Peers {
                 Some(b) => self.bar(b),
                 // A Try again that wrote nothing settles nothing: after an
                 // unknown removal the change stays unknown (§5.7).
-                None if self.still_unknown(address) => self.still_unknown_again(false),
+                None if self.still_unknown(address) => self.still_unknown_again(),
                 None => self.remove_failed(address),
             },
             Err(AddressChangeFailure::Unconfirmed(_)) => {
@@ -1405,7 +1407,7 @@ impl Peers {
                     self.bar(b);
                 } else if self.still_unknown(&address) {
                     // As for a removal: an unknown Undo stays unknown.
-                    self.still_unknown_again(true);
+                    self.still_unknown_again();
                 } else {
                     let snack = PeersSnack::UndoFailed {
                         address: address.clone(),
@@ -1525,12 +1527,15 @@ impl Peers {
             // Unknown, the snackbar's Try again is where to go next: the
             // row menu that opened it may be gone (§8).
             Check::Undo(address) => {
-                self.unknown_change = Some(address.clone());
+                self.unknown_change = Some(Check::Undo(address.clone()));
                 self.say(PeersSnack::UndoUnknown { address });
                 self.ask_focus(PeersFocus::SnackAction);
             }
-            Check::Remove { address, .. } => {
-                self.unknown_change = Some(address.clone());
+            Check::Remove { address, before } => {
+                self.unknown_change = Some(Check::Remove {
+                    address: address.clone(),
+                    before,
+                });
                 self.say(PeersSnack::RemoveUnknown { address });
                 self.ask_focus(PeersFocus::SnackAction);
             }
@@ -1543,19 +1548,48 @@ impl Peers {
             self.list = Some(list);
             self.list_problem = None;
             self.held = Held::AsRead;
-            self.read_shows();
+            self.shown_not_made();
         } else {
             self.reread = true;
             self.held = Held::MayHaveChanged;
         }
     }
 
-    /// A list read that succeeded -- alone, or with any change's answer --
-    /// is the runtime's word: no change, a removal, an Undo or an add's
-    /// lines, is unknown any more (§5.7, "until a read shows it").
-    fn read_shows(&mut self) {
-        self.unknown_change = None;
-        if let Some(page) = self.page.as_mut() {
+    /// A read of the list decides what was unknown (§5.7, "until a read
+    /// shows it"), as a lost answer's read back does: an add's lines all
+    /// listed are checked, any missing is not made; a removal or Undo by
+    /// whether its address is listed.
+    fn read_decides(&mut self, trust: &TrustSettings) {
+        if let Some(change) = self.unknown_change.take() {
+            self.checked(change, trust);
+        }
+        if let Some(lines) = self.page.as_mut().and_then(|p| p.unknown.take()) {
+            self.checked(Check::Add(lines), trust);
+        }
+    }
+
+    /// A list that came with another change's answer: it ends what was
+    /// unknown only where it shows that change not made -- an add's line
+    /// missing, a removed address still listed, an undone one absent --
+    /// and leaves the rest unknown, its answer being another row's.
+    fn shown_not_made(&mut self) {
+        let Some(list) = self.list.as_ref() else {
+            return;
+        };
+        let not_made = match &self.unknown_change {
+            Some(Check::Remove { address, .. }) => listed(list, address),
+            Some(Check::Undo(address)) => !listed(list, address),
+            _ => false,
+        };
+        if not_made {
+            self.unknown_change = None;
+        }
+        let missing = self
+            .page
+            .as_ref()
+            .and_then(|p| p.unknown.as_ref())
+            .is_some_and(|lines| lines.iter().any(|l| !listed(list, l)));
+        if missing && let Some(page) = self.page.as_mut() {
             page.unknown = None;
         }
     }

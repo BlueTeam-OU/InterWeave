@@ -2309,3 +2309,85 @@ fn focus_never_goes_to_a_row_the_list_no_longer_has() {
     );
     assert_eq!(focus(&m), Some(PeersFocus::AddAddress), "no row at all");
 }
+
+/// A read decides an unknown change whichever way it shows it (§5.7): a
+/// plain read listing an unknown add's line settles it as checked; one
+/// lacking an unknown removal's address settles it as removed. A list
+/// that came with another row's answer and shows the change made leaves
+/// it unknown -- a retry that writes nothing then still says so, never a
+/// not-written text whose claim the list contradicts.
+#[test]
+fn a_read_decides_an_unknown_change_either_way() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let lost = || {
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        ))
+    };
+    let not_written = || Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable));
+
+    // An add: unknown, then a plain read (a session ready again) lists it.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&a)], lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(m.read_addresses(), Some(Intent::ReadAddresses));
+    m.addresses_read(Ok(list(&[added(&a)])));
+    assert_eq!(
+        m.peers().add_result(),
+        Some(&AddResult::Checked { lines: 1 }),
+        "the read showed it saved: checked"
+    );
+
+    // A removal: unknown, then a plain read lacks it: removed.
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(m.read_addresses(), Some(Intent::ReadAddresses));
+    m.addresses_read(Ok(list(&[added(&b)])));
+    assert!(
+        matches!(m.peers().snack().0, Some(PeersSnack::Removed { address, .. }) if *address == at(&a)),
+        "{:?}",
+        m.peers().snack().0
+    );
+
+    // A removal: unknown, its snackbar still up, then an add's answer
+    // brings a list lacking it -- shown made, so not ended -- and the
+    // snackbar's Try again that writes nothing stays unknown.
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let other = format!("/ip4/192.168.1.30/tcp/4001/p2p/{}", b.as_str());
+    let _ = input(&mut m, PeersInput::FieldChanged(other.clone()));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[other],
+        answer(
+            AddressOutcome::Refused(AddressRefused::Grammar),
+            &[added(&b)],
+        ),
+    );
+    let _ = input(&mut m, PeersInput::Close);
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveUnknown { address: at(&a) })
+    );
+    assert_eq!(
+        input(&mut m, PeersInput::TryAgain),
+        vec![Intent::RemoveAddress(at(&a))]
+    );
+    m.address_removed(&at(&a), not_written());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveUnknown { address: at(&a) }),
+        "never \"still in the list\": the last list lacked it"
+    );
+}
