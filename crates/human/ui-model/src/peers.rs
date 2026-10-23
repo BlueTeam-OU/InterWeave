@@ -2075,6 +2075,30 @@ impl Peers {
         }
     }
 
+    /// Where focus goes from `address`'s row, or a control in it, holding
+    /// focus when a read dropped it: the row after its place as last
+    /// drawn, else the one before, else Add an address (§7, §8); `None`
+    /// while it is listed, or no list is on show.
+    #[must_use]
+    pub fn focus_after_gone(&self, address: &str) -> Option<PeersFocus> {
+        let list = self.list.as_ref()?;
+        if listed(list, address) {
+            return None;
+        }
+        Some(self.drawn_focus(&PeersFocus::Row(address.to_owned())))
+    }
+
+    /// Whether the last focus asked for named `address`'s row or its
+    /// menu: the person's own act on it, after which its going is said
+    /// (`PeerRowGone`, §8).
+    #[must_use]
+    pub fn asked_row(&self, address: &str) -> bool {
+        matches!(
+            self.focus.as_ref(),
+            Some(PeersFocus::Row(row) | PeersFocus::RowMenu(row)) if row == address
+        )
+    }
+
     /// Whether the focus asked for is a row a read showed gone, removed
     /// elsewhere: `PeerRowGone` is announced before focus moves (§8).
     #[must_use]
