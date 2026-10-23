@@ -183,6 +183,9 @@ pub(crate) struct PeerLists {
     block_handles: crate::Handles<TransportIdentity>,
     /// The focus request last carried out, by the model's count.
     focus_seen: u64,
+    /// The add page's note last drawn, by the model's count, and its text.
+    note_seen: u64,
+    note_text: String,
     /// The snackbar last drawn, by the model's count, and the one timed.
     snack_seen: u64,
     snack_timed: u64,
@@ -225,6 +228,8 @@ impl PeerLists {
             block_keys: Vec::new(),
             block_handles: crate::Handles::new(),
             focus_seen: 0,
+            note_seen: 0,
+            note_text: String::new(),
             snack_seen: 0,
             snack_timed: 0,
         }
@@ -242,6 +247,17 @@ impl View {
         self.render_peer_list(peers, trust);
         self.render_add_page(peers, trust);
         let said = self.render_peers_snack(peers, on_page);
+        // A note set again with the same words -- an unknown add retried
+        // without a write -- changes nothing a live region hears, so it
+        // is said here (design section 5.7).
+        let (note, notes) = peers.add_note_said();
+        let text = note.map(|n| note_text(self.host, n)).unwrap_or_default();
+        let again = notes != self.peer_lists.note_seen
+            && !text.is_empty()
+            && text == self.peer_lists.note_text;
+        self.peer_lists.note_seen = notes;
+        self.peer_lists.note_text.clone_from(&text);
+        let said = said.or_else(|| (on_page && again).then_some(text));
         // Focus, once per request, on Peers alone.
         let (focus, focuses) = peers.focus();
         if on_page && focuses != self.peer_lists.focus_seen {
