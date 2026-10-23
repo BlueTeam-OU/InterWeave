@@ -75,6 +75,7 @@ pub mod kademlia_driver;
 pub mod mdns_driver;
 mod messages;
 mod network_change;
+mod own_addresses;
 mod path_race;
 pub mod relay_driver;
 pub mod relay_server_driver;
@@ -1171,7 +1172,8 @@ impl SwarmRuntime {
         config.validate()?;
 
         let keypair = identity.swarm_keypair();
-        let local_peer = to_transport_identity(&PeerId::from_public_key(&keypair.public()))?;
+        let own_peer_id = PeerId::from_public_key(&keypair.public());
+        let local_peer = to_transport_identity(&own_peer_id)?;
 
         // THE ROOT ADMISSION EXISTS BEFORE THE SWARM. The outbound gate
         // inside the behaviour admits behaviour-originated dials through
@@ -1688,7 +1690,7 @@ impl SwarmRuntime {
         // or dial a placeholder.
         let mut listens: PendingListens = HashMap::new();
         // Listeners that have bound. See `ActiveListeners`.
-        let mut active: ActiveListeners = HashMap::new();
+        let mut active: ActiveListeners = ActiveListeners::new();
 
         // Outbound direct exchanges awaiting an answer.
         //
@@ -1751,6 +1753,7 @@ impl SwarmRuntime {
         let task_stores = stores.clone();
         let task_dcutr = dcutr_counters.clone();
         let task_punches = punch_addresses.clone();
+        let own_identity = local_peer.clone();
         let task = tokio::spawn(async move {
             // Events translated but not yet handed over.
             //
@@ -2502,6 +2505,27 @@ impl SwarmRuntime {
                                     })
                                     .collect();
                                 let _ = reply.send(rows);
+                            }
+                            Some(SwarmCommand::OwnAddresses { reply }) => {
+                                // Causes nothing: a photograph of what the
+                                // drivers advertise and the listeners
+                                // bound, selected in one place.
+                                let circuits = relay_state
+                                    .as_ref()
+                                    .map(relay_driver::RelayState::circuits)
+                                    .unwrap_or_default();
+                                let own = own_addresses::select(
+                                    own_peer_id,
+                                    own_identity.clone(),
+                                    autonat_state
+                                        .as_ref()
+                                        .map_or(&[][..], |a| a.confirmed())
+                                        .iter()
+                                        .map(String::as_str),
+                                    circuits.iter().map(String::as_str),
+                                    active.values().flatten().filter(|a| network.holds(a)),
+                                );
+                                let _ = reply.send(own);
                             }
                             Some(SwarmCommand::Status { peer, reply }) => {
                                 let now = now_ms(started);

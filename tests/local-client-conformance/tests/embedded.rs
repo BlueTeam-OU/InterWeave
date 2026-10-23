@@ -166,6 +166,8 @@ struct EmbeddedPair {
     b: Node,
     a_peer: TransportIdentity,
     b_peer: TransportIdentity,
+    /// The static-bootstrap entry A's profile authors: B's address.
+    a_authored: String,
 }
 
 impl EmbeddedPair {
@@ -182,11 +184,12 @@ impl EmbeddedPair {
             .map(|(_, port)| port)
             .expect("a TCP listener");
         let b_addr = format!("/ip4/{ip}/tcp/{port}/p2p/{}", b.peer.as_str());
-        a.provision(&b.peer, &[b_addr]);
+        a.provision(&b.peer, std::slice::from_ref(&b_addr));
         a.start();
         let pair = Self {
             a_peer: a.peer.clone(),
             b_peer: b.peer.clone(),
+            a_authored: b_addr,
             a,
             b,
         };
@@ -596,5 +599,28 @@ fn a_platform_view_reaches_the_runtime_and_offline_closes_what_ran_from_the_addr
     });
     assert!(told(&heard), "offline closed the connection: {heard:?}");
     drop(watcher);
+    pair.stop();
+}
+
+#[test]
+fn bootstrap_addresses_answer_alike_at_every_binding() {
+    let pair = EmbeddedPair::start();
+    let (a, _) = pair.bindings();
+    pair.run(suite::bootstrap_addresses_answer_alike_at_every_binding(
+        &a,
+        &pair.a_authored,
+    ));
+    pair.stop();
+}
+
+#[test]
+fn own_addresses_are_what_an_add_takes() {
+    let pair = EmbeddedPair::start();
+    let (a, b) = pair.bindings();
+    pair.run(suite::own_addresses_are_what_an_add_takes(
+        &a,
+        &pair.a_peer,
+        &b,
+    ));
     pair.stop();
 }

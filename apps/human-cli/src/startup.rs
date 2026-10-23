@@ -10,13 +10,14 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use interweave_human_app_core::leasable_endpoints;
+use interweave_human_store::key_custody::{FilesystemCustody, KeyCipher};
 use interweave_human_store::{HumanStore, STORE_FILE, StoreError, StoreOptions};
 use interweave_profile_config::{
     HumanClientLock, PersistError, ProfileConfig, ProfilePaths, XdgRoots,
 };
 use interweave_transport_api::{ChannelId, EndpointId};
 
-use crate::Failure;
+use crate::{Failure, output};
 
 /// The client kind this client leases under: the human client's, the
 /// same as the desktop's, since the profile's endpoints allow that kind.
@@ -37,13 +38,6 @@ pub(crate) struct Profile {
     pub(crate) data_socket: PathBuf,
     /// The daemon's admin socket.
     pub(crate) admin_socket: PathBuf,
-}
-
-impl Profile {
-    /// The store's file.
-    pub(crate) fn store_path(&self) -> PathBuf {
-        self.paths.human_dir().join(STORE_FILE)
-    }
 }
 
 /// An invalid profile NAME is said without the name: it is argv.
@@ -104,48 +98,87 @@ pub(crate) fn lock(profile: &Profile) -> Result<HumanClientLock, Failure> {
     })
 }
 
+/// Why the store did not open, by what a person can do about it: the
+/// desktop's classes (`apps/human-desktop/src/startup.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Blocked {
+    /// Its files or its key cannot be read by this build: recovery, where
+    /// discard and recreate is offered (ADR-0060 decision 6).
+    Recovery,
+    /// It or its directory is not private to this user.
+    NotPrivate,
+    /// It could not be opened now.
+    Unavailable,
+}
+
+impl Blocked {
+    /// Its token, as `store health` prints it.
+    pub(crate) const fn token(self) -> &'static str {
+        match self {
+            Self::Recovery => "needs-recovery",
+            Self::NotPrivate => "not-private",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
 /// Open the store, under the lock the caller holds, by the desktop's
-/// classes: recovery, not private, or not now. Nothing here touches the
-/// file but the store's open, which leaves a file needing recovery where
-/// it was (`crates/human/store/tests/storage_failure.rs`,
+/// classes. Nothing here touches the file but the store's open, which
+/// leaves a file needing recovery where it was
+/// (`crates/human/store/tests/storage_failure.rs`,
 /// `a_migration_that_fails_part_way_leaves_the_file_at_its_old_version_with_every_row`).
 ///
 /// # Errors
 /// [`Failure::Store`] saying which.
 pub(crate) fn open_store(profile: &Profile) -> Result<HumanStore, Failure> {
-    let path = profile.store_path();
     // The store key at the v1 desktop's custody (ADR-0060 decision 3), as
     // the desktop's: a filesystem custody reports no invalidation.
-    HumanStore::open_profile(
-        &profile.paths,
-        &interweave_human_store::key_custody::FilesystemCustody,
-        StoreOptions::default(),
-    )
-    .map_err(|error| {
-        Failure::Store(
-            if error.needs_recovery() || matches!(error, StoreError::KeyInvalidated) {
-                format!(
-                    "the message store at {} cannot be read by this version and needs recovery; \
-                 it was not renamed, moved or deleted",
-                    path.display()
-                )
-            } else if matches!(
-                error,
-                StoreError::NotAFile { .. }
-                    | StoreError::PermissionsTooOpen { .. }
-                    | StoreError::DirectoryNotPrivate { .. }
-            ) {
-                format!(
+    open_store_at(&profile.paths, &FilesystemCustody).map_err(|(_, failure)| failure)
+}
+
+/// [`open_store`] under `cipher`, with the class it was refused by.
+///
+/// # Errors
+/// The class, and [`Failure::Store`] saying it.
+pub(crate) fn open_store_at(
+    paths: &ProfilePaths,
+    cipher: &dyn KeyCipher,
+) -> Result<HumanStore, (Blocked, Failure)> {
+    let path = paths.human_dir().join(STORE_FILE);
+    HumanStore::open_profile(paths, cipher, StoreOptions::default()).map_err(|error| {
+        if error.needs_recovery() || matches!(error, StoreError::KeyInvalidated) {
+            (
+                Blocked::Recovery,
+                Failure::Store(format!(
+                    "the message store at {} cannot be read by this version and needs \
+                     recovery; it was not renamed, moved or deleted (see store discard)",
+                    output::one_line(&path.display().to_string())
+                )),
+            )
+        } else if matches!(
+            error,
+            StoreError::NotAFile { .. }
+                | StoreError::PermissionsTooOpen { .. }
+                | StoreError::DirectoryNotPrivate { .. }
+        ) {
+            (
+                Blocked::NotPrivate,
+                Failure::Store(format!(
                     "the message store at {} or its directory is not private to this user; \
-                 refusing to use it: {error}",
-                    path.display()
-                )
-            } else {
-                format!(
-                    "the message store at {} could not be opened now: {error}",
-                    path.display()
-                )
-            },
-        )
+                     refusing to use it: {}",
+                    output::one_line(&path.display().to_string()),
+                    output::one_line(&error.to_string())
+                )),
+            )
+        } else {
+            (
+                Blocked::Unavailable,
+                Failure::Store(format!(
+                    "the message store at {} could not be opened now: {}",
+                    output::one_line(&path.display().to_string()),
+                    output::one_line(&error.to_string())
+                )),
+            )
+        }
     })
 }

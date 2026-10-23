@@ -1157,7 +1157,9 @@ pub(super) fn handle_command(
         // The task loop answers it, since it reads state this function is
         // not given; were one to arrive here, the dropped reply answers
         // the caller `Stopped` rather than a photograph missing half.
-        SwarmCommand::Status { .. } | SwarmCommand::PeerGates { .. } => {}
+        SwarmCommand::Status { .. }
+        | SwarmCommand::PeerGates { .. }
+        | SwarmCommand::OwnAddresses { .. } => {}
     }
 }
 
@@ -1349,7 +1351,7 @@ pub(super) fn forget_address(
     listener: ListenerId,
     address: &Multiaddr,
 ) -> bool {
-    let Some(addresses) = active.get_mut(&listener) else {
+    let Some(addresses) = active.get_mut(listener) else {
         return false;
     };
     let before = addresses.len();
@@ -1380,7 +1382,7 @@ pub(super) fn translate(
             }
             // REMEMBERED FROM HERE ON. A listener may report several
             // addresses, so this accumulates rather than replaces.
-            active.entry(listener_id).or_default().push(address.clone());
+            active.entry_or_default(listener_id).push(address.clone());
             Some(SwarmEvent::Listening { address })
         }
         // ONE ADDRESS GONE IS NOT THE LISTENER GONE. libp2p reports an
@@ -1428,7 +1430,7 @@ pub(super) fn translate(
             // close when a listener that already closed on its own is
             // removed as well, and the first drained the table. Pinned by
             // `a_second_close_of_a_listener_the_consumer_never_saw_is_not_reported`.
-            active.remove(&listener_id)?;
+            active.remove(listener_id)?;
             Some(SwarmEvent::ListeningStopped {
                 addresses,
                 reason: reason.err().map(|e| e.to_string()),
@@ -2022,7 +2024,7 @@ mod command_helper_tests {
         // told a listener it never saw stopped.
         let id = ListenerId::next();
         let mut listens: super::PendingListens = std::collections::HashMap::new();
-        let mut active: ActiveListeners = std::collections::HashMap::new();
+        let mut active: ActiveListeners = ActiveListeners::new();
         let mut abandoned = Vec::new();
         // THE CONTROL: a listener the consumer was told about is told
         // stopped, once.
@@ -2065,7 +2067,7 @@ mod command_helper_tests {
 
         assert!(forget_address(&mut active, id, &addr(1)));
         assert_eq!(
-            active.get(&id).map(Vec::as_slice),
+            active.get(id).map(Vec::as_slice),
             Some([addr(2)].as_slice()),
             "only the expired address goes"
         );
@@ -2087,7 +2089,7 @@ mod command_helper_tests {
 
         assert!(forget_address(&mut active, id, &addr(3)));
         assert!(
-            active.contains_key(&id),
+            active.contains_key(id),
             "the listener is still open and still counted"
         );
         assert_eq!(active.len(), 1);

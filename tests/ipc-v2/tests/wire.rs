@@ -1090,7 +1090,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
     let mut admin = Client::connect(&subject.paths.admin).await;
     admin
         .hello(
-            r#"{"type":"hello","ipc_version":{"major":2,"minor":7},
+            r#"{"type":"hello","ipc_version":{"major":2,"minor":8},
             "client":{"kind":"transportctl"},
             "requested_capabilities":["admin.status","admin.endpoints","admin.shutdown",
                 "admin.trust","admin.peers"]}"#,
@@ -1151,7 +1151,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         ),
     };
     let added = bootstrap();
-    let admin_requests: [(&str, Request); 13] = [
+    let admin_requests: [(&str, Request); 14] = [
         ("status", Request::AdminStatus),
         ("list", Request::AdminEndpointsList),
         ("trust", Request::AdminTrustList(TrustListParams::default())),
@@ -1195,6 +1195,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         ("add", Request::AdminPeersAddAddress(added.clone())),
         ("addresses", Request::AdminPeersListAddresses),
         ("remove", Request::AdminPeersRemoveAddress(added)),
+        ("own", Request::AdminPeersOwnAddresses),
         (
             "shutdown",
             Request::AdminShutdown(ShutdownParams {

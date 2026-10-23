@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:interweave:schemas:ipc:peers-own-addresses",
+  "title": "IPC admin.peers.own_addresses result",
+  "description": "This node's own addresses for the show screen (ADR-0062 decision 4), one ordered list a client renders as it comes and never filters: every confirmed external address (AutoNAT-verified, kind confirmed_external) in the order it was confirmed; then, only when there is none -- the node is relay-only -- each circuit route through a reservation it holds (kind relay_circuit); then every listen address bound on an interface (kind listen) in bind order. Every row is in the classes the add admits: the configuration's multiaddr-with-peer-id grammar, ending in /p2p/<peer>, and no component in a special-use class of ADR-0052 rule 2 (private ranges admitted), the floor applied by the transport. At most 64 rows; past them the rest is dropped in that order and `truncated` says so. The QR's 16-line cut is the client's. Params: the empty object.",
+  "type": "object",
+  "required": [
+    "peer",
+    "addresses",
+    "truncated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "peer": {
+      "$ref": "urn:interweave:schemas:common:peer-id"
+    },
+    "addresses": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": [
+          "address",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "kind": {
+            "enum": [
+              "confirmed_external",
+              "relay_circuit",
+              "listen"
+            ]
+          }
+        }
+      }
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "x-contract": {
+    "name": "ipc.peers-own-addresses",
+    "status": "approved",
+    "version": "1.0.0",
+    "adr": [
+      "0062",
+      "0017",
+      "0035",
+      "0052"
+    ],
+    "specification": "architecture/contracts/LOCAL-IPC.md"
+  }
+}

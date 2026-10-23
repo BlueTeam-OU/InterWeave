@@ -33,8 +33,9 @@ pub mod binding;
 pub use binding::{
     AddressChange, AddressRefusal, AddressSource, AdminBinding, AdminPort, AdminStatus,
     BootstrapAddress, DataSessionBinding, DataSessionPort, EndpointAdminView, IngressCounts,
-    LeaseRecord, PeerGateView, PeerOutcome, PreAuthCounts, ReceivedBroadcast, ReceivedDirect,
-    SessionEvent, SessionRequest, TrustAdminView, TrustSource, TrustedPeer,
+    LeaseRecord, MAX_OWN_ADDRESSES, OwnAddress, OwnAddressKind, OwnAddresses, PeerGateView,
+    PeerOutcome, PreAuthCounts, ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest,
+    TrustAdminView, TrustSource, TrustedPeer,
 };
 
 use interweave_transport_api::{

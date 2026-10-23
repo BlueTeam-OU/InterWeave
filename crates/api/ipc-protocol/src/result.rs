@@ -14,8 +14,9 @@ use std::collections::BTreeSet;
 
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AdminStatus, BootstrapAddress, EndpointAdminView,
-    Generation, IngressCounts, LeaseRecord, MAX_CLIENT_KIND_CHARS, PeerGateView, PeerOutcome,
-    PreAuthCounts, TrustAdminView, TrustSource,
+    Generation, IngressCounts, LeaseRecord, MAX_CLIENT_KIND_CHARS, MAX_OWN_ADDRESSES, OwnAddress,
+    OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome, PreAuthCounts, TrustAdminView,
+    TrustSource,
 };
 use interweave_transport_api::{
     ConnectivitySummary, EndpointDirectoryV1, EndpointId, Health, MAX_DIRECTORY_ENTRIES,
@@ -966,6 +967,128 @@ impl<'de> Deserialize<'de> for AddressResult {
     }
 }
 
+/// `ipc/peers-own-addresses`: this node's own addresses for the show
+/// side (ADR-0062 decision 4), one ordered list the transport selected
+/// and floored, which a client renders as it comes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OwnAddressList {
+    /// This node's `PeerId`.
+    pub peer: TransportIdentity,
+    /// At most [`MAX_OWN_ADDRESSES`], in the order the transport chose.
+    pub addresses: Vec<OwnAddressRow>,
+    /// Whether rows past the bound were dropped.
+    pub truncated: bool,
+}
+
+/// One `peers-own-addresses` row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnAddressRow {
+    /// A `multiaddr-with-peer-id` an add takes.
+    #[serde(deserialize_with = "crate::request::bounded_address")]
+    pub address: String,
+    /// What it is.
+    pub kind: OwnKind,
+}
+
+/// `peers-own-addresses`' closed `kind` set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OwnKind {
+    /// Verified reachable by AutoNAT.
+    ConfirmedExternal,
+    /// A circuit route through a held reservation.
+    RelayCircuit,
+    /// A bound listener.
+    Listen,
+}
+
+impl From<OwnAddressKind> for OwnKind {
+    fn from(kind: OwnAddressKind) -> Self {
+        match kind {
+            OwnAddressKind::ConfirmedExternal => Self::ConfirmedExternal,
+            OwnAddressKind::RelayCircuit => Self::RelayCircuit,
+            OwnAddressKind::Listen => Self::Listen,
+        }
+    }
+}
+
+impl From<OwnKind> for OwnAddressKind {
+    fn from(kind: OwnKind) -> Self {
+        match kind {
+            OwnKind::ConfirmedExternal => Self::ConfirmedExternal,
+            OwnKind::RelayCircuit => Self::RelayCircuit,
+            OwnKind::Listen => Self::Listen,
+        }
+    }
+}
+
+impl OwnAddressList {
+    /// The port's answer.
+    ///
+    /// # Errors
+    /// [`TransportError::Internal`] for more rows than the contract
+    /// carries: a port that answered that broke its own bound, and the
+    /// server answers so rather than truncating.
+    pub fn from_view(own: OwnAddresses) -> Result<Self, TransportError> {
+        if own.addresses.len() > MAX_OWN_ADDRESSES {
+            return Err(TransportError::Internal);
+        }
+        Ok(Self {
+            peer: own.peer,
+            addresses: own
+                .addresses
+                .into_iter()
+                .map(|row| OwnAddressRow {
+                    address: row.address,
+                    kind: row.kind.into(),
+                })
+                .collect(),
+            truncated: own.truncated,
+        })
+    }
+}
+
+impl From<OwnAddressList> for OwnAddresses {
+    fn from(list: OwnAddressList) -> Self {
+        Self {
+            peer: list.peer,
+            addresses: list
+                .addresses
+                .into_iter()
+                .map(|row| OwnAddress {
+                    address: row.address,
+                    kind: row.kind.into(),
+                })
+                .collect(),
+            truncated: list.truncated,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for OwnAddressList {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            peer: TransportIdentity,
+            addresses: Vec<OwnAddressRow>,
+            truncated: bool,
+        }
+        let wire = Wire::deserialize(d)?;
+        if wire.addresses.len() > MAX_OWN_ADDRESSES {
+            return Err(serde::de::Error::custom(format!(
+                "at most {MAX_OWN_ADDRESSES} addresses"
+            )));
+        }
+        Ok(Self {
+            peer: wire.peer,
+            addresses: wire.addresses,
+            truncated: wire.truncated,
+        })
+    }
+}
+
 /// `ipc/peers-address-list`: every bootstrap address, authored first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AddressList {
@@ -1471,6 +1594,29 @@ mod tests {
         assert!(
             bytes + 1_024 <= crate::framing::MAX_BODY_BYTES,
             "{bytes} bytes for {MAX_BOOTSTRAP_ADDRESS_ROWS} rows"
+        );
+    }
+
+    /// The own-address list at its bound -- 64 rows of the longest
+    /// address the wire admits, the longest kind name each -- fits the
+    /// body with room for the frame, so one answer and no paging.
+    #[test]
+    fn a_full_own_address_list_of_the_longest_rows_fits_the_body() {
+        let list = OwnAddressList {
+            peer: synthetic_peer(1),
+            addresses: vec![
+                OwnAddressRow {
+                    address: "a".repeat(crate::MAX_BOOTSTRAP_ADDRESS_CHARS),
+                    kind: OwnKind::ConfirmedExternal,
+                };
+                MAX_OWN_ADDRESSES
+            ],
+            truncated: true,
+        };
+        let bytes = serde_json::to_vec(&list).expect("serializes").len();
+        assert!(
+            bytes + 1_024 <= crate::framing::MAX_BODY_BYTES,
+            "{bytes} bytes for {MAX_OWN_ADDRESSES} rows"
         );
     }
 
