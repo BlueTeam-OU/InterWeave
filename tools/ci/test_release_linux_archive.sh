@@ -381,7 +381,11 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 for f in "$OA" "$OA.sha256" "$OUT/linux-values.json"; do printf 'a previous run\n' > "$f"; done
 [[ -e "$OA" && -e "$OA.sha256" && -e "$OUT/linux-values.json" ]] || fail "the control: a previous run's outputs"
-build "$OTHER" "$OUT"
+# Not build(), which empties the out-dir first.
+SOURCE_DATE_EPOCH=1760000000 RELEASE_METADATA_JSON="$M" RELEASE_COMPILED_LIST="$C" \
+    bash "$UNDER_TEST" --bin-dir "$BIN" "$OTHER" "$OUT" >/dev/null 2>"$SANDBOX/err"
+grep -qF "is not the workspace version" "$SANDBOX/err" \
+    || fail "the control: the run was not refused for its version" "$(cat "$SANDBOX/err")"
 [[ ! -e "$OA" && ! -e "$OA.sha256" && ! -e "$OUT/linux-values.json" ]] \
     && pass "a version refused as not the workspace's leaves none of a previous run's outputs" \
     || fail "a version refused as not the workspace's left a previous run's outputs" "$(ls -A "$OUT")"
