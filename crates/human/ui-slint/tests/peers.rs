@@ -1757,3 +1757,41 @@ fn removal_read_back(kept: bool, moved: bool) {
     };
     assert_eq!(view.window().get_focus_id().as_str(), wanted, "{case}");
 }
+
+/// An Undo refused by name shows that refusal's own words, and no Try
+/// again (design section 5.2).
+#[test]
+fn an_undo_refused_by_name_is_drawn_in_its_own_words_without_an_action() {
+    use interweave_human_client_api::{AddressAnswer, AddressOutcome, AddressRefused};
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a), added(&me)]);
+    let _ = model.peers_input(PeersInput::Remove(at(&me)));
+    model.address_removed(
+        &at(&me),
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Removed,
+            list: Ok(AddressList {
+                addresses: vec![added(&a)],
+            }),
+        }),
+    );
+    let _ = model.peers_input(PeersInput::Undo);
+    model.addresses_added(
+        &[at(&me)],
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Refused(AddressRefused::OwnPeer),
+            list: Ok(AddressList {
+                addresses: vec![added(&a)],
+            }),
+        }),
+    );
+    view.render(&model);
+    assert_eq!(
+        view.window().get_peers_snack_text().as_str(),
+        text(UiText::RefusedOwnAddress)
+    );
+    assert!(!view.window().get_peers_snack_action_shown());
+}

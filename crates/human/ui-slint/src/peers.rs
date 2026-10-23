@@ -805,13 +805,23 @@ fn snack_text(snack: &PeersSnack) -> String {
         PeersSnack::Removed { .. } => text(UiText::ConfirmAddressRemoved),
         PeersSnack::RemoveFailed { .. } => text(UiText::RemoveFailed),
         PeersSnack::RemoveUnknown { .. } => text(UiText::RemoveUnknown),
+        // Each refusal by its own words (design section 5.2): the
+        // device's bound and the list off as Add an address says them,
+        // any refusal of the address itself as the add page does.
         PeersSnack::UndoRefused(Refusal::ListOff) => text(UiText::PeersListOff),
-        PeersSnack::UndoRefused(_) => {
+        PeersSnack::UndoRefused(Refusal::Limit) => {
             return fill(
                 text(UiText::PeersLimit),
                 &[("max", &ADDRESS_BOUND.to_string())],
             );
         }
+        PeersSnack::UndoRefused(
+            why @ (Refusal::Grammar
+            | Refusal::SpecialUse
+            | Refusal::DnsFromScan
+            | Refusal::TooMany
+            | Refusal::OwnAddress),
+        ) => return refusal_text(*why),
         PeersSnack::UndoFailed { .. } => text(UiText::UndoFailed),
         PeersSnack::UndoUnknown { .. } => text(UiText::UndoUnknown),
         PeersSnack::Added => text(UiText::ConfirmAddressAdded),
