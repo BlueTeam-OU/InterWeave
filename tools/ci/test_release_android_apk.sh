@@ -11,7 +11,10 @@
 # sandbox. The happy path is the positive control: the signed APK
 # verifies with v2 and v3 and no v1, its hash file checks, and the
 # fingerprint the script prints is the keystore's. Each refusal leaves
-# no signed APK behind. apksigner runs behind a wrapper that logs its
+# no signed APK behind. The workspace version is a throwaway cargo
+# workspace's, given as --root, so a pre-release, a version that is not
+# the workspace's and one carrying build metadata are each run at a
+# workspace chosen for the case (ADR-0065). apksigner runs behind a wrapper that logs its
 # arguments, so the test sees that no password reached a command line.
 #
 # Needs the Android SDK build tools (aapt2, zipalign, apksigner), an
@@ -48,6 +51,7 @@ for t in aapt2 zipalign apksigner; do
 done
 command -v keytool >/dev/null || skip "no keytool"
 command -v python3 >/dev/null || skip "no python3"
+command -v cargo >/dev/null || skip "no cargo"
 
 failures=0
 SANDBOX="$(realpath -- "$(mktemp -d)")"
@@ -107,6 +111,18 @@ PY
 # entries <dir> <glob>: whether the directory holds a name the glob matches.
 entries() { compgen -G "$1/$2" >/dev/null; }
 
+# workspace <dir> <version>: a workspace whose two members inherit it.
+workspace() {
+    mkdir -p "$1/a/src" "$1/b/src"
+    printf '[workspace]\nmembers = ["a", "b"]\nresolver = "2"\n\n[workspace.package]\nversion = "%s"\nedition = "2021"\n' "$2" > "$1/Cargo.toml"
+    for m in a b; do
+        printf '[package]\nname = "%s"\nversion.workspace = true\nedition.workspace = true\n' "$m" > "$1/$m/Cargo.toml"
+        : > "$1/$m/src/lib.rs"
+    done
+}
+WS="$SANDBOX/ws"
+workspace "$WS" 0.4.1
+
 OUT="$SANDBOX/out"
 sign() {
     rm -rf "$OUT"
@@ -115,7 +131,7 @@ sign() {
     INTERWEAVE_RELEASE_KEY_ALIAS="${KEY:-rel}" \
     INTERWEAVE_RELEASE_KEYSTORE_PASS="$PASS" \
     INTERWEAVE_RELEASE_CERT_SHA256="${CERT-$REL_CERT}" \
-        bash "$UNDER_TEST" "$@" >"$SANDBOX/stdout" 2>"$SANDBOX/err"
+        bash "$UNDER_TEST" --root "${ROOT:-$WS}" "$@" >"$SANDBOX/stdout" 2>"$SANDBOX/err"
 }
 
 echo "release_android_apk.sh:"
@@ -189,10 +205,40 @@ refused() {
 
 KEY=other refused "a key other than the release key" "not the release key's" \
     0.4.1 "$SANDBOX/good.apk" "$OUT"
-refused "a tag that is not the APK's versionName" "versionName is '0.4.1', not 0.4.2" \
+# At a workspace of 0.4.2, so the versionName is what refuses it.
+workspace "$SANDBOX/ws-0.4.2" 0.4.2
+ROOT="$SANDBOX/ws-0.4.2" refused "a tag that is not the APK's versionName" "versionName is '0.4.1', not 0.4.2" \
     0.4.2 "$SANDBOX/good.apk" "$OUT"
-refused "a version that is not MAJOR.MINOR.PATCH" "not MAJOR.MINOR.PATCH" \
-    v0.4.1 "$SANDBOX/good.apk" "$OUT"
+grammar="is not v<MAJOR>.<MINOR>.<PATCH>[-<pre-release>]"
+refused "a version with its tag's v" "$grammar" v0.4.1 "$SANDBOX/good.apk" "$OUT"
+refused "a version that is not MAJOR.MINOR.PATCH" "$grammar" 0.4 "$SANDBOX/good.apk" "$OUT"
+# An APK of the same string, so only the grammar can refuse it.
+make_apk "$SANDBOX/meta.apk" org.interweave.human 0.4.1+build.7 false arm64-v8a
+refused "a version carrying build metadata" "$grammar" 0.4.1+build.7 "$SANDBOX/meta.apk" "$OUT"
+# The APK says 0.4.2 too: only the workspace, at 0.4.1, refuses it.
+make_apk "$SANDBOX/next.apk" org.interweave.human 0.4.2 false arm64-v8a
+refused "a version that is not the workspace's" "is not the workspace version 0.4.1" \
+    0.4.2 "$SANDBOX/next.apk" "$OUT"
+ROOT="$SANDBOX/no-such-workspace" sign 0.4.1 "$SANDBOX/good.apk" "$OUT"
+rc=$?
+if [[ $rc -eq 2 ]] && grep -qF "cargo metadata failed" "$SANDBOX/err" && ! ls "$OUT"/*.apk >/dev/null 2>&1; then
+    pass "a workspace cargo cannot read is exit 2, nothing signed"
+else
+    fail "a workspace cargo cannot read exited $rc" "$(cat "$SANDBOX/err")"
+fi
+
+# A pre-release, at a workspace of that version: signed under its full
+# version, which the values file carries.
+workspace "$SANDBOX/ws-rc" 0.5.0-rc.1
+make_apk "$SANDBOX/rc.apk" org.interweave.human 0.5.0-rc.1 false arm64-v8a
+RC="$OUT/interweave-0.5.0-rc.1-arm64-v8a.apk"
+if ROOT="$SANDBOX/ws-rc" sign 0.5.0-rc.1 "$SANDBOX/rc.apk" "$OUT" \
+    && [[ -f "$RC" ]] && (cd "$OUT" && sha256sum -c --quiet "$(basename "$RC").sha256") \
+    && grep -qF '"check:apk_version": "0.5.0-rc.1"' "$OUT/android-values.json"; then
+    pass "a pre-release is signed under its full version"
+else
+    fail "a pre-release at its own workspace was not signed as one" "$(cat "$SANDBOX/err"; ls -A "$OUT" 2>/dev/null)"
+fi
 make_apk "$SANDBOX/pkg.apk" org.interweave.other 0.4.1 false arm64-v8a
 refused "another package" "not org.interweave.human" 0.4.1 "$SANDBOX/pkg.apk" "$OUT"
 make_apk "$SANDBOX/dbg.apk" org.interweave.human 0.4.1 true arm64-v8a
@@ -270,7 +316,7 @@ rm -rf "$OUT"
 if PATH="$STUB:$PATH" ANDROID_BUILD_TOOLS="$TOOLS" \
     INTERWEAVE_RELEASE_KEYSTORE="$SANDBOX/rel.p12" INTERWEAVE_RELEASE_KEY_ALIAS=rel \
     INTERWEAVE_RELEASE_KEYSTORE_PASS="$PASS" INTERWEAVE_RELEASE_CERT_SHA256="$REL_CERT" \
-    bash "$UNDER_TEST" 0.4.1 "$SANDBOX/good.apk" "$OUT" >/dev/null 2>"$SANDBOX/err"; then
+    bash "$UNDER_TEST" --root "$WS" 0.4.1 "$SANDBOX/good.apk" "$OUT" >/dev/null 2>"$SANDBOX/err"; then
     fail "a run whose values file cannot be moved succeeded"
 elif ! grep -q 'refused by the test' "$SANDBOX/err"; then
     fail "the stub was not reached at the last move" "$(cat "$SANDBOX/err")"
@@ -285,7 +331,7 @@ printf 'a previous run\n' > "$SIGNED"
 ANDROID_BUILD_TOOLS="$TOOLS" INTERWEAVE_RELEASE_KEYSTORE="$SANDBOX/other.p12" \
     INTERWEAVE_RELEASE_KEY_ALIAS=other INTERWEAVE_RELEASE_KEYSTORE_PASS="$PASS" \
     INTERWEAVE_RELEASE_CERT_SHA256="$REL_CERT" \
-    bash "$UNDER_TEST" 0.4.1 "$SANDBOX/good.apk" "$OUT" >/dev/null 2>&1
+    bash "$UNDER_TEST" --root "$WS" 0.4.1 "$SANDBOX/good.apk" "$OUT" >/dev/null 2>&1
 [[ ! -e "$SIGNED" ]] && pass "a refused run leaves no previous run's APK of the same name" \
     || fail "a refused run left a previous run's APK"
 
@@ -299,7 +345,7 @@ for f in "$SIGNED" "$SIGNED.sha256" "$OUT/android-values.json"; do printf 'a pre
 ANDROID_BUILD_TOOLS="$TOOLS" INTERWEAVE_RELEASE_KEYSTORE="$SANDBOX/rel.p12" \
     INTERWEAVE_RELEASE_KEY_ALIAS=rel INTERWEAVE_RELEASE_KEYSTORE_PASS="$PASS" \
     INTERWEAVE_RELEASE_CERT_SHA256="$REL_CERT" \
-    bash "$UNDER_TEST" 0.4.1 "$SANDBOX/no-such.apk" "$OUT" >/dev/null 2>"$SANDBOX/err"
+    bash "$UNDER_TEST" --root "$WS" 0.4.1 "$SANDBOX/no-such.apk" "$OUT" >/dev/null 2>"$SANDBOX/err"
 rc=$?
 if [[ $rc -eq 1 ]] && grep -qF "no APK at" "$SANDBOX/err" \
     && [[ ! -e "$SIGNED" && ! -e "$SIGNED.sha256" && ! -e "$OUT/android-values.json" ]]; then
