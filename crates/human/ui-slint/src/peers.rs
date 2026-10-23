@@ -185,8 +185,8 @@ pub(crate) struct PeerLists {
     block_handles: crate::Handles<TransportIdentity>,
     /// The focus request last carried out, by the model's count.
     focus_seen: u64,
-    /// The key that request was sent as, and whether `PeerRowGone` was
-    /// said for it: a read before its deferred move may change the
+    /// The key that request was sent as, and whether `PeerRowGoneAfterAct`
+    /// was said for it: a read before its deferred move may change the
     /// target (`a_row_gone_before_its_focus_moves_is_said_and_focus_follows`).
     focus_sent: String,
     focus_gone_said: bool,
