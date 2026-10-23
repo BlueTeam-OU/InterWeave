@@ -272,10 +272,12 @@ def main() -> int:
         record["steps"] = steps
 
         # No screen is answered, so one that asks is a failed run: the
-        # development warning, or any numbered menu (the TUI pads its
-        # columns with spaces, so they are squeezed first).
-        squeezed = re.sub(r"\s+", " ", text())
-        asked = re.search(r"Loading development channels|\u276f ?1\.", squeezed)
+        # development warning, or any numbered menu. The TUI places words by
+        # cursor moves, which text() strips, so the screen has no spaces to
+        # match (S19 recorded "WARNING:Loadingdevelopmentchannels"); all
+        # whitespace is removed and the patterns are written without it.
+        bare = re.sub(r"\s+", "", text())
+        asked = re.search(r"Loadingdevelopmentchannels|\u276f1\.", bare)
         record["screen_prompt"] = asked.group(0) if asked else None
         passed = passed and asked is None
 
@@ -376,14 +378,24 @@ def stop_group(pid, pump, steps=(("session", signal.SIGINT, 5), ("group", signal
         if not alive():
             break
         if target == "session":
+            # Only what was delivered is recorded: no child, no signal.
+            reached = []
             for child in children(pid):
                 try:
                     os.kill(child, sig)
+                    reached.append(child)
                 except ProcessLookupError:
                     pass
+            sent.append(f"{signal.Signals(sig).name} to the session" if reached
+                        else f"{signal.Signals(sig).name}: no session process to send it to")
         else:
-            os.killpg(pid, sig)
-        sent.append(f"{signal.Signals(sig).name} to the {target}")
+            try:
+                os.killpg(pid, sig)
+            except ProcessLookupError:
+                # The group emptied since alive() asked: nothing left to stop,
+                # and the caller's cleanup must still run.
+                break
+            sent.append(f"{signal.Signals(sig).name} to the group")
         end = time.time() + grace
         while time.time() < end and alive():
             if pump(0.2) is False:
