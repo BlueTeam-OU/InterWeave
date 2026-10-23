@@ -902,11 +902,21 @@ impl Peers {
         let Some(page) = self.page.as_mut() else {
             return;
         };
-        let empty = lines_of(&text).is_empty();
+        let lines = lines_of(&text);
+        let empty = lines.is_empty();
         match page.note {
             Some(AddNote::AddressNeeded) if !empty => page.note = None,
             Some(AddNote::ScanAfterField) if empty => page.note = None,
             _ => {}
+        }
+        // An add left unknown speaks for the lines it sent: an edit away
+        // from them is the person's own later act, so no read decides the
+        // earlier add over it -- clearing the edit or moving the page on
+        // (§5.7, "the field kept"); Peers' next read shows a stored
+        // address as a row
+        // (`an_unknown_add_decided_after_the_field_was_edited_keeps_the_edit`).
+        if page.unknown.as_ref().is_some_and(|sent| *sent != lines) {
+            page.unknown = None;
         }
         page.field = text;
     }

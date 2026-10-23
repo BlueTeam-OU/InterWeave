@@ -3803,3 +3803,52 @@ fn an_undo_refused_focus_is_placed_not_acted_on() {
     m.addresses_read(Ok(list(&[added(&c)])));
     assert!(!m.peers().focus_row_gone());
 }
+
+/// An add left unknown, then the field edited to other text not yet
+/// sent: a later read that shows the earlier add made decides nothing
+/// over the edit -- the field, its page at step one and its focus stand --
+/// since the unknown line no longer speaks for what is in the field. The
+/// control: the field left as sent is decided as before.
+#[test]
+fn an_unknown_add_decided_after_the_field_was_edited_keeps_the_edit() {
+    let (me, them, other) = (peer(), peer(), peer());
+    let line = at(&them);
+    let start = || {
+        let mut m = opened(&me, &[], &[]);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::FieldChanged(line.clone()));
+        let _ = input(&mut m, PeersInput::Add);
+        m.addresses_added(
+            std::slice::from_ref(&line),
+            Err(AddressChangeFailure::Unconfirmed(
+                AddressProblem::Unavailable,
+            )),
+        );
+        assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+        m.addresses_read(Err(AddressProblem::Unavailable));
+        assert_eq!(
+            m.peers().add_page_note(),
+            Some(&AddNote::Unknown { lines: 1 })
+        );
+        m
+    };
+    for edited in [true, false] {
+        let mut m = start();
+        if edited {
+            let _ = input(&mut m, PeersInput::FieldChanged(at(&other)));
+        }
+        m.addresses_read(Ok(list(&[added(&them)])));
+        if edited {
+            assert_eq!(m.peers().field(), at(&other), "the edit stands");
+            assert_eq!(m.peers().add_result(), None, "no step two for the old add");
+            assert!(m.peers().add_open());
+            assert_eq!(focus(&m), Some(PeersFocus::AddButton), "focus not moved");
+        } else {
+            assert_eq!(
+                m.peers().add_result(),
+                Some(&AddResult::Checked { lines: 1 }),
+                "decided as sent"
+            );
+        }
+    }
+}
