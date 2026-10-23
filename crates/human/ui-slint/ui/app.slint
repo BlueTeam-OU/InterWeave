@@ -562,8 +562,11 @@ component FocusNote inherits FocusScope {
         if (root.focus-wanted) { root.focus(); }
     }
     callback focused(string);
+    // A note that says a change as it happens, read without focus.
+    in property <bool> live;
     accessible-role: AccessibleRole.text;
     accessible-label: root.text;
+    accessible-live-region: root.live ? AccessibleLiveness.polite : AccessibleLiveness.off;
     changed has-focus => {
         if (self.has-focus) { root.focused(root.focus-key); }
     }
@@ -3230,14 +3233,16 @@ export component AppWindow inherits Window {
                             focused(k) => { root.focus-id = k; }
                         }
                     }
-                    if root.add-step-one && root.add-note != "": Text {
+                    // Focusable: not permitted or incompatible sends focus
+                    // here (design section 8).
+                    if root.add-step-one && root.add-note != "": FocusNote {
                         text: root.add-note;
-                        font-size: Type.body-medium;
-                        wrap: word-wrap;
-                        min-width: 0;
-                        accessible-role: text;
-                        accessible-label: self.text;
-                        accessible-live-region: polite;
+                        rtl: root.rtl;
+                        live: true;
+                        focus-key: "add-note";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "add-note";
+                        focused(k) => { root.focus-id = k; }
                     }
                     // Step one done: one line naming what was added, then step
                     // two, one block per PeerId not trusted yet.

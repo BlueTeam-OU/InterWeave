@@ -623,3 +623,29 @@ fn escape_on_the_add_page_is_its_back() {
     assert!(!view.window().get_peers_add_open(), "step two: Done");
     assert!(view.window().get_peers_snack_shown());
 }
+
+/// An add refused as not permitted puts keyboard focus on the line under
+/// Add, which says why (design section 8).
+#[test]
+fn a_barred_add_focuses_the_line_under_add() {
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    let _ = model.peers_input(PeersInput::FieldChanged(at(&a)));
+    let _ = model.peers_input(PeersInput::Add);
+    model.addresses_added(
+        &[at(&a)],
+        Err(interweave_human_client_api::AddressChangeFailure::NotMade(
+            interweave_human_client_api::AddressProblem::NotPermitted,
+        )),
+    );
+    view.render(&model);
+    for _ in 0..2 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    }
+    view.render(&model);
+    assert_eq!(view.window().get_focus_id().as_str(), "add-note");
+}
