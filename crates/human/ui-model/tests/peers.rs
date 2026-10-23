@@ -2823,3 +2823,151 @@ fn a_verdict_on_an_earlier_unknown_change_never_takes_a_later_ones_place() {
         "no step one from the old add"
     );
 }
+
+/// A row reads Trusted on a Trust from this page answered as made, with
+/// the trust list unread, only while that answer is the last word on its
+/// peer (§5.2): any later change of the peer that may have been written
+/// -- a revoke on the Trust page made, read back or not, or left
+/// unconfirmed; a later Trust unconfirmed or lost with its page -- and a
+/// new session leave it not known. A revoke that wrote nothing leaves it
+/// Trusted, and a read that confirms the list decides it, however the
+/// next one fares.
+#[test]
+fn a_trust_made_here_is_dropped_by_any_later_change_of_its_peer() {
+    use interweave_human_client_api::{ClientEvent, SessionState};
+    use interweave_human_ui_model::TrustInput;
+    let (me, p) = (peer(), peer());
+    let allow = TrustChange {
+        peer: p.clone(),
+        allowed: true,
+    };
+    let revoke = TrustChange {
+        peer: p.clone(),
+        allowed: false,
+    };
+    let unread = || Err(TrustProblem::Unavailable);
+    // P trusted as last read; then the list unread, P trusted from its
+    // row, answered as made and not read back.
+    let made = || {
+        let mut m = opened(&me, std::slice::from_ref(&p), &[added(&p)]);
+        let _ = m.trust_settings_mut().opened();
+        m.trust_settings_mut().read(unread());
+        // The trust step reads the unread list itself: unread again.
+        assert_eq!(
+            input(&mut m, PeersInput::TrustRow(at(&p))),
+            vec![Intent::ReadTrust]
+        );
+        m.trust_settings_mut().read(unread());
+        let _ = input(&mut m, PeersInput::Trust(p.clone()));
+        m.trust_settings_mut().set(
+            allow.clone(),
+            Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Unavailable)),
+        );
+        let _ = m.peers_turn();
+        assert_eq!(
+            m.trust_settings_mut().take_reread(),
+            Some(Intent::ReadTrust)
+        );
+        m.trust_settings_mut().read(unread());
+        let _ = m.peers_turn();
+        m
+    };
+    let state = |m: &UiModel| m.peers().rows(m.trust_settings())[0].state;
+    let revoked = |m: &mut UiModel, answer| {
+        let settings = m.trust_settings_mut();
+        settings.propose_revoke(&p);
+        assert_eq!(
+            settings.input(TrustInput::Confirm(revoke.clone())),
+            Some(Intent::SetTrust(revoke.clone()))
+        );
+        settings.set(revoke.clone(), answer);
+        let _ = m.peers_turn();
+    };
+
+    let m = made();
+    assert_eq!(state(&m), RowState::Trusted, "the control");
+
+    for answer in [
+        Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Unavailable)),
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    ] {
+        let mut m = made();
+        revoked(&mut m, answer.clone());
+        assert_eq!(state(&m), RowState::TrustUnknown, "{answer:?}");
+    }
+    let mut m = made();
+    revoked(
+        &mut m,
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    assert_eq!(state(&m), RowState::Trusted, "nothing written");
+
+    // A revoke read back, then a read that fails before the next turn.
+    let mut m = made();
+    let settings = m.trust_settings_mut();
+    settings.propose_revoke(&p);
+    let _ = settings.input(TrustInput::Confirm(revoke.clone()));
+    settings.set(
+        revoke.clone(),
+        Ok(TrustList {
+            local_peer: Some(me.clone()),
+            allowed: Vec::new(),
+        }),
+    );
+    let _ = settings.opened();
+    settings.read(unread());
+    let _ = m.peers_turn();
+    assert_eq!(state(&m), RowState::TrustUnknown, "never Trusted again");
+
+    // Another peer's change read back with a list that no longer has P
+    // (removed elsewhere), Q's change shown made or not by it: the list
+    // speaks for P too, then a read fails.
+    let q = peer();
+    for q_listed in [true, false] {
+        let mut m = made();
+        let settings = m.trust_settings_mut();
+        let _ = settings.input(TrustInput::EntryChanged(q.as_str().to_owned()));
+        let _ = settings.input(TrustInput::ProposeAllow);
+        let other = TrustChange {
+            peer: q.clone(),
+            allowed: true,
+        };
+        let _ = settings.input(TrustInput::Confirm(other.clone()));
+        settings.set(
+            other,
+            Ok(TrustList {
+                local_peer: Some(me.clone()),
+                allowed: if q_listed {
+                    vec![TrustRow::added_here(q.clone())]
+                } else {
+                    Vec::new()
+                },
+            }),
+        );
+        let _ = settings.opened();
+        settings.read(unread());
+        let _ = m.peers_turn();
+        assert_eq!(state(&m), RowState::TrustUnknown, "Q listed: {q_listed}");
+    }
+
+    // A later Trust of P unconfirmed, or lost with its page.
+    let mut m = made();
+    let _ = input(&mut m, PeersInput::TrustRow(at(&p)));
+    let _ = input(&mut m, PeersInput::Trust(p.clone()));
+    m.trust_settings_mut().set(
+        allow.clone(),
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    assert_eq!(state(&m), RowState::TrustUnknown, "unconfirmed");
+    let mut m = made();
+    let _ = input(&mut m, PeersInput::TrustRow(at(&p)));
+    let _ = input(&mut m, PeersInput::Trust(p.clone()));
+    let _ = input(&mut m, PeersInput::Close);
+    assert_eq!(state(&m), RowState::TrustUnknown, "lost with its page");
+
+    // A new session: the runtime may be another.
+    let mut m = made();
+    m.client_event(ClientEvent::Session(SessionState::Ready { endpoint: None }));
+    assert_eq!(state(&m), RowState::TrustUnknown, "a new session");
+}

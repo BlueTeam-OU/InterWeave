@@ -673,6 +673,9 @@ impl UiModel {
             // have folded the ending into it
             // (`a_session_event_clears_every_path`).
             ClientEvent::Session(state) => {
+                if matches!(state, SessionState::Ready { .. }) {
+                    self.trust.session_ready();
+                }
                 self.session = state;
                 self.paths.clear();
             }

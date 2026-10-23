@@ -591,11 +591,6 @@ pub struct Peers {
     /// verdict on the earlier change never takes
     /// (`a_verdict_on_an_earlier_unknown_change_never_takes_a_later_ones_place`).
     unknown_mark: u64,
-    /// Peers a Trust from this page was answered as made for while the
-    /// trust list is not the daemon's word: their rows read Trusted
-    /// (§5.2) until a confirmed list speaks for them. At most one per
-    /// step-two block.
-    trusted_here: Vec<TransportIdentity>,
     /// This node's `PeerId`, from the session; else the trust list as
     /// last read names it.
     this_device: Option<TransportIdentity>,
@@ -1712,9 +1707,6 @@ impl Peers {
     /// owed, and step two's blocks once trust answered.
     pub fn turn(&mut self, trust: &TrustSettings) -> Option<Intent> {
         self.trust_answers(trust);
-        if trust.confirmed_list().is_some() {
-            self.trusted_here.clear();
-        }
         // The trust line's Try again answered: the rows with their states
         // and focus on the title, or the line again and focus kept on Try
         // again (§8).
@@ -1785,9 +1777,6 @@ impl Peers {
                         // back: known, trusted (§5.3).
                         Some(TrustOutcome::Changed(c)) if c.peer == block.peer => {
                             block.known = Some(true);
-                            if !self.trusted_here.contains(&block.peer) {
-                                self.trusted_here.push(block.peer.clone());
-                            }
                         }
                         Some(TrustOutcome::Unconfirmed(c)) if c.peer == block.peer => {
                             block.checking = true;
@@ -1988,13 +1977,9 @@ impl Peers {
                 // This node's PeerId as `own` gives it -- the session's,
                 // else the trust list's as kept.
                 _ if a.peer.is_some() && a.peer.as_ref() == own => RowState::ThisDevice,
-                None if a
-                    .peer
-                    .as_ref()
-                    .is_some_and(|p| self.trusted_here.contains(p)) =>
-                {
-                    RowState::Trusted
-                }
+                // A Trust from this page answered as made, nothing of its
+                // peer since: the daemon's last word on it (§5.2).
+                None if a.peer.as_ref().is_some_and(|p| trust.trusted_here(p)) => RowState::Trusted,
                 None => RowState::TrustUnknown,
                 Some(l) if a.peer.as_ref().is_some_and(|p| l.allows(p)) => RowState::Trusted,
                 Some(_) => RowState::NeedsTrust,

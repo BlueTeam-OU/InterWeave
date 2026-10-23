@@ -129,6 +129,13 @@ pub struct TrustSettings {
     outcome_from: OutcomeFrom,
     /// Where the read owed came from: a step's re-read is the step's.
     reread_from: OutcomeFrom,
+    /// Peers a trust step's allow was answered as made for, while the
+    /// list is not the daemon's word: their rows read Trusted (add-a-peer
+    /// §5.2) until a confirmed list speaks for them. Decided as each
+    /// answer lands: any later change of the peer that may have been
+    /// written drops it, as does its answer lost or a new session
+    /// (`a_trust_made_here_is_dropped_by_any_later_change_of_its_peer`).
+    made_here: Vec<TransportIdentity>,
 }
 
 /// Whether a list kept is the daemon's word.
@@ -285,6 +292,7 @@ impl TrustSettings {
                 }
                 self.list = Some(list);
                 self.held = Held::AsRead;
+                self.made_here.clear();
                 // A read ends what was sent before it started, never a
                 // change sent while it was on its way.
                 let from = self.read_from;
@@ -328,6 +336,11 @@ impl TrustSettings {
                 self.reread_from = from;
             }
         }
+        // A later change of the peer that may have been written: what an
+        // earlier allow made here said of it no longer stands.
+        if !matches!(answer, Err(TrustSetFailure::NotMade(_))) {
+            self.made_here.retain(|p| p != &change.peer);
+        }
         // Answered as made: what a lost change of this peer left pending
         // is known now. Unconfirmed sets it pending again below.
         if matches!(answer, Ok(_) | Err(TrustSetFailure::MadeNotReadBack(_))) {
@@ -340,6 +353,7 @@ impl TrustSettings {
             Ok(list) if list.allows(&change.peer) != change.allowed => {
                 self.list = Some(list);
                 self.held = Held::AsRead;
+                self.made_here.clear();
                 self.reread = true;
                 self.reread_from = from;
                 self.say(TrustOutcome::Unconfirmed(change), from);
@@ -348,10 +362,14 @@ impl TrustSettings {
                 self.made(&change);
                 self.list = Some(list);
                 self.held = Held::AsRead;
+                self.made_here.clear();
                 self.say(TrustOutcome::Changed(change), from);
             }
             Err(TrustSetFailure::MadeNotReadBack(_)) => {
                 self.made(&change);
+                if change.allowed && from == OutcomeFrom::TrustStep {
+                    self.made_here.push(change.peer.clone());
+                }
                 self.held = Held::MayHaveChanged;
                 self.reread = true;
                 self.reread_from = from;
@@ -416,7 +434,22 @@ impl TrustSettings {
         self.lost.retain(|(p, _)| p != peer);
         self.lost.push((peer.clone(), self.sent));
         self.held = Held::MayHaveChanged;
+        self.made_here.retain(|p| p != peer);
         self.unanswered = Some(change);
+    }
+
+    /// A session became ready: the runtime may be another, so what an
+    /// allow made on the last one said no longer stands.
+    pub fn session_ready(&mut self) {
+        self.made_here.clear();
+    }
+
+    /// Whether a trust step's allow of `peer` was answered as made and
+    /// no later change of it may have been written since, while the list
+    /// is not the daemon's word.
+    #[must_use]
+    pub fn trusted_here(&self, peer: &TransportIdentity) -> bool {
+        self.made_here.contains(peer)
     }
 
     /// Whether a change of `peer`'s trust is pending: its answer lost,
