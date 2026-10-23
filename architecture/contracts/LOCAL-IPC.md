@@ -649,8 +649,10 @@ every client already reads as nothing changed and re-reads. What is not
 bounded, and is stated here: a lost write may still take effect after a
 LATER READ on another connection — never after a later write for the
 same key — so a client that lost an answer re-reads and shows what it
-holds meanwhile as pending; a client that keeps one admin connection open
-while writing on another orders nothing between them. The two cases are
+holds meanwhile as pending; a read orders nothing, on any connection; a write is
+ordered only by the order its port opened, so a client that opens a
+second admin port while keeping the first finds the first's writes
+refused `superseded` for every key the second has written. The two cases are
 pinned at every binding as two admin ports opened in order
 (`tests/local-client-conformance`): a write on the later port, then one
 on the earlier, refused `superseded`; a read on the later port, then a
