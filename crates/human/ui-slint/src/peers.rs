@@ -327,12 +327,6 @@ impl View {
                     .as_ref()
                     .map(|p| model.contact_names_on(p))
                     .unwrap_or_default();
-                let label = names
-                    .iter()
-                    .map(String::as_str)
-                    .chain(std::iter::once(short.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("\n");
                 PeerAddressRow {
                     handle: self.peer_lists.row_handles.of(&r.address),
                     peer: short.clone().into(),
@@ -342,7 +336,6 @@ impl View {
                             .map(SharedString::from)
                             .collect::<Vec<_>>(),
                     )),
-                    label: label.into(),
                     host: host_port(&r.address).into(),
                     address: r.address.clone().into(),
                     // Trust unknown: no state at all, neither trusted nor

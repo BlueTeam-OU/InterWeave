@@ -723,8 +723,8 @@ fn a_barred_add_focuses_the_line_under_add() {
 }
 
 /// A row whose `PeerId` has contacts draws each name on its own line
-/// above the short `PeerId`, and a screen reader names the row by them
-/// (design section 5.2).
+/// above the short `PeerId`, each its own screen-reader item (design
+/// section 5.2).
 #[test]
 fn a_rows_contact_names_are_drawn_one_per_line() {
     use interweave_human_ui_model::{ContactView, RouteView};
@@ -752,15 +752,9 @@ fn a_rows_contact_names_are_drawn_one_per_line() {
         .map(|i| row.names.row_data(i).expect("a name").to_string())
         .collect();
     assert_eq!(names, vec!["Ann".to_owned(), "Smith, John".to_owned()]);
-    assert_eq!(
-        row.label.as_str(),
-        format!("Ann\nSmith, John\n{}", short_peer(p.as_str()))
-    );
-    assert!(
-        !labelled(
-            &view,
-            &format!("Ann\nSmith, John\n{}", short_peer(p.as_str()))
-        )
-        .is_empty()
-    );
+    // Each name its own screen-reader item, never one label joining them;
+    // the row itself is named by its short PeerId.
+    assert_eq!(labelled(&view, "Ann").len(), 1);
+    assert_eq!(labelled(&view, "Smith, John").len(), 1);
+    assert!(!labelled(&view, &short_peer(p.as_str())).is_empty());
 }

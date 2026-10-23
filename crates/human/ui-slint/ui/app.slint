@@ -171,9 +171,6 @@ export struct PeerAddressRow {
     // The names of the identity in front's contacts on its PeerId, one
     // per line, never joined (design 2026-10-22-add-a-peer section 5.2).
     names: [string],
-    // What a screen reader names the row by: the names, then the short
-    // PeerId.
-    label: string,
     host: string,
     // The whole address, which Copy address copies.
     address: string,
@@ -3022,19 +3019,23 @@ export component AppWindow inherits Window {
                                     if (self.has-focus) { root.focus-id = "row:" + row.handle; }
                                 }
                                 accessible-role: text;
-                                accessible-label: row.label;
+                                accessible-label: row.peer;
                                 accessible-description: row.state == "" ? row.host + ". " + row.origin : row.host + ". " + row.state + ". " + row.origin;
                                 VerticalLayout {
                                     spacing: 2px;
                                     // Each name its own plain-text line,
-                                    // wrapped, never cut short.
+                                    // wrapped, never cut short, and its own
+                                    // item to a screen reader, never one
+                                    // label joining them (design 5.2): a
+                                    // typed name may hold "and" or a comma.
                                     for name in row.names: Text {
                                         text: name;
                                         font-size: Type.title-small;
                                         font-weight: 500;
                                         wrap: word-wrap;
                                         min-width: 0;
-                                        accessible-role: none;
+                                        accessible-role: text;
+                                        accessible-label: name;
                                     }
                                     Text {
                                         text: row.peer;
