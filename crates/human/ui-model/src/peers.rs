@@ -26,6 +26,8 @@
 //! after the request left and the list is read back before anything is
 //! said; not permitted; and a runtime too old for the methods.
 
+use std::collections::BTreeMap;
+
 use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
     AddressProblem, AddressRefused, PeerAddress, TrustProblem,
@@ -565,8 +567,14 @@ pub struct Peers {
     focuses: u64,
     /// The rows in the order last drawn, a row a read dropped kept at its
     /// place: where focus goes for a row removed elsewhere (§8). At most
-    /// [`PLACES_BOUND`], the oldest dropped going first.
+    /// [`PLACES_BOUND`] while a list holds no more, the row dropped
+    /// longest ago going first.
     places: Vec<String>,
+    /// Each dropped row in `places`, with the count of drops when it
+    /// was: the order the bound evicts them in.
+    dropped: BTreeMap<String, u64>,
+    /// Rows dropped so far.
+    drops: u64,
     /// Where focus went after the last removal, for an Undo refused.
     after_remove: Option<PeersFocus>,
     /// A row an Undo restored while its list was unread, focused once a
@@ -1809,11 +1817,25 @@ impl Peers {
                 .find_map(|before| places.iter().position(|p| p == before));
             places.insert(after.map_or(0, |i| i + 1), row.clone());
         }
+        for row in &places {
+            if listed(&list, row) {
+                self.dropped.remove(row);
+            } else if !self.dropped.contains_key(row) {
+                self.dropped.insert(row.clone(), self.drops);
+                self.drops = self.drops.wrapping_add(1);
+            }
+        }
         while places.len() > PLACES_BOUND {
-            let Some(oldest) = places.iter().position(|p| !listed(&list, p)) else {
+            let Some(oldest) = self
+                .dropped
+                .iter()
+                .min_by_key(|(_, at)| **at)
+                .map(|(row, _)| row.clone())
+            else {
                 break;
             };
-            places.remove(oldest);
+            self.dropped.remove(&oldest);
+            places.retain(|p| *p != oldest);
         }
         self.places = places;
         self.list = Some(list);
@@ -2085,8 +2107,7 @@ mod tests {
     }
 
     /// Reads that each drop every row keep the places of at most
-    /// `PLACES_BOUND` rows, every listed one among them, the oldest
-    /// dropped going first.
+    /// `PLACES_BOUND` rows, every listed one among them.
     #[test]
     fn places_never_pass_their_bound() {
         let mut peers = Peers::default();
@@ -2108,5 +2129,36 @@ mod tests {
                 .all(|a| peers.places.contains(&a.address)),
             "the latest dropped kept"
         );
+    }
+
+    /// The row dropped just now keeps its place when the bound evicts,
+    /// wherever it stands among the rows: the bound goes by when a row
+    /// was dropped, not by its place in the order.
+    #[test]
+    fn the_bound_evicts_the_row_dropped_longest_ago() {
+        let mut peers = Peers::default();
+        // Added rows show newest first: the older half shows last, so
+        // when a read drops it, it stays after the rows still listed.
+        let all = rows(0, PLACES_BOUND);
+        let old = rows(0, ADDRESS_BOUND);
+        let new = rows(ADDRESS_BOUND, PLACES_BOUND);
+        peers.set_list(all);
+        peers.set_list(new.clone());
+        assert_eq!(peers.places.len(), PLACES_BOUND);
+        // The row shown first dropped now, another added: one place too
+        // many, and the row dropped now stands before every older one.
+        let mut next = new;
+        let gone = next.addresses.pop().expect("a row").address;
+        next.addresses
+            .extend(rows(PLACES_BOUND, PLACES_BOUND + 1).addresses);
+        peers.set_list(next);
+        assert_eq!(peers.places.first(), Some(&gone), "it stands first");
+        assert_eq!(peers.places.len(), PLACES_BOUND);
+        let old_left = old
+            .addresses
+            .iter()
+            .filter(|a| peers.places.contains(&a.address))
+            .count();
+        assert_eq!(old_left, ADDRESS_BOUND - 1, "one dropped long ago went");
     }
 }
