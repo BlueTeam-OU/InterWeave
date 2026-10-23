@@ -1353,8 +1353,6 @@ impl Peers {
         }
     }
 
-    /// A Remove or an Undo answered not permitted or incompatible: Peers
-    /// goes to its unreadable state with that line, focus on it.
     /// An add whose page closed while it was on its way, answered: no
     /// page's to show -- no note, no result, no snackbar -- the list it
     /// brings, or the read a lost answer owes, shows what is stored, and
@@ -1392,6 +1390,8 @@ impl Peers {
         }
     }
 
+    /// A Remove or an Undo answered not permitted or incompatible: Peers
+    /// goes to its unreadable state with that line, focus on it.
     fn bar(&mut self, b: Barred) {
         self.list = None;
         self.list_problem = Some(ListProblem::Barred(b));
