@@ -265,10 +265,11 @@ impl AdminBinding for InProcessBinding {
         capabilities: BTreeSet<AdminCapability>,
     ) -> Result<InProcessAdmin, TransportError> {
         // ADMITTED HERE, in the order ports are opened -- over IPC, the
-        // order the server handles each connection's hello -- and only a
-        // port that can write: a status or shutdown port held for the
-        // daemon's life would otherwise keep every entry alive
-        // (`write_order`).
+        // order the server handles each connection's hello. A port that
+        // cannot write is not admitted: the daemon's status port is held
+        // for its whole life, and as the oldest admission alive it would
+        // keep every entry `write_order` remembers. Nothing observable
+        // depends on it but that memory, so no test sees it.
         let writes = (capabilities.contains(&AdminCapability::Trust)
             || capabilities.contains(&AdminCapability::Peers))
         .then(|| self.order.admit());

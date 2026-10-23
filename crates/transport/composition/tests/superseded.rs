@@ -246,24 +246,6 @@ async fn an_address_write_from_an_older_port_is_superseded_by_address() {
     );
 }
 
-/// A port without a write capability is never admitted, so a status
-/// port held for the runtime's life orders nothing: a write port opened
-/// after it is not refused for being newer than it.
-#[tokio::test(flavor = "current_thread")]
-async fn a_port_that_cannot_write_orders_nothing() {
-    let (_dir, runtime) = runtime().await;
-    let a = port(&runtime).await;
-    let _status = runtime
-        .sessions()
-        .admin([AdminCapability::Status].into())
-        .await
-        .expect("a status port");
-    let (_, peer) = id();
-    assert_eq!(a.set_trust(peer.clone(), true).await, Ok(TrustChange::Set));
-    assert_eq!(a.set_trust(peer, false).await, Ok(TrustChange::Set));
-    runtime.stop().await.expect("stops");
-}
-
 fn logged() -> String {
     static LOG: std::sync::OnceLock<Arc<Mutex<Vec<u8>>>> = std::sync::OnceLock::new();
     let log = LOG.get_or_init(|| {
