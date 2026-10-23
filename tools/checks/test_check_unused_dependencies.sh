@@ -59,6 +59,7 @@ crate() {
 fresh_sandbox() {
     cleanup
     SANDBOX="$(mktemp -d)"
+    [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_unused_dependencies: no sandbox (mktemp failed)" >&2; exit 1; }
     mkdir -p "$SANDBOX/tools/checks"
     cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
     printf '[workspace]\nresolver = "2"\nmembers = ["crates/app", "crates/util", "crates/util_extra"]\n' > "$SANDBOX/Cargo.toml"

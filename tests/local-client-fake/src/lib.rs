@@ -45,11 +45,13 @@ use std::task::{Poll, Waker};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use interweave_local_client_api::{
-    AdminBinding, AdminCapability, AdminPort, AdminStatus, DataCapability, DataSessionBinding,
-    DataSessionPort, EndpointAdminView, EndpointLease, Generation, LeaseRecord, LocalAdminPort,
-    LocalDataSession, LocalSessionEvent, MAX_EVENT_QUEUE, PeerGateView, PeerOutcome, RECONNECTED,
-    ROUTE_ESTABLISHED, ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest,
-    TrustAdminView, TrustSource, TrustedPeer,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminCapability,
+    AdminPort, AdminStatus, BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort,
+    EndpointAdminView, EndpointLease, Generation, LeaseRecord, LineChange, LocalAdminPort,
+    LocalDataSession, LocalSessionEvent, MAX_ADDRESSES_PER_ADD, MAX_EVENT_QUEUE, OwnAddress,
+    OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome, RECONNECTED, ROUTE_ESTABLISHED,
+    ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView, TrustSource,
+    TrustedPeer,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, ConnectivitySummary, DirectDestination, DirectInboundState,
@@ -168,6 +170,13 @@ impl FakeNode {
         state.sessions.clear();
         state.leases.clear();
         state.stopped = false;
+    }
+
+    /// The static-bootstrap entries this node's profile authors, as a
+    /// `config.yaml` would: listed first, never removable through the
+    /// admin port (ADR-0062).
+    pub fn author_bootstrap(&self, entries: Vec<String>) {
+        lock(&self.0.state).authored = entries;
     }
 
     /// The runtime has stopped: every call from now answers
@@ -449,6 +458,12 @@ struct State {
     /// The sessions a restart ended: theirs was the runtime before it, so
     /// each answers `BackendUnavailable`, as a stopped runtime's does.
     ended: BTreeSet<Generation>,
+    /// The static-bootstrap entries the profile authors
+    /// ([`FakeNode::author_bootstrap`]), which the overlay cannot remove.
+    authored: Vec<String>,
+    /// The bootstrap-peers overlay: added entries in the order added,
+    /// kept across a restart as every production binding keeps it.
+    added: Vec<String>,
 }
 
 impl Node {
@@ -474,6 +489,8 @@ impl Node {
                 trusted: BTreeSet::new(),
                 configured: BTreeSet::new(),
                 ended: BTreeSet::new(),
+                authored: Vec::new(),
+                added: Vec::new(),
             }),
             injected: Mutex::new(VecDeque::new()),
             tag,
@@ -1172,6 +1189,162 @@ impl AdminPort for FakeAdmin {
         }
         Ok(())
     }
+
+    /// The single add is the all-or-none add of one line, as in the
+    /// runtime, so the two cannot answer a line apart.
+    async fn add_bootstrap_address(
+        &self,
+        address: String,
+    ) -> Result<AddressChange, TransportError> {
+        Ok(match self.add_bootstrap_addresses(vec![address]).await? {
+            AddressesChange::Added(lines) => match lines.as_slice() {
+                [LineChange::Added] => AddressChange::Added,
+                _ => AddressChange::Unchanged,
+            },
+            AddressesChange::Refused { reason, detail, .. } => {
+                AddressChange::Refused { reason, detail }
+            }
+        })
+    }
+
+    /// The bootstrap add's rules by name, in the runtime's order, the
+    /// whole list checked before anything is kept: every line against the
+    /// configuration's entry rule (the same function the runtime's add
+    /// reads); then every line's `PeerId` against this node's own; then
+    /// every line against the special-use floor on every IP
+    /// component; then the bound of 64 authored and added together,
+    /// counting only new lines. A line present already, or repeated,
+    /// changes nothing. The fake holds no `enabled: false` provider.
+    async fn add_bootstrap_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> Result<AddressesChange, TransportError> {
+        self.require(AdminCapability::Peers)?;
+        if addresses.is_empty() || addresses.len() > MAX_ADDRESSES_PER_ADD {
+            return Err(TransportError::InvalidArgument);
+        }
+        let mut state = self.node.running()?;
+        let refused = |reason, line, detail: &str| {
+            Ok(AddressesChange::Refused {
+                reason,
+                line: Some(line),
+                detail: detail.to_owned(),
+            })
+        };
+        for (line, address) in addresses.iter().enumerate() {
+            if let Err(why) = interweave_profile_config::bootstrap_overlay::entry_grammar(address) {
+                return refused(AddressRefusal::Grammar, line, why);
+            }
+        }
+        for (line, address) in addresses.iter().enumerate() {
+            if interweave_profile_config::split_peer_multiaddr(address)
+                .is_ok_and(|(_, peer)| peer == self.node.peer)
+            {
+                return refused(AddressRefusal::OwnPeer, line, "this node's own PeerId");
+            }
+        }
+        for (line, address) in addresses.iter().enumerate() {
+            if special_use(address) {
+                return refused(AddressRefusal::SpecialUse, line, "a special-use component");
+            }
+        }
+        let mut added = state.added.clone();
+        let mut lines = Vec::with_capacity(addresses.len());
+        for (line, address) in addresses.into_iter().enumerate() {
+            if state.authored.iter().chain(&added).any(|a| *a == address) {
+                lines.push(LineChange::Unchanged);
+                continue;
+            }
+            if state.authored.len() + added.len() >= 64 {
+                return refused(
+                    AddressRefusal::Bound,
+                    line,
+                    "authored and added would pass 64",
+                );
+            }
+            added.push(address);
+            lines.push(LineChange::Added);
+        }
+        state.added = added;
+        Ok(AddressesChange::Added(lines))
+    }
+
+    async fn remove_bootstrap_address(
+        &self,
+        address: String,
+    ) -> Result<AddressChange, TransportError> {
+        self.require(AdminCapability::Peers)?;
+        let mut state = self.node.running()?;
+        if state.authored.contains(&address) {
+            return Ok(AddressChange::Refused {
+                reason: AddressRefusal::Authored,
+                detail: "config.yaml's".to_owned(),
+            });
+        }
+        let before = state.added.len();
+        state.added.retain(|a| *a != address);
+        Ok(if state.added.len() == before {
+            AddressChange::Unchanged
+        } else {
+            AddressChange::Removed
+        })
+    }
+
+    async fn bootstrap_addresses(&self) -> Result<Vec<BootstrapAddress>, TransportError> {
+        self.require(AdminCapability::Peers)?;
+        let state = self.node.running()?;
+        let row = |address: &String, source| BootstrapAddress {
+            address: address.clone(),
+            source,
+            dialled: true,
+        };
+        Ok(state
+            .authored
+            .iter()
+            .map(|a| row(a, AddressSource::Authored))
+            .chain(state.added.iter().map(|a| row(a, AddressSource::Added)))
+            .collect())
+    }
+
+    /// One listener on a private address, as a node on a LAN shows: the
+    /// fake binds no socket, so the address is this node's by
+    /// configuration, and nothing is confirmed external.
+    async fn own_addresses(&self) -> Result<OwnAddresses, TransportError> {
+        self.require(AdminCapability::Peers)?;
+        drop(self.node.running()?);
+        let host = if self.node.tag == "a" { 10 } else { 11 };
+        Ok(OwnAddresses {
+            peer: self.node.peer.clone(),
+            addresses: vec![OwnAddress {
+                address: format!(
+                    "/ip4/192.168.77.{host}/tcp/4001/p2p/{}",
+                    self.node.peer.as_str()
+                ),
+                kind: OwnAddressKind::Listen,
+            }],
+            truncated: false,
+        })
+    }
+}
+
+/// Whether an address carries an IP component in a class the add's floor
+/// refuses (ADR-0052 rule 2): loopback, unspecified, link-local and
+/// multicast, of either family. Private ranges are admitted. The real
+/// floor names more classes; the suite's cases need these.
+fn special_use(address: &str) -> bool {
+    let parts: Vec<&str> = address.split('/').collect();
+    parts.windows(2).any(|pair| match pair[0] {
+        "ip4" => pair[1].parse::<std::net::Ipv4Addr>().is_ok_and(|ip| {
+            ip.is_loopback() || ip.is_unspecified() || ip.is_link_local() || ip.is_multicast()
+        }),
+        "ip6" => pair[1].parse::<std::net::Ipv6Addr>().is_ok_and(|ip| {
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || ip.segments()[0] & 0xffc0 == 0xfe80
+        }),
+        _ => false,
+    })
 }
 
 /// `PeerTrustPolicy::MAX_ALLOWED_PEERS`, which this crate does not depend

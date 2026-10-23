@@ -31,10 +31,11 @@ use std::collections::BTreeSet;
 pub mod binding;
 
 pub use binding::{
-    AddressChange, AddressRefusal, AddressSource, AdminBinding, AdminPort, AdminStatus,
-    BootstrapAddress, DataSessionBinding, DataSessionPort, EndpointAdminView, IngressCounts,
-    LeaseRecord, PeerGateView, PeerOutcome, PreAuthCounts, ReceivedBroadcast, ReceivedDirect,
-    SessionEvent, SessionRequest, TrustAdminView, TrustSource, TrustedPeer,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminPort,
+    AdminStatus, BootstrapAddress, DataSessionBinding, DataSessionPort, EndpointAdminView,
+    IngressCounts, LeaseRecord, LineChange, MAX_ADDRESSES_PER_ADD, MAX_OWN_ADDRESSES, OwnAddress,
+    OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome, PreAuthCounts, ReceivedBroadcast,
+    ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView, TrustSource, TrustedPeer,
 };
 
 use interweave_transport_api::{

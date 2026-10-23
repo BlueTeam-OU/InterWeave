@@ -165,7 +165,12 @@ impl BootstrapOverlayError {
 /// applies, so an entry it would refuse is refused here by name, before
 /// anything is written, rather than at wiring where it names nothing
 /// (#367 review F3, `an_entry_the_configuration_refuses_is_refused_here`).
-fn entry_grammar(entry: &str) -> Result<(), &'static str> {
+/// Public because the show side (`admin.peers.own_addresses`) lists only
+/// what an add would take, by this same rule.
+///
+/// # Errors
+/// A short static reason naming the rule the entry fails.
+pub fn entry_grammar(entry: &str) -> Result<(), &'static str> {
     if entry.len() > MAX_STATIC_PEER_BYTES {
         return Err("the entry is longer than a static-bootstrap entry may be");
     }
@@ -248,26 +253,55 @@ impl BootstrapOverlay {
     }
 
     /// The overlay after adding `address`, or `None` when it is already
-    /// there (authored or added).
+    /// there (authored or added): [`Self::add_all`] of one line, so the
+    /// two adds cannot disagree on it.
     ///
     /// # Errors
     /// [`MoveRefusal::Grammar`] outside the configuration's grammar,
     /// [`MoveRefusal::Bound`] at the provider's bound.
     pub fn add(&self, authored: &[String], address: &str) -> Result<Option<Self>, MoveRefusal> {
-        entry_grammar(address).map_err(MoveRefusal::Grammar)?;
-        if authored
-            .iter()
-            .chain(&self.peers)
-            .any(|entry| entry == address)
-        {
-            return Ok(None);
-        }
-        if authored.len() + self.peers.len() >= MAX_STATIC_BOOTSTRAP_PEERS {
-            return Err(MoveRefusal::Bound);
+        self.add_all(authored, &[address.to_owned()])
+            .map(|(next, _)| next)
+            .map_err(|(refusal, _)| refusal)
+    }
+
+    /// The overlay after adding every one of `addresses` or none
+    /// (ADR-0062 decision 4), with whether each line was added (`true`)
+    /// or was already there -- authored, added, or earlier in the list --
+    /// in the order given; `None` for the overlay when no line was new.
+    /// Every line's grammar is checked before the bound, and the bound
+    /// counts only new lines.
+    ///
+    /// # Errors
+    /// The refusal and the 0-based line it names: the first line outside
+    /// the configuration's grammar ([`MoveRefusal::Grammar`]), else the
+    /// first new line past the provider's bound ([`MoveRefusal::Bound`]).
+    pub fn add_all(
+        &self,
+        authored: &[String],
+        addresses: &[String],
+    ) -> Result<(Option<Self>, Vec<bool>), (MoveRefusal, usize)> {
+        for (line, address) in addresses.iter().enumerate() {
+            entry_grammar(address).map_err(|why| (MoveRefusal::Grammar(why), line))?;
         }
         let mut next = self.clone();
-        next.peers.push(address.to_owned());
-        Ok(Some(next))
+        let mut added = Vec::with_capacity(addresses.len());
+        for (line, address) in addresses.iter().enumerate() {
+            if authored
+                .iter()
+                .chain(&next.peers)
+                .any(|entry| entry == address)
+            {
+                added.push(false);
+                continue;
+            }
+            if authored.len() + next.peers.len() >= MAX_STATIC_BOOTSTRAP_PEERS {
+                return Err((MoveRefusal::Bound, line));
+            }
+            next.peers.push(address.clone());
+            added.push(true);
+        }
+        Ok((added.contains(&true).then_some(next), added))
     }
 
     /// The overlay after removing `address`, or `None` when it does not

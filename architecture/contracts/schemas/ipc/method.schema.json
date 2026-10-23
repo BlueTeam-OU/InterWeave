@@ -20,12 +20,14 @@
     "admin.peers.list",
     "admin.peers.add_address",
     "admin.peers.remove_address",
-    "admin.peers.list_addresses"
+    "admin.peers.list_addresses",
+    "admin.peers.own_addresses",
+    "admin.peers.add_addresses"
   ],
   "x-contract": {
     "name": "ipc.method",
     "status": "active",
-    "version": "1.3.0",
+    "version": "1.5.0",
     "adr": [
       "0017",
       "0037",

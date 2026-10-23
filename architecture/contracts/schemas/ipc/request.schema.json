@@ -273,12 +273,44 @@
           "$ref": "urn:interweave:schemas:ipc:empty-result"
         }
       }
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "admin.peers.own_addresses"
+        },
+        "params": {
+          "$ref": "urn:interweave:schemas:ipc:empty-result"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "admin.peers.add_addresses"
+        },
+        "params": {
+          "$ref": "urn:interweave:schemas:ipc:peers-addresses-params"
+        }
+      }
     }
   ],
   "x-contract": {
     "name": "ipc.request",
     "status": "active",
-    "version": "1.3.0",
+    "version": "1.5.0",
     "adr": [
       "0017",
       "0037",

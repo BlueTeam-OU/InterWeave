@@ -39,7 +39,11 @@ pub const DEFAULT_MAX_TOKENS: usize = 2048;
 /// a fresh value. Silently overwriting would change what an outstanding
 /// handle resolves to, and an opaque token whose meaning can change is
 /// not opaque.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Neither `Display` nor `Debug` writes the token: it is live, and it is
+/// the bearer of a reply route, so an error a caller logs must not carry
+/// it (`neither_display_nor_debug_writes_the_live_token`).
+#[derive(Clone, PartialEq, Eq)]
 pub struct DuplicateToken {
     /// The token that was already live.
     pub token: String,
@@ -47,7 +51,15 @@ pub struct DuplicateToken {
 
 impl core::fmt::Display for DuplicateToken {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "reply token {:?} is already live", self.token)
+        f.write_str("a reply token was minted while already live")
+    }
+}
+
+impl core::fmt::Debug for DuplicateToken {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DuplicateToken")
+            .field("token", &format_args!("<{} bytes>", self.token.len()))
+            .finish()
     }
 }
 
@@ -388,6 +400,24 @@ mod tests {
         );
         assert_eq!(ReplyResolution::Route(direct_route("e")).as_error(), None);
     }
+    #[test]
+    fn neither_display_nor_debug_writes_the_live_token() {
+        const TOKEN: &str = "tok_q7Vb3kZ9xW2mN5pR8sT1uY";
+        let mut t = ReplyTokenTable::new(DEFAULT_TTL_MS, 8);
+        t.mint(TOKEN, direct_route("first"), 0)
+            .expect("fresh token");
+        let e = t
+            .mint(TOKEN, direct_route("second"), 1)
+            .expect_err("a duplicate");
+        // The control: the refusal holds the token, so its absence below
+        // is the formatting's and not an empty error.
+        assert_eq!(e.token, TOKEN);
+        for shown in [e.to_string(), format!("{e:?}"), format!("{e:#?}")] {
+            assert!(!shown.contains(TOKEN), "{shown:?} carries the token");
+            assert!(!shown.contains("q7Vb3kZ9"), "{shown:?} carries part of it");
+        }
+    }
+
     #[test]
     fn minting_the_same_token_twice_is_refused_and_changes_nothing() {
         // A collision means an exhausted CSPRNG or a caller reusing a

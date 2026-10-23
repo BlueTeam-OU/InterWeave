@@ -642,3 +642,155 @@ fn the_host_adds_an_address_through_its_binding_and_keeps_it_under_its_root() {
     assert!(listed[0].dialled);
     host.stop(Duration::from_secs(1)).expect("stops");
 }
+
+/// THE EMBEDDED HOST'S SHOW SIDE (ADR-0062 decision 4): the same seam
+/// reaches `admin.peers.own_addresses`. Its wildcard listener shows as
+/// the host's interface addresses, each ending in the host's own `PeerId`,
+/// the private one among them and the loopback one not (the control:
+/// the wildcard binds loopback too). Reading it needs `admin.peers`.
+#[test]
+fn the_host_shows_its_own_addresses_through_its_binding() {
+    use interweave_local_client_api::OwnAddressKind;
+    use interweave_transport_api::TransportError;
+    let private = {
+        let socket = std::net::UdpSocket::bind("0.0.0.0:0").expect("a socket");
+        socket.connect("10.255.255.255:9").expect("a route");
+        match socket.local_addr().expect("an address").ip() {
+            std::net::IpAddr::V4(ip) if ip.is_private() && !ip.is_loopback() => ip,
+            other => panic!(
+                "this host has no private-range IPv4 interface ({other}); the show side \
+                 omits loopback, so the test cannot produce its evidence here"
+            ),
+        }
+    };
+    let app = app();
+    provision(&app.dir, &document("embedded-android", false));
+    let launched = launch(&app.dir);
+    let peer = launched.identity.transport_identity().expect("peer");
+    let host = EmbeddedHost::start(launched).expect("starts");
+
+    let refused = host.runtime().block_on(async {
+        host.binding()
+            .admin([AdminCapability::Status].into())
+            .await
+            .expect("a port")
+            .own_addresses()
+            .await
+    });
+    assert_eq!(refused, Err(TransportError::CapabilityDenied));
+
+    let port = host
+        .runtime()
+        .block_on(host.binding().admin([AdminCapability::Peers].into()))
+        .expect("a port");
+    // The wildcard's interface addresses arrive as the Swarm reports
+    // them, so wait for the private one rather than read once.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let own = loop {
+        let own = host
+            .runtime()
+            .block_on(port.own_addresses())
+            .expect("an answer");
+        if own
+            .addresses
+            .iter()
+            .any(|r| r.address.starts_with(&format!("/ip4/{private}/tcp/")))
+            || std::time::Instant::now() > deadline
+        {
+            break own;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(own.peer, peer);
+    assert!(
+        own.addresses
+            .iter()
+            .any(|r| r.address.starts_with(&format!("/ip4/{private}/tcp/"))),
+        "{own:?}"
+    );
+    let shown = own
+        .addresses
+        .iter()
+        .find(|r| r.address.starts_with(&format!("/ip4/{private}/tcp/")))
+        .expect("the private row");
+    let port_number: u16 = shown
+        .address
+        .split('/')
+        .nth(4)
+        .expect("a port")
+        .parse()
+        .expect("a port");
+    assert!(
+        std::net::TcpStream::connect(("127.0.0.1", port_number)).is_ok(),
+        "the control: the wildcard is bound on loopback too, yet not shown"
+    );
+    for row in &own.addresses {
+        assert_eq!(row.kind, OwnAddressKind::Listen, "{row:?}");
+        assert!(
+            row.address.ends_with(&format!("/p2p/{}", peer.as_str())),
+            "{row:?}"
+        );
+        assert!(!row.address.starts_with("/ip4/127."), "{row:?}");
+        assert!(!row.address.starts_with("/ip4/0.0.0.0/"), "{row:?}");
+    }
+    drop(port);
+    host.stop(Duration::from_secs(1)).expect("stops");
+}
+
+/// THE EMBEDDED HOST'S ALL-OR-NONE ADD (ADR-0062 decision 4): the same
+/// seam reaches `admin.peers.add_addresses`. A scan with one special-use
+/// line is refused naming that line and writes nothing under the root;
+/// the control, the scan without it, is added whole and kept there.
+#[test]
+fn the_host_adds_a_scan_all_or_none_through_its_binding() {
+    use interweave_local_client_api::{AddressRefusal, AddressesChange, LineChange};
+    use interweave_profile_config::bootstrap_overlay::BootstrapOverlay;
+    const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+    let app = app();
+    let paths = provision(&app.dir, &document("embedded-android", false));
+    let scan = vec![
+        format!("/ip4/192.168.1.20/tcp/4001/p2p/{PEER}"),
+        format!("/ip4/10.0.0.7/tcp/4001/p2p/{PEER}"),
+    ];
+    let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
+    let port = host
+        .runtime()
+        .block_on(host.binding().admin([AdminCapability::Peers].into()))
+        .expect("a port");
+    let file = BootstrapOverlay::path_for(&paths);
+
+    let mut with_loopback = scan.clone();
+    with_loopback.push(format!("/ip4/127.0.0.1/tcp/4001/p2p/{PEER}"));
+    let refused = host
+        .runtime()
+        .block_on(port.add_bootstrap_addresses(with_loopback))
+        .expect("an answer");
+    assert!(
+        matches!(
+            refused,
+            AddressesChange::Refused {
+                reason: AddressRefusal::SpecialUse,
+                line: Some(2),
+                ..
+            }
+        ),
+        "{refused:?}"
+    );
+    assert!(!file.exists(), "nothing written for a refused scan");
+
+    assert_eq!(
+        host.runtime()
+            .block_on(port.add_bootstrap_addresses(scan.clone()))
+            .expect("an answer"),
+        AddressesChange::Added(vec![LineChange::Added, LineChange::Added])
+    );
+    assert!(file.starts_with(&app.dir), "{}", file.display());
+    assert_eq!(
+        BootstrapOverlay::load_within(&file, &[], paths.boundary())
+            .expect("loads")
+            .peers(),
+        scan.as_slice()
+    );
+    drop(port);
+    host.stop(Duration::from_secs(1)).expect("stops");
+}

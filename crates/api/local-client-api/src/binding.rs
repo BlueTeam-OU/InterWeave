@@ -460,6 +460,60 @@ pub struct BootstrapAddress {
     pub dialled: bool,
 }
 
+/// The most rows [`AdminPort::own_addresses`] answers: the
+/// `peers-own-addresses` schema's bound, so one answer and no paging.
+pub const MAX_OWN_ADDRESSES: usize = 64;
+
+/// What one of this node's own addresses is (`peers-own-addresses`'s
+/// `kind`), in the order the list carries them (ADR-0062 decision 4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnAddressKind {
+    /// Verified reachable by AutoNAT (ADR-0035).
+    ConfirmedExternal,
+    /// A circuit route through a reservation this node holds, listed
+    /// only when no address is confirmed external.
+    RelayCircuit,
+    /// Bound on an interface the host still holds.
+    Listen,
+}
+
+impl OwnAddressKind {
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ConfirmedExternal => "confirmed_external",
+            Self::RelayCircuit => "relay_circuit",
+            Self::Listen => "listen",
+        }
+    }
+}
+
+/// One of this node's own addresses: a `multiaddr-with-peer-id` in the
+/// configuration's grammar, ending in this node's `/p2p/<peer>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnAddress {
+    /// The address, as an add would take it.
+    pub address: String,
+    /// What it is.
+    pub kind: OwnAddressKind,
+}
+
+/// This node's own addresses for the show screen
+/// (`admin.peers.own_addresses`), selected and floored by the transport:
+/// a client renders them in this order and filters nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnAddresses {
+    /// This node's `PeerId`, the one every address ends in.
+    pub peer: TransportIdentity,
+    /// Confirmed external first, in confirmation order; then the circuit
+    /// routes, only when there is none; then listen addresses in bind
+    /// order. At most [`MAX_OWN_ADDRESSES`].
+    pub addresses: Vec<OwnAddress>,
+    /// Whether rows past the bound were dropped.
+    pub truncated: bool,
+}
+
 /// Why an address change was refused, by name: the closed set
 /// `peers-address-result`'s `refused` carries, so a client says why in its
 /// own words without parsing a message.
@@ -467,6 +521,9 @@ pub struct BootstrapAddress {
 pub enum AddressRefusal {
     /// Not a `multiaddr-with-peer-id` in the configuration's grammar.
     Grammar,
+    /// An add of an address whose `PeerId` -- the node it reaches -- is
+    /// this profile's own: a row nothing can dial (ADR-0062 decision 1).
+    OwnPeer,
     /// A component in a class ADR-0052 rule 2 refuses.
     SpecialUse,
     /// Authored and added entries would pass 64.
@@ -478,11 +535,23 @@ pub enum AddressRefusal {
 }
 
 impl AddressRefusal {
+    /// Every reason, in the order the methods check them; what a decoder
+    /// matches a name against. `every_refusal_is_in_all` keeps it whole.
+    pub const ALL: [Self; 6] = [
+        Self::Grammar,
+        Self::OwnPeer,
+        Self::ProviderDisabled,
+        Self::SpecialUse,
+        Self::Bound,
+        Self::Authored,
+    ];
+
     /// The name the wire carries.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Grammar => "grammar",
+            Self::OwnPeer => "own_peer",
             Self::SpecialUse => "special_use",
             Self::Bound => "bound",
             Self::ProviderDisabled => "provider_disabled",
@@ -506,6 +575,53 @@ pub enum AddressChange {
     Refused {
         /// The rule, by name.
         reason: AddressRefusal,
+        /// For a log, never parsed.
+        detail: String,
+    },
+}
+
+/// The most lines one [`AdminPort::add_bootstrap_addresses`] takes: the
+/// QR's cut (ADR-0062 decision 4), the `peers-addresses-params` bound.
+pub const MAX_ADDRESSES_PER_ADD: usize = 16;
+
+/// What an all-or-none add did with one of its lines
+/// (`peers-addresses-result`'s row).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineChange {
+    /// Added and in force.
+    Added,
+    /// Already present, authored or added, or repeated earlier in the
+    /// list; it cost nothing against the bound.
+    Unchanged,
+}
+
+impl LineChange {
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Added => "added",
+            Self::Unchanged => "unchanged",
+        }
+    }
+}
+
+/// What an all-or-none add of bootstrap addresses did
+/// (`peers-addresses-result`). A refusal is an answer, not an error, and
+/// refuses the whole list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddressesChange {
+    /// Every line is in force: one row per line, in the order given.
+    Added(Vec<LineChange>),
+    /// Refused; nothing was written.
+    Refused {
+        /// The rule, by name: never [`AddressRefusal::Authored`], which
+        /// only a removal answers.
+        reason: AddressRefusal,
+        /// The 0-based position of the line refused; `None` exactly for
+        /// [`AddressRefusal::ProviderDisabled`], which refuses the list
+        /// whole.
+        line: Option<usize>,
         /// For a log, never parsed.
         detail: String,
     },
@@ -659,10 +775,11 @@ pub trait AdminPort {
     }
 
     /// Add `address` to the profile's bootstrap addresses (ADR-0062,
-    /// `admin.peers.add_address`): the configuration's grammar, ADR-0052
-    /// rule 2's special-use floor whoever the caller, the provider's bound
-    /// of 64 and an authored `enabled: false` provider each refuse by
-    /// name; an accepted address is written to the bootstrap-peers
+    /// `admin.peers.add_address`): checked in [`AddressRefusal::ALL`]'s
+    /// order, the configuration's grammar, then this node's own `PeerId`
+    /// (`own_peer`), then an authored `enabled: false` provider, then
+    /// ADR-0052 rule 2's special-use floor, then the provider's bound of
+    /// 64, each refusing by name whoever the caller; an accepted address is written to the bootstrap-peers
     /// overlay before it reaches the running provider and before the
     /// answer. Adding an address grants no trust. Not implemented by a
     /// port that predates it.
@@ -676,6 +793,33 @@ pub trait AdminPort {
         address: String,
     ) -> impl Future<Output = Result<AddressChange, TransportError>> + Send {
         let _ = address;
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// Add every line of `addresses` to the profile's bootstrap
+    /// addresses or none of them (`admin.peers.add_addresses`, IPC 2.9;
+    /// ADR-0062 decision 4: a scan, or a pasted list of lines). The whole
+    /// list is checked before anything is written, in
+    /// [`Self::add_bootstrap_address`]'s order -- every line's grammar,
+    /// every line's `PeerId` against this node's own, the provider, every
+    /// line's special-use floor, then the bound
+    /// counting only new lines -- so a one-line list is answered as that
+    /// method answers its line; the accepted lines are written in one
+    /// overlay write before the running provider is told and before the
+    /// answer. Adding an address grants no trust. Not implemented by a
+    /// port that predates it.
+    ///
+    /// # Errors
+    /// `InvalidArgument` for an empty list or one longer than
+    /// [`MAX_ADDRESSES_PER_ADD`] (nothing sent), `CapabilityDenied`
+    /// without `admin.peers`, `ProtocolUnsupported` (below 2.9, nothing
+    /// sent), `Internal` when the overlay could not be written (nothing
+    /// changed), or `BackendUnavailable`.
+    fn add_bootstrap_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> impl Future<Output = Result<AddressesChange, TransportError>> + Send {
+        let _ = addresses;
         std::future::ready(Err(TransportError::ProtocolUnsupported))
     }
 
@@ -703,6 +847,18 @@ pub trait AdminPort {
     fn bootstrap_addresses(
         &self,
     ) -> impl Future<Output = Result<Vec<BootstrapAddress>, TransportError>> + Send {
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// This node's own addresses for the show screen (ADR-0062 decision
+    /// 4, `admin.peers.own_addresses`, IPC 2.8): one ordered list in the
+    /// classes the add admits, the floor applied by the port. Reading it
+    /// causes nothing. Not implemented by a port that predates it.
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `admin.peers`, `ProtocolUnsupported`
+    /// (below 2.8, nothing sent), or `BackendUnavailable`.
+    fn own_addresses(&self) -> impl Future<Output = Result<OwnAddresses, TransportError>> + Send {
         std::future::ready(Err(TransportError::ProtocolUnsupported))
     }
 
@@ -739,7 +895,7 @@ pub trait AdminPort {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
-    use super::SessionRequest;
+    use super::{AddressRefusal, SessionRequest};
     use crate::{DataCapability, MAX_CLIENT_KIND_CHARS, SessionError};
 
     #[test]
@@ -762,5 +918,23 @@ mod tests {
         let ok = SessionRequest::new("human", None, [DataCapability::Events]).expect("in bounds");
         assert_eq!(ok.client_kind(), "human");
         assert!(ok.endpoint().is_none());
+    }
+
+    /// A reason added to the enum and not to `ALL` would decode as no
+    /// reason at all: the match makes a new variant a compile error here,
+    /// where `ALL` is in view, and the loop that `ALL` holds each once.
+    #[test]
+    fn every_refusal_is_in_all() {
+        let position = |reason| match reason {
+            AddressRefusal::Grammar => 0,
+            AddressRefusal::OwnPeer => 1,
+            AddressRefusal::ProviderDisabled => 2,
+            AddressRefusal::SpecialUse => 3,
+            AddressRefusal::Bound => 4,
+            AddressRefusal::Authored => 5,
+        };
+        for (i, reason) in AddressRefusal::ALL.into_iter().enumerate() {
+            assert_eq!(position(reason), i, "{reason:?}");
+        }
     }
 }

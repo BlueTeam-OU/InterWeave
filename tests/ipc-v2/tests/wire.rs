@@ -1044,9 +1044,9 @@ async fn until_ok(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_method_is_answered_ok_and_held_to_its_schemas() {
     use interweave_ipc_protocol::{
-        AddressParams, ChannelParams, EndpointParams, PeerListParams, PublishParams, QueryParams,
-        Request, SendParams, SetDefaultParams, SetEnabledParams, ShutdownParams, TrustListParams,
-        TrustSetParams,
+        AddressParams, AddressesParams, ChannelParams, EndpointParams, PeerListParams,
+        PublishParams, QueryParams, Request, SendParams, SetDefaultParams, SetEnabledParams,
+        ShutdownParams, TrustListParams, TrustSetParams,
     };
     use interweave_transport_api::{ChannelId, EndpointId, MessageId, Payload};
     let ip = interweave_test_support::net::require_private_interface_v4();
@@ -1090,7 +1090,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
     let mut admin = Client::connect(&subject.paths.admin).await;
     admin
         .hello(
-            r#"{"type":"hello","ipc_version":{"major":2,"minor":7},
+            r#"{"type":"hello","ipc_version":{"major":2,"minor":9},
             "client":{"kind":"transportctl"},
             "requested_capabilities":["admin.status","admin.endpoints","admin.shutdown",
                 "admin.trust","admin.peers"]}"#,
@@ -1151,7 +1151,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         ),
     };
     let added = bootstrap();
-    let admin_requests: [(&str, Request); 13] = [
+    let admin_requests: [(&str, Request); 15] = [
         ("status", Request::AdminStatus),
         ("list", Request::AdminEndpointsList),
         ("trust", Request::AdminTrustList(TrustListParams::default())),
@@ -1195,6 +1195,13 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         ("add", Request::AdminPeersAddAddress(added.clone())),
         ("addresses", Request::AdminPeersListAddresses),
         ("remove", Request::AdminPeersRemoveAddress(added)),
+        ("own", Request::AdminPeersOwnAddresses),
+        (
+            "adds",
+            Request::AdminPeersAddAddresses(AddressesParams {
+                addresses: vec![bootstrap().address, bootstrap().address],
+            }),
+        ),
         (
             "shutdown",
             Request::AdminShutdown(ShutdownParams {
@@ -1207,7 +1214,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
         let answer = admin.response().await;
         assert!(answer.contains(r#""ok":true"#), "{id}: {answer}");
         // A refusal is ok too; the move itself must have happened.
-        for (move_id, outcome) in [("add", "added"), ("remove", "removed")] {
+        for (move_id, outcome) in [("add", "added"), ("remove", "removed"), ("adds", "added")] {
             if id == move_id {
                 assert!(
                     answer.contains(&format!(r#""outcome":"{outcome}""#)),

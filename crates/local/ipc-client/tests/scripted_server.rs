@@ -1617,3 +1617,188 @@ async fn the_address_methods_are_sent_only_at_two_seven_and_a_refusal_reads_back
         assert!(list[0].dialled);
     }
 }
+
+/// `admin.peers.own_addresses` is 2.8's though `admin.peers` is 2.7's:
+/// on a 2.7 connection that granted the capability it is refused
+/// `ProtocolUnsupported` with nothing sent; at 2.8 it is sent and the
+/// list reads back in the order the daemon gave it.
+#[tokio::test]
+async fn the_own_addresses_read_is_sent_only_at_two_eight_and_reads_back_in_order() {
+    use interweave_local_client_api::{
+        AdminBinding as _, AdminCapability, AdminPort as _, OwnAddressKind,
+    };
+    use interweave_transport_api::TransportError;
+    const PEER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    for minor in [7, 8] {
+        let script = Script::new();
+        let (admin, (mut server, asked)) = tokio::join!(
+            script.binding.admin([AdminCapability::Peers].into()),
+            async {
+                let (mut probe, _) = admin_hello(&script).await;
+                admin_response(&mut probe, minor, &[]).await;
+                assert!(probe.read().await.is_none());
+                drop(probe);
+                let (mut server, asked) = admin_hello(&script).await;
+                let granted: Vec<&str> = asked.iter().map(String::as_str).collect();
+                admin_response(&mut server, minor, &granted).await;
+                (server, asked)
+            }
+        );
+        let admin = admin.expect("a port");
+        assert_eq!(asked, ["admin.peers"], "the capability is 2.7's");
+        if minor < 8 {
+            let (refused, nothing) = tokio::join!(
+                tokio::time::timeout(PATIENCE, admin.own_addresses()),
+                async { tokio::time::timeout(Duration::from_millis(200), server.read()).await }
+            );
+            assert_eq!(
+                refused.expect("answered without the daemon"),
+                Err(TransportError::ProtocolUnsupported)
+            );
+            assert!(nothing.is_err(), "no request reached the daemon");
+            continue;
+        }
+        let (own, ()) = tokio::join!(
+            tokio::time::timeout(PATIENCE, admin.own_addresses()),
+            async {
+                let Some(Frame::Request(request)) = server.read().await else {
+                    panic!("the read reaches the daemon");
+                };
+                assert_eq!(request.method.as_str(), "admin.peers.own_addresses");
+                server
+                    .write(&json!({"type": "response", "id": request.id.as_str(), "ok": true,
+                        "result": {"peer": PEER, "truncated": false, "addresses": [
+                            {"address": format!("/ip4/8.8.8.8/tcp/4001/p2p/{PEER}"), "kind": "confirmed_external"},
+                            {"address": format!("/ip4/192.168.1.20/tcp/4001/p2p/{PEER}"), "kind": "listen"}
+                        ]}}))
+                    .await;
+            }
+        );
+        let own = own.expect("answered").expect("the list");
+        assert_eq!(own.peer.as_str(), PEER);
+        assert_eq!(
+            own.addresses.iter().map(|r| r.kind).collect::<Vec<_>>(),
+            [OwnAddressKind::ConfirmedExternal, OwnAddressKind::Listen]
+        );
+        assert!(!own.truncated);
+    }
+}
+
+/// `admin.peers.add_addresses` is 2.9's though `admin.peers` is 2.7's:
+/// at 2.8 it is refused `ProtocolUnsupported` with nothing sent, and at
+/// 2.9 a list of no line or of 17 is refused `InvalidArgument` with
+/// nothing sent either. At 2.9 a good list is sent whole, a refusal
+/// reads back with its line, and an answer whose rows do not match the
+/// lines one for one is the daemon's `ProtocolViolation`; the control is
+/// the same answer with the right count, read back row for row.
+#[tokio::test]
+async fn the_all_or_none_add_is_sent_only_at_two_nine_and_reads_back_line_for_line() {
+    use interweave_local_client_api::{
+        AddressRefusal, AddressesChange, AdminBinding as _, AdminCapability, AdminPort as _,
+        LineChange,
+    };
+    use interweave_transport_api::TransportError;
+    const PEER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+    let lines = || {
+        vec![
+            format!("/ip4/192.168.1.20/tcp/4001/p2p/{PEER}"),
+            format!("/ip4/192.168.1.21/tcp/4001/p2p/{PEER}"),
+        ]
+    };
+    for minor in [8, 9] {
+        let script = Script::new();
+        let (admin, mut server) = tokio::join!(
+            script.binding.admin([AdminCapability::Peers].into()),
+            async {
+                let (mut probe, _) = admin_hello(&script).await;
+                admin_response(&mut probe, minor, &[]).await;
+                assert!(probe.read().await.is_none());
+                drop(probe);
+                let (mut server, asked) = admin_hello(&script).await;
+                let granted: Vec<&str> = asked.iter().map(String::as_str).collect();
+                admin_response(&mut server, minor, &granted).await;
+                server
+            }
+        );
+        let admin = admin.expect("a port");
+        let refused_locally = |list: Vec<String>, want: TransportError| {
+            let admin = &admin;
+            async move {
+                assert_eq!(
+                    tokio::time::timeout(PATIENCE, admin.add_bootstrap_addresses(list))
+                        .await
+                        .expect("answered without the daemon"),
+                    Err(want)
+                );
+            }
+        };
+        if minor < 9 {
+            let ((), nothing) = tokio::join!(
+                refused_locally(lines(), TransportError::ProtocolUnsupported),
+                async { tokio::time::timeout(Duration::from_millis(200), server.read()).await }
+            );
+            assert!(nothing.is_err(), "no request reached the daemon");
+            continue;
+        }
+        let ((), (), nothing) = tokio::join!(
+            refused_locally(Vec::new(), TransportError::InvalidArgument),
+            refused_locally(
+                vec![lines()[0].clone(); 17],
+                TransportError::InvalidArgument
+            ),
+            async { tokio::time::timeout(Duration::from_millis(200), server.read()).await }
+        );
+        assert!(nothing.is_err(), "no request reached the daemon");
+
+        for (result, want) in [
+            (
+                json!({"outcome": "refused", "refused": "special_use", "index": 1, "detail": "loopback"}),
+                Ok(AddressesChange::Refused {
+                    reason: AddressRefusal::SpecialUse,
+                    line: Some(1),
+                    detail: "loopback".to_owned(),
+                }),
+            ),
+            (
+                json!({"outcome": "refused", "refused": "bound", "index": 2}),
+                Err(TransportError::ProtocolViolation),
+            ),
+            (
+                json!({"outcome": "added", "lines": [{"outcome": "added"}]}),
+                Err(TransportError::ProtocolViolation),
+            ),
+            (
+                json!({"outcome": "added", "lines": [{"outcome": "added"}, {"outcome": "unchanged"}]}),
+                Ok(AddressesChange::Added(vec![
+                    LineChange::Added,
+                    LineChange::Unchanged,
+                ])),
+            ),
+        ] {
+            let (got, ()) = tokio::join!(
+                tokio::time::timeout(PATIENCE, admin.add_bootstrap_addresses(lines())),
+                async {
+                    let Some(Frame::Request(request)) = server.read().await else {
+                        panic!("the add reaches the daemon");
+                    };
+                    assert_eq!(request.method.as_str(), "admin.peers.add_addresses");
+                    let params: serde_json::Value =
+                        serde_json::from_str(request.params.as_ref().expect("params").get())
+                            .expect("json");
+                    assert_eq!(
+                        params,
+                        json!({"addresses": lines()}),
+                        "sent whole, in order"
+                    );
+                    server
+                        .write(
+                            &json!({"type": "response", "id": request.id.as_str(), "ok": true,
+                            "result": result}),
+                        )
+                        .await;
+                }
+            );
+            assert_eq!(got.expect("answered"), want, "{result}");
+        }
+    }
+}

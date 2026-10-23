@@ -42,6 +42,7 @@ run_code()  { bash "$CHECK" --root "$1" >/dev/null 2>&1; printf '%s' "$?"; }
 TAG="SPDX-License-""Identifier"
 
 TMP="$(mktemp -d)"
+[ -n "$TMP" ] && [ -d "$TMP" ] || { echo "test_check_license_headers: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
 
 printf 'test_check_license_headers\n'

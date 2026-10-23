@@ -61,17 +61,18 @@ pub use handshake::{
     HelloTag, MAX_REQUESTED, RequestedCapability,
 };
 pub use request::{
-    AddressParams, Admission, ChannelParams, EndpointParams, MAX_BOOTSTRAP_ADDRESS_CHARS,
-    MAX_REQUEST_ID_CHARS, MAX_SHUTDOWN_GRACE_MS, PeerListParams, PublishParams, QueryParams,
-    Refusal, Request, RequestFrame, RequestId, RequestTag, SendParams, SetDefaultParams,
-    SetEnabledParams, ShutdownParams, TrustListParams, TrustSetParams,
+    AddressParams, AddressesParams, Admission, ChannelParams, EndpointParams,
+    MAX_BOOTSTRAP_ADDRESS_CHARS, MAX_REQUEST_ID_CHARS, MAX_SHUTDOWN_GRACE_MS, PeerListParams,
+    PublishParams, QueryParams, Refusal, Request, RequestFrame, RequestId, RequestTag, SendParams,
+    SetDefaultParams, SetEnabledParams, ShutdownParams, TrustListParams, TrustSetParams,
 };
 pub use result::{
-    AddressList, AddressResult, AddressRow, AdminStatusResult, DirectoryResult,
+    AddressList, AddressResult, AddressRow, AddressesResult, AdminStatusResult, DirectoryResult,
     ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, EndpointRow, IngressCounters,
-    IpcCounters, LeaseRow, MAX_ADDRESS_DETAIL_CHARS, MAX_BOOTSTRAP_ADDRESS_ROWS, MAX_ENDPOINT_ROWS,
-    MAX_PEER_PAGE_ROWS, MAX_TRUST_PAGE_ROWS, NotDialled, PeerList, PeerRow, PreAuthCounters,
-    ROUTE_HELD_SINCE_MINOR, RowSource, SendResult, ServerCounters, SetEnabledResult,
-    TRUST_SOURCE_SINCE_MINOR, TrustList, TrustRow,
+    IpcCounters, LeaseRow, LineOutcome, LineRow, MAX_ADDRESS_DETAIL_CHARS,
+    MAX_BOOTSTRAP_ADDRESS_ROWS, MAX_ENDPOINT_ROWS, MAX_PEER_PAGE_ROWS, MAX_TRUST_PAGE_ROWS,
+    NotDialled, OWN_PEER_SINCE_MINOR, OwnAddressList, OwnAddressRow, OwnKind, PeerList, PeerRow,
+    PreAuthCounters, ROUTE_HELD_SINCE_MINOR, RowSource, SendResult, ServerCounters,
+    SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList, TrustRow,
 };
 pub use version::{IPC_MAJOR, IPC_MAX_MINOR, IpcVersion, UnsupportedMajor, negotiate, supported};

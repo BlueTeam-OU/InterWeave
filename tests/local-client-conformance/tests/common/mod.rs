@@ -87,6 +87,8 @@ pub(crate) struct Pair {
     pub(crate) b: ComposedRuntime,
     pub(crate) a_peer: TransportIdentity,
     pub(crate) b_peer: TransportIdentity,
+    /// The static-bootstrap entry A's profile authors: B's address.
+    pub(crate) a_authored: String,
     /// What A restarts from: its identity, profile and options, its trust
     /// overlay among them.
     a_restart: (ProfileIdentity, ProfileConfig, CompositionOptions),
@@ -111,6 +113,10 @@ fn with_state(options: &CompositionOptions) -> (tempfile::TempDir, CompositionOp
             dir.path()
                 .join(interweave_profile_config::endpoint_overlay::ENDPOINT_OVERLAY_FILE),
         ),
+        bootstrap_overlay_file: Some(
+            dir.path()
+                .join(interweave_profile_config::bootstrap_overlay::BOOTSTRAP_OVERLAY_FILE),
+        ),
         ..options.clone()
     };
     (dir, options)
@@ -132,7 +138,7 @@ impl Pair {
             .await
             .expect("b composes");
         let b_addr = format!("{}/p2p/{}", b.listening()[0], b_peer.as_str());
-        let a_profile = profile(&b_peer, &[b_addr]);
+        let a_profile = profile(&b_peer, std::slice::from_ref(&b_addr));
         let mut a = ComposedRuntime::start(&a_id, &a_profile, a_options.clone())
             .await
             .expect("a composes");
@@ -143,6 +149,7 @@ impl Pair {
             b,
             a_peer,
             b_peer,
+            a_authored: b_addr,
             a_restart: (a_id, a_profile, a_options),
             state: [a_state, b_state],
         }
@@ -156,6 +163,7 @@ impl Pair {
             b,
             a_peer,
             b_peer,
+            a_authored,
             a_restart,
             state,
         } = self;
@@ -169,6 +177,7 @@ impl Pair {
             b,
             a_peer,
             b_peer,
+            a_authored,
             a_restart,
             state,
         }

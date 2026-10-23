@@ -62,3 +62,28 @@ further from the artifact carrying its own notices. Propagation:
 decisions 1 and 5; this note; the log row; the digest entry; ADR-0057
 decision 5's template sentence (rust-ui-dev-02's and
 language-culture-en's copy); `release.yml`'s upload (devex-tooling's).
+
+### Amendment 2026-10-22 (iii) — Each header's digest is pinned in the list; the licence-word scan is a tripwire, not the closure
+
+Decision 2.ii asked the tool to refuse a header naming a licence whose
+text the notice does not carry, and decision 3 asked the list to hold
+a count of distinct headers. Tightening that scan (#381, j108) went
+two review rounds the way #374 had gone five: case-insensitive names,
+SPDX ids matched by a fragment (Apache-1.1 answered by the Apache-2.0
+text, BSD-4-Clause by BSD-3), a recognised name hiding an unrecognised
+one beside it — each fixed, and a review-class enumeration then ruled
+that no rule over free prose closes the class: a licence named without
+the word ("GPLv3", "CC-BY-4.0", "the Frobnicate Agreement") and a
+version written apart from its name ("Apache License, Version 1.1",
+"the 4-clause BSD license") escape any word scan. A count catches a
+header added by a version and nothing a header's text changed under
+the same version, which a vendored crate's can. So the list pins what
+was read: the SHA-256 of each distinct header text, whitespace folded,
+in place of the count; a header whose digest is not listed refuses the
+artifact and a listed digest no header carries is reported; and the
+scan stays as a tripwire that closes nothing. Measured by the judge
+against the list of the day: 77 digests across 27 entries, 40 distinct
+texts, none of the 50 real crates refused. p2p-network-dev-01 asked
+the ruling (REQUEST 01a164e0); the code is theirs, after #381.
+Propagation: decisions 2.ii and 3; this note; the log row; the digest
+entry; the README row.

@@ -59,6 +59,8 @@ pub(crate) struct Script {
     /// Whether the port's trust rows say they persist: false is a
     /// store-less runtime, which is never served over IPC.
     pub(crate) unpersisted: bool,
+    /// When set, `add_address` refuses with it rather than adding.
+    pub(crate) add_refused: Option<interweave_local_client_api::AddressRefusal>,
     /// When set, `shutdown` stops the server with it before answering,
     /// as the daemon's port does through its owner.
     pub(crate) stop_on_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
@@ -350,7 +352,14 @@ impl AdminPort for FakeAdmin {
         address: String,
     ) -> Result<interweave_local_client_api::AddressChange, TransportError> {
         self.fake.call(format!("add_address {address}"));
-        Ok(interweave_local_client_api::AddressChange::Added)
+        let refused = self.fake.script().add_refused;
+        Ok(match refused {
+            Some(reason) => interweave_local_client_api::AddressChange::Refused {
+                reason,
+                detail: "scripted".to_owned(),
+            },
+            None => interweave_local_client_api::AddressChange::Added,
+        })
     }
 
     async fn remove_bootstrap_address(
@@ -369,5 +378,31 @@ impl AdminPort for FakeAdmin {
     ) -> Result<Vec<interweave_local_client_api::BootstrapAddress>, TransportError> {
         self.fake.call("list_addresses".to_owned());
         Ok(Vec::new())
+    }
+
+    async fn add_bootstrap_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> Result<interweave_local_client_api::AddressesChange, TransportError> {
+        self.fake
+            .call(format!("add_addresses {}", addresses.join(" ")));
+        Ok(interweave_local_client_api::AddressesChange::Added(vec![
+            interweave_local_client_api::LineChange::Added;
+            addresses.len()
+        ]))
+    }
+
+    async fn own_addresses(
+        &self,
+    ) -> Result<interweave_local_client_api::OwnAddresses, TransportError> {
+        self.fake.call("own_addresses".to_owned());
+        Ok(interweave_local_client_api::OwnAddresses {
+            peer: peer(),
+            addresses: vec![interweave_local_client_api::OwnAddress {
+                address: format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", peer().as_str()),
+                kind: interweave_local_client_api::OwnAddressKind::Listen,
+            }],
+            truncated: false,
+        })
     }
 }

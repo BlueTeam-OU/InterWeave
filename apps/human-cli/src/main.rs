@@ -22,6 +22,7 @@ mod cli;
 mod output;
 mod session;
 mod startup;
+mod store;
 mod verbs;
 #[cfg(test)]
 mod verbs_tests;
@@ -31,12 +32,12 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use interweave_human_app_core::FacadeSide;
-use interweave_human_store::{HumanStore, StorageHealth, StoreError};
+use interweave_human_store::key_custody::FilesystemCustody;
+use interweave_human_store::{HumanStore, StoreError};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_profile_config::ProfileLock;
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
-use serde_json::json;
 
 /// Why a verb did not complete, each with its exit code.
 #[derive(Debug)]
@@ -135,46 +136,12 @@ fn facade(
     match interweave_human_app_core::identity_key(&profile.paths, &profile.endpoints) {
         Ok(Some(key)) => facade.set_identity_key(key),
         Ok(None) => {}
-        Err(e) => eprintln!("interweave-human: the identity's key is not usable: {e}"),
+        Err(e) => eprintln!(
+            "interweave-human: the identity's key is not usable: {}",
+            output::one_line(&e.to_string())
+        ),
     }
     Ok(facade)
-}
-
-/// `store health`: re-checked now, as the window's re-check does, with
-/// what the store holds counted. Degraded is exit 5, with the counts
-/// printed.
-fn store_health(store: &mut HumanStore, json: bool) -> Outcome {
-    let unavailable = |e: &StoreError| Failure::Store(format!("the message store: {e}"));
-    let healthy = matches!(store.recheck_health(), Ok(StorageHealth::Healthy));
-    let counts = (|| {
-        Ok::<_, Failure>((
-            store.pending_outbound().map_err(|e| unavailable(&e))?.len(),
-            store.unread_inbound().map_err(|e| unavailable(&e))?.len(),
-            store.kept_inbound().map_err(|e| unavailable(&e))?.len(),
-        ))
-    })();
-    let (pending, unread, kept) = match counts {
-        Ok(counts) => counts,
-        Err(failure) => return failure.into(),
-    };
-    let health = if healthy { "healthy" } else { "degraded" };
-    let out = if json {
-        output::json_line(&json!({
-            "health": health, "pending": pending, "unread": unread, "kept": kept,
-        }))
-    } else {
-        format!("health   {health}\npending  {pending}\nunread   {unread}\nkept     {kept}\n")
-    };
-    Outcome {
-        out,
-        result: if healthy {
-            Ok(())
-        } else {
-            Err(Failure::Store(
-                "the message store cannot hold new messages now".to_owned(),
-            ))
-        },
-    }
 }
 
 /// What stops `listen`: an interrupt or a terminate. Registered when it is
@@ -227,14 +194,31 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
         let result = runtime.block_on(admin::identities(&profile, verb, json, &mut out));
         return Outcome { out, result };
     }
-    let lock = startup::lock(&profile).and_then(|lock| Ok((lock, startup::open_store(&profile)?)));
-    let (_lock, mut store) = match lock {
-        Ok(held) => held,
+    if matches!(
+        verb,
+        cli::Verb::PeersList
+            | cli::Verb::PeersShow
+            | cli::Verb::PeerAdd(_)
+            | cli::Verb::PeerRemove(_)
+    ) {
+        let result = runtime.block_on(admin::peers(&profile, verb, json, &mut out));
+        return Outcome { out, result };
+    }
+    let lock = match startup::lock(&profile) {
+        Ok(lock) => lock,
         Err(failure) => return failure.into(),
     };
-    if *verb == cli::Verb::StoreHealth {
-        return store_health(&mut store, json);
+    match verb {
+        cli::Verb::StoreHealth => return store::health(&profile.paths, &FilesystemCustody, json),
+        cli::Verb::StoreDiscard(confirm) => {
+            return store::discard(&profile.paths, &FilesystemCustody, *confirm, json);
+        }
+        _ => {}
     }
+    let (_lock, store) = match startup::open_store(&profile) {
+        Ok(store) => (lock, store),
+        Err(failure) => return failure.into(),
+    };
     let name = profile.paths.profile().to_owned();
     let paths = profile.paths.clone();
     let result = runtime.block_on(async {
@@ -278,7 +262,11 @@ fn main() -> ExitCode {
     let command = match cli::parse(std::env::args().skip(1)) {
         Ok(command) => command,
         Err(message) => {
-            eprintln!("interweave-human: {message}\n{}", cli::USAGE);
+            eprintln!(
+                "interweave-human: {}\n{}",
+                output::one_line(&message),
+                cli::USAGE
+            );
             return ExitCode::from(2);
         }
     };
@@ -312,7 +300,7 @@ fn main() -> ExitCode {
         .and_then(|()| stdout.flush());
     match result {
         Err(failure) => {
-            eprintln!("interweave-human: {}", failure.message());
+            eprintln!("interweave-human: {}", output::one_line(failure.message()));
             ExitCode::from(failure.code())
         }
         Ok(()) if written.is_err() => ExitCode::from(1),

@@ -10,19 +10,20 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use interweave_ipc_protocol::{
-    AddressList, AddressParams, AddressResult, AdminStatusResult, AuthorityDomain, Cancel,
-    ChannelParams, ClientInfo, Close, DirectoryResult, EmptyResult, EndpointList, EndpointParams,
-    Event, EventType, Frame, GrantedLease, HandshakeOutcome, Hello, HelloResponse, HelloTag,
-    IPC_MAJOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED, Method, Nonce, PeerList, PeerListParams,
-    Ping, PublishParams, QueryParams, Request, RequestId, RequestedCapability, ResponseFrame,
-    SendParams, SendResult, ServerCounters, ServerState, SetDefaultParams, SetEnabledParams,
-    SetEnabledResult, ShutdownParams, TrustList, TrustListParams, TrustSetParams, UnsupportedMajor,
-    encode_frame, supported,
+    AddressList, AddressParams, AddressResult, AddressesParams, AddressesResult, AdminStatusResult,
+    AuthorityDomain, Cancel, ChannelParams, ClientInfo, Close, DirectoryResult, EmptyResult,
+    EndpointList, EndpointParams, Event, EventType, Frame, GrantedLease, HandshakeOutcome, Hello,
+    HelloResponse, HelloTag, IPC_MAJOR, IpcVersion, MAX_BODY_BYTES, MAX_REQUESTED, Method, Nonce,
+    OwnAddressList, PeerList, PeerListParams, Ping, PublishParams, QueryParams, Request, RequestId,
+    RequestedCapability, ResponseFrame, SendParams, SendResult, ServerCounters, ServerState,
+    SetDefaultParams, SetEnabledParams, SetEnabledResult, ShutdownParams, TrustList,
+    TrustListParams, TrustSetParams, UnsupportedMajor, encode_frame, supported,
 };
 use interweave_local_client_api::{
-    AddressChange, AddressRefusal, AddressSource, AdminCapability, AdminStatus, BootstrapAddress,
-    DataCapability, EndpointAdminView, Generation, LeaseRecord, LocalSessionEvent, PeerGateView,
-    PeerOutcome, ReceivedBroadcast, ReceivedDirect, SessionEvent, TrustAdminView,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminCapability, AdminStatus,
+    BootstrapAddress, DataCapability, EndpointAdminView, Generation, LeaseRecord, LineChange,
+    LocalSessionEvent, OwnAddress, OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome,
+    ReceivedBroadcast, ReceivedDirect, SessionEvent, TrustAdminView,
 };
 use interweave_transport_api::{
     ChannelId, ConnectivitySummary, DirectInboundState, EndpointDirectoryV1, EndpointId, Health,
@@ -476,7 +477,7 @@ fn the_authority_domain_is_not_a_frame_field() {
 /// covers nothing by itself -- `check_schemas_are_tested.sh` skips
 /// this list and counts only the sites below that read each schema, so a
 /// new schema needs a test that reads it, not only a line here.
-const IPC_SCHEMAS: [&str; 34] = [
+const IPC_SCHEMAS: [&str; 37] = [
     "architecture/contracts/schemas/ipc/admin-status.schema.json",
     "architecture/contracts/schemas/ipc/broadcast-received.schema.json",
     "architecture/contracts/schemas/ipc/capability.schema.json",
@@ -499,6 +500,9 @@ const IPC_SCHEMAS: [&str; 34] = [
     "architecture/contracts/schemas/ipc/peers-address-list.schema.json",
     "architecture/contracts/schemas/ipc/peers-address-params.schema.json",
     "architecture/contracts/schemas/ipc/peers-address-result.schema.json",
+    "architecture/contracts/schemas/ipc/peers-addresses-params.schema.json",
+    "architecture/contracts/schemas/ipc/peers-addresses-result.schema.json",
+    "architecture/contracts/schemas/ipc/peers-own-addresses.schema.json",
     "architecture/contracts/schemas/ipc/publish-params.schema.json",
     "architecture/contracts/schemas/ipc/query-params.schema.json",
     "architecture/contracts/schemas/ipc/request.schema.json",
@@ -721,6 +725,13 @@ fn every_request() -> Vec<Request> {
             address: format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", peer().as_str()),
         }),
         Request::AdminPeersListAddresses,
+        Request::AdminPeersOwnAddresses,
+        Request::AdminPeersAddAddresses(AddressesParams {
+            addresses: vec![
+                format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", peer().as_str()),
+                format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", peer().as_str()),
+            ],
+        }),
     ];
     assert_eq!(
         requests.iter().map(Request::method).collect::<Vec<_>>(),
@@ -1185,7 +1196,10 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
             }
             Method::DirectSend => "architecture/contracts/schemas/ipc/send-params.schema.json",
             Method::EndpointsQuery => "architecture/contracts/schemas/ipc/query-params.schema.json",
-            Method::AdminStatus | Method::AdminEndpointsList | Method::AdminPeersListAddresses => {
+            Method::AdminStatus
+            | Method::AdminEndpointsList
+            | Method::AdminPeersListAddresses
+            | Method::AdminPeersOwnAddresses => {
                 return None;
             }
             Method::AdminEndpointsRevoke => {
@@ -1211,6 +1225,9 @@ fn every_request_validates_against_its_catalogue_entry_and_params_schema() {
             }
             Method::AdminPeersAddAddress | Method::AdminPeersRemoveAddress => {
                 "architecture/contracts/schemas/ipc/peers-address-params.schema.json"
+            }
+            Method::AdminPeersAddAddresses => {
+                "architecture/contracts/schemas/ipc/peers-addresses-params.schema.json"
             }
         })
     };
@@ -1754,13 +1771,11 @@ fn the_peers_address_shapes_hold_what_the_contract_says() {
             serde_json::json!({ "outcome": outcome, "refused": "bound" }),
         );
     }
-    for reason in [
-        "grammar",
-        "special_use",
-        "bound",
-        "provider_disabled",
-        "authored",
-    ] {
+    // Every reason the contract crate names, so one added there and not
+    // to the schema fails here.
+    for reason in interweave_local_client_api::AddressRefusal::ALL
+        .map(interweave_local_client_api::AddressRefusal::as_str)
+    {
         assert_valid(
             result,
             &serde_json::json!({ "outcome": "refused", "refused": reason, "detail": "why" }),
@@ -1871,5 +1886,325 @@ fn the_peers_address_shapes_hold_what_the_contract_says() {
     ] {
         refuses(list, wrong.clone());
         assert!(serde_json::from_value::<AddressList>(wrong).is_err());
+    }
+}
+
+/// The show side's read (ADR-0062 decision 4), `approved` before its
+/// wire: one ordered list whose rows name their kind from a closed set,
+/// held to its 64-row bound, with this node's `PeerId` and whether rows
+/// were dropped -- and the Rust mirror agrees both ways: what it writes
+/// validates and reads back, and every instance the schema refuses it
+/// refuses too.
+#[test]
+fn the_own_addresses_shape_holds_what_the_contract_says() {
+    let own = "architecture/contracts/schemas/ipc/peers-own-addresses.schema.json";
+    let refuses = |instance: Value| {
+        assert!(
+            !validator(own).is_valid(&instance),
+            "{own} admits {instance}"
+        );
+        assert!(
+            serde_json::from_value::<OwnAddressList>(instance.clone()).is_err(),
+            "the mirror admits {instance}"
+        );
+    };
+    let peer = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+    let row = |kind: &str| serde_json::json!({ "address": format!("/ip4/192.168.1.20/tcp/4001/p2p/{peer}"), "kind": kind });
+
+    assert_valid(
+        own,
+        &serde_json::json!({ "peer": peer, "addresses": [], "truncated": false }),
+    );
+    assert_valid(
+        own,
+        &serde_json::json!({ "peer": peer, "addresses": [
+            row("confirmed_external"), row("relay_circuit"), row("listen")
+        ], "truncated": false }),
+    );
+    assert_valid(
+        own,
+        &serde_json::json!({ "peer": peer, "addresses": vec![row("listen"); 64], "truncated": true }),
+    );
+    refuses(
+        serde_json::json!({ "peer": peer, "addresses": vec![row("listen"); 65], "truncated": true }),
+    );
+    refuses(
+        serde_json::json!({ "peer": peer, "addresses": [row("observed")], "truncated": false }),
+    );
+    refuses(serde_json::json!({ "peer": peer, "addresses": [] }));
+    refuses(serde_json::json!({ "addresses": [], "truncated": false }));
+    refuses(serde_json::json!({ "peer": "not-a-peer", "addresses": [], "truncated": false }));
+    refuses(serde_json::json!({ "peer": peer, "addresses": [
+        { "address": "", "kind": "listen" }
+    ], "truncated": false }));
+
+    let view = |kind: OwnAddressKind| OwnAddress {
+        address: format!("/ip4/192.168.1.20/tcp/4001/p2p/{peer}"),
+        kind,
+    };
+    let answered = OwnAddresses {
+        peer: TransportIdentity::parse(peer.to_owned()).expect("peer"),
+        addresses: vec![
+            view(OwnAddressKind::ConfirmedExternal),
+            view(OwnAddressKind::RelayCircuit),
+            view(OwnAddressKind::Listen),
+        ],
+        truncated: false,
+    };
+    let wire = serde_json::to_value(OwnAddressList::from_view(answered.clone()).expect("in bound"))
+        .expect("ser");
+    assert_valid(own, &wire);
+    assert_eq!(
+        wire["addresses"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|r| r["kind"].as_str().expect("kind"))
+            .collect::<Vec<_>>(),
+        ["confirmed_external", "relay_circuit", "listen"],
+        "the wire names are OwnAddressKind::as_str's"
+    );
+    for kind in [
+        OwnAddressKind::ConfirmedExternal,
+        OwnAddressKind::RelayCircuit,
+        OwnAddressKind::Listen,
+    ] {
+        let one = OwnAddressList::from_view(OwnAddresses {
+            addresses: vec![view(kind)],
+            ..answered.clone()
+        })
+        .expect("in bound");
+        assert_eq!(
+            serde_json::to_value(&one).expect("ser")["addresses"][0]["kind"],
+            kind.as_str()
+        );
+    }
+    let back: OwnAddressList = serde_json::from_value(wire).expect("reads back");
+    assert_eq!(OwnAddresses::from(back), answered);
+    assert_eq!(
+        OwnAddressList::from_view(OwnAddresses {
+            addresses: vec![view(OwnAddressKind::Listen); 65],
+            ..answered
+        }),
+        Err(TransportError::Internal),
+        "a port past the bound is answered Internal, never cut"
+    );
+}
+
+/// The all-or-none add (ADR-0062 decision 4): 1 to 16 lines in, and out
+/// either one row per line, each added or unchanged, or a refusal naming
+/// its rule and -- for every rule but the provider's, which refuses the
+/// list whole -- the line's index, the two halves never mixed. And the
+/// Rust mirror agrees both ways: every instance the schema refuses it
+/// refuses too, what the server builds validates and reads back, and a
+/// port answer the contract cannot carry is `Internal`, never mended.
+#[test]
+fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
+    let params = "architecture/contracts/schemas/ipc/peers-addresses-params.schema.json";
+    let result = "architecture/contracts/schemas/ipc/peers-addresses-result.schema.json";
+    let refuses = |path: &str, instance: Value| {
+        assert!(
+            !validator(path).is_valid(&instance),
+            "{path} admits {instance}"
+        );
+        let mirror = if path == params {
+            serde_json::from_value::<AddressesParams>(instance.clone()).is_err()
+        } else {
+            serde_json::from_value::<AddressesResult>(instance.clone()).is_err()
+        };
+        assert!(mirror, "the mirror admits {instance}");
+    };
+    let peer = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+    let address = format!("/ip4/192.168.1.20/tcp/4001/p2p/{peer}");
+
+    assert_valid(params, &serde_json::json!({ "addresses": [address] }));
+    assert_valid(
+        params,
+        &serde_json::json!({ "addresses": vec![address.clone(); 16] }),
+    );
+    refuses(
+        params,
+        serde_json::json!({ "addresses": vec![address.clone(); 17] }),
+    );
+    refuses(params, serde_json::json!({ "addresses": [] }));
+    refuses(params, serde_json::json!({}));
+    refuses(params, serde_json::json!({ "addresses": [""] }));
+    refuses(
+        params,
+        serde_json::json!({ "addresses": ["x".repeat(1025)] }),
+    );
+    refuses(params, serde_json::json!({ "addresses": address }));
+    refuses(
+        params,
+        serde_json::json!({ "addresses": [address], "source": "scan" }),
+    );
+
+    let row = |outcome: &str| serde_json::json!({ "outcome": outcome });
+    assert_valid(
+        result,
+        &serde_json::json!({ "outcome": "added", "lines": [row("added"), row("unchanged")] }),
+    );
+    assert_valid(
+        result,
+        &serde_json::json!({ "outcome": "added", "lines": vec![row("unchanged"); 16] }),
+    );
+    refuses(result, serde_json::json!({ "outcome": "added" }));
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "added", "lines": [] }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "added", "lines": vec![row("added"); 17] }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "added", "lines": [row("removed")] }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "added", "lines": [row("added")], "refused": "bound", "index": 0 }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "added", "lines": [row("added")], "index": 0 }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "unchanged", "lines": [row("unchanged")] }),
+    );
+
+    // Every reason that names a line: all but the provider's, which
+    // refuses the list whole, and `authored`, which only a removal answers.
+    for reason in interweave_local_client_api::AddressRefusal::ALL
+        .into_iter()
+        .filter(|r| {
+            !matches!(
+                r,
+                interweave_local_client_api::AddressRefusal::ProviderDisabled
+                    | interweave_local_client_api::AddressRefusal::Authored
+            )
+        })
+        .map(interweave_local_client_api::AddressRefusal::as_str)
+    {
+        assert_valid(
+            result,
+            &serde_json::json!({ "outcome": "refused", "refused": reason, "index": 15, "detail": "why" }),
+        );
+        refuses(
+            result,
+            serde_json::json!({ "outcome": "refused", "refused": reason }),
+        );
+        refuses(
+            result,
+            serde_json::json!({ "outcome": "refused", "refused": reason, "index": 16 }),
+        );
+        refuses(
+            result,
+            serde_json::json!({ "outcome": "refused", "refused": reason, "index": 0, "lines": [row("added")] }),
+        );
+    }
+    assert_valid(
+        result,
+        &serde_json::json!({ "outcome": "refused", "refused": "provider_disabled" }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "refused", "refused": "provider_disabled", "index": 0 }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "refused", "refused": "authored", "index": 0 }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "refused", "index": 0 }),
+    );
+    refuses(
+        result,
+        serde_json::json!({ "outcome": "refused", "refused": "grammar", "index": 0, "detail": "d".repeat(513) }),
+    );
+
+    // THE RUST MIRROR, the server's side: each answer beside the length
+    // of the list it answers.
+    let line = |n: usize| AddressesChange::Refused {
+        reason: AddressRefusal::Bound,
+        line: Some(n),
+        detail: "d".repeat(600),
+    };
+    let whole = |reason| AddressesChange::Refused {
+        reason,
+        line: None,
+        detail: String::new(),
+    };
+    let at = |reason, n| AddressesChange::Refused {
+        reason,
+        line: Some(n),
+        detail: String::new(),
+    };
+    for (change, lines) in [
+        (
+            AddressesChange::Added(vec![LineChange::Added, LineChange::Unchanged]),
+            2,
+        ),
+        (AddressesChange::Added(vec![LineChange::Unchanged; 16]), 16),
+        (line(15), 16),
+        (whole(AddressRefusal::ProviderDisabled), 3),
+    ] {
+        let wire = serde_json::to_value(
+            AddressesResult::from_view(change.clone(), lines).expect("carried"),
+        )
+        .expect("ser");
+        assert_valid(result, &wire);
+        let back: AddressesChange = serde_json::from_value::<AddressesResult>(wire)
+            .expect("reads back")
+            .into();
+        match (&change, &back) {
+            (
+                AddressesChange::Refused {
+                    reason,
+                    line,
+                    detail,
+                },
+                AddressesChange::Refused {
+                    reason: r,
+                    line: l,
+                    detail: d,
+                },
+            ) => {
+                assert_eq!((reason, line), (r, l));
+                assert_eq!(d.chars().count(), detail.chars().count().min(512));
+            }
+            _ => assert_eq!(change, back),
+        }
+    }
+    assert_eq!(
+        serde_json::to_value(
+            AddressesResult::from_view(
+                AddressesChange::Added(vec![LineChange::Added, LineChange::Unchanged]),
+                2
+            )
+            .expect("carried")
+        )
+        .expect("ser")["lines"],
+        serde_json::json!([{ "outcome": LineChange::Added.as_str() }, { "outcome": LineChange::Unchanged.as_str() }]),
+        "the wire names are LineChange::as_str's"
+    );
+    for (broken, lines) in [
+        (AddressesChange::Added(Vec::new()), 0),
+        (AddressesChange::Added(vec![LineChange::Added; 2]), 3),
+        (AddressesChange::Added(vec![LineChange::Added; 3]), 2),
+        (AddressesChange::Added(vec![LineChange::Added; 17]), 17),
+        (line(16), 17),
+        (line(2), 2),
+        (whole(AddressRefusal::Grammar), 1),
+        (at(AddressRefusal::ProviderDisabled, 0), 1),
+        (at(AddressRefusal::Authored, 0), 1),
+    ] {
+        assert_eq!(
+            AddressesResult::from_view(broken.clone(), lines),
+            Err(TransportError::Internal),
+            "{broken:?} for {lines} lines"
+        );
     }
 }

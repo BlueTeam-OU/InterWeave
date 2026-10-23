@@ -95,10 +95,15 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         }
         Verb::Send { text: None, .. }
         | Verb::Listen
+        | Verb::PeersList
+        | Verb::PeerAdd(_)
+        | Verb::PeerRemove(_)
         | Verb::IdentitiesList
         | Verb::SetEnabled(..)
         | Verb::SetDefault(_)
-        | Verb::StoreHealth => Err(Failure::Refused(
+        | Verb::StoreHealth
+        | Verb::StoreDiscard(_)
+        | Verb::PeersShow => Err(Failure::Refused(
             "this verb does not run through the session".to_owned(),
         )),
     }
@@ -758,7 +763,7 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
     if let Some(map) = fields.as_object() {
         for value in map.values() {
             line.push(' ');
-            line.push_str(&output::printable(value.as_str().unwrap_or_default()));
+            line.push_str(&output::one_line(value.as_str().unwrap_or_default()));
         }
     }
     line.push('\n');

@@ -15,7 +15,9 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; [[ -n "${2:-}" ]] && printf '%s\n' "$2" | sed 's/^/       /' | head -6; }
 
-S="$(mktemp -d)"; trap 'rm -rf "$S"' EXIT
+S="$(mktemp -d)"
+[ -n "$S" ] && [ -d "$S" ] || { echo "test_check_android_target: no sandbox (mktemp failed)" >&2; exit 1; }
+trap 'rm -rf "$S"' EXIT
 mkdir -p "$S/repo"
 fake_ndk() {  # <dir> <revision> [no-clang]
     mkdir -p "$1/toolchains/llvm/prebuilt/linux-x86_64/bin"
