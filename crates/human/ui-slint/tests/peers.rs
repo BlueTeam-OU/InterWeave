@@ -851,6 +851,15 @@ fn a_pending_trust_retried_without_a_write_says_no_nothing_changed() {
         .read(Err(TrustProblem::Unavailable));
     let _ = model.peers_turn();
     view.render(&model);
+    // The step's re-read failing is its block's to say: never the
+    // settings' "open the trust settings again".
+    let again = text(UiText::TrustNotReadAgain);
+    for slot in [
+        view.window().get_announcement_a().to_string(),
+        view.window().get_announcement_b().to_string(),
+    ] {
+        assert!(!slot.contains(again), "{slot:?}");
+    }
     assert_eq!(
         intents(&mut view, &mut model),
         Vec::<Intent>::new(),
@@ -959,4 +968,117 @@ fn row_focus_returns(removed: bool) {
         let said = slots(&view).iter().any(|s| s.starts_with(gone));
         assert_eq!(said, removed, "{:?}", slots(&view));
     }
+}
+
+/// A trust outcome is said by where its change was made, not by the page
+/// on show when its answer lands: a change confirmed in the trust
+/// settings is announced and shown there even if Peers is open when it
+/// is answered; a trust step's is its block's, so landing on the Trust
+/// page says nothing and leaves nothing shown there.
+#[test]
+fn a_trust_outcome_is_said_where_its_change_was_made() {
+    use interweave_human_client_api::{TrustProblem, TrustSetFailure};
+    use interweave_human_ui_model::{PeersInput, TrustInput};
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b) = (peer(), peer(), peer());
+    // No row on show while the Trust page is opened by its menu entry:
+    // a row's Trust is labelled "Trust" too.
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let slots = |view: &View| {
+        [
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        ]
+    };
+    let to_trust = |view: &mut View, model: &mut UiModel| {
+        press(view, text(UiText::AppOptions));
+        press(view, text(UiText::TrustHeading));
+        let _ = intents(view, model);
+    };
+    let to_peers = |view: &mut View, model: &mut UiModel| {
+        press(view, text(UiText::AppOptions));
+        press(view, text(UiText::PeersTitle));
+        let _ = intents(view, model);
+    };
+
+    // A trust read that fails while Peers is on show is its trust line's
+    // to say, never the settings' "nothing was changed".
+    assert_eq!(model.trust_settings_mut().opened(), Some(Intent::ReadTrust));
+    model
+        .trust_settings_mut()
+        .read(Err(TrustProblem::Unavailable));
+    view.render(&model);
+    let unreachable = placeholder_en::trust_problem(RuntimeHost::Daemon, TrustProblem::Unavailable);
+    assert!(
+        !slots(&view).iter().any(|s| s.contains(unreachable)),
+        "{:?}",
+        slots(&view)
+    );
+    assert!(
+        view.window().get_peers_trust_line() != "",
+        "the line says it"
+    );
+
+    // Confirmed in the settings, answered while Peers is open.
+    to_trust(&mut view, &mut model);
+    let settings = model.trust_settings_mut();
+    let _ = settings.input(TrustInput::EntryChanged(a.as_str().to_owned()));
+    let _ = settings.input(TrustInput::ProposeAllow);
+    let change = TrustChange {
+        peer: a.clone(),
+        allowed: true,
+    };
+    assert_eq!(
+        settings.input(TrustInput::Confirm(change.clone())),
+        Some(Intent::SetTrust(change.clone()))
+    );
+    to_peers(&mut view, &mut model);
+    model
+        .trust_settings_mut()
+        .set(change, Err(TrustSetFailure::NotMade(TrustProblem::Refused)));
+    view.render(&model);
+    let refused = placeholder_en::trust_problem(RuntimeHost::Daemon, TrustProblem::Refused);
+    assert!(
+        slots(&view).iter().any(|s| s.contains(refused)),
+        "announced: {:?}",
+        slots(&view)
+    );
+    to_trust(&mut view, &mut model);
+    assert_eq!(view.window().get_trust_outcome().as_str(), refused, "shown");
+
+    // A trust step's Trust, answered once the Trust page is open.
+    to_peers(&mut view, &mut model);
+    model.addresses_read(Ok(AddressList {
+        addresses: vec![added(&b)],
+    }));
+    view.render(&model);
+    let _ = model.peers_input(PeersInput::TrustRow(at(&b)));
+    let step = TrustChange {
+        peer: b.clone(),
+        allowed: true,
+    };
+    assert_eq!(
+        model.peers_input(PeersInput::Trust(b.clone())),
+        vec![Intent::SetTrust(step.clone())]
+    );
+    view.render(&model);
+    to_trust(&mut view, &mut model);
+    let before = slots(&view);
+    model.trust_settings_mut().set(
+        step,
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    view.render(&model);
+    let not_written = placeholder_en::trust_problem(RuntimeHost::Daemon, TrustProblem::Unavailable);
+    assert!(
+        !slots(&view).iter().any(|s| s.contains(not_written)),
+        "{before:?} -> {:?}",
+        slots(&view)
+    );
+    assert_eq!(
+        view.window().get_trust_outcome().as_str(),
+        "",
+        "nothing left"
+    );
 }

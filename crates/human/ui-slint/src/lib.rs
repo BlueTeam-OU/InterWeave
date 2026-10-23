@@ -27,10 +27,10 @@ use std::time::{Duration, Instant};
 use interweave_human_client_api::{Connectivity, OutboundStatus, TrustOrigin};
 use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
-    HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
-    RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, TrustSettings,
-    UiModel, UiText, announced_change, attention_class, fill, next_age_change, placeholder_en,
-    short_peer, visible_destination, waiting_text,
+    HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, OutcomeFrom, Reply, Retention,
+    RowAction, RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome,
+    TrustSettings, UiModel, UiText, announced_change, attention_class, fill, next_age_change,
+    placeholder_en, short_peer, visible_destination, waiting_text,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -739,11 +739,13 @@ pub struct View {
     focus_wanted: Rc<RefCell<Option<String>>>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
-    /// The page on show when the trust settings' latest outcome came. On
-    /// Peers a trust step's outcome is its block's to say: it is neither
+    /// The page on show when the trust settings' latest outcome came. A
+    /// trust step's outcome is its block's to say wherever it lands, and
+    /// a read's that lands on Peers is its trust line's: neither is
     /// announced nor left for the Trust page, where a retry's "nothing
     /// was changed" would be false while the block's earlier Trust is
-    /// unknown (`a_pending_trust_retried_without_a_write_says_no_nothing_changed`).
+    /// unknown (`a_pending_trust_retried_without_a_write_says_no_nothing_changed`,
+    /// `a_trust_outcome_is_said_where_its_change_was_made`).
     trust_outcome_on: Page,
     /// Peers' lists and what of its requests the view carried out.
     peer_lists: peers::PeerLists,
@@ -2196,8 +2198,15 @@ impl View {
         if count != self.trust_announced {
             self.trust_outcome_on = self.page;
         }
+        // A trust step's outcome is its block's to say, wherever it lands;
+        // a read's that lands on Peers is its trust line's (§5.2, §5.3).
+        let by_peers = match settings.outcome_from() {
+            OutcomeFrom::TrustStep => true,
+            OutcomeFrom::Read => self.trust_outcome_on == Page::Peers,
+            OutcomeFrom::Settings => false,
+        };
         let said = outcome
-            .filter(|_| self.trust_outcome_on != Page::Peers)
+            .filter(|_| !by_peers)
             .map(|outcome| outcome_text(self.host, outcome))
             .unwrap_or_default();
         // The entry's problem goes under its field; every other outcome
