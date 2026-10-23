@@ -1095,9 +1095,10 @@ impl Peers {
             self.ask_focus(PeersFocus::Opener);
             return;
         }
-        if self.in_flight.is_some() || self.check.is_some() {
-            return;
-        }
+        // Any other change on its way -- a Remove, an Undo, or its read
+        // back -- is the list's, said by its snackbar: it never holds the
+        // page open, since a Back that does nothing breaks the platform's
+        // Back (§5.3; `a_page_closes_while_a_removal_is_on_its_way`).
         let Some(page) = self.page.as_mut() else {
             return;
         };

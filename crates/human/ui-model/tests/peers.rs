@@ -3680,3 +3680,33 @@ fn a_list_control_asked_under_the_add_page_leaves_its_focus() {
     let _ = input(&mut m, PeersInput::Close);
     assert_eq!(focus(&m), Some(PeersFocus::ListProblem));
 }
+
+/// Back or Escape closes a page opened while a Remove is on its way --
+/// the add page, or a row's trust step, where it is Done -- since a Back
+/// that does nothing breaks the platform's Back (§5.3, §8). The removal
+/// goes on and its answer still lands, said by its snackbar.
+#[test]
+fn a_page_closes_while_a_removal_is_on_its_way() {
+    let (me, a, b) = (peer(), peer(), peer());
+    for trust_step in [false, true] {
+        let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+        assert_eq!(
+            input(&mut m, PeersInput::Remove(at(&b))),
+            vec![Intent::RemoveAddress(at(&b))]
+        );
+        if trust_step {
+            let _ = input(&mut m, PeersInput::TrustRow(at(&a)));
+        } else {
+            let _ = input(&mut m, PeersInput::OpenAdd);
+        }
+        assert!(m.peers().add_open(), "trust step {trust_step}: opened");
+        let _ = input(&mut m, PeersInput::Close);
+        assert!(!m.peers().add_open(), "trust step {trust_step}: closed");
+        m.address_removed(&at(&b), answer(AddressOutcome::Removed, &[added(&a)]));
+        assert!(
+            matches!(m.peers().snack().0, Some(PeersSnack::Removed { .. })),
+            "trust step {trust_step}: {:?}",
+            m.peers().snack().0
+        );
+    }
+}
