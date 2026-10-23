@@ -39,24 +39,35 @@ fn main() {
     // which is what catches a commit on a branch git has packed: the commit
     // writes a loose ref that did not exist when this ran, and touches
     // neither HEAD nor packed-refs (measured, #398 F1). HEAD, the branch's
-    // loose ref and packed-refs stay for a clone with no reflog. A path
-    // that does not exist is left out, since cargo reruns every build for
-    // one.
+    // loose ref and packed-refs stay for a clone with no reflog -- and
+    // there a packed branch has no loose ref yet, so the nearest directory
+    // above where it will be written is watched instead: cargo scans a
+    // directory for changes, and the commit's new file is one (reflogs
+    // off and refs packed, measured; #386 review). Any other path that
+    // does not exist is left out, since cargo reruns every build for one.
     let mut watched = vec![
-        "logs/HEAD".to_owned(),
-        "HEAD".to_owned(),
-        "packed-refs".to_owned(),
+        ("logs/HEAD".to_owned(), false),
+        ("HEAD".to_owned(), false),
+        ("packed-refs".to_owned(), false),
     ];
     if let Some(branch) = git(dir, &["symbolic-ref", "-q", "HEAD"]) {
-        watched.push(branch);
+        watched.push((branch, true));
     }
-    for name in watched {
-        if let Some(path) = git(
+    for (name, or_its_directory) in watched {
+        let Some(path) = git(
             dir,
             &["rev-parse", "--path-format=absolute", "--git-path", &name],
-        ) && Path::new(&path).exists()
-        {
-            println!("cargo:rerun-if-changed={path}");
+        ) else {
+            continue;
+        };
+        let path = Path::new(&path);
+        let watch = if or_its_directory {
+            path.ancestors().find(|p| p.exists())
+        } else {
+            path.exists().then_some(path)
+        };
+        if let Some(watch) = watch {
+            println!("cargo:rerun-if-changed={}", watch.display());
         }
     }
     println!(
