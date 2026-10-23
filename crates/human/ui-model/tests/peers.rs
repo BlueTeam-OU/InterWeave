@@ -3469,3 +3469,32 @@ fn no_reach_claims_nothing_while_a_change_is_out() {
     );
     assert!(m.no_reach());
 }
+
+/// An address read that fails while a trust step is open asks no focus
+/// for the line saying why, drawn only past the page: the step keeps its
+/// focus, and closing it sends focus there (§8).
+#[test]
+fn a_failed_read_asks_no_focus_past_an_open_page() {
+    let (me, a) = (peer(), peer());
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&a)],
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            list: Err(AddressProblem::Unavailable),
+        }),
+    );
+    assert_eq!(m.peers().blocks(m.trust_settings()).len(), 1, "step two");
+    let asked = m.peers().focus();
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(m.peers().focus(), asked, "the step keeps its focus");
+    let _ = input(&mut m, PeersInput::NotNow(a.clone()));
+    assert!(!m.peers().add_open());
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem), "then to why");
+}

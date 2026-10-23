@@ -1264,7 +1264,9 @@ impl Peers {
                 match again {
                     Some(Again::List) => self.ask_focus(PeersFocus::ListProblem),
                     Some(Again::Open) => {}
-                    _ if had_list => self.ask_focus(PeersFocus::ListProblem),
+                    // Not past an open page, where the line is not drawn:
+                    // closing it sends focus there (§8).
+                    _ if had_list && self.page.is_none() => self.ask_focus(PeersFocus::ListProblem),
                     _ => {}
                 }
                 // A row restored while unread is not drawn with no list;
