@@ -120,8 +120,20 @@ const fn unsafe_char(c: char) -> bool {
         )
 }
 
+/// One field of a line -- a name, an address, a path, an error -- safe to
+/// print: every [`unsafe_char`], a newline and a tab included, replaced, so
+/// a value never splits the line it is printed on
+/// (`a_field_never_splits_its_line`). [`printable`] keeps the newlines a
+/// message's text holds.
+pub(crate) fn one_line(text: &str) -> String {
+    text.chars()
+        .map(|c| if unsafe_char(c) { '\u{FFFD}' } else { c })
+        .collect()
+}
+
 /// `text` safe to print to a terminal: every [`unsafe_char`] other than a
-/// newline or a tab replaced.
+/// newline or a tab replaced. For a message's text alone; a field of a
+/// line is [`one_line`].
 pub(crate) fn printable(text: &str) -> String {
     text.chars()
         .map(|c| {
@@ -217,7 +229,7 @@ pub(crate) fn message(item: &MessageItem, json: bool) -> String {
         direction(item.direction),
         status(&item.status),
         utc(item.local_at),
-        printable(&from),
+        one_line(&from),
     );
     for line in printable(&item.source).lines() {
         out.push_str("    ");
@@ -243,13 +255,23 @@ pub(crate) fn conversation(summary: &ConversationSummary, json: bool) -> String 
         "{key}  {} unread  {}  {}\n",
         summary.unread,
         utc(summary.last_activity),
-        printable(&summary.title)
+        one_line(&summary.title)
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_field_never_splits_its_line() {
+        let field = one_line("/ip4/1.2.3.4/tcp/1\n/ip4/5.6.7.8/tcp/2\tx\u{2028}y\u{1b}");
+        assert!(
+            !field.contains(['\n', '\t', '\u{2028}', '\u{1b}']),
+            "{field:?}"
+        );
+        assert!(field.starts_with("/ip4/1.2.3.4/tcp/1"), "{field:?}");
+    }
 
     #[test]
     fn text_from_a_peer_reaches_no_terminal_as_a_control() {
