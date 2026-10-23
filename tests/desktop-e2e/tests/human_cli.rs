@@ -515,9 +515,27 @@ async fn a_card_shared_accepted_edited_and_deleted_across_two_daemons() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_peer_added_by_address_is_listed_refused_by_class_and_removed() {
-    let (a, mut a_daemon, _a_peer, _b, mut b_daemon, b_peer) = two_daemons().await;
+    let (a, mut a_daemon, a_peer, _b, mut b_daemon, b_peer) = two_daemons().await;
     let ip = interweave_test_support::net::require_private_interface_v4();
     let address = format!("/ip4/{ip}/tcp/4999/p2p/{}", b_peer.as_str());
+
+    // This node's own addresses, as transportctl prints them, line for line.
+    let out = human(&a, &["peers", "show"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let shown = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(!shown.is_empty(), "a listening node has an address");
+    assert!(
+        shown
+            .lines()
+            .all(|l| l.ends_with(&format!("/p2p/{}", a_peer.as_str()))),
+        "{shown}"
+    );
+    let ctl = a.transportctl(&["peers", "show"], "");
+    assert_eq!(String::from_utf8_lossy(&ctl.stdout), shown, "{ctl:?}");
+    let out = human(&a, &["peers", "show", "--json"], "");
+    let own = &lines(&out)[0];
+    assert_eq!(own["peer"], a_peer.as_str(), "{}", said(&out));
+    assert_eq!(own["truncated"], false, "{}", said(&out));
 
     let out = human(&a, &["peers", "add", &address], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
