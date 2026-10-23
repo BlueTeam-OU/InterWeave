@@ -108,7 +108,7 @@ Run on 2026-10-22 against **Claude Code 2.1.286** (the version each session's de
 20. The marketplace `build.sh` assembles is accepted by `plugin marketplace add`, and the plugin installs from it at user scope, as the install's own output says (b to d). An installed plugin's server is named `plugin:<plugin>:<server>`, as an inline one's is, and the flag value naming it is `plugin:<plugin>@<marketplace>`.
 21. The development flag registers the channel from a marketplace install as it does from `--plugin-dir`. Both show the warning of fact 5, naming the channel by its flag value, and accepting it registers (a, b).
 22. `--channels` names the installed plugin correctly (it passes the marketplace check, which comes before the allowlist in the code below), and is refused because the plugin is not on the approved allowlist (c). No organisation policy refused any run.
-23. Read from the 2.1.286 binary, not measured: the order of the checks, and where the allowlist comes from. The checks run in this order: the server declares `claude/channel`; the legacy protocol era; a first-party provider; the remote `tengu_harbor` switch; the organisation's `channelsEnabled`; the session's channel list; and the installed plugin's marketplace. Only after those does a non-development entry need the allowlist. That allowlist is the organisation's `allowedChannelPlugins` from managed settings when that is set, and otherwise the remote `tengu_harbor_ledger` list of `{plugin, marketplace}` pairs, which Anthropic serves. So for `--channels` to register this plugin without the development flag, either Anthropic must list `interweave` in the marketplace it is installed from, or an organisation must set `channelsEnabled: true` and list it in `allowedChannelPlugins`. Neither path was tried. The first needs a publication. The second needs managed settings, which is host-wide and outside this login.
+23. Read from the 2.1.286 binary, not measured: the order of the checks, and where the allowlist comes from. The checks run in this order: the server declares `claude/channel`; the legacy protocol era; a first-party provider; the remote `tengu_harbor` switch; the organisation's `channelsEnabled`; the session's channel list; and the installed plugin's marketplace. Only after those does a non-development entry need the allowlist. That allowlist is the organisation's `allowedChannelPlugins` from managed settings when that is set, and otherwise the remote `tengu_harbor_ledger` list of `{plugin, marketplace}` pairs, which Anthropic serves. So for `--channels` to register this plugin without the development flag, either Anthropic must list `interweave` in the marketplace it is installed from, or an organisation must set `channelsEnabled: true` and list it in `allowedChannelPlugins`. Neither path was tried in S19. The first needs a publication. The second needs managed settings, which is host-wide and outside this login; S22 measured it (facts 29 to 33).
 
 ## S20: the plugin's settings and upgrades, without a session
 
@@ -125,6 +125,35 @@ Run on 2026-10-22 against **Claude Code 2.1.286**, like S20 by hand with no sess
 27. Before 403295e7, the bridge exited on that start: Claude Code reported "Failed to connect", with the connection closed after 26 ms. From 403295e7 the same start is "Connected" in the legacy era, with tools and no prompts or resources, and it ends on Claude Code's SIGINT, "exited cleanly".
 28. Claude Code keeps a plugin server's stderr as `Server stderr:` entries in `~/.cache/claude-cli-nodejs/<working directory>/mcp-logs-plugin-<plugin>-<server>/<timestamp>.jsonl`, one file per start, connected or not.
 
+## S22: the organisation path for `--channels`, without the development flag (plan §22)
+
+Run on 2026-10-23 against **Claude Code 2.1.286** (the version each session's debug log names), on this login's account, a claude.ai login, by `s22_org_channels.py` as committed at `a1b8b6ca`. The plugin, the marketplace and the install are S19's: `build.sh` from the release build, `claude plugin marketplace add`, and `claude plugin install interweave@interweave` at user scope into each run's own scratch `CLAUDE_CONFIG_DIR`. Every session is started with `--channels plugin:interweave@interweave` and no development flag. The runs differ only in the organisation's managed settings. This login cannot write `/etc`, so each session runs under bubblewrap with a private `/etc`: the host's entries read-only at their own paths, and a scratch directory read-only at `/etc/claude-code`. The binary reads the path a host-wide file would be at. Run a is S16's host run: two daemons, the far peer a second bridge on daemon B, and the prompt typed once the peer's message is accepted. Runs b to e answer registration only. No run met a screen to answer.
+
+Runs a, c and d use `/etc/claude-code/managed-settings.d/interweave.json`. This is run a's file in full; c and d each change one value, as the table says:
+
+```json
+{
+  "channelsEnabled": true,
+  "allowedChannelPlugins": [
+    { "plugin": "interweave", "marketplace": "interweave" }
+  ]
+}
+```
+
+| Run | Managed settings | Debug log for `plugin:interweave:interweave` |
+|---|---|---|
+| `s22-a-org-allow` | the file above | `Channel notifications registered`; the peer's message reached the model, and its `reply` reached the peer |
+| `s22-b-no-setting` | none (control) | `Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)` |
+| `s22-c-enabled-false` | as a, with `"channelsEnabled": false` (control) | `Channel notifications registered` |
+| `s22-d-org-other` | as a, with `allowedChannelPlugins` naming `{"plugin": "other", "marketplace": "interweave"}` (control) | `Channel notifications skipped: plugin interweave@interweave is not on your org's approved channels list (set allowedChannelPlugins in managed settings)` |
+| `s22-e-managed-file` | a's settings in `/etc/claude-code/managed-settings.json` | `Channel notifications registered` |
+
+29. Where an organisation's settings are read, from the 2.1.286 binary and then measured: on Linux, `/etc/claude-code/managed-settings.json` and every `*.json` in `/etc/claude-code/managed-settings.d/`, in sorted order. No environment variable moves that path. Both places were read: the drop-in (a, c, d) and the single file (e). Also read from the binary, not measured: server-managed settings and MDM rank above the file. The `--managed-settings` flag is filtered to restrictive keys, and `channelsEnabled` is not one of them, so the flag cannot turn channels on.
+30. With the organisation's allow entry, `--channels plugin:interweave@interweave` registers the channel without the development flag, and no warning screen is shown (a, e). In a, the channel registered 3.8 s after the start. The peer's message reached the model as a `<channel>` tag, and the model called `reply` with its token. The far peer received `ack` 20.2 s after the start, and the bridge answered "remote transport accepted at endpoint claude". In its first turn, before the prompt, the model said it had no tool for replying, here and in an earlier run of a at `5ad6f58e`: `reply` is a deferred tool, found through `ToolSearch` once the prompt asked for it.
+31. `allowedChannelPlugins` replaces Anthropic's allowlist. When it is set and does not name the plugin, the refusal names the organisation's list (d), not the remote allowlist of S19 and of b.
+32. `channelsEnabled: false` did not refuse on this login (c). Read from the binary: for a claude.ai login, the gate reads `channelsEnabled` only when the subscription is Team or Enterprise. For any other login, it refuses whenever a policy exists without `channelsEnabled: true`, with "channels not enabled by org policy (set channelsEnabled: true in managed settings)". So on this account, `allowedChannelPlugins` alone decides. That refusal was not measured: it needs a Team or Enterprise subscription, or a login that is not claude.ai.
+33. Without managed settings, the session is refused as S19's c was, with the same text (b).
+
 ## Where the architecture disagrees
 
 The documents are listed by document and sentence. Amending them is architect-cto's (`architecture/plugin/`) and the contract owner's (`contracts/CHANNEL-EVENT.md`, under ADR-0049).
@@ -138,9 +167,9 @@ The documents are listed by document and sentence. Amending them is architect-ct
 
 ## Not established
 
-- `--channels` with a published plugin. A plugin installed from a local marketplace is refused by `--channels` and registers only with the development flag (S19, facts 20 to 22). A listing on Anthropic's allowlist, or an organisation's `allowedChannelPlugins` with `channelsEnabled: true`, is what would change that (fact 23, read from the binary, not measured), and neither was tried.
+- `--channels` with a plugin on Anthropic's allowlist. A plugin installed from a local marketplace is refused by `--channels` without an organisation's allow entry (S19, fact 22; S22, fact 33), and registers with one (S22, fact 30). A listing on Anthropic's allowlist was not asked for or tried.
 - `userConfig` in a session started with a channel flag, which S20 did not run (it measured the argv `claude mcp get` starts the server with), and the interactive prompt `/plugin configure` shows.
-- Organisation-policy gating (`channelsEnabled`, `allowedChannelPlugins`): this account has no organisation.
+- The `channelsEnabled` refusal (fact 32): it needs a Team or Enterprise subscription, or a login that is not claude.ai. Also not measured: a managed settings file written to the host's own `/etc`, rather than presented to one process; and server-managed or MDM policy, which rank above the file (fact 29).
 - Permission relay, which the design does not declare.
 - Size limits on `content` and `meta`, and behaviour under load.
 - A server negotiating the 2026-07-28 revision (fact 3).
