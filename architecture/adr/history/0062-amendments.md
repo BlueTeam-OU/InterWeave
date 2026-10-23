@@ -25,3 +25,17 @@ plan §29 step 2 (the allow-list and the tree check) and its exit gate
 (e) (the cases);
 `human-client-ui.md` §3's paragraph on where a peer's address comes
 from.
+
+### Amendment 2026-10-22 (ii) — "Relay-only" is defined: no externally confirmed address exists at the read
+
+Decision 4 used "when the node is relay-only" without saying what the
+word meant; `LOCAL-IPC.md`'s `admin.peers.own_addresses` paragraph
+(approved 2026-10-22, p2p-network-dev's row) defined it for the read
+as "no confirmed-external row", and p2p-network-dev-02 asked before
+the review whether the record read it otherwise. It does not: the
+decision now says the circuit route is shown exactly when no
+externally confirmed address exists at the moment of the read, AutoNAT's
+state being `admin.status`'s and not the list's. The same change adds
+`LOCAL-CLIENT.md` §7 item 14, the show side's conformance item, beside
+item 13's. Propagation: decision 4; this note; the log row; the digest
+entry; `LOCAL-CLIENT.md` §7.

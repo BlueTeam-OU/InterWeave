@@ -460,6 +460,60 @@ pub struct BootstrapAddress {
     pub dialled: bool,
 }
 
+/// The most rows [`AdminPort::own_addresses`] answers: the
+/// `peers-own-addresses` schema's bound, so one answer and no paging.
+pub const MAX_OWN_ADDRESSES: usize = 64;
+
+/// What one of this node's own addresses is (`peers-own-addresses`'s
+/// `kind`), in the order the list carries them (ADR-0062 decision 4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnAddressKind {
+    /// Verified reachable by AutoNAT (ADR-0035).
+    ConfirmedExternal,
+    /// A circuit route through a reservation this node holds, listed
+    /// only when no address is confirmed external.
+    RelayCircuit,
+    /// Bound on an interface the host still holds.
+    Listen,
+}
+
+impl OwnAddressKind {
+    /// The name the wire carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ConfirmedExternal => "confirmed_external",
+            Self::RelayCircuit => "relay_circuit",
+            Self::Listen => "listen",
+        }
+    }
+}
+
+/// One of this node's own addresses: a `multiaddr-with-peer-id` in the
+/// configuration's grammar, ending in this node's `/p2p/<peer>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnAddress {
+    /// The address, as an add would take it.
+    pub address: String,
+    /// What it is.
+    pub kind: OwnAddressKind,
+}
+
+/// This node's own addresses for the show screen
+/// (`admin.peers.own_addresses`), selected and floored by the transport:
+/// a client renders them in this order and filters nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnAddresses {
+    /// This node's `PeerId`, the one every address ends in.
+    pub peer: TransportIdentity,
+    /// Confirmed external first, in confirmation order; then the circuit
+    /// routes, only when there is none; then listen addresses in bind
+    /// order. At most [`MAX_OWN_ADDRESSES`].
+    pub addresses: Vec<OwnAddress>,
+    /// Whether rows past the bound were dropped.
+    pub truncated: bool,
+}
+
 /// Why an address change was refused, by name: the closed set
 /// `peers-address-result`'s `refused` carries, so a client says why in its
 /// own words without parsing a message.
@@ -703,6 +757,18 @@ pub trait AdminPort {
     fn bootstrap_addresses(
         &self,
     ) -> impl Future<Output = Result<Vec<BootstrapAddress>, TransportError>> + Send {
+        std::future::ready(Err(TransportError::ProtocolUnsupported))
+    }
+
+    /// This node's own addresses for the show screen (ADR-0062 decision
+    /// 4, `admin.peers.own_addresses`, IPC 2.8): one ordered list in the
+    /// classes the add admits, the floor applied by the port. Reading it
+    /// causes nothing. Not implemented by a port that predates it.
+    ///
+    /// # Errors
+    /// `CapabilityDenied` without `admin.peers`, `ProtocolUnsupported`
+    /// (below 2.8, nothing sent), or `BackendUnavailable`.
+    fn own_addresses(&self) -> impl Future<Output = Result<OwnAddresses, TransportError>> + Send {
         std::future::ready(Err(TransportError::ProtocolUnsupported))
     }
 

@@ -476,6 +476,27 @@ impl SwarmRuntime {
         answer.await.map_err(|_| SubstrateError::Stopped)
     }
 
+    /// This node's own addresses for the show side (ADR-0062 decision 4,
+    /// `admin.peers.own_addresses`): confirmed external in confirmation
+    /// order, the circuit routes only when none is, the listeners in bind
+    /// order, each in the classes an add admits, from one instant in the
+    /// Swarm task.
+    ///
+    /// Causes nothing: no probe, reservation or dial is started by asking.
+    ///
+    /// # Errors
+    /// Returns [`SubstrateError::Stopped`] if the task is gone.
+    pub async fn own_addresses(
+        &self,
+    ) -> Result<interweave_local_client_api::OwnAddresses, SubstrateError> {
+        let (reply, answer) = oneshot::channel();
+        self.commands
+            .send(SwarmCommand::OwnAddresses { reply })
+            .await
+            .map_err(|_| SubstrateError::Stopped)?;
+        answer.await.map_err(|_| SubstrateError::Stopped)
+    }
+
     /// The gate's hold on each of `peers`: connected, and until when it
     /// is in backoff or has an address quarantined (`CONNECTIVITY.md`
     /// §19). One row per peer asked, in the order asked; the caller
