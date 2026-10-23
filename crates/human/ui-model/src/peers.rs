@@ -2379,6 +2379,14 @@ impl Peers {
         self.page.is_some()
     }
 
+    /// Whether the open page's own add awaits its answer: Add keeps focus,
+    /// labelled `AddWaiting` beside a progress mark, and takes no press
+    /// (§5.3). An add Back left out is no page's.
+    #[must_use]
+    pub const fn add_waiting(&self) -> bool {
+        self.page.is_some() && matches!(self.in_flight, Some(InFlight::Add { .. }))
+    }
+
     /// Whether the add page is at step one -- the field, its helper and
     /// Add -- rather than its result or a trust step: open with no result
     /// and no block. A row's Trust opens the trust step alone, so the

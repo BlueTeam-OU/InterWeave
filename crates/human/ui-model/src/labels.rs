@@ -845,6 +845,10 @@ ui_texts! {
     PasteCodeImage => "Paste an image",
     /// The add page's primary.
     AddAction => "Add",
+    /// Add's label, and its one announcement, while the page's add awaits
+    /// its answer: says it is under way, claims no outcome.
+    // PLACEHOLDER (en)
+    AddWaiting => "Adding…",
     /// Under the field: the add stored nothing. `{line}` the line,
     /// `{reason}` one Refused* value.
     AddRefused => "Not added: {line}. {reason}",

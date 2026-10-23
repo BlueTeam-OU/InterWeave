@@ -4152,3 +4152,26 @@ fn every_removal_left_unknown_stays_unknown_until_decided() {
         "decided by the read"
     );
 }
+
+/// The page's own add awaiting its answer is the page's wait (§5.3):
+/// while it is out, and not once it is answered, nor once Back has left
+/// it out, its page closed.
+#[test]
+fn the_pages_add_waits_while_it_is_out() {
+    let (me, them) = (peer(), peer());
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&them)));
+    assert!(!m.peers().add_waiting(), "nothing sent yet");
+    let _ = input(&mut m, PeersInput::Add);
+    assert!(m.peers().add_waiting(), "its add out");
+    m.addresses_added(
+        &[at(&them)],
+        answer(AddressOutcome::Refused(AddressRefused::Grammar), &[]),
+    );
+    assert!(!m.peers().add_waiting(), "answered");
+    let _ = input(&mut m, PeersInput::Add);
+    assert!(m.peers().add_waiting());
+    let _ = input(&mut m, PeersInput::Close);
+    assert!(!m.peers().add_waiting(), "left out by Back");
+}
