@@ -11,7 +11,7 @@
 # seven-day TTL be tested in a microsecond.
 [package]
 name = "interweave-discovery-cache"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Bounded advisory peer-cache persistence for InterWeave discovery."
 license.workspace = true

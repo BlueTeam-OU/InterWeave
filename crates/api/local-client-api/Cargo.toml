@@ -7,7 +7,7 @@
 # it is serialized over a socket or called in-process.
 [package]
 name = "interweave-local-client-api"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Neutral local data-session and admin-port contract for InterWeave."
 license.workspace = true

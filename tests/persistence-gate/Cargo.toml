@@ -11,7 +11,7 @@
 # live in three different packages.
 [package]
 name = "interweave-persistence-gate-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Stage 3 cross-crate persistence exit-gate tests for InterWeave."
 license.workspace = true

@@ -8,7 +8,7 @@
 # JNI entry points and the views are apps/human-android's.
 [package]
 name = "interweave-human-android-platform"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The InterWeave Android human client's Service side: runtime, store and facade, host-testable."
 license.workspace = true

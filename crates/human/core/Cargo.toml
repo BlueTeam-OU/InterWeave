@@ -12,7 +12,7 @@
 # enumeration.
 [package]
 name = "interweave-human-core"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Human client domain state: the ADR-0044 message retention state machine."
 license.workspace = true

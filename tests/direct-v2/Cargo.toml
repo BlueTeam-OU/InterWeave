@@ -12,7 +12,7 @@
 # not mock.
 [package]
 name = "interweave-direct-v2-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Stage 6 direct protocol v2 exit-gate tests for InterWeave."
 license.workspace = true

@@ -16,7 +16,7 @@
 # zero where the clock belongs -- survived until Stage 5 opened.
 [package]
 name = "interweave-connectivity-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "InterWeave root dial-admission and connection-exposure tests."
 license.workspace = true

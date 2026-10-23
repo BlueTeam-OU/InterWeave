@@ -12,7 +12,7 @@
 # as trust, membership, or application data.
 [package]
 name = "interweave-discovery-kademlia"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Kademlia peer-routing discovery provider for InterWeave."
 license.workspace = true
