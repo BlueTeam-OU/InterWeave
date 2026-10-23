@@ -736,3 +736,61 @@ fn the_host_shows_its_own_addresses_through_its_binding() {
     drop(port);
     host.stop(Duration::from_secs(1)).expect("stops");
 }
+
+/// THE EMBEDDED HOST'S ALL-OR-NONE ADD (ADR-0062 decision 4): the same
+/// seam reaches `admin.peers.add_addresses`. A scan with one special-use
+/// line is refused naming that line and writes nothing under the root;
+/// the control, the scan without it, is added whole and kept there.
+#[test]
+fn the_host_adds_a_scan_all_or_none_through_its_binding() {
+    use interweave_local_client_api::{AddressRefusal, AddressesChange, LineChange};
+    use interweave_profile_config::bootstrap_overlay::BootstrapOverlay;
+    const PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+    let app = app();
+    let paths = provision(&app.dir, &document("embedded-android", false));
+    let scan = vec![
+        format!("/ip4/192.168.1.20/tcp/4001/p2p/{PEER}"),
+        format!("/ip4/10.0.0.7/tcp/4001/p2p/{PEER}"),
+    ];
+    let host = EmbeddedHost::start(launch(&app.dir)).expect("starts");
+    let port = host
+        .runtime()
+        .block_on(host.binding().admin([AdminCapability::Peers].into()))
+        .expect("a port");
+    let file = BootstrapOverlay::path_for(&paths);
+
+    let mut with_loopback = scan.clone();
+    with_loopback.push(format!("/ip4/127.0.0.1/tcp/4001/p2p/{PEER}"));
+    let refused = host
+        .runtime()
+        .block_on(port.add_bootstrap_addresses(with_loopback))
+        .expect("an answer");
+    assert!(
+        matches!(
+            refused,
+            AddressesChange::Refused {
+                reason: AddressRefusal::SpecialUse,
+                line: Some(2),
+                ..
+            }
+        ),
+        "{refused:?}"
+    );
+    assert!(!file.exists(), "nothing written for a refused scan");
+
+    assert_eq!(
+        host.runtime()
+            .block_on(port.add_bootstrap_addresses(scan.clone()))
+            .expect("an answer"),
+        AddressesChange::Added(vec![LineChange::Added, LineChange::Added])
+    );
+    assert!(file.starts_with(&app.dir), "{}", file.display());
+    assert_eq!(
+        BootstrapOverlay::load_within(&file, &[], paths.boundary())
+            .expect("loads")
+            .peers(),
+        scan.as_slice()
+    );
+    drop(port);
+    host.stop(Duration::from_secs(1)).expect("stops");
+}

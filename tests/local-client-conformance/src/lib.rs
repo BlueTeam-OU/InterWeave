@@ -19,10 +19,10 @@
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AddressChange, AddressRefusal, AddressSource, AdminBinding, AdminCapability, AdminPort,
-    BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort, LocalSessionEvent,
-    MAX_OWN_ADDRESSES, OwnAddressKind, SessionEvent, SessionRequest, TrustAdminView, TrustSource,
-    TrustedPeer,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminCapability,
+    AdminPort, BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort, LineChange,
+    LocalSessionEvent, MAX_ADDRESSES_PER_ADD, MAX_OWN_ADDRESSES, OwnAddressKind, SessionEvent,
+    SessionRequest, TrustAdminView, TrustSource, TrustedPeer,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MediaType, MessageId, Payload,
@@ -1258,17 +1258,32 @@ pub async fn trust_administration_revokes_as_policy<B: DataSessionBinding + Admi
 /// of the pair before relying on it.
 const UNLISTED_PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
+/// The lines outside `peers-address-params`' length bound, which no entry
+/// of the grammar is: the empty one, and one a character past 1024 that
+/// reads as an address up to its last component. Over IPC the schema
+/// would make either a params error; every binding answers it as the
+/// method does.
+fn outside_the_bound(peer: &TransportIdentity) -> [String; 2] {
+    let address = format!("/ip4/10.0.0.1/tcp/4001/p2p/{}", peer.as_str());
+    let long = format!("{address}{}", "a".repeat(1025 - address.chars().count()));
+    assert_eq!(long.chars().count(), 1025);
+    [String::new(), long]
+}
+
 /// Bootstrap-address administration (ADR-0062, LOCAL-IPC.md minor 2.7;
 /// LOCAL-CLIENT.md §7 item 13), the same at every binding: without
 /// `admin.peers` the add, the removal and the list are each
-/// `CapabilityDenied`; a string that is no address, a well-formed address
-/// outside the grammar and one with a loopback component are each refused
+/// `CapabilityDenied`, whatever the address; a string that is no address, a well-formed address
+/// outside the grammar, one naming this node's own `PeerId`, one with a
+/// loopback component, and one outside the
+/// schema's length bound (empty, or of 1025 characters) are each refused
 /// BY NAME, an answer and never an
 /// error, with nothing written; a new address is `added`, listed as
 /// `added` after every `authored` entry, and a second add of it is
 /// `unchanged`; the add grants no trust; its removal is `removed` and the
 /// next list is the first again; a removal of an address the overlay
-/// does not hold is `unchanged`, and of `authored` -- the entry this
+/// does not hold -- one outside the length bound among them -- is
+/// `unchanged`, and of `authored` -- the entry this
 /// binding's profile authors -- `refused: authored`.
 ///
 /// What no binding here can show: a port that predates the capability
@@ -1295,6 +1310,18 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
         powerless.bootstrap_addresses().await,
         Err(TransportError::CapabilityDenied)
     );
+    // Whatever the address: one a binding could answer without the
+    // daemon is refused for the capability first, as the server judges it.
+    for line in outside_the_bound(&unlisted) {
+        assert_eq!(
+            powerless.add_bootstrap_address(line.clone()).await,
+            Err(TransportError::CapabilityDenied)
+        );
+        assert_eq!(
+            powerless.remove_bootstrap_address(line).await,
+            Err(TransportError::CapabilityDenied)
+        );
+    }
 
     let admin = port(binding, &[AdminCapability::Peers, AdminCapability::Trust]).await;
     let first = admin.bootstrap_addresses().await.expect("the list");
@@ -1331,6 +1358,15 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
         ),
         Some(AddressRefusal::Grammar)
     );
+    let own = admin.own_addresses().await.expect("the show side").peer;
+    assert_eq!(
+        refusal(
+            admin
+                .add_bootstrap_address(format!("/ip4/10.0.0.1/tcp/4001/p2p/{}", own.as_str()))
+                .await
+        ),
+        Some(AddressRefusal::OwnPeer)
+    );
     assert_eq!(
         refusal(
             admin
@@ -1339,6 +1375,18 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
         ),
         Some(AddressRefusal::SpecialUse)
     );
+    for line in outside_the_bound(&unlisted) {
+        assert_eq!(
+            refusal(admin.add_bootstrap_address(line.clone()).await),
+            Some(AddressRefusal::Grammar),
+            "{} characters",
+            line.chars().count()
+        );
+        assert_eq!(
+            admin.remove_bootstrap_address(line).await,
+            Ok(AddressChange::Unchanged)
+        );
+    }
     assert_eq!(
         admin.bootstrap_addresses().await.expect("the list"),
         first,
@@ -1380,6 +1428,173 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
         refusal(admin.remove_bootstrap_address(authored.to_owned()).await),
         Some(AddressRefusal::Authored)
     );
+    assert_eq!(admin.bootstrap_addresses().await.expect("the list"), first);
+}
+
+/// The all-or-none add (ADR-0062 decision 4, LOCAL-IPC.md minor 2.9),
+/// the same at every binding: without `admin.peers` it is
+/// `CapabilityDenied` whatever the list holds; a list of no line or of 17 is `InvalidArgument`; a
+/// list with one line outside the grammar, or one in a special-use class,
+/// is refused BY NAME naming that line -- an answer, never an error --
+/// with nothing written, not even its good lines; a line outside the
+/// schema's length bound is outside the grammar, so the line named is the
+/// FIRST outside the grammar, before any special-use line; a line naming
+/// this node's own `PeerId` is refused `own_peer`, after every line's
+/// grammar and before any special-use line, alone in its list too; a list of good lines is
+/// taken whole, one row per line in the order given, a line already
+/// present (`authored` among them) or repeated being `unchanged`; the
+/// single add then sees the list's lines; the add grants no trust.
+///
+/// What no binding here can show: a port that predates the method
+/// answers `ProtocolUnsupported` (the trait's default, and ipc-client's
+/// below 2.9, pinned by its scripted daemon), the bound and an
+/// `enabled: false` provider (the composition's own tests).
+pub async fn a_list_is_added_all_or_none_at_every_binding<B: AdminBinding>(
+    binding: &B,
+    authored: &str,
+) {
+    let unlisted = TransportIdentity::parse(UNLISTED_PEER).expect("a peer id");
+    let fresh = |n: u8| format!("/ip4/10.255.255.{n}/tcp/4001/p2p/{}", unlisted.as_str());
+    let loopback = format!("/ip4/127.0.0.1/tcp/4001/p2p/{}", unlisted.as_str());
+
+    let powerless = port(binding, &[AdminCapability::Status]).await;
+    // Whatever the list, a count or a line the binding could judge
+    // without the daemon included: the capability is judged first.
+    let [_, long] = outside_the_bound(&unlisted);
+    for list in [
+        vec![fresh(1)],
+        Vec::new(),
+        vec![fresh(1); MAX_ADDRESSES_PER_ADD + 1],
+        vec![long],
+    ] {
+        assert_eq!(
+            powerless.add_bootstrap_addresses(list.clone()).await,
+            Err(TransportError::CapabilityDenied),
+            "{} lines",
+            list.len()
+        );
+    }
+    let admin = port(binding, &[AdminCapability::Peers, AdminCapability::Trust]).await;
+    let first = admin.bootstrap_addresses().await.expect("the list");
+    let trust = sorted(admin.trust().await.expect("the policy"));
+    for bad in [Vec::new(), vec![fresh(1); MAX_ADDRESSES_PER_ADD + 1]] {
+        assert_eq!(
+            admin.add_bootstrap_addresses(bad.clone()).await,
+            Err(TransportError::InvalidArgument),
+            "{} lines",
+            bad.len()
+        );
+    }
+
+    let refusal = |change: Result<AddressesChange, TransportError>| match change {
+        Ok(AddressesChange::Refused { reason, line, .. }) => (reason, line),
+        other => panic!("a refusal is an answer: {other:?}"),
+    };
+    assert_eq!(
+        refusal(
+            admin
+                .add_bootstrap_addresses(vec![fresh(1), "not an address".to_owned()])
+                .await
+        ),
+        (AddressRefusal::Grammar, Some(1))
+    );
+    assert_eq!(
+        refusal(
+            admin
+                .add_bootstrap_addresses(vec![fresh(1), fresh(2), loopback.clone()])
+                .await
+        ),
+        (AddressRefusal::SpecialUse, Some(2))
+    );
+    let own = admin.own_addresses().await.expect("the show side").peer;
+    let own = format!("/ip4/10.0.0.1/tcp/4001/p2p/{}", own.as_str());
+    for (list, refused) in [
+        (vec![own.clone()], (AddressRefusal::OwnPeer, Some(0))),
+        (
+            vec![fresh(1), own.clone()],
+            (AddressRefusal::OwnPeer, Some(1)),
+        ),
+        // Every line's grammar first, then this node's own, then the
+        // special-use floor.
+        (
+            vec![own.clone(), "not an address".to_owned()],
+            (AddressRefusal::Grammar, Some(1)),
+        ),
+        (
+            vec![loopback.clone(), own.clone()],
+            (AddressRefusal::OwnPeer, Some(1)),
+        ),
+    ] {
+        assert_eq!(
+            refusal(admin.add_bootstrap_addresses(list.clone()).await),
+            refused,
+            "{list:?}"
+        );
+    }
+    for line in outside_the_bound(&unlisted) {
+        let n = line.chars().count();
+        for (list, named) in [
+            (vec![fresh(1), line.clone()], 1),
+            // The grammar of every line before any special-use floor: the
+            // control that the bound is answered where the grammar is.
+            (vec![loopback.clone(), line.clone()], 1),
+            // The first line outside the grammar, not the bound's.
+            (vec!["not an address".to_owned(), line.clone()], 0),
+            (vec![line.clone(), "not an address".to_owned()], 0),
+        ] {
+            assert_eq!(
+                refusal(admin.add_bootstrap_addresses(list).await),
+                (AddressRefusal::Grammar, Some(named)),
+                "{n} characters"
+            );
+        }
+    }
+    assert_eq!(
+        admin.bootstrap_addresses().await.expect("the list"),
+        first,
+        "a refused list writes none of its lines"
+    );
+
+    assert_eq!(
+        admin
+            .add_bootstrap_addresses(vec![authored.to_owned(), fresh(1), fresh(1), fresh(2)])
+            .await,
+        Ok(AddressesChange::Added(vec![
+            LineChange::Unchanged,
+            LineChange::Added,
+            LineChange::Unchanged,
+            LineChange::Added,
+        ]))
+    );
+    let mut expected = first.clone();
+    for n in [1, 2] {
+        expected.push(BootstrapAddress {
+            address: fresh(n),
+            source: AddressSource::Added,
+            dialled: true,
+        });
+    }
+    assert_eq!(
+        admin.bootstrap_addresses().await.expect("the list"),
+        expected,
+        "taken whole, in the order given"
+    );
+    assert_eq!(
+        admin.add_bootstrap_address(fresh(2)).await,
+        Ok(AddressChange::Unchanged),
+        "the single add sees the list's lines"
+    );
+    assert_eq!(
+        sorted(admin.trust().await.expect("the policy")),
+        trust,
+        "an address grants no trust"
+    );
+    for n in [1, 2] {
+        assert_eq!(
+            admin.remove_bootstrap_address(fresh(n)).await,
+            Ok(AddressChange::Removed)
+        );
+    }
     assert_eq!(admin.bootstrap_addresses().await.expect("the list"), first);
 }
 

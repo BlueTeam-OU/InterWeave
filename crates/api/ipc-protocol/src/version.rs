@@ -27,8 +27,9 @@ pub const IPC_MAJOR: u64 = 2;
 /// ([`crate::ROUTE_HELD_SINCE_MINOR`], ADR-0011 A 2026-10-21), and the
 /// `admin.peers` capability with its three address methods brought 2.7
 /// (ADR-0062), and its show side's read, `admin.peers.own_addresses`,
-/// brought 2.8 (ADR-0062 decision 4).
-pub const IPC_MAX_MINOR: u64 = 8;
+/// brought 2.8 (ADR-0062 decision 4), and its all-or-none add,
+/// `admin.peers.add_addresses`, brought 2.9 (ADR-0062 decision 4).
+pub const IPC_MAX_MINOR: u64 = 9;
 
 /// A version pair as it crosses the wire.
 ///
@@ -155,7 +156,8 @@ mod tests {
             (6, 6),
             (7, 7),
             (8, 8),
-            (9, 8),
+            (9, 9),
+            (10, 9),
             (u64::MAX, IPC_MAX_MINOR),
         ] {
             assert_eq!(

@@ -176,6 +176,16 @@
       "name": "peers-own-addresses",
       "file": "peers-own-addresses.schema.json",
       "status": "approved"
+    },
+    {
+      "name": "peers-addresses-params",
+      "file": "peers-addresses-params.schema.json",
+      "status": "approved"
+    },
+    {
+      "name": "peers-addresses-result",
+      "file": "peers-addresses-result.schema.json",
+      "status": "approved"
     }
   ]
 }

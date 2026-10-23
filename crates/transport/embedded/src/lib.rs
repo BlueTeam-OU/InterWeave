@@ -30,6 +30,10 @@
 //! The show side, `admin.peers.own_addresses`, is reached the same way,
 //! selected and floored by the substrate, so the app filters nothing
 //! (`the_host_shows_its_own_addresses_through_its_binding`).
+//! A scan's all-or-none add, `admin.peers.add_addresses`, is the same
+//! function's list form, refusing the whole list by its line with
+//! nothing under the root written
+//! (`the_host_adds_a_scan_all_or_none_through_its_binding`).
 
 use std::path::PathBuf;
 use std::time::Duration;
