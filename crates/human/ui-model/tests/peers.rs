@@ -3028,8 +3028,8 @@ fn a_verdict_on_an_earlier_unknown_change_never_takes_a_later_ones_place() {
 /// the trust list unread, only while that answer is the last word on its
 /// peer (§5.2): any later change of the peer that may have been written
 /// -- a revoke on the Trust page made, read back or not, or left
-/// unconfirmed; a later Trust unconfirmed -- and a new session leave it
-/// not known. A revoke that wrote nothing leaves it
+/// unconfirmed; a later Trust unconfirmed or lost with its page -- and a
+/// new session leave it not known. A revoke that wrote nothing leaves it
 /// Trusted, and a read that confirms the list decides it, however the
 /// next one fares.
 #[test]
@@ -3150,20 +3150,47 @@ fn a_trust_made_here_is_dropped_by_any_later_change_of_its_peer() {
         assert_eq!(state(&m), RowState::TrustUnknown, "Q listed: {q_listed}");
     }
 
-    // A later Trust of P unconfirmed: from the Trust page, since P's row,
-    // shown trusted, offers no Trust and no trust step of its own
+    // A later Trust of P unconfirmed, or lost with its page: through an add
+    // of a second address naming P, whose step offers P's block while the
+    // list is unread -- P's own row, shown trusted, offers no Trust
     // (`a_rows_trust_taken_after_its_peer_is_trusted_opens_nothing`).
+    let second = format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", p.as_str());
+    let later_trust = |m: &mut UiModel| {
+        let _ = input(m, PeersInput::OpenAdd);
+        let _ = input(m, PeersInput::FieldChanged(second.clone()));
+        let _ = input(m, PeersInput::Add);
+        let mut both = list(&[added(&p)]);
+        both.addresses.push(PeerAddress {
+            address: second.clone(),
+            ..added(&p)
+        });
+        m.addresses_added(
+            std::slice::from_ref(&second),
+            Ok(AddressAnswer {
+                outcome: AddressOutcome::Added {
+                    peer: Some(p.clone()),
+                },
+                list: Ok(both),
+            }),
+        );
+        assert_eq!(
+            input(m, PeersInput::Trust(p.clone())),
+            vec![Intent::SetTrust(allow.clone())],
+            "the step's Trust is sent"
+        );
+    };
     let mut m = made();
-    let settings = m.trust_settings_mut();
-    let _ = settings.input(TrustInput::EntryChanged(p.as_str().to_owned()));
-    let _ = settings.input(TrustInput::ProposeAllow);
-    let _ = settings.input(TrustInput::Confirm(allow.clone()));
-    settings.set(
+    later_trust(&mut m);
+    m.trust_settings_mut().set(
         allow.clone(),
         Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
     );
     let _ = m.peers_turn();
     assert_eq!(state(&m), RowState::TrustUnknown, "unconfirmed");
+    let mut m = made();
+    later_trust(&mut m);
+    let _ = input(&mut m, PeersInput::Close);
+    assert_eq!(state(&m), RowState::TrustUnknown, "lost with its page");
 
     // A new session: the runtime may be another.
     let mut m = made();
