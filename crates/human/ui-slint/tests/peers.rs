@@ -722,8 +722,8 @@ fn a_barred_add_focuses_the_line_under_add() {
     assert_eq!(view.window().get_focus_id().as_str(), "add-note");
 }
 
-/// A row whose PeerId has contacts draws each name on its own line
-/// above the short PeerId, and a screen reader names the row by them
+/// A row whose `PeerId` has contacts draws each name on its own line
+/// above the short `PeerId`, and a screen reader names the row by them
 /// (design section 5.2).
 #[test]
 fn a_rows_contact_names_are_drawn_one_per_line() {
