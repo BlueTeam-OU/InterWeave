@@ -417,6 +417,8 @@ pub enum PeersFocus {
     ListProblem,
     /// Try again on the trust-unread line.
     TrustRetry,
+    /// The line under Add on the add page.
+    AddNote,
     /// The trust-unread line itself, when it offers no Try again.
     TrustLine,
     /// The snackbar's action: Try again on a removal or Undo whose
@@ -1238,7 +1240,14 @@ impl Peers {
                     }
                     None => AddNote::Failed,
                 };
-                self.page_note(note, PeersFocus::AddButton);
+                // Not permitted or incompatible: the line under Add
+                // (§8); not written: Add, to add again.
+                let focus = if matches!(note, AddNote::Barred(_)) {
+                    PeersFocus::AddNote
+                } else {
+                    PeersFocus::AddButton
+                };
+                self.page_note(note, focus);
                 return;
             }
             Err(AddressChangeFailure::Unconfirmed(_)) => {

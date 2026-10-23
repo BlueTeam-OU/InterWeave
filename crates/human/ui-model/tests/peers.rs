@@ -418,8 +418,15 @@ fn a_failed_add_says_what_is_true() {
         assert_eq!(sent, vec![Intent::AddAddresses(lines.clone())]);
         m.addresses_added(lines, Err(AddressChangeFailure::NotMade(problem)));
         assert_eq!(m.peers().add_page_note(), Some(&note), "{problem:?}");
-        assert_eq!(focus(&m), Some(PeersFocus::AddButton));
         let barred = matches!(note, AddNote::Barred(_));
+        // Not permitted or incompatible: the line under Add; else Add,
+        // to add again (§8).
+        let want = if barred {
+            PeersFocus::AddNote
+        } else {
+            PeersFocus::AddButton
+        };
+        assert_eq!(focus(&m), Some(want), "{problem:?}");
         assert_eq!(
             m.peers().list_problem().is_some(),
             barred,
