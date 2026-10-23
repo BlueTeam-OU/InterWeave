@@ -194,6 +194,8 @@ pub(crate) struct PeerLists {
     /// and no older request of the model's re-judged over it before it
     /// applies (`a_row_reached_without_an_act_a_later_read_drops_is_said`).
     gone_move: Option<String>,
+    /// The row read back last acted on, by the model's count.
+    read_back_seen: u64,
     /// The add page's note last drawn, by the model's count, and its text.
     note_seen: u64,
     note_text: String,
@@ -244,6 +246,7 @@ impl PeerLists {
             focus_sent: String::new(),
             focus_gone_said: false,
             gone_move: None,
+            read_back_seen: 0,
             note_seen: 0,
             trust_line_seen: 0,
             note_text: String::new(),
@@ -325,7 +328,7 @@ impl View {
                     // elsewhere, said first, once per request.
                     if peers.focus_row_gone() && !self.peer_lists.focus_gone_said {
                         self.peer_lists.focus_gone_said = true;
-                        let gone = placeholder_en::text(UiText::PeerRowGone).to_owned();
+                        let gone = placeholder_en::text(UiText::PeerRowGoneAfterAct).to_owned();
                         said = Some(said.map_or_else(
                             || gone.clone(),
                             |rest| {
@@ -344,16 +347,35 @@ impl View {
                 }
             }
         }
-        // Focus still in a row, or a control in it, that a later read
-        // dropped -- its request carried out, or reached by the person's
-        // own Tab or pointer -- goes as for any row gone, PeerRowGone said
-        // first however focus got there (design section 8's second
-        // row-gone row, #396 6a1a03ef). Focus elsewhere stays.
         let handled = on_page && (fresh || pending);
-        if on_page
-            && !handled
-            && !peers.add_open()
+        let free = on_page && !handled && !peers.add_open();
+        // A row's own Remove or Undo a read decided: focus on that row,
+        // or a control of it, goes where the decision says, with neither
+        // row-gone text; focus anywhere else stays (design section 8, the
+        // read back after RemoveUnknown's snackbar leaves).
+        let (back, backs) = peers.read_back();
+        let back = (backs != self.peer_lists.read_back_seen)
+            .then_some(back)
+            .flatten();
+        self.peer_lists.read_back_seen = backs;
+        let back_row = back.map(|back| {
+            if free && held_row.as_deref() == Some(back.row.as_str()) {
+                self.window.set_peer_menu(-1);
+                let key = self.focus_target(&back.focus, peers.field());
+                self.peer_lists.focus_sent.clone_from(&key);
+                self.peer_lists.gone_move = Some(back.row.clone());
+                self.focus_key_after_draw(key);
+            }
+            back.row
+        });
+        // Focus still in a row, or a control in it, that a later read
+        // dropped -- its request carried out, reached by the person's own
+        // Tab or pointer, or placed by the app -- goes as for any row
+        // gone, PeerRowGone said first (design section 8's second row-gone
+        // row). Not that row's own read back, above. Focus elsewhere stays.
+        if free
             && let Some(address) = held_row
+            && back_row.as_deref() != Some(address.as_str())
             && let Some(target) = peers.focus_after_gone(&address)
         {
             let gone = placeholder_en::text(UiText::PeerRowGone).to_owned();

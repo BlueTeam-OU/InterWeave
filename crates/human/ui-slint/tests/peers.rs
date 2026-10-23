@@ -951,7 +951,7 @@ fn row_focus_returns(removed: bool) {
         }
         view.render(model);
     };
-    let gone = text(UiText::PeerRowGone);
+    let gone = text(UiText::PeerRowGoneAfterAct);
     let slots = |view: &View| {
         [
             view.window().get_announcement_a().to_string(),
@@ -1313,7 +1313,7 @@ fn a_row_gone_before_its_focus_moves_is_said_and_focus_follows() {
     let _ = model.peers_input(PeersInput::Close);
     // The return to B's row is drawn; its move waits for the next turn.
     view.render(&model);
-    let gone = text(UiText::PeerRowGone);
+    let gone = text(UiText::PeerRowGoneAfterAct);
     let slots = |view: &View| {
         [
             view.window().get_announcement_a().to_string(),
@@ -1643,4 +1643,117 @@ fn row_held_then_dropped(held: Held) {
         format!("row:{}", handle_of(&view, &at(&a))),
         "the row after B's place"
     );
+}
+
+/// A removal left unknown, its snackbar leaving with focus on its Try
+/// again: focus waits on that row's menu button while the list is read
+/// again, and the read decides it by where focus is when it answers
+/// (design section 8) -- still on the row, as Remove done without it
+/// (the row after it) or `RemoveFailed` with it (its menu button);
+/// moved elsewhere, it stays. Neither row-gone text is said.
+#[test]
+fn a_removal_read_back_without_its_row_moves_focus_from_it_unsaid() {
+    removal_read_back(false, false);
+}
+
+/// The same read back listing the row: `RemoveFailed`, focus on the
+/// row's menu button.
+#[test]
+fn a_removal_read_back_with_its_row_keeps_focus_on_its_menu() {
+    removal_read_back(true, false);
+}
+
+/// The control: focus moved elsewhere before the read answered stays.
+#[test]
+fn a_removal_read_back_leaves_focus_moved_elsewhere() {
+    removal_read_back(false, true);
+}
+
+fn removal_read_back(kept: bool, moved: bool) {
+    use interweave_human_client_api::{AddressChangeFailure, AddressProblem};
+    use interweave_human_ui_model::PeersInput;
+    let case = format!("kept {kept}, moved {moved}");
+    let settle = |view: &mut View, model: &mut UiModel| {
+        view.render(model);
+        for _ in 0..3 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        }
+        view.render(model);
+    };
+    let handle_of = |view: &View, address: &str| {
+        let rows = view.window().get_peer_rows();
+        (0..rows.row_count())
+            .filter_map(|i| rows.row_data(i))
+            .find(|r| r.address.as_str() == address)
+            .expect("the row")
+            .handle
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    // Added rows show newest first: C, B, A.
+    open_peers(
+        &mut view,
+        &mut model,
+        &me,
+        &[],
+        &[added(&a), added(&b), added(&c)],
+    );
+    let b_handle = handle_of(&view, &at(&b));
+    let _ = model.peers_input(PeersInput::Remove(at(&b)));
+    model.address_removed(
+        &at(&b),
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    let _ = model.peers_turn();
+    model.addresses_read(Err(AddressProblem::Unavailable));
+    settle(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "peers-snack-action",
+        "{case}: on Try again"
+    );
+    let id = view.window().get_peers_snack_id();
+    view.window().invoke_peers_snack_closed(id);
+    let _ = intents(&mut view, &mut model);
+    settle(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("row-menu:{b_handle}"),
+        "{case}: B's menu button while it reads"
+    );
+    if moved {
+        view.window().set_focus_target("add-address".into());
+        view.window()
+            .set_focus_seq(view.window().get_focus_seq().wrapping_add(1));
+        settle(&mut view, &mut model);
+        assert_eq!(view.window().get_focus_id().as_str(), "add-address");
+    }
+    let rows = if kept {
+        vec![added(&a), added(&b), added(&c)]
+    } else {
+        vec![added(&a), added(&c)]
+    };
+    let said = [text(UiText::PeerRowGone), text(UiText::PeerRowGoneAfterAct)];
+    assert_eq!(model.peers_turn(), Some(Intent::ReadAddresses), "{case}");
+    model.addresses_read(Ok(AddressList { addresses: rows }));
+    view.render(&model);
+    for slot in [
+        view.window().get_announcement_a().to_string(),
+        view.window().get_announcement_b().to_string(),
+    ] {
+        assert!(
+            !said.iter().any(|gone| slot.contains(gone)),
+            "{case}: {slot}"
+        );
+    }
+    settle(&mut view, &mut model);
+    let wanted = match (kept, moved) {
+        (_, true) => "add-address".to_owned(),
+        (true, false) => format!("row-menu:{b_handle}"),
+        (false, false) => format!("row:{}", handle_of(&view, &at(&a))),
+    };
+    assert_eq!(view.window().get_focus_id().as_str(), wanted, "{case}");
 }

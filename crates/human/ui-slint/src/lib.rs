@@ -1497,7 +1497,12 @@ impl View {
                 }
                 Input::PeersSnackClosed(id) => {
                     if model.peers().snack().1 == id && model.peers().snack().0.is_some() {
-                        out.push(ViewEvent::Peers(PeersInput::SnackClosed { from_action: false }));
+                        // Its action leaves with it: focus-id still names
+                        // it, since only another control taking focus
+                        // writes it.
+                        let from_action =
+                            self.window.get_focus_id().as_str() == "peers-snack-action";
+                        out.push(ViewEvent::Peers(PeersInput::SnackClosed { from_action }));
                         return out;
                     }
                 }
