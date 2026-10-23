@@ -8,7 +8,7 @@
 # and no libp2p: the transport is the shared daemon's (ADR-0040).
 [package]
 name = "interweave-human-desktop"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The InterWeave desktop human client."
 license.workspace = true

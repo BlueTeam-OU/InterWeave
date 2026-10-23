@@ -9,7 +9,7 @@
 # on this package.
 [package]
 name = "interweave-local-client-conformance-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "LOCAL-CLIENT session conformance suite for InterWeave platform bindings."
 license.workspace = true

@@ -53,6 +53,10 @@ fn main() -> ExitCode {
             println!("{}", cli::USAGE);
             return ExitCode::SUCCESS;
         }
+        cli::Command::Version => {
+            println!("transportctl {}", cli::VERSION);
+            return ExitCode::SUCCESS;
+        }
         cli::Command::Admin {
             profile,
             action,

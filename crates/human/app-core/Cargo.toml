@@ -9,7 +9,7 @@
 # reuses it at Stage 17.
 [package]
 name = "interweave-human-app-core"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The InterWeave human client's headless composition core."
 license.workspace = true

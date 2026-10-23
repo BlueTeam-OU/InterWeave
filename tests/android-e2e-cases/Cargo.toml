@@ -14,7 +14,7 @@
 # 6 and the app's Gradle task verifyReleaseNative.
 [package]
 name = "interweave-android-e2e-cases"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The Android half of InterWeave's Android-to-desktop cases, run on the host stand-in and in the app's instrumentation."
 license.workspace = true

@@ -4,7 +4,7 @@
 # defaults into the one place they must not exist.
 [package]
 name = "interweave-test-support"
-version = "0.0.0"
+version.workspace = true
 publish = false
 edition.workspace = true
 rust-version.workspace = true

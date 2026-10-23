@@ -9,7 +9,7 @@
 # suite by name rather than skipping it.
 [package]
 name = "interweave-desktop-e2e-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Desktop process tests for the InterWeave transport daemon."
 license.workspace = true

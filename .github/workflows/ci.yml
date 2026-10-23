@@ -864,6 +864,12 @@ jobs:
       - name: The manifest's libp2p features and profile-config's dialable hosts agree
         run: bash tools/checks/check_dialable_hosts.sh
 
+      # ADR-0065 decision 5: the workspace version is the release version,
+      # and release.yml checks a tag against it alone; a crate with its own
+      # version would ship under a number nothing checked.
+      - name: Every first-party crate inherits the workspace version
+        run: bash tools/checks/check_workspace_version.sh
+
       # Shell got the reviewer's eye and no check at all until this, while
       # Rust gets `clippy -D warnings`.
       #

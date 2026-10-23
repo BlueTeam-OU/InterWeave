@@ -12,7 +12,7 @@
 # holder's PR stays inside its own crate.
 [package]
 name = "interweave-security-local-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "InterWeave adversarial/security gate suite, local boundaries."
 license.workspace = true

@@ -11,7 +11,7 @@
 # lifecycle. No libp2p type crosses the TransportRuntime trait.
 [package]
 name = "interweave-transport-composition"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The InterWeave transport runtime composed from a validated profile."
 license.workspace = true

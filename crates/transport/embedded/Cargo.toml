@@ -11,7 +11,7 @@
 # 32946; the seams agreed in rust-ui-dev's seq 33010).
 [package]
 name = "interweave-transport-embedded"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The InterWeave transport runtime hosted in-process under a platform-supplied trust boundary."
 license.workspace = true
