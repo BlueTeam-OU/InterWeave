@@ -396,6 +396,19 @@ grep -qF "is not the workspace version" "$SANDBOX/err" \
 build --root "$SCRIPT_DIR/../.." "$V" "$OUT" \
     && pass "--root naming this repository builds the archive" \
     || fail "--root naming this repository was refused" "$(cat "$SANDBOX/err")"
+# An option with no positionals after it is usage (exit 2), never a
+# version: a values file in the directory it names is left alone. Each
+# is run with a values file planted; the control is the file there.
+for opt in --bin-dir --root; do
+    LONE="$SANDBOX/lone"
+    rm -rf "$LONE"; mkdir -p "$LONE"
+    printf 'kept\n' > "$LONE/linux-values.json"
+    rc=0
+    bash "$UNDER_TEST" "$opt" "$LONE" >/dev/null 2>"$SANDBOX/err" || rc=$?
+    if (( rc != 2 )); then fail "$opt DIR alone exited $rc, not 2" "$(cat "$SANDBOX/err")"
+    elif [[ ! -e "$LONE/linux-values.json" ]]; then fail "$opt DIR alone removed a file in DIR"
+    else pass "$opt DIR alone is usage (2), and a file in DIR is left"; fi
+done
 BADROOT="$SANDBOX/badroot"
 mkdir -p "$BADROOT"
 printf '[workspace\n' > "$BADROOT/Cargo.toml"

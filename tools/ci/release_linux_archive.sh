@@ -86,12 +86,16 @@ case "${1-}" in
     exit 0
     ;;
 esac
-while (( $# > 2 )); do
+# Options while the first argument is one, each with its value: an option
+# left without one is usage, never read as the version.
+while [[ "${1-}" == --* ]]; do
+    (( $# >= 2 )) || usage
     case "$1" in
-    --bin-dir) bin_dir="$2"; shift 2 ;;
-    --root) root="$(cd "$2" && pwd)" || usage; shift 2 ;;
+    --bin-dir) bin_dir="$2" ;;
+    --root) root="$(cd "$2" && pwd)" || usage ;;
     *) usage ;;
     esac
+    shift 2
 done
 [[ $# -eq 2 ]] || usage
 version="$1" out_dir="$2"
