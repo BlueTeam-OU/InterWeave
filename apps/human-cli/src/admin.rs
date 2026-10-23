@@ -12,7 +12,7 @@ use std::fmt::Write as _;
 
 use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_local_client_api::{
-    AddressChange, AddressSource, AdminBinding as _, AdminCapability, AdminPort as _,
+    AddressChange, AddressSource, AdminBinding as _, AdminCapability, AdminPort as _, OwnAddresses,
 };
 use interweave_profile_config::ProfileLock;
 use interweave_transport_api::{EndpointId, TransportError};
@@ -83,14 +83,37 @@ fn change_line(change: &AddressChange) -> Result<String, Failure> {
     }
 }
 
+/// What `peers show` prints: one address per line in the daemon's order
+/// and nothing else, so the text pipes into another node's `peers add`;
+/// or one JSON object with the peer, each address's kind and whether the
+/// daemon dropped rows past its bound
+/// (`own_addresses_print_in_the_daemons_order_and_json_says_what_was_dropped`).
+fn own_lines(own: &OwnAddresses, json: bool) -> String {
+    if json {
+        return output::json_line(&json!({
+            "peer": own.peer.as_str(),
+            "addresses": own.addresses.iter().map(|row| json!({
+                "address": row.address,
+                "kind": row.kind.as_str(),
+            })).collect::<Vec<_>>(),
+            "truncated": own.truncated,
+        }));
+    }
+    let mut out = String::new();
+    for row in &own.addresses {
+        let _ = writeln!(out, "{}", output::printable(&row.address));
+    }
+    out
+}
+
 /// Carry out a `peers` verb (ADR-0062), on the admin socket's
-/// `admin.peers` capability (IPC 2.7). An address is sent as typed: the
-/// daemon's method judges it, against the configuration's grammar and the
-/// special-use floor.
+/// `admin.peers` capability: add, remove and list from IPC 2.7, show from
+/// 2.8. An address is sent as typed: the daemon's method judges it,
+/// against the configuration's grammar and the special-use floor.
 ///
 /// # Errors
 /// [`Failure::Unreachable`] when no daemon answers, [`Failure::Refused`]
-/// when it refuses or speaks no 2.7.
+/// when it refuses or speaks too old a minor.
 pub(crate) async fn peers(
     profile: &Profile,
     verb: &Verb,
@@ -129,6 +152,16 @@ pub(crate) async fn peers(
                 .map_err(refused)?;
             out.push_str(&change_line(&change)?);
         }
+        Verb::PeersShow => match port.own_addresses().await {
+            Ok(own) => out.push_str(&own_lines(&own, json)),
+            Err(TransportError::ProtocolUnsupported) => {
+                return Err(Failure::Refused(
+                    "the daemon does not report its own addresses (IPC 2.8): is it older?"
+                        .to_owned(),
+                ));
+            }
+            Err(e) => return Err(refused(e)),
+        },
         Verb::PeersList => {
             for row in port.bootstrap_addresses().await.map_err(refused)? {
                 let source = match row.source {
@@ -283,6 +316,40 @@ mod tests {
             change_line(&AddressChange::Unchanged).expect("ok"),
             "unchanged\n"
         );
+    }
+
+    #[test]
+    fn own_addresses_print_in_the_daemons_order_and_json_says_what_was_dropped() {
+        use interweave_local_client_api::{OwnAddress, OwnAddressKind};
+        let peer = interweave_transport_api::TransportIdentity::parse(
+            "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN",
+        )
+        .expect("peer");
+        let at = |a: &str, kind| OwnAddress {
+            address: format!("{a}/p2p/{}", peer.as_str()),
+            kind,
+        };
+        let own = OwnAddresses {
+            peer: peer.clone(),
+            addresses: vec![
+                at(
+                    "/ip4/198.51.100.7/tcp/4001",
+                    OwnAddressKind::ConfirmedExternal,
+                ),
+                at("/ip4/10.0.0.2/tcp/4001", OwnAddressKind::Listen),
+            ],
+            truncated: true,
+        };
+        let text = own_lines(&own, false);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "{text}");
+        assert!(lines[0].starts_with("/ip4/198.51.100.7/"), "{text}");
+        assert!(lines[1].starts_with("/ip4/10.0.0.2/"), "{text}");
+        let json: serde_json::Value = serde_json::from_str(&own_lines(&own, true)).expect("json");
+        assert_eq!(json["peer"], peer.as_str());
+        assert_eq!(json["truncated"], true);
+        assert_eq!(json["addresses"][0]["kind"], "confirmed_external");
+        assert_eq!(json["addresses"][1]["kind"], "listen");
     }
 
     #[test]

@@ -193,7 +193,10 @@ fn run(profile: &str, verb: &cli::Verb, json: bool, wait: Duration) -> Outcome {
     }
     if matches!(
         verb,
-        cli::Verb::PeersList | cli::Verb::PeerAdd(_) | cli::Verb::PeerRemove(_)
+        cli::Verb::PeersList
+            | cli::Verb::PeersShow
+            | cli::Verb::PeerAdd(_)
+            | cli::Verb::PeerRemove(_)
     ) {
         let result = runtime.block_on(admin::peers(&profile, verb, json, &mut out));
         return Outcome { out, result };

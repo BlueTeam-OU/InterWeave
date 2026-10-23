@@ -43,6 +43,7 @@ usage:
   interweave-human --profile <name> contacts delete <contact>
   interweave-human --profile <name> peers [--json]
   interweave-human --profile <name> peers add|remove <address>
+  interweave-human --profile <name> peers show [--json]
 
   --wait <ms>   how long to wait for the session and for an answer
                 (default 5000)
@@ -172,6 +173,9 @@ pub(crate) enum Verb {
     /// The bootstrap addresses: authored and added (ADR-0062).
     PeersList,
     /// Add a peer by address, as the person typed it.
+    /// This node's own addresses, as another node's `peers add` takes
+    /// them (ADR-0062 decision 4).
+    PeersShow,
     PeerAdd(String),
     /// Remove an added address.
     PeerRemove(String),
@@ -407,6 +411,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             false,
         ),
         ["peers"] => (Verb::PeersList, true),
+        ["peers", "show"] => (Verb::PeersShow, true),
         ["peers", "add", address] => (Verb::PeerAdd((*address).to_owned()), false),
         ["peers", "remove", address] => (Verb::PeerRemove((*address).to_owned()), false),
         ["contacts", "delete", id] => (Verb::ContactDelete((*id).to_owned()), false),
@@ -492,6 +497,7 @@ mod tests {
             &["--profile", "p", "identities", "default", "--none"],
             &["--profile", "p", "store", "health", "--json"],
             &["--profile", "p", "store", "discard", "--json"],
+            &["--profile", "p", "peers", "show", "--json"],
             &[
                 "--profile",
                 "p",
