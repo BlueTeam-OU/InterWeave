@@ -2622,3 +2622,204 @@ fn this_devices_own_address_is_refused_before_sending() {
     );
     assert_eq!(m.peers().add_page_note().cloned(), refused(&at(&other)));
 }
+
+/// A verdict on an earlier unknown change never takes a later one's
+/// place (§5.7: anything else stands alone and says its own outcome): a
+/// later removal's snackbar and its Undo stay, focus stays where a later
+/// act or an opening put it, and an edited add keeps its own note and
+/// field. The earlier change ends unsaid; the rows show what was read.
+#[test]
+fn a_verdict_on_an_earlier_unknown_change_never_takes_a_later_ones_place() {
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    let rows = [added(&a), added(&b), added(&c)];
+    let lost = || {
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        ))
+    };
+    let remove_unknown = |m: &mut UiModel, p: &TransportIdentity| {
+        let _ = input(m, PeersInput::Remove(at(p)));
+        m.address_removed(&at(p), lost());
+        let _ = m.peers_turn();
+        m.addresses_read(Err(AddressProblem::Unavailable));
+        assert_eq!(
+            m.peers().snack().0,
+            Some(&PeersSnack::RemoveUnknown { address: at(p) })
+        );
+    };
+    let read_back_failed = || {
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Removed,
+            list: Err(AddressProblem::Unavailable),
+        })
+    };
+
+    // A removal unknown, then another made whose list was not read back:
+    // the read after it leaves the later snackbar, Undo and focus alone.
+    let mut m = opened(&me, &[], &rows);
+    remove_unknown(&mut m, &a);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(&at(&b), read_back_failed());
+    let (later, at_b) = (m.peers().snack().0.cloned(), focus(&m));
+    assert!(matches!(
+        later,
+        Some(PeersSnack::Removed { undo: true, .. })
+    ));
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    // A still listed: its own verdict would be RemoveFailed.
+    m.addresses_read(Ok(list(&[added(&a), added(&c)])));
+    assert_eq!(m.peers().snack().0.cloned(), later, "B's Undo stays");
+    assert_eq!(focus(&m), at_b);
+
+    // An Undo unknown, then a removal made: its snackbar stays too.
+    let mut m = opened(&me, &[], &rows);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(
+        &at(&a),
+        answer(AddressOutcome::Removed, &[added(&b), added(&c)]),
+    );
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(&[at(&a)], lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::UndoUnknown { address: at(&a) })
+    );
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(&at(&b), read_back_failed());
+    let later = m.peers().snack().0.cloned();
+    let _ = m.peers_turn();
+    m.addresses_read(Ok(list(&[added(&a), added(&c)])));
+    assert_eq!(
+        m.peers().snack().0.cloned(),
+        later,
+        "no Undo verdict over it"
+    );
+
+    // A removal unknown whose snackbar closed, then Peers opened again:
+    // the opening's focus stands, and no late snackbar comes.
+    let mut m = opened(&me, &[], &rows);
+    remove_unknown(&mut m, &a);
+    let _ = input(&mut m, PeersInput::SnackClosed);
+    let _ = input(&mut m, PeersInput::Opened);
+    let opening = focus(&m);
+    let _ = m.peers_turn();
+    m.addresses_read(Ok(list(&[added(&b), added(&c)])));
+    assert_eq!(m.peers().snack().0, None, "nothing said late");
+    assert_ne!(focus(&m), Some(PeersFocus::Row(at(&b))), "{opening:?}");
+
+    // A removal unknown, a row's trust step opened while its snackbar is
+    // up, the snackbar timing out: the read speaks for the removal only
+    // where its line was, and focus stays in the trust step -- up or
+    // closed.
+    for closed in [false, true] {
+        let mut m = opened(&me, &[], &rows);
+        remove_unknown(&mut m, &a);
+        let _ = input(&mut m, PeersInput::TrustRow(at(&c)));
+        let step = focus(&m);
+        assert_eq!(step, Some(PeersFocus::Block(c.clone())));
+        if closed {
+            let _ = input(&mut m, PeersInput::SnackClosed);
+        }
+        let _ = m.peers_turn();
+        m.addresses_read(Ok(list(&rows)));
+        assert_eq!(focus(&m), step, "closed: {closed}");
+        if !closed {
+            assert_eq!(
+                m.peers().snack().0,
+                Some(&PeersSnack::RemoveFailed { address: at(&a) }),
+                "its own line takes the verdict"
+            );
+        }
+    }
+
+    // The controls: with no act since, a read gives each kind's verdict
+    // its focus -- an Undo listed, its row; an add listed, step two.
+    let mut m = opened(&me, &[], &rows);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(
+        &at(&a),
+        answer(AddressOutcome::Removed, &[added(&b), added(&c)]),
+    );
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(&[at(&a)], lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    m.addresses_read(Ok(list(&rows)));
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "the Undo's row");
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&a)], lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    m.addresses_read(Ok(list(&[added(&a)])));
+    assert_ne!(focus(&m), Some(PeersFocus::AddButton), "on to step two");
+
+    // A removal unknown, Try again writing nothing: its line said again
+    // is its own, so the read that decides it moves focus as after a
+    // Remove (§8), off Try again.
+    let mut m = opened(&me, &[], &rows);
+    remove_unknown(&mut m, &b);
+    let _ = input(&mut m, PeersInput::TryAgain);
+    m.address_removed(
+        &at(&b),
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::SnackAction));
+    m.addresses_read(Ok(list(&[added(&a), added(&c)])));
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
+
+    // An add unknown, Add again writing nothing: the line said again is
+    // its own, so the read that lists it takes focus to step two.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&a)], lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    m.addresses_read(Ok(list(&[added(&a)])));
+    assert!(matches!(
+        m.peers().add_result(),
+        Some(AddResult::Checked { .. })
+    ));
+    assert_ne!(focus(&m), Some(PeersFocus::AddButton), "moved to step two");
+
+    // An add unknown, then another line typed and refused: a read listing
+    // the first line leaves the later note and the field as they are.
+    let other = at(&peer());
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&a)], lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert!(matches!(
+        m.peers().add_page_note(),
+        Some(AddNote::Unknown { .. })
+    ));
+    let _ = input(&mut m, PeersInput::FieldChanged(other.clone()));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        std::slice::from_ref(&other),
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::Failed));
+    let _ = m.peers().focus();
+    m.addresses_read(Ok(list(&[added(&a)])));
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::Failed), "its own");
+    assert_eq!(m.peers().field(), other, "the edited field kept");
+    assert!(
+        m.peers().add_result().is_none(),
+        "no step one from the old add"
+    );
+}

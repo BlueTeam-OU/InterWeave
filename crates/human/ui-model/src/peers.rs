@@ -582,9 +582,15 @@ pub struct Peers {
     restored: Option<String>,
     /// The removal or Undo left unknown -- its answer lost, its read back
     /// failed -- as the check a read decides it by. It stays unknown until
-    /// a read shows it or the runtime answers it (§5.7), whatever the
-    /// snackbar does.
+    /// a read shows it or the runtime answers it (§5.7); the read speaks
+    /// for it only where its line still holds its place
+    /// ([`Self::read_decides`]).
     unknown_change: Option<Check>,
+    /// The focus requests counted when the unknown line was said: a
+    /// request since is a later act's, whose focus a
+    /// verdict on the earlier change never takes
+    /// (`a_verdict_on_an_earlier_unknown_change_never_takes_a_later_ones_place`).
+    unknown_mark: u64,
     /// Peers a Trust from this page was answered as made for while the
     /// trust list is not the daemon's word: their rows read Trusted
     /// (§5.2) until a confirmed list speaks for them. At most one per
@@ -1135,6 +1141,7 @@ impl Peers {
             Some(Check::Add(_)) | None => {}
         }
         self.ask_focus(PeersFocus::SnackAction);
+        self.unknown_mark = self.focuses;
     }
 
     fn re_add(&mut self, address: String) -> Option<Intent> {
@@ -1334,7 +1341,12 @@ impl Peers {
                 } else {
                     PeersFocus::AddButton
                 };
+                let still_unknown = matches!(note, AddNote::Unknown { .. });
                 self.page_note(note, focus);
+                // The unknown line said again is its own, not a later act.
+                if still_unknown {
+                    self.unknown_mark = self.focuses;
+                }
                 return;
             }
             Err(AddressChangeFailure::Unconfirmed(_)) => {
@@ -1574,6 +1586,7 @@ impl Peers {
                     page.unknown = Some(lines);
                 }
                 self.page_note(AddNote::Unknown { lines: count }, PeersFocus::AddButton);
+                self.unknown_mark = self.focuses;
             }
             // Unknown, the snackbar's Try again is where to go next: the
             // row menu that opened it may be gone (§8).
@@ -1581,6 +1594,7 @@ impl Peers {
                 self.unknown_change = Some(Check::Undo(address.clone()));
                 self.say(PeersSnack::UndoUnknown { address });
                 self.ask_focus(PeersFocus::SnackAction);
+                self.unknown_mark = self.focuses;
             }
             Check::Remove { address, before } => {
                 self.unknown_change = Some(Check::Remove {
@@ -1589,6 +1603,7 @@ impl Peers {
                 });
                 self.say(PeersSnack::RemoveUnknown { address });
                 self.ask_focus(PeersFocus::SnackAction);
+                self.unknown_mark = self.focuses;
             }
         }
     }
@@ -1610,12 +1625,38 @@ impl Peers {
     /// shows it"), as a lost answer's read back does: an add's lines all
     /// listed are checked, any missing is not made; a removal or Undo by
     /// whether its address is listed.
+    ///
+    /// Only for a change whose own line still holds its place: on show, or
+    /// a snackbar closed by itself with no act since. Its verdict replaces
+    /// that line, and takes focus only if nothing asked for it since the
+    /// line was said; a change a later act has taken the place of ends
+    /// unsaid, that act's outcome standing alone.
     fn read_decides(&mut self, trust: &TrustSettings) {
-        if let Some(change) = self.unknown_change.take() {
-            self.checked(change, trust);
+        let moved = self.focuses != self.unknown_mark;
+        if let Some(change) = self.unknown_change.clone() {
+            let on_show = self.unknown_on_show();
+            self.unknown_change = None;
+            if on_show || (self.snack.is_none() && !moved) {
+                self.decide_keeping_focus(change, moved, trust);
+            }
         }
-        if let Some(lines) = self.page.as_mut().and_then(|p| p.unknown.take()) {
-            self.checked(Check::Add(lines), trust);
+        let note_on_show = self
+            .page
+            .as_ref()
+            .is_some_and(|p| matches!(p.note, Some(AddNote::Unknown { .. })));
+        if let Some(lines) = self.page.as_mut().and_then(|p| p.unknown.take())
+            && note_on_show
+        {
+            self.decide_keeping_focus(Check::Add(lines), moved, trust);
+        }
+    }
+
+    /// `checked`, leaving focus where a later request put it if `kept`.
+    fn decide_keeping_focus(&mut self, change: Check, kept: bool, trust: &TrustSettings) {
+        let focus = (self.focus.clone(), self.focuses);
+        self.checked(change, trust);
+        if kept {
+            (self.focus, self.focuses) = focus;
         }
     }
 
@@ -1800,6 +1841,20 @@ impl Peers {
     fn say(&mut self, snack: PeersSnack) {
         self.snack = Some(snack);
         self.snacks = self.snacks.wrapping_add(1);
+    }
+
+    /// Whether the snackbar on show is the unknown change's own line.
+    fn unknown_on_show(&self) -> bool {
+        match (&self.unknown_change, &self.snack) {
+            (
+                Some(Check::Remove { address, .. }),
+                Some(PeersSnack::RemoveUnknown { address: on }),
+            )
+            | (Some(Check::Undo(address)), Some(PeersSnack::UndoUnknown { address: on })) => {
+                address == on
+            }
+            _ => false,
+        }
     }
 
     /// The list read in, its rows' order kept in [`Self::places`] with
