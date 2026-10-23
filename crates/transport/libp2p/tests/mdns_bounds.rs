@@ -494,9 +494,16 @@ fn the_record_store_stops_at_the_providers_peer_bound_and_reports_what_it_evicts
                 "nothing evicted below it"
             );
 
+            // The counter is cumulative, and the fill re-sends what an
+            // interface queue dropped under load, so only the drops of the
+            // announce below are pairs this phase did not deliver. Read
+            // whole, a fill that dropped 25 made 256 counted peers look
+            // like 231 delivered ones (j113).
+            let dropped_by_the_fill = counts.discovered_dropped();
             let expired =
                 announce(&mut behaviour, &flood, &all[cap..], cap, 3600, &mut replay).await;
-            let delivered = cap - usize::try_from(counts.discovered_dropped()).expect("fits");
+            let delivered = cap
+                - usize::try_from(counts.discovered_dropped() - dropped_by_the_fill).expect("fits");
             assert_eq!(
                 stored(&behaviour).len(),
                 cap,
