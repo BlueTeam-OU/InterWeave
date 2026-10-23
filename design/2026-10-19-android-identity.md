@@ -200,7 +200,9 @@ more statements follow it, before the primary, because
 be on two devices, which must not happen, and this phone cannot
 check: ADR-0043), and `IdR1NewKeys` (a fresh install has no identity
 keys, so each identity gets a new key and every contact will see a
-key change for it: ADR-0063 decision 1). Both are statements, never
+key change for it: ADR-0063 decision 1), shown whenever the state root
+has no `identity-keys/` directory, as on every fresh install, the one
+condition K1 uses too. Both are statements, never
 gates: nothing is asked and nothing refuses. They are on R1 and not on
 R2, whose keypad, suggestions and primary must fit at 200 %
 (acceptance 13), and every path into R2 passes R1 or K1
@@ -473,7 +475,8 @@ The text is final (language-culture, 2026-10-19; the keys added on
 2026-10-20 for the PeerId page, language-culture-en, REPLYs
 01a1589d-e769 and 01a1589f-7882; `IdS1Unlock` on 2026-10-21,
 language-culture-en, REPLY 01a15d22-6abd, at the owner's asking for
-Unlock). No string contains
+Unlock; `IdActiveElsewhere` and `IdR1NewKeys` on 2026-10-23,
+language-culture-en, REPLY 01a16717). No string contains
 a word of a person's phrase, and no placeholder can hold one: `{n}`
 (a number, in digits) and `{peer_id}` are the only placeholders. The
 words are plain and calm. A person on K1 did nothing wrong, so no
@@ -615,9 +618,10 @@ landscape:
 7. Fresh-install restore with a known fixture phrase: R2 → R3 shows
    its PeerId. "No" returns to R2 with all 24 words. "Yes" restores,
    and the PeerId on the Settings screen matches. R1 shows
-   `IdActiveElsewhere` and `IdR1NewKeys` before its primary, both
-   read by TalkBack in order, with no control between them and
-   nothing to accept; R2 shows neither.
+   `IdActiveElsewhere` and `IdR1NewKeys` before its primary, in that
+   order in the accessibility tree (a `uiautomator dump`), with no
+   control between them and nothing to accept; R2 shows neither. Read
+   by TalkBack once TalkBack reaches the app (§8).
 8. A pinned fixture phrase of distinct words, with a pinned swap of two
    positions that the test first shows fails the BIP-39 checksum (an
    8-bit checksum passes about one swap in 256), shows
