@@ -1210,7 +1210,8 @@ impl AdminPort for FakeAdmin {
     /// The bootstrap add's rules by name, in the runtime's order, the
     /// whole list checked before anything is kept: every line against the
     /// configuration's entry rule (the same function the runtime's add
-    /// reads); then every line against the special-use floor on every IP
+    /// reads); then every line's `PeerId` against this node's own; then
+    /// every line against the special-use floor on every IP
     /// component; then the bound of 64 authored and added together,
     /// counting only new lines. A line present already, or repeated,
     /// changes nothing. The fake holds no `enabled: false` provider.
@@ -1233,6 +1234,13 @@ impl AdminPort for FakeAdmin {
         for (line, address) in addresses.iter().enumerate() {
             if let Err(why) = interweave_profile_config::bootstrap_overlay::entry_grammar(address) {
                 return refused(AddressRefusal::Grammar, line, why);
+            }
+        }
+        for (line, address) in addresses.iter().enumerate() {
+            if interweave_profile_config::split_peer_multiaddr(address)
+                .is_ok_and(|(_, peer)| peer == self.node.peer)
+            {
+                return refused(AddressRefusal::OwnPeer, line, "this node's own PeerId");
             }
         }
         for (line, address) in addresses.iter().enumerate() {

@@ -1274,7 +1274,8 @@ fn outside_the_bound(peer: &TransportIdentity) -> [String; 2] {
 /// LOCAL-CLIENT.md §7 item 13), the same at every binding: without
 /// `admin.peers` the add, the removal and the list are each
 /// `CapabilityDenied`; a string that is no address, a well-formed address
-/// outside the grammar, one with a loopback component, and one outside the
+/// outside the grammar, one naming this node's own `PeerId`, one with a
+/// loopback component, and one outside the
 /// schema's length bound (empty, or of 1025 characters) are each refused
 /// BY NAME, an answer and never an
 /// error, with nothing written; a new address is `added`, listed as
@@ -1344,6 +1345,15 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
                 .await
         ),
         Some(AddressRefusal::Grammar)
+    );
+    let own = admin.own_addresses().await.expect("the show side").peer;
+    assert_eq!(
+        refusal(
+            admin
+                .add_bootstrap_address(format!("/ip4/10.0.0.1/tcp/4001/p2p/{}", own.as_str()))
+                .await
+        ),
+        Some(AddressRefusal::OwnPeer)
     );
     assert_eq!(
         refusal(
@@ -1416,7 +1426,9 @@ pub async fn bootstrap_addresses_answer_alike_at_every_binding<B: AdminBinding>(
 /// is refused BY NAME naming that line -- an answer, never an error --
 /// with nothing written, not even its good lines; a line outside the
 /// schema's length bound is outside the grammar, so the line named is the
-/// FIRST outside the grammar, before any special-use line; a list of good lines is
+/// FIRST outside the grammar, before any special-use line; a line naming
+/// this node's own `PeerId` is refused `own_peer`, after every line's
+/// grammar and before any special-use line, alone in its list too; a list of good lines is
 /// taken whole, one row per line in the order given, a line already
 /// present (`authored` among them) or repeated being `unchanged`; the
 /// single add then sees the list's lines; the add grants no trust.
@@ -1472,6 +1484,31 @@ pub async fn a_list_is_added_all_or_none_at_every_binding<B: AdminBinding>(
         ),
         (AddressRefusal::SpecialUse, Some(2))
     );
+    let own = admin.own_addresses().await.expect("the show side").peer;
+    let own = format!("/ip4/10.0.0.1/tcp/4001/p2p/{}", own.as_str());
+    for (list, refused) in [
+        (vec![own.clone()], (AddressRefusal::OwnPeer, Some(0))),
+        (
+            vec![fresh(1), own.clone()],
+            (AddressRefusal::OwnPeer, Some(1)),
+        ),
+        // Every line's grammar first, then this node's own, then the
+        // special-use floor.
+        (
+            vec![own.clone(), "not an address".to_owned()],
+            (AddressRefusal::Grammar, Some(1)),
+        ),
+        (
+            vec![loopback.clone(), own.clone()],
+            (AddressRefusal::OwnPeer, Some(1)),
+        ),
+    ] {
+        assert_eq!(
+            refusal(admin.add_bootstrap_addresses(list.clone()).await),
+            refused,
+            "{list:?}"
+        );
+    }
     for line in outside_the_bound(&unlisted) {
         let n = line.chars().count();
         for (list, named) in [
