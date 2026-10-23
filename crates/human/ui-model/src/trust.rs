@@ -97,6 +97,14 @@ pub struct TrustSettings {
     /// read, nor after a change that may have been made, until a read
     /// succeeds ([`Self::confirmed_list`]).
     held: Held,
+    /// Each peer whose change's answer was lost, with the count of
+    /// changes sent when it was: "pending" until a read that started
+    /// after it was sent succeeds (add-a-peer §5.3). At most one per peer.
+    lost: Vec<(TransportIdentity, u64)>,
+    /// Changes sent so far, and how many were sent when the read on its
+    /// way started: a read ends only what was sent before it.
+    sent: u64,
+    read_from: u64,
 }
 
 /// Whether a list kept is the daemon's word.
@@ -143,6 +151,7 @@ impl TrustSettings {
             return None;
         }
         self.reading = true;
+        self.read_from = self.sent;
         Some(Intent::ReadTrust)
     }
 
@@ -221,6 +230,7 @@ impl TrustSettings {
         }
         let change = self.pending.take()?;
         self.in_flight = Some(change.clone());
+        self.sent = self.sent.wrapping_add(1);
         Some(Intent::SetTrust(change))
     }
 
@@ -247,6 +257,10 @@ impl TrustSettings {
                 }
                 self.list = Some(list);
                 self.held = Held::AsRead;
+                // A read ends what was sent before it started, never a
+                // change sent while it was on its way.
+                let from = self.read_from;
+                self.lost.retain(|(_, sent)| *sent > from);
             }
             Err(problem) => {
                 // The list as last read stays on show, but it is no
@@ -271,6 +285,11 @@ impl TrustSettings {
         if self.in_flight.as_ref() == Some(&change) {
             self.in_flight = None;
         }
+        // Answered as made: what a lost change of this peer left pending
+        // is known now. Unconfirmed sets it pending again below.
+        if matches!(answer, Ok(_) | Err(TrustSetFailure::MadeNotReadBack(_))) {
+            self.lost.retain(|(peer, _)| peer != &change.peer);
+        }
         match answer {
             // The list read back is the daemon's, and another local
             // administrator may have changed the same peer in between: a
@@ -294,6 +313,8 @@ impl TrustSettings {
                 self.say(TrustOutcome::Changed(change));
             }
             Err(TrustSetFailure::Unconfirmed(_)) => {
+                self.lost.retain(|(peer, _)| peer != &change.peer);
+                self.lost.push((change.peer.clone(), self.sent));
                 self.held = Held::MayHaveChanged;
                 self.reread = true;
                 self.say(TrustOutcome::Unconfirmed(change));
@@ -317,12 +338,20 @@ impl TrustSettings {
         self.reread = false;
         self.reading = true;
         self.rereading = true;
+        self.read_from = self.sent;
         Some(Intent::ReadTrust)
     }
 
     fn say(&mut self, outcome: TrustOutcome) {
         self.outcome = Some(outcome);
         self.outcomes = self.outcomes.wrapping_add(1);
+    }
+
+    /// Whether a change of `peer`'s trust is pending: its answer lost,
+    /// and no read started after it was sent has succeeded since.
+    #[must_use]
+    pub fn is_pending(&self, peer: &TransportIdentity) -> bool {
+        self.lost.iter().any(|(p, _)| p == peer)
     }
 
     /// The allowlist as last read, or `None` before the first read.

@@ -1652,8 +1652,21 @@ impl Peers {
                             block.known = None;
                             checking.get_or_insert_with(|| block.peer.clone());
                         }
+                        // Written nothing -- unavailable or failed -- after an
+                        // unknown Trust: still unknown (§5.7). Refused, not
+                        // permitted or incompatible are answers, and say so.
+                        // While a Trust on this PeerId is pending -- lost, not
+                        // read back -- one that writes nothing is a retry of
+                        // an unknown change, wherever it is made (§5.7).
                         Some(TrustOutcome::Problem(p)) => {
-                            block.problem = Some(BlockProblem::Trust(*p));
+                            let wrote_nothing =
+                                matches!(p, TrustProblem::Unavailable | TrustProblem::Internal);
+                            block.problem =
+                                Some(if wrote_nothing && trust.is_pending(&block.peer) {
+                                    BlockProblem::Unknown
+                                } else {
+                                    BlockProblem::Trust(*p)
+                                });
                         }
                         _ => block.problem = Some(BlockProblem::NotMade),
                     }

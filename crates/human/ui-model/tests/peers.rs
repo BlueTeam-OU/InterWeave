@@ -1975,3 +1975,181 @@ fn an_unknown_change_outlives_its_snackbar_closing_mid_retry() {
         "known again after the read"
     );
 }
+
+/// A block whose Trust was left unknown keeps that line when its Trust
+/// again writes nothing, focus on it (§5.7); never the Trust page's
+/// "Nothing was changed".
+#[test]
+fn an_unknown_trust_stays_unknown_after_a_retry_that_writes_nothing() {
+    let (me, them) = (peer(), peer());
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&them)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&them)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(them.clone()),
+            },
+            &[added(&them)],
+        ),
+    );
+    let change = TrustChange {
+        peer: them.clone(),
+        allowed: true,
+    };
+    let _ = input(&mut m, PeersInput::Trust(them.clone()));
+    m.trust_settings_mut().set(
+        change.clone(),
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    assert_eq!(
+        m.trust_settings_mut().take_reread(),
+        Some(Intent::ReadTrust)
+    );
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    let _ = m.peers_turn();
+    assert_eq!(
+        m.peers().blocks(m.trust_settings())[0].problem,
+        Some(BlockProblem::Unknown)
+    );
+
+    let _ = input(&mut m, PeersInput::Trust(them.clone()));
+    m.trust_settings_mut().set(
+        change,
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    assert_eq!(
+        m.peers().blocks(m.trust_settings())[0].problem,
+        Some(BlockProblem::Unknown),
+        "still unknown: the first Trust may have landed"
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::BlockProblem(them.clone())));
+
+    // Refused is an answer, not a no-write: it says so.
+    let _ = input(&mut m, PeersInput::Trust(them.clone()));
+    m.trust_settings_mut().set(
+        TrustChange {
+            peer: them.clone(),
+            allowed: true,
+        },
+        Err(TrustSetFailure::NotMade(TrustProblem::Refused)),
+    );
+    let _ = m.peers_turn();
+    assert_eq!(
+        m.peers().blocks(m.trust_settings())[0].problem,
+        Some(BlockProblem::Trust(TrustProblem::Refused))
+    );
+}
+
+/// While a Trust on a PeerId is pending -- its answer lost, no read that
+/// started after it has succeeded -- a Trust on it that writes nothing,
+/// wherever it is made, is a retry of an unknown change and reads
+/// unknown (§5.3, §5.7). Another peer's not-written Trust says so.
+#[test]
+fn a_rows_trust_after_a_lost_trust_on_its_peer_is_unknown() {
+    let (me, p, q) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[added(&p), added(&q)]);
+    // The Trust page's change for P was lost, its read back failed.
+    m.trust_settings_mut().set(
+        TrustChange {
+            peer: p.clone(),
+            allowed: true,
+        },
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    );
+    let _ = m.trust_settings_mut().take_reread();
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    assert!(
+        m.trust_settings().is_pending(&p),
+        "pending: lost, not read back"
+    );
+
+    let _ = input(&mut m, PeersInput::TrustRow(at(&p)));
+    let _ = input(&mut m, PeersInput::Trust(p.clone()));
+    m.trust_settings_mut().set(
+        TrustChange {
+            peer: p.clone(),
+            allowed: true,
+        },
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    assert_eq!(
+        m.peers().blocks(m.trust_settings())[0].problem,
+        Some(BlockProblem::Unknown),
+        "still unknown"
+    );
+
+    // Q's not-written Trust is no retry: it says so of itself.
+    let _ = input(&mut m, PeersInput::NotNow(p.clone()));
+    let _ = input(&mut m, PeersInput::TrustRow(at(&q)));
+    let _ = input(&mut m, PeersInput::Trust(q.clone()));
+    m.trust_settings_mut().set(
+        TrustChange {
+            peer: q.clone(),
+            allowed: true,
+        },
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    assert_eq!(
+        m.peers().blocks(m.trust_settings())[0].problem,
+        Some(BlockProblem::Trust(TrustProblem::Unavailable))
+    );
+}
+
+/// A read ends only the Trusts sent before it started: one on its way
+/// when a Trust was lost leaves that Trust pending; one started after
+/// ends it (§5.3).
+#[test]
+fn a_read_ends_only_the_trusts_sent_before_it() {
+    let (me, p) = (peer(), peer());
+    let mut m = opened(&me, &[], &[added(&p)]);
+    let t = m.trust_settings_mut();
+    assert_eq!(t.opened(), Some(Intent::ReadTrust), "a read on its way");
+    let change = t.propose_allow_of(&p).expect("proposed");
+    assert_eq!(
+        t.confirm(&change),
+        Some(Intent::SetTrust(change.clone())),
+        "sent while the read is on its way"
+    );
+    t.set(
+        change,
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    );
+    let empty = || {
+        Ok(TrustList {
+            local_peer: None,
+            allowed: Vec::new(),
+        })
+    };
+    t.read(empty());
+    assert!(
+        t.is_pending(&p),
+        "that read started before the Trust was lost"
+    );
+    assert_eq!(t.opened(), Some(Intent::ReadTrust));
+    t.read(empty());
+    assert!(!t.is_pending(&p), "a read started after it ends it");
+
+    // Lost again, then a Trust answered as made: known, no longer pending.
+    let lose = |t: &mut interweave_human_ui_model::TrustSettings, answer| {
+        let change = t.propose_allow_of(&p).expect("proposed");
+        let _ = t.confirm(&change);
+        t.set(change, answer);
+    };
+    lose(
+        t,
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    );
+    assert!(t.is_pending(&p));
+    lose(
+        t,
+        Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Unavailable)),
+    );
+    assert!(!t.is_pending(&p), "answered as made");
+}
