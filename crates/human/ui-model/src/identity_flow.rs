@@ -1239,8 +1239,7 @@ mod tests {
 
     /// ADR-0043's warning (item 11) on both ways into R2, a fresh
     /// install's and a lost key's: the screen R2 was entered from warned,
-    /// R2 was reached all the same, and no screen that takes or shows a
-    /// word carries it.
+    /// R2 was reached all the same, and R2 does not carry it.
     #[test]
     fn every_path_into_r2_passes_a_screen_that_warns() {
         let fresh = {
@@ -1285,6 +1284,53 @@ mod tests {
             "K1 with no restore takes no phrase"
         );
         assert_eq!(no_restore.primary(), []);
+    }
+
+    /// The warning is R1's and K1's only: no screen that shows, checks or
+    /// takes a word carries it, nor the screens after a restore, so their
+    /// layouts are as they were (#392 review F1).
+    #[test]
+    fn no_screen_that_shows_or_takes_a_word_warns() {
+        use ScreenId::{C1, C2, C3, C4, R2, R3, R4, S1, S2};
+
+        let mut seen = Vec::new();
+        let mut look = |flow: &IdentityFlow| {
+            assert!(!flow.warns_active_elsewhere(), "{:?} warns", flow.screen());
+            seen.push(flow.screen());
+        };
+
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.primary();
+        look(&flow);
+        flow.created(words(), mine(), [6, 18]);
+        flow.primary();
+        look(&flow);
+        flow.primary();
+        look(&flow);
+        enter(&mut flow, "galaxy");
+        enter(&mut flow, "saddle");
+        look(&flow);
+
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        fill(&mut flow);
+        look(&flow);
+        flow.primary();
+        flow.checked(Some(mine()));
+        look(&flow);
+        flow.primary();
+        flow.restored(Ok(()));
+        look(&flow);
+
+        let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        look(&flow);
+        flow.primary();
+        flow.prompted(true);
+        flow.offline(Ok((words(), mine())));
+        look(&flow);
+
+        assert_eq!(seen, [C1, C2, C3, C4, R2, R3, R4, S1, S2], "control");
     }
 
     #[test]
