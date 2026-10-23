@@ -369,7 +369,13 @@ def wraps_on(next_line: str) -> bool:
     not ("OR(LicenseRef-Frob)", ") AND X", "/LicenseRef-Frob") -- in upper
     case, or in any other case before an id ("or LicenseRef-Frob"), so a
     sentence opening on the word ("With contributions from ...") is prose.
-    A line of parentheses alone closes the expression and goes on too."""
+    "Any other case before an id" is read wide: only a plain lower-case
+    word that is no id this tool knows makes the line prose, so an id of
+    any other shape ("with LLVM-exception", "or WTFPL") or one behind a
+    parenthesis standing alone ("or ( LicenseRef-Frob )") goes on, and
+    the lookup refuses it if it is unknown, as it does on one line (#386
+    review). A line of parentheses alone closes the expression and goes
+    on too."""
     head = next_line.strip().lstrip("()").lstrip()
     if not head or head[0] in "/|+":
         return True
@@ -380,7 +386,9 @@ def wraps_on(next_line: str) -> bool:
         return True
     word = head[op.end():].split()[0:1]
     word = word[0].strip("()\"'").rstrip(".,;:") if word else ""
-    return bool(ID_WORD.fullmatch(word)) or word.lower() in known_ids()
+    if ID_WORD.fullmatch(word) or word.lower() in known_ids():
+        return True
+    return not re.fullmatch(r"[a-z]+", word)
 
 
 def spdx_expression(line: str) -> list:

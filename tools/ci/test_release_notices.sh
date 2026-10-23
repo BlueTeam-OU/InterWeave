@@ -583,6 +583,18 @@ drefused "an unknown id after a lower-case operator on the next line" "names a l
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// With contributions from the Y project\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drun && pass "a prose line opening on With after a complete tag" || fail "prose opening on With was read as ids" "$(cat "$SANDBOX/err")"
+# Prose is only a plain lower-case word after it: an id of any other
+# shape, or one behind a parenthesis standing alone, is read on and the
+# lookup refuses it as it would on one line (#386 review).
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// or ( LicenseRef-Frob )\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an unknown id behind a parenthesis after a lower-case operator" "names a licence this tool does not recognise (LicenseRef-Frob)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: Apache-2.0\n// with LLVM-exception\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drefused "an exception of no id shape after a lower-case operator" "names a licence this tool does not recognise (LLVM-exception)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// or WTFPL\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an upper-case id with no version after a lower-case operator" "names a licence this tool does not recognise (WTFPL)"
 printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n//\n// OR LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
 xlist
 drun && pass "an operator line past a blank line" || fail "a line past a blank line was read on" "$(cat "$SANDBOX/err")"
