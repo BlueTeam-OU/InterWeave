@@ -3864,3 +3864,47 @@ fn an_unknown_add_decided_after_the_field_was_edited_keeps_the_edit() {
         }
     }
 }
+
+/// An add left unknown, the field edited away and back to its lines, then
+/// Add, writing nothing: still unknown, never "nothing was changed", since
+/// the first write may have landed (§5.7) -- the edit ended the note's
+/// claim on the page, not what is known of the lines.
+#[test]
+fn an_unknown_add_edited_away_and_back_is_still_unknown_on_a_retry() {
+    let (me, them, other) = (peer(), peer(), peer());
+    let line = at(&them);
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(line.clone()));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        std::slice::from_ref(&line),
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    // The same lines as trimmed (§5.3): no edit away, the note stays.
+    let _ = input(&mut m, PeersInput::FieldChanged(format!("  {line}  \n")));
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Unknown { lines: 1 }),
+        "the same lines keep the note"
+    );
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&other)));
+    let _ = input(&mut m, PeersInput::FieldChanged(line.clone()));
+    assert_eq!(
+        input(&mut m, PeersInput::Add),
+        vec![Intent::AddAddresses(vec![line.clone()])]
+    );
+    m.addresses_added(
+        std::slice::from_ref(&line),
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Unknown { lines: 1 }),
+        "never AddFailed: the first add may have landed"
+    );
+}
