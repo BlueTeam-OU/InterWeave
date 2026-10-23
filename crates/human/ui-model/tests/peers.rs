@@ -3950,3 +3950,35 @@ fn a_rows_trust_taken_after_its_peer_is_trusted_opens_nothing() {
     let _ = input(&mut m, PeersInput::TrustRow(at(&b)));
     assert!(m.peers().add_open(), "the control: B needs trust");
 }
+
+/// A removal sent while Peers' opening read is out, that read failing
+/// before the removal answers: the answer is told against the list as it
+/// stood when Remove was pressed, not the none the failed read left -- a
+/// row the configuration turns off offers no Undo (§5.2), and focus goes
+/// to the row after it (§8).
+#[test]
+fn a_removal_answered_after_a_failed_read_is_told_against_its_own_list() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let off = |p: &TransportIdentity| PeerAddress {
+        dialled: false,
+        ..added(p)
+    };
+    // Added rows show newest first: B, A.
+    let mut m = opened(&me, &[], &[off(&a), off(&b)]);
+    let _ = input(&mut m, PeersInput::Opened);
+    assert_eq!(
+        input(&mut m, PeersInput::Remove(at(&b))),
+        vec![Intent::RemoveAddress(at(&b))]
+    );
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    m.address_removed(&at(&b), answer(AddressOutcome::Removed, &[off(&a)]));
+    assert!(
+        matches!(
+            m.peers().snack().0,
+            Some(PeersSnack::Removed { undo: false, .. })
+        ),
+        "{:?}",
+        m.peers().snack().0
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
+}

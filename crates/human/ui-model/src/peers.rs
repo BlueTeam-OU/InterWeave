@@ -540,8 +540,14 @@ enum InFlight {
     },
     /// An Undo, or its Try again, of this removal.
     Undo(String),
-    /// A removal, or its Try again.
-    Remove(String),
+    /// A removal, or its Try again, with the list as it stood when sent:
+    /// its answer is told against that, whatever a read since did to the
+    /// list -- a read failing meanwhile leaves none
+    /// (`a_removal_answered_after_a_failed_read_is_told_against_its_own_list`).
+    Remove {
+        address: String,
+        before: AddressList,
+    },
 }
 
 /// Whose Try again a read on its way answers.
@@ -1225,7 +1231,11 @@ impl Peers {
         if row.origin != AddressOrigin::AddedHere {
             return None;
         }
-        self.in_flight = Some(InFlight::Remove(address.clone()));
+        let before = self.list.clone().unwrap_or_default();
+        self.in_flight = Some(InFlight::Remove {
+            address: address.clone(),
+            before,
+        });
         Some(Intent::RemoveAddress(address))
     }
 
@@ -1254,7 +1264,18 @@ impl Peers {
                 self.re_add(address)
             }
             PeersSnack::RemoveFailed { address } | PeersSnack::RemoveUnknown { address } => {
-                self.in_flight = Some(InFlight::Remove(address.clone()));
+                // The list on show, else the one the unknown removal was
+                // sent against.
+                let before = self.list.clone().or_else(|| match &self.unknown_change {
+                    Some(Check::Remove { address: a, before }) if *a == address => {
+                        Some(before.clone())
+                    }
+                    _ => None,
+                });
+                self.in_flight = Some(InFlight::Remove {
+                    address: address.clone(),
+                    before: before.unwrap_or_default(),
+                });
                 Some(Intent::RemoveAddress(address))
             }
             _ => None,
@@ -1391,11 +1412,16 @@ impl Peers {
         answer: Result<AddressAnswer, AddressChangeFailure>,
         trust: &TrustSettings,
     ) {
-        match &self.in_flight {
-            Some(InFlight::Remove(sent)) if sent == address => self.in_flight = None,
-            _ => return,
-        }
-        let before = self.list.clone().unwrap_or_default();
+        let before = match self.in_flight.take() {
+            Some(InFlight::Remove {
+                address: sent,
+                before,
+            }) if sent == address => before,
+            other => {
+                self.in_flight = other;
+                return;
+            }
+        };
         match answer {
             Ok(answer) => {
                 // An answer decides it: nothing is unknown about it now.
