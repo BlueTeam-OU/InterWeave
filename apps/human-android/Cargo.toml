@@ -8,7 +8,7 @@
 # packages it is android/.
 [package]
 name = "interweave-human-android"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The InterWeave Android human client's native library."
 license.workspace = true

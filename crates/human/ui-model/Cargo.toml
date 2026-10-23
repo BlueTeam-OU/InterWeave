@@ -7,7 +7,7 @@
 # the client's vocabulary through interweave-human-client-api.
 [package]
 name = "interweave-human-ui-model"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The InterWeave human client's presentation state."
 license.workspace = true

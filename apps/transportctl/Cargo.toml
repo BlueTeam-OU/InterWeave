@@ -6,7 +6,7 @@
 # profile lock, never a socket) -- plan §16 (1), (10).
 [package]
 name = "interweave-transportctl"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "InterWeave transportctl: admin commands over the daemon's admin socket, and offline identity backup, verify and restore."
 license.workspace = true

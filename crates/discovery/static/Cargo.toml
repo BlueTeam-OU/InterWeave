@@ -24,7 +24,7 @@
 # DNS-ownership section is the record.
 [package]
 name = "interweave-discovery-static"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Configured bootstrap discovery provider for InterWeave."
 license.workspace = true

@@ -12,7 +12,7 @@
 # the assertion.
 [package]
 name = "interweave-endpoint-routing-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Stage 6 and Stage 8 endpoint-routing exit-gate tests for InterWeave: Model-B routing, the lease boundary, and the endpoint directory."
 license.workspace = true

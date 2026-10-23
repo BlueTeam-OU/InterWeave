@@ -7,7 +7,7 @@
 # check holds it to that.
 [package]
 name = "interweave-human-transport-client"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The InterWeave human client's transport facade over LocalDataSession."
 license.workspace = true

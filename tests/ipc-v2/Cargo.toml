@@ -7,7 +7,7 @@
 # say. TEST-ONLY and Unix-only; nothing depends on this package.
 [package]
 name = "interweave-ipc-v2-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "IPC v2 wire, handshake, authority and keepalive tests for InterWeave."
 license.workspace = true

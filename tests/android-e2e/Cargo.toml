@@ -8,7 +8,7 @@
 # package.
 [package]
 name = "interweave-android-e2e-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Android-to-desktop interoperability tests for InterWeave, with a host stand-in for the device."
 license.workspace = true

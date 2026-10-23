@@ -8,7 +8,7 @@
 # and the envelope schema agreement in both directions. TEST-ONLY.
 [package]
 name = "interweave-human-chat-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "HumanChatV2 rendering, compression and schema conformance for InterWeave."
 license.workspace = true

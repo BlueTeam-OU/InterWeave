@@ -7,7 +7,7 @@
 # relationship, connections, or any backend type.
 [package]
 name = "interweave-trust-api"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Deny-by-default peer trust policy types for InterWeave."
 license.workspace = true
