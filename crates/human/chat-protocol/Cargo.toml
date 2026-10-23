@@ -8,7 +8,7 @@
 # rather than aspirational.
 [package]
 name = "interweave-human-chat-protocol"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "HumanChatV2 envelope parsing, validation, and bounded decompression."
 license.workspace = true

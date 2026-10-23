@@ -11,9 +11,9 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use interweave_ipc_protocol::{
-    AddressList, AddressResult, AdminStatusResult, DirectoryResult, ENDPOINT_PERSISTED_SINCE_MINOR,
-    EmptyResult, EndpointList, OwnAddressList, PeerList, Request, RequestId, ResponseFrame,
-    SendResult, SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList,
+    AddressList, AddressResult, AddressesResult, AdminStatusResult, DirectoryResult,
+    ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, OwnAddressList, PeerList, Request,
+    RequestId, ResponseFrame, SendResult, SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList,
 };
 use interweave_local_client_api::{AdminPort, DataSessionPort};
 use interweave_transport_api::{BroadcastMessageV1, DirectDestination, TransportError};
@@ -79,7 +79,8 @@ pub(crate) async fn data<S: DataSessionPort>(
         | Request::AdminPeersAddAddress(_)
         | Request::AdminPeersRemoveAddress(_)
         | Request::AdminPeersListAddresses
-        | Request::AdminPeersOwnAddresses => {
+        | Request::AdminPeersOwnAddresses
+        | Request::AdminPeersAddAddresses(_) => {
             ResponseFrame::failure(id, TransportError::CapabilityDenied)
         }
     }
@@ -171,12 +172,12 @@ pub(crate) async fn admin<A: AdminPort>(
         // A refusal is the port's ANSWER, carried as a result naming its
         // rule; only a failure of the port itself is an error (ADR-0062).
         Request::AdminPeersAddAddress(p) => match port.add_bootstrap_address(p.address).await {
-            Ok(change) => ResponseFrame::success(id, &AddressResult::from(change)),
+            Ok(change) => ResponseFrame::success(id, &AddressResult::for_minor(change, minor)),
             Err(code) => ResponseFrame::failure(id, code),
         },
         Request::AdminPeersRemoveAddress(p) => {
             match port.remove_bootstrap_address(p.address).await {
-                Ok(change) => ResponseFrame::success(id, &AddressResult::from(change)),
+                Ok(change) => ResponseFrame::success(id, &AddressResult::for_minor(change, minor)),
                 Err(code) => ResponseFrame::failure(id, code),
             }
         }
@@ -187,6 +188,16 @@ pub(crate) async fn admin<A: AdminPort>(
             },
             Err(code) => ResponseFrame::failure(id, code),
         },
+        Request::AdminPeersAddAddresses(p) => {
+            let lines = p.addresses.len();
+            match port.add_bootstrap_addresses(p.addresses).await {
+                Ok(change) => match AddressesResult::from_view(change, lines) {
+                    Ok(result) => ResponseFrame::success(id, &result),
+                    Err(code) => ResponseFrame::failure(id, code),
+                },
+                Err(code) => ResponseFrame::failure(id, code),
+            }
+        }
         Request::AdminPeersOwnAddresses => match port.own_addresses().await {
             Ok(own) => match OwnAddressList::from_view(own) {
                 Ok(list) => ResponseFrame::success(id, &list),
@@ -407,6 +418,11 @@ mod tests {
                 "own_addresses",
             ),
             (
+                Method::AdminPeersAddAddresses,
+                serde_json::json!({"addresses": ["a", "b"]}),
+                "add_addresses a b",
+            ),
+            (
                 Method::AdminTrustSet,
                 serde_json::json!({"peer": crate::fake::peer().as_str(), "allowed": false}),
                 "set_trust 12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN false",
@@ -545,6 +561,46 @@ mod tests {
             page(serde_json::json!({}), since - 1).await.peers[0].route_held_until,
             None
         );
+    }
+
+    /// `own_peer` is served from 2.9 and answered `grammar` below it, the
+    /// reason a 2.7 or 2.8 client's decoder knows; another refusal is the
+    /// control, served alike on both sides of the minor.
+    #[tokio::test]
+    async fn own_peer_is_answered_grammar_below_two_nine() {
+        use interweave_ipc_protocol::{AddressResult, OWN_PEER_SINCE_MINOR};
+        use interweave_local_client_api::{AddressChange, AddressRefusal};
+        let since = OWN_PEER_SINCE_MINOR;
+        for (scripted, minor, answered) in [
+            (AddressRefusal::OwnPeer, since, AddressRefusal::OwnPeer),
+            (AddressRefusal::OwnPeer, since - 1, AddressRefusal::Grammar),
+            (
+                AddressRefusal::SpecialUse,
+                since - 1,
+                AddressRefusal::SpecialUse,
+            ),
+        ] {
+            let fake = Fake::default();
+            fake.script().add_refused = Some(scripted);
+            let port = fake.admin([].into()).await.expect("port");
+            let frame = admin(
+                &port,
+                &Counters::default(),
+                Duration::from_secs(1),
+                id(),
+                request(
+                    Method::AdminPeersAddAddress,
+                    &serde_json::json!({"address": "/ip4/10.0.0.1/tcp/1/p2p/x"}),
+                ),
+                minor,
+            )
+            .await;
+            let change = AddressChange::from(frame.outcome::<AddressResult>().expect("a result"));
+            assert!(
+                matches!(change, AddressChange::Refused { reason, .. } if reason == answered),
+                "{scripted:?} at 2.{minor}: {change:?}"
+            );
+        }
     }
 
     /// A runtime whose trust rows do not persist is refused `Internal` on

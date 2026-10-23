@@ -13,7 +13,7 @@
 # in a crate of its own with two modules in it.
 [package]
 name = "interweave-profile-config"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "InterWeave profile configuration v2 structures and cross-field validation."
 license.workspace = true

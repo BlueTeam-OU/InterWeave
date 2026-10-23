@@ -12,7 +12,7 @@
 # missing binary fails the suite by name rather than skipping it.
 [package]
 name = "interweave-automated-client-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "What the transport promises an automated client: two InterWeave daemons on loopback and a generic test client."
 license.workspace = true

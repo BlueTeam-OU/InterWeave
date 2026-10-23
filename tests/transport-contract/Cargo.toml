@@ -7,7 +7,7 @@
 # is how the Stage 1 exit gate is checked rather than asserted.
 [package]
 name = "interweave-transport-contract-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Backend-neutral Transport API conformance tests for InterWeave."
 license.workspace = true

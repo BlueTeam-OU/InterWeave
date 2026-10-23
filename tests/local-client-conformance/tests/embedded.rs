@@ -614,6 +614,17 @@ fn bootstrap_addresses_answer_alike_at_every_binding() {
 }
 
 #[test]
+fn a_list_is_added_all_or_none_at_every_binding() {
+    let pair = EmbeddedPair::start();
+    let (a, _) = pair.bindings();
+    pair.run(suite::a_list_is_added_all_or_none_at_every_binding(
+        &a,
+        &pair.a_authored,
+    ));
+    pair.stop();
+}
+
+#[test]
 fn own_addresses_are_what_an_add_takes() {
     let pair = EmbeddedPair::start();
     let (a, b) = pair.bindings();

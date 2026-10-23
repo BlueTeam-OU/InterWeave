@@ -8,7 +8,7 @@
 # gate. The composition root (apps/transport-daemon) hands it a binding.
 [package]
 name = "interweave-ipc-server"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "InterWeave desktop IPC v2 server over the neutral local-session binding."
 license.workspace = true

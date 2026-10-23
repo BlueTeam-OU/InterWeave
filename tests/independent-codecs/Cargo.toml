@@ -11,7 +11,7 @@
 # the comparison against production lives, depends on this package.
 [package]
 name = "interweave-independent-codecs"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Test-only InterWeave wire codecs written from the contract text alone."
 license.workspace = true

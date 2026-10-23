@@ -193,7 +193,20 @@ network stays off until the restore is done. One line
 (`IdR1Settings`) states what `human-client-ui.md` §9 requires, as
 amended at 2f3b0587: the words restore the identity only, not the
 contacts, trust, settings or messages. Android has no export of
-those in standard v1, so the line asks for nothing (§11a Q5). Primary: enter my words (→ R2). Back → W.
+those in standard v1, so the line asks for nothing (§11a Q5). Two
+more statements follow it, before the primary, because
+`human-client-ui.md` §9 requires both before the phrase is taken:
+`IdActiveElsewhere` (an identity still running on another device would
+be on two devices, which must not happen, and this phone cannot
+check: ADR-0043), and `IdR1NewKeys` (a fresh install has no identity
+keys, so each identity gets a new key and every contact will see a
+key change for it: ADR-0063 decision 1), shown whenever the state root
+has no `identity-keys/` directory, as on every fresh install, the one
+condition K1 uses too. Both are statements, never
+gates: nothing is asked and nothing refuses. They are on R1 and not on
+R2, whose keypad, suggestions and primary must fit at 200 %
+(acceptance 13), and every path into R2 passes R1 or K1
+(rust-ui-dev-02's OBSERVATION 01a16711, #392). Primary: enter my words (→ R2). Back → W.
 
 **R2, Enter your 24 words.** The picker over all 24 positions (§4).
 When all 24 are filled, the primary action, check my words, is
@@ -242,7 +255,10 @@ derives it. Until the reader lands, K1's Record causes are not done:
 without it such a record would fall to `IdQNoPath`. K1 has three
 inputs: a record that opens (no K1), a record that names a PeerId
 (restore to it), and a record that names none (`IdQNoPath`). When the
-record names a PeerId, K1 shows it.
+record names a PeerId, K1 shows it, and after its reason the same
+`IdActiveElsewhere` as R1 (§3.3), with `IdR1NewKeys` under it when the
+state root has no `identity-keys/` directory. K1 with no primary
+(below) takes no phrase and shows neither.
 Primary: enter my recovery phrase (→ R2, then straight to the check
 against that PeerId, with no R3). Back leaves the app. K1 shows again
 on the next launch until the restore succeeds.
@@ -459,7 +475,8 @@ The text is final (language-culture, 2026-10-19; the keys added on
 2026-10-20 for the PeerId page, language-culture-en, REPLYs
 01a1589d-e769 and 01a1589f-7882; `IdS1Unlock` on 2026-10-21,
 language-culture-en, REPLY 01a15d22-6abd, at the owner's asking for
-Unlock). No string contains
+Unlock; `IdActiveElsewhere` and `IdR1NewKeys` on 2026-10-23,
+language-culture-en, REPLY 01a16717). No string contains
 a word of a person's phrase, and no placeholder can hold one: `{n}`
 (a number, in digits) and `{peer_id}` are the only placeholders. The
 words are plain and calm. A person on K1 did nothing wrong, so no
@@ -514,6 +531,8 @@ names are suggestions; rust-ui-dev names them.
 | `IdR1Title` | Restore your identity | R1's title |
 | `IdR1Body` | You need your 24 words, and the PeerId that goes with them: from your paper, or from a contact who has it. The app stays offline until the restore is done. | R1's body, three lines. "The PeerId that goes with them" is true whether the person moved phones or reinstalled on the same one |
 | `IdEnterWords` | Enter my words | R1's primary |
+| `IdActiveElsewhere` (new) | If another device still uses this PeerId, a restore here puts the same PeerId on two devices. One PeerId must never be on two devices, and this phone cannot check whether another device uses it. | R1, and K1 when it offers a restore, before the primary (§3.3, §3.4); `human-client-ui.md` §9, ADR-0043; must say the phone cannot check, and ask nothing |
+| `IdR1NewKeys` (new) | Your words bring back your PeerId, but not the keys of your identities. Each identity gets a new key, and your contacts will see that each key changed. | R1 and K1, each when the state root has no `identity-keys/` (always on R1 after a fresh install), before the primary; `human-client-ui.md` §9, ADR-0063 decision 1; must say the phrase restores the device, not the identities' keys, and that contacts see a key change |
 | `IdCheckWords` | Check my words | R2's primary |
 | `IdR1Settings` | Your words restore your identity only. Contacts, trust, settings and messages are not part of them. | R1's line under the body, two lines: the same statement, with nothing asked |
 | `IdR3NoPeerId` | If the PeerId is not on your paper, ask a contact for the one they have for the phone that had these words. Restore only if it matches. | R3, under the question: about three lines at 100 %, one over the space. A contact can hold one PeerId per device, so the text names which one |
@@ -598,7 +617,11 @@ landscape:
      input shown).
 7. Fresh-install restore with a known fixture phrase: R2 → R3 shows
    its PeerId. "No" returns to R2 with all 24 words. "Yes" restores,
-   and the PeerId on the Settings screen matches.
+   and the PeerId on the Settings screen matches. R1 shows
+   `IdActiveElsewhere` and `IdR1NewKeys` before its primary, in that
+   order in the accessibility tree (a `uiautomator dump`), with no
+   control between them and nothing to accept; R2 shows neither. Read
+   by TalkBack once TalkBack reaches the app (§8).
 8. A pinned fixture phrase of distinct words, with a pinned swap of two
    positions that the test first shows fails the BIP-39 checksum (an
    8-bit checksum passes about one swap in 256), shows
@@ -606,7 +629,9 @@ landscape:
    edited. The fixture and the swap are named in the test.
 9. Recovery required: with the record's key invalidated (rust-ui-dev's
    test hook), launch shows K1 with `IdQReasonKey` and the expected
-   PeerId. The right phrase restores with no R3. Another identity's
+   PeerId, and `IdActiveElsewhere` after its reason (with
+   `IdR1NewKeys` only when the hook also removes `identity-keys/`).
+   The right phrase restores with no R3. Another identity's
    phrase shows `IdOtherIdentity` with both PeerIds and restores
    nothing. With the record's PeerId field made unreadable (a test
    hook), K1 shows `IdQTitleNoPath`, `IdQReasonNoPath` and `IdQNoPath` with no primary action, and

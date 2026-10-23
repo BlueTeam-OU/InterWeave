@@ -15,7 +15,7 @@
 # about durability, because it has none.
 [package]
 name = "interweave-human-retention-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "ADR-0044 human-client retention conformance tests for InterWeave."
 license.workspace = true

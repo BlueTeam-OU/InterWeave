@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use interweave_local_client_api::{AdminCapability, DataCapability};
+use interweave_local_client_api::{AdminCapability, DataCapability, MAX_ADDRESSES_PER_ADD};
 use interweave_transport_api::{
     ChannelId, EndpointId, MAX_PAYLOAD_BYTES, MessageId, Payload, TransportError, TransportIdentity,
 };
@@ -251,6 +251,31 @@ pub struct AddressParams {
     pub address: String,
 }
 
+/// `admin.peers.add_addresses` params (2.9): the lines of an
+/// all-or-none add, in the order given, each as [`AddressParams`]'s
+/// `address`. Whether a line is a `multiaddr-with-peer-id` is the
+/// METHOD's to answer, naming the line; the count is the schema's, so a
+/// list of none or of more than [`MAX_ADDRESSES_PER_ADD`] is malformed
+/// (ADR-0062 decision 4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AddressesParams {
+    /// 1..=[`MAX_ADDRESSES_PER_ADD`] addresses, each
+    /// 1..=[`MAX_BOOTSTRAP_ADDRESS_CHARS`] characters.
+    #[serde(deserialize_with = "bounded_addresses")]
+    pub addresses: Vec<String>,
+}
+
+fn bounded_addresses<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    #[derive(Deserialize)]
+    struct Line(#[serde(deserialize_with = "bounded_address")] String);
+    let lines = Vec::<Line>::deserialize(d)?;
+    if lines.is_empty() || lines.len() > MAX_ADDRESSES_PER_ADD {
+        return Err(serde::de::Error::custom("an add takes 1..=16 addresses"));
+    }
+    Ok(lines.into_iter().map(|Line(address)| address).collect())
+}
+
 pub(crate) fn bounded_address<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     let address = String::deserialize(d)?;
     if address.is_empty() || address.chars().count() > MAX_BOOTSTRAP_ADDRESS_CHARS {
@@ -313,6 +338,8 @@ pub enum Request {
     AdminPeersListAddresses,
     /// `admin.peers.own_addresses` (2.8).
     AdminPeersOwnAddresses,
+    /// `admin.peers.add_addresses` (2.9).
+    AdminPeersAddAddresses(AddressesParams),
 }
 
 impl Request {
@@ -338,6 +365,7 @@ impl Request {
             Self::AdminPeersRemoveAddress(_) => Method::AdminPeersRemoveAddress,
             Self::AdminPeersListAddresses => Method::AdminPeersListAddresses,
             Self::AdminPeersOwnAddresses => Method::AdminPeersOwnAddresses,
+            Self::AdminPeersAddAddresses(_) => Method::AdminPeersAddAddresses,
         }
     }
 
@@ -393,6 +421,7 @@ impl Request {
             Method::AdminPeersOwnAddresses => {
                 none(params).map(|()| Self::AdminPeersOwnAddresses)?
             }
+            Method::AdminPeersAddAddresses => Self::AdminPeersAddAddresses(typed(params)?),
         })
     }
 
@@ -423,6 +452,7 @@ impl Request {
             Self::AdminPeersAddAddress(p) | Self::AdminPeersRemoveAddress(p) => {
                 serde_json::value::to_raw_value(p)
             }
+            Self::AdminPeersAddAddresses(p) => serde_json::value::to_raw_value(p),
         };
         raw.unwrap_or_else(|_| unreachable!("a params type serializes"))
     }
@@ -862,6 +892,9 @@ mod tests {
             }),
             Request::AdminPeersListAddresses,
             Request::AdminPeersOwnAddresses,
+            Request::AdminPeersAddAddresses(AddressesParams {
+                addresses: vec!["x".to_owned()],
+            }),
         ];
         assert_eq!(
             requests.iter().map(Request::method).collect::<Vec<_>>(),
