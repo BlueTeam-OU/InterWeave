@@ -3407,3 +3407,29 @@ fn an_add_left_out_by_back_holds_every_other_change() {
         "free again"
     );
 }
+
+/// A barred answer to an add Back left out, a page opened since, asks no
+/// focus for the line saying why, which is drawn only past the page;
+/// closing the page sends focus there (§8).
+#[test]
+fn a_barred_add_left_out_asks_no_focus_past_an_open_page() {
+    let (me, a, t) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[added(&t)]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    let _ = input(&mut m, PeersInput::Close);
+    let _ = input(&mut m, PeersInput::TrustRow(at(&t)));
+    let asked = m.peers().focus();
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::NotMade(AddressProblem::NotPermitted)),
+    );
+    assert_eq!(
+        m.peers().list_problem(),
+        Some(ListProblem::Barred(Barred::NotPermitted))
+    );
+    assert_eq!(m.peers().focus(), asked, "the open page keeps its focus");
+    let _ = input(&mut m, PeersInput::Close);
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem), "then to why");
+}

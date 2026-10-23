@@ -1381,7 +1381,9 @@ impl Peers {
                     self.list = None;
                     self.list_problem = Some(ListProblem::Barred(b));
                     self.snack = None;
-                    if had_list {
+                    // Not while a page is open: the line is drawn only
+                    // past it, and closing it then sends focus there.
+                    if had_list && self.page.is_none() {
                         self.ask_focus(PeersFocus::ListProblem);
                     }
                 }
