@@ -16,8 +16,9 @@
 #   - <version> is not a Semantic Versioning 2.0.0 version without build
 #     metadata (MAJOR.MINOR.PATCH[-pre-release], ADR-0065), or is not the
 #     workspace version -- both release_tag.sh's rule, asked of
-#     `v<version>` against <dir>, by default this repository, through
-#     `cargo metadata`;
+#     `v<version>` against <dir>'s root manifest, by default this
+#     repository's, with --manifest: this runs beside the release key,
+#     so no cargo runs, and the tag job has asked cargo already;
 #   - <version> is not the APK's versionName (the version is a commit in
 #     android/app/build.gradle.kts before the tag, never a value this run
 #     invents);
@@ -53,15 +54,16 @@
 #   INTERWEAVE_RELEASE_CERT_SHA256     the expected fingerprint (lowercase
 #                                      hex, no colons), unless --first-release
 #
-# Needs cargo, for the workspace version, and the Android SDK build
-# tools (aapt2, zipalign, apksigner): the directory ANDROID_BUILD_TOOLS
+# Needs python3 (tomllib), for the workspace version, and the Android
+# SDK build tools (aapt2, zipalign, apksigner): the directory ANDROID_BUILD_TOOLS
 # names, else the newest under
 # ${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools.
 #
 # Exit codes:
 #   0  signed and verified; the fingerprint and hash are printed
 #   1  a refusal above, or a tool failed (named on stderr)
-#   2  usage, or a variable or a tool missing, or cargo metadata failed
+#   2  usage, or a variable or a tool missing, or the root manifest
+#      could not be read
 # <<< help
 
 set -euo pipefail
@@ -92,9 +94,9 @@ done
 version="$1" unsigned="$2" out_dir="$3"
 
 # One rule for the version, the release run's own (ADR-0065 decisions 5
-# and 6): its exit 1 is a refusal, its 2 a cargo that could not answer.
+# and 6): its exit 1 is a refusal, its 2 a manifest it could not read.
 rc=0
-checked="$(bash "$here/release_tag.sh" "v$version" --root "$root" 2>&1)" || rc=$?
+checked="$(bash "$here/release_tag.sh" "v$version" --root "$root" --manifest 2>&1)" || rc=$?
 if (( rc == 1 )); then
     die "${checked#::error::}"
 elif (( rc != 0 )); then

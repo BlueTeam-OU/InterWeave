@@ -14,7 +14,9 @@
 # no signed APK behind. The workspace version is a throwaway cargo
 # workspace's, given as --root, so a pre-release, a version that is not
 # the workspace's and one carrying build metadata are each run at a
-# workspace chosen for the case (ADR-0065). apksigner runs behind a wrapper that logs its
+# workspace chosen for the case (ADR-0065). Every case runs with a cargo
+# on PATH that only fails: signing runs beside the release key and asks
+# no toolchain. apksigner runs behind a wrapper that logs its
 # arguments, so the test sees that no password reached a command line.
 #
 # Needs the Android SDK build tools (aapt2, zipalign, apksigner), an
@@ -51,7 +53,6 @@ for t in aapt2 zipalign apksigner; do
 done
 command -v keytool >/dev/null || skip "no keytool"
 command -v python3 >/dev/null || skip "no python3"
-command -v cargo >/dev/null || skip "no cargo"
 
 failures=0
 SANDBOX="$(realpath -- "$(mktemp -d)")"
@@ -60,6 +61,12 @@ trap 'rm -rf "$SANDBOX"' EXIT
 pass() { echo "  ✓ $1"; }
 fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2
          failures=$((failures + 1)); }
+
+NOCARGO="$SANDBOX/nocargo"
+mkdir -p "$NOCARGO"
+printf '#!/bin/sh\necho "cargo was run" >&2\nexit 99\n' > "$NOCARGO/cargo"
+chmod +x "$NOCARGO/cargo"
+export PATH="$NOCARGO:$PATH"
 
 TOOLS="$SANDBOX/tools"
 mkdir -p "$TOOLS"
@@ -221,10 +228,10 @@ refused "a version that is not the workspace's" "is not the workspace version 0.
     0.4.2 "$SANDBOX/next.apk" "$OUT"
 ROOT="$SANDBOX/no-such-workspace" sign 0.4.1 "$SANDBOX/good.apk" "$OUT"
 rc=$?
-if [[ $rc -eq 2 ]] && grep -qF "cargo metadata failed" "$SANDBOX/err" && ! ls "$OUT"/*.apk >/dev/null 2>&1; then
-    pass "a workspace cargo cannot read is exit 2, nothing signed"
+if [[ $rc -eq 2 ]] && grep -qF "cannot read" "$SANDBOX/err" && ! ls "$OUT"/*.apk >/dev/null 2>&1; then
+    pass "a workspace with no readable manifest is exit 2, nothing signed"
 else
-    fail "a workspace cargo cannot read exited $rc" "$(cat "$SANDBOX/err")"
+    fail "a workspace with no readable manifest exited $rc" "$(cat "$SANDBOX/err")"
 fi
 
 # A pre-release, at a workspace of that version: signed under its full
