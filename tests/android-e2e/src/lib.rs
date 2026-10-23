@@ -56,6 +56,7 @@ pub use interweave_test_support::e2e::{
 };
 
 pub mod adb;
+pub mod wifi;
 
 /// The stand-in's log, as the app's shell would write it to logcat: a
 /// process-wide subscriber that admits an event exactly when the

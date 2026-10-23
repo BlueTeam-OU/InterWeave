@@ -37,6 +37,9 @@ serde_json = { workspace = true }
 # The stand-in's log, filtered as the embedded host filters (gate (g)).
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# src/wifi.rs: waiting for the phone's listener without blocking a
+# runtime thread.
+tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
 # human_chat.rs: the app's own service host on the host's stand-in for
