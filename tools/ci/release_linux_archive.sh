@@ -23,7 +23,9 @@
 #   install.sh  uninstall.sh  README.md  LICENSE  THIRD-PARTY-NOTICES.md
 #   claude-plugin/   the Claude Code marketplace packaging/claude-plugin/build.sh
 #                    assembles, with claude-channel in interweave/bin/; it is
-#                    added with `claude plugin marketplace add`, not by install.sh
+#                    added with `claude plugin marketplace add`, not by install.sh;
+#                    its plugin.json's version is <version>, which build.sh
+#                    refuses unless it is the workspace version (ADR-0065)
 #
 # Without --bin-dir the four programs and claude-channel are built here,
 # `cargo build --release --locked` for x86_64-unknown-linux-gnu; with it,
@@ -39,7 +41,8 @@
 # name or time.
 #
 # REFUSED when <version> is not MAJOR.MINOR.PATCH, or a program, a unit
-# or a script is missing, or build.sh refuses the plugin. On any failure once <version> is checked, a
+# or a script is missing, or build.sh refuses the plugin (<version> not
+# the workspace's among its reasons). On any failure once <version> is checked, a
 # refusal or a step after the checks, none of the three outputs is left
 # in <out-dir>: all three are written in scratch and moved together at
 # the end, and a failure removes every one of their names from <out-dir>,
@@ -135,7 +138,7 @@ install -m 0755 "$root/packaging/linux/install.sh" "$stage/install.sh"
 install -m 0755 "$root/packaging/linux/uninstall.sh" "$stage/uninstall.sh"
 install -m 0644 "$root/packaging/linux/README.md" "$stage/README.md"
 install -m 0644 "$root/LICENSE" "$stage/LICENSE"
-bash "$root/packaging/claude-plugin/build.sh" "$stage/claude-plugin" "$bin_dir/$bridge" >/dev/null \
+bash "$root/packaging/claude-plugin/build.sh" --version "$version" "$stage/claude-plugin" "$bin_dir/$bridge" >/dev/null \
     || die "packaging/claude-plugin/build.sh refused the plugin"
 # build.sh's copies take the builder's umask; the archive's modes are fixed
 # like the rest.

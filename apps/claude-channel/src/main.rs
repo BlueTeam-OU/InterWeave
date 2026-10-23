@@ -2,7 +2,8 @@
 // Copyright 2026 Andrea Benetton
 //! `claude-channel --profile <name> --endpoint <id> --delivery push|pull`:
 //! started by an MCP host over stdio (`plugin/LIFECYCLE.md` §Startup) --
-//! Claude Code with `push`, any other host with `pull`.
+//! Claude Code with `push`, any other host with `pull`. `claude-channel
+//! --version` alone prints the version and exits.
 //!
 //! The profile name, the endpoint and the delivery mode are the host's
 //! non-secret configuration (the plugin's `.mcp.json` arguments). From the name it derives the
@@ -15,13 +16,28 @@
 //! finish: its lease and joins end with its IPC connection, which is the
 //! daemon's act.
 
-#[cfg(unix)]
+/// `claude-channel --version`: the workspace version, which the plugin's
+/// manifest carries too, with the commit as build metadata (`build.rs`).
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("INTERWEAVE_COMMIT"));
+
 fn main() -> std::process::ExitCode {
+    let mut args = std::env::args().skip(1);
+    if let (Some(flag), None) = (args.next(), args.next())
+        && flag == "--version"
+    {
+        println!("claude-channel {VERSION}");
+        return std::process::ExitCode::SUCCESS;
+    }
+    serve()
+}
+
+#[cfg(unix)]
+fn serve() -> std::process::ExitCode {
     unix::main()
 }
 
 #[cfg(not(unix))]
-fn main() -> std::process::ExitCode {
+fn serve() -> std::process::ExitCode {
     eprintln!(
         "claude-channel: the transport daemon's sockets are Unix sockets; this platform has none"
     );
