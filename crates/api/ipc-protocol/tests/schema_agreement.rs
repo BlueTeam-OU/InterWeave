@@ -1773,7 +1773,9 @@ fn the_peers_address_shapes_hold_what_the_contract_says() {
     }
     // Every reason the contract crate names, so one added there and not
     // to the schema fails here.
-    for reason in interweave_local_client_api::AddressRefusal::ALL.map(|r| r.as_str()) {
+    for reason in interweave_local_client_api::AddressRefusal::ALL
+        .map(interweave_local_client_api::AddressRefusal::as_str)
+    {
         assert_valid(
             result,
             &serde_json::json!({ "outcome": "refused", "refused": reason, "detail": "why" }),
@@ -2083,7 +2085,7 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
                     | interweave_local_client_api::AddressRefusal::Authored
             )
         })
-        .map(|r| r.as_str())
+        .map(interweave_local_client_api::AddressRefusal::as_str)
     {
         assert_valid(
             result,
