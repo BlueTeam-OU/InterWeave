@@ -244,7 +244,7 @@ impl View {
         self.window.set_peers_page(on_page);
         self.window.set_no_reach_shown(model.no_reach());
         let (peers, trust) = (model.peers(), model.trust_settings());
-        self.render_peer_list(peers, trust);
+        self.render_peer_list(peers, trust, model);
         self.render_add_page(peers, trust);
         let said = self.render_peers_snack(peers, on_page);
         // A note set again with the same words -- an unknown add retried
@@ -274,7 +274,7 @@ impl View {
     }
 
     /// Peers' list, or why it is not on show.
-    fn render_peer_list(&mut self, peers: &Peers, trust: &TrustSettings) {
+    fn render_peer_list(&mut self, peers: &Peers, trust: &TrustSettings, model: &UiModel) {
         let window = &self.window;
         let problem = peers.list_problem().map(|p| match p {
             ListProblem::Unavailable => (
@@ -322,9 +322,27 @@ impl View {
                     .as_ref()
                     .map(|p| short_peer(p.as_str()))
                     .unwrap_or_default();
+                let names: Vec<String> = r
+                    .peer
+                    .as_ref()
+                    .map(|p| model.contact_names_on(p))
+                    .unwrap_or_default();
+                let label = names
+                    .iter()
+                    .map(String::as_str)
+                    .chain(std::iter::once(short.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 PeerAddressRow {
                     handle: self.peer_lists.row_handles.of(&r.address),
                     peer: short.clone().into(),
+                    names: ModelRc::new(VecModel::from(
+                        names
+                            .into_iter()
+                            .map(SharedString::from)
+                            .collect::<Vec<_>>(),
+                    )),
+                    label: label.into(),
                     host: host_port(&r.address).into(),
                     address: r.address.clone().into(),
                     // Trust unknown: no state at all, neither trusted nor
