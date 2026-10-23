@@ -3742,3 +3742,34 @@ fn an_undo_refused_by_name_says_why_and_offers_no_retry() {
     );
     assert_eq!(input(&mut m, PeersInput::TryAgain), vec![], "no retry");
 }
+
+/// An Undo refused sends focus where the Remove did, a target the app
+/// placed: a read dropping that row before focus reaches it says no
+/// `PeerRowGoneAfterAct` (section 8's first row-gone row is for a row
+/// acted on).
+#[test]
+fn an_undo_refused_focus_is_placed_not_acted_on() {
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    // Added rows show newest first: C, B, A.
+    let mut m = opened(&me, &[], &[added(&a), added(&b), added(&c)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(
+        &at(&b),
+        answer(AddressOutcome::Removed, &[added(&a), added(&c)]),
+    );
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(
+        &[at(&b)],
+        answer(
+            AddressOutcome::Refused(AddressRefused::Bound),
+            &[added(&a), added(&c)],
+        ),
+    );
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Row(at(&a))),
+        "as after B's Remove"
+    );
+    m.addresses_read(Ok(list(&[added(&c)])));
+    assert!(!m.peers().focus_row_gone());
+}

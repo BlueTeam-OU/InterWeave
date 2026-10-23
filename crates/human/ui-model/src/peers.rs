@@ -1684,7 +1684,8 @@ impl Peers {
                 PeersFocus::Row(a.address.clone())
             })
         });
-        self.ask_focus(focus);
+        // As after the Remove: a target the app chose, not a row acted on.
+        self.place_focus(focus);
     }
 
     fn removed(&mut self, address: &str, before: &AddressList, trust: &TrustSettings) {
