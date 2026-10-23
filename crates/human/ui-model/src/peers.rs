@@ -641,6 +641,11 @@ pub struct Peers {
     drops: u64,
     /// Where focus went after the last removal, for an Undo refused.
     after_remove: Option<PeersFocus>,
+    /// The last removal sent, with the list it was sent against: its
+    /// Try again is told against that while no list is on show -- a read
+    /// failing since leaves none
+    /// (`a_removal_try_again_after_a_failed_read_is_told_against_its_removals_list`).
+    removal_sent: Option<(String, AddressList)>,
     /// A row an Undo restored while its list was unread, focused once a
     /// read lists it.
     restored: Option<String>,
@@ -1232,6 +1237,7 @@ impl Peers {
             return None;
         }
         let before = self.list.clone().unwrap_or_default();
+        self.removal_sent = Some((address.clone(), before.clone()));
         self.in_flight = Some(InFlight::Remove {
             address: address.clone(),
             before,
@@ -1264,17 +1270,17 @@ impl Peers {
                 self.re_add(address)
             }
             PeersSnack::RemoveFailed { address } | PeersSnack::RemoveUnknown { address } => {
-                // The list on show, else the one the unknown removal was
-                // sent against.
-                let before = self.list.clone().or_else(|| match &self.unknown_change {
-                    Some(Check::Remove { address: a, before }) if *a == address => {
-                        Some(before.clone())
-                    }
+                // The list on show, else the one this removal was sent
+                // against.
+                let before = self.list.clone().or_else(|| match &self.removal_sent {
+                    Some((a, before)) if *a == address => Some(before.clone()),
                     _ => None,
                 });
+                let before = before.unwrap_or_default();
+                self.removal_sent = Some((address.clone(), before.clone()));
                 self.in_flight = Some(InFlight::Remove {
                     address: address.clone(),
-                    before: before.unwrap_or_default(),
+                    before,
                 });
                 Some(Intent::RemoveAddress(address))
             }

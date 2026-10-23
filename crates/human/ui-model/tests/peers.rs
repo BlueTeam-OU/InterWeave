@@ -4052,3 +4052,44 @@ fn an_unknown_trust_a_later_read_decides_is_no_longer_unknown() {
         }
     }
 }
+
+/// A removal not made, then a read that fails, then its snackbar's Try
+/// again: the retry is told against the list its removal was sent
+/// against, the only one known, as the first answer would have been --
+/// a row the configuration turns off offers no Undo (§5.2), and focus
+/// goes to the row after it (§8).
+#[test]
+fn a_removal_try_again_after_a_failed_read_is_told_against_its_removals_list() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let off = |p: &TransportIdentity| PeerAddress {
+        dialled: false,
+        ..added(p)
+    };
+    // Added rows show newest first: B, A.
+    let mut m = opened(&me, &[], &[off(&a), off(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(
+        &at(&b),
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveFailed { address: at(&b) })
+    );
+    let _ = input(&mut m, PeersInput::Opened);
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        input(&mut m, PeersInput::TryAgain),
+        vec![Intent::RemoveAddress(at(&b))]
+    );
+    m.address_removed(&at(&b), answer(AddressOutcome::Removed, &[off(&a)]));
+    assert!(
+        matches!(
+            m.peers().snack().0,
+            Some(PeersSnack::Removed { undo: false, .. })
+        ),
+        "{:?}",
+        m.peers().snack().0
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
+}
