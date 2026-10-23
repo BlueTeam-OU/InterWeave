@@ -775,10 +775,11 @@ pub trait AdminPort {
     }
 
     /// Add `address` to the profile's bootstrap addresses (ADR-0062,
-    /// `admin.peers.add_address`): the configuration's grammar, ADR-0052
-    /// rule 2's special-use floor whoever the caller, the provider's bound
-    /// of 64 and an authored `enabled: false` provider each refuse by
-    /// name; an accepted address is written to the bootstrap-peers
+    /// `admin.peers.add_address`): checked in [`AddressRefusal::ALL`]'s
+    /// order, the configuration's grammar, then this node's own `PeerId`
+    /// (`own_peer`), then an authored `enabled: false` provider, then
+    /// ADR-0052 rule 2's special-use floor, then the provider's bound of
+    /// 64, each refusing by name whoever the caller; an accepted address is written to the bootstrap-peers
     /// overlay before it reaches the running provider and before the
     /// answer. Adding an address grants no trust. Not implemented by a
     /// port that predates it.
@@ -800,7 +801,8 @@ pub trait AdminPort {
     /// ADR-0062 decision 4: a scan, or a pasted list of lines). The whole
     /// list is checked before anything is written, in
     /// [`Self::add_bootstrap_address`]'s order -- every line's grammar,
-    /// the provider, every line's special-use floor, then the bound
+    /// every line's `PeerId` against this node's own, the provider, every
+    /// line's special-use floor, then the bound
     /// counting only new lines -- so a one-line list is answered as that
     /// method answers its line; the accepted lines are written in one
     /// overlay write before the running provider is told and before the
