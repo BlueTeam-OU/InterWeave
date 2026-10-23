@@ -1752,6 +1752,14 @@ impl Peers {
     }
 
     fn ask_focus(&mut self, focus: PeersFocus) {
+        self.focus = Some(focus);
+        self.focuses = self.focuses.wrapping_add(1);
+    }
+
+    /// `focus` on what is drawn now: it is judged when it is read, not
+    /// when it was asked, since a read may replace the list in between
+    /// (`a_row_focus_asked_before_a_read_lands_on_what_is_drawn`).
+    fn drawn_focus(&self, focus: &PeersFocus) -> PeersFocus {
         // A list control asked for once Peers became unreadable is not
         // drawn: the line saying why takes its place (§8).
         let list_control = matches!(
@@ -1762,26 +1770,20 @@ impl Peers {
                 | PeersFocus::AddAddress
                 | PeersFocus::AddAddressNote
         );
-        let focus = if list_control && self.page.is_none() && self.list.is_none() {
-            PeersFocus::ListProblem
-        } else {
-            focus
-        };
+        if list_control && self.page.is_none() && self.list.is_none() {
+            return PeersFocus::ListProblem;
+        }
         // A row the list on show no longer has -- removed elsewhere since
         // it was chosen -- is drawn nowhere: the first row shown takes its
         // place, else Add an address (§8).
-        let focus = match (focus, self.list.as_ref()) {
-            (PeersFocus::Row(row) | PeersFocus::RowMenu(row), Some(list))
-                if !listed(list, &row) =>
-            {
+        match (focus, self.list.as_ref()) {
+            (PeersFocus::Row(row) | PeersFocus::RowMenu(row), Some(list)) if !listed(list, row) => {
                 shown(list).next().map_or(PeersFocus::AddAddress, |a| {
                     PeersFocus::Row(a.address.clone())
                 })
             }
-            (focus, _) => focus,
-        };
-        self.focus = Some(focus);
-        self.focuses = self.focuses.wrapping_add(1);
+            (focus, _) => focus.clone(),
+        }
     }
 
     // --- what a view reads -------------------------------------------
@@ -1921,10 +1923,14 @@ impl Peers {
         (self.snack.as_ref(), self.snacks)
     }
 
-    /// Where focus is asked to go, and a count that changes with each.
+    /// Where focus is asked to go, on what is drawn now, and a count that
+    /// changes with each request.
     #[must_use]
-    pub const fn focus(&self) -> (Option<&PeersFocus>, u64) {
-        (self.focus.as_ref(), self.focuses)
+    pub fn focus(&self) -> (Option<PeersFocus>, u64) {
+        (
+            self.focus.as_ref().map(|f| self.drawn_focus(f)),
+            self.focuses,
+        )
     }
 
     /// Why the rows show no trust state, while the list is on show and

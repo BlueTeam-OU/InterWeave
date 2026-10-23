@@ -263,7 +263,7 @@ impl View {
         if on_page && focuses != self.peer_lists.focus_seen {
             self.peer_lists.focus_seen = focuses;
             if let Some(focus) = focus {
-                let target = self.focus_target(focus, peers.field());
+                let target = self.focus_target(&focus, peers.field());
                 // Peers' focus mostly lands on a control the same render
                 // makes: a step-two block, the snackbar's action, the
                 // list's controls as the add page closes.

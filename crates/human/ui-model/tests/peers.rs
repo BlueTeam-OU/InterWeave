@@ -75,7 +75,7 @@ fn answer(
 }
 
 fn focus(m: &UiModel) -> Option<PeersFocus> {
-    m.peers().focus().0.cloned()
+    m.peers().focus().0
 }
 
 /// ADR-0062 decision 8: the notice keys on two facts, the address list
@@ -2390,4 +2390,42 @@ fn a_read_decides_an_unknown_change_either_way() {
         Some(&PeersSnack::RemoveUnknown { address: at(&a) }),
         "never \"still in the list\": the last list lacked it"
     );
+}
+
+/// A row focus is judged against what is drawn when it is read: a read
+/// that drops the row after the ask -- another administrator's removal,
+/// read before the view draws -- gives its place to the first row shown,
+/// as a row asked for after the read does (§8). It covers every ask of
+/// a row: a row's trust step closing, a failed removal's menu.
+#[test]
+fn a_row_focus_asked_before_a_read_lands_on_what_is_drawn() {
+    let (me, a, b) = (peer(), peer(), peer());
+    // A row's trust step, closed after a read dropped its row.
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::TrustRow(at(&a)));
+    m.addresses_read(Ok(list(&[added(&b)])));
+    let _ = input(&mut m, PeersInput::Close);
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&b))), "A is gone: B");
+
+    // A failed removal's menu, its row dropped by a read after the ask,
+    // and its Try again failing once the row has gone.
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(
+        &at(&a),
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::RowMenu(at(&a))));
+    m.addresses_read(Ok(list(&[added(&b)])));
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Row(at(&b))),
+        "read after the ask"
+    );
+    let _ = input(&mut m, PeersInput::TryAgain);
+    m.address_removed(
+        &at(&a),
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&b))), "asked after");
 }
