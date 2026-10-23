@@ -1242,7 +1242,7 @@ impl UiModel {
     /// A code read, or an image decoded: whether the viewfinder stays
     /// open, and the add it asks for.
     pub fn scanned(&mut self, text: &str) -> (ScanVerdict, Option<Intent>) {
-        self.peers.scanned(text)
+        self.peers.scanned(text, &self.trust)
     }
 
     /// The runtime's answer to an add of `lines`.

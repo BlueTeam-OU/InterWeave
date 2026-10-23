@@ -72,6 +72,9 @@ pub enum Refusal {
     Limit,
     /// The configuration turns the list off.
     ListOff,
+    /// This device's own address: it reaches no one, and its row could
+    /// never be trusted (add-a-peer §5.3).
+    OwnAddress,
 }
 
 /// Where an add's lines came from: the client's DNS rule applies to a
@@ -641,6 +644,16 @@ fn shown(list: &AddressList) -> impl Iterator<Item = &PeerAddress> {
 }
 
 /// The peers `lines` reach, each once, in order.
+/// The first line naming this device's own `PeerId`, which one refuses
+/// the whole add before anything is sent (add-a-peer §5.3).
+fn own_line(lines: &[String], own: Option<&TransportIdentity>) -> Option<String> {
+    let own = own?;
+    lines
+        .iter()
+        .find(|l| PeerAddress::peer_of(l).as_ref() == Some(own))
+        .cloned()
+}
+
 fn peers_of(lines: &[String]) -> Vec<TransportIdentity> {
     let mut peers: Vec<TransportIdentity> = Vec::new();
     for peer in lines.iter().filter_map(|l| PeerAddress::peer_of(l)) {
@@ -692,7 +705,7 @@ impl Peers {
                 self.field_changed(text);
                 Vec::new()
             }
-            PeersInput::Add => self.add_typed().into_iter().collect(),
+            PeersInput::Add => self.add_typed(trust).into_iter().collect(),
             PeersInput::ScanPressed => {
                 self.scan_pressed();
                 Vec::new()
@@ -703,7 +716,7 @@ impl Peers {
                 }
                 Vec::new()
             }
-            PeersInput::Scanned(text) => self.scanned(&text).1.into_iter().collect(),
+            PeersInput::Scanned(text) => self.scanned(&text, trust).1.into_iter().collect(),
             PeersInput::Close => {
                 self.close(trust);
                 Vec::new()
@@ -798,10 +811,11 @@ impl Peers {
     }
 
     /// Add pressed: the field's lines, or why not.
-    fn add_typed(&mut self) -> Option<Intent> {
+    fn add_typed(&mut self, trust: &TrustSettings) -> Option<Intent> {
         if !self.step_one() {
             return None;
         }
+        let own = self.own(trust).cloned();
         let page = self.page.as_mut()?;
         let lines = lines_of(&page.field);
         if lines.is_empty() {
@@ -814,6 +828,19 @@ impl Peers {
             self.ask_focus(PeersFocus::Field {
                 select: Some(LineSelection::From(TYPED_LINES)),
             });
+            return None;
+        }
+        if let Some(line) = own_line(&lines, own.as_ref()) {
+            let focus = PeersFocus::Field {
+                select: Some(LineSelection::Line(line.clone())),
+            };
+            self.page_note(
+                AddNote::Refused {
+                    line,
+                    why: Refusal::OwnAddress,
+                },
+                focus,
+            );
             return None;
         }
         page.note = None;
@@ -840,12 +867,13 @@ impl Peers {
     /// A code read, or an image decoded: `text` is all it carries. Taken
     /// whole as one add, never through the field: the client's two rules
     /// first, then the runtime's.
-    pub fn scanned(&mut self, text: &str) -> (ScanVerdict, Option<Intent>) {
+    pub fn scanned(&mut self, text: &str, trust: &TrustSettings) -> (ScanVerdict, Option<Intent>) {
         let lines = lines_of(text);
         if lines.is_empty() || lines.iter().any(|l| !l.starts_with('/')) {
             return (ScanVerdict::NotAddress, None);
         }
         let ready = self.step_one();
+        let own = self.own(trust).cloned();
         let Some(page) = self.page.as_mut() else {
             return (ScanVerdict::NotAddress, None);
         };
@@ -860,6 +888,7 @@ impl Peers {
                 .iter()
                 .find(|l| names_dns(l))
                 .map(|l| (l.clone(), Refusal::DnsFromScan))
+                .or_else(|| own_line(&lines, own.as_ref()).map(|l| (l, Refusal::OwnAddress)))
         };
         if let Some((line, why)) = refused {
             page.note = Some(AddNote::Refused { line, why });
@@ -1328,6 +1357,7 @@ impl Peers {
                     AddressRefused::SpecialUse => Refusal::SpecialUse,
                     AddressRefused::Bound => Refusal::Limit,
                     AddressRefused::ListOff => Refusal::ListOff,
+                    AddressRefused::OwnPeer => Refusal::OwnAddress,
                     // A removal's refusal, never an add's: nothing written.
                     AddressRefused::Configured => {
                         self.page_note(AddNote::Failed, PeersFocus::AddButton);

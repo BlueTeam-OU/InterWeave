@@ -869,21 +869,22 @@ fn several_peers_are_several_blocks_each_decided_on_its_own() {
     assert_eq!(m.peers().snack().0, Some(&PeersSnack::Added));
 }
 
-/// A peer already trusted, or this profile's own, gets no block: with
-/// none, the page closes on the add with the added snackbar.
+/// A peer already trusted gets no block: with none, the page closes on
+/// the add with the added snackbar. (This profile's own address never
+/// reaches an add: `this_devices_own_address_is_refused_before_sending`.)
 #[test]
 fn an_add_for_a_trusted_peer_closes_at_once() {
-    let (me, t) = (peer(), peer());
-    let mut m = opened(&me, std::slice::from_ref(&t), &[]);
+    let (me, t, u) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[t.clone(), u.clone()], &[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
-    let lines = vec![at(&t), at(&me)];
+    let lines = vec![at(&t), at(&u)];
     // Several lines in one add come from a scan (TYPED_LINES).
     let _ = input(&mut m, PeersInput::Scanned(lines.join("\n")));
     m.addresses_added(
         &lines,
         answer(
             AddressOutcome::Added { peer: None },
-            &[added(&t), added(&me)],
+            &[added(&t), added(&u)],
         ),
     );
     assert!(!m.peers().add_open());
@@ -2567,4 +2568,57 @@ fn a_trust_awaited_when_its_page_closes_is_pending() {
     m.trust_settings_mut().read(Ok(listed(false)));
     assert_eq!(state(&m), RowState::NeedsTrust, "the read decides");
     assert!(!m.trust_settings().is_pending(&t));
+}
+
+/// A line naming this device's own `PeerId` is refused before anything
+/// is sent, typed or scanned, and one such line refuses the whole add
+/// (§5.3, architect-cto's DECISION 01a166c9); the runtime's `own_peer`
+/// says the same. Another device's address is sent as before.
+#[test]
+fn this_devices_own_address_is_refused_before_sending() {
+    use interweave_human_client_api::AddressRefused;
+    let (me, other) = (peer(), peer());
+    let own = at(&me);
+    let refused = |line: &str| {
+        Some(AddNote::Refused {
+            line: line.to_owned(),
+            why: Refusal::OwnAddress,
+        })
+    };
+
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(own.clone()));
+    assert_eq!(input(&mut m, PeersInput::Add), Vec::new(), "nothing sent");
+    assert_eq!(m.peers().add_page_note().cloned(), refused(&own));
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Field {
+            select: Some(LineSelection::Line(own.clone()))
+        })
+    );
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&other)));
+    assert_eq!(
+        input(&mut m, PeersInput::Add),
+        vec![Intent::AddAddresses(vec![at(&other)])],
+        "the control: another device's address is sent"
+    );
+
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let code = format!("{}\n{own}", at(&other));
+    assert_eq!(m.scanned(&code), (ScanVerdict::Taken, None), "none of it");
+    assert_eq!(m.peers().add_page_note().cloned(), refused(&own));
+    assert_eq!(focus(&m), Some(PeersFocus::Note));
+
+    // The runtime refusing it: the same words.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&other)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&other)],
+        answer(AddressOutcome::Refused(AddressRefused::OwnPeer), &[]),
+    );
+    assert_eq!(m.peers().add_page_note().cloned(), refused(&at(&other)));
 }

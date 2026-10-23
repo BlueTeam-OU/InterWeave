@@ -800,7 +800,7 @@ ui_texts! {
     /// A row's state: its peer is not trusted.
     PeerStateNeedsTrust => "Not trusted: this device does not connect to this address",
     /// A row's state: its peer is this device, whatever trust says.
-    PeerStateThisDevice => "Own address: this address belongs to this device and does not lead to any other device",
+    PeerStateThisDevice => "Own address: this address belongs to this device and cannot be used to reach another device",
     /// A row's state: the configuration turns the list off.
     PeerStateProviderOff => "Not used: this device's configuration turns this list off",
     /// A row's origin: the device's configuration.
@@ -846,6 +846,9 @@ ui_texts! {
     RefusedGrammar => "This is not an InterWeave address.",
     /// A refusal: a special-use address.
     RefusedSpecialUse => "This address cannot be reached from another device.",
+    /// A refusal: a line naming this device's own `PeerId`, refused
+    /// before sending, and the runtime's `own_peer`.
+    RefusedOwnAddress => "This is this device's own address, so it cannot be used to reach another device. Add the other person's address instead.",
     /// A refusal: a DNS name in a scanned code.
     RefusedDnsFromScan => "This address uses a name instead of numbers, and a scanned code cannot add such an address. If you know that the address is correct, type it in the field.",
     /// A refusal: a code over its bound; `{max}` the code's bound.

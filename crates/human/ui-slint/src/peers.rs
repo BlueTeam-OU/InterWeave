@@ -36,6 +36,7 @@ pub(crate) fn refusal_text(why: Refusal) -> String {
         Refusal::TooMany => (UiText::RefusedTooMany, CODE_LINES),
         Refusal::Limit => (UiText::RefusedLimit, ADDRESS_BOUND),
         Refusal::ListOff => (UiText::RefusedListOff, 0),
+        Refusal::OwnAddress => (UiText::RefusedOwnAddress, 0),
     };
     fill(text(template), &[("max", &max.to_string())])
 }
