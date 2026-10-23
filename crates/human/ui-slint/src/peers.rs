@@ -397,6 +397,12 @@ impl View {
                     title: fill(text(UiText::TrustStepTitle), &[("peer", &short)]).into(),
                     peer: b.peer.as_str().into(),
                     undecided: b.state == BlockState::Undecided,
+                    later: matches!(b.state, BlockState::Later | BlockState::LaterUnknown),
+                    buttons: matches!(
+                        b.state,
+                        BlockState::Undecided | BlockState::Later | BlockState::LaterUnknown
+                    ),
+                    waiting: b.state == BlockState::Trusting,
                     // Trust leaves the block for a problem no retry mends.
                     trust_offered: !matches!(
                         b.problem,
@@ -405,6 +411,11 @@ impl View {
                         ))
                     ),
                     state: match b.state {
+                        // A block whose Trust was pressed keeps its last
+                        // line, its problem, not a Not now line (5.3).
+                        BlockState::Later | BlockState::LaterUnknown if b.problem.is_some() => {
+                            String::new()
+                        }
                         BlockState::Trusted => text(UiText::TrustStepDone).to_owned(),
                         BlockState::Later => text(UiText::TrustStepLater).to_owned(),
                         BlockState::LaterUnknown => text(UiText::TrustStepLaterUnknown).to_owned(),
@@ -412,7 +423,10 @@ impl View {
                             placeholder_en::host_text(host, HostText::TrustUnconfirmed),
                             &[("peer", b.peer.as_str())],
                         ),
-                        BlockState::Undecided | BlockState::Trusting => String::new(),
+                        BlockState::Trusting => {
+                            fill(text(UiText::TrustStepWaiting), &[("peer", &short)])
+                        }
+                        BlockState::Undecided => String::new(),
                     }
                     .into(),
                     problem: b
@@ -535,6 +549,9 @@ impl View {
             PeersFocus::Block(peer) => format!("block:{}", self.peer_lists.block_handles.of(peer)),
             PeersFocus::BlockProblem(peer) => {
                 format!("block-problem:{}", self.peer_lists.block_handles.of(peer))
+            }
+            PeersFocus::BlockState(peer) => {
+                format!("block-state:{}", self.peer_lists.block_handles.of(peer))
             }
             PeersFocus::Done => "peers-done".to_owned(),
             PeersFocus::Opener | PeersFocus::AddAddress => "add-address".to_owned(),

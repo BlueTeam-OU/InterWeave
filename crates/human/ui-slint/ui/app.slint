@@ -189,6 +189,13 @@ export struct PeerTrustBlock {
     peer: string,
     // Trust or Not now still to choose.
     undecided: bool,
+    // Decided by Not now: Trust stays until the page closes, Not now
+    // goes (design section 5.3).
+    later: bool,
+    // Its buttons' row is drawn: undecided, or decided by Not now.
+    buttons: bool,
+    // Its Trust awaits its answer: the state line beside a progress mark.
+    waiting: bool,
     // Trust is offered: not after a problem no retry mends.
     trust-offered: bool,
     // Its state once decided, or its Trust on its way.
@@ -545,6 +552,27 @@ component FocusHeading inherits FocusScope {
 // heading elides: a note a person must read whole, whatever its length --
 // a refusal naming an address, a problem in place of a list. Its minimum
 // width is nothing, so one long address in it never widens the page.
+// An indeterminate progress mark: an arc that turns while an answer is
+// awaited, and stands still -- still shown -- under reduced motion
+// (design 2026-10-22-add-a-peer section 5.3).
+component WaitMark inherits Rectangle {
+    in property <bool> still;
+    width: 16px;
+    height: 16px;
+    accessible-role: none;
+    Path {
+        width: 16px;
+        height: 16px;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        stroke: Palette.primary;
+        stroke-width: 2px;
+        commands: "M 8 1.5 A 6.5 6.5 0 1 1 1.5 8";
+        transform-origin: { x: 8px, y: 8px };
+        transform-rotation: root.still ? 0deg : mod(animation-tick() / 1ms, 1000) / 1000 * 360deg;
+    }
+}
+
 component FocusNote inherits FocusScope {
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
@@ -3308,7 +3336,7 @@ export component AppWindow inherits Window {
                             accessible-role: text;
                             accessible-label: self.text;
                         }
-                        if block.undecided: HorizontalLayout {
+                        if block.buttons: HorizontalLayout {
                             alignment: start;
                             spacing: 8px;
                             if block.trust-offered: ActionButton {
@@ -3320,7 +3348,7 @@ export component AppWindow inherits Window {
                                 pressed => { root.block-trust(block.handle); }
                                 focused(k) => { root.focus-id = k; }
                             }
-                            ActionButton {
+                            if block.undecided: ActionButton {
                                 text: root.not-now-label;
                                 detail: block.peer;
                                 text-button: true;
@@ -3338,14 +3366,20 @@ export component AppWindow inherits Window {
                             focus-wanted: root.focus-target == "block-problem:" + block.handle;
                             focused(k) => { root.focus-id = k; }
                         }
-                        if block.state != "": Text {
+                        // Focusable: a Trust awaited or unconfirmed sends
+                        // focus here (design section 8).
+                        if block.waiting: WaitMark {
+                            still: root.reduced-motion;
+                        }
+                        if block.state != "": FocusNote {
                             text: block.state;
                             font-weight: 500;
-                            wrap: word-wrap;
-                            min-width: 0;
-                            accessible-role: text;
-                            accessible-label: self.text;
-                            accessible-live-region: polite;
+                            rtl: root.rtl;
+                            live: true;
+                            focus-key: "block-state:" + block.handle;
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "block-state:" + block.handle;
+                            focused(k) => { root.focus-id = k; }
                         }
                     }
                     }

@@ -624,6 +624,78 @@ fn escape_on_the_add_page_is_its_back() {
     assert!(view.window().get_peers_snack_shown());
 }
 
+/// What step two draws and where focus lands (design sections 5.3 and
+/// 8): a block decided by Not now keeps its Trust but not its Not now; a
+/// Trust awaited gives way to its waiting line, which takes focus.
+#[test]
+fn step_two_draws_waiting_and_later_blocks_and_focus_lands() {
+    use interweave_human_ui_model::PeersInput;
+    let settle = |view: &mut View, model: &mut UiModel| {
+        view.render(model);
+        for _ in 0..2 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        }
+        view.render(model);
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b) = (peer(), peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    let two = format!("{}\n{}", at(&a), at(&b));
+    let _ = model.peers_input(PeersInput::Scanned(two));
+    model.addresses_added(
+        &[at(&a), at(&b)],
+        Ok(interweave_human_client_api::AddressAnswer {
+            outcome: interweave_human_client_api::AddressOutcome::Added { peer: None },
+            list: Ok(AddressList {
+                addresses: vec![added(&a), added(&b)],
+            }),
+        }),
+    );
+    settle(&mut view, &mut model);
+    let _ = model.peers_input(PeersInput::NotNow(a.clone()));
+    settle(&mut view, &mut model);
+    assert_eq!(
+        labelled(&view, text(UiText::TrustThisPeer)).len(),
+        2,
+        "A, decided by Not now, keeps its Trust"
+    );
+    assert_eq!(
+        labelled(&view, text(UiText::NotNow)).len(),
+        1,
+        "only B, undecided, has Not now"
+    );
+    let _ = model.peers_input(PeersInput::Trust(b.clone()));
+    settle(&mut view, &mut model);
+    let blocks = view.window().get_trust_blocks();
+    let (first, second) = (
+        blocks.row_data(0).expect("a"),
+        blocks.row_data(1).expect("b"),
+    );
+    assert!(second.waiting, "B's Trust is awaited");
+    assert!(
+        !second.buttons,
+        "B's Trust and Not now gave way to its line"
+    );
+    assert_eq!(
+        second.state.as_str(),
+        fill(
+            text(UiText::TrustStepWaiting),
+            &[("peer", &short_peer(b.as_str()))]
+        )
+    );
+    assert!(
+        first.later && first.buttons && first.trust_offered,
+        "A keeps its Trust"
+    );
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("block-state:{}", second.handle),
+        "B's Trust pressed last: focus on its waiting line"
+    );
+}
+
 /// An add refused as not permitted puts keyboard focus on the line under
 /// Add, which says why (design section 8).
 #[test]
