@@ -624,6 +624,38 @@ waiting, which is all the caller was promised, and cannot make the
 binding stop. The server never lets a request outlive its deadline
 silently (A 2026-09-29).
 
+**An admin write whose answer was lost is ordered against later writes
+by connection, and may still follow a later read** (A 2026-10-23). The
+server cannot make the binding stop, so a `admin.trust.set` or an
+`admin.peers.*` write that was read from a connection the client gave up
+on can enter the driver's queue after the client has written again on
+another connection. The daemon bounds that without a wire change: every
+admin connection that holds `admin.trust` or `admin.peers` is stamped
+with its admission order where its port is opened, and the driver keeps,
+per key — a PeerId for `admin.trust.*`, an address in the overlay's
+normalised form for `admin.peers.*` — the stamp of the connection whose
+write for that key it last applied, an `unchanged` answer counting as
+applied since that write's intent is the state that stands. A write from
+a connection older than that stamp is refused, not applied: `superseded`,
+an answer and never an error, checked last so that it names only a write
+every other rule admitted (`admin.peers.add_addresses` refuses the whole
+list, `index` naming the first such line), and the admin audit record
+names it as it names the applied change. The memory is bounded: an entry
+is dropped once no open writing connection is older than it, and past
+the map's ceiling the oldest entry is evicted and its stamp becomes a
+floor below which every write is refused `superseded`, failing closed.
+Below minor 2.10 the same write is answered the error `Internal`, which
+every client already reads as nothing changed and re-reads. What is not
+bounded, and is stated here: a lost write may still take effect after a
+LATER READ on another connection — never after a later write for the
+same key — so a client that lost an answer re-reads and shows what it
+holds meanwhile as pending; a client that keeps one admin connection open
+while writing on another orders nothing between them. The two cases are
+pinned: a write buffered on one connection, abandoned, a later write on
+another applied, the first dispatched after it and refused with the audit
+line; and the same with a later read, the first write applied after it
+(`tests/local-client-conformance`, at every binding).
+
 ## Peer identity, lock and stale sockets (Unix)
 
 Peer credentials are a **MUST** on Unix: the connecting peer's uid must
