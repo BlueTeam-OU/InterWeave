@@ -21,6 +21,7 @@ use interweave_transport_api::{EndpointId, TransportIdentity};
 /// The usage text.
 pub(crate) const USAGE: &str = "\
 usage:
+  transportctl --version
   transportctl --profile <name> status [--json]
   transportctl --profile <name> endpoints list [--json]
   transportctl --profile <name> endpoints revoke|enable|disable <endpoint>
@@ -41,11 +42,17 @@ usage:
 
 The recovery phrase, or a recovery record, is read from stdin -- hidden on a terminal.";
 
+/// The workspace version with the commit as build metadata (ADR-0065
+/// decision 6; `tools/stamp/commit_stamp.rs`).
+pub(crate) const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("INTERWEAVE_COMMIT"));
+
 /// What the command line asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Command {
     /// Print the usage and exit 0.
     Help,
+    /// Print the version and exit 0.
+    Version,
     /// An admin method against the profile's running daemon.
     Admin {
         /// The profile whose daemon is asked.
@@ -170,7 +177,16 @@ struct Flags {
 pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String> {
     let mut flags = Flags::default();
     let mut words = Vec::new();
-    let mut args = args.into_iter();
+    let mut args = args.into_iter().peekable();
+    // Alone, or not a version request; the refusal names no argument, as
+    // no usage error here does.
+    if args.peek().map(String::as_str) == Some("--version") {
+        args.next();
+        return match args.next() {
+            None => Ok(Command::Version),
+            Some(_) => Err("--version takes no other argument".to_owned()),
+        };
+    }
     while let Some(arg) = args.next() {
         let mut value = |slot: &mut Option<String>, name: &str| -> Result<(), String> {
             let v = args.next().ok_or_else(|| format!("{name} needs a value"))?;
@@ -522,6 +538,19 @@ mod tests {
     }
 
     #[test]
+    fn version_is_asked_alone() {
+        assert_eq!(parse_str("--version"), Ok(Command::Version));
+        for line in [
+            "--version --help",
+            "--version --profile p status",
+            "--profile p --version",
+            "--profile p status --version",
+        ] {
+            assert!(parse_str(line).is_err(), "{line:?} should be refused");
+        }
+    }
+
+    #[test]
     fn what_a_command_does_not_take_is_a_usage_error() {
         for line in [
             "",
@@ -597,6 +626,7 @@ mod tests {
         refusal(words(&format!("identity verify {phrase}")));
         refusal(words(&format!("--profile p status {phrase}")));
         refusal(words(&format!("--profile p -{phrase}")));
+        refusal(words(&format!("--version {phrase}")));
         for (head, tail) in [
             ("identity verify --expected-peer-id", ""),
             ("--profile p identity restore --replace --replacing", ""),
