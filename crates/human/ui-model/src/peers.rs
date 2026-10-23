@@ -1236,15 +1236,11 @@ impl Peers {
                     self.checked(check, trust);
                 }
                 self.read_decides(trust);
+                // An Undo made, its row read in at last: focus on it, or,
+                // a read having dropped it, as for any row gone -- its
+                // place's next row, PeerRowGone said (§8).
                 if let Some(address) = self.restored.take() {
-                    let focus = self.list.as_ref().and_then(|l| {
-                        if listed(l, &address) {
-                            Some(PeersFocus::Row(address))
-                        } else {
-                            shown(l).next().map(|a| PeersFocus::Row(a.address.clone()))
-                        }
-                    });
-                    self.ask_focus(focus.unwrap_or(PeersFocus::AddAddress));
+                    self.ask_focus(PeersFocus::Row(address));
                 }
             }
             // A lost answer's read back failing leaves the list as last

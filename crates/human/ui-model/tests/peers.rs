@@ -3470,6 +3470,36 @@ fn no_reach_claims_nothing_while_a_change_is_out() {
     assert!(m.no_reach());
 }
 
+/// An Undo answered made whose read back failed parks its row until a
+/// read shows it; a read that dropped it meanwhile -- another
+/// administrator's removal -- sends focus as for any row gone: the row
+/// after its place, `PeerRowGone` said (§8).
+#[test]
+fn an_undo_made_whose_row_a_later_read_lacks_is_a_row_gone() {
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    // Added rows show newest first: C, B, A.
+    let mut m = opened(&me, &[], &[added(&a), added(&b), added(&c)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(
+        &at(&b),
+        answer(AddressOutcome::Removed, &[added(&a), added(&c)]),
+    );
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(
+        &[at(&b)],
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Added {
+                peer: Some(b.clone()),
+            },
+            list: Err(AddressProblem::Unavailable),
+        }),
+    );
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Ok(list(&[added(&a), added(&c)])));
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
+    assert!(m.peers().focus_row_gone(), "said gone");
+}
+
 /// An address read that fails while a trust step is open asks no focus
 /// for the line saying why, drawn only past the page: the step keeps its
 /// focus, and closing it sends focus there (§8).
