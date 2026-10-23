@@ -1257,7 +1257,8 @@ impl Peers {
             Err(problem) => {
                 // An unreadable list is unknown, never empty: the list on
                 // show goes, so nothing reads its emptiness, and focus
-                // that was in it goes to the line that says why.
+                // that was in it goes to the line that says why -- once
+                // the add page is closed, if one is open (`ask_focus`).
                 // A failed Try again goes to the line saying why (§8);
                 // a failed opening read leaves focus on the title.
                 let had_list = self.list.take().is_some();
@@ -2009,17 +2010,27 @@ impl Peers {
         // sends focus to the list (§8). A Remove, an Undo or a read can be
         // answered under the page
         // (`a_list_control_asked_under_the_add_page_leaves_its_focus`).
-        let list_pane = matches!(
-            focus,
+        // Exhaustive, so a variant added later is placed on purpose.
+        let list_pane = match focus {
             PeersFocus::Opener
-                | PeersFocus::Row(_)
-                | PeersFocus::RowMenu(_)
-                | PeersFocus::AddAddress
-                | PeersFocus::AddAddressNote
-                | PeersFocus::ListProblem
-                | PeersFocus::TrustLine
-                | PeersFocus::TrustRetry
-        );
+            | PeersFocus::Row(_)
+            | PeersFocus::RowMenu(_)
+            | PeersFocus::AddAddress
+            | PeersFocus::AddAddressNote
+            | PeersFocus::ListProblem
+            | PeersFocus::TrustLine
+            | PeersFocus::TrustRetry => true,
+            PeersFocus::Title
+            | PeersFocus::Field { .. }
+            | PeersFocus::Note
+            | PeersFocus::AddButton
+            | PeersFocus::Block(_)
+            | PeersFocus::BlockProblem(_)
+            | PeersFocus::BlockState(_)
+            | PeersFocus::Done
+            | PeersFocus::AddNote
+            | PeersFocus::SnackAction => false,
+        };
         if list_pane && self.page.is_some() {
             return;
         }
