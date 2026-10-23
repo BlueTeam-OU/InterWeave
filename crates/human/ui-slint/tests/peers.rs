@@ -407,6 +407,21 @@ fn peers_and_the_add_page_fit_a_320_px_window() {
     );
     view.render(&model);
     assert_eq!(overflowing(&view, 320.0), Vec::<String>::new(), "a refusal");
+    // The refused line alone, never cut: it wraps over more lines than
+    // the words above it take.
+    let height = |id: &str| {
+        let found: Vec<_> =
+            ElementHandle::find_by_element_id(view.window(), &format!("RefusedLines::{id}"))
+                .collect();
+        assert_eq!(found.len(), 1, "{id}");
+        found[0].size().height
+    };
+    assert!(
+        height("line") > 1.5 * height("head"),
+        "{} / {}",
+        height("line"),
+        height("head")
+    );
 
     let them = peer();
     view.window().invoke_address_edited(at(&them).into());
@@ -1081,4 +1096,63 @@ fn a_trust_outcome_is_said_where_its_change_was_made() {
         "",
         "nothing left"
     );
+}
+
+/// A refused add's words are drawn in three lines, as ux-designer-01
+/// laid them out (REPLY 01a16704): what was not added, the refused line
+/// alone in the code font, then why -- typed under the field, scanned
+/// under the scan controls -- while each note's label is still the
+/// whole sentence. Any other note is drawn as one sentence.
+#[test]
+fn a_refused_line_is_drawn_alone_between_its_words() {
+    use interweave_human_ui_model::{PeersInput, Refusal};
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    let own = at(&me);
+    let _ = model.peers_input(PeersInput::FieldChanged(own.clone()));
+    let _ = model.peers_input(PeersInput::Add);
+    view.render(&model);
+    let w = view.window();
+    let sentence = fill(
+        text(UiText::AddRefused),
+        &[("line", &own), ("reason", text(UiText::RefusedOwnAddress))],
+    );
+    assert_eq!(w.get_field_note().as_str(), sentence, "the label");
+    assert_eq!(w.get_refused_line().as_str(), own, "the line alone");
+    assert_eq!(w.get_refused_head().as_str(), "Not added:");
+    assert_eq!(
+        w.get_refused_tail().as_str(),
+        text(UiText::RefusedOwnAddress),
+        "no full stop before the reason"
+    );
+    assert_eq!(
+        labelled(&view, &sentence).len(),
+        1,
+        "one item reads the sentence"
+    );
+    assert!(labelled(&view, &own).is_empty(), "the line is drawn only");
+
+    // Scanned: under the scan controls, the same three lines.
+    let _ = model.peers_input(PeersInput::FieldChanged(String::new()));
+    let code = format!("{}\n{own}", at(&peer()));
+    let _ = model.scanned(&code);
+    view.render(&model);
+    let w = view.window();
+    assert_eq!(w.get_scan_note().as_str(), sentence);
+    assert_eq!(w.get_refused_line().as_str(), own);
+    assert!(matches!(
+        model.peers().add_page_note(),
+        Some(interweave_human_ui_model::AddNote::Refused {
+            why: Refusal::OwnAddress,
+            ..
+        })
+    ));
+
+    // Any other note: one sentence, no lines.
+    let _ = model.peers_input(PeersInput::Add);
+    view.render(&model);
+    assert_eq!(view.window().get_refused_line().as_str(), "");
 }

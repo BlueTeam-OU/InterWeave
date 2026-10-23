@@ -572,6 +572,50 @@ component WaitMark inherits Rectangle {
     }
 }
 
+// A refused add's words, as ux-designer-01 laid them out (REPLY
+// 01a16704): what was not added, then the refused line alone in the
+// code font, whole over as many lines as it needs -- the person must
+// see which line it was, and no full stop touches it -- then why. Drawn
+// only: whoever holds it reads the whole sentence as its label.
+component RefusedLines inherits VerticalLayout {
+    in property <string> head;
+    in property <string> line;
+    in property <string> tail;
+    in property <string> code-font;
+    in property <color> ink;
+    in property <length> font-size;
+    in property <bool> rtl;
+    spacing: 2px;
+    head := Text {
+        text: root.head;
+        color: root.ink;
+        font-size: root.font-size;
+        wrap: word-wrap;
+        min-width: 0;
+        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+        accessible-role: none;
+    }
+    line := Text {
+        text: root.line;
+        color: root.ink;
+        font-size: root.font-size;
+        font-family: root.code-font;
+        wrap: char-wrap;
+        min-width: 0;
+        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+        accessible-role: none;
+    }
+    Text {
+        text: root.tail;
+        color: root.ink;
+        font-size: root.font-size;
+        wrap: word-wrap;
+        min-width: 0;
+        horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+        accessible-role: none;
+    }
+}
+
 // A line that takes focus, as FocusHeading does, and wraps where a
 // heading elides: a note a person must read whole, whatever its length --
 // a refusal naming an address, a problem in place of a list. Its minimum
@@ -589,6 +633,12 @@ component FocusNote inherits FocusScope {
     in property <bool> rtl;
     in property <int> focus-seq;
     in property <bool> focus-wanted;
+    // A refused add's line: set, the note is drawn as RefusedLines, its
+    // label still the whole sentence.
+    in property <string> refused-head;
+    in property <string> refused-line;
+    in property <string> refused-tail;
+    in property <string> code-font;
     changed focus-seq => {
         if (root.focus-wanted) { root.focus(); }
     }
@@ -604,7 +654,7 @@ component FocusNote inherits FocusScope {
     // The layout is the only child counted for the note's size, as the
     // heading's; the ring is placed.
     VerticalLayout {
-        Text {
+        if root.refused-line == "": Text {
             text: root.text;
             font-size: root.font-size;
             font-weight: root.font-weight;
@@ -613,6 +663,15 @@ component FocusNote inherits FocusScope {
             min-width: 0;
             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
             accessible-role: none;
+        }
+        if root.refused-line != "": RefusedLines {
+            head: root.refused-head;
+            line: root.refused-line;
+            tail: root.refused-tail;
+            code-font: root.code-font;
+            ink: root.ink;
+            font-size: root.font-size;
+            rtl: root.rtl;
         }
     }
     FocusRing {
@@ -1911,6 +1970,11 @@ export component AppWindow inherits Window {
     // The page's one note: under the field, under the scan controls, or
     // under Add, by what it is about.
     in property <string> field-note;
+    // A refused add's words in their three lines (RefusedLines), under the
+    // field or the scan controls, wherever its note is; empty otherwise.
+    in property <string> refused-head;
+    in property <string> refused-line;
+    in property <string> refused-tail;
     in property <string> scan-note;
     in property <string> add-note;
     // Step one -- the field, its helper and Add -- is on show: the add
@@ -3207,7 +3271,7 @@ export component AppWindow inherits Window {
                             shown: address-input.has-focus;
                         }
                     }
-                    if root.add-step-one && root.field-note != "": Text {
+                    if root.add-step-one && root.field-note != "" && root.refused-line == "": Text {
                         text: root.field-note;
                         color: Palette.error;
                         font-size: Type.body-small;
@@ -3215,6 +3279,17 @@ export component AppWindow inherits Window {
                         min-width: 0;
                         accessible-role: text;
                         accessible-label: self.text;
+                    }
+                    if root.add-step-one && root.field-note != "" && root.refused-line != "": RefusedLines {
+                        head: root.refused-head;
+                        line: root.refused-line;
+                        tail: root.refused-tail;
+                        code-font: root.code-font;
+                        ink: Palette.error;
+                        font-size: Type.body-small;
+                        rtl: root.rtl;
+                        accessible-role: text;
+                        accessible-label: root.field-note;
                     }
                     if root.add-step-one: Text {
                         text: root.address-help;
@@ -3259,6 +3334,10 @@ export component AppWindow inherits Window {
                     // About the scan controls: read after them, focus on it.
                     if root.add-step-one && root.scan-note != "": FocusNote {
                         text: root.scan-note;
+                        refused-head: root.refused-head;
+                        refused-line: root.refused-line;
+                        refused-tail: root.refused-tail;
+                        code-font: root.code-font;
                         rtl: root.rtl;
                         focus-key: "add-page-note";
                         focus-seq: root.focus-seq;
