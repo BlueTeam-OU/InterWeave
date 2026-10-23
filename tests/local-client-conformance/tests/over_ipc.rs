@@ -355,3 +355,19 @@ async fn trust_administration_revokes_as_policy() {
     suite::trust_administration_revokes_as_policy(&a, &pair.a_peer, &pair.b_peer).await;
     pair.stop().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bootstrap_addresses_answer_alike_at_every_binding() {
+    let pair = IpcPair::start().await;
+    let (a, _) = pair.bindings();
+    suite::bootstrap_addresses_answer_alike_at_every_binding(&a, &pair.pair.a_authored).await;
+    pair.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn own_addresses_are_what_an_add_takes() {
+    let pair = IpcPair::start().await;
+    let (a, b) = pair.bindings();
+    suite::own_addresses_are_what_an_add_takes(&a, &pair.a_peer, &b).await;
+    pair.stop().await;
+}

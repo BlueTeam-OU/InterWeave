@@ -162,6 +162,33 @@ fn a_state_directory_others_can_write_is_refused() {
     ));
 }
 
+/// An ancestor's refusal states the ancestor's rule -- writable by no
+/// other account -- and not the owner-only rule of the profile's own
+/// directories, which a `0755` home would seem to break. The same tree
+/// under a `0755` ancestor is the control.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_ancestors_refusal_states_the_ancestors_rule() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = private_tempdir().expect("tempdir");
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).expect("chmod");
+    let above = dir.path().join("above");
+    let p = paths(&above);
+    interweave_profile_config::create_private_dir(p.state_dir()).expect("state dir");
+    std::fs::set_permissions(&above, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    drop(ProfileLock::acquire(&p, Duration::ZERO).expect("the control: a 0755 ancestor"));
+
+    std::fs::set_permissions(&above, std::fs::Permissions::from_mode(0o757)).expect("chmod");
+    let refused = ProfileLock::acquire(&p, Duration::ZERO).expect_err("an open ancestor");
+    assert!(
+        matches!(&refused, PersistError::DirectoryNotPrivate { path, .. } if path == &above),
+        "{refused:?}"
+    );
+    let shown = refused.to_string();
+    assert!(shown.contains("other-writable and not sticky"), "{shown}");
+    assert!(!shown.contains("must be owner-only"), "{shown}");
+}
+
 #[test]
 fn a_missing_lock_file_is_not_held() {
     let dir = private_tempdir().expect("tempdir");

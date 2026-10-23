@@ -1734,3 +1734,58 @@ async fn transportctl_adds_lists_and_removes_and_the_method_refuses_every_specia
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert!(daemon.exit().await.success(), "{}", daemon.log());
 }
+
+/// `peers show` against a live daemon (ADR-0062 decisions 4 and 6): one
+/// address per line and nothing else -- the private listener, ending in
+/// the daemon's own `PeerId` -- and not the loopback listener bound beside
+/// it (the control: the daemon serves there); `--json` validates against
+/// the method's schema and names the row a listener.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn transportctl_shows_the_daemons_own_addresses_one_per_line() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let loopback = interweave_test_support::net::free_port(std::net::Ipv4Addr::LOCALHOST);
+    let home = Home::new("show");
+    let me = home.write_key();
+    let other = stranger();
+    home.write_config(&profile("show", &other, "").replace(
+        "addresses: [\"/ip4/127.0.0.1/tcp/0\"]",
+        &format!("addresses: [\"/ip4/127.0.0.1/tcp/{loopback}\", \"/ip4/{ip}/tcp/0\"]"),
+    ));
+    let mut daemon = home.start(&[]);
+    daemon.serving(&home).await;
+
+    let out = home.transportctl(&["peers", "show"], "");
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let lines: Vec<String> = stdout(&out).lines().map(str::to_owned).collect();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].starts_with(&format!("/ip4/{ip}/tcp/")),
+        "{lines:?}"
+    );
+    assert!(
+        lines[0].ends_with(&format!("/p2p/{}", me.as_str())),
+        "{lines:?}"
+    );
+
+    assert!(
+        std::net::TcpStream::connect(("127.0.0.1", loopback)).is_ok(),
+        "the control: the daemon is bound on loopback, yet does not show it"
+    );
+
+    let out = home.transportctl(&["peers", "show", "--json"], "");
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let own: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("json");
+    let errors: Vec<String> = ipc_validator("peers-own-addresses.schema.json")
+        .iter_errors(&own)
+        .map(|e| e.to_string())
+        .collect();
+    assert!(errors.is_empty(), "{own}: {errors:?}");
+    assert_eq!(own["peer"], me.as_str());
+    assert_eq!(own["addresses"][0]["address"], lines[0].as_str());
+    assert_eq!(own["addresses"][0]["kind"], "listen");
+    assert_eq!(own["truncated"], false);
+
+    let out = home.transportctl(&["shutdown", "--grace", "200"], "");
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(daemon.exit().await.success(), "{}", daemon.log());
+}

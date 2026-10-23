@@ -626,7 +626,10 @@ pub enum PersistError {
     /// operation, so two processes racing to create the same identity
     /// cannot both believe they won.
     AlreadyExists,
-    /// A directory that must be owner-only is not.
+    /// A directory on the way to key-equivalent material breaks the rule
+    /// for its place, which `detail` names: owner-only for the profile's
+    /// own directories, writable by no other account for one above them,
+    /// owned by root or this account for a link.
     ///
     /// Reported before key-equivalent material is written into it. A
     /// `0600` file inside a directory another account can write is a
@@ -690,7 +693,7 @@ impl core::fmt::Display for PersistError {
             Self::AlreadyExists => write!(f, "a file already exists at that path"),
             Self::DirectoryNotPrivate { path, detail } => write!(
                 f,
-                "{} must be owner-only before key-equivalent material is written into it: {detail}",
+                "{} is refused before key-equivalent material is written beneath it: {detail}",
                 path.display()
             ),
             Self::ProfileLocked { path } => write!(

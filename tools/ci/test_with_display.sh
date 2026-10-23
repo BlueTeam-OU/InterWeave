@@ -33,6 +33,7 @@ SANDBOX_TMPDIR="${TMPDIR-}"
 # Canonical, as the wrapper's scratch is: a TMPDIR behind a symlink
 # would otherwise fail every comparison of the two paths.
 SANDBOX="$(realpath -- "$(mktemp -d)")"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_with_display: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 BIN="$SANDBOX/bin"
 mkdir -p "$BIN"

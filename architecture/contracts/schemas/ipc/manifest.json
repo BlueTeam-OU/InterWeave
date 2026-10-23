@@ -171,6 +171,11 @@
       "name": "peers-address-list",
       "file": "peers-address-list.schema.json",
       "status": "approved"
+    },
+    {
+      "name": "peers-own-addresses",
+      "file": "peers-own-addresses.schema.json",
+      "status": "approved"
     }
   ]
 }

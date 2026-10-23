@@ -296,7 +296,9 @@ mod tests {
         }
     }
 
-    const DATA_HELLO: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":7},
+    /// Offers a minor above any this build speaks, so the answer is the
+    /// server lowering it to `IPC_MAX_MINOR` whatever that is now.
+    const DATA_HELLO: &str = r#"{"type":"hello","ipc_version":{"major":2,"minor":99},
         "client":{"kind":"human-client"},"endpoint":{"id":"human"},
         "requested_capabilities":["events","commands"],"features":["keepalive"]}"#;
 

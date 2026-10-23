@@ -3877,6 +3877,7 @@ name = "interweave-local-client-fake"
 version = "0.0.0"
 dependencies = [
  "interweave-local-client-api",
+ "interweave-profile-config",
  "interweave-transport-api",
 ]
 

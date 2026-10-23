@@ -21,4 +21,8 @@ workspace = true
 
 [dependencies]
 interweave-local-client-api = { path = "../../crates/api/local-client-api" }
+# The bootstrap add's grammar is the configuration's own rule
+# (`bootstrap_overlay::entry_grammar`), read rather than restated, so the
+# fake refuses exactly what the real bindings refuse by that name.
+interweave-profile-config = { path = "../../crates/config/profile-config" }
 interweave-transport-api = { path = "../../crates/api/transport-api" }

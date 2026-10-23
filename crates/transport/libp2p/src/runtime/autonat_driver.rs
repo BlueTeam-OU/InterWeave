@@ -411,7 +411,10 @@ pub struct AutonatState {
     own_listeners: Vec<String>,
     /// Where the learned-server hook files what it admitted and refused.
     stores: crate::store_refusals::StoreRefusals,
-    /// External addresses this driver has added to the Swarm.
+    /// External addresses this driver has added to the Swarm, IN THE
+    /// ORDER THEY WERE CONFIRMED: one still verified keeps its place and
+    /// a fresh one goes last, since the show side lists them that way
+    /// (ADR-0062 decision 4) and the verdict carries candidate order.
     advertised: Vec<String>,
     /// The send's count when it was last REPORTED (cumulative, so a
     /// refusal inside the throttle window is deferred rather than
@@ -482,6 +485,13 @@ impl AutonatState {
     #[must_use]
     pub fn verdict(&self) -> &ReachabilityVerdict {
         self.manager.state()
+    }
+
+    /// The verified addresses this driver advertises, in the order they
+    /// were confirmed (`admin.peers.own_addresses`).
+    #[must_use]
+    pub(crate) fn confirmed(&self) -> &[String] {
+        &self.advertised
     }
 
     /// `AUTONAT.md` §9's refused-candidate count, for the status surface.
@@ -1293,7 +1303,12 @@ fn publish(
             swarm.add_external_address(addr);
         }
     }
-    state.advertised.clone_from(&verified);
+    state.advertised.retain(|a| verified.contains(a));
+    for fresh in &verified {
+        if !state.advertised.contains(fresh) {
+            state.advertised.push(fresh.clone());
+        }
+    }
     out.push(SwarmEvent::ConnectivityChanged {
         direct_inbound: change.to.state(),
         verified_addresses: verified,
@@ -1679,6 +1694,52 @@ mod tests {
             server: server.parse().expect("a peer id"),
             result: Ok(()),
         }))
+    }
+
+    /// The show side's order (ADR-0062 decision 4): the advertised list is
+    /// in CONFIRMATION order, not the verdict's candidate order -- `b`,
+    /// confirmed first, stays first after `a` joins it -- and an address
+    /// re-verified keeps its place.
+    #[tokio::test]
+    async fn the_confirmed_addresses_are_in_the_order_they_were_confirmed() {
+        let settings = settings();
+        let mut swarm = swarm_with_client(&settings);
+        let mut state = AutonatState::new(&settings).expect("builds");
+        assert!(state.manager.add_server(
+            TransportIdentity::parse(S1).expect("valid"),
+            ServerSource::Static
+        ));
+        assert!(state.manager.add_server(
+            TransportIdentity::parse(S2).expect("valid"),
+            ServerSource::Identify
+        ));
+        let (a, b) = ("/ip4/8.8.8.8/tcp/4001", "/ip4/8.8.4.4/tcp/4001");
+        let _ = state.manager.set_candidates([a, b], 0);
+        let open = HashMap::new();
+        let mut out = Vec::new();
+        let mut at = 1_000;
+        let mut verify = |addr: &str, swarm: &mut GatedSwarm, state: &mut AutonatState| {
+            for server in [S1, S2] {
+                at += 1_000;
+                let _ = handle_autonat(
+                    success(addr, server),
+                    swarm,
+                    state,
+                    &nobody(),
+                    &open,
+                    at,
+                    &mut out,
+                );
+            }
+        };
+        verify(b, &mut swarm, &mut state);
+        assert_eq!(state.confirmed(), [b]);
+        verify(a, &mut swarm, &mut state);
+        // The control: the verdict itself carries candidate order.
+        assert_eq!(state.verdict().verified_addresses(), [a, b]);
+        assert_eq!(state.confirmed(), [b, a]);
+        verify(b, &mut swarm, &mut state);
+        assert_eq!(state.confirmed(), [b, a]);
     }
 
     #[tokio::test]
