@@ -297,7 +297,7 @@ the schema-agreement test binds the two.
 | `admin.endpoints.set_default` | admin | `admin.endpoints` | `set-default-params` | `empty-result` | 2.0 |
 | `admin.shutdown` | admin | `admin.shutdown` | `shutdown-params` | `empty-result` | 2.0 |
 | `admin.trust.list` | admin | `admin.trust` | `trust-list-params` | `trust-list` | 2.1 |
-| `admin.trust.set` | admin | `admin.trust` | `trust-set-params` | `trust-set-result` (from 2.10; `empty-result` below it) | 2.1 |
+| `admin.trust.set` | admin | `admin.trust` | `trust-set-params` | `trust-set-result` | 2.1 |
 | `admin.peers.list` | admin | `admin.status` | `peer-list-params` | `peer-list` | 2.2 |
 | `admin.peers.add_address` | admin | `admin.peers` | `peers-address-params` | `peers-address-result` | 2.7 |
 | `admin.peers.remove_address` | admin | `admin.peers` | `peers-address-params` | `peers-address-result` | 2.7 |

@@ -1090,7 +1090,7 @@ async fn every_method_is_answered_ok_and_held_to_its_schemas() {
     let mut admin = Client::connect(&subject.paths.admin).await;
     admin
         .hello(
-            r#"{"type":"hello","ipc_version":{"major":2,"minor":9},
+            r#"{"type":"hello","ipc_version":{"major":2,"minor":10},
             "client":{"kind":"transportctl"},
             "requested_capabilities":["admin.status","admin.endpoints","admin.shutdown",
                 "admin.trust","admin.peers"]}"#,
