@@ -7,7 +7,7 @@
 # >>> help
 # Build the Linux release archive (plan section 22, packaging/linux):
 #
-#   tools/ci/release_linux_archive.sh [--bin-dir DIR] <version> <out-dir>
+#   tools/ci/release_linux_archive.sh [--bin-dir DIR] [--root DIR] <version> <out-dir>
 #
 # writes into <out-dir>
 #   interweave-<version>-x86_64-unknown-linux-gnu.tar.gz
@@ -33,7 +33,9 @@
 # THIRD-PARTY-NOTICES.md is release_notices.py over `cargo tree --locked
 # -e normal` of the five packages for that target (which crates) and
 # `cargo metadata --locked` (what each is), or over the files
-# RELEASE_COMPILED_LIST and RELEASE_METADATA_JSON name.
+# RELEASE_COMPILED_LIST and RELEASE_METADATA_JSON name. --root names the
+# repository whose manifest, units, scripts and plugin are packaged
+# (default: this one).
 #
 # The archive is byte-for-byte reproducible from the same inputs: names
 # sorted, owner and group 0, modes fixed whatever the umask, every mtime
@@ -45,8 +47,8 @@
 # is not the workspace version -- both release_tag.sh's rule, asked of
 # `v<version>` with --manifest, the tag job having asked cargo already --
 # or a program, a unit or a script is missing, or build.sh refuses the
-# plugin. On any failure once <version> is checked, a
-# refusal or a step after the checks, none of the three outputs is left
+# plugin. On any failure once the arguments are read, the version's
+# refusal or a step after it, none of the three outputs is left
 # in <out-dir>: all three are written in scratch and moved together at
 # the end, and a failure removes every one of their names from <out-dir>,
 # what this run moved and what an earlier run left.
@@ -72,7 +74,7 @@ bridge=claude-channel
 units=(interweave-daemon@.service interweave-client@.service)
 
 usage() {
-    echo "usage: release_linux_archive.sh [--bin-dir DIR] <version> <out-dir>" >&2
+    echo "usage: release_linux_archive.sh [--bin-dir DIR] [--root DIR] <version> <out-dir>" >&2
     exit 2
 }
 die() { echo "release_linux_archive: $*" >&2; exit 1; }
@@ -83,10 +85,34 @@ case "${1-}" in
     sed -n '/^# >>> help$/,/^# <<< help$/p' "$0" | sed '1d;$d;s/^# \{0,1\}//'
     exit 0
     ;;
---bin-dir) [[ $# -ge 2 ]] || usage; bin_dir="$2"; shift 2 ;;
 esac
+while (( $# > 2 )); do
+    case "$1" in
+    --bin-dir) bin_dir="$2"; shift 2 ;;
+    --root) root="$(cd "$2" && pwd)" || usage; shift 2 ;;
+    *) usage ;;
+    esac
+done
 [[ $# -eq 2 ]] || usage
 version="$1" out_dir="$2"
+
+name="interweave-$version-$target"
+archive="$name.tar.gz"
+outputs=("$archive" "$archive.sha256" linux-values.json)
+# The trap is set before the version check and before anything after it
+# can fail, the scratch directory's mktemp included, so every failure from
+# here on -- a refused version too -- removes the outputs' names, an
+# earlier run's of them too.
+scratch=""
+finish() {
+    local status=$? f
+    if [[ -n "$scratch" ]]; then rm -rf "$scratch"; fi
+    if (( status != 0 )); then
+        for f in "${outputs[@]}"; do rm -f -- "$out_dir/$f"; done
+    fi
+}
+trap finish EXIT
+
 # One rule for the version, the release run's own (ADR-0065 decisions 5
 # and 6): its exit 1 is a refusal, its 2 a manifest it could not read.
 rc=0
@@ -98,21 +124,6 @@ elif (( rc != 0 )); then
     exit 2
 fi
 
-name="interweave-$version-$target"
-archive="$name.tar.gz"
-outputs=("$archive" "$archive.sha256" linux-values.json)
-# The trap is set before anything after the version check can fail, the
-# scratch directory's mktemp included, so every failure from here on
-# removes the outputs' names, an earlier run's of them too.
-scratch=""
-finish() {
-    local status=$? f
-    if [[ -n "$scratch" ]]; then rm -rf "$scratch"; fi
-    if (( status != 0 )); then
-        for f in "${outputs[@]}"; do rm -f -- "$out_dir/$f"; done
-    fi
-}
-trap finish EXIT
 scratch="$(mktemp -d)"
 mkdir -p "$out_dir"
 

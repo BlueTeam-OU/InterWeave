@@ -247,9 +247,13 @@ else
     fail "a complete set of inputs was refused" "$(cat "$SANDBOX/err")"
 fi
 
+# A refusal is exit 1 (the script's help); 2 is usage or an unreadable
+# manifest, pinned by its own case below.
 refused() {
-    local what="$1" needle="$2"; shift 2
-    if build "$@"; then fail "$what: accepted"
+    local what="$1" needle="$2" rc=0; shift 2
+    build "$@" || rc=$?
+    if (( rc == 0 )); then fail "$what: accepted"
+    elif (( rc != 1 )); then fail "$what: refused with exit $rc, not 1" "$(cat "$SANDBOX/err")"
     elif ls "$OUT"/*.tar.gz >/dev/null 2>&1; then fail "$what: refused but left an archive"
     elif ! grep -qF -- "$needle" "$SANDBOX/err"; then fail "$what: refused without saying $needle" "$(cat "$SANDBOX/err")"
     else pass "$what: refused, no archive"; fi
@@ -368,6 +372,36 @@ OTHER=99.0.0
 [[ "$OTHER" != "$V" ]] || OTHER=98.0.0
 refused "a version that is not the workspace's" "tag v$OTHER is not the workspace version $V" "$OTHER" "$OUT"
 refused "a pre-release that is not the workspace's" "tag v$V-rc.1 is not the workspace version $V" "$V-rc.1" "$OUT"
+
+# A refused version removes an earlier run's outputs of its name, as any
+# other failure does: the version is checked under the trap. The control:
+# all three present before.
+OA="$OUT/interweave-$OTHER-x86_64-unknown-linux-gnu.tar.gz"
+rm -rf "$OUT"
+mkdir -p "$OUT"
+for f in "$OA" "$OA.sha256" "$OUT/linux-values.json"; do printf 'a previous run\n' > "$f"; done
+[[ -e "$OA" && -e "$OA.sha256" && -e "$OUT/linux-values.json" ]] || fail "the control: a previous run's outputs"
+build "$OTHER" "$OUT"
+[[ ! -e "$OA" && ! -e "$OA.sha256" && ! -e "$OUT/linux-values.json" ]] \
+    && pass "a version refused as not the workspace's leaves none of a previous run's outputs" \
+    || fail "a version refused as not the workspace's left a previous run's outputs" "$(ls -A "$OUT")"
+
+# --root names the repository packaged. Its own root passes (the
+# control); a root whose Cargo.toml is not TOML ends the run with exit 2,
+# release_tag.sh's unreadable manifest, and no archive.
+build --root "$SCRIPT_DIR/../.." "$V" "$OUT" \
+    && pass "--root naming this repository builds the archive" \
+    || fail "--root naming this repository was refused" "$(cat "$SANDBOX/err")"
+BADROOT="$SANDBOX/badroot"
+mkdir -p "$BADROOT"
+printf '[workspace\n' > "$BADROOT/Cargo.toml"
+rc=0
+build --root "$BADROOT" "$V" "$OUT" || rc=$?
+if (( rc != 2 )); then fail "an unreadable root manifest exited $rc, not 2" "$(cat "$SANDBOX/err")"
+elif ls "$OUT"/*.tar.gz >/dev/null 2>&1; then fail "an unreadable root manifest left an archive"
+elif ! grep -qF "cannot read $BADROOT/Cargo.toml as TOML" "$SANDBOX/err"; then
+    fail "an unreadable root manifest was not named" "$(cat "$SANDBOX/err")"
+else pass "an unreadable root manifest: exit 2, no archive"; fi
 mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
 refused "a missing program" "no executable $BIN/human-desktop" "$V" "$OUT"
 mv "$BIN/human-desktop.gone" "$BIN/human-desktop"
