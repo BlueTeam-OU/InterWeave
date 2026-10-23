@@ -2017,3 +2017,54 @@ fn a_snackbar_gone_before_its_close_is_taken_still_reports_its_focus() {
         Some(interweave_human_ui_model::PeersFocus::RowMenu(at(&b)))
     );
 }
+
+/// A row's menu open when the add page or a row's trust step covers the
+/// list: the menu goes with the list, so one Back or Escape closes the
+/// page (design section 5.3), not a menu that is no longer drawn.
+#[test]
+fn a_row_menu_open_under_the_add_page_leaves_back_to_the_page() {
+    row_menu_under_a_page(false);
+}
+
+/// The same with a row's trust step opened over the open menu.
+#[test]
+fn a_row_menu_open_under_a_trust_step_leaves_back_to_the_page() {
+    row_menu_under_a_page(true);
+}
+
+fn row_menu_under_a_page(trust_step: bool) {
+    use interweave_human_ui_model::PeersInput;
+    use slint::platform::{Key, WindowEvent};
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b) = (peer(), peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a), added(&b)]);
+    settle_view(&mut view, &mut model);
+    let a_handle = row_handle(&view, &at(&a));
+    view.window().set_peer_menu(a_handle);
+    if trust_step {
+        let _ = model.peers_input(PeersInput::TrustRow(at(&b)));
+    } else {
+        press(&view, text(UiText::AddAddress));
+        let _ = intents(&mut view, &mut model);
+    }
+    settle_view(&mut view, &mut model);
+    assert!(view.window().get_peers_add_open(), "the page is open");
+    assert_eq!(
+        view.window().get_peer_menu(),
+        -1,
+        "the menu went with the list"
+    );
+    let escape: slint::SharedString = Key::Escape.into();
+    let window = view.window().window();
+    window.dispatch_event(WindowEvent::KeyPressed {
+        text: escape.clone(),
+    });
+    window.dispatch_event(WindowEvent::KeyReleased { text: escape });
+    let _ = intents(&mut view, &mut model);
+    settle_view(&mut view, &mut model);
+    assert!(
+        !view.window().get_peers_add_open(),
+        "one Back closes the page"
+    );
+}

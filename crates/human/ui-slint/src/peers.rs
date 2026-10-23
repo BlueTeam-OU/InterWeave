@@ -535,6 +535,13 @@ impl View {
         let window = &self.window;
         let host = self.host;
         window.set_peers_add_open(peers.add_open());
+        // A row's menu is open only while its row is drawn: the page that
+        // covers the list closes it, whatever opened the page, or Back
+        // would close a menu no one sees and leave the page open (design
+        // section 5.3; `a_row_menu_open_under_the_add_page_leaves_back_to_the_page`).
+        if peers.add_open() {
+            window.set_peer_menu(-1);
+        }
         window.set_add_step_one(peers.step_one_shown());
         window.set_peers_add_busy(peers.busy());
         let typing = self
