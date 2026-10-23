@@ -556,6 +556,10 @@ pub struct Peers {
     /// A row an Undo restored while its list was unread, focused once a
     /// read lists it.
     restored: Option<String>,
+    /// The address whose removal or Undo was left unknown -- its answer
+    /// lost, its read back failed. It stays unknown until a read shows
+    /// it or the runtime answers it (§5.7), whatever the snackbar does.
+    unknown_change: Option<String>,
     /// Peers a Trust from this page was answered as made for while the
     /// trust list is not the daemon's word: their rows read Trusted
     /// (§5.2) until a confirmed list speaks for them. At most one per
@@ -1056,22 +1060,22 @@ impl Peers {
         }
     }
 
-    /// Whether the snackbar up says this address's change is unknown: a
-    /// Try again of it that writes nothing leaves it so.
+    /// Whether this address's removal or Undo was left unknown: a retry
+    /// of it that writes nothing leaves it so.
     fn still_unknown(&self, address: &str) -> bool {
-        matches!(
-            &self.snack,
-            Some(PeersSnack::RemoveUnknown { address: a } | PeersSnack::UndoUnknown { address: a })
-                if a == address
-        )
+        self.unknown_change.as_deref() == Some(address)
     }
 
-    /// A Try again of an unknown change that wrote nothing: the snackbar
-    /// says the same again, read to the screen reader once more, and
-    /// focus stays on its Try again (§5.7, §8).
-    fn still_unknown_again(&mut self) {
-        if let Some(snack) = self.snack.clone() {
-            self.say(snack);
+    /// A retry of an unknown change that wrote nothing: its unknown line
+    /// is said again -- the snackbar shown anew if it had closed -- read to
+    /// the screen reader once more, focus on its Try again (§5.7, §8).
+    fn still_unknown_again(&mut self, undo: bool) {
+        if let Some(address) = self.unknown_change.clone() {
+            self.say(if undo {
+                PeersSnack::UndoUnknown { address }
+            } else {
+                PeersSnack::RemoveUnknown { address }
+            });
         }
         self.ask_focus(PeersFocus::SnackAction);
     }
@@ -1101,6 +1105,8 @@ impl Peers {
                 self.list = Some(list);
                 self.list_problem = None;
                 self.held = Held::AsRead;
+                // A read shows it: no change is unknown any more.
+                self.unknown_change = None;
                 if again == Some(Again::List) {
                     self.ask_focus(PeersFocus::Title);
                 }
@@ -1188,6 +1194,10 @@ impl Peers {
         let before = self.list.clone().unwrap_or_default();
         match answer {
             Ok(answer) => {
+                // An answer decides it: nothing is unknown about it now.
+                if self.still_unknown(address) {
+                    self.unknown_change = None;
+                }
                 self.take_list(answer.list);
                 match answer.outcome {
                     AddressOutcome::Removed | AddressOutcome::Unchanged => {
@@ -1204,7 +1214,7 @@ impl Peers {
                 Some(b) => self.bar(b),
                 // A Try again that wrote nothing settles nothing: after an
                 // unknown removal the change stays unknown (§5.7).
-                None if self.still_unknown(address) => self.still_unknown_again(),
+                None if self.still_unknown(address) => self.still_unknown_again(false),
                 None => self.remove_failed(address),
             },
             Err(AddressChangeFailure::Unconfirmed(_)) => {
@@ -1352,6 +1362,9 @@ impl Peers {
     ) {
         match answer {
             Ok(answer) => {
+                if self.still_unknown(&address) {
+                    self.unknown_change = None;
+                }
                 self.take_list(answer.list);
                 match answer.outcome {
                     AddressOutcome::Added { .. } | AddressOutcome::Unchanged => {
@@ -1376,7 +1389,7 @@ impl Peers {
                     self.bar(b);
                 } else if self.still_unknown(&address) {
                     // As for a removal: an unknown Undo stays unknown.
-                    self.still_unknown_again();
+                    self.still_unknown_again(true);
                 } else {
                     let snack = PeersSnack::UndoFailed {
                         address: address.clone(),
@@ -1493,10 +1506,12 @@ impl Peers {
             // Unknown, the snackbar's Try again is where to go next: the
             // row menu that opened it may be gone (§8).
             Check::Undo(address) => {
+                self.unknown_change = Some(address.clone());
                 self.say(PeersSnack::UndoUnknown { address });
                 self.ask_focus(PeersFocus::SnackAction);
             }
             Check::Remove { address, .. } => {
+                self.unknown_change = Some(address.clone());
                 self.say(PeersSnack::RemoveUnknown { address });
                 self.ask_focus(PeersFocus::SnackAction);
             }

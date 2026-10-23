@@ -1867,3 +1867,63 @@ fn the_sessions_peer_id_names_this_device_over_the_trust_lists() {
         "{states:?}"
     );
 }
+
+/// The unknown stays with the change, not the snackbar (§5.7): a Try
+/// again whose snackbar closed -- timed out, or swiped away -- before its
+/// answer wrote nothing still says the change is unknown, shown anew,
+/// focus on its Try again; for an Undo as for a removal.
+#[test]
+fn an_unknown_change_outlives_its_snackbar_closing_mid_retry() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let lost = || {
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        ))
+    };
+    let not_written = || Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable));
+
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[added(&b)]));
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(&[at(&a)], lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    let _ = input(&mut m, PeersInput::TryAgain);
+    let _ = input(&mut m, PeersInput::SnackClosed);
+    assert_eq!(m.peers().snack().0, None, "closed mid-retry");
+    m.addresses_added(&[at(&a)], not_written());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::UndoUnknown { address: at(&a) }),
+        "never UndoFailed"
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::SnackAction));
+
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    let _ = input(&mut m, PeersInput::TryAgain);
+    let _ = input(&mut m, PeersInput::SnackClosed);
+    m.address_removed(&at(&a), not_written());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveUnknown { address: at(&a) }),
+        "never RemoveFailed"
+    );
+
+    // Until a read shows it: the list read back lists the row, so it is
+    // known again, and a removal that writes nothing says so.
+    let _ = input(&mut m, PeersInput::SnackClosed);
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Ok(list(&[added(&a), added(&b)])));
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), not_written());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveFailed { address: at(&a) }),
+        "known again after the read"
+    );
+}
