@@ -53,6 +53,10 @@ pub const TYPED_LINES: usize = 1;
 /// equal to the configuration's by `app-core`'s test.
 pub const ADDRESS_BOUND: usize = 64;
 
+/// How many rows Peers keeps the place of: every row a list can hold,
+/// and as many dropped by reads (`places_never_pass_their_bound`).
+const PLACES_BOUND: usize = 2 * ADDRESS_BOUND;
+
 /// Why an add stored nothing, by a rule with its own words.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Refusal {
@@ -556,6 +560,10 @@ pub struct Peers {
     snacks: u64,
     focus: Option<PeersFocus>,
     focuses: u64,
+    /// The rows in the order last drawn, a row a read dropped kept at its
+    /// place: where focus goes for a row removed elsewhere (§8). At most
+    /// [`PLACES_BOUND`], the oldest dropped going first.
+    places: Vec<String>,
     /// Where focus went after the last removal, for an Undo refused.
     after_remove: Option<PeersFocus>,
     /// A row an Undo restored while its list was unread, focused once a
@@ -1109,7 +1117,7 @@ impl Peers {
         let again = self.again.take_if(|a| *a != Again::Trust);
         match answer {
             Ok(list) => {
-                self.list = Some(list);
+                self.set_list(list);
                 self.list_problem = None;
                 self.held = Held::AsRead;
                 if again == Some(Again::List) {
@@ -1545,7 +1553,7 @@ impl Peers {
     /// A change's list read back, or, when it failed, a read owed.
     fn take_list(&mut self, list: Result<AddressList, AddressProblem>) {
         if let Ok(list) = list {
-            self.list = Some(list);
+            self.set_list(list);
             self.list_problem = None;
             self.held = Held::AsRead;
             self.shown_not_made();
@@ -1751,6 +1759,31 @@ impl Peers {
         self.snacks = self.snacks.wrapping_add(1);
     }
 
+    /// The list read in, its rows' order kept in [`Self::places`] with
+    /// every row it dropped at its place among them.
+    fn set_list(&mut self, list: AddressList) {
+        let mut places: Vec<String> = shown(&list).map(|a| a.address.clone()).collect();
+        for (at, row) in self.places.iter().enumerate() {
+            if places.contains(row) {
+                continue;
+            }
+            // After the nearest row before it that is placed, else first.
+            let after = self.places[..at]
+                .iter()
+                .rev()
+                .find_map(|before| places.iter().position(|p| p == before));
+            places.insert(after.map_or(0, |i| i + 1), row.clone());
+        }
+        while places.len() > PLACES_BOUND {
+            let Some(oldest) = places.iter().position(|p| !listed(&list, p)) else {
+                break;
+            };
+            places.remove(oldest);
+        }
+        self.places = places;
+        self.list = Some(list);
+    }
+
     fn ask_focus(&mut self, focus: PeersFocus) {
         self.focus = Some(focus);
         self.focuses = self.focuses.wrapping_add(1);
@@ -1774,15 +1807,34 @@ impl Peers {
             return PeersFocus::ListProblem;
         }
         // A row the list on show no longer has -- removed elsewhere since
-        // it was chosen -- is drawn nowhere: the first row shown takes its
-        // place, else Add an address (§8).
+        // it was chosen -- is drawn nowhere: the row after its place as
+        // last drawn, else the one before, else Add an address, as after
+        // a Remove (§8).
         match (focus, self.list.as_ref()) {
             (PeersFocus::Row(row) | PeersFocus::RowMenu(row), Some(list)) if !listed(list, row) => {
-                shown(list).next().map_or(PeersFocus::AddAddress, |a| {
-                    PeersFocus::Row(a.address.clone())
+                let drawn = |p: &&String| listed(list, p);
+                let at = self.places.iter().position(|p| p == row);
+                at.and_then(|at| {
+                    self.places[at + 1..]
+                        .iter()
+                        .find(drawn)
+                        .or_else(|| self.places[..at].iter().rev().find(drawn))
                 })
+                .map_or(PeersFocus::AddAddress, |p| PeersFocus::Row(p.clone()))
             }
             (focus, _) => focus.clone(),
+        }
+    }
+
+    /// Whether the focus asked for is a row a read showed gone, removed
+    /// elsewhere: `PeerRowGone` is announced before focus moves (§8).
+    #[must_use]
+    pub fn focus_row_gone(&self) -> bool {
+        match (self.focus.as_ref(), self.list.as_ref()) {
+            (Some(PeersFocus::Row(row) | PeersFocus::RowMenu(row)), Some(list)) => {
+                !listed(list, row)
+            }
+            _ => false,
         }
     }
 
@@ -1977,5 +2029,49 @@ impl Peers {
         self.held == Held::AsRead
             && self.list.as_ref().is_some_and(AddressList::is_empty)
             && trust.confirmed_list().is_some_and(|l| l.allowed.is_empty())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rows(from: usize, to: usize) -> AddressList {
+        AddressList {
+            addresses: (from..to)
+                .map(|i| PeerAddress {
+                    address: format!("/ip4/192.168.1.{}/tcp/{i}", i % 250),
+                    peer: None,
+                    origin: AddressOrigin::AddedHere,
+                    dialled: true,
+                })
+                .collect(),
+        }
+    }
+
+    /// Reads that each drop every row keep the places of at most
+    /// `PLACES_BOUND` rows, every listed one among them, the oldest
+    /// dropped going first.
+    #[test]
+    fn places_never_pass_their_bound() {
+        let mut peers = Peers::default();
+        for read in 0..10 {
+            let list = rows(read * ADDRESS_BOUND, (read + 1) * ADDRESS_BOUND);
+            peers.set_list(list.clone());
+            assert!(peers.places.len() <= PLACES_BOUND, "read {read}");
+            assert!(
+                list.addresses
+                    .iter()
+                    .all(|a| peers.places.contains(&a.address)),
+                "read {read}"
+            );
+        }
+        let newest_dropped = &rows(8 * ADDRESS_BOUND, 9 * ADDRESS_BOUND).addresses;
+        assert!(
+            newest_dropped
+                .iter()
+                .all(|a| peers.places.contains(&a.address)),
+            "the latest dropped kept"
+        );
     }
 }

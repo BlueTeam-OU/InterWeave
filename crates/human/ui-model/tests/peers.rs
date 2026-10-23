@@ -2274,8 +2274,8 @@ fn a_read_that_shows_it_ends_an_unknown_change() {
 
 /// Focus never goes to a row the list on show no longer has -- an Undo
 /// answered added whose list read back lacks the row, another
-/// administrator having removed it meanwhile: the first row shown takes
-/// its place, else Add an address (§8).
+/// administrator having removed it meanwhile: the row after its place
+/// takes it, else Add an address (§8).
 #[test]
 fn focus_never_goes_to_a_row_the_list_no_longer_has() {
     let (me, a, b) = (peer(), peer(), peer());
@@ -2394,38 +2394,72 @@ fn a_read_decides_an_unknown_change_either_way() {
 
 /// A row focus is judged against what is drawn when it is read: a read
 /// that drops the row after the ask -- another administrator's removal,
-/// read before the view draws -- gives its place to the first row shown,
-/// as a row asked for after the read does (§8). It covers every ask of
-/// a row: a row's trust step closing, a failed removal's menu.
+/// read before the view draws -- sends focus to the row after its place
+/// as last drawn, else the one before, else Add an address, as after a
+/// Remove, and says why (`focus_row_gone`, §8). It covers every ask of a
+/// row: a row's trust step closing, a failed removal's menu, an Undo.
 #[test]
 fn a_row_focus_asked_before_a_read_lands_on_what_is_drawn() {
-    let (me, a, b) = (peer(), peer(), peer());
-    // A row's trust step, closed after a read dropped its row.
-    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
-    let _ = input(&mut m, PeersInput::TrustRow(at(&a)));
-    m.addresses_read(Ok(list(&[added(&b)])));
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    // Added rows show newest first: C, B, A.
+    let rows = [added(&a), added(&b), added(&c)];
+    // A row's trust step, closed after a read dropped its row: the row
+    // after B's place, not the first shown.
+    let mut m = opened(&me, &[], &rows);
+    let _ = input(&mut m, PeersInput::TrustRow(at(&b)));
+    m.addresses_read(Ok(list(&[added(&a), added(&c)])));
     let _ = input(&mut m, PeersInput::Close);
-    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&b))), "A is gone: B");
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
+    assert!(m.peers().focus_row_gone(), "said gone");
+    // The last row shown gone: the one before it.
+    let mut m = opened(&me, &[], &rows);
+    let _ = input(&mut m, PeersInput::TrustRow(at(&a)));
+    m.addresses_read(Ok(list(&[added(&b), added(&c)])));
+    let _ = input(&mut m, PeersInput::Close);
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&b))), "before A: B");
+    // A row's trust step closed with its row still there says nothing.
+    let mut m = opened(&me, &[], &rows);
+    let _ = input(&mut m, PeersInput::TrustRow(at(&a)));
+    let _ = input(&mut m, PeersInput::Close);
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))));
+    assert!(!m.peers().focus_row_gone());
 
     // A failed removal's menu, its row dropped by a read after the ask,
     // and its Try again failing once the row has gone.
-    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
-    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    let mut m = opened(&me, &[], &rows);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
     m.address_removed(
-        &at(&a),
+        &at(&b),
         Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
     );
-    assert_eq!(focus(&m), Some(PeersFocus::RowMenu(at(&a))));
-    m.addresses_read(Ok(list(&[added(&b)])));
-    assert_eq!(
-        focus(&m),
-        Some(PeersFocus::Row(at(&b))),
-        "read after the ask"
-    );
+    assert_eq!(focus(&m), Some(PeersFocus::RowMenu(at(&b))));
+    m.addresses_read(Ok(list(&[added(&a), added(&c)])));
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "read after");
     let _ = input(&mut m, PeersInput::TryAgain);
     m.address_removed(
-        &at(&a),
+        &at(&b),
         Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
     );
-    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&b))), "asked after");
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "asked after");
+
+    // An Undo whose list read back lacks its row, which the Remove had
+    // taken off the list drawn: the row keeps its place from before.
+    let mut m = opened(&me, &[], &rows);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(
+        &at(&b),
+        answer(AddressOutcome::Removed, &[added(&a), added(&c)]),
+    );
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(
+        &[at(&b)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(b.clone()),
+            },
+            &[added(&a), added(&c)],
+        ),
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
+    assert!(m.peers().focus_row_gone());
 }
