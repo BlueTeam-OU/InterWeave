@@ -3574,7 +3574,7 @@ fn no_reach_claims_nothing_while_a_change_is_out() {
 /// An Undo answered made whose read back failed parks its row until a
 /// read shows it; a read that dropped it meanwhile -- another
 /// administrator's removal -- sends focus as for any row gone: the row
-/// after its place, `PeerRowGone` said (§8).
+/// after its place, `PeerRowGoneAfterAct` said (§8).
 #[test]
 fn an_undo_made_whose_row_a_later_read_lacks_is_a_row_gone() {
     let (me, a, b, c) = (peer(), peer(), peer(), peer());
