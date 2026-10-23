@@ -13,7 +13,10 @@
 //! `LOCAL-IPC.md`'s method table -- read from that table, so the mapping
 //! is the contract's and not a copy of it. The frame schema leaves an
 //! event's data and a result `{}` and defers the pair, which is why those
-//! halves exist (plan §16 exit gate (a)). A frame the server wrote and no
+//! halves exist (plan §16 exit gate (a)). A result shape a later minor
+//! replaced is held to the older schema on a connection below that minor
+//! ([`OLDER_RESULTS`]), the minor read from the connection's own
+//! `hello_response`. A frame the server wrote and no
 //! test read is not audited: what a test does not read, it does not see.
 
 #![cfg(unix)]
@@ -228,8 +231,12 @@ impl Client {
             }
         }
         let mut answered = BTreeSet::new();
+        let mut minor = None;
         for body in &self.seen {
             let value: Value = serde_json::from_str(body).expect("the server wrote json");
+            if value["type"] == "hello_response" {
+                minor = value["ipc_version"]["minor"].as_u64();
+            }
             assert_valid(&schemas.frame, &value, "a server frame");
             if value["type"] == "event" {
                 let pair = serde_json::json!({
@@ -243,10 +250,13 @@ impl Client {
                 let method = methods
                     .get(id)
                     .unwrap_or_else(|| panic!("a response to an id never asked: {body}"));
-                let result = schemas
-                    .results
-                    .get(method)
-                    .unwrap_or_else(|| panic!("{method} has no row in LOCAL-IPC.md's table"));
+                let result = match schemas.older.get(method) {
+                    Some((since, older)) if minor.is_some_and(|minor| minor < *since) => older,
+                    _ => schemas
+                        .results
+                        .get(method)
+                        .unwrap_or_else(|| panic!("{method} has no row in LOCAL-IPC.md's table")),
+                };
                 assert_valid(result, &value["result"], method);
                 answered.insert(method.clone());
             }
@@ -348,6 +358,15 @@ fn schema_docs(dir: &Path, out: &mut Vec<Value>) {
     }
 }
 
+/// A method whose result shape a minor replaced: below `since`, the
+/// result is held to `schema`, the shape LOCAL-IPC.md gives it there; the
+/// method table names the shape from `since` on.
+const OLDER_RESULTS: [(&str, u64, &str); 1] = [(
+    "admin.trust.set",
+    interweave_ipc_protocol::SUPERSEDED_SINCE_MINOR,
+    "ipc/empty-result.schema.json",
+)];
+
 /// The validators every audit uses, built once: the frame, request and
 /// event catalogues, and each method's result schema as `LOCAL-IPC.md`'s
 /// method table names it.
@@ -356,6 +375,8 @@ struct Schemas {
     request: jsonschema::Validator,
     event: jsonschema::Validator,
     results: BTreeMap<String, jsonschema::Validator>,
+    /// [`OLDER_RESULTS`]' schemas, by method.
+    older: BTreeMap<String, (u64, jsonschema::Validator)>,
 }
 
 impl Schemas {
@@ -396,7 +417,12 @@ impl Schemas {
                 (method, validator)
             })
             .collect();
+        let older = OLDER_RESULTS
+            .into_iter()
+            .map(|(method, since, schema)| (method.to_owned(), (since, compile(schema))))
+            .collect();
         Self {
+            older,
             frame: compile("ipc/frame.schema.json"),
             request: compile("ipc/request.schema.json"),
             event: compile("ipc/event.schema.json"),
