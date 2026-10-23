@@ -3710,3 +3710,35 @@ fn a_page_closes_while_a_removal_is_on_its_way() {
         );
     }
 }
+
+/// An Undo the device refuses by name -- here a row naming this device,
+/// written before that rule and so removable (ADR-0062 decision 1) --
+/// leaves the address removed and says that refusal, with no Try again,
+/// which the same refusal would meet (§5.2).
+#[test]
+fn an_undo_refused_by_name_says_why_and_offers_no_retry() {
+    let (me, a) = (peer(), peer());
+    let mut m = opened(&me, &[], &[added(&a), added(&me)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&me)));
+    m.address_removed(&at(&me), answer(AddressOutcome::Removed, &[added(&a)]));
+    assert!(matches!(
+        m.peers().snack().0,
+        Some(PeersSnack::Removed { undo: true, .. })
+    ));
+    assert_eq!(
+        input(&mut m, PeersInput::Undo),
+        vec![Intent::AddAddresses(vec![at(&me)])]
+    );
+    m.addresses_added(
+        &[at(&me)],
+        answer(
+            AddressOutcome::Refused(AddressRefused::OwnPeer),
+            &[added(&a)],
+        ),
+    );
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::UndoRefused(Refusal::OwnAddress))
+    );
+    assert_eq!(input(&mut m, PeersInput::TryAgain), vec![], "no retry");
+}

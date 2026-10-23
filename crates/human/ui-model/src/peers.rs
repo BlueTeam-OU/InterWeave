@@ -674,6 +674,19 @@ fn names_dns(line: &str) -> bool {
         .any(|c| matches!(c, "dns" | "dns4" | "dns6" | "dnsaddr"))
 }
 
+/// The add page's refusal for the runtime's, or `None` for a removal's
+/// own (`Configured`), which an add never meets.
+const fn refusal_of(why: AddressRefused) -> Option<Refusal> {
+    Some(match why {
+        AddressRefused::Grammar => Refusal::Grammar,
+        AddressRefused::SpecialUse => Refusal::SpecialUse,
+        AddressRefused::Bound => Refusal::Limit,
+        AddressRefused::ListOff => Refusal::ListOff,
+        AddressRefused::OwnPeer => Refusal::OwnAddress,
+        AddressRefused::Configured => return None,
+    })
+}
+
 const fn barred(problem: AddressProblem) -> Option<Barred> {
     match problem {
         AddressProblem::NotPermitted => Some(Barred::NotPermitted),
@@ -1516,17 +1529,10 @@ impl Peers {
                 self.accepted(result, &peers_of(&lines), trust);
             }
             AddressOutcome::Refused(why) => {
-                let why = match why {
-                    AddressRefused::Grammar => Refusal::Grammar,
-                    AddressRefused::SpecialUse => Refusal::SpecialUse,
-                    AddressRefused::Bound => Refusal::Limit,
-                    AddressRefused::ListOff => Refusal::ListOff,
-                    AddressRefused::OwnPeer => Refusal::OwnAddress,
-                    // A removal's refusal, never an add's: nothing written.
-                    AddressRefused::Configured => {
-                        self.page_note(AddNote::Failed, PeersFocus::AddButton);
-                        return;
-                    }
+                // A removal's refusal, never an add's: nothing written.
+                let Some(why) = refusal_of(why) else {
+                    self.page_note(AddNote::Failed, PeersFocus::AddButton);
+                    return;
                 };
                 let line = lines.first().cloned().unwrap_or_default();
                 // A refusal of the whole add names no line: the caret at
@@ -1610,11 +1616,13 @@ impl Peers {
                     AddressOutcome::Added { .. } | AddressOutcome::Unchanged => {
                         self.undone(address);
                     }
-                    AddressOutcome::Refused(AddressRefused::Bound) => {
-                        self.undo_not_made(PeersSnack::UndoRefused(Refusal::Limit));
-                    }
-                    AddressOutcome::Refused(AddressRefused::ListOff) => {
-                        self.undo_not_made(PeersSnack::UndoRefused(Refusal::ListOff));
+                    // Refused by name -- the bound, the list off, this
+                    // device's own address on a row written before that
+                    // rule (ADR-0062 decision 1) -- the refusal's own words
+                    // and no Try again, which the same refusal would meet
+                    // (§5.2; `an_undo_refused_by_name_says_why_and_offers_no_retry`).
+                    AddressOutcome::Refused(why) if let Some(why) = refusal_of(why) => {
+                        self.undo_not_made(PeersSnack::UndoRefused(why));
                     }
                     AddressOutcome::Refused(_) | AddressOutcome::Removed => {
                         let snack = PeersSnack::UndoFailed {
