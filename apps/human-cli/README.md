@@ -2,7 +2,7 @@
 
 `interweave-human`, the command-line human client: ADR-0059 decision 9's "a cli way to do everything", plan section 29 step 4's command half, split out by architect-cto-01's request of 2026-10-22.
 
-It is the desktop client's composition with no display: the same store, facade (`crates/human/app-core`) and model (`crates/human/ui-model`), over the daemon's data socket. A verb is a script of what a person does in the window (view a conversation, type and press Send, press Cancel on a row, confirm a trust change), and the model resolves it into the commands the facade carries out (`src/session.rs`, `src/verbs.rs`). A view never reaches past the facade, and this one is no exception. `identities` is the exception the model leaves: no model holds an endpoint's administration, so it calls the daemon's admin methods, as `transportctl` does, narrowed to the profile's human endpoints.
+It is the desktop client's composition with no display: the same store, facade (`crates/human/app-core`) and model (`crates/human/ui-model`), over the daemon's data socket. A verb is a script of what a person does in the window (view a conversation, type and press Send, press Cancel on a row, confirm a trust change), and the model resolves it into the commands the facade carries out (`src/session.rs`, `src/verbs.rs`). A view never reaches past the facade, and this one is no exception. `identities` and `peers` are the exceptions the model leaves: no model holds an endpoint's administration or the profile's bootstrap addresses, so they call the daemon's admin methods, as `transportctl` does, `identities` narrowed to the profile's human endpoints. `store health` and `store discard` work on the store's files and key alone.
 
 `interweave-human --help` prints every verb and every exit code.
 
@@ -10,8 +10,8 @@ It is the desktop client's composition with no display: the same store, facade (
 
 - **Batch 1 (on main, #368):** `status`, `conversations`, `messages`, `read [--keep]`, `send`, `cancel`, `retry`, `unkeep`, `listen`, `trust list|allow|revoke`, `identities list|enable|disable|default`, `store health`.
 - **Batch 2:** `card show|set|share`, `proposals`, `proposals read [--accept|--decline]`, `contacts`, `contacts show|rename|photo|delete`.
-- **Store discard and recreate** (ADR-0060) wait on the store's action landing (plan section 29 step 3).
-- **Batch 3** waits on the daemon's `admin.peers` address methods (p2p-network-dev's step 5): peers add, remove and list by address, and this profile's own address.
+- **Store at rest** (ADR-0060): `store health` reports the key and the files, and `store discard` discards and recreates a store that needs recovery.
+- **Batch 3:** `peers`, `peers add|remove <address>` and `peers show` (ADR-0062), on the daemon's `admin.peers` methods.
 - Creating, renaming and removing an identity (ADR-0061's display name and photo per endpoint), and moving a route between contacts, are Stage 22's.
 
 ## What a script can rely on
@@ -34,7 +34,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 
 ### Output
 
-- `--json` is accepted by every verb that reads (`status`, `conversations`, `messages`, `read`, `listen`, `trust list`, `identities list`, `store health`, `card show`, `proposals`, `proposals read`, `contacts`, `contacts show`) and by `send`, `cancel`, `retry`, `unkeep` and `card share`. It prints one JSON object per line. Every control character, line separator and bidirectional control in a string is escaped, so a line is always one line.
+- `--json` is accepted by every verb that reads (`status`, `conversations`, `messages`, `read`, `listen`, `trust list`, `identities list`, `store health`, `card show`, `proposals`, `proposals read`, `contacts`, `contacts show`, `peers`) and by `send`, `cancel`, `retry`, `unkeep`, `card share` and `store discard`. It prints one JSON object per line. Every control character, line separator and bidirectional control in a string is escaped, so a line is always one line.
 - `send`, `retry`, `cancel` and `unkeep` print `<id> <status>`, or `{"id": ..., "status": ...}` with `--json`. `send` and `retry` print it also when they fail with exit 1 or 6, so a script holds the id to retry or cancel.
 - Every status and state is a fixed token, never a translated label:
   - a message's `status` is one of `sending`, `not-confirmed`, `needs-attention`, `accepted`, `published`, `cancelled`, `unread`, `read`, `kept`;
@@ -43,7 +43,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
   - `listen`'s `event` is one of `message`, `proposal`, `outbound`, `session`, `connectivity`, `path`, `disconnected`.
 - `accepted` means the remote endpoint's bounded queue admitted the message (`AcceptedV2`). It does not mean a person read it.
 - Times are Unix milliseconds in JSON (`local_at_ms`, `sent_at_ms`, `last_activity_ms`). `sent_at_ms` is what the sender asserts: shown, never an order.
-- Text output is for a person and may change. Text from a peer is printed with every control character but newline and tab replaced, and every line separator and bidirectional control, so a message cannot drive the terminal or reorder what it shows.
+- Text output is for a person and may change. Text from a peer is printed with every control character but newline and tab replaced, and every line separator and bidirectional control, so a message cannot drive the terminal or reorder what it shows. A field printed on a line (a name, an address, a path, an error on stderr) has its newlines and tabs replaced too, so it never splits the line.
 
 ### A conversation and a message id
 
@@ -55,7 +55,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 - **One client at a time.** This client and the desktop client use one store and one endpoint lease (ADR-0041). Whichever starts second is refused, by name, with exit 4.
 - **What a one-shot verb sees.** It sees what the store holds plus what arrives while it runs. Messages arrive only while some client holds the lease. `listen` holds it.
 - **Reading verbs work without a daemon.** `conversations`, `messages` and `read` show what the store holds, and say on stderr why the session did not open. `status` exits 0 and reports the session as `no-daemon`.
-- **Verbs that need the daemon** (`send`, `retry`, `trust`, `identities`) fail with exit 3 when none answers.
+- **Verbs that need the daemon** (`send`, `retry`, `trust`, `identities`, `peers`) fail with exit 3 when none answers.
 - **Keep happens at read time.** Keep is `read <conversation> --keep <id>`, in the same run that read the message. A message read and not kept lives only for the run that read it (RETENTION.md), so a Keep of a message read in an earlier run cannot exist. Every `--keep` id must name a message received in that conversation, checked before anything is marked read. Should anything fail after the read, what was read is still printed before the exit code says so.
 - **Pending messages are sent by whichever run opens the session.** A `send` that exits 6 leaves its message pending. Any later run that opens the session (`status` included) attempts it again, until it is accepted or cancelled.
 - **`--wait <ms>`** (default 5000) bounds how long a verb waits for the session and for an answer.
@@ -70,13 +70,18 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 - **A contact's name or photo set with `contacts rename` or `contacts photo`** is the person's: no later card replaces it.
 - **`contacts delete`** deletes the contact, its routes and their recorded keys. They leave the store's files before it returns, unless another process is reading the store's log at that moment, in which case they leave it at the next write that releases content, or the next open or close. The next card from one of its routes is a new proposal, its key `new`. The trust allowlist is separate and is not changed.
 - **`listen`** prints a card that arrives as a `proposal` event, and leaves it unread.
+- **`peers add <address>`** sends the address as typed, and the daemon judges it against the configuration's grammar and the special-use floor. It prints `added` or `unchanged`. A refusal is exit 1 naming the rule (`grammar`, `special_use`, `bound`, `provider_disabled`, `authored`); the daemon's detail is not shown. An address added is dialled only for a peer this profile trusts: adding one grants no trust. `peers remove` prints `removed` or `unchanged`, and refuses an authored address. `peers --json` lists `{address, source: authored|added, dialled}`.
+- **`peers show`** prints this node's own addresses, one per line and nothing else, in the daemon's order (confirmed external first, then relay circuits when none is confirmed, then listen addresses), so the text pipes into another node's `peers add`. It filters nothing the daemon sends. `--json` prints one object, `{peer, addresses: [{address, kind: confirmed_external|relay_circuit|listen}], truncated}`; `truncated` is `true` when the daemon dropped rows past its bound of 64. A daemon older than IPC 2.8 is refused with exit 1.
+- **`store health`** prints `health` (`healthy`, `degraded`, `needs-recovery`, `not-private`, `unavailable`), `protection` (`filesystem-only` on the desktop), `key` (`present`, `absent`, `invalidated`, `unusable`), `files` (`none`, `plaintext`, `encrypted`, `export-unfinished`, `scrub-unfinished`, `rename-unfinished`, `unlisted`), and the pending, unread and kept counts when the store opens (`null` in JSON when it does not). Where the store's directory is refused, its key and files are not looked at: `unknown` in text, `null` in JSON. Anything but `healthy` is exit 5. It never prints a byte of the key.
+- **`store discard`** acts only on a store that needs recovery; one that opens is refused with exit 1, and one refused for another class (not private, cannot be opened now) with exit 5. Without `--confirm` it lists what it would remove (`discard`: `everything` or `unfinished-plaintext`, the files, whether the key goes) and what is lost, removes nothing, and exits 1. `--confirm <scope>` must name the scope it lists, or nothing is removed and it exits 1, so a script that confirmed one loss never takes a larger one. `everything` loses every contact and its routes, pending, unread and kept messages, the conversation list, the record of messages already shown, the client's settings and the person's own cards, and the store's key; never an identity, its key, trust or the transport's configuration. `unfinished-plaintext` removes the half-scrubbed plaintext only, and the next open takes the complete encrypted copy. After a discard the store is opened again, which recreates it (`done`, `recreated` in JSON); the ids of the old store name nothing.
 - **`trust allow` and `trust revoke`** of a peer already in that state exit 0, printing `(already)`.
 
 ## Tests
 
 - `src/verbs_tests.rs` and `src/cards_tests.rs`: each verb through the model and the facade, against the in-memory node pair app-core's own tests use, over a file store where the next run is the claim.
+- `src/store.rs`: `store health` and `store discard` over a real profile directory and the desktop's key custody: a discard refused without its scope removes nothing, a confirmed one recreates an empty store under a new key, a store that opens is never discarded.
 - `tests/process.rs`: the binary's `--help`, a usage error and a refused profile.
-- `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1 and 2 run as the binary against two real daemons; `card set --photo <file>` and `contacts photo <file>` are not run with an image anywhere in this crate: the file read and its bound are tested here (`a_photo_file_past_the_bound_is_refused_unread`), and what the facade does with the bytes is app-core's.
+- `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1, 2 and 3 run as the binary against two real daemons; `card set --photo <file>` and `contacts photo <file>` are not run with an image anywhere in this crate: the file read and its bound are tested here (`a_photo_file_past_the_bound_is_refused_unread`), and what the facade does with the bytes is app-core's.
 
 ## Release
 

@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 
 use crate::Failure;
 use crate::cli::{PhotoArg, conversation_text};
-use crate::output::{json_line, printable, utc};
+use crate::output::{json_line, one_line, utc};
 use crate::session::{STEP, Session};
 use crate::verbs::{Run, look, problems, ready};
 
@@ -113,9 +113,9 @@ fn proposal(p: &ProposalItem, key: &ConversationKey, status: &str, json: bool) -
         proposal_id(p.row),
         status,
         utc(p.received_at),
-        printable(&p.name),
+        one_line(&p.name),
         p.peer.as_str(),
-        printable(p.route.as_str()),
+        one_line(p.route.as_str()),
         p.fingerprint,
     );
     match &p.key {
@@ -129,7 +129,7 @@ fn proposal(p: &ProposalItem, key: &ConversationKey, status: &str, json: bool) -
     match &p.accept {
         AcceptLine::Creates => out.push_str("    accept creates a contact\n"),
         AcceptLine::Updates(name) => {
-            let _ = writeln!(out, "    accept updates {}", printable(name));
+            let _ = writeln!(out, "    accept updates {}", one_line(name));
         }
     }
     for note in &p.notes {
@@ -138,7 +138,7 @@ fn proposal(p: &ProposalItem, key: &ConversationKey, status: &str, json: bool) -
             ProposalNote::SharesNode(n) => ("a contact on the same node", n),
             ProposalNote::KeyMatches(n) => ("a contact holding the same key", n),
         };
-        let _ = writeln!(out, "    note: {what}: {}", printable(name));
+        let _ = writeln!(out, "    note: {what}: {}", one_line(name));
     }
     out
 }
@@ -171,7 +171,7 @@ fn contact(c: &ContactView, routes: bool, json: bool) -> String {
     let mut out = format!(
         "{}  {}{}\n",
         c.contact_id,
-        printable(&c.name),
+        one_line(&c.name),
         if c.name_from_card { "" } else { " (own name)" }
     );
     if routes {
@@ -201,7 +201,7 @@ fn identity(i: &IdentityView, json: bool) -> String {
     format!(
         "identity     {}\nname         {}\nphoto        {}\nfingerprint  {}\npeer         {}\n",
         i.endpoint.as_str(),
-        printable(&i.name),
+        one_line(&i.name),
         if i.has_photo { "yes" } else { "none" },
         i.fingerprint,
         i.peer
