@@ -190,6 +190,10 @@ pub(crate) struct PeerLists {
     /// target (`a_row_gone_before_its_focus_moves_is_said_and_focus_follows`).
     focus_sent: String,
     focus_gone_said: bool,
+    /// The dropped row focus was in whose move is scheduled: said once,
+    /// and no older request of the model's re-judged over it before it
+    /// applies (`a_row_reached_without_an_act_a_later_read_drops_is_said`).
+    gone_move: Option<String>,
     /// The add page's note last drawn, by the model's count, and its text.
     note_seen: u64,
     note_text: String,
@@ -239,6 +243,7 @@ impl PeerLists {
             focus_seen: 0,
             focus_sent: String::new(),
             focus_gone_said: false,
+            gone_move: None,
             note_seen: 0,
             trust_line_seen: 0,
             note_text: String::new(),
@@ -258,6 +263,10 @@ impl View {
         let (peers, trust) = (model.peers(), model.trust_settings());
         // The row focus is in, read before the list retires its handle.
         let held_row = self.focused_peer_row();
+        // Its move applied, or replaced by another request.
+        if self.focus_wanted.borrow().as_deref() != Some(self.peer_lists.focus_sent.as_str()) {
+            self.peer_lists.gone_move = None;
+        }
         self.render_peer_list(peers, trust, model);
         self.render_add_page(peers, trust);
         let said = self.render_peers_snack(peers, on_page);
@@ -300,12 +309,14 @@ impl View {
         let fresh = focuses != self.peer_lists.focus_seen;
         let pending = !fresh
             && !self.peer_lists.focus_sent.is_empty()
+            && self.peer_lists.gone_move.is_none()
             && self.focus_wanted.borrow().as_deref() == Some(self.peer_lists.focus_sent.as_str())
             && !matches!(focus, Some(PeersFocus::Field { .. }));
         if on_page && (fresh || pending) {
             self.peer_lists.focus_seen = focuses;
             if fresh {
                 self.peer_lists.focus_gone_said = false;
+                self.peer_lists.gone_move = None;
             }
             if let Some(focus) = focus {
                 let target = self.focus_target(&focus, peers.field());
@@ -334,10 +345,10 @@ impl View {
             }
         }
         // Focus still in a row, or a control in it, that a later read
-        // dropped -- its request carried out, so neither fresh nor pending
-        // -- goes as for any row gone (design sections 7 and 8), and
-        // PeerRowGone is said where the person acted on it. Focus moved
-        // to a live control is the person's and stays.
+        // dropped -- its request carried out, or reached by the person's
+        // own Tab or pointer -- goes as for any row gone, PeerRowGone said
+        // first however focus got there (design section 8's second
+        // row-gone row, #396 6a1a03ef). Focus elsewhere stays.
         let handled = on_page && (fresh || pending);
         if on_page
             && !handled
@@ -345,22 +356,21 @@ impl View {
             && let Some(address) = held_row
             && let Some(target) = peers.focus_after_gone(&address)
         {
-            if peers.asked_row(&address) {
-                let gone = placeholder_en::text(UiText::PeerRowGone).to_owned();
-                said = Some(said.map_or_else(
-                    || gone.clone(),
-                    |rest| {
-                        fill(
-                            placeholder_en::text(UiText::AnnounceBoth),
-                            &[("first", &gone), ("rest", &rest)],
-                        )
-                    },
-                ));
-            }
+            let gone = placeholder_en::text(UiText::PeerRowGone).to_owned();
+            said = Some(said.map_or_else(
+                || gone.clone(),
+                |rest| {
+                    fill(
+                        placeholder_en::text(UiText::AnnounceBoth),
+                        &[("first", &gone), ("rest", &rest)],
+                    )
+                },
+            ));
             // Its menu, if open, went with it.
             self.window.set_peer_menu(-1);
             let key = self.focus_target(&target, peers.field());
             self.peer_lists.focus_sent.clone_from(&key);
+            self.peer_lists.gone_move = Some(address);
             self.focus_key_after_draw(key);
         }
         said

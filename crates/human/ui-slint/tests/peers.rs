@@ -1495,11 +1495,11 @@ fn a_note_under_the_field_is_said_once_each_time_it_is_set() {
     assert!(!view.window().get_add_note_live());
 }
 
-/// Focus that has landed back on a row after the person's act -- a row's
-/// trust step closed, a failed removal's menu -- and a later read drops
-/// that row: focus goes to the row after its place, `PeerRowGone` said
-/// first (design sections 7 and 8). Focus the person moved elsewhere
-/// since stays, and nothing is said.
+/// Focus on a row, or a control of it, however it got there -- here
+/// landed back after a row's trust step closed, or on a failed removal's
+/// menu -- and a later read drops that row: focus goes to the row after
+/// its place, `PeerRowGone` said first (design section 8's second
+/// row-gone row). Focus the person moved elsewhere stays, nothing said.
 #[test]
 fn a_focused_row_a_later_read_drops_is_said_and_focus_follows() {
     row_held_then_dropped(Held::TrustStep);
@@ -1509,6 +1509,18 @@ fn a_focused_row_a_later_read_drops_is_said_and_focus_follows() {
 #[test]
 fn a_focused_row_menu_a_later_read_drops_is_said_and_focus_follows() {
     row_held_then_dropped(Held::RemoveFailed);
+}
+
+/// A row the person reached by Tab or pointer, with no act on it.
+#[test]
+fn a_row_reached_without_an_act_a_later_read_drops_is_said() {
+    row_held_then_dropped(Held::Reached);
+}
+
+/// A control of such a row -- its Trust -- reached the same way.
+#[test]
+fn a_row_control_reached_without_an_act_a_later_read_drops_is_said() {
+    row_held_then_dropped(Held::ReachedTrust);
 }
 
 /// The control: the person moved focus elsewhere before the read.
@@ -1521,6 +1533,8 @@ fn a_dropped_row_focus_moved_from_is_left_alone() {
 enum Held {
     TrustStep,
     RemoveFailed,
+    Reached,
+    ReachedTrust,
     MovedAway,
 }
 
@@ -1584,6 +1598,23 @@ fn row_held_then_dropped(held: Held) {
                 format!("row-menu:{b_handle}"),
                 "landed on B's menu"
             );
+        }
+        // Focus moved to the row or its Trust by the view itself, as a
+        // Tab or a pointer moves it, with no request of the model's: the
+        // control's own focused handler names it.
+        Held::Reached | Held::ReachedTrust => {
+            settle(&mut view, &mut model);
+            let key = if held == Held::Reached {
+                "row"
+            } else {
+                "row-trust"
+            };
+            let key = format!("{key}:{b_handle}");
+            view.window().set_focus_target(key.clone().into());
+            view.window()
+                .set_focus_seq(view.window().get_focus_seq().wrapping_add(1));
+            settle(&mut view, &mut model);
+            assert_eq!(view.window().get_focus_id().as_str(), key, "on B");
         }
     }
     if held == Held::MovedAway {
