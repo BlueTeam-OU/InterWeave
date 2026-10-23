@@ -1485,12 +1485,10 @@ async fn an_ask_for_authentication_reaches_the_platform_and_never_the_facade() {
 }
 
 /// A session ready reads the trust and address lists once, for the
-/// no-reach notice; a runtime without the address methods -- this fake
-/// predates them -- leaves Peers in its incompatible state, and an
-/// unreadable list is no notice.
+/// no-reach notice, and both are read in. (A runtime without the address
+/// methods is the facade's own test: `a_runtime_without_the_methods_is_incompatible`.)
 #[tokio::test]
-async fn a_ready_session_reads_both_lists_once_and_an_unreadable_one_is_no_notice() {
-    use interweave_human_ui_model::{Barred, ListProblem};
+async fn a_ready_session_reads_both_lists_once() {
     let (a, _) = FakeNetwork::pair(node(), node());
     let (mut root, _) = Root::new(facade(&a, memory()));
     root.settled(0).await;
@@ -1506,11 +1504,8 @@ async fn a_ready_session_reads_both_lists_once_and_an_unreadable_one_is_no_notic
         root.commands
     );
     assert!(root.model().trust_settings().list().is_some());
-    assert_eq!(
-        root.model().peers().list_problem(),
-        Some(ListProblem::Barred(Barred::Incompatible))
-    );
-    assert!(!root.model().no_reach());
+    assert!(root.model().peers().list().is_some());
+    assert_eq!(root.model().peers().list_problem(), None);
 }
 
 /// An address intent handed over bare reaches nothing: the addresses
@@ -1538,13 +1533,13 @@ async fn a_bare_address_intent_reaches_nothing() {
 }
 
 /// Peers' add reaches the facade as one add of all its lines: one line
-/// is the runtime's single add, which this fake answers unsupported;
+/// is the runtime's single add, which this fake answers as added;
 /// several typed are refused before anything is sent (`TYPED_LINES`);
 /// several scanned are never split, and until the add of several lines
 /// is bound they are answered as a runtime without it answers.
 #[tokio::test]
 async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
-    use interweave_human_ui_model::{AddNote, Barred, PeersInput, TYPED_LINES};
+    use interweave_human_ui_model::{AddNote, PeersInput, TYPED_LINES};
     let (a, b) = FakeNetwork::pair(node(), node());
     let one = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", b.peer().as_str());
     let two = format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", b.peer().as_str());
@@ -1561,9 +1556,15 @@ async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
         root.commands,
         vec![Command::AddAddresses(vec![one.clone()])]
     );
+    // The pair trust each other: added, no trust step, the page closed.
+    assert!(
+        !root.model().peers().add_open(),
+        "{:?}",
+        root.model().peers().add_page_note()
+    );
     assert_eq!(
-        root.model().peers().add_page_note(),
-        Some(&AddNote::Barred(Barred::Incompatible))
+        root.model().peers().snack().0,
+        Some(&interweave_human_ui_model::PeersSnack::Added)
     );
 
     let (c, _) = FakeNetwork::pair(node(), node());
