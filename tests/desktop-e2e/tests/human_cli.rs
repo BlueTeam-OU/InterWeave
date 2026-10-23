@@ -7,8 +7,9 @@
 //! peer; B's client is `listen` when B must receive.
 //!
 //! What this does not show: a person reading the output (nothing here
-//! looks at a terminal), the binary from an installed package (the
-//! package lists do not carry it yet), and another host.
+//! looks at a terminal), and another host. Run with
+//! `INTERWEAVE_PACKAGE_BIN` naming an installed package's `bin/`, it
+//! runs that package's `interweave-human`.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -25,8 +26,24 @@ use serde_json::Value;
 
 use common::{Daemon, Home, PATIENCE, example, free_port, workspace_binary};
 
+/// The binary under test: the installed package's when
+/// `INTERWEAVE_PACKAGE_BIN` names one, as `human_app`'s cases take theirs
+/// (`human_app/package.rs`), else the workspace's own. A package without
+/// it fails by name, never falls back to the workspace: that would test
+/// a build the package does not ship.
 fn binary() -> std::path::PathBuf {
-    workspace_binary("interweave-human", "interweave-human-cli")
+    match std::env::var_os("INTERWEAVE_PACKAGE_BIN") {
+        Some(dir) => {
+            let bin = std::path::Path::new(&dir).join("interweave-human");
+            assert!(
+                bin.is_file(),
+                "INTERWEAVE_PACKAGE_BIN names {}, which holds no interweave-human",
+                std::path::Path::new(&dir).display()
+            );
+            bin
+        }
+        None => workspace_binary("interweave-human", "interweave-human-cli"),
+    }
 }
 
 /// `interweave-human` for `home`'s profile, with its environment cleared
@@ -427,16 +444,10 @@ async fn a_card_shared_accepted_edited_and_deleted_across_two_daemons() {
     assert_eq!(shown["name"], "Ada Lovelace");
     assert_eq!(shown["routes"][0]["peer"], a_peer.as_str());
     assert_eq!(shown["routes"][0]["fingerprint"], fingerprint.as_str());
-    let out = human(&b, &["contacts", "rename", &contact, "Countess"], "");
+    // A second card under another name, declined before any edit of the
+    // contact: an accept would make the contact's name the new one.
+    let out = human(&a, &["card", "set", "Augusta", "King"], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
-    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
-    assert_eq!(lines(&out)[0]["name_from"], "own", "{}", said(&out));
-    let out = human(&b, &["contacts", "photo", &contact, "--none"], "");
-    assert_eq!(code(&out), Some(0), "{}", said(&out));
-    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
-    assert_eq!(lines(&out)[0]["photo_from"], "own", "{}", said(&out));
-
-    // A second card, declined: nothing written.
     let listener = Listener::start(&b);
     listener.until("the session ready", |l| {
         l["event"] == "session" && l["session"] == "ready"
@@ -475,6 +486,24 @@ async fn a_card_shared_accepted_edited_and_deleted_across_two_daemons() {
         said(&out)
     );
 
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(
+        lines(&out)[0]["name"],
+        "Ada Lovelace",
+        "declined, not accepted: {}",
+        said(&out)
+    );
+    assert_eq!(lines(&out)[0]["name_from"], "card", "{}", said(&out));
+
+    let out = human(&b, &["contacts", "rename", &contact, "Countess"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(lines(&out)[0]["name_from"], "own", "{}", said(&out));
+    let out = human(&b, &["contacts", "photo", &contact, "--none"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let out = human(&b, &["contacts", "show", &contact, "--json"], "");
+    assert_eq!(lines(&out)[0]["photo_from"], "own", "{}", said(&out));
+
     let out = human(&b, &["contacts", "delete", &contact], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     let out = human(&b, &["contacts", "--json"], "");
@@ -482,4 +511,145 @@ async fn a_card_shared_accepted_edited_and_deleted_across_two_daemons() {
 
     a_daemon.terminate().await;
     b_daemon.terminate().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_peer_added_by_address_is_listed_refused_by_class_and_removed() {
+    let (a, mut a_daemon, a_peer, _b, mut b_daemon, b_peer) = two_daemons().await;
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let address = format!("/ip4/{ip}/tcp/4999/p2p/{}", b_peer.as_str());
+
+    // This node's own addresses, as transportctl prints them, line for line.
+    let out = human(&a, &["peers", "show"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let shown = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(!shown.is_empty(), "a listening node has an address");
+    assert!(
+        shown
+            .lines()
+            .all(|l| l.ends_with(&format!("/p2p/{}", a_peer.as_str()))),
+        "{shown}"
+    );
+    let ctl = a.transportctl(&["peers", "show"], "");
+    assert_eq!(String::from_utf8_lossy(&ctl.stdout), shown, "{ctl:?}");
+    let out = human(&a, &["peers", "show", "--json"], "");
+    let own = &lines(&out)[0];
+    assert_eq!(own["peer"], a_peer.as_str(), "{}", said(&out));
+    assert_eq!(own["truncated"], false, "{}", said(&out));
+
+    let out = human(&a, &["peers", "add", &address], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "added\n");
+    let out = human(&a, &["peers", "add", &address], "");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "unchanged\n",
+        "{}",
+        said(&out)
+    );
+    let out = human(&a, &["peers", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert!(
+        lines(&out)
+            .iter()
+            .any(|row| row["address"] == address.as_str() && row["source"] == "added"),
+        "{}",
+        said(&out)
+    );
+    // transportctl lists what the client added, as ADR-0062's gate asks.
+    let listed = a.transportctl(&["peers", "addresses", "--json"], "");
+    assert!(
+        String::from_utf8_lossy(&listed.stdout).contains(&address),
+        "{listed:?}"
+    );
+
+    let loopback = format!("/ip4/127.0.0.1/tcp/4999/p2p/{}", b_peer.as_str());
+    let out = human(&a, &["peers", "add", &loopback], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    let said_err = String::from_utf8_lossy(&out.stderr);
+    assert!(said_err.contains("special_use"), "{said_err}");
+
+    let out = human(&a, &["peers", "remove", &address], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "removed\n");
+    let out = human(&a, &["peers", "--json"], "");
+    assert!(
+        !lines(&out)
+            .iter()
+            .any(|row| row["address"] == address.as_str()),
+        "{}",
+        said(&out)
+    );
+
+    a_daemon.terminate().await;
+    b_daemon.terminate().await;
+}
+
+/// ADR-0060 decision 6 as a shell runs it: a store whose key is gone is
+/// reported needing recovery, its discard is refused without the scope it
+/// lists, and the confirmed discard recreates it empty. The daemon is A's
+/// alone, so the message A sends to B stays pending in A's store.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_store_without_its_key_is_discarded_only_on_its_confirmed_scope() {
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let (a, b) = (Home::new("human-desktop"), Home::new("human-desktop"));
+    let (_a_peer, b_peer) = (a.write_key(), b.write_key());
+    let (a_port, b_port) = (free_port(ip), free_port(ip));
+    a.write_config(&example(
+        "human-desktop.yaml",
+        &b_peer,
+        &format!("/ip4/{ip}/tcp/{a_port}"),
+        Some(&format!("/ip4/{ip}/tcp/{b_port}/p2p/{}", b_peer.as_str())),
+    ));
+    let mut a_daemon = a.start(&[]);
+    a_daemon.serving(&a).await;
+    runtime_up(&mut a_daemon).await;
+
+    let out = human(
+        &a,
+        &["send", b_peer.as_str(), "to nobody yet", "--wait", "500"],
+        "",
+    );
+    assert!(matches!(code(&out), Some(1 | 6)), "{}", said(&out));
+    let out = human(&a, &["store", "health", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["pending"], 1, "{}", said(&out));
+
+    std::fs::remove_file(a.paths.state_dir().join("human-store.key")).expect("the store key");
+    let out = human(&a, &["store", "health", "--json"], "");
+    assert_eq!(code(&out), Some(5), "{}", said(&out));
+    let report = &lines(&out)[0];
+    assert_eq!(report["health"], "needs-recovery", "{}", said(&out));
+    assert_eq!(report["key"], "absent", "{}", said(&out));
+
+    let out = human(&a, &["store", "discard"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("discard     everything"),
+        "{}",
+        said(&out)
+    );
+    let out = human(
+        &a,
+        &["store", "discard", "--confirm", "unfinished-plaintext"],
+        "",
+    );
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    let out = human(&a, &["store", "health", "--json"], "");
+    assert_eq!(lines(&out)[0]["health"], "needs-recovery", "refused, kept");
+
+    let out = human(
+        &a,
+        &["store", "discard", "--confirm", "everything", "--json"],
+        "",
+    );
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["recreated"], true, "{}", said(&out));
+    let out = human(&a, &["store", "health", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let report = &lines(&out)[0];
+    assert_eq!(report["key"], "present", "{}", said(&out));
+    assert_eq!(report["pending"], 0, "{}", said(&out));
+
+    a_daemon.terminate().await;
 }
