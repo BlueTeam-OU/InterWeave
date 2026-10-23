@@ -41,23 +41,6 @@ pub(crate) fn refusal_text(why: Refusal) -> String {
     fill(text(template), &[("max", &max.to_string())])
 }
 
-/// `AddRefused`'s words around its `{line}`, for the refused line drawn
-/// alone between them (ux-designer-01, REPLY 01a16704): before it,
-/// trimmed; after it, `{reason}` filled, without the punctuation that
-/// joined the two in one sentence, since no full stop touches the
-/// address on its own line. The sentence itself stays the label.
-fn refused_parts(reason: &str) -> (String, String) {
-    let template = text(UiText::AddRefused);
-    let (before, after) = template.split_once("{line}").unwrap_or((template, ""));
-    let after = fill(after, &[("reason", reason)]);
-    (
-        before.trim_end().to_owned(),
-        after
-            .trim_start_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation())
-            .to_owned(),
-    )
-}
-
 /// The note under Add an address: at the bound, or the list off.
 fn add_address_note(why: Refusal) -> String {
     match why {
@@ -439,10 +422,15 @@ impl View {
         window.set_scan_note(scan.into());
         window.set_add_note(under_add.into());
         let (head, line, tail) = match peers.add_page_note() {
-            Some(AddNote::Refused { line, why }) => {
-                let (head, tail) = refused_parts(&refusal_text(*why));
-                (head, line.clone(), tail)
-            }
+            Some(AddNote::Refused { line, why }) => (
+                text(UiText::AddRefusedLead).to_owned(),
+                if why.names_line() {
+                    line.clone()
+                } else {
+                    String::new()
+                },
+                refusal_text(*why),
+            ),
             _ => Default::default(),
         };
         window.set_refused_head(head.into());
@@ -573,10 +561,15 @@ fn note_text(host: RuntimeHost, note: &AddNote) -> String {
     match note {
         AddNote::AddressNeeded => text(UiText::AddressNeeded).to_owned(),
         AddNote::ScanAfterField => text(UiText::ScanAfterField).to_owned(),
-        AddNote::Refused { line, why } => fill(
+        AddNote::Refused { line, why } if why.names_line() => fill(
             text(UiText::AddRefused),
             &[("line", line), ("reason", &refusal_text(*why))],
         ),
+        // A refusal of the whole add names no line: the lead and the
+        // reason read together (§5.3).
+        AddNote::Refused { why, .. } => {
+            format!("{} {}", text(UiText::AddRefusedLead), refusal_text(*why))
+        }
         AddNote::TooManyLines { lines } => fill(
             text(UiText::RefusedTooManyLines),
             &[("n", &lines.to_string()), ("max", &TYPED_LINES.to_string())],

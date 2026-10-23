@@ -1205,3 +1205,76 @@ fn a_refused_line_is_drawn_alone_between_its_words() {
     view.render(&model);
     assert_eq!(view.window().get_refused_line().as_str(), "");
 }
+
+/// A refusal of the whole add -- the device at its bound, a code of too
+/// many lines -- names no line (design section 5.3): it draws the lead
+/// and the reason only, its label the two read together, and a typed one
+/// leaves the caret at the field's end with nothing selected.
+#[test]
+fn a_refusal_of_the_whole_add_names_no_line() {
+    use interweave_human_ui_model::{CODE_LINES, PeersInput, Refusal};
+    let settle = |view: &mut View, model: &mut UiModel| {
+        view.render(model);
+        for _ in 0..2 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        }
+        view.render(model);
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    let line = at(&a);
+    let _ = model.peers_input(PeersInput::FieldChanged(line.clone()));
+    let _ = model.peers_input(PeersInput::Add);
+    model.addresses_added(
+        std::slice::from_ref(&line),
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Refused(AddressRefused::Bound),
+            list: Ok(AddressList::default()),
+        }),
+    );
+    settle(&mut view, &mut model);
+    let w = view.window();
+    let reason = fill(
+        text(UiText::RefusedLimit),
+        &[("max", &interweave_human_ui_model::ADDRESS_BOUND.to_string())],
+    );
+    let label = format!("{} {reason}", text(UiText::AddRefusedLead));
+    assert_eq!(w.get_field_note().as_str(), label, "lead and reason");
+    assert_eq!(w.get_refused_head().as_str(), text(UiText::AddRefusedLead));
+    assert_eq!(w.get_refused_line().as_str(), "", "no line named");
+    assert_eq!(w.get_refused_tail().as_str(), reason);
+    assert_eq!(labelled(&view, &label).len(), 1, "one item reads it");
+    let end = i32::try_from(line.len()).expect("fits");
+    assert_eq!(
+        (w.get_address_select_from(), w.get_address_select_to()),
+        (end, end),
+        "the caret at the end, nothing selected"
+    );
+    assert_eq!(w.get_focus_id().as_str(), "address-field");
+
+    // A code of too many lines: the same, under the scan controls.
+    let _ = model.peers_input(PeersInput::FieldChanged(String::new()));
+    let long: Vec<String> = (0..=CODE_LINES).map(|_| at(&peer())).collect();
+    let _ = model.scanned(&long.join("\n"));
+    view.render(&model);
+    let w = view.window();
+    assert!(matches!(
+        model.peers().add_page_note(),
+        Some(interweave_human_ui_model::AddNote::Refused {
+            why: Refusal::TooMany,
+            ..
+        })
+    ));
+    assert_eq!(w.get_refused_line().as_str(), "", "no line named");
+    assert!(
+        w.get_scan_note()
+            .as_str()
+            .starts_with(text(UiText::AddRefusedLead)),
+        "{}",
+        w.get_scan_note()
+    );
+    assert!(!w.get_scan_note().contains(long[CODE_LINES].as_str()));
+}

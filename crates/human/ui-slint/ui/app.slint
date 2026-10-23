@@ -595,7 +595,8 @@ component RefusedLines inherits VerticalLayout {
         horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
         accessible-role: none;
     }
-    line := Text {
+    // None for a refusal of the whole add (add-a-peer section 5.3).
+    if root.line != "": line := Text {
         text: root.line;
         color: root.ink;
         font-size: root.font-size;
@@ -633,7 +634,7 @@ component FocusNote inherits FocusScope {
     in property <bool> rtl;
     in property <int> focus-seq;
     in property <bool> focus-wanted;
-    // A refused add's line: set, the note is drawn as RefusedLines, its
+    // A refused add's words: set, the note is drawn as RefusedLines, its
     // label still the whole sentence.
     in property <string> refused-head;
     in property <string> refused-line;
@@ -654,7 +655,7 @@ component FocusNote inherits FocusScope {
     // The layout is the only child counted for the note's size, as the
     // heading's; the ring is placed.
     VerticalLayout {
-        if root.refused-line == "": Text {
+        if root.refused-head == "": Text {
             text: root.text;
             font-size: root.font-size;
             font-weight: root.font-weight;
@@ -664,7 +665,7 @@ component FocusNote inherits FocusScope {
             horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
             accessible-role: none;
         }
-        if root.refused-line != "": RefusedLines {
+        if root.refused-head != "": RefusedLines {
             head: root.refused-head;
             line: root.refused-line;
             tail: root.refused-tail;
@@ -3271,7 +3272,17 @@ export component AppWindow inherits Window {
                             shown: address-input.has-focus;
                         }
                     }
-                    if root.add-step-one && root.field-note != "" && root.refused-line == "": Text {
+                    if root.add-step-one: Text {
+                        text: root.address-help;
+                        font-size: Type.body-small;
+                        wrap: word-wrap;
+                        min-width: 0;
+                        color: Palette.on-surface-variant;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    // Under the helper, as the design places it (section 5.3).
+                    if root.add-step-one && root.field-note != "" && root.refused-head == "": Text {
                         text: root.field-note;
                         color: Palette.error;
                         font-size: Type.body-small;
@@ -3280,7 +3291,7 @@ export component AppWindow inherits Window {
                         accessible-role: text;
                         accessible-label: self.text;
                     }
-                    if root.add-step-one && root.field-note != "" && root.refused-line != "": RefusedLines {
+                    if root.add-step-one && root.field-note != "" && root.refused-head != "": RefusedLines {
                         head: root.refused-head;
                         line: root.refused-line;
                         tail: root.refused-tail;
@@ -3290,15 +3301,6 @@ export component AppWindow inherits Window {
                         rtl: root.rtl;
                         accessible-role: text;
                         accessible-label: root.field-note;
-                    }
-                    if root.add-step-one: Text {
-                        text: root.address-help;
-                        font-size: Type.body-small;
-                        wrap: word-wrap;
-                        min-width: 0;
-                        color: Palette.on-surface-variant;
-                        accessible-role: text;
-                        accessible-label: self.text;
                     }
                     if root.add-step-one && (root.scan-camera || root.scan-images): HorizontalLayout {
                         alignment: start;
