@@ -905,20 +905,25 @@ fn an_add_for_a_trusted_peer_closes_at_once() {
     assert_eq!(focus(&m), Some(PeersFocus::Opener));
 }
 
-/// Back while an add is on its way closes nothing, so the answer has a
-/// page to land on; a scanned line the runtime refuses is never selected
-/// in the field, which it never entered: focus goes to the note.
+/// Back while an add is on its way closes the page at once, focus on its
+/// opener (ux-designer-01's REPLY 01a167bf, #396): the add goes on, its
+/// outcome no page's to show -- no note, no snackbar -- and the list it
+/// brings, or the read a lost answer owes, shows what is stored. A
+/// scanned line the runtime refuses, the page still open, is never
+/// selected in the field, which it never entered: focus goes to the note.
 #[test]
-fn an_add_on_its_way_keeps_its_page_and_a_refused_scan_focuses_its_note() {
+fn back_on_an_add_on_its_way_closes_its_page_and_a_refused_scan_focuses_its_note() {
     let me = peer();
+    let sent_scan = |m: &mut UiModel, line: &str| {
+        let _ = input(m, PeersInput::OpenAdd);
+        let _ = input(m, PeersInput::ScanPressed);
+        let (_, sent) = m.scanned(line);
+        assert_eq!(sent, Some(Intent::AddAddresses(vec![line.to_owned()])));
+    };
+
     let mut m = opened(&me, &[], &[]);
-    let _ = input(&mut m, PeersInput::OpenAdd);
-    let _ = input(&mut m, PeersInput::ScanPressed);
     let line = at(&peer());
-    let (_, sent) = m.scanned(&line);
-    assert_eq!(sent, Some(Intent::AddAddresses(vec![line.clone()])));
-    let _ = input(&mut m, PeersInput::Close);
-    assert!(m.peers().add_open(), "the add is on its way");
+    sent_scan(&mut m, &line);
     m.addresses_added(
         std::slice::from_ref(&line),
         answer(AddressOutcome::Refused(AddressRefused::SpecialUse), &[]),
@@ -928,6 +933,87 @@ fn an_add_on_its_way_keeps_its_page_and_a_refused_scan_focuses_its_note() {
     let _ = input(&mut m, PeersInput::Close);
     assert!(!m.peers().add_open(), "step one closes once answered");
     assert_eq!(focus(&m), Some(PeersFocus::Opener));
+
+    // Back while it is on its way: closed at once, the answer unsaid.
+    let p = peer();
+    let mut m = opened(&me, &[], &[]);
+    sent_scan(&mut m, &at(&p));
+    let _ = input(&mut m, PeersInput::Close);
+    assert!(!m.peers().add_open(), "closed at once");
+    assert_eq!(focus(&m), Some(PeersFocus::Opener));
+    let asked = m.peers().focus().1;
+    m.addresses_added(
+        &[at(&p)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(p.clone()),
+            },
+            &[added(&p)],
+        ),
+    );
+    assert!(!m.peers().add_open());
+    assert_eq!(m.peers().snack().0, None, "no snackbar");
+    assert_eq!(m.peers().focus().1, asked, "focus left where Back put it");
+    assert_eq!(m.peers().rows(m.trust_settings()).len(), 1, "the row");
+
+    // Its answer lost: the read it owes shows the row, nothing said.
+    let mut m = opened(&me, &[], &[]);
+    sent_scan(&mut m, &at(&p));
+    let _ = input(&mut m, PeersInput::Close);
+    m.addresses_added(
+        &[at(&p)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Ok(list(&[added(&p)])));
+    assert!(!m.peers().add_open());
+    assert_eq!(m.peers().snack().0, None);
+    assert_eq!(focus(&m), Some(PeersFocus::Opener));
+    assert_eq!(m.peers().rows(m.trust_settings()).len(), 1);
+
+    // Typed, its answer lost, Back while its check is on its way; the
+    // read shows it not stored: still nothing said, focus where it was.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&p)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&p)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    assert!(m.peers().busy(), "its check on its way");
+    let _ = input(&mut m, PeersInput::Close);
+    assert!(!m.peers().add_open(), "closed at once");
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Ok(list(&[])));
+    assert_eq!(m.peers().add_page_note(), None);
+    assert_eq!(focus(&m), Some(PeersFocus::Opener), "no Add to focus");
+
+    // The same, its read failing too: unknown, and still nothing said.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&p)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&p)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    let _ = input(&mut m, PeersInput::Close);
+    let _ = m.peers_turn();
+    let asked = m.peers().focus().1;
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(m.peers().add_page_note(), None);
+    assert!(
+        m.peers().focus().1 == asked || focus(&m) == Some(PeersFocus::ListProblem),
+        "no Add to focus: {:?}",
+        focus(&m)
+    );
 }
 
 /// A removal answered not permitted puts Peers in its unreadable state,
