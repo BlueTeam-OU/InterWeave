@@ -1096,6 +1096,55 @@ fn a_trust_outcome_is_said_where_its_change_was_made() {
         "",
         "nothing left"
     );
+
+    // A trust step's answer made but not read back, its re-read on its way
+    // as the Trust page opens and failing there: a read, said on that
+    // page, which draws the list from before the change.
+    to_peers(&mut view, &mut model);
+    // The read the Trust page's opening sent, answered.
+    model.trust_settings_mut().read(Ok(TrustList {
+        local_peer: Some(me.clone()),
+        allowed: Vec::new(),
+    }));
+    let c = peer();
+    model.addresses_read(Ok(AddressList {
+        addresses: vec![added(&b), added(&c)],
+    }));
+    view.render(&model);
+    // B's block takes its answer at the turn's end, then is let go.
+    let _ = model.peers_turn();
+    let _ = model.peers_input(PeersInput::NotNow(b.clone()));
+    assert!(!model.peers().add_open());
+    let _ = model.peers_input(PeersInput::TrustRow(at(&c)));
+    let trusted = TrustChange {
+        peer: c.clone(),
+        allowed: true,
+    };
+    assert_eq!(
+        model.peers_input(PeersInput::Trust(c.clone())),
+        vec![Intent::SetTrust(trusted.clone())]
+    );
+    model.trust_settings_mut().set(
+        trusted,
+        Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Unavailable)),
+    );
+    let _ = model.peers_turn();
+    assert_eq!(
+        model.trust_settings_mut().take_reread(),
+        Some(Intent::ReadTrust)
+    );
+    to_trust(&mut view, &mut model);
+    model
+        .trust_settings_mut()
+        .read(Err(TrustProblem::Unavailable));
+    view.render(&model);
+    let stale = text(UiText::TrustNotReadAgain);
+    assert!(
+        slots(&view).iter().any(|s| s.contains(stale)),
+        "announced: {:?}",
+        slots(&view)
+    );
+    assert_eq!(view.window().get_trust_outcome().as_str(), stale, "shown");
 }
 
 /// A refused add's words are drawn in three lines, as ux-designer-01
