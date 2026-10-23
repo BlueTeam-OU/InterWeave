@@ -31,6 +31,7 @@ ok()  { echo "  ✓ $*"; }
 bad() { echo "  ✗ $*"; failures=$((failures + 1)); }
 
 work="$(mktemp -d)"
+[ -n "$work" ] && [ -d "$work" ] || { echo "test_check_gossipsub_rejects_bad_signatures_at_decode: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/src"
 

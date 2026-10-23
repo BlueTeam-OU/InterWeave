@@ -18,6 +18,7 @@ ok()  { printf '  ✓ %s\n' "$1"; pass=$((pass + 1)); }
 bad() { printf '  ✗ %s\n' "$1" >&2; fail=$((fail + 1)); }
 
 TMP="$(mktemp -d)"
+[ -n "$TMP" ] && [ -d "$TMP" ] || { echo "test_check_guards_are_wired: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
 
 # Captured, never piped into `grep -q`: with pipefail a `grep -q` that
@@ -241,6 +242,7 @@ help_out="$(bash "$CHECK" --help 2>/dev/null)"
 # what the hand-over itself promises, against a recording stub.
 hcheck() { if eval "$2"; then ok "$1"; else bad "$1" "$hout"; fi; }
 hstub="$(mktemp -d)"
+[ -n "$hstub" ] && [ -d "$hstub" ] || { echo "test_check_guards_are_wired: no sandbox (mktemp failed)" >&2; exit 1; }
 # The module stub is a shell script; a fake interpreter runs it with bash.
 printf '#!/bin/sh\nexec bash "$@"\n' > "$hstub/fake-python"; chmod +x "$hstub/fake-python"
 export AGENT_FABRIC_PYTHON="$hstub/fake-python"

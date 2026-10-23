@@ -34,6 +34,7 @@ expect() {
 }
 
 tmp="$(mktemp -d)"
+[ -n "$tmp" ] && [ -d "$tmp" ] || { echo "test_check_example_profiles: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$tmp"' EXIT
 
 scaffold "$tmp/ok" 1024

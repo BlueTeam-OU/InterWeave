@@ -29,6 +29,7 @@ failures=0
 # paths it prints and the cwd its stubs record are spelled that way; a
 # TMPDIR reached through a symlink must not make them differ from these.
 SANDBOX="$(mktemp -d)" && SANDBOX="$(cd "$SANDBOX" && pwd -P)"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_rustc_pin: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 # The check walks from the repository up to / for cargo configs, so one
 # above the sandbox that sets a rustc key would decide every case; refuse,

@@ -50,6 +50,7 @@ assert_lacks() {
 }
 
 SANDBOX="$(mktemp -d)"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_run_suite: no sandbox (mktemp failed)" >&2; exit 1; }
 
 write() { cat > "$SANDBOX/$1"; chmod +x "$SANDBOX/$1"; }
 run()   { RUN_OUT="$(bash "$UNDER_TEST" "$SANDBOX/$1" 2>&1)"; RUN_RC=$?; }
@@ -163,6 +164,7 @@ assert_rc       "unreadable suite exits 2"       2
 # what the hand-over itself promises, against a recording stub.
 hcheck() { if eval "$2"; then pass "$1"; else fail "$1" "$hout"; fi; }
 hstub="$(mktemp -d)"
+[ -n "$hstub" ] && [ -d "$hstub" ] || { echo "test_run_suite: no sandbox (mktemp failed)" >&2; exit 1; }
 # The module stub is a shell script; a fake interpreter runs it with bash.
 printf '#!/bin/sh\nexec bash "$@"\n' > "$hstub/fake-python"; chmod +x "$hstub/fake-python"
 export AGENT_FABRIC_PYTHON="$hstub/fake-python"

@@ -77,14 +77,14 @@ for an account set up otherwise:
   starting with a dot.
 
 A refusal names the path and the rule it broke, and the daemon exits 1
-(its unit retries every 5 s). Two wordings mislead, so read past them.
-A directory "must be owner-only before key-equivalent material is
-written into it" means, for a directory above the profile or the config
-directory, that no other account may write to it (a 0755 home is fine),
-and for the profile's state or data directory, literally 0700. And from
-an `identity` command, "lock is held -- stop its daemon first" is
-printed for any refusal of the profile's lock, a directory's mode
-included -- the reason in brackets is the one that counts.
+(its unit retries every 5 s). For a directory the rule depends on its
+place: one above the profile or the config directory must be writable
+by no other account (a 0755 home is fine), while the profile's state
+and data directories must give the group and others nothing (0700). The
+daemon asks "is a daemon already running?", and an `identity` command
+says "lock is held -- stop its daemon first", only when another process
+holds the profile's lock; a lock refused for its directory or its file
+says so instead.
 
 ## 1. The programs
 

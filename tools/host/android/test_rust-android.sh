@@ -17,7 +17,9 @@ UNDER_TEST="$HERE/rust-android.sh"
 failures=0
 pass() { echo "  ✓ $1"; }
 fail() { echo "  ✗ $1" >&2; printf '%s\n' "${2:-}" | sed 's/^/      /' >&2; failures=$((failures + 1)); }
-SANDBOX="$(realpath -- "$(mktemp -d)")"; trap 'rm -rf "$SANDBOX"' EXIT
+SANDBOX="$(realpath -- "$(mktemp -d)")"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_rust-android: no sandbox (mktemp failed)" >&2; exit 1; }
+trap 'rm -rf "$SANDBOX"' EXIT
 CH="$SANDBOX/cargo"; mkdir -p "$CH/bin" "$SANDBOX/state" "$SANDBOX/sysbin"
 printf '[toolchain]\nchannel = "1.98.1"\ncomponents = ["rustfmt", "clippy"]\n' > "$SANDBOX/rust-toolchain.toml"
 printf 'RUSTUP_VERSION=1.29.1\nRUSTUP_INIT_SHA256=x\nRUST_ANDROID_TARGET=aarch64-linux-android\nCARGO_NDK_VERSION=4.1.2\n' > "$SANDBOX/pins"

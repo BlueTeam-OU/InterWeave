@@ -16,6 +16,7 @@ GUARD="$SCRIPT_DIR/check_schemas_are_tested.sh"
 
 failures=0
 TMP="$(mktemp -d)"
+[ -n "$TMP" ] && [ -d "$TMP" ] || { echo "test_check_schemas_are_tested: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
 
 ok()  { echo "  ✓ $1"; }

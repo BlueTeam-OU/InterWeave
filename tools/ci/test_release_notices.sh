@@ -172,6 +172,8 @@ pub fn f() {}"
 src hdr src/lib.rs "$MITHDR"
 src hdrtext src/lib.rs '// Copyright 2022 The Example Authors.
 // Licensed under the MIT license (found in the LICENSE-MIT file).
+// A copy is included in the software as LICENSE-MIT, and at
+// https://opensource.org/licenses/MIT.
 
 pub fn f() {}'
 src std src/lib.rs 'pub fn f() {}'
@@ -250,6 +252,20 @@ src zbsd src/z.rs '// Copyright 2018 The Browser Authors.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE.browser file.
 pub fn h() {}'
+# Names written otherwise than the list once spelled them -- "Apache
+# 2.0", a lowercase cc0 -- name their licences all the same.
+src cased src/lib.rs "$MITHDR"
+src cased src/sp.rs '// Copyright 2016 Spaced Holder. Licensed under the Apache 2.0 license.
+pub fn s() {}'
+src cased src/lc.rs '// Copyright 2015 Lower Holder; dedicated to the public domain under cc0.
+pub fn l() {}'
+# The whole Apache License, title to the end of its terms, in a header:
+# Apache-2.0 carried, a header case.
+APBODY="$(sed -n '/^Apache License/,/END OF TERMS AND CONDITIONS/p' "$SCRIPT_DIR/licence_texts/Apache-2.0.txt" | sed 's|^|// |; s| *$||')"
+src apwhole src/lib.rs "// Copyright 2020 Whole Holder.
+//
+$APBODY
+pub fn f() {}"
 python3 - "$D" > "$D/metadata.json" <<'PY'
 import json, sys
 root = sys.argv[1] + "/crates"
@@ -265,7 +281,8 @@ derived = [pkg("hdr", "MIT"), pkg("hdrtext", "MIT OR Apache-2.0"),
            pkg("trunc", "MIT"), pkg("apfirst", "Apache-2.0 OR MIT"),
            pkg("apx", "MIT OR Apache-2.0"), pkg("reusehdr", "MIT"),
            pkg("trunc2", "MIT"), pkg("mixed", "MIT"), pkg("portions", "MIT"),
-           pkg("combo", "MIT OR Apache-2.0"), pkg("cczero", "MIT")]
+           pkg("combo", "MIT OR Apache-2.0"), pkg("cczero", "MIT"), pkg("cased", "MIT"),
+           pkg("apwhole", "Apache-2.0 OR MIT")]
 app = {"id": "app-id", "name": "app", "version": "1.0.0", "license": "Apache-2.0",
        "license_file": None, "manifest_path": f"{root}/app/Cargo.toml", "targets": []}
 normal = [{"kind": None, "target": None}]
@@ -273,16 +290,37 @@ nodes = [{"id": "app-id", "deps": [{"name": p["name"], "pkg": p["id"], "dep_kind
 nodes += [{"id": p["id"], "deps": []} for p in derived]
 print(json.dumps({"packages": [app] + derived, "workspace_members": ["app-id"], "resolve": {"nodes": nodes}}))
 PY
-printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\ncore v1.0.0\nzbsd v1.0.0\ntrunc v1.0.0\napfirst v1.0.0\napx v1.0.0\nreusehdr v1.0.0\ntrunc2 v1.0.0\nmixed v1.0.0\nportions v1.0.0\ncombo v1.0.0\ncczero v1.0.0\n' > "$D/compiled.txt"
+printf 'app v1.0.0\nhdr v1.0.0\nhdrtext v1.0.0\nstd v1.0.0\nspdxonly v1.0.0\ndeep v1.0.0\ndocc v1.0.0\nprose v1.0.0\ncore v1.0.0\nzbsd v1.0.0\ntrunc v1.0.0\napfirst v1.0.0\napx v1.0.0\nreusehdr v1.0.0\ntrunc2 v1.0.0\nmixed v1.0.0\nportions v1.0.0\ncombo v1.0.0\ncczero v1.0.0\ncased v1.0.0\napwhole v1.0.0\n' > "$D/compiled.txt"
 # list <json lines>: the derived list, one crate object per argument.
 list() {
     local IFS=,
     printf '{"crates": [%s]}\n' "$*" > "$D/list.json"
 }
-entry() {  # entry <name> <licence> <case> [file [headers [extra-texts-json]]]
+# digs <crate> <file>...: the JSON list of each file's header digest, read
+# here from the fixture's own "//" lines, apart from the tool's reader:
+# the comment markers off, the whitespace folded (ADR-0058 A 2026-10-22
+# (iii)).
+digs() {
+    python3 - "$D/crates/$1" "${@:2}" <<'PY'
+import hashlib, json, sys
+out = []
+for f in sys.argv[2:]:
+    lines = []
+    for line in open(f"{sys.argv[1]}/{f}").read().splitlines():
+        if not line.startswith("//"):
+            break
+        lines.append(line[2:])
+    out.append(hashlib.sha256(" ".join("\n".join(lines).split()).encode()).hexdigest())
+print(json.dumps(out))
+PY
+}
+# entry <name> <licence> <case> [file ["files whose headers are listed" [extra-texts-json]]]
+entry() {
     if [[ -n "${4-}" ]]; then
+        local files
+        read -r -a files <<< "${5:-$4}"
         printf '{"name": "%s", "version": "1.0.0", "license": "%s", "case": "%s", "file": "%s", "headers": %s%s}' \
-            "$1" "$2" "$3" "$4" "${5:-1}" "${6:+, \"extra_texts\": $6}"
+            "$1" "$2" "$3" "$4" "$(digs "$1" "${files[@]}")" "${6:+, \"extra_texts\": $6}"
     else
         printf '{"name": "%s", "version": "1.0.0", "license": "%s", "case": "%s"}' "$1" "$2" "$3"
     fi
@@ -290,15 +328,17 @@ entry() {  # entry <name> <licence> <case> [file [headers [extra-texts-json]]]
 GOOD=("$(entry hdr MIT header src/lib.rs)" "$(entry hdrtext 'MIT OR Apache-2.0' header+text src/lib.rs)"
       "$(entry std MIT standard)" "$(entry spdxonly CC0-1.0 standard)"
       "$(entry deep MIT header src/inner/mod.rs)" "$(entry docc BSD-3-Clause standard)"
-      "$(entry prose MIT standard)" "$(entry core MIT header src/lib.rs 2)"
-      "$(entry zbsd MIT header src/lib.rs 2 '["BSD-3-Clause"]')"
+      "$(entry prose MIT standard)" "$(entry core MIT header src/lib.rs 'src/lib.rs src/a_first.rs')"
+      "$(entry zbsd MIT header src/lib.rs 'src/lib.rs src/z.rs' '["BSD-3-Clause"]')"
       "$(entry trunc MIT header+text src/lib.rs)" "$(entry apfirst 'Apache-2.0 OR MIT' header src/lib.rs)"
-      "$(entry apx 'MIT OR Apache-2.0' header src/lib.rs 2 '["Apache-2.0"]')"
+      "$(entry apx 'MIT OR Apache-2.0' header src/lib.rs 'src/lib.rs src/other.rs' '["Apache-2.0"]')"
       "$(entry reusehdr MIT header+text src/lib.rs)" "$(entry trunc2 MIT header+text src/lib.rs)"
-      "$(entry mixed MIT header src/lib.rs 2 '["BSD-3-Clause"]')"
+      "$(entry mixed MIT header src/lib.rs 'src/lib.rs src/m.rs' '["BSD-3-Clause"]')"
       "$(entry portions MIT header+text src/lib.rs)"
-      "$(entry combo 'MIT OR Apache-2.0' header src/lib.rs 1 '["Apache-2.0"]')"
-      "$(entry cczero MIT header src/lib.rs 2 '["CC0-1.0"]')")
+      "$(entry combo 'MIT OR Apache-2.0' header src/lib.rs src/lib.rs '["Apache-2.0"]')"
+      "$(entry cczero MIT header src/lib.rs 'src/lib.rs src/old.rs' '["CC0-1.0"]')"
+      "$(entry cased MIT header src/lib.rs 'src/lib.rs src/sp.rs src/lc.rs' '["Apache-2.0", "CC0-1.0"]')"
+      "$(entry apwhole 'Apache-2.0 OR MIT' header src/lib.rs)")
 drun() {
     NOTICE_DERIVED_JSON="$D/list.json" python3 "$D/tool/release_notices.py" "$D/metadata.json" \
         "$D/compiled.txt" "$SANDBOX/n.md" app >"$SANDBOX/stdout" 2>"$SANDBOX/err"
@@ -361,6 +401,14 @@ if drun; then
         && grep -qx 'SPDX-FileCopyrightText: 2024 Jane Doe' "$N" \
         && pass "a truncated MIT notice and a REUSE header each ship with the MIT text" \
         || fail "a truncated or REUSE header was not shipped with its text" "$(grep -n 'trunc\|reusehdr\|Jane' "$N")"
+    grep -F 'Used by ' "$N" | grep -qF 'cased 1.0.0 (standard Apache-2.0 text)' \
+        && grep -F 'Used by ' "$N" | grep -qF 'cased 1.0.0 (standard CC0-1.0 text)' \
+        && pass "a licence named in another spelling or case brings its text" \
+        || fail "a differently written licence name did not bring its text" "$(grep -n cased "$N")"
+    grep -qF -- '- `apwhole` 1.0.0: Apache-2.0 OR MIT (derived: header)' "$N" \
+        && ! grep -qF 'apwhole 1.0.0 (standard' "$N" \
+        && pass "a header carrying the whole Apache License is a header case" \
+        || fail "a whole Apache header was not a header case" "$(grep -n apwhole "$N")"
     grep -qF 'prose 1.0.0 publishes no notice of its own: this is the standard text of MIT' "$N" \
         && pass "a comment that mentions copyright without a copyright line is not a header" \
         || fail "a prose comment was taken for a header" "$(cat "$N")"
@@ -381,7 +429,7 @@ list "${GOOD[@]:1}"
 drefused "a file-less crate the list does not name" "hdr 1.0.0 (MIT) publishes no licence file and notice_derived.json does not list it"
 list "$(entry hdr 'MIT OR Apache-2.0' header src/lib.rs)" "${GOOD[@]:1}"
 drefused "an entry whose licence is not the crate's" "hdr 1.0.0 declares 'MIT'; notice_derived.json lists 'MIT OR Apache-2.0'"
-list "$(entry hdr MIT header src/main.rs)" "${GOOD[@]:1}"
+list "$(entry hdr MIT header src/main.rs src/lib.rs)" "${GOOD[@]:1}"
 drefused "a header entry naming another file" "hdr 1.0.0's header is in src/lib.rs; notice_derived.json names src/main.rs"
 list "$(entry hdr MIT standard)" "${GOOD[@]:1}"
 drefused "a standard entry for a crate with a header" "hdr 1.0.0 has a copyright header in src/lib.rs: list it as header or header+text"
@@ -399,20 +447,20 @@ drefused "a header entry for a comment with no copyright line" "prose 1.0.0 is l
 list "$(entry hdr MIT headers src/lib.rs)" "${GOOD[@]:1}"
 drefused "an unknown case" "has case 'headers'"
 list "$(entry hdr MIT header)" "${GOOD[@]:1}"
-drefused "a header entry without its file" "names a file and a header count exactly when its case is a header"
-list "${GOOD[@]:0:7}" "$(entry core MIT header src/lib.rs 1)" "${GOOD[@]:8}"
-drefused "a header count that is not the crate's" "core 1.0.0 has 2 distinct copyright header(s); notice_derived.json says 1"
-list "${GOOD[@]:0:7}" "$(entry core MIT header src/a_first.rs 2)" "${GOOD[@]:8}"
+drefused "a header entry without its file" "names a file and its headers' digests exactly when its case is a header"
+list "${GOOD[@]:0:7}" "$(entry core MIT header src/lib.rs src/lib.rs)" "${GOOD[@]:8}"
+drefused "a header whose digest the entry does not list" "core 1.0.0's header in src/a_first.rs has digest $(digs core src/a_first.rs | tr -d '[]"'), which notice_derived.json does not list"
+list "${GOOD[@]:0:7}" "$(entry core MIT header src/a_first.rs 'src/lib.rs src/a_first.rs')" "${GOOD[@]:8}"
 drefused "a header file that is not the root module's" "core 1.0.0's header is in src/lib.rs; notice_derived.json names src/a_first.rs"
-list "${GOOD[@]:0:8}" "$(entry zbsd MIT header src/lib.rs 2)" "${GOOD[@]:9}"
+list "${GOOD[@]:0:8}" "$(entry zbsd MIT header src/lib.rs 'src/lib.rs src/z.rs')" "${GOOD[@]:9}"
 drefused "a header naming BSD without the BSD text" "zbsd 1.0.0's header in src/z.rs names BSD-3-Clause, whose text it does not carry: add it to the entry's extra_texts"
-list "${GOOD[@]:0:8}" "$(entry zbsd MIT header src/lib.rs 2 '["ISC"]')" "${GOOD[@]:9}"
+list "${GOOD[@]:0:8}" "$(entry zbsd MIT header src/lib.rs 'src/lib.rs src/z.rs' '["ISC"]')" "${GOOD[@]:9}"
 drefused "an extra text that is not committed" "zbsd 1.0.0 asks for ISC, whose standard text is not committed"
 list "${GOOD[@]:0:9}" "$(entry trunc MIT header src/lib.rs)" "${GOOD[@]:10}"
 drefused "a truncated MIT notice listed as header" "trunc 1.0.0's headers carry no whole text of MIT: list it as header+text"
 list "${GOOD[@]:0:10}" "$(entry apfirst 'Apache-2.0 OR MIT' header+text src/lib.rs)" "${GOOD[@]:11}"
 drefused "header+text for a header carrying one OR term's whole text" "apfirst 1.0.0's headers carry the MIT text already: list it as header"
-list "${GOOD[@]:0:11}" "$(entry apx 'MIT OR Apache-2.0' header src/lib.rs 2)" "${GOOD[@]:12}"
+list "${GOOD[@]:0:11}" "$(entry apx 'MIT OR Apache-2.0' header src/lib.rs 'src/lib.rs src/other.rs')" "${GOOD[@]:12}"
 drefused "a second holder's header naming the crate's other term, without its text" "apx 1.0.0's header in src/other.rs names Apache-2.0, whose text it does not carry"
 list "${GOOD[@]:0:12}" "$(entry reusehdr MIT standard)" "${GOOD[@]:13}"
 drefused "a REUSE header listed as standard" "reusehdr 1.0.0 has a copyright header in src/lib.rs"
@@ -420,14 +468,202 @@ list "${GOOD[@]:0:2}" '{"name": "std", "version": "1.0.0", "license": "MIT", "ca
 drefused "extra_texts on a standard entry" "std 1.0.0 has extra_texts, which only a header case ships"
 list "${GOOD[@]:0:13}" "$(entry trunc2 MIT header src/lib.rs)" "${GOOD[@]:14}"
 drefused "an MIT notice without its liability clause listed as header" "trunc2 1.0.0's headers carry no whole text of MIT: list it as header+text"
-list "${GOOD[@]:0:14}" "$(entry mixed MIT header src/lib.rs 2)" "${GOOD[@]:15}"
+list "${GOOD[@]:0:14}" "$(entry mixed MIT header src/lib.rs 'src/lib.rs src/m.rs')" "${GOOD[@]:15}"
 drefused "a header naming its crate's licence and a foreign one, without the foreign text" "mixed 1.0.0's header in src/m.rs names BSD-3-Clause, whose text it does not carry"
 list "${GOOD[@]:0:15}" "$(entry portions MIT standard)" "${GOOD[@]:16}"
 drefused "a Portions Copyright header listed as standard" "portions 1.0.0 has a copyright header in src/lib.rs"
-list "${GOOD[@]:0:16}" "$(entry combo 'MIT OR Apache-2.0' header src/lib.rs 1)" "${GOOD[@]:17}"
+list "${GOOD[@]:0:16}" "$(entry combo 'MIT OR Apache-2.0' header src/lib.rs src/lib.rs)" "${GOOD[@]:17}"
 drefused "one block holding a whole MIT notice and another holder's Apache line, without the Apache text" "combo 1.0.0's header in src/lib.rs names Apache-2.0, whose text it does not carry"
-list "${GOOD[@]:0:17}" "$(entry cczero MIT header src/lib.rs 2)"
+list "${GOOD[@]:0:17}" "$(entry cczero MIT header src/lib.rs 'src/lib.rs src/old.rs')" "${GOOD[@]:18}"
 drefused "a CC0 dedication header without the CC0 text" "cczero 1.0.0's header in src/old.rs names CC0-1.0, whose text it does not carry"
+list "${GOOD[@]:0:18}" "$(entry cased MIT header src/lib.rs 'src/lib.rs src/sp.rs src/lc.rs' '["CC0-1.0"]')" "${GOOD[@]:19}"
+drefused "\"Apache 2.0\" without the Apache text" "cased 1.0.0's header in src/sp.rs names Apache-2.0, whose text it does not carry"
+list "${GOOD[@]:0:18}" "$(entry cased MIT header src/lib.rs 'src/lib.rs src/sp.rs src/lc.rs' '["Apache-2.0"]')" "${GOOD[@]:19}"
+drefused "a lowercase cc0 without the CC0 text" "cased 1.0.0's header in src/lc.rs names CC0-1.0, whose text it does not carry"
+list "${GOOD[@]:0:19}" "$(entry apwhole 'Apache-2.0 OR MIT' header+text src/lib.rs)"
+drefused "header+text for a header carrying the whole Apache License" "apwhole 1.0.0's headers carry the Apache-2.0 text already: list it as header"
+# The same Apache header with one line of its terms cut is not the whole
+# text: refused as header, accepted as header+text (the control).
+cp "$D/crates/apwhole/src/lib.rs" "$D/apwhole.keep"
+grep -v 'Derivative Works a copy of this License' "$D/apwhole.keep" > "$D/crates/apwhole/src/lib.rs"
+list "${GOOD[@]:0:19}" "$(entry apwhole 'Apache-2.0 OR MIT' header src/lib.rs)"
+drefused "an Apache License cut inside its terms listed as header" "apwhole 1.0.0's headers carry no whole text of Apache-2.0 OR MIT: list it as header+text"
+list "${GOOD[@]:0:19}" "$(entry apwhole 'Apache-2.0 OR MIT' header+text src/lib.rs)"
+drun && pass "the cut Apache License ships as header+text" || fail "the cut Apache License was refused as header+text" "$(cat "$SANDBOX/err")"
+cp "$D/apwhole.keep" "$D/crates/apwhole/src/lib.rs"
+# xlist [extra-texts-json]: hdr listed with src/lib.rs and src/x.rs as x.rs
+# reads now, as a reviewer who read both would list them -- so what the
+# cases below meet is the licence-word scan, not the digest gate.
+xlist() {
+    list "$(entry hdr MIT header src/lib.rs 'src/lib.rs src/x.rs' "${1-}")" "${GOOD[@]:1}"
+}
+# A header naming a licence the list knows without a committed text, and
+# one naming a licence it does not know: both refused. The same header
+# naming MIT is the control.
+printf '// Copyright 2012 Extra Holder. Licensed under the MIT license.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drun && pass "the control: a second header naming MIT" || fail "a second header naming MIT was refused" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2012 Extra Holder. Licensed under the zlib License.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "a header naming zlib, whose text is not committed" "hdr 1.0.0's header in src/x.rs names Zlib, whose standard text is not committed: commit and pin it under licence_texts/"
+printf '// Copyright 2012 Extra Holder. Licensed under the Frobnicate License 1.0.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "a header naming an unrecognised licence" "hdr 1.0.0's header in src/x.rs names a licence this tool does not recognise"
+# Beside a licence it recognises, an unrecognised one is refused all the
+# same: in prose, after a whole MIT notice, and as an SPDX id. The combo
+# crate's whole MIT notice beside an Apache line, accepted above, is the
+# control.
+printf '// Copyright 2012 Extra Holder.\n//\n%s\n//\n// Portions licensed under the Frobnicate License 1.0.\npub fn x() {}\n' "$MITBODY" > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an unrecognised licence beside a whole MIT notice" "hdr 1.0.0's header in src/x.rs names a licence this tool does not recognise (Frobnicate License)"
+printf '// Copyright 2012 Extra Holder.\n// SPDX-License-''Identifier: MIT OR LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an unrecognised SPDX id beside MIT" "hdr 1.0.0's header in src/x.rs names a licence this tool does not recognise (LicenseRef-Frob)"
+# In any case, beside MIT; a variant written as an id; an SPDX line in
+# lower case without its colon; an SPDX id another licence's text would
+# have answered. The control above (a second header naming MIT) passes.
+for bad in 'Licensed under the MIT license and the frobnicate license.:frobnicate License' \
+           'Licensed under the MIT license and the FROBNICATE LICENSE.:FROBNICATE License' \
+           'Licensed under the MIT license; portions are BSD-4-Clause.:BSD-4-Clause' \
+           'spdx-license-''identifier MIT OR Frob:(Frob)' \
+           'SPDX-License-''Identifier: MIT OR LicenseRef-MIT-Frob:LicenseRef-MIT-Frob' \
+           'Licensed under the MIT/Frob License.:(Frob License)' \
+           'Licensed under the MIT license and the "Frobnicate" license.:Frobnicate License'; do
+    printf '// Copyright 2012 Extra Holder. %s\npub fn x() {}\n' "${bad%:*}" > "$D/crates/hdr/src/x.rs"
+    xlist
+    drefused "an unrecognised name beside MIT: ${bad%:*}" "names a licence this tool does not recognise"
+    grep -qF -- "${bad##*:}" "$SANDBOX/err" && pass "  and names ${bad##*:}" || fail "  the refusal does not name ${bad##*:}" "$(cat "$SANDBOX/err")"
+done
+printf '// Copyright 2012 Extra Holder.\n// SPDX-License-''Identifier: MIT OR Apache-1.1\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drefused "Apache-1.1 with the Apache-2.0 text attached" "names a licence this tool does not recognise (Apache-1.1"
+printf '// Copyright 2012 Extra Holder.\n// SPDX-License-''Identifier: MIT OR BSD-2-Clause\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["BSD-3-Clause"]'
+drefused "an SPDX BSD-2-Clause with the BSD-3-Clause text attached" "names BSD-2-Clause, whose standard text is not committed"
+printf '// Copyright 2012 Extra Holder. Licensed under the BSD-2-Clause license.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["BSD-3-Clause"]'
+drefused "BSD-2-Clause in prose with the BSD-3-Clause text attached" "names BSD-2-Clause, whose standard text is not committed"
+# A known id ending a sentence is that id: accepted with its text.
+printf '// Copyright 2012 Extra Holder. Licensed under MIT or Apache-2.0.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "Apache-2.0 at a sentence's end, its text attached" || fail "Apache-2.0 at a sentence's end was refused" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2012 Extra Holder.\n// SPDX-License-''Identifier: MIT OR Apache-2.0.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "an SPDX line ending in a stop, its texts attached" || fail "an SPDX line ending in a stop was refused" "$(cat "$SANDBOX/err")"
+# An SPDX expression ends where prose follows it on its line; an
+# operator in lower case still joins the next id; an expression cut where
+# an id is due is refused, not read short.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT -- see LICENSE\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drun && pass "prose after an SPDX expression on its line" || fail "prose after an SPDX expression was refused" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT or LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "a lower-case operator before an unknown id" "names a licence this tool does not recognise (LicenseRef-Frob)"
+# An expression wrapped where an id is due goes on into the next line,
+# as the same words reflowed read: the wrapped id is read, an unknown one
+# refusing and a known one accepted; cut at the header's last line, it
+# is refused as cut short.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT OR\n// LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an unknown id wrapped onto the next line" "names a licence this tool does not recognise (LicenseRef-Frob)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT OR\n// Apache-2.0\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "a known id wrapped onto the next line" || fail "an expression wrapped after OR was refused" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT\n// OR LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an unknown id wrapped after its operator" "names a licence this tool does not recognise (LicenseRef-Frob)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT OR\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an SPDX expression cut at the header's last line" "names a licence this tool does not recognise (an SPDX expression cut short)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT/LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an SPDX word that is not a clean id" "MIT/LicenseRef-Frob (not an SPDX id)"
+# A legacy separator is an operator, never an end: the licence after it
+# is read, and an unknown one refuses.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT / LicenseRef-Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "a licence after a legacy / separator" "names a licence this tool does not recognise (LicenseRef-Frob)"
+# Where prose ends the expression, an id-shaped word after it is read.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT -- Frob-2.0 for x.c\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "an id after the prose that ends an expression" "names a licence this tool does not recognise (Frob-2.0)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT -- LicenseRef-Frob for x.c\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "a LicenseRef- after the prose that ends an expression" "names a licence this tool does not recognise (LicenseRef-Frob)"
+# A known id after the end, followed by prose punctuation, is that id:
+# accepted with its text attached.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT -- Apache-2.0, for x.c\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "a known id after the end, then a comma" || fail "a known id followed by a comma was refused" "$(cat "$SANDBOX/err")"
+# An id that ends a sentence ends the expression: the prose after it is
+# not read as ids.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: MIT. See the notice above.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drun && pass "prose after an expression's full stop" || fail "prose after an expression's full stop was refused" "$(cat "$SANDBOX/err")"
+# A parenthesis standing alone groups and ends nothing: the licence after
+# it is read, an unknown one refusing; the same expression with known ids
+# is accepted.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( MIT ) OR Frob\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist
+drefused "a licence after a spaced parenthesis" "names a licence this tool does not recognise (Frob)"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( MIT OR Apache-2.0 ) AND MIT\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "an expression with spaced parentheses" || fail "an expression with spaced parentheses was refused" "$(cat "$SANDBOX/err")"
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: ( MIT OR Apache-2.0 ). See the notice above.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "a closing parenthesis that ends a sentence ends the expression" || fail "prose after a closing parenthesis and stop was refused" "$(cat "$SANDBOX/err")"
+# A parenthesised expression ending a sentence reads as its ids.
+printf '// Copyright 2026 Example Holder.\n// SPDX-License-''Identifier: (MIT OR Apache-2.0).\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+xlist '["Apache-2.0"]'
+drun && pass "a parenthesised expression ending in a stop" || fail "a parenthesised expression ending in a stop was refused" "$(cat "$SANDBOX/err")"
+
+# --- The digest gate (ADR-0058 A 2026-10-22 (iii)) --------------------------
+# A header no one has listed is refused by its digest, whatever words it
+# uses: the two shapes no word scan reads, each beside the MIT the crate
+# already ships, with hdr listed as before x.rs was added.
+for unread in 'Licensed under the MIT No Attribution License.' \
+              'Licensed under the Frobnicate and MIT licenses.'; do
+    printf '// Copyright 2012 Extra Holder. %s\npub fn x() {}\n' "$unread" > "$D/crates/hdr/src/x.rs"
+    list "${GOOD[@]}"
+    drefused "an unread header: $unread" "hdr 1.0.0's header in src/x.rs has digest $(digs hdr src/x.rs | tr -d '[]"'), which notice_derived.json does not list"
+done
+rm "$D/crates/hdr/src/x.rs"
+list "${GOOD[@]}"
+drun && pass "the control: the same list once x.rs is gone" || fail "the list was refused without x.rs" "$(cat "$SANDBOX/err")"
+# A header's text changed under the same version is a header no one read;
+# the same words reflowed are the header that was.
+cp "$D/crates/hdr/src/lib.rs" "$D/hdr.keep"
+sed -i 's/Copyright 2017 Example Ltd\./Copyright 2017 Other Ltd./' "$D/crates/hdr/src/lib.rs"
+drefused "a header text changed under the same version" "hdr 1.0.0's header in src/lib.rs has digest $(digs hdr src/lib.rs | tr -d '[]"'), which notice_derived.json does not list"
+cp "$D/hdr.keep" "$D/crates/hdr/src/lib.rs"
+python3 - "$D/crates/hdr/src/lib.rs" <<'PY'
+import sys
+p = sys.argv[1]
+lines = open(p).read().splitlines()
+# The same words, wrapped differently and spaced wider: join each pair of
+# comment lines into one, with extra spaces between words.
+out, i = [], 0
+while i < len(lines) and lines[i].startswith("//"):
+    pair = [l[2:] for l in lines[i:i + 2] if l.startswith("//")]
+    out.append("//   " + "   ".join(t.strip() for t in pair))
+    i += len(pair)
+open(p, "w").write("\n".join(out + lines[i:]) + "\n")
+PY
+cmp -s "$D/crates/hdr/src/lib.rs" "$D/hdr.keep" && fail "the reflow left the file as it was"
+drun && pass "a whitespace-only reflow of a listed header passes" || fail "a reflowed header was refused" "$(cat "$SANDBOX/err")"
+cp "$D/hdr.keep" "$D/crates/hdr/src/lib.rs"
+# A listed digest no header carries is stale: reported, its entry to go.
+list "$(entry hdr MIT header src/lib.rs 'src/lib.rs src/lib.rs')" "${GOOD[@]:1}"
+drefused "a digest listed twice" "headers is not a list of distinct SHA-256 digests"
+printf '// Copyright 2012 Gone Holder. Licensed under the MIT license.\npub fn x() {}\n' > "$D/crates/hdr/src/x.rs"
+list "$(entry hdr MIT header src/lib.rs 'src/lib.rs src/x.rs')" "${GOOD[@]:1}"
+stale="$(digs hdr src/x.rs | tr -d '[]"')"
+rm "$D/crates/hdr/src/x.rs"
+drefused "a listed digest no header carries" "hdr 1.0.0's entry lists digest $stale, which no header carries: remove it"
+list "${GOOD[@]:1}" '{"name": "hdr", "version": "1.0.0", "license": "MIT", "case": "header", "file": "src/lib.rs", "headers": 2}'
+drefused "a header count where digests are owed" "headers is not a list of distinct SHA-256 digests"
+list "${GOOD[@]:1}" '{"name": "hdr", "version": "1.0.0", "license": "MIT", "case": "header", "file": "src/lib.rs", "headers": true}'
+drefused "headers of true" "headers is not a list of distinct SHA-256 digests"
 # A file-less crate now publishing a file: its entry must go.
 printf 'the MIT text\n' > "$D/crates/hdr/LICENSE"
 list "${GOOD[@]}"

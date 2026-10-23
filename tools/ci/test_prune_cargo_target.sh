@@ -24,6 +24,7 @@ UNDER_TEST="$SCRIPT_DIR/prune_cargo_target.sh"
 
 failures=0
 SANDBOX="$(realpath -- "$(mktemp -d)")"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_prune_cargo_target: no sandbox (mktemp failed)" >&2; exit 1; }
 trap 'rm -rf "$SANDBOX"' EXIT
 BIN="$SANDBOX/bin"
 mkdir -p "$BIN"

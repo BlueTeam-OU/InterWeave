@@ -1288,9 +1288,11 @@ mod tests {
             }),
             ConvertError::ReceivedAt { ms: 987_654_321 },
         ];
+        // The control: the error holds the token, so its absence below is
+        // the line's doing. Its own Display no longer writes it.
         assert!(
-            cases[0].to_string().contains(TOKEN),
-            "the control: the error's own Display names the token"
+            matches!(&cases[0], ConvertError::Token(DuplicateToken { token }) if token == TOKEN),
+            "the control: the error holds the token"
         );
         for case in &cases {
             let line = dropped(case);

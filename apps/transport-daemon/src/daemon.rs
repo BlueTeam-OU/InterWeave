@@ -30,7 +30,7 @@ use interweave_profile_config::lock::{DAEMON_LOCK_WAIT, ProfileLock};
 use interweave_profile_config::profile_format;
 use interweave_profile_config::runtime::Deployment;
 use interweave_profile_config::sections::LogLevel;
-use interweave_profile_config::{ProfileConfig, ProfilePaths, XdgRoots};
+use interweave_profile_config::{PersistError, ProfileConfig, ProfilePaths, XdgRoots};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_composition::{
     AUDIT_TARGET, ComposedRuntime, CompositionOptions, Ended, SHUTDOWN_GRACE,
@@ -95,7 +95,10 @@ pub(crate) async fn run(args: Args) -> Result<Stopped, Refused> {
     let roots = XdgRoots::from_env().map_err(|e| refused("the XDG directories")(&e))?;
     let paths = ProfilePaths::resolve(&args.profile, &roots)
         .map_err(|e| refused("the profile's paths")(&e))?;
-    let profile = ProfileConfig::load(&paths).map_err(|e| refused("the profile")(&e))?;
+    // The document's path in the refusal, for every way a load fails: a
+    // size or read refusal names none of its own.
+    let profile = ProfileConfig::load(&paths)
+        .map_err(|e| refused(&format!("the profile {}", paths.config_file().display()))(&e))?;
     if profile.runtime.deployment == Deployment::EmbeddedAndroid {
         return Err(Refused(
             "the profile is embedded-android: it runs inside the app, not as a daemon".into(),
@@ -103,8 +106,7 @@ pub(crate) async fn run(args: Args) -> Result<Stopped, Refused> {
     }
     init_logging(profile.observability.log_level);
 
-    let lock = ProfileLock::acquire(&paths, DAEMON_LOCK_WAIT)
-        .map_err(|e| refused("the profile lock (is a daemon already running?)")(&e))?;
+    let lock = ProfileLock::acquire(&paths, DAEMON_LOCK_WAIT).map_err(|e| lock_refused(&e))?;
     // The marker read again under the lock (ADR-0028 A 2026-10-20): a
     // newer build that held the lock while `load` ran may have raised it
     // since, and the runtime's start below writes the profile.
@@ -227,6 +229,18 @@ fn stopped_outcome(
         return Err(Refused("the transport runtime ended on its own".into()));
     }
     stopped.map_err(|e| Refused(format!("the runtime's stop: {e:?}")))
+}
+
+/// The lock's refusal: a running daemon is asked about only when the
+/// lock is held, never for a directory or a file the lock was refused on
+/// (`only_a_held_lock_asks_about_a_running_daemon`).
+fn lock_refused(e: &PersistError) -> Refused {
+    match e {
+        PersistError::ProfileLocked { .. } => {
+            refused("the profile lock (is a daemon already running?)")(e)
+        }
+        e => refused("the profile lock")(e),
+    }
 }
 
 /// Load the key, or create it when asked and none exists: never a silent
@@ -441,6 +455,42 @@ mod tests {
     #![allow(clippy::expect_used, clippy::panic)]
 
     use super::*;
+
+    /// Held, the lock asks whether a daemon runs (the control); refused
+    /// for its directory's mode, it says why and asks nothing.
+    #[test]
+    fn only_a_held_lock_asks_about_a_running_daemon() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let tmp = tempfile::Builder::new()
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .expect("tempdir");
+        let at = |name: &str| tmp.path().join(name);
+        let roots = XdgRoots {
+            config_home: at("config"),
+            data_home: at("data"),
+            state_home: at("state"),
+            cache_home: at("cache"),
+            runtime_dir: None,
+        };
+        let paths = ProfilePaths::resolve_offline("p", &roots).expect("paths");
+        let held = ProfileLock::acquire(&paths, Duration::ZERO).expect("the lock");
+        let again = ProfileLock::acquire(&paths, Duration::ZERO).expect_err("held");
+        assert!(
+            lock_refused(&again)
+                .to_string()
+                .contains("is a daemon already running?"),
+            "the control: {again}"
+        );
+        drop(held);
+
+        std::fs::set_permissions(paths.state_dir(), std::fs::Permissions::from_mode(0o755))
+            .expect("chmod");
+        let wide = ProfileLock::acquire(&paths, Duration::ZERO).expect_err("a 0755 state dir");
+        let shown = lock_refused(&wide).to_string();
+        assert!(shown.contains("mode is 0755"), "{shown}");
+        assert!(!shown.contains("running"), "{shown}");
+    }
 
     fn composed_profile() -> interweave_profile_config::ProfileConfig {
         interweave_profile_config::ProfileConfig::parse_yaml(

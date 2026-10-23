@@ -70,6 +70,7 @@ fail() { echo "  ✗ $1" >&2; failures=$((failures + 1)); }
 sandbox_with() {
     local body="$1"
     SANDBOX="$(mktemp -d)"
+    [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_shell_scripts: no sandbox (mktemp failed)" >&2; exit 1; }
     mkdir -p "$SANDBOX/tools/checks" "$SANDBOX/scripts"
     cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
     printf '%s\n' "$body" > "$SANDBOX/scripts/case.sh"
@@ -240,6 +241,7 @@ cleanup; SANDBOX=""
 #    OK on a tree where `git ls-files` matched nothing — the
 #    passing-by-looking-at-nothing shape.
 SANDBOX="$(mktemp -d)"
+[ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] || { echo "test_check_shell_scripts: no sandbox (mktemp failed)" >&2; exit 1; }
 mkdir -p "$SANDBOX/tools/checks"
 cp "$UNDER_TEST" "$SANDBOX/tools/checks/"
 git -C "$SANDBOX" init --quiet
