@@ -2271,3 +2271,41 @@ fn a_read_that_shows_it_ends_an_unknown_change() {
         "B's answer listed A: known not removed"
     );
 }
+
+/// Focus never goes to a row the list on show no longer has -- an Undo
+/// answered added whose list read back lacks the row, another
+/// administrator having removed it meanwhile: the first row shown takes
+/// its place, else Add an address (§8).
+#[test]
+fn focus_never_goes_to_a_row_the_list_no_longer_has() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[added(&b)]));
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(
+        &[at(&a)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            &[added(&b)],
+        ),
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&b))), "A is gone: B");
+
+    let mut m = opened(&me, &[], &[added(&a)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[]));
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(
+        &[at(&a)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            &[],
+        ),
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::AddAddress), "no row at all");
+}

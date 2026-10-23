@@ -1733,6 +1733,19 @@ impl Peers {
         } else {
             focus
         };
+        // A row the list on show no longer has -- removed elsewhere since
+        // it was chosen -- is drawn nowhere: the first row shown takes its
+        // place, else Add an address (§8).
+        let focus = match (focus, self.list.as_ref()) {
+            (PeersFocus::Row(row) | PeersFocus::RowMenu(row), Some(list))
+                if !listed(list, &row) =>
+            {
+                shown(list).next().map_or(PeersFocus::AddAddress, |a| {
+                    PeersFocus::Row(a.address.clone())
+                })
+            }
+            (focus, _) => focus,
+        };
         self.focus = Some(focus);
         self.focuses = self.focuses.wrapping_add(1);
     }
