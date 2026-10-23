@@ -1555,9 +1555,15 @@ impl Peers {
     /// refused goes as after the Remove (§8).
     fn focus_after(&mut self, list: &AddressList, address: &str) {
         let rows: Vec<&str> = shown(list).map(|a| a.address.as_str()).collect();
+        // Only a row the list now on show still has: another administrator
+        // may have removed a neighbour meanwhile. The nearest after, else
+        // the nearest before.
+        let drawn = |row: &&&str| self.list.as_ref().is_none_or(|l| listed(l, row));
         let target = rows.iter().position(|r| *r == address).and_then(|at| {
-            rows.get(at + 1)
-                .or_else(|| at.checked_sub(1).and_then(|p| rows.get(p)))
+            rows[at + 1..]
+                .iter()
+                .find(drawn)
+                .or_else(|| rows[..at].iter().rev().find(drawn))
         });
         let focus = target.map_or(PeersFocus::AddAddress, |row| {
             PeersFocus::Row((*row).to_owned())

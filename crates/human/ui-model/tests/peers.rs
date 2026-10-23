@@ -516,7 +516,11 @@ fn a_removal_offers_undo_unless_the_list_is_off() {
             undo: true
         })
     );
-    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&b))), "the next row");
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Row(at(&b))),
+        "the row shown before it: b, newest, is shown first"
+    );
 
     assert_eq!(
         input(&mut m, PeersInput::Undo),
@@ -2190,4 +2194,22 @@ fn a_rows_contact_names_are_every_contact_on_its_peer_in_order() {
     );
     assert_eq!(m.contact_names_on(&q), vec!["Alice".to_owned()]);
     assert!(m.contact_names_on(&peer()).is_empty());
+}
+
+/// Focus after a removal skips a neighbour the list read back no longer
+/// has -- another administrator removed it meanwhile -- for the nearest
+/// row still there, else Add an address (§8).
+#[test]
+fn focus_after_a_removal_skips_rows_removed_elsewhere() {
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    // Shown C, B, A. B is removed; A went too, elsewhere.
+    let mut m = opened(&me, &[], &[added(&a), added(&b), added(&c)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(&at(&b), answer(AddressOutcome::Removed, &[added(&c)]));
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&c))), "A is gone: C");
+
+    let mut m = opened(&me, &[], &[added(&a), added(&b), added(&c)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(&at(&b), answer(AddressOutcome::Removed, &[]));
+    assert_eq!(focus(&m), Some(PeersFocus::AddAddress), "none left");
 }
