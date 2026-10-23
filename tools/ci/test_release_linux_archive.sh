@@ -409,6 +409,16 @@ for opt in --bin-dir --root; do
     elif [[ ! -e "$LONE/linux-values.json" ]]; then fail "$opt DIR alone removed a file in DIR"
     else pass "$opt DIR alone is usage (2), and a file in DIR is left"; fi
 done
+# An option that is the last argument has no value: usage (2), not an
+# unbound-variable death (1).
+for args in "--bin-dir" "--root" "--root $SANDBOX --bin-dir"; do
+    rc=0
+    # shellcheck disable=SC2086 # the words are the arguments
+    bash "$UNDER_TEST" $args >/dev/null 2>"$SANDBOX/err" || rc=$?
+    (( rc == 2 )) && grep -qF 'usage:' "$SANDBOX/err" \
+        && pass "'$args' with no value is usage (2)" \
+        || fail "'$args' with no value exited $rc, not 2" "$(cat "$SANDBOX/err")"
+done
 BADROOT="$SANDBOX/badroot"
 mkdir -p "$BADROOT"
 printf '[workspace\n' > "$BADROOT/Cargo.toml"
