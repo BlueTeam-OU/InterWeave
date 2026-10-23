@@ -101,7 +101,7 @@ fn own_lines(own: &OwnAddresses, json: bool) -> String {
     }
     let mut out = String::new();
     for row in &own.addresses {
-        let _ = writeln!(out, "{}", output::printable(&row.address));
+        let _ = writeln!(out, "{}", output::one_line(&row.address));
     }
     out
 }
@@ -178,7 +178,7 @@ pub(crate) async fn peers(
                     let _ = writeln!(
                         out,
                         "{}  {source}{}",
-                        output::printable(&row.address),
+                        output::one_line(&row.address),
                         if row.dialled {
                             ""
                         } else {
@@ -246,7 +246,7 @@ pub(crate) async fn identities(
                         if row.default { ", default" } else { "" },
                         leased.map_or_else(String::new, |kind| format!(
                             ", leased by {}",
-                            output::printable(&kind)
+                            output::one_line(&kind)
                         )),
                     );
                 }
@@ -340,6 +340,18 @@ mod tests {
             ],
             truncated: true,
         };
+        let hostile = OwnAddresses {
+            addresses: vec![at(
+                "/ip4/1.2.3.4/tcp/1\n/ip4/5.6.7.8/tcp/2",
+                OwnAddressKind::Listen,
+            )],
+            ..own.clone()
+        };
+        assert_eq!(
+            own_lines(&hostile, false).lines().count(),
+            1,
+            "one address, one line"
+        );
         let text = own_lines(&own, false);
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 2, "{text}");

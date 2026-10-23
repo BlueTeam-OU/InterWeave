@@ -172,10 +172,10 @@ pub(crate) enum Verb {
     ContactDelete(String),
     /// The bootstrap addresses: authored and added (ADR-0062).
     PeersList,
-    /// Add a peer by address, as the person typed it.
     /// This node's own addresses, as another node's `peers add` takes
     /// them (ADR-0062 decision 4).
     PeersShow,
+    /// Add a peer by address, as the person typed it.
     PeerAdd(String),
     /// Remove an added address.
     PeerRemove(String),

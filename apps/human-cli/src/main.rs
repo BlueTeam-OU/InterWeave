@@ -293,7 +293,7 @@ fn main() -> ExitCode {
         .and_then(|()| stdout.flush());
     match result {
         Err(failure) => {
-            eprintln!("interweave-human: {}", failure.message());
+            eprintln!("interweave-human: {}", output::one_line(failure.message()));
             ExitCode::from(failure.code())
         }
         Ok(()) if written.is_err() => ExitCode::from(1),

@@ -152,7 +152,7 @@ pub(crate) fn open_store_at(
                 Failure::Store(format!(
                     "the message store at {} cannot be read by this version and needs \
                      recovery; it was not renamed, moved or deleted (see store discard)",
-                    output::printable(&path.display().to_string())
+                    output::one_line(&path.display().to_string())
                 )),
             )
         } else if matches!(
@@ -166,8 +166,8 @@ pub(crate) fn open_store_at(
                 Failure::Store(format!(
                     "the message store at {} or its directory is not private to this user; \
                      refusing to use it: {}",
-                    output::printable(&path.display().to_string()),
-                    output::printable(&error.to_string())
+                    output::one_line(&path.display().to_string()),
+                    output::one_line(&error.to_string())
                 )),
             )
         } else {
@@ -175,8 +175,8 @@ pub(crate) fn open_store_at(
                 Blocked::Unavailable,
                 Failure::Store(format!(
                     "the message store at {} could not be opened now: {}",
-                    output::printable(&path.display().to_string()),
-                    output::printable(&error.to_string())
+                    output::one_line(&path.display().to_string()),
+                    output::one_line(&error.to_string())
                 )),
             )
         }

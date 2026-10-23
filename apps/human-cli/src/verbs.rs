@@ -760,7 +760,7 @@ fn event_line<B: DataSessionBinding, A: AdminBinding>(
     if let Some(map) = fields.as_object() {
         for value in map.values() {
             line.push(' ');
-            line.push_str(&output::printable(value.as_str().unwrap_or_default()));
+            line.push_str(&output::one_line(value.as_str().unwrap_or_default()));
         }
     }
     line.push('\n');

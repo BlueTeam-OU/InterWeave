@@ -57,7 +57,10 @@ pub(crate) const fn scope_token(scope: DiscardScope) -> &'static str {
 }
 
 fn unavailable(e: &StoreError) -> Failure {
-    Failure::Store(format!("the message store: {e}"))
+    Failure::Store(format!(
+        "the message store: {}",
+        output::one_line(&e.to_string())
+    ))
 }
 
 /// `store health`: the store opened -- which recreates nothing it does
@@ -91,10 +94,12 @@ pub(crate) fn health(paths: &ProfilePaths, cipher: &dyn KeyCipher, json: bool) -
         }
         Err((blocked, failure)) => (blocked.token(), None, Some(failure)),
     };
-    let (report, failure) = match (at_rest::inspect(paths, cipher), failure) {
-        (Ok(report), failure) => (Some(report), failure),
-        (Err(_), Some(failure)) => (None, Some(failure)),
-        (Err(e), None) => (None, Some(unavailable(&e))),
+    // A store that opened but whose files cannot then be looked at is
+    // reported unavailable, as its exit code says.
+    let (state, report, failure) = match (at_rest::inspect(paths, cipher), failure) {
+        (Ok(report), failure) => (state, Some(report), failure),
+        (Err(_), Some(failure)) => (state, None, Some(failure)),
+        (Err(e), None) => (Blocked::Unavailable.token(), None, Some(unavailable(&e))),
     };
     Outcome {
         out: health_lines(state, cipher.custody(), report.as_ref(), counts, json),
@@ -211,7 +216,8 @@ pub(crate) fn discard(
                 // failure may come before any file went, or after some.
                 other => Failure::Store(format!(
                     "the discard stopped: some of the files listed may have been removed, \
-                     and listing it again says which remain: {other}"
+                     and listing it again says which remain: {}",
+                    output::one_line(&other.to_string())
                 )),
             }),
         };
@@ -248,7 +254,7 @@ fn plan_lines(plan: &DiscardPlan, done: bool, recreated: bool, json: bool) -> St
     }
     let mut out = format!("discard     {}\n", scope_token(plan.scope()));
     for file in &files {
-        let _ = writeln!(out, "file        {}", output::printable(file));
+        let _ = writeln!(out, "file        {}", output::one_line(file));
     }
     let _ = writeln!(
         out,
@@ -300,8 +306,14 @@ mod tests {
     /// A profile's paths in an owner-only directory, its human directory
     /// made as the clients make it.
     fn profile() -> (tempfile::TempDir, ProfilePaths) {
+        profile_named(".tmp")
+    }
+
+    /// [`profile`] under a directory whose name starts with `prefix`.
+    fn profile_named(prefix: &str) -> (tempfile::TempDir, ProfilePaths) {
         use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
         let mut builder = tempfile::Builder::new();
+        builder.prefix(prefix);
         builder.permissions(std::fs::Permissions::from_mode(0o700));
         let dir = builder.tempdir().expect("tempdir");
         let paths = ProfilePaths::resolve_embedded(
@@ -387,6 +399,32 @@ mod tests {
             Value::Null,
             "no count of a store not open"
         );
+    }
+
+    #[test]
+    fn a_discard_plan_carries_a_path_escaped_in_json_and_on_one_line_in_text() {
+        let (_dir, paths) = profile_named("a\u{1b}]0;x\u{7}\nb");
+        with_one_unread(&paths);
+        std::fs::remove_file(store_key::key_path(&paths)).expect("the key file");
+        let Outcome { out, .. } = discard(&paths, &FilesystemCustody, None, true);
+        assert_eq!(out.matches('\n').count(), 1, "{out:?}");
+        let line: Value = serde_json::from_str(&out).expect("one JSON line");
+        let file = line["files"][0].as_str().expect("a file");
+        assert!(
+            file.contains("a\u{1b}]0;x\u{7}\nb"),
+            "the path itself, escaped: {file:?}"
+        );
+        let Outcome { out, .. } = discard(&paths, &FilesystemCustody, None, false);
+        let file_line = out.lines().find(|l| l.starts_with("file")).expect("{out}");
+        assert!(!file_line.contains(['\u{1b}', '\u{7}']), "{file_line:?}");
+        for line in out.lines() {
+            assert!(
+                ["discard ", "file ", "key ", "lost ", "kept "]
+                    .iter()
+                    .any(|label| line.starts_with(label)),
+                "the newline in the path split a line: {line:?} in {out:?}"
+            );
+        }
     }
 
     #[test]
