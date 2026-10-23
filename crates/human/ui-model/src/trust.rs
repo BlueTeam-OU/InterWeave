@@ -109,7 +109,8 @@ pub struct TrustSettings {
     rereading: bool,
     /// Whether the list kept is the daemon's word: not after a failed
     /// read, nor after a change that may have been made, until a read
-    /// succeeds ([`Self::confirmed_list`]).
+    /// started after it succeeds, or its own read-back comes
+    /// ([`Self::confirmed_list`]).
     held: Held,
     /// Each peer whose change's answer was lost, with the count of
     /// changes sent when it was: "pending" until a read that started
@@ -493,8 +494,10 @@ impl TrustSettings {
 
     /// The allowlist only while it is the daemon's word: `None` before
     /// the first read, after a read that failed, and after a change that
-    /// may have been made until a read succeeds. What holds the list as a
-    /// fact (decision 8's notice, a row's trust state) reads this.
+    /// may have been made until a read started after it succeeds, or its
+    /// own read-back comes (`a_read_speaks_only_for_what_was_sent_before_it_started`).
+    /// What holds the list as a fact (decision 8's notice, a row's trust
+    /// state) reads this.
     #[must_use]
     pub const fn confirmed_list(&self) -> Option<&TrustList> {
         match self.held {
