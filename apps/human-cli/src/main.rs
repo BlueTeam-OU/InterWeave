@@ -136,7 +136,10 @@ fn facade(
     match interweave_human_app_core::identity_key(&profile.paths, &profile.endpoints) {
         Ok(Some(key)) => facade.set_identity_key(key),
         Ok(None) => {}
-        Err(e) => eprintln!("interweave-human: the identity's key is not usable: {e}"),
+        Err(e) => eprintln!(
+            "interweave-human: the identity's key is not usable: {}",
+            output::one_line(&e.to_string())
+        ),
     }
     Ok(facade)
 }
@@ -259,7 +262,11 @@ fn main() -> ExitCode {
     let command = match cli::parse(std::env::args().skip(1)) {
         Ok(command) => command,
         Err(message) => {
-            eprintln!("interweave-human: {message}\n{}", cli::USAGE);
+            eprintln!(
+                "interweave-human: {}\n{}",
+                output::one_line(&message),
+                cli::USAGE
+            );
             return ExitCode::from(2);
         }
     };

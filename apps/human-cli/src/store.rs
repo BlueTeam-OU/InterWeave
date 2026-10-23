@@ -237,7 +237,7 @@ pub(crate) fn discard(
 /// What a discard removes and what it loses, as ADR-0060 has the clients
 /// list it before doing it.
 fn plan_lines(plan: &DiscardPlan, done: bool, recreated: bool, json: bool) -> String {
-    // Raw into JSON, which escapes every control; printable for a terminal.
+    // Raw into JSON, which escapes every control; one_line for a terminal.
     let files: Vec<String> = plan
         .files()
         .iter()
