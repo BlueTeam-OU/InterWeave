@@ -59,6 +59,8 @@ pub(crate) struct Script {
     /// Whether the port's trust rows say they persist: false is a
     /// store-less runtime, which is never served over IPC.
     pub(crate) unpersisted: bool,
+    /// When set, `add_address` refuses with it rather than adding.
+    pub(crate) add_refused: Option<interweave_local_client_api::AddressRefusal>,
     /// When set, `shutdown` stops the server with it before answering,
     /// as the daemon's port does through its owner.
     pub(crate) stop_on_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
@@ -350,7 +352,14 @@ impl AdminPort for FakeAdmin {
         address: String,
     ) -> Result<interweave_local_client_api::AddressChange, TransportError> {
         self.fake.call(format!("add_address {address}"));
-        Ok(interweave_local_client_api::AddressChange::Added)
+        let refused = self.fake.script().add_refused;
+        Ok(match refused {
+            Some(reason) => interweave_local_client_api::AddressChange::Refused {
+                reason,
+                detail: "scripted".to_owned(),
+            },
+            None => interweave_local_client_api::AddressChange::Added,
+        })
     }
 
     async fn remove_bootstrap_address(
