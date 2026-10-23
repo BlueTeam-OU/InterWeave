@@ -2463,3 +2463,40 @@ fn a_row_focus_asked_before_a_read_lands_on_what_is_drawn() {
     assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
     assert!(m.peers().focus_row_gone());
 }
+
+/// A removal left unknown is read again when its snackbar goes; a read
+/// that lacks the row decides it as Remove done -- the snackbar with
+/// Undo, focus on the row after the removed one, else the one before,
+/// else Add an address (§5.7, §8) -- and nothing says a row was gone.
+#[test]
+fn a_removal_unknown_read_again_without_its_row_is_as_remove_done() {
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    // Added rows show newest first: C, B, A.
+    let mut m = opened(&me, &[], &[added(&a), added(&b), added(&c)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(
+        &at(&b),
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveUnknown { address: at(&b) })
+    );
+    let _ = input(&mut m, PeersInput::SnackClosed);
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Ok(list(&[added(&a), added(&c)])));
+    assert!(
+        matches!(
+            m.peers().snack().0,
+            Some(PeersSnack::Removed { address, undo: true, .. }) if *address == at(&b)
+        ),
+        "{:?}",
+        m.peers().snack().0
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
+    assert!(!m.peers().focus_row_gone());
+}
