@@ -3,9 +3,9 @@
 
 This takes a Linux account that has nothing of InterWeave on it to a Claude Code session whose InterWeave channel is registered. It covers the transport daemon, the profile, its trust, and the plugin.
 
-**Run every step as the account that will run Claude Code.** The bridge reads the profile's configuration and connects to the daemon's socket. Both live under that account's own home and runtime directory. Nothing is installed system-wide, and no step needs root.
+**Run every step but step 7 as the account that will run Claude Code.** The bridge reads the profile's configuration and connects to the daemon's socket. Both live under that account's own home and runtime directory. Step 7 is the one setting that is host-wide: an administrator writes it as root, once per host. Nothing else is installed system-wide.
 
-What the plugin's steps rest on is measured in SPIKE-001's S19, S20 and S21 ([`spikes/spike-001/README.md`](../../spikes/spike-001/README.md)); the daemon's are `packaging/linux/README.md`'s. What a production host still lacks is in [What this does not give you](#what-this-does-not-give-you).
+What the plugin's steps rest on is measured in SPIKE-001's S19, S20, S21 and S22 ([`spikes/spike-001/README.md`](../../spikes/spike-001/README.md)); the daemon's are `packaging/linux/README.md`'s. What a production host still lacks is in [What this does not give you](#what-this-does-not-give-you).
 
 ## 0. Before you start
 
@@ -108,18 +108,45 @@ claude plugin list
 
 The copy under `~/.local/share/interweave/claude-plugin` is what Claude Code runs: with a marketplace added from a directory, the plugin runs from that directory, not from a copy of its own (SPIKE-001 S20). Do not delete it. To upgrade, replace it with the newer archive's `claude-plugin/` and start a new session.
 
-## 7. Start a session with the channel
+## 7. Allow the channel for the organisation
+
+Claude Code registers a channel without its development flag only when the channel's plugin is on an approved list. For this plugin, that list is the organisation's own, in Claude Code's managed settings on the host. An administrator writes it, as root, to `/etc/claude-code/managed-settings.d/interweave.json`:
+
+```json
+{
+  "channelsEnabled": true,
+  "allowedChannelPlugins": [
+    { "plugin": "interweave", "marketplace": "interweave" }
+  ]
+}
+```
+
+The file must be readable by the account that runs Claude Code. Claude Code reads `/etc/claude-code/managed-settings.json` and every `*.json` in `/etc/claude-code/managed-settings.d/`. No environment variable moves that path (SPIKE-001 S22, fact 29).
+
+- **The file applies to every account on the host.** Once `allowedChannelPlugins` is set, it replaces Anthropic's allowlist: a channel plugin it does not name is refused for every account (fact 31). If the host's managed settings already set `allowedChannelPlugins`, add this pair to that list. How two files' lists combine was not measured.
+- **Keep both keys.** On a claude.ai Team or Enterprise subscription, or a login that is not claude.ai, Claude Code refuses every channel unless `channelsEnabled` is `true`. On other claude.ai subscriptions it does not read `channelsEnabled`, and the list alone decides (fact 32).
+- Server-managed settings and MDM policy rank above this file. Neither was measured (fact 29).
+
+## 8. Start a session with the channel
+
+```sh
+claude --channels plugin:interweave@interweave
+```
+
+No warning screen is shown (fact 30). Then:
+
+- in the session, the bridge's `status` tool reports this profile's PeerId, the endpoint and a lease epoch;
+- with `--debug-file <path>`, the debug log has `MCP server "plugin:interweave:interweave": Channel notifications registered`.
+
+Without step 7, the debug log has `Channel notifications skipped: plugin interweave@interweave is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)`, and the session has no channel (fact 33). With an `allowedChannelPlugins` that does not name the plugin, the log says it `is not on your org's approved channels list` (fact 31).
+
+On a host without step 7, the development flag still registers the channel, for one account and with a person at the terminal:
 
 ```sh
 claude --dangerously-load-development-channels plugin:interweave@interweave
 ```
 
-Claude Code shows "WARNING: Loading development channels", naming `plugin:interweave@interweave`. Choose "1. I am using this for local development". Then:
-
-- in the session, the bridge's `status` tool reports this profile's PeerId, the endpoint and a lease epoch;
-- with `--debug-file <path>`, the debug log has `MCP server "plugin:interweave:interweave": Channel notifications registered`.
-
-`--channels plugin:interweave@interweave` without the development flag is refused: the plugin is not on Claude Code's approved channels allowlist (SPIKE-001 S19). The flag is how this plugin is used today.
+Claude Code then shows "WARNING: Loading development channels", naming `plugin:interweave@interweave`. Choose "1. I am using this for local development" (SPIKE-001 S19).
 
 ## Removing it
 
@@ -130,12 +157,12 @@ systemctl --user disable --now interweave-daemon@claude
 ./uninstall.sh                     # from the unpacked archive; keeps every profile
 ```
 
-`uninstall.sh` leaves the profile, its key and its state under `~/.config/interweave` and `~/.local/share/interweave`. Remove them yourself if the profile is to go too.
+`uninstall.sh` leaves the profile, its key and its state under `~/.config/interweave` and `~/.local/share/interweave`. Remove them yourself if the profile is to go too. Step 7's file stays too: an administrator removes `/etc/claude-code/managed-settings.d/interweave.json` once no account on the host uses the channel.
 
 ## What this does not give you
 
-- **A channel without the development flag.** `--channels` needs the plugin on Anthropic's remotely served allowlist, or an organisation's `allowedChannelPlugins` with `channelsEnabled: true`. Both are read from the 2.1.286 binary, not measured (SPIKE-001 fact 23), and neither is asked for or tried.
-- **A headless session.** Channel events reach the model only in an interactive session (SPIKE-001 fact 4), and the development warning is answered by a person.
+- **A channel without the development flag and without the organisation's setting.** The plugin is not on Anthropic's remotely served allowlist, and that has not been asked for. Without step 7, `--channels` is refused (SPIKE-001 S22, fact 33). Step 7 is measured with the file presented to one session at its path, not with a file in a host's own `/etc`, and its `channelsEnabled` refusal is not measured (facts 29 and 32).
+- **A headless session.** Channel events reach the model only in an interactive session (SPIKE-001 fact 4). With step 7 no warning screen is shown, but the session is still an interactive one; with the development flag instead, a person answers its warning.
 - **A channel after a bad start.** Claude Code starts the bridge once per session (SPIKE-001 fact 19). Once it runs, daemon trouble is a state: a daemon that is away, restarting, or holding the endpoint for another session is retried with a backoff up to 30 s. A wrong start is not retried: `XDG_RUNTIME_DIR` unset, a profile name that is not valid, or a `profile` or `endpoint` setting that is not valid (step 6) gives a session with no channel, whose `status` says `bridge refused` and why. Fix the cause and start a new session. A session started outside a login, from `cron` or `su` for example, has no `XDG_RUNTIME_DIR` unless the caller sets it.
 - **More than one session per endpoint.** The endpoint takes one lease. A second session on the same account and profile gets "endpoint refused" from its bridge's `status` and keeps retrying. It never takes another endpoint. Run one profile, or one endpoint, per session.
 - **Logs of the bridge's own.** The bridge writes its few lines to stderr. It has no log file and no log level. Claude Code keeps those lines as `Server stderr:` entries in `~/.cache/claude-cli-nodejs/<working directory>/mcp-logs-plugin-interweave-interweave/<timestamp>.jsonl`, one file per server start, which is where to look when the channel is not there (SPIKE-001 S21). Its lines carry no message content and no peer or endpoint identifier. The daemon logs to the account's journal (`journalctl --user -u interweave-daemon@<profile>`), at the profile's `observability.log_level`, and never logs a payload.
