@@ -801,3 +801,94 @@ fn an_unknown_add_retried_without_a_write_is_said_again() {
     assert!(!note.is_empty());
     assert!(after.0 == note || after.1 == note, "{after:?} / {note}");
 }
+
+/// On Peers a trust step's outcome is its block's to say: a Trust whose
+/// answer was lost and not read back, pressed again and failing before
+/// it was sent, leaves the block unknown, focus on its line -- and the
+/// trust settings' "nothing was changed", which is not known, is neither
+/// announced nor left for the Trust page (design sections 5.7 and 8).
+#[test]
+fn a_pending_trust_retried_without_a_write_says_no_nothing_changed() {
+    use interweave_human_client_api::{TrustProblem, TrustSetFailure};
+    use interweave_human_ui_model::{BlockProblem, PeersInput};
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    let _ = model.peers_input(PeersInput::FieldChanged(at(&a)));
+    let _ = model.peers_input(PeersInput::Add);
+    model.addresses_added(
+        &[at(&a)],
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            list: Ok(AddressList {
+                addresses: vec![added(&a)],
+            }),
+        }),
+    );
+    let _ = model.peers_turn();
+    view.render(&model);
+    let change = TrustChange {
+        peer: a.clone(),
+        allowed: true,
+    };
+    let _ = model.peers_input(PeersInput::Trust(a.clone()));
+    model.trust_settings_mut().set(
+        change.clone(),
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    );
+    let _ = model.peers_turn();
+    view.render(&model);
+    assert_eq!(
+        model.trust_settings_mut().take_reread(),
+        Some(Intent::ReadTrust)
+    );
+    model
+        .trust_settings_mut()
+        .read(Err(TrustProblem::Unavailable));
+    let _ = model.peers_turn();
+    view.render(&model);
+    assert_eq!(
+        intents(&mut view, &mut model),
+        Vec::<Intent>::new(),
+        "settled"
+    );
+    let _ = model.peers_input(PeersInput::Trust(a.clone()));
+    model.trust_settings_mut().set(
+        change,
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    let _ = model.peers_turn();
+    view.render(&model);
+    for _ in 0..2 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    }
+    view.render(&model);
+    let block = view.window().get_trust_blocks().row_data(0).expect("a");
+    assert_eq!(
+        model
+            .peers()
+            .blocks(model.trust_settings())
+            .first()
+            .and_then(|b| b.problem),
+        Some(BlockProblem::Unknown)
+    );
+    let not_written = placeholder_en::trust_problem(RuntimeHost::Daemon, TrustProblem::Unavailable);
+    for slot in [
+        view.window().get_announcement_a().to_string(),
+        view.window().get_announcement_b().to_string(),
+    ] {
+        assert!(!slot.contains(not_written), "{slot:?}");
+    }
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("block-problem:{}", block.handle)
+    );
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::TrustHeading));
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(view.window().get_trust_outcome().as_str(), "");
+}

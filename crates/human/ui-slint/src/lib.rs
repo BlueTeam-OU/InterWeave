@@ -739,6 +739,12 @@ pub struct View {
     focus_wanted: Rc<RefCell<Option<String>>>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
+    /// The page on show when the trust settings' latest outcome came. On
+    /// Peers a trust step's outcome is its block's to say: it is neither
+    /// announced nor left for the Trust page, where a retry's "nothing
+    /// was changed" would be false while the block's earlier Trust is
+    /// unknown (`a_pending_trust_retried_without_a_write_says_no_nothing_changed`).
+    trust_outcome_on: Page,
     /// Peers' lists and what of its requests the view carried out.
     peer_lists: peers::PeerLists,
     /// Where the runtime runs, which the texts that name it follow.
@@ -1008,6 +1014,7 @@ impl View {
             removing: None,
             focus_wanted: Rc::new(RefCell::new(None)),
             trust_announced: 0,
+            trust_outcome_on: Page::Conversation,
             peer_lists,
             host,
             shared,
@@ -2186,7 +2193,11 @@ impl View {
         window.set_has_pending(pending.is_some());
         window.set_pending_text(pending.unwrap_or_default().into());
         let (outcome, count) = settings.outcome();
+        if count != self.trust_announced {
+            self.trust_outcome_on = self.page;
+        }
         let said = outcome
+            .filter(|_| self.trust_outcome_on != Page::Peers)
             .map(|outcome| outcome_text(self.host, outcome))
             .unwrap_or_default();
         // The entry's problem goes under its field; every other outcome
