@@ -356,10 +356,18 @@ else
     fi
 fi
 
-refused "a version that is not MAJOR.MINOR.PATCH" "not MAJOR.MINOR.PATCH" 0.3 "$OUT"
+# The version rule is release_tag.sh's (ADR-0065), asked of v<version>:
+# its grammar refuses the first three, and a well-formed version that is
+# not the workspace's is refused for that, not for its shape -- the
+# pre-release one is what MAJOR.MINOR.PATCH alone refused as a shape.
+GRAMMAR="is not v<MAJOR>.<MINOR>.<PATCH>[-<pre-release>]"
+refused "a version that is not MAJOR.MINOR.PATCH" "$GRAMMAR" 0.3 "$OUT"
+refused "a version with build metadata" "$GRAMMAR" "$V+build.1" "$OUT"
+refused "a pre-release identifier with a leading zero" "$GRAMMAR" "$V-01" "$OUT"
 OTHER=99.0.0
 [[ "$OTHER" != "$V" ]] || OTHER=98.0.0
-refused "a version that is not the workspace's" "the release version $OTHER is not the workspace version $V" "$OTHER" "$OUT"
+refused "a version that is not the workspace's" "tag v$OTHER is not the workspace version $V" "$OTHER" "$OUT"
+refused "a pre-release that is not the workspace's" "tag v$V-rc.1 is not the workspace version $V" "$V-rc.1" "$OUT"
 mv "$BIN/human-desktop" "$BIN/human-desktop.gone"
 refused "a missing program" "no executable $BIN/human-desktop" "$V" "$OUT"
 mv "$BIN/human-desktop.gone" "$BIN/human-desktop"

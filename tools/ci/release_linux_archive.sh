@@ -40,9 +40,12 @@
 # SOURCE_DATE_EPOCH (default: the commit time of HEAD), gzip without a
 # name or time.
 #
-# REFUSED when <version> is not MAJOR.MINOR.PATCH, or a program, a unit
-# or a script is missing, or build.sh refuses the plugin (<version> not
-# the workspace's among its reasons). On any failure once <version> is checked, a
+# REFUSED when <version> is not a Semantic Versioning 2.0.0 version
+# without build metadata (MAJOR.MINOR.PATCH[-pre-release], ADR-0065), or
+# is not the workspace version -- both release_tag.sh's rule, asked of
+# `v<version>` with --manifest, the tag job having asked cargo already --
+# or a program, a unit or a script is missing, or build.sh refuses the
+# plugin. On any failure once <version> is checked, a
 # refusal or a step after the checks, none of the three outputs is left
 # in <out-dir>: all three are written in scratch and moved together at
 # the end, and a failure removes every one of their names from <out-dir>,
@@ -51,7 +54,7 @@
 # Exit codes:
 #   0  written; the archive's SHA-256 is printed
 #   1  a refusal above, or a build step failed
-#   2  usage
+#   2  usage, or release_tag.sh could not read the root manifest
 # <<< help
 
 set -euo pipefail
@@ -84,8 +87,16 @@ case "${1-}" in
 esac
 [[ $# -eq 2 ]] || usage
 version="$1" out_dir="$2"
-[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
-    || die "version '$version' is not MAJOR.MINOR.PATCH"
+# One rule for the version, the release run's own (ADR-0065 decisions 5
+# and 6): its exit 1 is a refusal, its 2 a manifest it could not read.
+rc=0
+checked="$(bash "$here/release_tag.sh" "v$version" --root "$root" --manifest 2>&1)" || rc=$?
+if (( rc == 1 )); then
+    die "${checked#::error::}"
+elif (( rc != 0 )); then
+    echo "release_linux_archive: ${checked#::error::}" >&2
+    exit 2
+fi
 
 name="interweave-$version-$target"
 archive="$name.tar.gz"
