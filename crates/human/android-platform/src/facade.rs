@@ -30,11 +30,19 @@ const POLL: Duration = Duration::from_millis(100);
 /// view that attaches late needs beside the store's rows.
 fn snapshot<B: DataSessionBinding, A: AdminBinding>(side: &FacadeSide<B, A>) -> Vec<Update> {
     let client = side.client();
-    let mut now = vec![
+    // This node's PeerId, which a Ready brings and the late view missed:
+    // Peers reads this device's own row by it (design section 5.2).
+    let mut now: Vec<Update> = client
+        .local_peer()
+        .cloned()
+        .map(Update::ThisDevice)
+        .into_iter()
+        .collect();
+    now.extend([
         Update::Client(ClientEvent::Session(client.session_state().clone())),
         Update::Client(ClientEvent::Connectivity(client.connectivity())),
         Update::Diagnostics(client.diagnostics()),
-    ];
+    ]);
     now.extend(side.outbound_now());
     now
 }
