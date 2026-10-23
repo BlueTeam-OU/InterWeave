@@ -4093,3 +4093,61 @@ fn a_removal_try_again_after_a_failed_read_is_told_against_its_removals_list() {
     );
     assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
 }
+
+/// Two removals left unknown in turn, then the first removed again and
+/// that write answered as writing nothing: still unknown, never "still in
+/// the list", since its first removal may have landed -- each change left
+/// unknown stays so until a read shows it or an answer decides it, not
+/// only the latest (§5.7). A read that succeeds decides them all.
+#[test]
+fn every_removal_left_unknown_stays_unknown_until_decided() {
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    let rows = [added(&a), added(&b), added(&c)];
+    let lost = |m: &mut UiModel, p: &TransportIdentity| {
+        assert_eq!(
+            input(m, PeersInput::Remove(at(p))),
+            vec![Intent::RemoveAddress(at(p))]
+        );
+        m.address_removed(
+            &at(p),
+            Err(AddressChangeFailure::Unconfirmed(
+                AddressProblem::Unavailable,
+            )),
+        );
+        assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+        m.addresses_read(Err(AddressProblem::Unavailable));
+        assert_eq!(
+            m.peers().snack().0,
+            Some(&PeersSnack::RemoveUnknown { address: at(p) })
+        );
+    };
+    let mut m = opened(&me, &[], &rows);
+    // A failed read back keeps the list as last read on show, so B's row
+    // is there to remove.
+    lost(&mut m, &a);
+    lost(&mut m, &b);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(
+        &at(&a),
+        Err(AddressChangeFailure::NotMade(AddressProblem::Internal)),
+    );
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveUnknown { address: at(&a) }),
+        "A's first removal may have landed"
+    );
+
+    // A read that succeeds decides both: a later write of A that writes
+    // nothing is then not made.
+    m.addresses_read(Ok(list(&rows)));
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(
+        &at(&a),
+        Err(AddressChangeFailure::NotMade(AddressProblem::Internal)),
+    );
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveFailed { address: at(&a) }),
+        "decided by the read"
+    );
+}

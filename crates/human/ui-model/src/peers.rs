@@ -655,6 +655,14 @@ pub struct Peers {
     /// for it only where its line still holds its place
     /// ([`Self::read_decides`]).
     unknown_change: Option<Check>,
+    /// Every removal and Undo left unknown and not yet decided, oldest
+    /// first, one per address: each stays unknown until a read shows it
+    /// or an answer for it decides it, whichever line is on show (§5.7),
+    /// so a retry of an earlier one that writes nothing is still unknown,
+    /// never "still in the list"
+    /// (`every_removal_left_unknown_stays_unknown_until_decided`). At most
+    /// [`PLACES_BOUND`], the oldest going first.
+    pending: Vec<Check>,
     /// The focus requests counted when the unknown line was said: a
     /// request since is a later act's, whose focus a
     /// verdict on the earlier change never takes
@@ -683,6 +691,14 @@ pub fn lines_of(text: &str) -> Vec<String> {
 fn names_dns(line: &str) -> bool {
     line.split('/')
         .any(|c| matches!(c, "dns" | "dns4" | "dns6" | "dnsaddr"))
+}
+
+/// The address a removal or Undo is of; an add has none.
+fn pending_address(check: &Check) -> Option<&str> {
+    match check {
+        Check::Remove { address, .. } | Check::Undo(address) => Some(address),
+        Check::Add(_) => None,
+    }
 }
 
 /// The add page's refusal for the runtime's, or `None` for a removal's
@@ -1288,24 +1304,57 @@ impl Peers {
         }
     }
 
-    /// Whether this address's removal or Undo was left unknown: a retry
-    /// of it that writes nothing leaves it so.
+    /// Whether this address's removal or Undo was left unknown and is
+    /// not decided yet: a retry of it that writes nothing leaves it so.
     fn still_unknown(&self, address: &str) -> bool {
-        matches!(
-            &self.unknown_change,
-            Some(Check::Remove { address: a, .. } | Check::Undo(a)) if a == address
-        )
+        self.pending
+            .iter()
+            .any(|c| pending_address(c) == Some(address))
+    }
+
+    /// An address's removal or Undo left unknown, kept until decided.
+    fn pend(&mut self, check: Check) {
+        let Some(address) = pending_address(&check).map(str::to_owned) else {
+            return;
+        };
+        self.pending
+            .retain(|c| pending_address(c) != Some(address.as_str()));
+        self.pending.push(check);
+        if self.pending.len() > PLACES_BOUND {
+            self.pending.remove(0);
+        }
+    }
+
+    /// This address's unknown change decided, by its answer.
+    fn settle_pending(&mut self, address: &str) {
+        self.pending.retain(|c| pending_address(c) != Some(address));
+        if self
+            .unknown_change
+            .as_ref()
+            .is_some_and(|c| pending_address(c) == Some(address))
+        {
+            self.unknown_change = None;
+        }
     }
 
     /// A retry of an unknown change that wrote nothing: its unknown line
-    /// is said again -- the snackbar shown anew if it had closed -- read to
-    /// the screen reader once more, focus on its Try again (§5.7, §8).
-    fn still_unknown_again(&mut self) {
-        match self.unknown_change.clone() {
-            Some(Check::Undo(address)) => self.say(PeersSnack::UndoUnknown { address }),
-            Some(Check::Remove { address, .. }) => self.say(PeersSnack::RemoveUnknown { address }),
+    /// is said again -- the snackbar shown anew if it had closed or another
+    /// had taken its place -- read to the screen reader once more, focus on
+    /// its Try again (§5.7, §8).
+    fn still_unknown_again(&mut self, address: &str) {
+        let change = self
+            .pending
+            .iter()
+            .find(|c| pending_address(c) == Some(address))
+            .cloned();
+        match &change {
+            Some(Check::Undo(a)) => self.say(PeersSnack::UndoUnknown { address: a.clone() }),
+            Some(Check::Remove { address: a, .. }) => {
+                self.say(PeersSnack::RemoveUnknown { address: a.clone() });
+            }
             Some(Check::Add(_)) | None => {}
         }
+        self.unknown_change = change;
         self.ask_focus(PeersFocus::SnackAction);
         self.unknown_mark = self.focuses;
     }
@@ -1335,6 +1384,10 @@ impl Peers {
                 self.set_list(list);
                 self.list_problem = None;
                 self.held = Held::AsRead;
+                // A read shows every change left unknown (§5.7): none is
+                // pending after it, its verdict said where its line is
+                // (`read_decides`).
+                self.pending.clear();
                 if again == Some(Again::List) {
                     self.ask_focus(PeersFocus::Title);
                 }
@@ -1431,9 +1484,7 @@ impl Peers {
         match answer {
             Ok(answer) => {
                 // An answer decides it: nothing is unknown about it now.
-                if self.still_unknown(address) {
-                    self.unknown_change = None;
-                }
+                self.settle_pending(address);
                 self.take_list(answer.list);
                 match answer.outcome {
                     AddressOutcome::Removed | AddressOutcome::Unchanged => {
@@ -1450,7 +1501,7 @@ impl Peers {
                 Some(b) => self.bar(b),
                 // A Try again that wrote nothing settles nothing: after an
                 // unknown removal the change stays unknown (§5.7).
-                None if self.still_unknown(address) => self.still_unknown_again(),
+                None if self.still_unknown(address) => self.still_unknown_again(address),
                 None => self.remove_failed(address),
             },
             Err(AddressChangeFailure::Unconfirmed(_)) => {
@@ -1659,9 +1710,7 @@ impl Peers {
     ) {
         match answer {
             Ok(answer) => {
-                if self.still_unknown(&address) {
-                    self.unknown_change = None;
-                }
+                self.settle_pending(&address);
                 self.take_list(answer.list);
                 match answer.outcome {
                     AddressOutcome::Added { .. } | AddressOutcome::Unchanged => {
@@ -1688,7 +1737,7 @@ impl Peers {
                     self.bar(b);
                 } else if self.still_unknown(&address) {
                     // As for a removal: an unknown Undo stays unknown.
-                    self.still_unknown_again();
+                    self.still_unknown_again(&address);
                 } else {
                     let snack = PeersSnack::UndoFailed {
                         address: address.clone(),
@@ -1811,15 +1860,18 @@ impl Peers {
             // row menu that opened it may be gone (§8).
             Check::Undo(address) => {
                 self.unknown_change = Some(Check::Undo(address.clone()));
+                self.pend(Check::Undo(address.clone()));
                 self.say(PeersSnack::UndoUnknown { address });
                 self.ask_focus(PeersFocus::SnackAction);
                 self.unknown_mark = self.focuses;
             }
             Check::Remove { address, before } => {
-                self.unknown_change = Some(Check::Remove {
+                let check = Check::Remove {
                     address: address.clone(),
                     before,
-                });
+                };
+                self.unknown_change = Some(check.clone());
+                self.pend(check);
                 self.say(PeersSnack::RemoveUnknown { address });
                 self.ask_focus(PeersFocus::SnackAction);
                 self.unknown_mark = self.focuses;
@@ -1918,6 +1970,13 @@ impl Peers {
         if not_made {
             self.unknown_change = None;
         }
+        // The same for every other change left unknown: a list showing it
+        // not made decides it.
+        self.pending.retain(|c| match c {
+            Check::Remove { address, .. } => !listed(list, address),
+            Check::Undo(address) => listed(list, address),
+            Check::Add(_) => true,
+        });
         let missing = self
             .page
             .as_ref()
@@ -2489,6 +2548,34 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    /// Changes left unknown with no read between keep at most
+    /// `PLACES_BOUND` pending, the oldest going first and the latest
+    /// kept; one address is pending once, its latest change.
+    #[test]
+    fn pending_changes_never_pass_their_bound() {
+        let mut peers = Peers::default();
+        let address = |n: usize| format!("/ip4/10.0.0.1/tcp/{n}");
+        for n in 0..PLACES_BOUND + 10 {
+            peers.pend(Check::Undo(address(n)));
+            assert!(peers.pending.len() <= PLACES_BOUND, "after {n}");
+        }
+        assert!(!peers.still_unknown(&address(0)), "the oldest went");
+        assert!(
+            peers.still_unknown(&address(PLACES_BOUND + 9)),
+            "the latest kept"
+        );
+        peers.pend(Check::Undo(address(PLACES_BOUND + 9)));
+        assert_eq!(
+            peers
+                .pending
+                .iter()
+                .filter(|c| pending_address(c) == Some(address(PLACES_BOUND + 9).as_str()))
+                .count(),
+            1,
+            "once per address"
+        );
     }
 
     /// Reads that each drop every row keep the places of at most
