@@ -570,6 +570,9 @@ pub struct Peers {
     /// the step reads the set itself (§5.2, §5.3), as a row's does, once
     /// nothing else is asked ([`Self::take_trust_read`]).
     trust_read_owed: bool,
+    /// Bumped when the trust line's Try again failed with the line still
+    /// on show: said again, its words perhaps unchanged (§8).
+    trust_line_said: u64,
     /// A change may have reached the runtime since the list was last
     /// read: its rows stay on show as last read (§5.7), but its
     /// emptiness is no fact until a read succeeds.
@@ -1763,6 +1766,7 @@ impl Peers {
                 match self.trust_line(trust) {
                     None => self.ask_focus(PeersFocus::Title),
                     Some(TrustLine::Unread { retry: true }) => {
+                        self.trust_line_said = self.trust_line_said.wrapping_add(1);
                         self.ask_focus(PeersFocus::TrustRetry);
                     }
                     Some(_) => self.ask_focus(PeersFocus::TrustLine),
@@ -2101,6 +2105,13 @@ impl Peers {
                 })
                 .collect()
         })
+    }
+
+    /// A count that changes each time the trust line's Try again failed
+    /// with the line still on show, for a view to say the line again.
+    #[must_use]
+    pub const fn trust_line_said(&self) -> u64 {
+        self.trust_line_said
     }
 
     /// Whether an add, a removal or the check of a lost answer is on its
