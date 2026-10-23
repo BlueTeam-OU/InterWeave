@@ -912,11 +912,17 @@ impl Peers {
         // An add left unknown speaks for the lines it sent: an edit away
         // from them is the person's own later act, so no read decides the
         // earlier add over it -- clearing the edit or moving the page on
-        // (§5.7, "the field kept"); Peers' next read shows a stored
-        // address as a row
+        // (§5.7, "the field kept") -- and its note, about lines the field
+        // no longer shows, goes with it, unannounced, focus kept in the
+        // field; editing back does not restore it, the claim having ended
+        // (ux-designer-01, REPLY 01a1694a). Peers' next read shows a
+        // stored address as a row
         // (`an_unknown_add_decided_after_the_field_was_edited_keeps_the_edit`).
         if page.unknown.as_ref().is_some_and(|sent| *sent != lines) {
             page.unknown = None;
+            if matches!(page.note, Some(AddNote::Unknown { .. })) {
+                page.note = None;
+            }
         }
         page.field = text;
     }

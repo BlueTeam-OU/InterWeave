@@ -3807,7 +3807,8 @@ fn an_undo_refused_focus_is_placed_not_acted_on() {
 /// An add left unknown, then the field edited to other text not yet
 /// sent: a later read that shows the earlier add made decides nothing
 /// over the edit -- the field, its page at step one and its focus stand --
-/// since the unknown line no longer speaks for what is in the field. The
+/// since the unknown line no longer speaks for what is in the field, and
+/// its note goes with the edit (ux-designer-01, REPLY 01a1694a). The
 /// control: the field left as sent is decided as before.
 #[test]
 fn an_unknown_add_decided_after_the_field_was_edited_keeps_the_edit() {
@@ -3835,6 +3836,17 @@ fn an_unknown_add_decided_after_the_field_was_edited_keeps_the_edit() {
     for edited in [true, false] {
         let mut m = start();
         if edited {
+            let focused = focus(&m);
+            let _ = input(&mut m, PeersInput::FieldChanged(at(&other)));
+            assert_eq!(
+                m.peers().add_page_note(),
+                None,
+                "the note goes with the edit"
+            );
+            assert_eq!(focus(&m), focused, "focus stays");
+            // Back to the same lines: the claim has ended, the note stays gone.
+            let _ = input(&mut m, PeersInput::FieldChanged(line.clone()));
+            assert_eq!(m.peers().add_page_note(), None, "not restored");
             let _ = input(&mut m, PeersInput::FieldChanged(at(&other)));
         }
         m.addresses_read(Ok(list(&[added(&them)])));
