@@ -470,6 +470,19 @@ impl View {
         );
         let keys: Vec<String> = rows.iter().map(|r| r.address.clone()).collect();
         self.peer_lists.row_handles.retain(&keys);
+        // A row's menu is open only while its row is drawn: a read that
+        // dropped the row, wherever focus is, takes its menu with it, or
+        // Back would close a menu no one sees
+        // (`a_row_menu_whose_row_a_read_drops_goes_with_it`).
+        if window.get_peer_menu() >= 0
+            && self
+                .peer_lists
+                .row_handles
+                .key_of(window.get_peer_menu())
+                .is_none()
+        {
+            window.set_peer_menu(-1);
+        }
         let drawn: Vec<PeerAddressRow> = rows
             .iter()
             .map(|r| {
@@ -535,10 +548,10 @@ impl View {
         let window = &self.window;
         let host = self.host;
         window.set_peers_add_open(peers.add_open());
-        // A row's menu is open only while its row is drawn: the page that
-        // covers the list closes it, whatever opened the page, or Back
-        // would close a menu no one sees and leave the page open (design
-        // section 5.3; `a_row_menu_open_under_the_add_page_leaves_back_to_the_page`).
+        // The page that covers the list closes a row's menu too, whatever
+        // opened the page, or Back would close a menu no one sees and
+        // leave the page open (design section 5.3;
+        // `a_row_menu_open_under_the_add_page_leaves_back_to_the_page`).
         if peers.add_open() {
             window.set_peer_menu(-1);
         }

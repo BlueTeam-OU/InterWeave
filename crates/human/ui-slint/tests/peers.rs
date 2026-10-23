@@ -2094,3 +2094,35 @@ fn row_menu_under_a_page(under: Under, close: Close) {
     };
     assert_eq!(view.window().get_focus_id().as_str(), wanted);
 }
+
+/// A row's menu open while focus is on another row, and a read drops the
+/// menu's row: the menu goes with it, so Back is not spent closing a menu
+/// no one sees, and focus stays where the person put it.
+#[test]
+fn a_row_menu_whose_row_a_read_drops_goes_with_it() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b) = (peer(), peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a), added(&b)]);
+    settle_view(&mut view, &mut model);
+    let (a_handle, b_handle) = (row_handle(&view, &at(&a)), row_handle(&view, &at(&b)));
+    view.window().set_peer_menu(a_handle);
+    // The open menu's first item takes focus; the person then moves on.
+    settle_view(&mut view, &mut model);
+    let key = format!("row:{b_handle}");
+    view.window().set_focus_target(key.clone().into());
+    view.window()
+        .set_focus_seq(view.window().get_focus_seq().wrapping_add(1));
+    settle_view(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id().as_str(), key, "on B");
+    model.addresses_read(Ok(AddressList {
+        addresses: vec![added(&b)],
+    }));
+    settle_view(&mut view, &mut model);
+    assert_eq!(view.window().get_peer_menu(), -1, "A's menu went with A");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        key,
+        "focus stays on B"
+    );
+}
