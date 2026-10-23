@@ -9,7 +9,7 @@
 //! a full one would stamp the same commit differently. Built from no
 //! checkout, the commit is `unknown`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
@@ -24,35 +24,40 @@ fn git(dir: &Path, args: &[&str]) -> Option<String> {
     (out.status.success() && !text.is_empty()).then(|| text.to_owned())
 }
 
+/// `name` inside the git directory, as an absolute path.
+fn git_path(dir: &Path, name: &str) -> Option<PathBuf> {
+    git(
+        dir,
+        &["rev-parse", "--path-format=absolute", "--git-path", name],
+    )
+    .map(PathBuf::from)
+}
+
 fn main() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     println!("cargo:rerun-if-changed=build.rs");
     // The full id cut to twelve: `--short=12` is a minimum git lengthens
     // when twelve digits are ambiguous among the objects a clone holds.
     let commit = git(dir, &["rev-parse", "HEAD"]).map(|id| id.chars().take(12).collect::<String>());
-    // Rebuilt when HEAD moves. HEAD's reflog is appended on every move,
-    // which is what catches a commit on a branch git has packed: the commit
-    // writes a loose ref that did not exist when this ran, and touches
-    // neither HEAD nor packed-refs (measured, InterWeave #398 F1). HEAD,
-    // the branch's loose ref and packed-refs stay for a clone with no
-    // reflog. A path that does not exist is left out, since cargo reruns
-    // every build for one.
-    let mut watched = vec![
-        "logs/HEAD".to_owned(),
-        "HEAD".to_owned(),
-        "packed-refs".to_owned(),
-    ];
-    if let Some(branch) = git(dir, &["symbolic-ref", "-q", "HEAD"]) {
-        watched.push(branch);
-    }
-    for name in watched {
-        if let Some(path) = git(
-            dir,
-            &["rev-parse", "--path-format=absolute", "--git-path", &name],
-        ) && Path::new(&path).exists()
-        {
-            println!("cargo:rerun-if-changed={path}");
+    // Rebuilt when HEAD moves. A commit on a branch git has packed writes
+    // a loose ref that did not exist when this ran, and touches neither
+    // HEAD nor packed-refs (measured, InterWeave #398 F1). HEAD's reflog
+    // catches that when there is one; with reflogs off it does not exist,
+    // so the nearest existing directory above the absent loose ref is
+    // watched, which cargo scans, and the new ref is a change in it
+    // (measured with core.logAllRefUpdates=false, #398). Any other path
+    // that does not exist is left out, since cargo reruns every build for
+    // one.
+    for name in ["logs/HEAD", "HEAD", "packed-refs"] {
+        if let Some(path) = git_path(dir, name).filter(|p| p.exists()) {
+            println!("cargo:rerun-if-changed={}", path.display());
         }
+    }
+    if let Some(branch) = git(dir, &["symbolic-ref", "-q", "HEAD"])
+        && let Some(path) = git_path(dir, &branch)
+        && let Some(watched) = path.ancestors().find(|p| p.exists())
+    {
+        println!("cargo:rerun-if-changed={}", watched.display());
     }
     println!(
         "cargo:rustc-env=INTERWEAVE_COMMIT={}",
