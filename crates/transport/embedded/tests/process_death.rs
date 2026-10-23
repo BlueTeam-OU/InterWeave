@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use interweave_local_client_api::{
     AdminBinding as _, AdminCapability, AdminPort as _, DataCapability, DataSessionBinding as _,
-    SessionRequest,
+    SessionRequest, TrustChange,
 };
 use interweave_profile_config::provision::provision_embedded;
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
@@ -89,9 +89,11 @@ fn child_hosts_trusts_and_leases_when_asked() {
     let peer = trusted_peer().transport_identity().expect("a peer");
     let host = EmbeddedHost::start(launch(Path::new(&app))).expect("the child hosts");
     let port = admin_trust(&host);
-    host.runtime()
-        .block_on(port.set_trust(peer, true))
-        .expect("trusted and persisted");
+    assert_eq!(
+        host.runtime().block_on(port.set_trust(peer, true)),
+        Ok(TrustChange::Set),
+        "trusted and persisted"
+    );
     lease(&host).expect("the child leases the endpoint");
     println!("SERVING");
     let mut line = String::new();
