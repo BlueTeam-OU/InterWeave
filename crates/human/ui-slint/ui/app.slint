@@ -548,10 +548,6 @@ component FocusHeading inherits FocusScope {
     }
 }
 
-// A line that takes focus, as FocusHeading does, and wraps where a
-// heading elides: a note a person must read whole, whatever its length --
-// a refusal naming an address, a problem in place of a list. Its minimum
-// width is nothing, so one long address in it never widens the page.
 // An indeterminate progress mark: an arc that turns while an answer is
 // awaited, and stands still -- still shown -- under reduced motion
 // (design 2026-10-22-add-a-peer section 5.3).
@@ -573,6 +569,10 @@ component WaitMark inherits Rectangle {
     }
 }
 
+// A line that takes focus, as FocusHeading does, and wraps where a
+// heading elides: a note a person must read whole, whatever its length --
+// a refusal naming an address, a problem in place of a list. Its minimum
+// width is nothing, so one long address in it never widens the page.
 component FocusNote inherits FocusScope {
     focus-gained(reason) => {
         if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
