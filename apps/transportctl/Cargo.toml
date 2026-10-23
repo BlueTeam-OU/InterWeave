@@ -13,6 +13,8 @@ license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+# `--version` names the commit it was built from (ADR-0065 decision 6).
+build = "../../tools/stamp/commit_stamp.rs"
 
 [[bin]]
 name = "transportctl"

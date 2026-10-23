@@ -34,8 +34,12 @@ holds no release logic of its own. In order:
    (the workspace's `target/`) fails the run unless the bindings took
    the pinned file, so a silent fallback to a source build is a red run.
 5. **Signing.** `tools/ci/release_android_apk.sh <version>
-   <unsigned.apk> <out-dir>` refuses the APK unless it is
-   `org.interweave.human` at the tag's version, not debuggable, with
+   <unsigned.apk> <out-dir>` first refuses a `<version>` that is not
+   the workspace version (ADR-0065: `release_tag.sh --manifest`, the
+   Semantic Versioning grammar with no build metadata and the root
+   manifest's `[workspace.package] version`, read with no cargo, since
+   this job holds the key). It then refuses the APK unless it is
+   `org.interweave.human` at that version, not debuggable, with
    native code for `arm64-v8a` alone; then aligns it, signs it with APK
    Signature Scheme v2 and v3 and no v1, verifies it, and refuses a
    signing certificate other than `INTERWEAVE_RELEASE_CERT_SHA256`. It
