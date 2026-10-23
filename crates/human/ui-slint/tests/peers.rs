@@ -758,3 +758,46 @@ fn a_rows_contact_names_are_drawn_one_per_line() {
     assert_eq!(labelled(&view, "Smith, John").len(), 1);
     assert!(!labelled(&view, &short_peer(p.as_str())).is_empty());
 }
+
+/// An add left unknown and retried without a write keeps the same note,
+/// which a live region hears no change in: the view says it again as
+/// the render's announcement (design sections 5.7 and 8).
+#[test]
+fn an_unknown_add_retried_without_a_write_is_said_again() {
+    use interweave_human_client_api::{AddressChangeFailure, AddressProblem};
+    use interweave_human_ui_model::PeersInput;
+    let slots = |view: &View| {
+        (
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        )
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    let _ = model.peers_input(PeersInput::FieldChanged(at(&a)));
+    let _ = model.peers_input(PeersInput::Add);
+    model.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    let _ = model.peers_turn();
+    model.addresses_read(Err(AddressProblem::Unavailable));
+    view.render(&model);
+    let before = slots(&view);
+    let _ = model.peers_input(PeersInput::Add);
+    model.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    view.render(&model);
+    let after = slots(&view);
+    assert_ne!(after, before, "said again");
+    let note = view.window().get_add_note().to_string();
+    assert!(!note.is_empty());
+    assert!(after.0 == note || after.1 == note, "{after:?} / {note}");
+}
