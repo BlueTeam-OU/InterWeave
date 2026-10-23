@@ -193,6 +193,8 @@ pub(crate) struct PeerLists {
     /// The add page's note last drawn, by the model's count, and its text.
     note_seen: u64,
     note_text: String,
+    /// The trust line's failed Try again last said, by the model's count.
+    trust_line_seen: u64,
     /// The snackbar last drawn, by the model's count, and the one timed.
     snack_seen: u64,
     snack_timed: u64,
@@ -238,6 +240,7 @@ impl PeerLists {
             focus_sent: String::new(),
             focus_gone_said: false,
             note_seen: 0,
+            trust_line_seen: 0,
             note_text: String::new(),
             snack_seen: 0,
             snack_timed: 0,
@@ -267,6 +270,23 @@ impl View {
         self.peer_lists.note_seen = notes;
         self.peer_lists.note_text.clone_from(&text);
         let mut said = said.or_else(|| (on_page && again).then_some(text));
+        // The trust line's Try again failed: the line is said again, its
+        // words perhaps unchanged, focus kept on Try again (design
+        // section 8).
+        let line_again = peers.trust_line_said() != self.peer_lists.trust_line_seen;
+        self.peer_lists.trust_line_seen = peers.trust_line_said();
+        let line = self.window.get_peers_trust_line().to_string();
+        if on_page && line_again && !line.is_empty() {
+            said = Some(said.map_or_else(
+                || line.clone(),
+                |rest| {
+                    fill(
+                        placeholder_en::text(UiText::AnnounceBoth),
+                        &[("first", &rest), ("rest", &line)],
+                    )
+                },
+            ));
+        }
         // Focus, once per request, on Peers alone -- and judged again
         // while its deferred move is still pending: a read since may have
         // taken the row it names (design section 8). A field's request is

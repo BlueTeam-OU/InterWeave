@@ -1374,3 +1374,52 @@ fn the_field_is_read_only_while_its_add_is_on_its_way() {
     view.render(&model);
     assert!(!view.window().get_peers_add_busy(), "free once answered");
 }
+
+/// The trust line's Try again failing with the same words says the line
+/// again, focus kept on Try again, each time (design section 8): the
+/// settings' own outcome is not said on Peers, so nothing else would.
+#[test]
+fn a_trust_retry_that_fails_again_says_the_line_again() {
+    use interweave_human_client_api::TrustProblem;
+    use interweave_human_ui_model::PeersInput;
+    let settle = |view: &mut View, model: &mut UiModel| {
+        view.render(model);
+        for _ in 0..2 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        }
+        view.render(model);
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a)]);
+    let _ = model.trust_settings_mut().opened();
+    model
+        .trust_settings_mut()
+        .read(Err(TrustProblem::Unavailable));
+    settle(&mut view, &mut model);
+    let line = text(UiText::PeersTrustUnread);
+    assert_eq!(view.window().get_peers_trust_line().as_str(), line);
+    for round in 0..2 {
+        let before = [
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        ];
+        assert_eq!(
+            model.peers_input(PeersInput::TrustReadAgain),
+            vec![Intent::ReadTrust]
+        );
+        model
+            .trust_settings_mut()
+            .read(Err(TrustProblem::Unavailable));
+        let _ = model.peers_turn();
+        settle(&mut view, &mut model);
+        let after = [
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        ];
+        assert_ne!(after, before, "round {round}: said again");
+        assert!(after.iter().any(|s| s.contains(line)), "{after:?}");
+        assert_eq!(view.window().get_focus_id().as_str(), "trust-retry");
+    }
+}
