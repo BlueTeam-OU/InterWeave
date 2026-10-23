@@ -15,8 +15,9 @@
 # commit on a packed branch with reflogs off and no loose ref yet (the
 # case #386's review found, where only HEAD and packed-refs were
 # watched and neither changes); a reset back; a commit in a reftable
-# repository, and a checkout in its linked worktree that moves only that
-# worktree's HEAD (where none of the files-backend paths exist). Built from no checkout,
+# repository; in its linked worktree, the worktree's branch moved from the
+# main checkout (only the common directory's tables change) and a checkout
+# that moves only the worktree's HEAD (only its own change). Built from no checkout,
 # the stamp is `unknown`.
 #
 # Exit codes:
@@ -113,9 +114,14 @@ git -C "$T" commit -q --allow-empty -m two
     || fail "in a reftable repository, the stamp stayed $first after a commit"
 git -C "$T" branch -q side HEAD~1
 W="$SANDBOX/reftable-worktree"
-git -C "$T" worktree add -q "$W" main~1 2>/dev/null || git -C "$T" worktree add -q --detach "$W" HEAD~1
+git -C "$T" worktree add -q "$W" side
 first="$(stamp "$W")"
-git -C "$W" checkout -q --detach main
+git -C "$T" update-ref refs/heads/side main
+[[ "$first" != "$(head12 "$W")" && "$(stamp "$W")" == "$(head12 "$W")" ]] \
+    && pass "a reftable worktree's branch moved from the main checkout, in the shared tables only, restamps it" \
+    || fail "in a reftable worktree, the stamp stayed $first after its branch moved"
+first="$(stamp "$W")"
+git -C "$W" checkout -q --detach HEAD~1
 [[ "$first" != "$(head12 "$W")" && "$(stamp "$W")" == "$(head12 "$W")" ]] \
     && pass "a checkout in a reftable worktree, which moves only its HEAD, restamps it" \
     || fail "in a reftable worktree, the stamp stayed $first after a checkout"
