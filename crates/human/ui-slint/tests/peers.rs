@@ -2126,3 +2126,25 @@ fn a_row_menu_whose_row_a_read_drops_goes_with_it() {
         "focus stays on B"
     );
 }
+
+/// Peers at 320 px with 200% text -- the platform's default font size at
+/// 28 px, as Android's font scale sets it -- keeps every element inside
+/// the window: a row's short `PeerId` wraps rather than set the row's
+/// width, so its Trust and menu stay on screen (design sections 6 and 8,
+/// human-client-ui section 11).
+#[test]
+fn a_peers_row_fits_a_narrow_window_with_large_text() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(28.0)));
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(320.0, 1600.0));
+    slint::platform::update_timers_and_animations();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a)]);
+    view.render(&model);
+    assert_eq!(overflowing(&view, 320.0), Vec::<String>::new());
+}

@@ -3125,10 +3125,16 @@ export component AppWindow inherits Window {
                                         accessible-role: text;
                                         accessible-label: name;
                                     }
+                                    // The short PeerId wraps rather than set the
+                                    // row's width, so Trust and the menu stay
+                                    // in the window at 320 px with large text
+                                    // (`a_peers_row_fits_a_narrow_window_with_large_text`).
                                     Text {
                                         text: row.peer;
                                         font-size: Type.title-small;
                                         font-weight: 500;
+                                        wrap: char-wrap;
+                                        min-width: 0;
                                         accessible-role: none;
                                     }
                                     Text {
