@@ -3287,9 +3287,9 @@ fn the_field_is_held_while_its_add_is_on_its_way() {
 /// An add whose page Back closed lands on no page opened after it -- Add
 /// an address again, or a row's trust step -- whatever its answer: no
 /// note, no result, no blocks, no snackbar; the list it brings shows the
-/// row. The page opened meanwhile sends nothing until it is answered, so
-/// one add is out at a time. A barred answer still says Peers cannot be
-/// used.
+/// row. The page opened meanwhile is held -- its field and its Add --
+/// until it is answered, so one add is out at a time. A barred answer
+/// still says Peers cannot be used.
 #[test]
 fn a_closed_pages_add_lands_on_no_page_opened_after_it() {
     let (me, a, t) = (peer(), peer(), peer());
@@ -3314,13 +3314,13 @@ fn a_closed_pages_add_lands_on_no_page_opened_after_it() {
         )
     };
 
-    // Reopened: it takes edits, sends nothing while the old add is out,
-    // and gets none of its answer.
+    // Reopened: held while the old add is out, and gets none of its answer.
     let mut m = closed(&[]);
     let _ = input(&mut m, PeersInput::OpenAdd);
     assert!(m.peers().add_open());
+    assert!(m.peers().busy(), "held");
     let _ = input(&mut m, PeersInput::FieldChanged(at(&t)));
-    assert_eq!(m.peers().field(), at(&t));
+    assert_eq!(m.peers().field(), "", "the field held");
     assert_eq!(input(&mut m, PeersInput::Add), Vec::new(), "one at a time");
     m.addresses_added(&[at(&a)], added_a());
     assert!(m.peers().add_open());
@@ -3328,8 +3328,9 @@ fn a_closed_pages_add_lands_on_no_page_opened_after_it() {
     assert_eq!(m.peers().add_page_note(), None);
     assert!(m.peers().blocks(m.trust_settings()).is_empty());
     assert_eq!(m.peers().snack().0, None);
-    assert_eq!(m.peers().field(), at(&t), "the field kept");
     assert_eq!(m.peers().rows(m.trust_settings()).len(), 1, "the row");
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&t)));
+    assert_eq!(m.peers().field(), at(&t), "answered: the field is free");
     assert_eq!(
         input(&mut m, PeersInput::Add),
         vec![Intent::AddAddresses(vec![at(&t)])],
@@ -3372,4 +3373,37 @@ fn a_closed_pages_add_lands_on_no_page_opened_after_it() {
         Err(AddressChangeFailure::NotMade(AddressProblem::Incompatible)),
     );
     assert_eq!(m.peers().list_problem(), None, "still readable");
+}
+
+/// An add Back left out holds every other change while it is out -- an
+/// Undo of the same address, a Try again, a Remove -- since the root
+/// sends no command equal to one still out, and an Undo it dropped would
+/// never be answered (#384 re-review F6). Answered, they are free again.
+#[test]
+fn an_add_left_out_by_back_holds_every_other_change() {
+    let (me, x, y) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[added(&x), added(&y)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&x)));
+    m.address_removed(&at(&x), answer(AddressOutcome::Removed, &[added(&y)]));
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&x)));
+    assert_eq!(
+        input(&mut m, PeersInput::Add),
+        vec![Intent::AddAddresses(vec![at(&x)])]
+    );
+    let _ = input(&mut m, PeersInput::Close);
+    assert!(m.peers().busy(), "the add left out counts");
+    assert_eq!(input(&mut m, PeersInput::Undo), Vec::new(), "Undo held");
+    assert_eq!(input(&mut m, PeersInput::TryAgain), Vec::new());
+    assert_eq!(input(&mut m, PeersInput::Remove(at(&y))), Vec::new());
+    m.addresses_added(
+        &[at(&x)],
+        Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    );
+    assert!(!m.peers().busy(), "answered");
+    assert_eq!(
+        input(&mut m, PeersInput::Undo),
+        vec![Intent::AddAddresses(vec![at(&x)])],
+        "free again"
+    );
 }

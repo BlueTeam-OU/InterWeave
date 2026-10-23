@@ -852,12 +852,9 @@ impl Peers {
     /// Whether step one can act: the page open, nothing on its way, and
     /// no result yet.
     fn step_one(&self) -> bool {
-        // A closed page's add still out holds the next page's Add: one
-        // add at a time, and its answer must not be taken for this one's.
-        self.in_flight.is_none()
-            && self.check.is_none()
-            && self.orphan.is_none()
-            && self.step_one_shown()
+        // A closed page's add still out holds the next page's Add too
+        // (`busy`): its answer must not be taken for this one's.
+        !self.busy() && self.step_one_shown()
     }
 
     /// Add pressed: the field's lines, or why not.
@@ -1134,7 +1131,7 @@ impl Peers {
 
     /// Remove on an added row: at once, with Undo.
     fn remove(&mut self, address: String) -> Option<Intent> {
-        if self.in_flight.is_some() || self.check.is_some() {
+        if self.busy() {
             return None;
         }
         let row = self
@@ -1167,7 +1164,7 @@ impl Peers {
     /// safe either way -- an address present answers unchanged, and one
     /// absent answers unchanged to a removal.
     fn try_again(&mut self) -> Option<Intent> {
-        if self.in_flight.is_some() || self.check.is_some() {
+        if self.busy() {
             return None;
         }
         match self.snack.clone()? {
@@ -1205,7 +1202,7 @@ impl Peers {
     }
 
     fn re_add(&mut self, address: String) -> Option<Intent> {
-        if self.in_flight.is_some() || self.check.is_some() {
+        if self.busy() {
             return None;
         }
         self.in_flight = Some(InFlight::Undo(address.clone()));
@@ -2187,11 +2184,13 @@ impl Peers {
         self.trust_line_said
     }
 
-    /// Whether an add, a removal or the check of a lost answer is on its
-    /// way.
+    /// Whether an add -- its page's, or one Back left out -- a removal,
+    /// an Undo or the check of a lost answer is on its way: one change at a
+    /// time, since the root sends no command equal to one still out
+    /// (`an_add_left_out_by_back_holds_every_other_change`).
     #[must_use]
     pub const fn busy(&self) -> bool {
-        self.in_flight.is_some() || self.check.is_some()
+        self.in_flight.is_some() || self.check.is_some() || self.orphan.is_some()
     }
 
     /// The snackbar, and a count that changes with each.
