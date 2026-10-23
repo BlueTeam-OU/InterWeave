@@ -47,7 +47,19 @@ fn main() {
     // watched, which cargo scans, and the new ref is a change in it
     // (measured with core.logAllRefUpdates=false, #398). Any other path
     // that does not exist is left out, since cargo reruns every build for
-    // one.
+    // one. A reftable repository has none of these but a stub HEAD: every
+    // ref and reflog update writes a table under reftable/, the shared
+    // refs in the common directory's and a linked worktree's HEAD in its
+    // own, so both directories are watched where they exist (measured
+    // with --ref-format=reftable, #398).
+    for flag in ["--git-dir", "--git-common-dir"] {
+        if let Some(dir) = git(dir, &["rev-parse", "--path-format=absolute", flag])
+            .map(|d| PathBuf::from(d).join("reftable"))
+            .filter(|p| p.exists())
+        {
+            println!("cargo:rerun-if-changed={}", dir.display());
+        }
+    }
     for name in ["logs/HEAD", "HEAD", "packed-refs"] {
         if let Some(path) = git_path(dir, name).filter(|p| p.exists()) {
             println!("cargo:rerun-if-changed={}", path.display());
