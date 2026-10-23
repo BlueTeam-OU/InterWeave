@@ -940,7 +940,7 @@ impl Peers {
                 return None;
             }
             let change = trust.propose_allow_of(peer)?;
-            let intent = trust.confirm(&change)?;
+            let intent = trust.confirm_in_step(&change)?;
             block.trusting = true;
             block.later = false;
             block.problem = None;

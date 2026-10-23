@@ -56,5 +56,5 @@ pub use store_recovery::{
     DiscardConfirmation, DiscardKind, Effect as StoreEffect, Phase as StorePhase, StoreRecovery,
     StoreScreen,
 };
-pub use trust::{EntryProblem, TrustChange, TrustInput, TrustOutcome, TrustSettings};
+pub use trust::{EntryProblem, OutcomeFrom, TrustChange, TrustInput, TrustOutcome, TrustSettings};
 pub use waiting::{age_text, announced_change, next_age_change, waiting_text};

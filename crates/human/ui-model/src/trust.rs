@@ -56,6 +56,20 @@ pub enum TrustOutcome {
     Entry(EntryProblem),
 }
 
+/// Where the latest outcome came from, which decides where it is said:
+/// a trust step's outcome is its block's to say, never the settings'
+/// (add-a-peer §5.3, §5.7).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum OutcomeFrom {
+    /// A change confirmed in the trust settings, or a field's refusal.
+    #[default]
+    Settings,
+    /// A change a trust step on Peers made, or the read it left owed.
+    TrustStep,
+    /// A read of the list, wherever it was asked.
+    Read,
+}
+
 /// What a person did in the trust settings, as a view hands it to the
 /// root ([`crate::ViewEvent::Trust`]); the root applies it with
 /// [`TrustSettings::input`].
@@ -109,6 +123,12 @@ pub struct TrustSettings {
     /// answer, when it comes, is no one's to show, so one saying nothing
     /// was written still leaves the list to read ([`Self::answer_lost`]).
     unanswered: Option<TrustChange>,
+    /// The change on its way, when a trust step sent it.
+    step_change: Option<TrustChange>,
+    /// Where the latest outcome came from.
+    outcome_from: OutcomeFrom,
+    /// Where the read owed came from: a step's re-read is the step's.
+    reread_from: OutcomeFrom,
 }
 
 /// Whether a list kept is the daemon's word.
@@ -170,7 +190,10 @@ impl TrustSettings {
     pub fn propose_allow(&mut self) {
         let typed = self.entry.trim();
         let Ok(peer) = TransportIdentity::parse(typed) else {
-            self.say(TrustOutcome::Entry(EntryProblem::NotAPeerId));
+            self.say(
+                TrustOutcome::Entry(EntryProblem::NotAPeerId),
+                OutcomeFrom::Settings,
+            );
             return;
         };
         // Only against a list read, as a removal is: before it, neither
@@ -179,7 +202,7 @@ impl TrustSettings {
             return;
         };
         if let Some(why) = entry_problem(list, &peer) {
-            self.say(TrustOutcome::Entry(why));
+            self.say(TrustOutcome::Entry(why), OutcomeFrom::Settings);
             return;
         }
         self.pending = Some(TrustChange {
@@ -271,11 +294,11 @@ impl TrustSettings {
                 // The list as last read stays on show, but it is no
                 // longer the daemon's word on what it holds.
                 self.held = Held::MayHaveChanged;
-                self.say(if rereading {
-                    TrustOutcome::NotReadAgain(problem)
+                if rereading {
+                    self.say(TrustOutcome::NotReadAgain(problem), self.reread_from);
                 } else {
-                    TrustOutcome::Problem(problem)
-                });
+                    self.say(TrustOutcome::Problem(problem), OutcomeFrom::Read);
+                }
             }
         }
     }
@@ -290,6 +313,11 @@ impl TrustSettings {
         if self.in_flight.as_ref() == Some(&change) {
             self.in_flight = None;
         }
+        let from = if self.step_change.take_if(|c| *c == change).is_some() {
+            OutcomeFrom::TrustStep
+        } else {
+            OutcomeFrom::Settings
+        };
         // Lost when its page closed: the rows went unknown then, and an
         // answer that wrote nothing has them read again rather than left
         // so (`a_trust_awaited_when_its_page_closes_is_pending`).
@@ -297,6 +325,7 @@ impl TrustSettings {
             self.unanswered = None;
             if matches!(answer, Err(TrustSetFailure::NotMade(_))) {
                 self.reread = true;
+                self.reread_from = from;
             }
         }
         // Answered as made: what a lost change of this peer left pending
@@ -312,28 +341,33 @@ impl TrustSettings {
                 self.list = Some(list);
                 self.held = Held::AsRead;
                 self.reread = true;
-                self.say(TrustOutcome::Unconfirmed(change));
+                self.reread_from = from;
+                self.say(TrustOutcome::Unconfirmed(change), from);
             }
             Ok(list) => {
                 self.made(&change);
                 self.list = Some(list);
                 self.held = Held::AsRead;
-                self.say(TrustOutcome::Changed(change));
+                self.say(TrustOutcome::Changed(change), from);
             }
             Err(TrustSetFailure::MadeNotReadBack(_)) => {
                 self.made(&change);
                 self.held = Held::MayHaveChanged;
                 self.reread = true;
-                self.say(TrustOutcome::Changed(change));
+                self.reread_from = from;
+                self.say(TrustOutcome::Changed(change), from);
             }
             Err(TrustSetFailure::Unconfirmed(_)) => {
                 self.lost.retain(|(peer, _)| peer != &change.peer);
                 self.lost.push((change.peer.clone(), self.sent));
                 self.held = Held::MayHaveChanged;
                 self.reread = true;
-                self.say(TrustOutcome::Unconfirmed(change));
+                self.reread_from = from;
+                self.say(TrustOutcome::Unconfirmed(change), from);
             }
-            Err(TrustSetFailure::NotMade(problem)) => self.say(TrustOutcome::Problem(problem)),
+            Err(TrustSetFailure::NotMade(problem)) => {
+                self.say(TrustOutcome::Problem(problem), from);
+            }
         }
     }
 
@@ -356,9 +390,18 @@ impl TrustSettings {
         Some(Intent::ReadTrust)
     }
 
-    fn say(&mut self, outcome: TrustOutcome) {
+    fn say(&mut self, outcome: TrustOutcome, from: OutcomeFrom) {
         self.outcome = Some(outcome);
+        self.outcome_from = from;
         self.outcomes = self.outcomes.wrapping_add(1);
+    }
+
+    /// Carry out `shown` for a trust step on Peers, as [`Self::confirm`]
+    /// does: its outcome is the step's ([`Self::outcome_from`]).
+    pub fn confirm_in_step(&mut self, shown: &TrustChange) -> Option<Intent> {
+        let intent = self.confirm(shown)?;
+        self.step_change = Some(shown.clone());
+        Some(intent)
     }
 
     /// The change of `peer`'s trust on its way lost its waiting block --
@@ -437,6 +480,12 @@ impl TrustSettings {
     #[must_use]
     pub const fn outcome(&self) -> (Option<&TrustOutcome>, u64) {
         (self.outcome.as_ref(), self.outcomes)
+    }
+
+    /// Where the latest outcome came from.
+    #[must_use]
+    pub const fn outcome_from(&self) -> OutcomeFrom {
+        self.outcome_from
     }
 }
 
