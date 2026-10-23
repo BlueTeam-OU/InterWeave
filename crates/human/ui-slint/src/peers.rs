@@ -185,6 +185,11 @@ pub(crate) struct PeerLists {
     block_handles: crate::Handles<TransportIdentity>,
     /// The focus request last carried out, by the model's count.
     focus_seen: u64,
+    /// The key that request was sent as, and whether `PeerRowGone` was
+    /// said for it: a read before its deferred move may change the
+    /// target (`a_row_gone_before_its_focus_moves_is_said_and_focus_follows`).
+    focus_sent: String,
+    focus_gone_said: bool,
     /// The add page's note last drawn, by the model's count, and its text.
     note_seen: u64,
     note_text: String,
@@ -230,6 +235,8 @@ impl PeerLists {
             block_keys: Vec::new(),
             block_handles: crate::Handles::new(),
             focus_seen: 0,
+            focus_sent: String::new(),
+            focus_gone_said: false,
             note_seen: 0,
             note_text: String::new(),
             snack_seen: 0,
@@ -260,30 +267,45 @@ impl View {
         self.peer_lists.note_seen = notes;
         self.peer_lists.note_text.clone_from(&text);
         let mut said = said.or_else(|| (on_page && again).then_some(text));
-        // Focus, once per request, on Peers alone.
+        // Focus, once per request, on Peers alone -- and judged again
+        // while its deferred move is still pending: a read since may have
+        // taken the row it names (design section 8). A field's request is
+        // not, since resolving it sets the field's selection.
         let (focus, focuses) = peers.focus();
-        if on_page && focuses != self.peer_lists.focus_seen {
+        let fresh = focuses != self.peer_lists.focus_seen;
+        let pending = !fresh
+            && !self.peer_lists.focus_sent.is_empty()
+            && self.focus_wanted.borrow().as_deref() == Some(self.peer_lists.focus_sent.as_str())
+            && !matches!(focus, Some(PeersFocus::Field { .. }));
+        if on_page && (fresh || pending) {
             self.peer_lists.focus_seen = focuses;
-            // A row a read showed gone: why focus lands elsewhere, said
-            // first (design section 8).
-            if peers.focus_row_gone() {
-                let gone = placeholder_en::text(UiText::PeerRowGone).to_owned();
-                said = Some(said.map_or_else(
-                    || gone.clone(),
-                    |rest| {
-                        fill(
-                            placeholder_en::text(UiText::AnnounceBoth),
-                            &[("first", &gone), ("rest", &rest)],
-                        )
-                    },
-                ));
+            if fresh {
+                self.peer_lists.focus_gone_said = false;
             }
             if let Some(focus) = focus {
                 let target = self.focus_target(&focus, peers.field());
-                // Peers' focus mostly lands on a control the same render
-                // makes: a step-two block, the snackbar's action, the
-                // list's controls as the add page closes.
-                self.focus_key_after_draw(target);
+                if fresh || target != self.peer_lists.focus_sent {
+                    // A row a read showed gone: why focus lands
+                    // elsewhere, said first, once per request.
+                    if peers.focus_row_gone() && !self.peer_lists.focus_gone_said {
+                        self.peer_lists.focus_gone_said = true;
+                        let gone = placeholder_en::text(UiText::PeerRowGone).to_owned();
+                        said = Some(said.map_or_else(
+                            || gone.clone(),
+                            |rest| {
+                                fill(
+                                    placeholder_en::text(UiText::AnnounceBoth),
+                                    &[("first", &gone), ("rest", &rest)],
+                                )
+                            },
+                        ));
+                    }
+                    self.peer_lists.focus_sent.clone_from(&target);
+                    // Peers' focus mostly lands on a control the same
+                    // render makes: a step-two block, the snackbar's
+                    // action, the list's controls as the add page closes.
+                    self.focus_key_after_draw(target);
+                }
             }
         }
         said

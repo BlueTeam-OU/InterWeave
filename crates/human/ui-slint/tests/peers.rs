@@ -1278,3 +1278,72 @@ fn a_refusal_of_the_whole_add_names_no_line() {
     );
     assert!(!w.get_scan_note().contains(long[CODE_LINES].as_str()));
 }
+
+/// A read that lands after a focus request was drawn but before its
+/// deferred move -- a row's trust step closed, then another
+/// administrator's removal read in -- is judged again: focus goes to the
+/// row after the gone row's place, else the one before, and the screen
+/// reader hears why first, once for the request (design section 8).
+#[test]
+fn a_row_gone_before_its_focus_moves_is_said_and_focus_follows() {
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    // Added rows show newest first: C, B, A.
+    open_peers(
+        &mut view,
+        &mut model,
+        &me,
+        &[],
+        &[added(&a), added(&b), added(&c)],
+    );
+    let _ = model.peers_input(PeersInput::TrustRow(at(&b)));
+    view.render(&model);
+    let _ = model.peers_input(PeersInput::Close);
+    // The return to B's row is drawn; its move waits for the next turn.
+    view.render(&model);
+    let gone = text(UiText::PeerRowGone);
+    let slots = |view: &View| {
+        [
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        ]
+    };
+    assert!(
+        !slots(&view).iter().any(|s| s.contains(gone)),
+        "B still listed"
+    );
+    model.addresses_read(Ok(AddressList {
+        addresses: vec![added(&a), added(&c)],
+    }));
+    view.render(&model);
+    assert!(
+        slots(&view).iter().any(|s| s.starts_with(gone)),
+        "{:?}",
+        slots(&view)
+    );
+    // A second read before the move takes A too: focus follows to the
+    // row before B's place, and nothing more is said for this request.
+    let said = slots(&view);
+    model.addresses_read(Ok(AddressList {
+        addresses: vec![added(&c)],
+    }));
+    view.render(&model);
+    assert_eq!(slots(&view), said, "said once");
+    for _ in 0..3 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    }
+    view.render(&model);
+    let rows = view.window().get_peer_rows();
+    let handle = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .find(|r| r.address.as_str() == at(&c))
+        .expect("C's row")
+        .handle;
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        format!("row:{handle}"),
+        "the row before B's place, A gone too"
+    );
+}
