@@ -11,7 +11,7 @@
 # proves the suite catches what it claims to.
 [package]
 name = "interweave-discovery-conformance-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Stage 9 DiscoveryProvider conformance and composition tests for InterWeave."
 license.workspace = true

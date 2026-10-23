@@ -5,7 +5,7 @@
 # The only crate under crates/human whose graph names slint (P2).
 [package]
 name = "interweave-human-ui-slint"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The InterWeave human client's reference Slint views."
 license.workspace = true

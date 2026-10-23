@@ -9,7 +9,7 @@
 # decision on the wrong side of the boundary.
 [package]
 name = "interweave-kademlia-control-api"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Neutral Kademlia driver command/event port for InterWeave."
 license.workspace = true

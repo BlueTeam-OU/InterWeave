@@ -8,7 +8,7 @@
 # test shared code against itself. TEST-ONLY; nothing ships it.
 [package]
 name = "interweave-local-client-fake"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "In-memory LocalDataSession binding for InterWeave client tests."
 license.workspace = true

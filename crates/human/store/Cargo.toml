@@ -13,7 +13,7 @@
 # UI" would violate it silently.
 [package]
 name = "interweave-human-store"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Durable ADR-0044 retention storage for the InterWeave human client."
 license.workspace = true

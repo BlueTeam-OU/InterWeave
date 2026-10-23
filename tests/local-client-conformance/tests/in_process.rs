@@ -974,6 +974,14 @@ async fn bootstrap_addresses_answer_alike_at_every_binding() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_list_is_added_all_or_none_at_every_binding() {
+    let pair = Pair::start().await;
+    let (a, _) = pair.bindings();
+    suite::a_list_is_added_all_or_none_at_every_binding(&a, &pair.a_authored).await;
+    pair.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn own_addresses_are_what_an_add_takes() {
     let pair = Pair::start().await;
     let (a, b) = pair.bindings();

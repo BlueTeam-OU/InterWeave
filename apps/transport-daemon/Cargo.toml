@@ -6,7 +6,7 @@
 # signals and shutdown. Every behaviour it runs is a crate's.
 [package]
 name = "interweave-transport-daemon"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "InterWeave desktop transport daemon: one profile's runtime behind the IPC v2 sockets."
 license.workspace = true

@@ -12,7 +12,7 @@
 # activating a package is for.
 [package]
 name = "interweave-pubsub-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Stage 7 GossipSub broadcast exit-gate tests for InterWeave."
 license.workspace = true

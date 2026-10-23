@@ -45,12 +45,13 @@ use std::task::{Poll, Waker};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use interweave_local_client_api::{
-    AddressChange, AddressRefusal, AddressSource, AdminBinding, AdminCapability, AdminPort,
-    AdminStatus, BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort,
-    EndpointAdminView, EndpointLease, Generation, LeaseRecord, LocalAdminPort, LocalDataSession,
-    LocalSessionEvent, MAX_EVENT_QUEUE, OwnAddress, OwnAddressKind, OwnAddresses, PeerGateView,
-    PeerOutcome, RECONNECTED, ROUTE_ESTABLISHED, ReceivedBroadcast, ReceivedDirect, SessionEvent,
-    SessionRequest, TrustAdminView, TrustSource, TrustedPeer,
+    AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminCapability,
+    AdminPort, AdminStatus, BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort,
+    EndpointAdminView, EndpointLease, Generation, LeaseRecord, LineChange, LocalAdminPort,
+    LocalDataSession, LocalSessionEvent, MAX_ADDRESSES_PER_ADD, MAX_EVENT_QUEUE, OwnAddress,
+    OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome, RECONNECTED, ROUTE_ESTABLISHED,
+    ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView, TrustSource,
+    TrustedPeer,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, ConnectivitySummary, DirectDestination, DirectInboundState,
@@ -1189,42 +1190,83 @@ impl AdminPort for FakeAdmin {
         Ok(())
     }
 
-    /// The bootstrap add's rules by name, in the runtime's order: the
-    /// configuration's entry rule (the same function the runtime's add
-    /// reads), the special-use floor on every IP component, the bound of
-    /// 64 authored and added together; an address present already
-    /// changes nothing. The fake holds no `enabled: false` provider.
+    /// The single add is the all-or-none add of one line, as in the
+    /// runtime, so the two cannot answer a line apart.
     async fn add_bootstrap_address(
         &self,
         address: String,
     ) -> Result<AddressChange, TransportError> {
+        Ok(match self.add_bootstrap_addresses(vec![address]).await? {
+            AddressesChange::Added(lines) => match lines.as_slice() {
+                [LineChange::Added] => AddressChange::Added,
+                _ => AddressChange::Unchanged,
+            },
+            AddressesChange::Refused { reason, detail, .. } => {
+                AddressChange::Refused { reason, detail }
+            }
+        })
+    }
+
+    /// The bootstrap add's rules by name, in the runtime's order, the
+    /// whole list checked before anything is kept: every line against the
+    /// configuration's entry rule (the same function the runtime's add
+    /// reads); then every line's `PeerId` against this node's own; then
+    /// every line against the special-use floor on every IP
+    /// component; then the bound of 64 authored and added together,
+    /// counting only new lines. A line present already, or repeated,
+    /// changes nothing. The fake holds no `enabled: false` provider.
+    async fn add_bootstrap_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> Result<AddressesChange, TransportError> {
         self.require(AdminCapability::Peers)?;
+        if addresses.is_empty() || addresses.len() > MAX_ADDRESSES_PER_ADD {
+            return Err(TransportError::InvalidArgument);
+        }
         let mut state = self.node.running()?;
-        let refused = |reason, detail: &str| {
-            Ok(AddressChange::Refused {
+        let refused = |reason, line, detail: &str| {
+            Ok(AddressesChange::Refused {
                 reason,
+                line: Some(line),
                 detail: detail.to_owned(),
             })
         };
-        if let Err(why) = interweave_profile_config::bootstrap_overlay::entry_grammar(&address) {
-            return refused(AddressRefusal::Grammar, why);
+        for (line, address) in addresses.iter().enumerate() {
+            if let Err(why) = interweave_profile_config::bootstrap_overlay::entry_grammar(address) {
+                return refused(AddressRefusal::Grammar, line, why);
+            }
         }
-        if special_use(&address) {
-            return refused(AddressRefusal::SpecialUse, "a special-use component");
+        for (line, address) in addresses.iter().enumerate() {
+            if interweave_profile_config::split_peer_multiaddr(address)
+                .is_ok_and(|(_, peer)| peer == self.node.peer)
+            {
+                return refused(AddressRefusal::OwnPeer, line, "this node's own PeerId");
+            }
         }
-        if state
-            .authored
-            .iter()
-            .chain(&state.added)
-            .any(|a| *a == address)
-        {
-            return Ok(AddressChange::Unchanged);
+        for (line, address) in addresses.iter().enumerate() {
+            if special_use(address) {
+                return refused(AddressRefusal::SpecialUse, line, "a special-use component");
+            }
         }
-        if state.authored.len() + state.added.len() >= 64 {
-            return refused(AddressRefusal::Bound, "authored and added would pass 64");
+        let mut added = state.added.clone();
+        let mut lines = Vec::with_capacity(addresses.len());
+        for (line, address) in addresses.into_iter().enumerate() {
+            if state.authored.iter().chain(&added).any(|a| *a == address) {
+                lines.push(LineChange::Unchanged);
+                continue;
+            }
+            if state.authored.len() + added.len() >= 64 {
+                return refused(
+                    AddressRefusal::Bound,
+                    line,
+                    "authored and added would pass 64",
+                );
+            }
+            added.push(address);
+            lines.push(LineChange::Added);
         }
-        state.added.push(address);
-        Ok(AddressChange::Added)
+        state.added = added;
+        Ok(AddressesChange::Added(lines))
     }
 
     async fn remove_bootstrap_address(

@@ -114,6 +114,11 @@ members = [
 ]
 
 [workspace.package]
+# The release version (ADR-0065 decision 5): every first-party crate
+# inherits it with `version.workspace = true`, and the release run refuses a
+# tag that is not `v` and this. tools/checks/check_workspace_version.sh keeps
+# it the only one.
+version = "0.1.0"
 license = "Apache-2.0"
 edition = "2024"
 # Kept in lockstep with rust-toolchain.toml. Stating a minimum the pinned

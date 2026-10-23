@@ -9,7 +9,7 @@
 # (check_bridge_default_features.sh).
 [package]
 name = "interweave-claude-channel"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The InterWeave Claude Code Channel bridge: a stdio MCP server over the transport daemon's data socket."
 license.workspace = true
