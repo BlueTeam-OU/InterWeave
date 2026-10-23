@@ -281,8 +281,9 @@ def main() -> int:
 
         # SIGINT is the shutdown SPIKE-001 measured; SIGTERM, then SIGKILL.
         # pid is bwrap's, and Claude Code is its child: bwrap forwards no
-        # signal, so the session's process group is what is signalled, and
-        # nothing is read or removed until that group is empty.
+        # signal, so SIGINT goes to Claude Code itself, the escalation to the
+        # whole process group, and nothing is read or removed until that
+        # group is empty.
         record["shutdown"] = stop_group(pid, pump)
         # A member still running could write after the token check.
         passed = passed and record["shutdown"]["group_empty"]
@@ -309,7 +310,7 @@ def main() -> int:
     finally:
         for thing in reversed(live):
             if isinstance(thing, int):
-                stop_group(thing, lambda s: time.sleep(s), steps=((signal.SIGKILL, 5),))
+                stop_group(thing, lambda s: time.sleep(s), steps=(("group", signal.SIGKILL, 5),))
             elif isinstance(thing, Peer):
                 thing.stop()
             elif thing.poll() is None:
@@ -342,10 +343,14 @@ def main() -> int:
     return 0 if passed else 1
 
 
-def stop_group(pid, pump, steps=((signal.SIGINT, 5), (signal.SIGTERM, 5), (signal.SIGKILL, 5))):
-    """Signal the process group pid leads, step by step, until no member is
-    left; reap pid itself, so its zombie does not keep the group alive.
-    Returns what happened, for the run's record."""
+def stop_group(pid, pump, steps=(("session", signal.SIGINT, 5), ("group", signal.SIGTERM, 5),
+                                 ("group", signal.SIGKILL, 5))):
+    """Stop the process group pid leads, step by step, until no member is
+    left. A "session" step signals pid's children only -- Claude Code,
+    under bwrap -- so its MCP servers are stopped by Claude Code, as
+    SPIKE-001 measured, and not by this signal; a "group" step signals
+    every member. pid itself is reaped, so its zombie does not keep the
+    group alive. Returns what happened, for the run's record."""
     status = None
 
     def reap():
@@ -367,16 +372,30 @@ def stop_group(pid, pump, steps=((signal.SIGINT, 5), (signal.SIGTERM, 5), (signa
             return False
 
     sent = []
-    for sig, grace in steps:
+    for target, sig, grace in steps:
         if not alive():
             break
-        os.killpg(pid, sig)
-        sent.append(signal.Signals(sig).name)
+        if target == "session":
+            for child in children(pid):
+                try:
+                    os.kill(child, sig)
+                except ProcessLookupError:
+                    pass
+        else:
+            os.killpg(pid, sig)
+        sent.append(f"{signal.Signals(sig).name} to the {target}")
         end = time.time() + grace
         while time.time() < end and alive():
             if pump(0.2) is False:
                 time.sleep(0.2)
     return {"signals_sent": sent, "group_empty": not alive(), "bwrap_wait_status": status}
+
+
+def children(pid):
+    try:
+        return [int(c) for c in pathlib.Path(f"/proc/{pid}/task/{pid}/children").read_text().split()]
+    except FileNotFoundError:
+        return []
 
 
 def scrub(evidence, scratch, out):
