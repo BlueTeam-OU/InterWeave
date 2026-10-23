@@ -81,6 +81,8 @@ RUNS = {
     "e-managed-file": {"file": "managed-settings.json", "settings": ALLOW, "traffic": False},
 }
 SETTLE_S = 45
+# extract.py's own pattern, which scrub has to see the paths through.
+UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
 
 
 def private_etc(policy_dir):
@@ -340,13 +342,19 @@ def main() -> int:
 def scrub(evidence, scratch, out):
     """extract.py replaces the home directory; the run's own scratch and
     raw directories, in either spelling the TUI and the CLI print, become
-    placeholders, so the evidence names no host path."""
+    placeholders, so the evidence names no host path. extract.py has also
+    rewritten every UUID to <uuid> by then, and a TMPDIR under a session
+    scratchpad has one, so each spelling is matched as extract.py left it.
+    A run whose evidence still names its scratch or raw directory fails."""
     home = str(pathlib.Path.home())
     text = evidence.read_text()
     for path, name in ((str(scratch), "$SCRATCH"), (str(out), "$RAW")):
         for spelling in (path, path.replace(home, "$HOME", 1), path.replace(home, "~", 1)):
-            text = text.replace(spelling, name)
+            text = text.replace(UUID.sub("<uuid>", spelling), name).replace(spelling, name)
     evidence.write_text(text)
+    for leftover in (scratch.name, out.parent.name):
+        if leftover in text:
+            raise SystemExit(f"{evidence.name} still names {leftover}: a host path the scrub missed")
 
 
 def token_in(dirs):
