@@ -376,7 +376,9 @@ def wraps_on(next_line: str) -> bool:
     two rounds). So a sentence opening on the word ("With contributions
     from ...") is read on and refused, which a reviewer sees, rather than
     an id passing unread, which nothing would."""
-    head = next_line.strip().lstrip("()").lstrip()
+    # Every parenthesis and space before the first word, not one run then
+    # the spaces: ") ) OR X" is the operator line ") OR X" is.
+    head = next_line.lstrip("() \t")
     if not head or head[0] in "/|+":
         return True
     return bool(re.match(r"(AND|OR|WITH)(?![A-Za-z0-9.+-])", head, re.I))
