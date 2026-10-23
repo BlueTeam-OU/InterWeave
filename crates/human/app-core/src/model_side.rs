@@ -239,15 +239,37 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::Unkept(row) => self.model.unkept(row),
             Update::Cancelled { row, restorable } => self.model.cancelled(row, restorable),
             Update::Restored { cancelled, row } => self.model.restored(cancelled, row),
-            Update::TrustRead(answer) => self.model.trust_settings_mut().read(answer),
+            // An admin command is freed by its answer, not only by its
+            // `Done`: the model holds its own mark of what is on its way
+            // and offers the retry once it is answered, and each platform
+            // may deliver the answer and the `Done` in separate turns. A
+            // retry taken between them would be dropped as still on its
+            // way while the model waits for its answer, and Peers would
+            // stay busy for good (`an_admin_retry_answered_before_its_done_is_sent`).
+            // The late `Done` frees the retry's entry in its turn, which
+            // the model's own mark still guards.
+            Update::TrustRead(answer) => {
+                self.in_flight.remove(&InFlight::Other(Command::ReadTrust));
+                self.model.trust_settings_mut().read(answer);
+            }
             Update::TrustSet { change, answer } => {
+                self.in_flight
+                    .remove(&InFlight::Other(Command::SetTrust(change.clone())));
                 self.model.trust_settings_mut().set(change, answer);
             }
-            Update::AddressesRead(answer) => self.model.addresses_read(answer),
+            Update::AddressesRead(answer) => {
+                self.in_flight
+                    .remove(&InFlight::Other(Command::ReadAddresses));
+                self.model.addresses_read(answer);
+            }
             Update::AddressesAdded { lines, answer } => {
+                self.in_flight
+                    .remove(&InFlight::Other(Command::AddAddresses(lines.clone())));
                 self.model.addresses_added(&lines, answer);
             }
             Update::AddressRemoved { address, answer } => {
+                self.in_flight
+                    .remove(&InFlight::Other(Command::RemoveAddress(address.clone())));
                 self.model.address_removed(&address, answer);
             }
             Update::Done(command) => {

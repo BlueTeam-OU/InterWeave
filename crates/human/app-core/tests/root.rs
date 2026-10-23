@@ -1737,3 +1737,129 @@ async fn a_new_session_reads_both_lists_again() {
         "{commands:?}"
     );
 }
+
+/// An admin answer and its `Done` are separate updates, and each platform
+/// may deliver them in separate turns: the answer frees the command, so a
+/// retry the model offers once it is answered is sent, never dropped as
+/// still on its way -- which would leave Peers busy, its add page with no
+/// way out, for good.
+#[tokio::test]
+async fn an_admin_retry_answered_before_its_done_is_sent() {
+    use interweave_human_client_api::{
+        AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
+        AddressProblem, ClientEvent, PeerAddress, SessionState, TrustProblem, TrustSetFailure,
+    };
+    use interweave_human_ui_model::PeersInput;
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let stranger = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a peer");
+    let line = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", stranger.as_str());
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
+    let issued = |commands: &[Command], want: &Command| commands.iter().any(|c| c == want);
+
+    // Both reads, answered failed with no Done; a new session reads again.
+    let again = |root: &mut Root| {
+        root.model.apply(Update::Client(ClientEvent::Session(
+            SessionState::Reconnecting {
+                attempt: 1,
+                next_at: 0,
+            },
+        )));
+        root.model
+            .apply(Update::Client(ClientEvent::Session(SessionState::Ready {
+                endpoint: None,
+            })));
+    };
+    again(&mut root);
+    let commands = root.model.turn();
+    assert!(issued(&commands, &Command::ReadTrust), "{commands:?}");
+    assert!(issued(&commands, &Command::ReadAddresses), "{commands:?}");
+    root.model
+        .apply(Update::TrustRead(Err(TrustProblem::Unavailable)));
+    root.model
+        .apply(Update::AddressesRead(Err(AddressProblem::Unavailable)));
+    again(&mut root);
+    let commands = root.model.turn();
+    assert!(issued(&commands, &Command::ReadTrust), "{commands:?}");
+    assert!(issued(&commands, &Command::ReadAddresses), "{commands:?}");
+    root.model.apply(Update::Done(Command::ReadTrust));
+    root.model.apply(Update::Done(Command::ReadAddresses));
+
+    // An add not made, and its retry.
+    let add = Command::AddAddresses(vec![line.clone()]);
+    root.will(vec![
+        ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::FieldChanged(line.clone())),
+        ViewEvent::Peers(PeersInput::Add),
+    ]);
+    assert!(issued(&root.model.turn(), &add));
+    root.model.apply(Update::AddressesAdded {
+        lines: vec![line.clone()],
+        answer: Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    });
+    root.will(vec![ViewEvent::Peers(PeersInput::Add)]);
+    let commands = root.model.turn();
+    assert!(issued(&commands, &add), "the retry sent: {commands:?}");
+    root.model.apply(Update::Done(add.clone()));
+
+    // Made, so the step's Trust is offered: refused, and pressed again.
+    let listed = AddressList {
+        addresses: vec![PeerAddress {
+            address: line.clone(),
+            peer: Some(stranger.clone()),
+            origin: AddressOrigin::AddedHere,
+            dialled: true,
+        }],
+    };
+    root.model.apply(Update::AddressesAdded {
+        lines: vec![line.clone()],
+        answer: Ok(AddressAnswer {
+            outcome: AddressOutcome::Added {
+                peer: Some(stranger.clone()),
+            },
+            list: Ok(listed.clone()),
+        }),
+    });
+    root.model.apply(Update::Done(add));
+    let set = Command::SetTrust(TrustChange {
+        peer: stranger.clone(),
+        allowed: true,
+    });
+    root.will(vec![ViewEvent::Peers(PeersInput::Trust(stranger.clone()))]);
+    assert!(issued(&root.model.turn(), &set));
+    root.model.apply(Update::TrustSet {
+        change: TrustChange {
+            peer: stranger.clone(),
+            allowed: true,
+        },
+        answer: Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    });
+    // Peers takes a Trust answer at the turn's end: the block offers its
+    // Trust again from the next.
+    let _ = root.model.turn();
+    root.will(vec![ViewEvent::Peers(PeersInput::Trust(stranger.clone()))]);
+    let commands = root.model.turn();
+    assert!(
+        issued(&commands, &set),
+        "the Trust again sent: {commands:?}"
+    );
+    root.model.apply(Update::Done(set));
+
+    // A removal not made, and its Try again.
+    let remove = Command::RemoveAddress(line.clone());
+    root.will(vec![ViewEvent::Peers(PeersInput::Remove(line.clone()))]);
+    assert!(issued(&root.model.turn(), &remove));
+    root.model.apply(Update::AddressRemoved {
+        address: line.clone(),
+        answer: Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    });
+    root.will(vec![ViewEvent::Peers(PeersInput::TryAgain)]);
+    let commands = root.model.turn();
+    assert!(
+        issued(&commands, &remove),
+        "the Try again sent: {commands:?}"
+    );
+    root.model.apply(Update::Done(remove));
+}

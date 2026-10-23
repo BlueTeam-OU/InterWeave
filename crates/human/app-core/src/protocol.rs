@@ -252,7 +252,8 @@ pub enum Update {
         answer: Result<AddressAnswer, AddressChangeFailure>,
     },
     /// A command finished. Every command ends with this or `Failed`, so
-    /// the model side can offer the same action again.
+    /// the model side can offer the same action again; an admin command
+    /// whose answer is an update of its own is freed by that answer too.
     Done(Command),
     /// A command could not be carried out; nothing changed.
     Failed {
