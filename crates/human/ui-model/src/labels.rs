@@ -851,7 +851,7 @@ ui_texts! {
     /// The refusal's first drawn text, above the refused line, when it
     /// names one, and the reason; with no line, it and the reason read
     /// together are the label.
-    AddRefusedLead => "Not added:", // PLACEHOLDER (en)
+    AddRefusedLead => "Not added:",
     /// A refusal: the grammar.
     RefusedGrammar => "This is not an InterWeave address.",
     /// A refusal: a special-use address.
