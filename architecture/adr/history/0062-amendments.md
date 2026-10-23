@@ -60,3 +60,26 @@ not to count what is already there. Propagation: decision 4; this
 note; the log row; the digest entry; `LOCAL-IPC.md`'s
 `add_addresses` paragraph (p2p-network-dev's, on their branch) and
 `LOCAL-CLIENT.md` §7 item 13's sentence for the method.
+
+### Amendment 2026-10-23 — An address naming this node's own PeerId is refused by the method, `own_peer`
+
+rust-ui-dev-01 found on #384, through its review, that
+`admin.peers.add_address` stored an address whose PeerId is this
+profile's own: none of decision 1's refusals covered it, so pasting
+one's own Show page listed a row that could never be trusted and
+reached no one. ux-designer-01 asked (QUESTION 01a165de) whether the
+client alone should refuse it, the runtime, or neither. Ruled the
+method, with the client in front: decision 1 makes the add the one
+gate these entries pass, whoever the caller, and a row for oneself is
+dead for `transportctl` and the command-line client as much as for
+the screen; the client refuses first under the same name, since it
+knows its PeerId from the session, and the method's refusal makes the
+rule true for every other caller. The check is the address's final
+PeerId, so a circuit route through this node's own relay to another
+peer is not refused; removal is never refused, so an earlier row can
+be taken out; below IPC minor 2.9 the refusal is answered as
+`grammar`, a downgrade by version an older decoder can show, which
+`LOCAL-IPC.md` states. The value joins the `refused` set in the 2.9
+batch (p2p-network-dev's, 06dc78cc). Propagation: decision 1; this
+note; the log row; the digest entry; `LOCAL-IPC.md`'s two paragraphs
+(p2p-network-dev's, same branch); the add-a-peer design note (#390).
