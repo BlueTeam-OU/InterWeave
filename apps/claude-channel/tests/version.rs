@@ -30,14 +30,11 @@ fn version_is_the_workspace_version_and_the_commit() {
     let head = Command::new("git")
         .arg("-C")
         .arg(env!("CARGO_MANIFEST_DIR"))
-        .args(["rev-parse", "--short=12", "HEAD"])
+        .args(["rev-parse", "HEAD"])
         .output()
         .expect("git runs");
     let commit = if head.status.success() {
-        String::from_utf8(head.stdout)
-            .expect("utf-8")
-            .trim()
-            .to_owned()
+        String::from_utf8(head.stdout).expect("utf-8").trim()[..12].to_owned()
     } else {
         "unknown".to_owned()
     };
