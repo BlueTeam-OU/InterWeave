@@ -106,7 +106,14 @@ claude plugin list
 
 `profile` and `endpoint` are the plugin's two settings: the profile from step 3 and the endpoint its `config.yaml` declares. Unset, they are `default` and `claude`. They are kept in Claude Code's user settings, and `claude plugin configure interweave@interweave` shows or changes them.
 
-The copy under `~/.local/share/interweave/claude-plugin` is what Claude Code runs: with a marketplace added from a directory, the plugin runs from that directory, not from a copy of its own (SPIKE-001 S20). Do not delete it. To upgrade, replace it with the newer archive's `claude-plugin/` and start a new session.
+The copy under `~/.local/share/interweave/claude-plugin` is what Claude Code runs: with a marketplace added from a directory, the plugin runs from that directory, not from a copy of its own (SPIKE-001 S20). Do not delete it. To upgrade, replace it with the newer archive's `claude-plugin/` and start a new session: the replaced directory is what the next session runs (SPIKE-001 S20). The plugin's version is the release's, so Claude Code then sees the upgrade:
+
+```sh
+claude plugin marketplace update interweave
+claude plugin update interweave@interweave
+```
+
+The second command reports the plugin updated from the old version to the new one (SPIKE-001 S20, case B, measured with two hand-set versions).
 
 ## 7. Allow the channel for the organisation
 
@@ -167,4 +174,4 @@ systemctl --user disable --now interweave-daemon@claude
 - **More than one session per endpoint.** The endpoint takes one lease. A second session on the same account and profile gets "endpoint refused" from its bridge's `status` and keeps retrying. It never takes another endpoint. Run one profile, or one endpoint, per session.
 - **Logs of the bridge's own.** The bridge writes its few lines to stderr. It has no log file and no log level. Claude Code keeps those lines as `Server stderr:` entries in `~/.cache/claude-cli-nodejs/<working directory>/mcp-logs-plugin-interweave-interweave/<timestamp>.jsonl`, one file per server start, which is where to look when the channel is not there (SPIKE-001 S21). Its lines carry no message content and no peer or endpoint identifier. The daemon logs to the account's journal (`journalctl --user -u interweave-daemon@<profile>`), at the profile's `observability.log_level`, and never logs a payload.
 - **What a missed message was.** A daemon restart ends the bridge's lease. The bridge reconnects and joins its channels again, but nothing sent meanwhile is replayed, and a reply token from before the restart is refused. That a gap happened, and when, is reported: the bridge's `status` shows `lease_gap` with the lost and the new lease and the two instants, and in pull mode the first `receive` after it carries the same.
-- **An upgrade Claude Code reports.** The plugin's version is `0.0.0` in every release, so `claude plugin update` reports nothing to update. That does not stop an upgrade: a replaced marketplace directory runs at the next session (SPIKE-001 S20).
+- **An update report between two builds of one release.** The plugin's version is the release version, and S20 measured `claude plugin update` reporting only a higher one. A rebuild at the same version, a development build from a checkout included, reports nothing to update. The replaced directory still runs at the next session (SPIKE-001 S20, case A).
