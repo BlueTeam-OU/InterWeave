@@ -2045,7 +2045,7 @@ fn an_unknown_trust_stays_unknown_after_a_retry_that_writes_nothing() {
     );
 }
 
-/// While a Trust on a PeerId is pending -- its answer lost, no read that
+/// While a Trust on a `PeerId` is pending -- its answer lost, no read that
 /// started after it has succeeded -- a Trust on it that writes nothing,
 /// wherever it is made, is a retry of an unknown change and reads
 /// unknown (§5.3, §5.7). Another peer's not-written Trust says so.
@@ -2154,9 +2154,9 @@ fn a_read_ends_only_the_trusts_sent_before_it() {
     assert!(!t.is_pending(&p), "answered as made");
 }
 
-/// The contact names on a row's PeerId (§5.2): every contact of the
+/// The contact names on a row's `PeerId` (§5.2): every contact of the
 /// identity in front with a route on it, one name each, in order --
-/// case set aside, then the exact name -- and none for another PeerId.
+/// case set aside, then the exact name -- and none for another `PeerId`.
 #[test]
 fn a_rows_contact_names_are_every_contact_on_its_peer_in_order() {
     use interweave_human_ui_model::{ContactView, RouteView};
