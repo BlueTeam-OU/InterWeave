@@ -257,11 +257,25 @@ impl View {
             && text == self.peer_lists.note_text;
         self.peer_lists.note_seen = notes;
         self.peer_lists.note_text.clone_from(&text);
-        let said = said.or_else(|| (on_page && again).then_some(text));
+        let mut said = said.or_else(|| (on_page && again).then_some(text));
         // Focus, once per request, on Peers alone.
         let (focus, focuses) = peers.focus();
         if on_page && focuses != self.peer_lists.focus_seen {
             self.peer_lists.focus_seen = focuses;
+            // A row a read showed gone: why focus lands elsewhere, said
+            // first (design section 8).
+            if peers.focus_row_gone() {
+                let gone = placeholder_en::text(UiText::PeerRowGone).to_owned();
+                said = Some(said.map_or_else(
+                    || gone.clone(),
+                    |rest| {
+                        fill(
+                            placeholder_en::text(UiText::AnnounceBoth),
+                            &[("first", &gone), ("rest", &rest)],
+                        )
+                    },
+                ));
+            }
             if let Some(focus) = focus {
                 let target = self.focus_target(&focus, peers.field());
                 // Peers' focus mostly lands on a control the same render

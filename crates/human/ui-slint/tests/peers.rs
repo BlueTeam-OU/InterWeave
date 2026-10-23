@@ -892,3 +892,71 @@ fn a_pending_trust_retried_without_a_write_says_no_nothing_changed() {
     let _ = intents(&mut view, &mut model);
     assert_eq!(view.window().get_trust_outcome().as_str(), "");
 }
+
+/// Focus asked for a row a read showed gone -- a row's trust step closing
+/// after another administrator removed its address -- goes to the row
+/// after its place, and the screen reader hears why first; a row still
+/// there takes focus with nothing said (design section 8).
+#[test]
+fn a_row_gone_when_focus_returns_is_said_and_focus_goes_after_it() {
+    row_focus_returns(true);
+}
+
+/// The control: the same row still listed takes focus, nothing said.
+#[test]
+fn a_row_still_there_when_focus_returns_takes_it_unsaid() {
+    row_focus_returns(false);
+}
+
+fn row_focus_returns(removed: bool) {
+    use interweave_human_ui_model::PeersInput;
+    let settle = |view: &mut View, model: &mut UiModel| {
+        view.render(model);
+        for _ in 0..2 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+        }
+        view.render(model);
+    };
+    let gone = text(UiText::PeerRowGone);
+    let slots = |view: &View| {
+        [
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        ]
+    };
+    {
+        let mut view = view();
+        let mut model = UiModel::new();
+        let (me, a, b, c) = (peer(), peer(), peer(), peer());
+        // Added rows show newest first: C, B, A.
+        open_peers(
+            &mut view,
+            &mut model,
+            &me,
+            &[],
+            &[added(&a), added(&b), added(&c)],
+        );
+        let _ = model.peers_input(PeersInput::TrustRow(at(&b)));
+        settle(&mut view, &mut model);
+        if removed {
+            model.addresses_read(Ok(AddressList {
+                addresses: vec![added(&a), added(&c)],
+            }));
+        }
+        let _ = model.peers_input(PeersInput::Close);
+        settle(&mut view, &mut model);
+        let rows = view.window().get_peer_rows();
+        let handle = (0..rows.row_count())
+            .filter_map(|i| rows.row_data(i))
+            .find(|r| r.address.as_str() == at(if removed { &a } else { &b }))
+            .expect("the row")
+            .handle;
+        assert_eq!(
+            view.window().get_focus_id().as_str(),
+            format!("row:{handle}"),
+            "removed: {removed}"
+        );
+        let said = slots(&view).iter().any(|s| s.starts_with(gone));
+        assert_eq!(said, removed, "{:?}", slots(&view));
+    }
+}
