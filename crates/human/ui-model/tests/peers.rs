@@ -3711,6 +3711,36 @@ fn a_page_closes_while_a_removal_is_on_its_way() {
     }
 }
 
+/// The same for the other changes on their way: an Undo, and a removal's
+/// read back after its answer was lost.
+#[test]
+fn a_page_closes_while_an_undo_or_a_read_back_is_on_its_way() {
+    let (me, a, b) = (peer(), peer(), peer());
+    for read_back in [false, true] {
+        let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+        let _ = input(&mut m, PeersInput::Remove(at(&b)));
+        if read_back {
+            m.address_removed(
+                &at(&b),
+                Err(AddressChangeFailure::Unconfirmed(
+                    AddressProblem::Unavailable,
+                )),
+            );
+            assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses), "its read back");
+        } else {
+            m.address_removed(&at(&b), answer(AddressOutcome::Removed, &[added(&a)]));
+            assert_eq!(
+                input(&mut m, PeersInput::Undo),
+                vec![Intent::AddAddresses(vec![at(&b)])]
+            );
+        }
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        assert!(m.peers().add_open(), "read back {read_back}: opened");
+        let _ = input(&mut m, PeersInput::Close);
+        assert!(!m.peers().add_open(), "read back {read_back}: closed");
+    }
+}
+
 /// An Undo the device refuses by name -- here a row naming this device,
 /// written before that rule and so removable (ADR-0062 decision 1) --
 /// leaves the address removed and says that refusal, with no Try again,
