@@ -783,6 +783,7 @@ impl<B: DataSessionBinding, A: AdminBinding> TransportClient<B, A> {
                 AddressRefusal::Bound => AddressRefused::Bound,
                 AddressRefusal::ProviderDisabled => AddressRefused::ListOff,
                 AddressRefusal::Authored => AddressRefused::Configured,
+                AddressRefusal::OwnPeer => AddressRefused::OwnPeer,
             }),
         };
         let list = read_addresses(&admin).await;

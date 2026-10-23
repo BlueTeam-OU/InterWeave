@@ -556,8 +556,8 @@ pub enum AddressRefused {
     /// The configuration's own entry: a removal only.
     Configured,
     /// The address names this node's own `PeerId`: an add only, from IPC
-    /// 2.9 (`own_peer`). No binding answers it yet; the client refuses
-    /// such a line itself before sending (add-a-peer §5.3).
+    /// 2.9 (`own_peer`); below it the runtime answers the grammar. The
+    /// client refuses such a line itself before sending (add-a-peer §5.3).
     OwnPeer,
 }
 

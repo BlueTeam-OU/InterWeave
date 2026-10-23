@@ -327,6 +327,7 @@ async fn each_refusal_is_answered_by_its_rule() {
         (AddressRefusal::Bound, AddressRefused::Bound),
         (AddressRefusal::ProviderDisabled, AddressRefused::ListOff),
         (AddressRefusal::Authored, AddressRefused::Configured),
+        (AddressRefusal::OwnPeer, AddressRefused::OwnPeer),
     ];
     for (reason, expected) in cases {
         let book = Book::default();
@@ -403,9 +404,12 @@ async fn a_failure_says_whether_the_change_was_made() {
 }
 
 /// A runtime whose port predates the methods answers them unsupported,
-/// which the person is told as a mixed install.
+/// which the person is told as a mixed install. (The shared fake node
+/// answers them since IPC 2.9, so the predating port is this book's.)
 #[tokio::test]
 async fn a_runtime_without_the_methods_is_incompatible() {
-    let client = facade(node());
+    let old = Book::default();
+    old.0.lock().unwrap().list_fails = Some(TransportError::ProtocolUnsupported);
+    let client = facade(old);
     assert_eq!(client.addresses().await, Err(AddressProblem::Incompatible));
 }
