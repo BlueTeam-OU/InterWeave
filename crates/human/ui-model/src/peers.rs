@@ -2249,10 +2249,13 @@ impl Peers {
     /// `trust`'s read and empty -- two facts the client holds whole,
     /// never a connection or path signal. An unread list, one whose read
     /// failed, or one a change may have altered since it was read, is
-    /// unknown and makes no claim.
+    /// unknown and makes no claim -- as does either list while a change of
+    /// it is on its way (`no_reach_claims_nothing_while_a_change_is_out`).
     #[must_use]
     pub fn no_reach(&self, trust: &TrustSettings) -> bool {
-        self.held == Held::AsRead
+        !self.busy()
+            && trust.in_flight().is_none()
+            && self.held == Held::AsRead
             && self.list.as_ref().is_some_and(AddressList::is_empty)
             && trust.confirmed_list().is_some_and(|l| l.allowed.is_empty())
     }

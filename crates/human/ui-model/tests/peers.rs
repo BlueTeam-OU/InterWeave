@@ -3433,3 +3433,39 @@ fn a_barred_add_left_out_asks_no_focus_past_an_open_page() {
     let _ = input(&mut m, PeersInput::Close);
     assert_eq!(focus(&m), Some(PeersFocus::ListProblem), "then to why");
 }
+
+/// The no-reach notice claims nothing while a change of either list is
+/// on its way -- an add on its page or left out by Back, a trust change
+/// from the settings -- since its answer may fill the list (ADR-0062
+/// decision 8, §5.6); answered with nothing written, the claim stands.
+#[test]
+fn no_reach_claims_nothing_while_a_change_is_out() {
+    use interweave_human_ui_model::TrustInput;
+    let (me, a, q) = (peer(), peer(), peer());
+    let not_written = || Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable));
+    let mut m = opened(&me, &[], &[]);
+    assert!(m.no_reach(), "both read and empty");
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    assert!(!m.no_reach(), "an add on its way");
+    let _ = input(&mut m, PeersInput::Close);
+    assert!(!m.no_reach(), "left out by Back");
+    m.addresses_added(&[at(&a)], not_written());
+    assert!(m.no_reach(), "nothing written: the claim stands");
+
+    let settings = m.trust_settings_mut();
+    let _ = settings.input(TrustInput::EntryChanged(q.as_str().to_owned()));
+    let _ = settings.input(TrustInput::ProposeAllow);
+    let change = TrustChange {
+        peer: q.clone(),
+        allowed: true,
+    };
+    let _ = settings.input(TrustInput::Confirm(change.clone()));
+    assert!(!m.no_reach(), "a trust change on its way");
+    m.trust_settings_mut().set(
+        change,
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    assert!(m.no_reach());
+}
