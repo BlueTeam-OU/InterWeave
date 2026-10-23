@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:interweave:schemas:ipc:peers-addresses-result",
   "title": "IPC admin.peers.add_addresses result",
-  "description": "What an all-or-none add did (ADR-0062 decision 4). `added`: every line is in force, and `lines` has one row per line in the order given -- `added`, or `unchanged` for a line already present (authored or added) or repeated earlier in the list, which costs nothing against the bound. `refused`: NOTHING was written, and the refusal names its rule in `refused`, add_address's closed set less `authored`, and -- for every rule but provider_disabled, which refuses the list whole -- the 0-based `index` of the line it refuses: the first line outside the grammar; else the provider disabled; else the first line in a special-use class; else the first new line that takes authored and added entries past 64. A one-line list is answered as add_address answers that line. A refusal is an answer, not an error; `detail` is for a log, never parsed. A write that fails is the error `Internal`, nothing changed: the accepted lines are written in one overlay write, before the provider is told and before the answer (ADR-0028).",
+  "description": "What an all-or-none add did (ADR-0062 decision 4). `added`: every line is in force, and `lines` has one row per line in the order given -- `added`, or `unchanged` for a line already present (authored or added) or repeated earlier in the list, which costs nothing against the bound. `refused`: NOTHING was written, and the refusal names its rule in `refused`, add_address's closed set less `authored`, and -- for every rule but provider_disabled, which refuses the list whole -- the 0-based `index` of the line it refuses: the first line outside the grammar; else the first line naming this node's own PeerId; else the provider disabled; else the first line in a special-use class; else the first new line that takes authored and added entries past 64. A one-line list is answered as add_address answers that line. A refusal is an answer, not an error; `detail` is for a log, never parsed. A write that fails is the error `Internal`, nothing changed: the accepted lines are written in one overlay write, before the provider is told and before the answer (ADR-0028).",
   "type": "object",
   "required": [
     "outcome"
@@ -36,9 +36,10 @@
       }
     },
     "refused": {
-      "$comment": "add_address's reasons less authored, which only a removal answers. grammar: not a multiaddr-with-peer-id. special_use: a component of a refused class of ADR-0052 rule 2 (loopback, link-local, unspecified, multicast or another special-use range; private ranges are admitted). bound: authored and added entries would exceed 64. provider_disabled: the profile authors the static-bootstrap provider enabled: false.",
+      "$comment": "add_address's reasons less authored, which only a removal answers. grammar: not a multiaddr-with-peer-id. own_peer: the address's PeerId is this node's own. special_use: a component of a refused class of ADR-0052 rule 2 (loopback, link-local, unspecified, multicast or another special-use range; private ranges are admitted). bound: authored and added entries would exceed 64. provider_disabled: the profile authors the static-bootstrap provider enabled: false.",
       "enum": [
         "grammar",
+        "own_peer",
         "special_use",
         "bound",
         "provider_disabled"

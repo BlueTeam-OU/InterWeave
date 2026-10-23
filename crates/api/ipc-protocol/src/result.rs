@@ -57,6 +57,13 @@ pub const TRUST_SOURCE_SINCE_MINOR: u64 = 3;
 /// refuse the whole page (#329 review F4).
 pub const ROUTE_HELD_SINCE_MINOR: u64 = 6;
 
+/// The minor from which `peers-address-result` may answer `refused:
+/// own_peer` (ADR-0062 decision 1; `ipc/peers-address-result` 1.1.0).
+/// Below it the same refusal is answered `grammar`, the reason a 2.7
+/// client knows: its decoder refuses a name outside the set it was built
+/// with, so `own_peer` would turn a refusal into a protocol violation.
+pub const OWN_PEER_SINCE_MINOR: u64 = 9;
+
 /// Rows on one `ipc/peer-list` page: a row is up to 194 bytes, so 1024
 /// would overflow the 128 KiB body and 512 is about 100 KB; a full
 /// allowlist of 4096 is eight pages (architect-cto's ruling of
@@ -894,6 +901,24 @@ impl From<AddressChange> for AddressResult {
     }
 }
 
+impl AddressResult {
+    /// `change` as the connection's `minor` may carry it: `own_peer`
+    /// below [`OWN_PEER_SINCE_MINOR`] is answered `grammar`.
+    #[must_use]
+    pub fn for_minor(change: AddressChange, minor: u64) -> Self {
+        Self::from(match change {
+            AddressChange::Refused {
+                reason: AddressRefusal::OwnPeer,
+                detail,
+            } if minor < OWN_PEER_SINCE_MINOR => AddressChange::Refused {
+                reason: AddressRefusal::Grammar,
+                detail,
+            },
+            change => change,
+        })
+    }
+}
+
 impl From<AddressResult> for AddressChange {
     fn from(result: AddressResult) -> Self {
         match (result.outcome, result.refused) {
@@ -909,15 +934,9 @@ impl From<AddressResult> for AddressChange {
 }
 
 fn refusal_named(name: &str) -> Option<AddressRefusal> {
-    [
-        AddressRefusal::Grammar,
-        AddressRefusal::SpecialUse,
-        AddressRefusal::Bound,
-        AddressRefusal::ProviderDisabled,
-        AddressRefusal::Authored,
-    ]
-    .into_iter()
-    .find(|reason| reason.as_str() == name)
+    AddressRefusal::ALL
+        .into_iter()
+        .find(|reason| reason.as_str() == name)
 }
 
 impl<'de> Deserialize<'de> for AddressResult {

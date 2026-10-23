@@ -521,6 +521,9 @@ pub struct OwnAddresses {
 pub enum AddressRefusal {
     /// Not a `multiaddr-with-peer-id` in the configuration's grammar.
     Grammar,
+    /// An add of an address whose `PeerId` -- the node it reaches -- is
+    /// this profile's own: a row nothing can dial (ADR-0062 decision 1).
+    OwnPeer,
     /// A component in a class ADR-0052 rule 2 refuses.
     SpecialUse,
     /// Authored and added entries would pass 64.
@@ -532,11 +535,23 @@ pub enum AddressRefusal {
 }
 
 impl AddressRefusal {
+    /// Every reason, in the order the methods check them; what a decoder
+    /// matches a name against. `every_refusal_is_in_all` keeps it whole.
+    pub const ALL: [Self; 6] = [
+        Self::Grammar,
+        Self::OwnPeer,
+        Self::ProviderDisabled,
+        Self::SpecialUse,
+        Self::Bound,
+        Self::Authored,
+    ];
+
     /// The name the wire carries.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Grammar => "grammar",
+            Self::OwnPeer => "own_peer",
             Self::SpecialUse => "special_use",
             Self::Bound => "bound",
             Self::ProviderDisabled => "provider_disabled",
@@ -878,7 +893,7 @@ pub trait AdminPort {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
-    use super::SessionRequest;
+    use super::{AddressRefusal, SessionRequest};
     use crate::{DataCapability, MAX_CLIENT_KIND_CHARS, SessionError};
 
     #[test]
@@ -901,5 +916,23 @@ mod tests {
         let ok = SessionRequest::new("human", None, [DataCapability::Events]).expect("in bounds");
         assert_eq!(ok.client_kind(), "human");
         assert!(ok.endpoint().is_none());
+    }
+
+    /// A reason added to the enum and not to `ALL` would decode as no
+    /// reason at all: the match makes a new variant a compile error here,
+    /// where `ALL` is in view, and the loop that `ALL` holds each once.
+    #[test]
+    fn every_refusal_is_in_all() {
+        let position = |reason| match reason {
+            AddressRefusal::Grammar => 0,
+            AddressRefusal::OwnPeer => 1,
+            AddressRefusal::ProviderDisabled => 2,
+            AddressRefusal::SpecialUse => 3,
+            AddressRefusal::Bound => 4,
+            AddressRefusal::Authored => 5,
+        };
+        for (i, reason) in AddressRefusal::ALL.into_iter().enumerate() {
+            assert_eq!(position(reason), i, "{reason:?}");
+        }
     }
 }

@@ -1771,13 +1771,9 @@ fn the_peers_address_shapes_hold_what_the_contract_says() {
             serde_json::json!({ "outcome": outcome, "refused": "bound" }),
         );
     }
-    for reason in [
-        "grammar",
-        "special_use",
-        "bound",
-        "provider_disabled",
-        "authored",
-    ] {
+    // Every reason the contract crate names, so one added there and not
+    // to the schema fails here.
+    for reason in interweave_local_client_api::AddressRefusal::ALL.map(|r| r.as_str()) {
         assert_valid(
             result,
             &serde_json::json!({ "outcome": "refused", "refused": reason, "detail": "why" }),
@@ -2076,7 +2072,19 @@ fn the_all_or_none_add_shapes_hold_what_the_contract_says() {
         serde_json::json!({ "outcome": "unchanged", "lines": [row("unchanged")] }),
     );
 
-    for reason in ["grammar", "special_use", "bound"] {
+    // Every reason that names a line: all but the provider's, which
+    // refuses the list whole, and `authored`, which only a removal answers.
+    for reason in interweave_local_client_api::AddressRefusal::ALL
+        .into_iter()
+        .filter(|r| {
+            !matches!(
+                r,
+                interweave_local_client_api::AddressRefusal::ProviderDisabled
+                    | interweave_local_client_api::AddressRefusal::Authored
+            )
+        })
+        .map(|r| r.as_str())
+    {
         assert_valid(
             result,
             &serde_json::json!({ "outcome": "refused", "refused": reason, "index": 15, "detail": "why" }),
