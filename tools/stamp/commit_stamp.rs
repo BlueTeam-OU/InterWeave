@@ -10,11 +10,8 @@
 //! The id is the first twelve hex digits, never git's abbreviation, which
 //! grows with the repository's object count: a release's shallow clone and
 //! a full one would stamp the same commit differently. Built from no
-//! checkout, the commit is `unknown`. `claude-channel`'s own build script
-//! (#398) has the same rules but for two: it watches neither for a packed
-//! branch's first loose ref with reflogs off nor a reftable repository's
-//! tables (below), so it can stamp a commit stale in either.
-//! `tools/ci/test_commit_stamp.sh` is this one's test.
+//! checkout, the commit is `unknown`. `tools/ci/test_commit_stamp.sh` is
+//! this script's test.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
