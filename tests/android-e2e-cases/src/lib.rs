@@ -32,6 +32,7 @@ use std::time::Duration;
 use interweave_local_client_api::{
     AdminBinding, AdminCapability, AdminPort as _, DataCapability, DataSessionBinding,
     DataSessionPort, LocalSessionEvent, ROUTE_ESTABLISHED, SessionEvent, SessionRequest,
+    TrustChange,
 };
 use interweave_profile_config::{ProfilePaths, TrustBoundary, resolve_private_dir_within};
 use interweave_transport_api::{
@@ -731,9 +732,14 @@ async fn audit(binding: &impl AdminBinding, peer: TransportIdentity) -> Result<(
         .admin(BTreeSet::from([AdminCapability::Trust]))
         .await
         .map_err(|_| "the admin port with the trust capability was refused".to_owned())?;
-    port.set_trust(peer, true)
-        .await
-        .map_err(|_| "the trust change was refused".to_owned())
+    match port.set_trust(peer, true).await {
+        Ok(TrustChange::Set) => Ok(()),
+        // One port here, so nothing supersedes it; said if it ever does.
+        Ok(TrustChange::Refused(reason)) => {
+            Err(format!("the trust change was refused {}", reason.as_str()))
+        }
+        Err(_) => Err("the trust change was refused".to_owned()),
+    }
 }
 
 /// What the Android side sends in exchange `serial`, and its id.
