@@ -652,7 +652,6 @@ fn shown(list: &AddressList) -> impl Iterator<Item = &PeerAddress> {
     added.chain(configured)
 }
 
-/// The peers `lines` reach, each once, in order.
 /// The first line naming this device's own `PeerId`, which one refuses
 /// the whole add before anything is sent (add-a-peer §5.3).
 fn own_line(lines: &[String], own: Option<&TransportIdentity>) -> Option<String> {
@@ -663,6 +662,7 @@ fn own_line(lines: &[String], own: Option<&TransportIdentity>) -> Option<String>
         .cloned()
 }
 
+/// The peers `lines` reach, each once, in order.
 fn peers_of(lines: &[String]) -> Vec<TransportIdentity> {
     let mut peers: Vec<TransportIdentity> = Vec::new();
     for peer in lines.iter().filter_map(|l| PeerAddress::peer_of(l)) {
