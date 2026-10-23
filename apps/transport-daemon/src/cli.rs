@@ -6,6 +6,7 @@
 //! `transport-daemon --profile <name> [--create-identity]`. The profile is
 //! required: nothing in the architecture names a default profile, and a
 //! daemon guessing one would serve an identity nobody chose.
+//! `transport-daemon --version` alone prints the version (ADR-0065).
 
 /// What the command line asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +15,8 @@ pub(crate) enum Command {
     Run(Args),
     /// Print the usage and exit 0.
     Help,
+    /// Print the version and exit 0.
+    Version,
 }
 
 /// A run's arguments.
@@ -27,7 +30,12 @@ pub(crate) struct Args {
 }
 
 /// The usage text.
-pub(crate) const USAGE: &str = "usage: transport-daemon --profile <name> [--create-identity]";
+pub(crate) const USAGE: &str =
+    "usage: transport-daemon --profile <name> [--create-identity] | --version";
+
+/// The workspace version with the commit as build metadata (ADR-0065
+/// decision 6; `tools/stamp/commit_stamp.rs`).
+pub(crate) const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("INTERWEAVE_COMMIT"));
 
 /// Parse the arguments after the program name.
 ///
@@ -36,7 +44,16 @@ pub(crate) const USAGE: &str = "usage: transport-daemon --profile <name> [--crea
 pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String> {
     let mut profile = None;
     let mut create_identity = false;
-    let mut args = args.into_iter();
+    let mut args = args.into_iter().peekable();
+    // Alone, or not a version request: a start line that also asks for the
+    // version is a mistake, not a run that prints and then starts.
+    if args.peek().map(String::as_str) == Some("--version") {
+        args.next();
+        return match args.next() {
+            None => Ok(Command::Version),
+            Some(other) => Err(format!("--version takes no other argument, not {other:?}")),
+        };
+    }
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" | "-h" => return Ok(Command::Help),
@@ -82,6 +99,7 @@ mod tests {
             }))
         );
         assert_eq!(parsed(&["--help"]), Ok(Command::Help));
+        assert_eq!(parsed(&["--version"]), Ok(Command::Version));
     }
 
     #[test]
@@ -90,5 +108,7 @@ mod tests {
         assert!(parsed(&["--profile"]).is_err());
         assert!(parsed(&["--profile", "a", "--profile", "b"]).is_err());
         assert!(parsed(&["--profile", "a", "--verbose"]).is_err());
+        assert!(parsed(&["--version", "--profile", "a"]).is_err());
+        assert!(parsed(&["--profile", "a", "--version"]).is_err());
     }
 }
