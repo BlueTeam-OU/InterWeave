@@ -105,6 +105,10 @@ def cli(config, *args):
 def main() -> int:
     if len(sys.argv) != 2 or sys.argv[1] not in RUNS:
         raise SystemExit(f"usage: {sys.argv[0]} {{{'|'.join(RUNS)}}}")
+    if os.environ.get("SPIKE_CLAUDE"):
+        # The measured binary is the one on PATH; a run against another is
+        # not the one the record names.
+        raise SystemExit("unset SPIKE_CLAUDE: S22 measures the claude on PATH")
     name = sys.argv[1]
     spec = RUNS[name]
     run = "s22-" + name
@@ -117,7 +121,12 @@ def main() -> int:
     daemon, ctl = REPO / "target" / "debug" / "transport-daemon", REPO / "target" / "debug" / "transportctl"
 
     out = raw_dir(run)
-    scratch = pathlib.Path(tempfile.mkdtemp(prefix="spike001s22-"))
+    scratch = pathlib.Path(tempfile.mkdtemp(prefix="spike001s22-")).resolve()
+    if scratch == REPO or REPO in scratch.parents:
+        # TMPDIR decides where mkdtemp lands; the daemons' keys and the
+        # session's config must never be under the working copy.
+        scratch.rmdir()
+        raise SystemExit("TMPDIR must be outside the repository")
     config, workdir, built, policy = (scratch / d for d in ("config", "work", "marketplace", "policy"))
     for d in (config, workdir, policy):
         d.mkdir()
@@ -135,6 +144,7 @@ def main() -> int:
     live = []
     record = {"run": run, "managed_settings": managed}
     passed = False
+    raw_tainted = []
     try:
         session_env = {}
         peer = None
@@ -301,13 +311,28 @@ def main() -> int:
                 thing.kill()
                 thing.wait()
         shutil.rmtree(scratch, ignore_errors=True)
+        # Checked however the run ended, before anything is distilled into
+        # the working copy: a raw file Claude Code wrote the token into is
+        # not kept either.
+        raw_tainted = purge_if_token(out)
+    if raw_tainted:
+        raise SystemExit(f"the token appears in {', '.join(raw_tainted)}: raw output removed, no evidence written")
 
     record["passed"] = passed
     (out / "run.json").write_text(json.dumps(record, indent=2) + "\n")
     dest = HERE / "runs" / run
-    subprocess.run([sys.executable, str(HERE / "extract.py"), str(out), str(dest)], check=True)
-    scrub(dest / "evidence.md", scratch, out)
-    refuse_if_token(out, dest)
+    try:
+        subprocess.run([sys.executable, str(HERE / "extract.py"), str(out), str(dest)], check=True)
+        scrub(dest / "evidence.md", scratch, out)
+        tainted = token_in([out, dest])
+    except BaseException:
+        # A partial distillation was never checked for the token.
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+    if tainted:
+        shutil.rmtree(dest)
+        shutil.rmtree(out)
+        raise SystemExit(f"the token appears in {', '.join(tainted)}: no evidence kept, raw output removed")
     print(f"{run}: decision={record.get('channel_decision')!r} passed={passed} raw={out}")
     return 0 if passed else 1
 
@@ -324,15 +349,21 @@ def scrub(evidence, scratch, out):
     evidence.write_text(text)
 
 
-def refuse_if_token(out, dest):
-    """No evidence stays in the repository if the token reached any raw
-    file or the distillation. Only whether it was found is reported."""
+def token_in(dirs):
+    """The names of the files under dirs holding the long-term token; only
+    whether it was found is ever reported, never where in the text."""
     token = long_term_token()["CLAUDE_CODE_OAUTH_TOKEN"]
-    files = [p for p in sorted(out.iterdir()) if p.is_file()] + [p for p in sorted(dest.iterdir()) if p.is_file()]
-    tainted = [p.name for p in files if token in p.read_text(errors="replace")]
+    files = [p for d in dirs if d.exists() for p in sorted(d.rglob("*")) if p.is_file()]
+    return [p.name for p in files if token in p.read_text(errors="replace")]
+
+
+def purge_if_token(out):
+    """The raw directory is outside the repository but still on this host:
+    if the token reached it, none of it is kept."""
+    tainted = token_in([out])
     if tainted:
-        shutil.rmtree(dest)
-        raise SystemExit(f"the token appears in {', '.join(tainted)}: no evidence kept; raw output at {out}")
+        shutil.rmtree(out, ignore_errors=True)
+    return tainted
 
 
 if __name__ == "__main__":
