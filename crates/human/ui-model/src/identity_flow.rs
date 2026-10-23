@@ -326,6 +326,21 @@ impl IdentityFlow {
         )
     }
 
+    /// The screen warns that the phrase may still be live on another
+    /// device (`human-client-ui.md` section 9; IDENTITY-RECOVERY.md
+    /// section Restore semantics item 11; ADR-0043): R1, and K1 when it
+    /// offers a restore -- the screen each path into R2 passes through,
+    /// so the warning is read before R2 takes a word, and R2 keeps its
+    /// height for the keypad and the grid. A statement, never a gate:
+    /// nothing here or in [`Self::primary`] reads it. Nothing on the
+    /// phone can tell whether the identity runs elsewhere, so it is
+    /// unconditional. `every_path_into_r2_passes_a_screen_that_warns`
+    /// holds it.
+    #[must_use]
+    pub fn warns_active_elsewhere(&self) -> bool {
+        matches!(self.screen, Screen::R1) || self.can_restore()
+    }
+
     /// K1's reason and the `PeerId` the record names.
     #[must_use]
     pub fn recovery(&self) -> Option<(RecoveryReason, Option<&TransportIdentity>)> {
@@ -1220,6 +1235,102 @@ mod tests {
             [Effect::Check(words().join(" "))],
             "the words are kept and the action is back"
         );
+    }
+
+    /// ADR-0043's warning (item 11) on both ways into R2, a fresh
+    /// install's and a lost key's: the screen R2 was entered from warned,
+    /// R2 was reached all the same, and R2 does not carry it.
+    #[test]
+    fn every_path_into_r2_passes_a_screen_that_warns() {
+        let fresh = {
+            let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+            assert!(!flow.warns_active_elsewhere(), "Welcome restores nothing");
+            flow.restore();
+            flow
+        };
+        let recovery = |reason| {
+            IdentityFlow::new(
+                LIST,
+                Start::Recovery {
+                    reason,
+                    expected: Some(mine()),
+                },
+            )
+        };
+        for mut flow in [
+            fresh,
+            recovery(RecoveryReason::Key),
+            recovery(RecoveryReason::Record),
+        ] {
+            let from = flow.screen();
+            assert!(flow.warns_active_elsewhere(), "{from:?} warns");
+            assert_eq!(flow.primary(), [], "{from:?}: a statement, not a gate");
+            assert_eq!(flow.screen(), ScreenId::R2, "from {from:?}");
+            assert!(!flow.warns_active_elsewhere(), "R2 keeps its room");
+            flow.back();
+            assert_eq!(flow.screen(), from, "Back returns to it");
+            assert!(flow.warns_active_elsewhere(), "{from:?} warns again");
+        }
+
+        let mut no_restore = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Record,
+                expected: None,
+            },
+        );
+        assert!(
+            !no_restore.warns_active_elsewhere(),
+            "K1 with no restore takes no phrase"
+        );
+        assert_eq!(no_restore.primary(), []);
+    }
+
+    /// The warning is R1's and K1's only: no screen that shows, checks or
+    /// takes a word carries it, nor the screens after a restore, so their
+    /// layouts are as they were (#392 review F1).
+    #[test]
+    fn no_screen_that_shows_or_takes_a_word_warns() {
+        use ScreenId::{C1, C2, C3, C4, R2, R3, R4, S1, S2};
+
+        let mut seen = Vec::new();
+        let mut look = |flow: &IdentityFlow| {
+            assert!(!flow.warns_active_elsewhere(), "{:?} warns", flow.screen());
+            seen.push(flow.screen());
+        };
+
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.primary();
+        look(&flow);
+        flow.created(words(), mine(), [6, 18]);
+        flow.primary();
+        look(&flow);
+        flow.primary();
+        look(&flow);
+        enter(&mut flow, "galaxy");
+        enter(&mut flow, "saddle");
+        look(&flow);
+
+        let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        flow.restore();
+        flow.primary();
+        fill(&mut flow);
+        look(&flow);
+        flow.primary();
+        flow.checked(Some(mine()));
+        look(&flow);
+        flow.primary();
+        flow.restored(Ok(()));
+        look(&flow);
+
+        let mut flow = IdentityFlow::new(LIST, Start::ShowPhrase);
+        look(&flow);
+        flow.primary();
+        flow.prompted(true);
+        flow.offline(Ok((words(), mine())));
+        look(&flow);
+
+        assert_eq!(seen, [C1, C2, C3, C4, R2, R3, R4, S1, S2], "control");
     }
 
     #[test]
