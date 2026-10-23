@@ -326,6 +326,21 @@ impl IdentityFlow {
         )
     }
 
+    /// The screen warns that the phrase may still be live on another
+    /// device (`human-client-ui.md` section 9; IDENTITY-RECOVERY.md
+    /// section Restore semantics item 11; ADR-0043): R1, and K1 when it
+    /// offers a restore -- the screen each path into R2 passes through,
+    /// so the warning is read before R2 takes a word, and R2 keeps its
+    /// height for the keypad and the grid. A statement, never a gate:
+    /// nothing here or in [`Self::primary`] reads it. Nothing on the
+    /// phone can tell whether the identity runs elsewhere, so it is
+    /// unconditional. `every_path_into_r2_passes_a_screen_that_warns`
+    /// holds it.
+    #[must_use]
+    pub fn warns_active_elsewhere(&self) -> bool {
+        matches!(self.screen, Screen::R1) || self.can_restore()
+    }
+
     /// K1's reason and the `PeerId` the record names.
     #[must_use]
     pub fn recovery(&self) -> Option<(RecoveryReason, Option<&TransportIdentity>)> {
@@ -1220,6 +1235,56 @@ mod tests {
             [Effect::Check(words().join(" "))],
             "the words are kept and the action is back"
         );
+    }
+
+    /// ADR-0043's warning (item 11) on both ways into R2, a fresh
+    /// install's and a lost key's: the screen R2 was entered from warned,
+    /// R2 was reached all the same, and no screen that takes or shows a
+    /// word carries it.
+    #[test]
+    fn every_path_into_r2_passes_a_screen_that_warns() {
+        let fresh = {
+            let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+            assert!(!flow.warns_active_elsewhere(), "Welcome restores nothing");
+            flow.restore();
+            flow
+        };
+        let recovery = |reason| {
+            IdentityFlow::new(
+                LIST,
+                Start::Recovery {
+                    reason,
+                    expected: Some(mine()),
+                },
+            )
+        };
+        for mut flow in [
+            fresh,
+            recovery(RecoveryReason::Key),
+            recovery(RecoveryReason::Record),
+        ] {
+            let from = flow.screen();
+            assert!(flow.warns_active_elsewhere(), "{from:?} warns");
+            assert_eq!(flow.primary(), [], "{from:?}: a statement, not a gate");
+            assert_eq!(flow.screen(), ScreenId::R2, "from {from:?}");
+            assert!(!flow.warns_active_elsewhere(), "R2 keeps its room");
+            flow.back();
+            assert_eq!(flow.screen(), from, "Back returns to it");
+            assert!(flow.warns_active_elsewhere(), "{from:?} warns again");
+        }
+
+        let mut no_restore = IdentityFlow::new(
+            LIST,
+            Start::Recovery {
+                reason: RecoveryReason::Record,
+                expected: None,
+            },
+        );
+        assert!(
+            !no_restore.warns_active_elsewhere(),
+            "K1 with no restore takes no phrase"
+        );
+        assert_eq!(no_restore.primary(), []);
     }
 
     #[test]

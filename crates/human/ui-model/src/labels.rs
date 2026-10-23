@@ -535,6 +535,13 @@ ui_texts! {
     IdCheckWords => "Check my words",
     /// ANDROID, identity screens: R1's line under the body, two lines.
     IdR1Settings => "The words bring back your identity only. Your contacts and settings are not part of them.",
+    /// ANDROID, identity screens: R1's and, when it offers a restore,
+    /// K1's line before the phrase is taken: an identity still running
+    /// on another device would be on two (`human-client-ui.md` section
+    /// 9, ADR-0043), and the phone cannot tell. A statement, not a
+    /// question.
+    // PLACEHOLDER (en)
+    IdActiveElsewhere => "If this identity is still running on another device, restoring it here puts the same PeerId on two devices, which must not happen. This phone cannot check that.",
     /// ANDROID, identity screens: R3, two lines under the question.
     IdR3NoPeerId => "If you have no PeerId on paper, ask a contact to read yours from their app. Restore only if it matches.",
     /// ANDROID, identity screens: R3's question, two lines.
