@@ -18,7 +18,7 @@ use std::process::{Command, Output, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use interweave_profile_config::{ProfileLock, ProfilePaths, XdgRoots};
+use interweave_profile_config::{DAEMON_LOCK_WAIT, ProfileLock, ProfilePaths, XdgRoots};
 use interweave_profile_identity::{ProfileIdentity, RecoveryRecord};
 
 /// IDENTITY-RECOVERY.md's golden fixture: test-only, never a key.
@@ -1212,6 +1212,18 @@ fn init_and_show_under_a_held_lock_are_refused() {
     }
     assert!(!home.paths.identity_file().exists(), "nothing minted");
     drop(lock);
+    // RELEASED ON DROP, WAITED FOR BRIEFLY, as in profile-config's
+    // `a_second_holder_is_refused_while_the_first_lives`. A sibling test's
+    // child shares this process's open file descriptions between its
+    // fork and its exec, the lock's included, so the release can lag the
+    // drop. Under load that window outlasted the control's one try
+    // (j114: 2 of 48 loaded binaries failed; 0 of 600 with the test
+    // alone in its binary).
+    let deadline = Instant::now() + DAEMON_LOCK_WAIT;
+    while ProfileLock::is_held(&home.paths).expect("probe") {
+        assert!(Instant::now() < deadline, "released on drop");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     let out = home.run(&["--profile", "p", "identity", "init"]);
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     let out = home.run(&["--profile", "p", "identity", "show"]);

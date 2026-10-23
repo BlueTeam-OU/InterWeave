@@ -11,7 +11,10 @@
 # tag without its v are refused before cargo is asked; a tag of another
 # version than the workspace's -- a pre-release of it included -- is
 # refused naming the workspace's; members of two versions are refused;
-# a newline in a dispatched version is printed quoted.
+# a newline in a dispatched version is printed quoted. With --manifest
+# the same rule is asked of the root manifest with no cargo at all: a
+# cargo that only fails is on PATH, and the same call without
+# --manifest is the control that it is reached.
 #
 # Exit codes:
 #   0  all assertions passed
@@ -99,6 +102,46 @@ printf 'not toml [\n' >> "$WS/Cargo.toml"
 run v0.1.0; status=$?
 [[ $status == 2 ]] && grep -qF "cargo metadata failed" "$SANDBOX/out" \
     && pass "a manifest cargo cannot read is exit 2" || fail "an unreadable manifest: exit $status" "$(cat "$SANDBOX/out")"
+
+# --manifest: the root manifest's [workspace.package] version, no cargo.
+NOCARGO="$SANDBOX/nocargo"
+mkdir -p "$NOCARGO"
+printf '#!/bin/sh\necho "cargo was run" >&2\nexit 99\n' > "$NOCARGO/cargo"
+chmod +x "$NOCARGO/cargo"
+mrun() { PATH="$NOCARGO:$PATH" bash "$UNDER_TEST" "$@" --root "$WS" --manifest >"$SANDBOX/out" 2>&1; }
+at 0.1.0
+PATH="$NOCARGO:$PATH" bash "$UNDER_TEST" v0.1.0 --root "$WS" >"$SANDBOX/out" 2>&1; status=$?
+[[ $status == 2 ]] && grep -qF "cargo metadata failed" "$SANDBOX/out" \
+    && pass "the control: without --manifest, the stub cargo is reached and fails it" \
+    || fail "the stub cargo was not reached without --manifest: exit $status" "$(cat "$SANDBOX/out")"
+for v in 0.1.0 0.4.0-rc.1; do
+    at "$v"
+    if [[ "$v" == *-* ]]; then want=true; else want=false; fi
+    if mrun "v$v" && [[ "$(cat "$SANDBOX/out")" == "version=$v"$'\n'"prerelease=$want" ]]; then
+        pass "--manifest: v$v is accepted at workspace $v, with no cargo"
+    else
+        fail "--manifest: v$v at workspace $v" "$(cat "$SANDBOX/out")"
+    fi
+done
+at 0.4.0-rc.1
+mrun v0.4.0; status=$?
+[[ $status == 1 ]] && grep -qF "tag v0.4.0 is not the workspace version 0.4.0-rc.1" "$SANDBOX/out" \
+    && pass "--manifest: another version than the manifest's is refused" \
+    || fail "--manifest: v0.4.0 at 0.4.0-rc.1: exit $status" "$(cat "$SANDBOX/out")"
+mrun v0.4.0-rc.1+build.1; status=$?
+[[ $status == 1 ]] && grep -qF "is not v<MAJOR>.<MINOR>.<PATCH>[-<pre-release>]" "$SANDBOX/out" \
+    && pass "--manifest: build metadata is refused by the grammar" \
+    || fail "--manifest: build metadata: exit $status" "$(cat "$SANDBOX/out")"
+printf '[workspace]\nmembers = []\n' > "$WS/Cargo.toml"
+mrun v0.1.0; status=$?
+[[ $status == 1 ]] && grep -qF "has no [workspace.package] version" "$SANDBOX/out" \
+    && pass "--manifest: a manifest with no workspace version is refused" \
+    || fail "--manifest: no workspace version: exit $status" "$(cat "$SANDBOX/out")"
+printf 'not toml [\n' > "$WS/Cargo.toml"
+mrun v0.1.0; status=$?
+[[ $status == 2 ]] && grep -qF "cannot read" "$SANDBOX/out" \
+    && pass "--manifest: a manifest that is not TOML is exit 2" \
+    || fail "--manifest: an unreadable manifest: exit $status" "$(cat "$SANDBOX/out")"
 
 bash "$UNDER_TEST" >/dev/null 2>&1; status=$?
 [[ $status == 2 ]] && pass "no argument is a usage error" || fail "no argument: exit $status"

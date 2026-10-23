@@ -6,6 +6,7 @@
 //! `transport-daemon --profile <name> [--create-identity]`. The profile is
 //! required: nothing in the architecture names a default profile, and a
 //! daemon guessing one would serve an identity nobody chose.
+//! `transport-daemon --version` alone prints the version (ADR-0065).
 
 /// What the command line asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +15,8 @@ pub(crate) enum Command {
     Run(Args),
     /// Print the usage and exit 0.
     Help,
+    /// Print the version and exit 0.
+    Version,
 }
 
 /// A run's arguments.
@@ -27,7 +30,12 @@ pub(crate) struct Args {
 }
 
 /// The usage text.
-pub(crate) const USAGE: &str = "usage: transport-daemon --profile <name> [--create-identity]";
+pub(crate) const USAGE: &str =
+    "usage: transport-daemon --profile <name> [--create-identity] | --version";
+
+/// The workspace version with the commit as build metadata (ADR-0065
+/// decision 6; `tools/stamp/commit_stamp.rs`).
+pub(crate) const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("INTERWEAVE_COMMIT"));
 
 /// Parse the arguments after the program name.
 ///
@@ -36,6 +44,17 @@ pub(crate) const USAGE: &str = "usage: transport-daemon --profile <name> [--crea
 pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String> {
     let mut profile = None;
     let mut create_identity = false;
+    let args: Vec<String> = args.into_iter().collect();
+    // Alone, or not a version request -- judged over the whole line before
+    // anything else reads it, so neither `--help` ahead of it nor an option
+    // taking it as a value decides (#386 review): a start line that also
+    // asks for the version is a mistake, not a run that prints or starts.
+    if args.iter().any(|a| a == "--version") {
+        return match args.as_slice() {
+            [_] => Ok(Command::Version),
+            _ => Err("--version takes no other argument".to_owned()),
+        };
+    }
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -82,6 +101,7 @@ mod tests {
             }))
         );
         assert_eq!(parsed(&["--help"]), Ok(Command::Help));
+        assert_eq!(parsed(&["--version"]), Ok(Command::Version));
     }
 
     #[test]
@@ -90,5 +110,15 @@ mod tests {
         assert!(parsed(&["--profile"]).is_err());
         assert!(parsed(&["--profile", "a", "--profile", "b"]).is_err());
         assert!(parsed(&["--profile", "a", "--verbose"]).is_err());
+        for line in [
+            &["--version", "--profile", "a"][..],
+            &["--profile", "a", "--version"][..],
+            &["--help", "--version"][..],
+            &["-h", "--version"][..],
+            &["--version", "--help"][..],
+            &["--profile", "--version"][..],
+        ] {
+            assert!(parsed(line).is_err(), "{line:?} should be refused");
+        }
     }
 }

@@ -341,19 +341,15 @@ def id_tokens(text: str, block: str) -> list:
     tokens = []
     for m in SPDX_LINE.finditer(block):
         # An expression wrapped onto the header's next line -- cut where an
-        # id is due ("MIT OR" / "Apache-2.0"), or with the next line opening
-        # on an operator ("MIT" / "OR LicenseRef-Frob") -- goes on into it,
-        # as a reflow of the same words reads; one line at a time, so a
-        # copyright line or a licence body after it is not read as ids. It
-        # is refused as cut short only where no line follows.
+        # id is due ("MIT OR" / "Apache-2.0"), or with the next line going
+        # on with it (wraps_on) -- goes on into it, as a reflow of the same
+        # words reads; one line at a time, so a copyright line or a licence
+        # body after it is not read as ids. A blank line ends it: cut short
+        # there, or with no line after it, it is refused as cut short.
         line = m.group(1)
-        rest = [r for r in block[m.end():].splitlines()[1:] if r.strip()]
+        rest = block[m.end():].splitlines()[1:]
         ids = spdx_expression(line)
-        while rest and (
-            ids[-1] == CUT_SHORT
-            or rest[0].split()[0].upper() in ("AND", "OR", "WITH")
-            or rest[0].split()[0] in ("/", "|", "+")
-        ):
+        while rest and rest[0].strip() and (ids[-1] == CUT_SHORT or wraps_on(rest[0])):
             line, rest = f"{line} {rest[0]}", rest[1:]
             ids = spdx_expression(line)
         tokens += ids
@@ -362,6 +358,28 @@ def id_tokens(text: str, block: str) -> list:
 
 
 CUT_SHORT = "an SPDX expression cut short"
+# An id among the words after the prose that ends an expression: a name,
+# a hyphen and a version, a LicenseRef-, or an id this tool knows.
+ID_WORD = re.compile(r"[A-Za-z][A-Za-z0-9.+]*-[A-Za-z0-9.+-]*\d[A-Za-z0-9.+-]*|LicenseRef-[A-Za-z0-9.+-]+")
+
+
+def wraps_on(next_line: str) -> bool:
+    """Whether the line after a complete SPDX expression goes on with it:
+    it opens, parentheses aside, on an operator in ANY case -- glued to
+    its word or not ("OR(LicenseRef-Frob)", ") AND X", "/LicenseRef-Frob",
+    "or curl") -- or is a line of parentheses alone, which closes the
+    expression. SPDX operators and ids are case-insensitive, so no case
+    or shape of the next word can tell an id from prose: every guess at
+    prose was a wrap whose id was dropped with no error, where the same
+    words on one line refuse it (`or ( LicenseRef-Frob )`, `with
+    LLVM-exception`, `or WTFPL`, `or wtfpl`, `or curl`: #386's reviews,
+    two rounds). So a sentence opening on the word ("With contributions
+    from ...") is read on and refused, which a reviewer sees, rather than
+    an id passing unread, which nothing would."""
+    head = next_line.strip().lstrip("()").lstrip()
+    if not head or head[0] in "/|+":
+        return True
+    return bool(re.match(r"(AND|OR|WITH)(?![A-Za-z0-9.+-])", head, re.I))
 
 
 def spdx_expression(line: str) -> list:
@@ -373,13 +391,14 @@ def spdx_expression(line: str) -> list:
     "MIT */") or after an id that ends a sentence ("MIT. See the notice");
     any other word there is read as an id, so an unknown one refuses the
     run rather than being dropped. A word that is not a clean id
-    ("MIT/Frob"), and an expression cut where an id is due ("MIT OR" at
-    the line's end, its id wrapped onto the next line), are returned as
-    they stand, so the lookup refuses them rather than reading less than
-    the line names; and after the expression ends, an id-shaped word left
+    ("MIT/Frob") is returned as it stands, so the lookup refuses it rather
+    than reading less than the line names; and after the expression ends, an id-shaped word left
     on the line is read too: a name, a hyphen and a version ("MIT --
     EPL-2.0 for x.c"), a LicenseRef-, or an id this tool knows (ISC), each
-    without the punctuation that follows it in prose."""
+    without the punctuation that follows it in prose. An expression cut
+    where an id is due ("MIT OR" at the line's end) is returned with
+    CUT_SHORT last, which id_tokens reads on into the next line and the
+    lookup refuses where none follows."""
     ids, want_id, ended = [], True, False
     words = line.split()
     for at, word in enumerate(words):
@@ -399,11 +418,7 @@ def spdx_expression(line: str) -> list:
             known = known_ids()
             for w in words[at:]:
                 w = w.strip("()\"'").rstrip(".,;:").strip("()\"'").rstrip(".,;:")
-                if (
-                    re.fullmatch(r"[A-Za-z][A-Za-z0-9.+]*-[A-Za-z0-9.+-]*\d[A-Za-z0-9.+-]*", w)
-                    or re.fullmatch(r"LicenseRef-[A-Za-z0-9.+-]+", w)
-                    or w.lower() in known
-                ):
+                if ID_WORD.fullmatch(w) or w.lower() in known:
                     ids.append(w)
             break
         else:

@@ -15,4 +15,4 @@ The phrase, or a recovery record, is read from stdin only: through `rpassword` w
 - Its Ctrl-C raises `SIGINT` before it restores the terminal, so a handler is registered first.
 - Its buffer leaves unzeroed fragments when it grows, a limit stated there. What it returns is held in `Zeroizing`.
 
-Exit codes: 0 done, 1 refused (the reason, or the daemon's error code, printed), 2 a usage error, 3 the daemon unreachable. A recovery phrase is never an argument.
+Exit codes: 0 done, 1 refused (the reason, or the daemon's error code, printed), 2 a usage error, 3 the daemon unreachable. A recovery phrase is never an argument. `transportctl --version`, alone, prints the workspace version with the commit as build metadata (`0.1.0+<twelve hex digits>`, ADR-0065), stamped by `tools/stamp/commit_stamp.rs`.
