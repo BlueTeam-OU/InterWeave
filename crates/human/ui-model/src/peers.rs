@@ -2010,6 +2010,22 @@ impl Peers {
                 block.problem = None;
                 moved = true;
             }
+            // An unknown Trust stays unknown only until a read shows it
+            // (§5.7): a confirmed list not naming the peer says it was not
+            // made, and its block offers Trust again
+            // (`an_unknown_trust_a_later_read_decides_is_no_longer_unknown`).
+            // Focus stays where it is: §8 names no move for a read the
+            // person did not ask for (asked of ux-designer-01).
+            if block.problem == Some(BlockProblem::Unknown)
+                && !on_its_way
+                && !block.trusting
+                && !block.checking
+                && trust
+                    .confirmed_list()
+                    .is_some_and(|l| !l.allows(&block.peer))
+            {
+                block.problem = Some(BlockProblem::NotMade);
+            }
             if block.trusting && !on_its_way {
                 block.trusting = false;
                 moved = true;

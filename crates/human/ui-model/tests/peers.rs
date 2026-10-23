@@ -3982,3 +3982,73 @@ fn a_removal_answered_after_a_failed_read_is_told_against_its_own_list() {
     );
     assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
 }
+
+/// A block whose Trust was left unknown, the page kept open, and a later
+/// read of the trust list succeeding: the read decides it (§5.7, "until a
+/// read shows it") -- not listed, the block says its Trust was not made
+/// and offers Trust again; listed, it is trusted. Never left unknown.
+#[test]
+fn an_unknown_trust_a_later_read_decides_is_no_longer_unknown() {
+    for listed in [false, true] {
+        let (me, them) = (peer(), peer());
+        let mut m = opened(&me, &[], &[]);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::FieldChanged(at(&them)));
+        let _ = input(&mut m, PeersInput::Add);
+        m.addresses_added(
+            &[at(&them)],
+            answer(
+                AddressOutcome::Added {
+                    peer: Some(them.clone()),
+                },
+                &[added(&them)],
+            ),
+        );
+        let change = TrustChange {
+            peer: them.clone(),
+            allowed: true,
+        };
+        let _ = input(&mut m, PeersInput::Trust(them.clone()));
+        m.trust_settings_mut().set(
+            change,
+            Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+        );
+        let _ = m.peers_turn();
+        assert_eq!(
+            m.trust_settings_mut().take_reread(),
+            Some(Intent::ReadTrust)
+        );
+        m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+        let _ = m.peers_turn();
+        assert_eq!(
+            m.peers().blocks(m.trust_settings())[0].problem,
+            Some(BlockProblem::Unknown)
+        );
+        // The daemon back: its read of the list succeeds.
+        let before = focus(&m);
+        let _ = m.trust_settings_mut().opened();
+        m.trust_settings_mut().read(Ok(TrustList {
+            local_peer: Some(me.clone()),
+            allowed: if listed {
+                vec![TrustRow::added_here(them.clone())]
+            } else {
+                Vec::new()
+            },
+        }));
+        let _ = m.peers_turn();
+        let block = &m.peers().blocks(m.trust_settings());
+        if listed {
+            assert!(
+                block.is_empty() || block[0].problem.is_none(),
+                "listed: trusted, {block:?}"
+            );
+        } else {
+            assert_eq!(
+                block[0].problem,
+                Some(BlockProblem::NotMade),
+                "not listed: not made"
+            );
+            assert_eq!(focus(&m), before, "focus not moved by the read");
+        }
+    }
+}
