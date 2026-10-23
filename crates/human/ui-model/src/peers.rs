@@ -1032,6 +1032,26 @@ impl Peers {
         }
     }
 
+    /// Whether the snackbar up says this address's change is unknown: a
+    /// Try again of it that writes nothing leaves it so.
+    fn still_unknown(&self, address: &str) -> bool {
+        matches!(
+            &self.snack,
+            Some(PeersSnack::RemoveUnknown { address: a } | PeersSnack::UndoUnknown { address: a })
+                if a == address
+        )
+    }
+
+    /// A Try again of an unknown change that wrote nothing: the snackbar
+    /// says the same again, read to the screen reader once more, and
+    /// focus stays on its Try again (§5.7, §8).
+    fn still_unknown_again(&mut self) {
+        if let Some(snack) = self.snack.clone() {
+            self.say(snack);
+        }
+        self.ask_focus(PeersFocus::SnackAction);
+    }
+
     fn re_add(&mut self, address: String) -> Option<Intent> {
         if self.in_flight.is_some() || self.check.is_some() {
             return None;
@@ -1152,6 +1172,9 @@ impl Peers {
             }
             Err(AddressChangeFailure::NotMade(problem)) => match barred(problem) {
                 Some(b) => self.bar(b),
+                // A Try again that wrote nothing settles nothing: after an
+                // unknown removal the change stays unknown (§5.7).
+                None if self.still_unknown(address) => self.still_unknown_again(),
                 None => self.remove_failed(address),
             },
             Err(AddressChangeFailure::Unconfirmed(_)) => {
@@ -1314,6 +1337,9 @@ impl Peers {
             Err(AddressChangeFailure::NotMade(problem)) => {
                 if let Some(b) = barred(problem) {
                     self.bar(b);
+                } else if self.still_unknown(&address) {
+                    // As for a removal: an unknown Undo stays unknown.
+                    self.still_unknown_again();
                 } else {
                     let snack = PeersSnack::UndoFailed {
                         address: address.clone(),

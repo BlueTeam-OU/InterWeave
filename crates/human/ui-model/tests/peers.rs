@@ -1649,3 +1649,58 @@ fn the_sessions_peer_id_names_this_device_over_the_trust_lists() {
         "{states:?}"
     );
 }
+
+/// A Try again of an unknown change that writes nothing leaves it
+/// unknown (§5.7): the snackbar stays, never "still removed" or "still
+/// in the list", and focus stays on its Try again.
+#[test]
+fn an_unknown_change_stays_unknown_after_a_retry_that_writes_nothing() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let lost = || {
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        ))
+    };
+    let not_written = || Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable));
+
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveUnknown { address: at(&a) })
+    );
+    let said = m.peers().snack().1;
+    let _ = input(&mut m, PeersInput::TryAgain);
+    m.address_removed(&at(&a), not_written());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::RemoveUnknown { address: at(&a) })
+    );
+    assert_ne!(
+        m.peers().snack().1,
+        said,
+        "said again, for the screen reader"
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::SnackAction));
+
+    let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&a)));
+    m.address_removed(&at(&a), answer(AddressOutcome::Removed, &[added(&b)]));
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(&[at(&a)], lost());
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::UndoUnknown { address: at(&a) })
+    );
+    let _ = input(&mut m, PeersInput::TryAgain);
+    m.addresses_added(&[at(&a)], not_written());
+    assert_eq!(
+        m.peers().snack().0,
+        Some(&PeersSnack::UndoUnknown { address: at(&a) })
+    );
+}
