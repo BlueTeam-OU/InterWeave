@@ -355,7 +355,7 @@ impl IdentityFlow {
     /// holds it.
     #[must_use]
     pub fn warns_active_elsewhere(&self) -> bool {
-        matches!(self.screen, Screen::R1) || (self.new_keys && self.can_restore())
+        matches!(self.screen, Screen::R1) || self.can_restore()
     }
 
     /// The screen says that the phrase restores the node and not the
