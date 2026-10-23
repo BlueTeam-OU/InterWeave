@@ -573,6 +573,10 @@ pub struct Peers {
     /// Bumped when the trust line's Try again failed with the line still
     /// on show: said again, its words perhaps unchanged (§8).
     trust_line_said: u64,
+    /// The lines of an add whose page Back closed while it was on its way:
+    /// its answer is no page's to show, whatever page is open by then
+    /// (`a_closed_pages_add_lands_on_no_page_opened_after_it`).
+    orphan: Option<Vec<String>>,
     /// A change may have reached the runtime since the list was last
     /// read: its rows stay on show as last read (§5.7), but its
     /// emptiness is no fact until a read succeeds.
@@ -848,7 +852,12 @@ impl Peers {
     /// Whether step one can act: the page open, nothing on its way, and
     /// no result yet.
     fn step_one(&self) -> bool {
-        self.in_flight.is_none() && self.check.is_none() && self.step_one_shown()
+        // A closed page's add still out holds the next page's Add: one
+        // add at a time, and its answer must not be taken for this one's.
+        self.in_flight.is_none()
+            && self.check.is_none()
+            && self.orphan.is_none()
+            && self.step_one_shown()
     }
 
     /// Add pressed: the field's lines, or why not.
@@ -1024,6 +1033,15 @@ impl Peers {
         let page_add = matches!(self.in_flight, Some(InFlight::Add { .. }))
             || matches!(self.check, Some(Check::Add(_)));
         if page_add && self.page.is_some() {
+            // Out of the page's slot, so a page opened later is its own:
+            // the add's answer comes as the orphan's; a check's read still
+            // shows the rows.
+            if let Some(InFlight::Add { lines, .. }) = self.in_flight.take() {
+                self.orphan = Some(lines);
+            }
+            if matches!(self.check, Some(Check::Add(_))) {
+                self.check = None;
+            }
             self.page = None;
             self.ask_focus(PeersFocus::Opener);
             return;
@@ -1270,6 +1288,11 @@ impl Peers {
         answer: Result<AddressAnswer, AddressChangeFailure>,
         trust: &TrustSettings,
     ) {
+        if self.orphan.as_deref() == Some(lines) {
+            self.orphan = None;
+            self.orphan_answered(answer);
+            return;
+        }
         match self.in_flight.take() {
             Some(InFlight::Add {
                 lines: sent,
@@ -1332,6 +1355,25 @@ impl Peers {
 
     /// A Remove or an Undo answered not permitted or incompatible: Peers
     /// goes to its unreadable state with that line, focus on it.
+    /// An add whose page closed while it was on its way, answered: no
+    /// page's to show -- no note, no result, no snackbar -- the list it
+    /// brings, or the read a lost answer owes, shows what is stored, and
+    /// a barred answer still says Peers cannot be used (§5.3).
+    fn orphan_answered(&mut self, answer: Result<AddressAnswer, AddressChangeFailure>) {
+        match answer {
+            Ok(answer) => self.take_list(answer.list),
+            Err(AddressChangeFailure::Unconfirmed(_)) => {
+                self.reread = true;
+                self.held = Held::MayHaveChanged;
+            }
+            Err(AddressChangeFailure::NotMade(problem)) => {
+                if let Some(b) = barred(problem) {
+                    self.bar(b);
+                }
+            }
+        }
+    }
+
     fn bar(&mut self, b: Barred) {
         self.list = None;
         self.list_problem = Some(ListProblem::Barred(b));
@@ -1346,20 +1388,6 @@ impl Peers {
         answer: Result<AddressAnswer, AddressChangeFailure>,
         trust: &TrustSettings,
     ) {
-        // Its page closed while it was on its way: the outcome is no
-        // page's to show -- the list it brings, or the read a lost answer
-        // owes, shows what is stored, with nothing said (§5.3).
-        if self.page.is_none() {
-            match answer {
-                Ok(answer) => self.take_list(answer.list),
-                Err(AddressChangeFailure::Unconfirmed(_)) => {
-                    self.reread = true;
-                    self.held = Held::MayHaveChanged;
-                }
-                Err(AddressChangeFailure::NotMade(_)) => {}
-            }
-            return;
-        }
         let answer = match answer {
             Ok(answer) => {
                 // A real answer decides the add: nothing is unknown now.
@@ -1617,8 +1645,6 @@ impl Peers {
             return;
         };
         match check {
-            // Its page closed meanwhile: the read itself shows the rows.
-            Check::Add(_) if self.page.is_none() => {}
             Check::Add(lines) => {
                 if lines.iter().all(|l| listed(&list, l)) {
                     let result = AddResult::Checked { lines: lines.len() };
@@ -1650,7 +1676,6 @@ impl Peers {
     /// A lost answer whose list could not be read back either.
     fn unknown(&mut self, check: Check) {
         match check {
-            Check::Add(_) if self.page.is_none() => {}
             Check::Add(lines) => {
                 let count = lines.len();
                 if let Some(page) = self.page.as_mut() {

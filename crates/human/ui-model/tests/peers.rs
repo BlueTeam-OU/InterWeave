@@ -3283,3 +3283,76 @@ fn the_field_is_held_while_its_add_is_on_its_way() {
     let _ = input(&mut m, PeersInput::FieldChanged(at(&b)));
     assert_eq!(m.peers().field(), at(&b), "answered: the field is free");
 }
+
+/// An add whose page Back closed lands on no page opened after it -- Add
+/// an address again, or a row's trust step -- whatever its answer: no
+/// note, no result, no blocks, no snackbar; the list it brings shows the
+/// row. The page opened meanwhile sends nothing until it is answered, so
+/// one add is out at a time. A barred answer still says Peers cannot be
+/// used.
+#[test]
+fn a_closed_pages_add_lands_on_no_page_opened_after_it() {
+    let (me, a, t) = (peer(), peer(), peer());
+    let closed = |rows: &[PeerAddress]| {
+        let mut m = opened(&me, &[], rows);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+        assert_eq!(
+            input(&mut m, PeersInput::Add),
+            vec![Intent::AddAddresses(vec![at(&a)])]
+        );
+        let _ = input(&mut m, PeersInput::Close);
+        assert!(!m.peers().add_open());
+        m
+    };
+    let added_a = || {
+        answer(
+            AddressOutcome::Added {
+                peer: Some(a.clone()),
+            },
+            &[added(&a)],
+        )
+    };
+
+    // Reopened: it takes edits, sends nothing while the old add is out,
+    // and gets none of its answer.
+    let mut m = closed(&[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    assert!(m.peers().add_open());
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&t)));
+    assert_eq!(m.peers().field(), at(&t));
+    assert_eq!(input(&mut m, PeersInput::Add), Vec::new(), "one at a time");
+    m.addresses_added(&[at(&a)], added_a());
+    assert!(m.peers().add_open());
+    assert_eq!(m.peers().add_result(), None, "not this page's");
+    assert_eq!(m.peers().add_page_note(), None);
+    assert!(m.peers().blocks(m.trust_settings()).is_empty());
+    assert_eq!(m.peers().snack().0, None);
+    assert_eq!(m.peers().field(), at(&t), "the field kept");
+    assert_eq!(m.peers().rows(m.trust_settings()).len(), 1, "the row");
+    assert_eq!(
+        input(&mut m, PeersInput::Add),
+        vec![Intent::AddAddresses(vec![at(&t)])],
+        "answered: this page sends"
+    );
+
+    // A row's trust step opened meanwhile: none of the old answer.
+    let mut m = closed(&[added(&t)]);
+    let _ = input(&mut m, PeersInput::TrustRow(at(&t)));
+    let blocks = m.peers().blocks(m.trust_settings());
+    m.addresses_added(&[at(&a)], added_a());
+    assert_eq!(m.peers().blocks(m.trust_settings()), blocks);
+    assert_eq!(m.peers().add_result(), None);
+    assert_eq!(m.peers().snack().0, None);
+
+    // Answered not permitted: Peers says it cannot be used.
+    let mut m = closed(&[]);
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::NotMade(AddressProblem::NotPermitted)),
+    );
+    assert_eq!(
+        m.peers().list_problem(),
+        Some(ListProblem::Barred(Barred::NotPermitted))
+    );
+}
