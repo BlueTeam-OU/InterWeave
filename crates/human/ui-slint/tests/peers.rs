@@ -1980,3 +1980,40 @@ fn a_try_again_that_writes_nothing_keeps_its_action_focused_for_the_read_back() 
         "on B's menu button while it reads"
     );
 }
+
+/// A snackbar whose action holds focus goes from under it: a render
+/// between its closing and the take destroys the action, and its record
+/// still says focus was there, so focus waits on the row's menu button
+/// (design section 8).
+#[test]
+fn a_snackbar_gone_before_its_close_is_taken_still_reports_its_focus() {
+    use interweave_human_client_api::{AddressChangeFailure, AddressProblem};
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a, b) = (peer(), peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[added(&a), added(&b)]);
+    let _ = model.peers_input(PeersInput::Remove(at(&b)));
+    model.address_removed(
+        &at(&b),
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    let _ = model.peers_turn();
+    model.addresses_read(Err(AddressProblem::Unavailable));
+    settle_view(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id().as_str(), "peers-snack-action");
+    view.window()
+        .invoke_peers_snack_closed(view.window().get_peers_snack_id());
+    settle_view(&mut view, &mut model);
+    assert!(
+        !view.window().get_peers_snack_shown(),
+        "gone before the take"
+    );
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        model.peers().focus().0,
+        Some(interweave_human_ui_model::PeersFocus::RowMenu(at(&b)))
+    );
+}
