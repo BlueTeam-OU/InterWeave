@@ -405,6 +405,10 @@ pub enum TrustRefusal {
 }
 
 impl TrustRefusal {
+    /// Every reason; what a decoder matches a name against.
+    /// `every_trust_refusal_is_in_all` keeps it whole.
+    pub const ALL: [Self; 1] = [Self::Superseded];
+
     /// The name the wire carries.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -942,7 +946,7 @@ pub trait AdminPort {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
-    use super::{AddressRefusal, SessionRequest};
+    use super::{AddressRefusal, SessionRequest, TrustRefusal};
     use crate::{DataCapability, MAX_CLIENT_KIND_CHARS, SessionError};
 
     #[test]
@@ -970,6 +974,17 @@ mod tests {
     /// A reason added to the enum and not to `ALL` would decode as no
     /// reason at all: the match makes a new variant a compile error here,
     /// where `ALL` is in view, and the loop that `ALL` holds each once.
+    /// As `every_refusal_is_in_all`, for the trust set's reasons.
+    #[test]
+    fn every_trust_refusal_is_in_all() {
+        let position = |reason| match reason {
+            TrustRefusal::Superseded => 0,
+        };
+        for (i, reason) in TrustRefusal::ALL.into_iter().enumerate() {
+            assert_eq!(position(reason), i, "{reason:?}");
+        }
+    }
+
     #[test]
     fn every_refusal_is_in_all() {
         let position = |reason| match reason {
