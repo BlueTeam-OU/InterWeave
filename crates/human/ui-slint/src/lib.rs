@@ -1497,7 +1497,7 @@ impl View {
                 }
                 Input::PeersSnackClosed(id) => {
                     if model.peers().snack().1 == id && model.peers().snack().0.is_some() {
-                        out.push(ViewEvent::Peers(PeersInput::SnackClosed));
+                        out.push(ViewEvent::Peers(PeersInput::SnackClosed { from_action: false }));
                         return out;
                     }
                 }

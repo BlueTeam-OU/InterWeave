@@ -406,6 +406,28 @@ pub enum LineSelection {
     End,
 }
 
+/// Who chose the focus asked for (`Peers::focus_by`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum FocusBy {
+    /// Asked after the person's act on its target.
+    #[default]
+    Act,
+    /// Placed by the app: the row after a removed one, a closed
+    /// snackbar's row menu.
+    App,
+}
+
+/// A row's own Remove or Undo a read decided without moving focus: the
+/// view sends focus to `focus` only if focus is on `row` or a control of
+/// it, and says neither row-gone text (§8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowReadBack {
+    /// The row whose own change the read decided.
+    pub row: String,
+    /// Where focus goes from it, on what is drawn now.
+    pub focus: PeersFocus,
+}
+
 /// Where focus goes, as the view is asked (§8 item 1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PeersFocus {
@@ -494,7 +516,10 @@ pub enum PeersInput {
     /// The snackbar's Try again.
     TryAgain,
     /// The snackbar closed.
-    SnackClosed,
+    SnackClosed {
+        /// Focus was on its action as it went.
+        from_action: bool,
+    },
 }
 
 /// What a scan's text came to.
@@ -589,6 +614,15 @@ pub struct Peers {
     snacks: u64,
     focus: Option<PeersFocus>,
     focuses: u64,
+    /// Whether the focus asked for came after the person's act on the
+    /// row it names or was placed by the app: a read dropping a placed
+    /// one says no `PeerRowGoneAfterAct` (section 8's first row-gone row).
+    focus_by: FocusBy,
+    /// A row's own Remove or Undo decided by a read with no focus asked:
+    /// where focus goes if it is on that row, else it stays (section 8),
+    /// and a count that changes with each.
+    read_back: Option<RowReadBack>,
+    read_backs: u64,
     /// The rows in the order last drawn, a row a read dropped kept at its
     /// place: where focus goes for a row removed elsewhere (§8). At most
     /// [`PLACES_BOUND`] while a list holds no more, the row dropped
@@ -777,11 +811,22 @@ impl Peers {
             PeersInput::Remove(address) => self.remove(address).into_iter().collect(),
             PeersInput::Undo => self.undo().into_iter().collect(),
             PeersInput::TryAgain => self.try_again().into_iter().collect(),
-            PeersInput::SnackClosed => {
+            PeersInput::SnackClosed { from_action } => {
                 // A removal unknown is read again once its snackbar goes,
-                // so the row shows what the runtime holds.
-                if matches!(self.snack, Some(PeersSnack::RemoveUnknown { .. })) {
+                // so the row shows what the runtime holds; focus on its
+                // Try again as it went waits on the row's menu button
+                // while the read runs (section 8).
+                if let Some(PeersSnack::RemoveUnknown { address }) = self.snack.clone() {
                     self.reread = true;
+                    if from_action && self.list.as_ref().is_some_and(|l| listed(l, &address)) {
+                        // Its own focus, not a later act's: the read still
+                        // speaks for the removal.
+                        let unmoved = self.focuses == self.unknown_mark;
+                        self.place_focus(PeersFocus::RowMenu(address));
+                        if unmoved {
+                            self.unknown_mark = self.focuses;
+                        }
+                    }
                 }
                 self.snack = None;
                 Vec::new()
@@ -1242,7 +1287,7 @@ impl Peers {
                 self.read_decides(trust);
                 // An Undo made, its row read in at last: focus on it, or,
                 // a read having dropped it, as for any row gone -- its
-                // place's next row, PeerRowGone said (§8).
+                // place's next row, PeerRowGoneAfterAct said (§8).
                 if let Some(address) = self.restored.take() {
                     self.ask_focus(PeersFocus::Row(address));
                 }
@@ -1749,8 +1794,21 @@ impl Peers {
         if let Some(change) = self.unknown_change.clone() {
             let on_show = self.unknown_on_show();
             self.unknown_change = None;
+            // A removal whose snackbar has left with no act since: this
+            // read is its read back, and focus is the view's to move,
+            // only where it is on that row (§5.7, §8).
+            let left = !on_show && matches!(change, Check::Remove { .. });
             if on_show || (self.snack.is_none() && !moved) {
-                self.decide_keeping_focus(change, moved, trust);
+                let row = match &change {
+                    Check::Remove { address, .. } | Check::Undo(address) => Some(address.clone()),
+                    Check::Add(_) => None,
+                };
+                let kept = moved || left;
+                let asked = self.decide_keeping_focus(change, kept, trust);
+                if kept && let (Some(row), Some(focus)) = (row, asked) {
+                    self.read_back = Some(RowReadBack { row, focus });
+                    self.read_backs = self.read_backs.wrapping_add(1);
+                }
             }
         }
         let note_on_show = self
@@ -1760,17 +1818,27 @@ impl Peers {
         if let Some(lines) = self.page.as_mut().and_then(|p| p.unknown.take())
             && note_on_show
         {
-            self.decide_keeping_focus(Check::Add(lines), moved, trust);
+            let _ = self.decide_keeping_focus(Check::Add(lines), moved, trust);
         }
     }
 
-    /// `checked`, leaving focus where a later request put it if `kept`.
-    fn decide_keeping_focus(&mut self, change: Check, kept: bool, trust: &TrustSettings) {
-        let focus = (self.focus.clone(), self.focuses);
+    /// `checked`, leaving focus where a later request put it if `kept`;
+    /// the focus `checked` asked for, if any.
+    fn decide_keeping_focus(
+        &mut self,
+        change: Check,
+        kept: bool,
+        trust: &TrustSettings,
+    ) -> Option<PeersFocus> {
+        let focus = (self.focus.clone(), self.focuses, self.focus_by);
         self.checked(change, trust);
+        let asked = (self.focuses != focus.1)
+            .then(|| self.focus.clone())
+            .flatten();
         if kept {
-            (self.focus, self.focuses) = focus;
+            (self.focus, self.focuses, self.focus_by) = focus;
         }
+        asked
     }
 
     /// A list that came with another change's answer: it ends what was
@@ -1818,7 +1886,7 @@ impl Peers {
             PeersFocus::Row((*row).to_owned())
         });
         self.after_remove = Some(focus.clone());
-        self.ask_focus(focus);
+        self.place_focus(focus);
     }
 
     /// What the root carries out between turns: the read a change left
@@ -2036,6 +2104,18 @@ impl Peers {
         }
         self.focus = Some(focus);
         self.focuses = self.focuses.wrapping_add(1);
+        self.focus_by = FocusBy::Act;
+    }
+
+    /// `ask_focus` for a target the app chose rather than the row the
+    /// person acted on: the next row after a Remove, a closed snackbar's
+    /// row menu.
+    fn place_focus(&mut self, focus: PeersFocus) {
+        let asked = self.focuses;
+        self.ask_focus(focus);
+        if self.focuses != asked {
+            self.focus_by = FocusBy::App;
+        }
     }
 
     /// `focus` on what is drawn now: it is judged when it is read, not
@@ -2088,10 +2168,14 @@ impl Peers {
         Some(self.drawn_focus(&PeersFocus::Row(address.to_owned())))
     }
 
-    /// Whether the focus asked for is a row a read showed gone, removed
-    /// elsewhere: `PeerRowGone` is announced before focus moves (§8).
+    /// Whether the focus asked for after the person's act on a row is
+    /// that row, which a read showed gone: `PeerRowGoneAfterAct` is
+    /// announced before focus moves (§8). A target the app placed is not.
     #[must_use]
     pub fn focus_row_gone(&self) -> bool {
+        if self.focus_by == FocusBy::App {
+            return false;
+        }
         match (self.focus.as_ref(), self.list.as_ref()) {
             (Some(PeersFocus::Row(row) | PeersFocus::RowMenu(row)), Some(list)) => {
                 !listed(list, row)
@@ -2240,6 +2324,17 @@ impl Peers {
     #[must_use]
     pub const fn snack(&self) -> (Option<&PeersSnack>, u64) {
         (self.snack.as_ref(), self.snacks)
+    }
+
+    /// The last row's own read back that left focus to the view, on what
+    /// is drawn now, and a count that changes with each.
+    #[must_use]
+    pub fn read_back(&self) -> (Option<RowReadBack>, u64) {
+        let back = self.read_back.as_ref().map(|b| RowReadBack {
+            row: b.row.clone(),
+            focus: self.drawn_focus(&b.focus),
+        });
+        (back, self.read_backs)
     }
 
     /// Where focus is asked to go, on what is drawn now, and a count that

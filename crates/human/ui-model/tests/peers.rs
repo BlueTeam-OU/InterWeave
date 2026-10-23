@@ -14,8 +14,8 @@ use interweave_human_client_api::{
 };
 use interweave_human_ui_model::{
     AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES, Intent,
-    LineSelection, ListProblem, PeersFocus, PeersInput, PeersSnack, Refusal, RowState, ScanVerdict,
-    TYPED_LINES, TrustChange, TrustLine, UiModel,
+    LineSelection, ListProblem, PeersFocus, PeersInput, PeersSnack, Refusal, RowReadBack, RowState,
+    ScanVerdict, TYPED_LINES, TrustChange, TrustLine, UiModel,
 };
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::TransportIdentity;
@@ -657,7 +657,7 @@ fn focus_after_a_removal_follows_the_rows_as_shown() {
         "as after the Remove"
     );
 
-    let _ = input(&mut m, PeersInput::SnackClosed);
+    let _ = input(&mut m, PeersInput::SnackClosed { from_action: false });
     let _ = input(&mut m, PeersInput::Remove(at(&a)));
     let after = [configured, added(&c)];
     m.address_removed(&at(&a), answer(AddressOutcome::Removed, &after));
@@ -1065,7 +1065,7 @@ fn an_unknown_removal_is_read_again_when_its_snackbar_leaves() {
         Some(&PeersSnack::RemoveUnknown { address: at(&a) })
     );
     assert_eq!(m.peers_turn(), None, "not while the snackbar is up");
-    let _ = input(&mut m, PeersInput::SnackClosed);
+    let _ = input(&mut m, PeersInput::SnackClosed { from_action: false });
     assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
     // That read failing too: Peers unreadable, focus on why.
     m.addresses_read(Err(AddressProblem::Unavailable));
@@ -2042,7 +2042,7 @@ fn an_unknown_change_outlives_its_snackbar_closing_mid_retry() {
     let _ = m.peers_turn();
     m.addresses_read(Err(AddressProblem::Unavailable));
     let _ = input(&mut m, PeersInput::TryAgain);
-    let _ = input(&mut m, PeersInput::SnackClosed);
+    let _ = input(&mut m, PeersInput::SnackClosed { from_action: false });
     assert_eq!(m.peers().snack().0, None, "closed mid-retry");
     m.addresses_added(&[at(&a)], not_written());
     assert_eq!(
@@ -2058,7 +2058,7 @@ fn an_unknown_change_outlives_its_snackbar_closing_mid_retry() {
     let _ = m.peers_turn();
     m.addresses_read(Err(AddressProblem::Unavailable));
     let _ = input(&mut m, PeersInput::TryAgain);
-    let _ = input(&mut m, PeersInput::SnackClosed);
+    let _ = input(&mut m, PeersInput::SnackClosed { from_action: false });
     m.address_removed(&at(&a), not_written());
     assert_eq!(
         m.peers().snack().0,
@@ -2068,7 +2068,7 @@ fn an_unknown_change_outlives_its_snackbar_closing_mid_retry() {
 
     // Until a read shows it: the list read back lists the row, so it is
     // known again, and a removal that writes nothing says so.
-    let _ = input(&mut m, PeersInput::SnackClosed);
+    let _ = input(&mut m, PeersInput::SnackClosed { from_action: false });
     assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
     m.addresses_read(Ok(list(&[added(&a), added(&b)])));
     let _ = input(&mut m, PeersInput::Remove(at(&a)));
@@ -2564,18 +2564,132 @@ fn a_row_focus_asked_before_a_read_lands_on_what_is_drawn() {
     assert!(m.peers().focus_row_gone());
 }
 
-/// A removal left unknown is read again when its snackbar goes; a read
-/// that lacks the row decides it as Remove done -- the snackbar with
-/// Undo, focus on the row after the removed one, else the one before,
-/// else Add an address (§5.7, §8) -- and nothing says a row was gone.
+/// Focus the app placed -- the row after a removed one -- names a row
+/// the person did not act on: a read dropping it before focus gets there
+/// moves focus on with no `PeerRowGoneAfterAct` (section 8's first
+/// row-gone row is for a row acted on). The control: an Undo's row,
+/// acted on, is said.
 #[test]
-fn a_removal_unknown_read_again_without_its_row_is_as_remove_done() {
+fn a_placed_focus_target_a_read_drops_is_not_said_as_acted_on() {
     let (me, a, b, c) = (peer(), peer(), peer(), peer());
     // Added rows show newest first: C, B, A.
     let mut m = opened(&me, &[], &[added(&a), added(&b), added(&c)]);
     let _ = input(&mut m, PeersInput::Remove(at(&b)));
     m.address_removed(
         &at(&b),
+        answer(AddressOutcome::Removed, &[added(&a), added(&c)]),
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
+    m.addresses_read(Ok(list(&[added(&c)])));
+    assert!(!m.peers().focus_row_gone(), "A was placed, not acted on");
+
+    let mut m = opened(&me, &[], &[added(&a), added(&b), added(&c)]);
+    let _ = input(&mut m, PeersInput::Remove(at(&b)));
+    m.address_removed(
+        &at(&b),
+        answer(AddressOutcome::Removed, &[added(&a), added(&c)]),
+    );
+    let _ = input(&mut m, PeersInput::Undo);
+    m.addresses_added(
+        &[at(&b)],
+        answer(
+            AddressOutcome::Added {
+                peer: Some(b.clone()),
+            },
+            &[added(&a), added(&b), added(&c)],
+        ),
+    );
+    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&b))), "the Undo's row");
+    m.addresses_read(Ok(list(&[added(&a), added(&c)])));
+    assert!(m.peers().focus_row_gone(), "acted on, then dropped");
+}
+
+/// A removal left unknown is read again when its snackbar goes, and that
+/// read is its read back (section 5.7): without the row, as Remove done,
+/// the snackbar with Undo; with it, `RemoveFailed`. Focus is decided by
+/// where it is when the read answers (section 8), which only the view
+/// knows: the model asks for none and says where focus goes from that
+/// row -- the row after it, else the one before, else Add an address;
+/// or the row's menu button -- with nothing said of a row gone.
+#[test]
+fn a_removal_unknown_read_again_without_its_row_is_as_remove_done() {
+    let (me, a, b, c) = (peer(), peer(), peer(), peer());
+    for kept in [false, true] {
+        // Added rows show newest first: C, B, A.
+        let mut m = opened(&me, &[], &[added(&a), added(&b), added(&c)]);
+        removal_unknown(&mut m, &b);
+        let before = (focus(&m), m.peers().read_back().1);
+        let _ = input(&mut m, PeersInput::SnackClosed { from_action: false });
+        assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+        assert_eq!(focus(&m), before.0, "nothing moves while it reads");
+        let rows = if kept {
+            vec![added(&a), added(&b), added(&c)]
+        } else {
+            vec![added(&a), added(&c)]
+        };
+        m.addresses_read(Ok(list(&rows)));
+        let (snack, focus_on) = if kept {
+            (
+                matches!(m.peers().snack().0, Some(PeersSnack::RemoveFailed { address }) if *address == at(&b)),
+                PeersFocus::RowMenu(at(&b)),
+            )
+        } else {
+            (
+                matches!(
+                    m.peers().snack().0,
+                    Some(PeersSnack::Removed { address, undo: true, .. }) if *address == at(&b)
+                ),
+                PeersFocus::Row(at(&a)),
+            )
+        };
+        assert!(snack, "kept {kept}: {:?}", m.peers().snack().0);
+        assert_eq!(focus(&m), before.0, "kept {kept}: no focus asked");
+        let (back, count) = m.peers().read_back();
+        assert_ne!(count, before.1, "kept {kept}");
+        assert_eq!(
+            back,
+            Some(RowReadBack {
+                row: at(&b),
+                focus: focus_on
+            }),
+            "kept {kept}"
+        );
+        assert!(!m.peers().focus_row_gone());
+    }
+}
+
+/// Focus on the snackbar's Try again as a removal unknown's snackbar
+/// goes waits on that row's menu button while the read runs (section
+/// 8); focus anywhere else is left where it is.
+#[test]
+fn a_closing_removal_snackbar_sends_focus_on_try_again_to_its_row_menu() {
+    let (me, a, b) = (peer(), peer(), peer());
+    for from_action in [true, false] {
+        let mut m = opened(&me, &[], &[added(&a), added(&b)]);
+        removal_unknown(&mut m, &b);
+        let before = focus(&m);
+        let _ = input(&mut m, PeersInput::SnackClosed { from_action });
+        if from_action {
+            assert_eq!(focus(&m), Some(PeersFocus::RowMenu(at(&b))));
+        } else {
+            assert_eq!(focus(&m), before);
+        }
+        // That focus is the removal's own: the read still decides it.
+        assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+        m.addresses_read(Ok(list(&[added(&a)])));
+        assert!(
+            matches!(m.peers().snack().0, Some(PeersSnack::Removed { .. })),
+            "from_action {from_action}: {:?}",
+            m.peers().snack().0
+        );
+        assert!(!m.peers().focus_row_gone(), "placed, not an act on it");
+    }
+}
+
+fn removal_unknown(m: &mut UiModel, p: &TransportIdentity) {
+    let _ = input(m, PeersInput::Remove(at(p)));
+    m.address_removed(
+        &at(p),
         Err(AddressChangeFailure::Unconfirmed(
             AddressProblem::Unavailable,
         )),
@@ -2584,21 +2698,8 @@ fn a_removal_unknown_read_again_without_its_row_is_as_remove_done() {
     m.addresses_read(Err(AddressProblem::Unavailable));
     assert_eq!(
         m.peers().snack().0,
-        Some(&PeersSnack::RemoveUnknown { address: at(&b) })
+        Some(&PeersSnack::RemoveUnknown { address: at(p) })
     );
-    let _ = input(&mut m, PeersInput::SnackClosed);
-    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
-    m.addresses_read(Ok(list(&[added(&a), added(&c)])));
-    assert!(
-        matches!(
-            m.peers().snack().0,
-            Some(PeersSnack::Removed { address, undo: true, .. }) if *address == at(&b)
-        ),
-        "{:?}",
-        m.peers().snack().0
-    );
-    assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
-    assert!(!m.peers().focus_row_gone());
 }
 
 /// A Trust still awaited when its page closes -- Done, Back, Escape, or
@@ -2800,7 +2901,7 @@ fn a_verdict_on_an_earlier_unknown_change_never_takes_a_later_ones_place() {
     // the opening's focus stands, and no late snackbar comes.
     let mut m = opened(&me, &[], &rows);
     remove_unknown(&mut m, &a);
-    let _ = input(&mut m, PeersInput::SnackClosed);
+    let _ = input(&mut m, PeersInput::SnackClosed { from_action: false });
     let _ = input(&mut m, PeersInput::Opened);
     let opening = focus(&m);
     let _ = m.peers_turn();
@@ -2819,7 +2920,7 @@ fn a_verdict_on_an_earlier_unknown_change_never_takes_a_later_ones_place() {
         let step = focus(&m);
         assert_eq!(step, Some(PeersFocus::Block(c.clone())));
         if closed {
-            let _ = input(&mut m, PeersInput::SnackClosed);
+            let _ = input(&mut m, PeersInput::SnackClosed { from_action: false });
         }
         let _ = m.peers_turn();
         m.addresses_read(Ok(list(&rows)));

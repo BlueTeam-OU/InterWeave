@@ -899,11 +899,15 @@ ui_texts! {
     ConfirmPeerTrusted => "Peer trusted",
     /// The snackbar when an address was added.
     ConfirmAddressAdded => "Address added",
-    /// Announced only, before focus moves, when focus was on a row, or
-    /// a control of it, that a later read no longer has: claims nothing
-    /// about who removed it or about trust.
+    /// Announced only, before focus moves, when focus was asked for a
+    /// row after the person's own act on it and a later read no longer
+    /// has it: claims nothing about who removed it or about trust.
+    PeerRowGoneAfterAct => "The address you acted on is no longer in the list of addresses.",
+    /// Announced only, before focus moves, when focus is on a row, or a
+    /// control of it, however it got there, and a later read drops it:
+    /// says nothing of who moved focus, who removed it, or trust.
     // PLACEHOLDER (en)
-    PeerRowGone => "The address you were on is no longer in the list of addresses.",
+    PeerRowGone => "The address that was focused is no longer in the list of addresses.",
     /// Chats' notice: the list and the trust set are both empty.
     NoReachNotice => "InterWeave cannot reach anyone yet. Add a peer's address, then trust the peer.",
     /// Under the scan controls: a scan pressed with an address in the
