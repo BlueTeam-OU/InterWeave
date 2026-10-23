@@ -569,6 +569,7 @@ impl ComposedRuntime {
         let (ended_tx, ended) = watch::channel(());
         let driver = Driver {
             _ended_on_drop: ended_tx,
+            local: local.clone(),
             swarm,
             notices,
             discovery,
@@ -834,6 +835,9 @@ impl TransportRuntime for ComposedRuntime {
 }
 
 struct Driver {
+    /// This profile's own `PeerId`, which no bootstrap address may name
+    /// (ADR-0062 decision 1, `own_peer`).
+    local: TransportIdentity,
     swarm: SwarmRuntime,
     /// Every in-process session holding `events` is owed each disconnect
     /// and the runtime's state, and is woken by what is queued for it.
@@ -1487,7 +1491,9 @@ impl Driver {
     /// (ADR-0062 decisions 1 and 4). The whole list is checked before
     /// anything is written, and each refusal is an answer naming its rule
     /// and -- but for the provider's -- the line: every line's grammar,
-    /// the configuration's whole entry rule; then an authored `enabled:
+    /// the configuration's whole entry rule; then every line's `PeerId`
+    /// against this profile's own, since a row for oneself is one nothing
+    /// can dial, whoever the caller; then an authored `enabled:
     /// false` provider; then every line against ADR-0052 rule 2's
     /// special-use floor, applied HERE whoever the caller, since the
     /// operator set an address enters is admitted at every store door
@@ -1513,6 +1519,17 @@ impl Driver {
         for (line, address) in addresses.iter().enumerate() {
             if let Err(why) = entry_grammar(address) {
                 return refused(AddressRefusal::Grammar, Some(line), why.to_owned());
+            }
+        }
+        for (line, address) in addresses.iter().enumerate() {
+            if interweave_profile_config::split_peer_multiaddr(address)
+                .is_ok_and(|(_, peer)| peer == self.local)
+            {
+                return refused(
+                    AddressRefusal::OwnPeer,
+                    Some(line),
+                    "the address names this node's own PeerId".to_owned(),
+                );
             }
         }
         if self.static_how == StaticAuthoring::Disabled {
