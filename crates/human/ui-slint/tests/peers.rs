@@ -1347,3 +1347,30 @@ fn a_row_gone_before_its_focus_moves_is_said_and_focus_follows() {
         "the row before B's place, A gone too"
     );
 }
+
+/// The view holds the field while an add is on its way, as the model
+/// does (design section 5.3).
+#[test]
+fn the_field_is_read_only_while_its_add_is_on_its_way() {
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, a) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    view.render(&model);
+    assert!(!view.window().get_peers_add_busy(), "free before the add");
+    let _ = model.peers_input(PeersInput::FieldChanged(at(&a)));
+    let _ = model.peers_input(PeersInput::Add);
+    view.render(&model);
+    assert!(view.window().get_peers_add_busy(), "held while on its way");
+    model.addresses_added(
+        &[at(&a)],
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Refused(AddressRefused::Grammar),
+            list: Ok(AddressList::default()),
+        }),
+    );
+    view.render(&model);
+    assert!(!view.window().get_peers_add_busy(), "free once answered");
+}

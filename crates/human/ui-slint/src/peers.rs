@@ -418,6 +418,7 @@ impl View {
         let host = self.host;
         window.set_peers_add_open(peers.add_open());
         window.set_add_step_one(peers.step_one_shown());
+        window.set_peers_add_busy(peers.busy());
         let typing = self
             .shared
             .borrow()

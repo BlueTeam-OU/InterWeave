@@ -1971,6 +1971,8 @@ export component AppWindow inherits Window {
     // The page's one note: under the field, under the scan controls, or
     // under Add, by what it is about.
     in property <string> field-note;
+    // An add or its check is on its way: the field is held.
+    in property <bool> peers-add-busy;
     // A refused add's words in their three lines (RefusedLines), under the
     // field or the scan controls, wherever its note is; empty otherwise.
     in property <string> refused-head;
@@ -3249,6 +3251,9 @@ export component AppWindow inherits Window {
                             font-size: Type.body-medium;
                             color: Palette.on-surface;
                             text <=> root.address-text;
+                            // Held while its add is on its way (the model
+                            // takes no edit then either).
+                            read-only: root.peers-add-busy;
                             accessible-label: root.address-field-label;
                             accessible-description: root.field-note;
                             edited => { root.address-edited(self.text); }
