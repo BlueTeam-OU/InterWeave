@@ -876,6 +876,9 @@ ui_texts! {
     TrustStepDone => "Trusted",
     /// A block's state after Not now.
     TrustStepLater => "Not trusted yet",
+    /// A block's state while its Trust awaits its answer, beside a
+    /// progress mark: claims no outcome.
+    TrustStepWaiting => "InterWeave is trusting {peer}. This is not finished yet.",
     /// A block's state after Not now or Done while its peer's trust is
     /// not known: claims no trust state.
     TrustStepLaterUnknown => "You did not choose Trust. InterWeave could not check whether this peer is already trusted.",

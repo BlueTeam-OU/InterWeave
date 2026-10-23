@@ -1632,28 +1632,133 @@ fn this_device_is_known_from_the_session_without_trust() {
     assert!(!m.peers().add_open());
 }
 
-/// With both the session's and the trust list's `PeerId` known, the
-/// session's names this device's row: it is the one a ready session
-/// gave, and the list as kept could be from a read before it.
+/// Unreadable Peers (§5.2, §8): Try again reads both lists while trust
+/// is unread; a Try again that fails -- barred or not -- puts focus on
+/// the problem line; a failed opening read leaves it on the title.
 #[test]
-fn the_sessions_peer_id_names_this_device_over_the_trust_lists() {
-    let (me, other) = (peer(), peer());
-    // The trust list as read names `other` as local; the session, `me`.
-    let mut m = opened(&other, &[], &[added(&me), added(&other)]);
-    m.this_device(me.clone());
-    let states: Vec<(String, RowState)> = m
-        .peers()
-        .rows(m.trust_settings())
-        .into_iter()
-        .map(|r| (r.address, r.state))
-        .collect();
-    assert!(
-        states.contains(&(at(&me), RowState::ThisDevice)),
-        "{states:?}"
+fn unreadable_peers_try_again_focus_and_reads() {
+    let me = peer();
+    let mut m = UiModel::new();
+    let _ = input(&mut m, PeersInput::Opened);
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Title),
+        "the opening read failing"
     );
-    assert!(
-        states.contains(&(at(&other), RowState::NeedsTrust)),
-        "{states:?}"
+    assert_eq!(
+        input(&mut m, PeersInput::ReadAgain),
+        vec![Intent::ReadAddresses, Intent::ReadTrust]
+    );
+    m.addresses_read(Err(AddressProblem::NotPermitted));
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem), "barred retry");
+
+    // A kept list whose opening read fails: focus stays on the title.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::Opened);
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(focus(&m), Some(PeersFocus::Title));
+    let _ = input(&mut m, PeersInput::ReadAgain);
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem), "failed retry");
+}
+
+/// Step two's focus (§8): Trust pressed goes to the block's waiting
+/// line while its answer is awaited; unconfirmed, to its state line; with nothing
+/// undecided while another Trust is awaited, to Done; and a Trust made
+/// never sends focus to an earlier block's problem line.
+#[test]
+fn step_two_focus_follows_each_blocks_own_answer() {
+    let (me, a, b) = (peer(), peer(), peer());
+    let two = vec![at(&a), at(&b)];
+    let start = || {
+        let mut m = opened(&me, &[], &[]);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::Scanned(two.join("\n")));
+        m.addresses_added(
+            &two,
+            answer(
+                AddressOutcome::Added { peer: None },
+                &[added(&a), added(&b)],
+            ),
+        );
+        m
+    };
+    let change = |p: &TransportIdentity| TrustChange {
+        peer: p.clone(),
+        allowed: true,
+    };
+
+    let mut m = start();
+    let _ = input(&mut m, PeersInput::Trust(b.clone()));
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::BlockState(b.clone())),
+        "awaited: its waiting line"
+    );
+    assert_eq!(
+        m.peers().blocks(m.trust_settings())[1].state,
+        BlockState::Trusting
+    );
+    let _ = input(&mut m, PeersInput::NotNow(a.clone()));
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Done),
+        "none undecided, B awaited"
+    );
+    m.trust_settings_mut().set(
+        change(&b),
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::BlockState(b.clone())),
+        "unconfirmed"
+    );
+
+    // B's Trust fails, then A's is made: A's next is B's title.
+    let mut m = start();
+    let _ = input(&mut m, PeersInput::Trust(b.clone()));
+    m.trust_settings_mut().set(
+        change(&b),
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    assert_eq!(focus(&m), Some(PeersFocus::BlockProblem(b.clone())));
+    let _ = input(&mut m, PeersInput::Trust(a.clone()));
+    m.trust_settings_mut().set(
+        change(&a),
+        Ok(TrustList {
+            local_peer: Some(me.clone()),
+            allowed: vec![TrustRow::added_here(a.clone())],
+        }),
+    );
+    let _ = m.peers_turn();
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Block(b.clone())),
+        "never B's old problem"
+    );
+
+    // Not now on a block whose Trust was pressed keeps its last line,
+    // and its Trust (§5.3): A still undecided keeps the page open.
+    let mut m = start();
+    let _ = input(&mut m, PeersInput::Trust(b.clone()));
+    m.trust_settings_mut().set(
+        change(&b),
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    let _ = m.peers_turn();
+    let _ = input(&mut m, PeersInput::NotNow(b.clone()));
+    let blocks = m.peers().blocks(m.trust_settings());
+    assert_eq!(blocks[1].peer, b);
+    assert_eq!(blocks[1].state, BlockState::Later);
+    assert_eq!(
+        blocks[1].problem,
+        Some(BlockProblem::Trust(TrustProblem::Unavailable)),
+        "its last line stands"
     );
 }
 
@@ -1712,38 +1817,6 @@ fn an_unknown_change_stays_unknown_after_a_retry_that_writes_nothing() {
     );
 }
 
-/// Unreadable Peers (§5.2, §8): Try again reads both lists while trust
-/// is unread; a Try again that fails -- barred or not -- puts focus on
-/// the problem line; a failed opening read leaves it on the title.
-#[test]
-fn unreadable_peers_try_again_focus_and_reads() {
-    let me = peer();
-    let mut m = UiModel::new();
-    let _ = input(&mut m, PeersInput::Opened);
-    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
-    m.addresses_read(Err(AddressProblem::Unavailable));
-    assert_eq!(
-        focus(&m),
-        Some(PeersFocus::Title),
-        "the opening read failing"
-    );
-    assert_eq!(
-        input(&mut m, PeersInput::ReadAgain),
-        vec![Intent::ReadAddresses, Intent::ReadTrust]
-    );
-    m.addresses_read(Err(AddressProblem::NotPermitted));
-    assert_eq!(focus(&m), Some(PeersFocus::ListProblem), "barred retry");
-
-    // A kept list whose opening read fails: focus stays on the title.
-    let mut m = opened(&me, &[], &[]);
-    let _ = input(&mut m, PeersInput::Opened);
-    m.addresses_read(Err(AddressProblem::Unavailable));
-    assert_eq!(focus(&m), Some(PeersFocus::Title));
-    let _ = input(&mut m, PeersInput::ReadAgain);
-    m.addresses_read(Err(AddressProblem::Unavailable));
-    assert_eq!(focus(&m), Some(PeersFocus::ListProblem), "failed retry");
-}
-
 /// A focus target not drawn because Peers became unreadable meanwhile
 /// goes to the problem line (§8): here a decided step two whose list a
 /// failed re-read took away.
@@ -1768,4 +1841,29 @@ fn a_target_gone_with_the_list_focuses_the_problem_line() {
     let _ = input(&mut m, PeersInput::NotNow(t));
     assert!(!m.peers().add_open());
     assert_eq!(focus(&m), Some(PeersFocus::ListProblem));
+}
+
+/// With both the session's and the trust list's `PeerId` known, the
+/// session's names this device's row: it is the one a ready session
+/// gave, and the list as kept could be from a read before it.
+#[test]
+fn the_sessions_peer_id_names_this_device_over_the_trust_lists() {
+    let (me, other) = (peer(), peer());
+    // The trust list as read names `other` as local; the session, `me`.
+    let mut m = opened(&other, &[], &[added(&me), added(&other)]);
+    m.this_device(me.clone());
+    let states: Vec<(String, RowState)> = m
+        .peers()
+        .rows(m.trust_settings())
+        .into_iter()
+        .map(|r| (r.address, r.state))
+        .collect();
+    assert!(
+        states.contains(&(at(&me), RowState::ThisDevice)),
+        "{states:?}"
+    );
+    assert!(
+        states.contains(&(at(&other), RowState::NeedsTrust)),
+        "{states:?}"
+    );
 }

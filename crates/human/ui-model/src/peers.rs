@@ -403,6 +403,8 @@ pub enum PeersFocus {
     Block(TransportIdentity),
     /// A step-two block's problem line.
     BlockProblem(TransportIdentity),
+    /// A step-two block's state line: its Trust unconfirmed (§8).
+    BlockState(TransportIdentity),
     /// The step-two Done.
     Done,
     /// The control that opened the add page.
@@ -695,8 +697,9 @@ impl Peers {
                     && !block.trusting
                     && !block.checking
                 {
+                    // A block whose Trust was pressed keeps its last line
+                    // (§5.3): its problem text stays as it stands.
                     block.later = true;
-                    block.problem = None;
                 }
                 self.settle(trust);
                 Vec::new()
@@ -880,6 +883,9 @@ impl Peers {
             block.trusting = true;
             block.later = false;
             block.problem = None;
+            // Its Trust and Not now give way to its waiting line, which
+            // takes focus while the answer is awaited (§5.3, §8).
+            self.ask_focus(PeersFocus::BlockState(peer.clone()));
             return Some(intent);
         }
         None
@@ -959,8 +965,12 @@ impl Peers {
             .blocks
             .iter()
             .any(|b| matches!(b.state(trust), BlockState::Trusting | BlockState::Checking));
+        let several = page.blocks.len() > 1;
         match next {
             Some(peer) => self.ask_focus(PeersFocus::Block(peer)),
+            // None undecided while a Trust is awaited: Done, with several
+            // (§8); one block keeps focus where its Trust put it.
+            None if waiting && several => self.ask_focus(PeersFocus::Done),
             None if waiting => {}
             None => self.finish(trust),
         }
@@ -1562,9 +1572,15 @@ impl Peers {
         let Some(page) = self.page.as_mut() else {
             return;
         };
+        // Focus goes only to a block this turn changed: its new problem
+        // line, or its state line once its Trust is unconfirmed; never an
+        // earlier block's problem (§8).
         let mut problem = None;
+        let mut checking = None;
         let mut moved = false;
         for block in &mut page.blocks {
+            let moved_before = moved;
+            moved = false;
             let known_before = block.known;
             if let Some(list) = trust.confirmed_list() {
                 block.known = Some(list.allows(&block.peer));
@@ -1599,6 +1615,7 @@ impl Peers {
                         Some(TrustOutcome::Unconfirmed(c)) if c.peer == block.peer => {
                             block.checking = true;
                             block.known = None;
+                            checking.get_or_insert_with(|| block.peer.clone());
                         }
                         Some(TrustOutcome::Problem(p)) => {
                             block.problem = Some(BlockProblem::Trust(*p));
@@ -1619,13 +1636,15 @@ impl Peers {
             if moved && problem.is_none() && block.problem.is_some() && !block.checking {
                 problem = Some(block.peer.clone());
             }
+            moved |= moved_before;
         }
         if !moved {
             return;
         }
-        match problem {
-            Some(peer) => self.ask_focus(PeersFocus::BlockProblem(peer)),
-            None => self.settle(trust),
+        match (problem, checking) {
+            (Some(peer), _) => self.ask_focus(PeersFocus::BlockProblem(peer)),
+            (None, Some(peer)) => self.ask_focus(PeersFocus::BlockState(peer)),
+            (None, None) => self.settle(trust),
         }
     }
 
