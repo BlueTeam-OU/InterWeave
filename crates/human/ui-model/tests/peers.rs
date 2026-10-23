@@ -1704,3 +1704,61 @@ fn an_unknown_change_stays_unknown_after_a_retry_that_writes_nothing() {
         Some(&PeersSnack::UndoUnknown { address: at(&a) })
     );
 }
+
+/// Unreadable Peers (§5.2, §8): Try again reads both lists while trust
+/// is unread; a Try again that fails -- barred or not -- puts focus on
+/// the problem line; a failed opening read leaves it on the title.
+#[test]
+fn unreadable_peers_try_again_focus_and_reads() {
+    let me = peer();
+    let mut m = UiModel::new();
+    let _ = input(&mut m, PeersInput::Opened);
+    m.trust_settings_mut().read(Err(TrustProblem::Unavailable));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Title),
+        "the opening read failing"
+    );
+    assert_eq!(
+        input(&mut m, PeersInput::ReadAgain),
+        vec![Intent::ReadAddresses, Intent::ReadTrust]
+    );
+    m.addresses_read(Err(AddressProblem::NotPermitted));
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem), "barred retry");
+
+    // A kept list whose opening read fails: focus stays on the title.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::Opened);
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(focus(&m), Some(PeersFocus::Title));
+    let _ = input(&mut m, PeersInput::ReadAgain);
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem), "failed retry");
+}
+
+/// A focus target not drawn because Peers became unreadable meanwhile
+/// goes to the problem line (§8): here a decided step two whose list a
+/// failed re-read took away.
+#[test]
+fn a_target_gone_with_the_list_focuses_the_problem_line() {
+    let (me, t) = (peer(), peer());
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&t)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&t)],
+        Ok(AddressAnswer {
+            outcome: AddressOutcome::Added {
+                peer: Some(t.clone()),
+            },
+            list: Err(AddressProblem::Unavailable),
+        }),
+    );
+    assert_eq!(m.peers_turn(), Some(Intent::ReadAddresses));
+    m.addresses_read(Err(AddressProblem::Unavailable));
+    let _ = input(&mut m, PeersInput::NotNow(t));
+    assert!(!m.peers().add_open());
+    assert_eq!(focus(&m), Some(PeersFocus::ListProblem));
+}

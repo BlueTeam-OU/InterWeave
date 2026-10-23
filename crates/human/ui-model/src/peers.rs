@@ -496,6 +496,8 @@ enum InFlight {
 /// Whose Try again a read on its way answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Again {
+    /// Peers opening: its read failing leaves focus on the title (§8).
+    Open,
     List,
     Trust,
 }
@@ -634,7 +636,11 @@ impl Peers {
         match input {
             PeersInput::Opened => {
                 let mut intents: Vec<Intent> = trust.opened().into_iter().collect();
-                intents.extend(self.read());
+                let read = self.read();
+                if read.is_some() {
+                    self.again = Some(Again::Open);
+                }
+                intents.extend(read);
                 self.ask_focus(PeersFocus::Title);
                 intents
             }
@@ -645,10 +651,16 @@ impl Peers {
                 }
                 read.into_iter().collect()
             }
+            // Unreadable Peers' Try again reads both lists (§5.2): the
+            // trust list too while it is not the daemon's word.
             PeersInput::ReadAgain => {
                 let read = self.read();
                 self.again = read.is_some().then_some(Again::List);
-                read.into_iter().collect()
+                let mut intents: Vec<Intent> = read.into_iter().collect();
+                if trust.confirmed_list().is_none() {
+                    intents.extend(trust.opened());
+                }
+                intents
             }
             PeersInput::OpenAdd => {
                 self.open_add();
@@ -1071,13 +1083,13 @@ impl Peers {
     ) {
         self.reading = false;
         let check = self.check.take();
-        let again = self.again.take_if(|a| *a == Again::List).is_some();
+        let again = self.again.take_if(|a| *a != Again::Trust);
         match answer {
             Ok(list) => {
                 self.list = Some(list);
                 self.list_problem = None;
                 self.held = Held::AsRead;
-                if again {
+                if again == Some(Again::List) {
                     self.ask_focus(PeersFocus::Title);
                 }
                 if self.add_note.is_some() && self.add_blocked().is_none() {
@@ -1108,8 +1120,14 @@ impl Peers {
                 // An unreadable list is unknown, never empty: the list on
                 // show goes, so nothing reads its emptiness, and focus
                 // that was in it goes to the line that says why.
-                if self.list.take().is_some() {
-                    self.ask_focus(PeersFocus::ListProblem);
+                // A failed Try again goes to the line saying why (§8);
+                // a failed opening read leaves focus on the title.
+                let had_list = self.list.take().is_some();
+                match again {
+                    Some(Again::List) => self.ask_focus(PeersFocus::ListProblem),
+                    Some(Again::Open) => {}
+                    _ if had_list => self.ask_focus(PeersFocus::ListProblem),
+                    _ => {}
                 }
                 // A row restored while unread is not drawn with no list;
                 // its Try again succeeding goes as on opening (§8).
@@ -1608,6 +1626,21 @@ impl Peers {
     }
 
     fn ask_focus(&mut self, focus: PeersFocus) {
+        // A list control asked for once Peers became unreadable is not
+        // drawn: the line saying why takes its place (§8).
+        let list_control = matches!(
+            focus,
+            PeersFocus::Opener
+                | PeersFocus::Row(_)
+                | PeersFocus::RowMenu(_)
+                | PeersFocus::AddAddress
+                | PeersFocus::AddAddressNote
+        );
+        let focus = if list_control && self.page.is_none() && self.list.is_none() {
+            PeersFocus::ListProblem
+        } else {
+            focus
+        };
         self.focus = Some(focus);
         self.focuses = self.focuses.wrapping_add(1);
     }
