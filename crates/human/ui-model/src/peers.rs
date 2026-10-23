@@ -868,16 +868,19 @@ impl Peers {
         let own = self.own(trust).cloned();
         let page = self.page.as_mut()?;
         let lines = lines_of(&page.field);
+        // Each note set through page_note, so the view says it once
+        // when it appears, focus moving or not (§5.3).
         if lines.is_empty() {
-            page.note = Some(AddNote::AddressNeeded);
-            self.ask_focus(PeersFocus::Field { select: None });
+            self.page_note(AddNote::AddressNeeded, PeersFocus::Field { select: None });
             return None;
         }
         if lines.len() > TYPED_LINES {
-            page.note = Some(AddNote::TooManyLines { lines: lines.len() });
-            self.ask_focus(PeersFocus::Field {
-                select: Some(LineSelection::From(TYPED_LINES)),
-            });
+            self.page_note(
+                AddNote::TooManyLines { lines: lines.len() },
+                PeersFocus::Field {
+                    select: Some(LineSelection::From(TYPED_LINES)),
+                },
+            );
             return None;
         }
         if let Some(line) = own_line(&lines, own.as_ref()) {
