@@ -64,7 +64,7 @@ pub enum OutcomeFrom {
     /// A change confirmed in the trust settings, or a field's refusal.
     #[default]
     Settings,
-    /// A change a trust step on Peers made, or the read it left owed.
+    /// A change a trust step on Peers made.
     TrustStep,
     /// A read of the list, wherever it was asked.
     Read,
@@ -127,8 +127,6 @@ pub struct TrustSettings {
     step_change: Option<TrustChange>,
     /// Where the latest outcome came from.
     outcome_from: OutcomeFrom,
-    /// Where the read owed came from: a step's re-read is the step's.
-    reread_from: OutcomeFrom,
     /// Peers a trust step's allow was answered as made for, while the
     /// list is not the daemon's word: their rows read Trusted (add-a-peer
     /// §5.2) until a confirmed list speaks for them. Decided as each
@@ -303,7 +301,10 @@ impl TrustSettings {
                 // longer the daemon's word on what it holds.
                 self.held = Held::MayHaveChanged;
                 if rereading {
-                    self.say(TrustOutcome::NotReadAgain(problem), self.reread_from);
+                    // A read, whoever's change left it owed: said where it
+                    // lands, by the trust line on Peers -- a step's block
+                    // has already said its own answer.
+                    self.say(TrustOutcome::NotReadAgain(problem), OutcomeFrom::Read);
                 } else {
                     self.say(TrustOutcome::Problem(problem), OutcomeFrom::Read);
                 }
@@ -333,7 +334,6 @@ impl TrustSettings {
             self.unanswered = None;
             if matches!(answer, Err(TrustSetFailure::NotMade(_))) {
                 self.reread = true;
-                self.reread_from = from;
             }
         }
         // A later change of the peer that may have been written: what an
@@ -355,7 +355,6 @@ impl TrustSettings {
                 self.held = Held::AsRead;
                 self.made_here.clear();
                 self.reread = true;
-                self.reread_from = from;
                 self.say(TrustOutcome::Unconfirmed(change), from);
             }
             Ok(list) => {
@@ -372,7 +371,6 @@ impl TrustSettings {
                 }
                 self.held = Held::MayHaveChanged;
                 self.reread = true;
-                self.reread_from = from;
                 self.say(TrustOutcome::Changed(change), from);
             }
             Err(TrustSetFailure::Unconfirmed(_)) => {
@@ -380,7 +378,6 @@ impl TrustSettings {
                 self.lost.push((change.peer.clone(), self.sent));
                 self.held = Held::MayHaveChanged;
                 self.reread = true;
-                self.reread_from = from;
                 self.say(TrustOutcome::Unconfirmed(change), from);
             }
             Err(TrustSetFailure::NotMade(problem)) => {
