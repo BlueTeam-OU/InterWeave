@@ -169,22 +169,33 @@ pub(crate) fn identity_state(app_data_dir: PathBuf, cipher: KeystoreCipher) -> j
         Err(IdentityRefused::Unprovisioned) => Some(Start::FirstRun {
             void_paper: onboarding::void_paper(&app_data_dir, PROFILE),
         }),
-        Err(IdentityRefused::RecoveryRequired(cause)) => Some(Start::Recovery {
-            reason: match cause {
-                RecoveryCause::KeyInvalidated | RecoveryCause::KeyMissing => RecoveryReason::Key,
-                _ => RecoveryReason::Record,
-            },
-            // The PeerId the record's field names, read without the cipher
-            // whatever the envelope's state; none readable offers no
-            // restore (design section 3.4).
-            expected: TrustBoundary::new(&app_data_dir)
+        Err(IdentityRefused::RecoveryRequired(cause)) => {
+            let paths = TrustBoundary::new(&app_data_dir)
                 .and_then(|boundary| ProfilePaths::resolve_embedded(PROFILE, boundary))
-                .ok()
-                .and_then(|paths| match custody::named_identity(&paths) {
-                    Ok(RecordName::Names(peer)) => Some(peer),
-                    _ => None,
+                .ok();
+            Some(Start::Recovery {
+                reason: match cause {
+                    RecoveryCause::KeyInvalidated | RecoveryCause::KeyMissing => {
+                        RecoveryReason::Key
+                    }
+                    _ => RecoveryReason::Record,
+                },
+                // The PeerId the record's field names, read without the
+                // cipher whatever the envelope's state; none readable
+                // offers no restore (design section 3.4).
+                expected: paths.as_ref().and_then(|resolved| {
+                    match custody::named_identity(resolved) {
+                        Ok(RecordName::Names(peer)) => Some(peer),
+                        _ => None,
+                    }
                 }),
-        }),
+                // Unresolved paths name no PeerId either, so K1 offers no
+                // restore and the line has nowhere to show.
+                new_keys: paths
+                    .as_ref()
+                    .is_some_and(|resolved| !crate::identity_keys::holds(resolved)),
+            })
+        }
         Err(IdentityRefused::UserNotAuthenticated) => {
             // Nothing runs until the person authenticates: the window
             // says so, offline, and the grant binds the service.

@@ -541,6 +541,13 @@ ui_texts! {
     /// 9, ADR-0043), and the phone cannot tell. A statement, not a
     /// question.
     IdActiveElsewhere => "If another device still uses this PeerId, a restore here puts the same PeerId on two devices. One PeerId must never be on two devices, and this phone cannot check whether another device uses it.",
+    /// ANDROID, identity screens: under `IdActiveElsewhere` on R1, and on
+    /// K1 when it offers a restore and the state root holds no
+    /// `identity-keys/`: the phrase restores the node's `PeerId`, not the
+    /// identities' keys, so each gets a new one and contacts see it change
+    /// (`human-client-ui.md` section 9, IDENTITY-RECOVERY.md item 12,
+    /// ADR-0063 decision 1). A statement, not a question.
+    IdR1NewKeys => "Your words bring back your PeerId, but not the keys of your identities. Each identity gets a new key, and your contacts will see that each key changed.",
     /// ANDROID, identity screens: R3, two lines under the question.
     IdR3NoPeerId => "If you have no PeerId on paper, ask a contact to read yours from their app. Restore only if it matches.",
     /// ANDROID, identity screens: R3's question, two lines.

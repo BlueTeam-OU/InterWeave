@@ -27,6 +27,15 @@ mod store;
     )
 )]
 mod store_follow;
+// On every target, so the host tests what K1 reads.
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(
+        dead_code,
+        reason = "the host only tests it; onboard.rs reads it on Android"
+    )
+)]
+mod identity_keys;
 // On every target, so the host tests the filter the phone writes with.
 #[cfg_attr(
     not(target_os = "android"),
