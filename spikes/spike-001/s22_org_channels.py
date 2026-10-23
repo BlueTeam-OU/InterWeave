@@ -89,7 +89,7 @@ def private_etc(policy_dir):
     """bubblewrap arguments: the host's root, with /etc replaced by one
     whose every entry is the host's, read-only, and whose claude-code is
     policy_dir, read-only."""
-    args = ["bwrap", "--dev-bind", "/", "/", "--tmpfs", "/etc"]
+    args = ["bwrap", "--die-with-parent", "--dev-bind", "/", "/", "--tmpfs", "/etc"]
     for entry in sorted(os.listdir("/etc")):
         path = f"/etc/{entry}"
         if entry == "claude-code":
@@ -129,25 +129,28 @@ def main() -> int:
         # session's config must never be under the working copy.
         scratch.rmdir()
         raise SystemExit("TMPDIR must be outside the repository")
-    config, workdir, built, policy = (scratch / d for d in ("config", "work", "marketplace", "policy"))
-    for d in (config, workdir, policy):
-        d.mkdir()
-    managed = None
-    if spec["file"]:
-        path = policy / spec["file"]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(spec["settings"], indent=2) + "\n")
-        managed = {"path": f"/etc/claude-code/{spec['file']}", "content": json.loads(path.read_text())}
-    subprocess.run(["bash", str(REPO / "packaging" / "claude-plugin" / "build.sh"), str(built), str(bridge)],
-                   check=True, capture_output=True)
 
     # Every process started from here is stopped, and the scratch tree --
-    # the daemons' private keys included -- removed, however the run ends.
+    # the daemons' private keys included -- removed, however the run ends,
+    # a failed build of the marketplace included.
     live = []
-    record = {"run": run, "managed_settings": managed}
+    record = {"run": run}
     passed = False
     raw_tainted = []
     try:
+        config, workdir, built, policy = (scratch / d for d in ("config", "work", "marketplace", "policy"))
+        for d in (config, workdir, policy):
+            d.mkdir()
+        managed = None
+        if spec["file"]:
+            path = policy / spec["file"]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(spec["settings"], indent=2) + "\n")
+            managed = {"path": f"/etc/claude-code/{spec['file']}", "content": json.loads(path.read_text())}
+        record["managed_settings"] = managed
+        subprocess.run(["bash", str(REPO / "packaging" / "claude-plugin" / "build.sh"), str(built), str(bridge)],
+                       check=True, capture_output=True)
+
         session_env = {}
         peer = None
         if spec["traffic"]:
@@ -268,19 +271,23 @@ def main() -> int:
             passed = line is not None
         record["steps"] = steps
 
+        # No screen is answered, so one that asks is a failed run: the
+        # development warning, or any numbered menu (the TUI pads its
+        # columns with spaces, so they are squeezed first).
+        squeezed = re.sub(r"\s+", " ", text())
+        asked = re.search(r"Loading development channels|\u276f ?1\.", squeezed)
+        record["screen_prompt"] = asked.group(0) if asked else None
+        passed = passed and asked is None
+
         # SIGINT is the shutdown SPIKE-001 measured; SIGTERM, then SIGKILL.
-        status = None
-        for sig, grace in ((signal.SIGINT, 5), (signal.SIGTERM, 5), (signal.SIGKILL, 1)):
-            done, status = os.waitpid(pid, os.WNOHANG)
-            if done:
-                break
-            os.kill(pid, sig)
-            pump(grace)
-        else:
-            _, status = os.waitpid(pid, 0)
+        # pid is bwrap's, and Claude Code is its child: bwrap forwards no
+        # signal, so the session's process group is what is signalled, and
+        # nothing is read or removed until that group is empty.
+        record["shutdown"] = stop_group(pid, pump)
+        # A member still running could write after the token check.
+        passed = passed and record["shutdown"]["group_empty"]
         live.remove(pid)
         os.close(fd)
-        record["wait_status"] = status
         (out / "screen.txt").write_text(text())
 
         log = debug.read_text(errors="replace") if debug.exists() else ""
@@ -302,11 +309,7 @@ def main() -> int:
     finally:
         for thing in reversed(live):
             if isinstance(thing, int):
-                try:
-                    os.kill(thing, signal.SIGKILL)
-                    os.waitpid(thing, 0)
-                except (ProcessLookupError, ChildProcessError):
-                    pass
+                stop_group(thing, lambda s: time.sleep(s), steps=((signal.SIGKILL, 5),))
             elif isinstance(thing, Peer):
                 thing.stop()
             elif thing.poll() is None:
@@ -337,6 +340,43 @@ def main() -> int:
         raise SystemExit(f"the token appears in {', '.join(tainted)}: no evidence kept, raw output removed")
     print(f"{run}: decision={record.get('channel_decision')!r} passed={passed} raw={out}")
     return 0 if passed else 1
+
+
+def stop_group(pid, pump, steps=((signal.SIGINT, 5), (signal.SIGTERM, 5), (signal.SIGKILL, 5))):
+    """Signal the process group pid leads, step by step, until no member is
+    left; reap pid itself, so its zombie does not keep the group alive.
+    Returns what happened, for the run's record."""
+    status = None
+
+    def reap():
+        nonlocal status
+        if status is None:
+            try:
+                done, st = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                done, st = pid, None
+            if done:
+                status = st
+
+    def alive():
+        reap()
+        try:
+            os.killpg(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+
+    sent = []
+    for sig, grace in steps:
+        if not alive():
+            break
+        os.killpg(pid, sig)
+        sent.append(signal.Signals(sig).name)
+        end = time.time() + grace
+        while time.time() < end and alive():
+            if pump(0.2) is False:
+                time.sleep(0.2)
+    return {"signals_sent": sent, "group_empty": not alive(), "bwrap_wait_status": status}
 
 
 def scrub(evidence, scratch, out):
