@@ -3397,7 +3397,7 @@ export component AppWindow inherits Window {
                             pressed => { root.peers-add(); }
                             focused(k) => { root.focus-id = k; }
                         }
-                        if root.add-waiting: WaitMark {
+                        if root.add-waiting: add-wait-mark := WaitMark {
                             y: (parent.height - self.height) / 2;
                             still: root.reduced-motion;
                         }

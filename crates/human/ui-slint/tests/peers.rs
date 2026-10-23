@@ -2207,6 +2207,12 @@ fn an_add_on_its_way_reads_adding_and_is_said_once() {
             .is_some(),
         "Add reads {waiting}"
     );
+    let mark = |view: &View| {
+        ElementHandle::find_by_element_id(view.window(), "AppWindow::add-wait-mark")
+            .next()
+            .is_some()
+    };
+    assert!(mark(&view), "the progress mark beside it");
     let said = slots(&view);
     assert!(said.iter().any(|s| s.starts_with(waiting)), "{said:?}");
     settle_view(&mut view, &mut model);
@@ -2227,6 +2233,7 @@ fn an_add_on_its_way_reads_adding_and_is_said_once() {
     );
     view.render(&model);
     assert!(!view.window().get_add_waiting());
+    assert!(!mark(&view), "the mark gone with the wait");
     assert!(
         ElementHandle::find_by_accessible_label(view.window(), text(UiText::AddAction))
             .next()
