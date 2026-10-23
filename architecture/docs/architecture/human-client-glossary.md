@@ -61,7 +61,7 @@ headings. A complete sentence ends with a period.
 
 | Term (en) | Names | Stays out |
 |---|---|---|
-| recovery phrase | The 24 words that represent the profile's identity secret (android-key-custody.md, "Recovery"; human-client-ui.md §9). It restores the identity only: configuration, trust and endpoint settings are backed up separately (human-client-ui.md §9). | seed, seed phrase, mnemonic, password, backup code, secret key, backup (for the phrase) |
+| recovery phrase | The 24 words that represent the profile's identity secret (android-key-custody.md, "Recovery"; human-client-ui.md §9). It restores the node's PeerId only (not the user identities of ADR-0061, whose keys are new after a restore): configuration, trust and endpoint settings are backed up separately (human-client-ui.md §9). | seed, seed phrase, mnemonic, password, backup code, secret key, backup (for the phrase) |
 | Write the words down | The only way to keep the phrase: no copy, no screenshot (android-key-custody.md, "Recovery UI hardening"). | save, copy or export (as ways to keep the phrase) |
 | word, word 3 of 24 | One position of the phrase, chosen from the word list (android-key-custody.md, "Recovery UI hardening"). | key, code, token |
 | Restore from the recovery phrase | Recovery of an established profile's PeerId from its phrase, checked against the expected PeerId (ADR-0033; android-key-custody.md). | reset, new profile, create a key, sign in |

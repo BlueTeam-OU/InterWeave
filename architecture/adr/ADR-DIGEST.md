@@ -44,7 +44,7 @@ Authority order is unchanged (`CLAUDE.md` §2): accepted ADRs → normative cont
 | daemon vs embedded, process model, surviving Claude Code restarts | **0015** (+ 0041 the Android exception) |
 | Android distribution, release page, no store, Google Play services forbidden, Slint licence on Android, APK signing | **0057** (+ 0056 superseded, 0041 the type stays, 0039 the toolkit) |
 | third-party notices, THIRD-PARTY-NOTICES.md, a crate with no licence file, MIT/BSD notice in the copy, release archive licences, Android release page notices | **0058** (+ 0057 the page, 0051 vendored provenance) |
-| version number, semver, release tag, MAJOR/MINOR/PATCH, what is the public API, pre-release tag, versionName, versionCode, plugin version, workspace version | **0065** (+ 0049 schema versions, 0028 the profile marker) |
+| version number, semver, release tag, MAJOR/MINOR/PATCH, what is the public API, pre-release tag, versionName, versionCode, plugin version, workspace version | **0065** (+ 0017 the ipc schema versions, 0049 the x-contract field, 0028 the profile marker) |
 | profile identity, one PeerId per profile, multiple local applications | **0016** (superseded for routing by **0030**) |
 | local IPC, framing, 128 KiB body, hello handshake, keepalive, capabilities | **0017** (+ 0037 admin split) |
 | admin socket, admin authority, client.kind, privilege separation | **0037** (+ 0017, 0032) |
