@@ -46,6 +46,10 @@ pub enum Start {
         reason: RecoveryReason,
         /// The `PeerId` the record names, when it still names one.
         expected: Option<TransportIdentity>,
+        /// The state root holds no `identity-keys/` directory, so a
+        /// restore gives every identity a new key (IDENTITY-RECOVERY.md
+        /// section Restore semantics item 12; ADR-0063 decision 1).
+        new_keys: bool,
     },
     /// Settings asked to show the phrase (§3.5).
     ShowPhrase,
@@ -261,6 +265,10 @@ pub struct IdentityFlow {
     /// Why Welcome, R1 or K1 shows a notice: the lock refused, or a new
     /// identity that could not be made.
     start_notice: Option<Notice>,
+    /// K1's restore gives every identity a new key: the root found no
+    /// `identity-keys/` (item 12). Kept for the flow, since K1 is rebuilt
+    /// when Back leaves R2.
+    new_keys: bool,
 }
 
 impl IdentityFlow {
@@ -268,9 +276,17 @@ impl IdentityFlow {
     /// as `start` says.
     #[must_use]
     pub fn new(list: &'static [&'static str], start: Start) -> Self {
+        let mut new_keys = false;
         let screen = match start {
             Start::FirstRun { void_paper } => Screen::Welcome { void_paper },
-            Start::Recovery { reason, expected } => Screen::K1 { reason, expected },
+            Start::Recovery {
+                reason,
+                expected,
+                new_keys: none_kept,
+            } => {
+                new_keys = none_kept;
+                Screen::K1 { reason, expected }
+            }
             Start::ShowPhrase => Screen::S1 {
                 going_offline: false,
                 notice: None,
@@ -285,6 +301,7 @@ impl IdentityFlow {
             shown: false,
             unheld: false,
             start_notice: None,
+            new_keys,
         }
     }
 
@@ -338,7 +355,23 @@ impl IdentityFlow {
     /// holds it.
     #[must_use]
     pub fn warns_active_elsewhere(&self) -> bool {
-        matches!(self.screen, Screen::R1) || self.can_restore()
+        matches!(self.screen, Screen::R1) || (self.new_keys && self.can_restore())
+    }
+
+    /// The screen says that the phrase restores the node and not the
+    /// identities' keys, so every identity gets a new key and contacts see
+    /// it change (`human-client-ui.md` section 9; IDENTITY-RECOVERY.md
+    /// section Restore semantics item 12; ADR-0063 decision 1). R1
+    /// always: it follows Welcome, which shows only where no identity was
+    /// ever sealed here. K1 only when it offers a restore and the root
+    /// found no `identity-keys/`: a lost seed key leaves the identities'
+    /// keys where they were, and a restore keeps them. On the screens
+    /// that warn of [`Self::warns_active_elsewhere`], and never a gate.
+    /// `r1_always_says_new_keys` and
+    /// `k1_says_new_keys_only_with_no_identity_keys` hold it.
+    #[must_use]
+    pub fn says_new_keys(&self) -> bool {
+        matches!(self.screen, Screen::R1) || (self.new_keys && self.can_restore())
     }
 
     /// K1's reason and the `PeerId` the record names.
@@ -1102,6 +1135,7 @@ mod tests {
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
+                new_keys: false,
             },
         );
         flow.held(Err(StepFailed::Storage));
@@ -1180,6 +1214,7 @@ mod tests {
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
+                new_keys: false,
             },
         );
         assert_eq!(flow.recovery(), Some((RecoveryReason::Key, Some(&mine()))));
@@ -1216,6 +1251,7 @@ mod tests {
             Start::Recovery {
                 reason: RecoveryReason::Key,
                 expected: Some(mine()),
+                new_keys: false,
             },
         );
         flow.primary();
@@ -1254,6 +1290,7 @@ mod tests {
                 Start::Recovery {
                     reason,
                     expected: Some(mine()),
+                    new_keys: false,
                 },
             )
         };
@@ -1277,6 +1314,7 @@ mod tests {
             Start::Recovery {
                 reason: RecoveryReason::Record,
                 expected: None,
+                new_keys: false,
             },
         );
         assert!(
@@ -1296,6 +1334,7 @@ mod tests {
         let mut seen = Vec::new();
         let mut look = |flow: &IdentityFlow| {
             assert!(!flow.warns_active_elsewhere(), "{:?} warns", flow.screen());
+            assert!(!flow.says_new_keys(), "{:?} says new keys", flow.screen());
             seen.push(flow.screen());
         };
 
@@ -1333,6 +1372,67 @@ mod tests {
         assert_eq!(seen, [C1, C2, C3, C4, R2, R3, R4, S1, S2], "control");
     }
 
+    /// Item 12 on R1: every fresh-install path into R2 is told that the
+    /// identities get new keys, after the ADR-0043 warning and before R2,
+    /// as a statement. Mutation: without `matches!(self.screen,
+    /// Screen::R1)` in `says_new_keys`, R1 is silent and this fails.
+    #[test]
+    fn r1_always_says_new_keys() {
+        for void_paper in [false, true] {
+            let mut flow = IdentityFlow::new(LIST, Start::FirstRun { void_paper });
+            assert!(!flow.says_new_keys(), "Welcome restores nothing");
+            flow.restore();
+            assert_eq!(flow.screen(), ScreenId::R1);
+            assert!(flow.says_new_keys(), "R1, void paper {void_paper}");
+            assert!(flow.warns_active_elsewhere(), "under the ADR-0043 warning");
+            assert_eq!(flow.primary(), [], "a statement, not a gate");
+            assert_eq!(flow.screen(), ScreenId::R2);
+            assert!(!flow.says_new_keys(), "R2 keeps its room");
+            flow.back();
+            assert!(flow.says_new_keys(), "R1 again after Back");
+        }
+    }
+
+    /// Item 12 on K1: said only when K1 offers a restore and the root
+    /// found no `identity-keys/`; a lost seed key with the identities'
+    /// keys still in place restores them, and K1 with no restore takes no
+    /// phrase. Back from R2 rebuilds K1 and keeps the answer. Mutation:
+    /// without `self.new_keys &&` in `says_new_keys`, K1 over kept keys
+    /// says it and this fails; with `can_restore()` widened to any K1, the
+    /// record naming no `PeerId` says it and this fails.
+    #[test]
+    fn k1_says_new_keys_only_with_no_identity_keys() {
+        let k1 = |reason, expected, new_keys| {
+            IdentityFlow::new(
+                LIST,
+                Start::Recovery {
+                    reason,
+                    expected,
+                    new_keys,
+                },
+            )
+        };
+        for reason in [RecoveryReason::Key, RecoveryReason::Record] {
+            for new_keys in [false, true] {
+                let mut flow = k1(reason, Some(mine()), new_keys);
+                let case = format!("{reason:?}, no identity-keys/ {new_keys}");
+                assert_eq!(flow.says_new_keys(), new_keys, "{case}");
+                assert!(flow.warns_active_elsewhere(), "{case}");
+                assert_eq!(flow.primary(), [], "{case}: a statement, not a gate");
+                assert_eq!(flow.screen(), ScreenId::R2, "{case}");
+                assert!(!flow.says_new_keys(), "{case}: R2 keeps its room");
+                flow.back();
+                assert_eq!(flow.screen(), ScreenId::K1, "{case}");
+                assert_eq!(flow.says_new_keys(), new_keys, "{case}: after Back");
+            }
+            let no_restore = k1(reason, None, true);
+            assert!(
+                !no_restore.says_new_keys(),
+                "{reason:?}: K1 with no restore takes no phrase"
+            );
+        }
+    }
+
     #[test]
     fn a_record_naming_no_peer_offers_no_restore_at_all() {
         let mut flow = IdentityFlow::new(
@@ -1340,6 +1440,7 @@ mod tests {
             Start::Recovery {
                 reason: RecoveryReason::Record,
                 expected: None,
+                new_keys: false,
             },
         );
         assert!(!flow.can_restore());
@@ -1355,6 +1456,7 @@ mod tests {
             Start::Recovery {
                 reason: RecoveryReason::Record,
                 expected: Some(mine()),
+                new_keys: false,
             },
         );
         flow.primary();
