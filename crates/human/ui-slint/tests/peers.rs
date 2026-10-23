@@ -2143,8 +2143,35 @@ fn a_peers_row_fits_a_narrow_window_with_large_text() {
         .window()
         .set_size(slint::LogicalSize::new(320.0, 1600.0));
     slint::platform::update_timers_and_animations();
-    let (me, a) = (peer(), peer());
+    // A wide short PeerId -- the tail with the most wide letters of many
+    // drawn -- so a row that would not wrap it does not fit by luck.
+    let wide = |p: &TransportIdentity| {
+        short_peer(p.as_str())
+            .chars()
+            .filter(|c| matches!(c, 'W' | 'M' | 'm' | 'w'))
+            .count()
+    };
+    let a = (0..500).map(|_| peer()).max_by_key(wide).expect("a peer");
+    let me = peer();
     open_peers(&mut view, &mut model, &me, &[], &[added(&a)]);
     view.render(&model);
     assert_eq!(overflowing(&view, 320.0), Vec::<String>::new());
+    // Inside the Peers column too, not only the window: its help line
+    // spans the column, and a control past its end is cut off by the
+    // pane's clip before it reaches the window's edge.
+    let edge = |label: &str| {
+        let e = ElementHandle::find_by_accessible_label(view.window(), label)
+            .next()
+            .unwrap_or_else(|| panic!("{label}"));
+        e.absolute_position().x + e.size().width
+    };
+    let column = edge(text(UiText::PeersNoTrust));
+    let menu = fill(text(UiText::PeerMenu), &[("peer", &short_peer(a.as_str()))]);
+    for control in [text(UiText::TrustThisPeer), menu.as_str()] {
+        assert!(
+            edge(control) <= column + 0.5,
+            "{control} ends at {} past the column at {column}",
+            edge(control)
+        );
+    }
 }
