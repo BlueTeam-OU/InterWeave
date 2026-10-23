@@ -31,6 +31,10 @@ fn main() -> ExitCode {
             println!("{}", cli::USAGE);
             return ExitCode::SUCCESS;
         }
+        cli::Command::Version => {
+            println!("transport-daemon {}", cli::VERSION);
+            return ExitCode::SUCCESS;
+        }
         cli::Command::Run(args) => args,
     };
     let runtime = match tokio::runtime::Builder::new_multi_thread()

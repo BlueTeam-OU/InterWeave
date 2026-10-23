@@ -1322,9 +1322,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.3"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03bb0e1cc970d482d121d9a1744999169b69a07470b3d644a7894e53fcaf4574"
+checksum = "38d28fb6aa7dd680b3ffd1a3e64e115c177bdba63c0ae7f9cd48129ff05c4fa0"
 dependencies = [
  "cmov",
 ]
@@ -3244,7 +3244,7 @@ checksum = "36eee07d8e02bd95bf52b2e642cf13d33701b94c6e4b04fbf1d1fb07e9cb19e7"
 
 [[package]]
 name = "interweave-android-e2e-cases"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-human-app-core",
  "interweave-human-chat-protocol",
@@ -3261,7 +3261,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-android-e2e-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-android-e2e-cases",
  "interweave-human-android-platform",
@@ -3287,7 +3287,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-automated-client-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-ipc-client",
  "interweave-local-client-api",
@@ -3300,7 +3300,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-claude-channel"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-claude-channel-core",
  "interweave-human-chat-protocol",
@@ -3320,7 +3320,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-claude-channel-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "brotli",
@@ -3336,7 +3336,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-connectivity-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "interweave-local-client-api",
@@ -3354,7 +3354,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-desktop-e2e-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "atspi",
  "futures-util",
@@ -3381,7 +3381,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-direct-v2-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "interweave-kademlia-control-api",
@@ -3399,7 +3399,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-api"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-transport-api",
  "serde",
@@ -3408,7 +3408,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-cache"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -3420,7 +3420,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-conformance-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-discovery-api",
  "interweave-discovery-cache",
@@ -3439,7 +3439,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-kademlia"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -3450,7 +3450,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-mdns"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -3459,7 +3459,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-discovery-static"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -3468,7 +3468,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-endpoint-routing-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-local-client-api",
  "interweave-profile-config",
@@ -3483,7 +3483,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-android"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-android-e2e-cases",
  "interweave-human-android-platform",
@@ -3503,7 +3503,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-android-platform"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bip39",
  "interweave-android-e2e-cases",
@@ -3528,7 +3528,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-app-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "image",
@@ -3550,7 +3550,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-chat-protocol"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "brotli",
@@ -3567,7 +3567,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-chat-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-human-chat-protocol",
  "interweave-transport-api",
@@ -3577,7 +3577,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-human-app-core",
  "interweave-human-client-api",
@@ -3598,7 +3598,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-client-api"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-human-chat-protocol",
  "interweave-human-core",
@@ -3607,14 +3607,14 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "interweave-human-desktop"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "i-slint-backend-testing",
  "interweave-human-app-core",
@@ -3634,7 +3634,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-retention-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-human-chat-protocol",
  "interweave-human-core",
@@ -3651,7 +3651,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-store"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -3670,7 +3670,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-transport-client"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
  "interweave-human-chat-protocol",
@@ -3690,7 +3690,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-ui-model"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-human-chat-protocol",
  "interweave-human-client-api",
@@ -3706,7 +3706,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-human-ui-slint"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "i-slint-backend-testing",
@@ -3728,7 +3728,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-independent-codecs"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "serde_json",
  "sha2 0.10.9",
@@ -3736,7 +3736,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-interoperability-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "interweave-independent-codecs",
@@ -3762,7 +3762,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-ipc-client"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-ipc-protocol",
  "interweave-local-client-api",
@@ -3776,7 +3776,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-ipc-protocol"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-local-client-api",
  "interweave-transport-api",
@@ -3787,7 +3787,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-ipc-server"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-ipc-protocol",
  "interweave-local-client-api",
@@ -3800,7 +3800,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-ipc-v2-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-ipc-protocol",
  "interweave-ipc-server",
@@ -3818,7 +3818,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-kademlia-control-api"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-discovery-api",
  "interweave-transport-api",
@@ -3828,7 +3828,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-kademlia-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "interweave-discovery-api",
@@ -3846,7 +3846,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-local-client-api"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-transport-api",
  "serde",
@@ -3855,7 +3855,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-local-client-conformance-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-ipc-client",
  "interweave-ipc-server",
@@ -3874,7 +3874,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-local-client-fake"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-local-client-api",
  "interweave-profile-config",
@@ -3883,7 +3883,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-persistence-gate-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-discovery-cache",
  "interweave-human-core",
@@ -3895,7 +3895,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-profile-config"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -3916,7 +3916,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-profile-identity"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bip39",
  "interweave-profile-config",
@@ -3929,7 +3929,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-pubsub-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "interweave-local-client-api",
@@ -3946,7 +3946,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-security-local-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-human-store",
  "interweave-ipc-protocol",
@@ -3962,7 +3962,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-security-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "interweave-discovery-api",
@@ -3983,7 +3983,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-test-support"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures",
  "interweave-ipc-client",
@@ -4004,7 +4004,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-api"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bs58",
  "serde",
@@ -4013,7 +4013,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-composition"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-discovery-api",
  "interweave-discovery-cache",
@@ -4041,7 +4041,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-contract-tests"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-discovery-api",
  "interweave-human-chat-protocol",
@@ -4062,7 +4062,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-daemon"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-ipc-server",
  "interweave-profile-config",
@@ -4076,7 +4076,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-embedded"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "interweave-local-client-api",
@@ -4095,7 +4095,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-libp2p"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bs58",
  "either",
@@ -4123,7 +4123,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transport-runtime"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bs58",
  "interweave-discovery-api",
@@ -4137,7 +4137,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-transportctl"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-ipc-client",
  "interweave-local-client-api",
@@ -4154,7 +4154,7 @@ dependencies = [
 
 [[package]]
 name = "interweave-trust-api"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "interweave-transport-api",
  "serde",
@@ -7926,9 +7926,9 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tokio"
-version = "1.53.2"
+version = "1.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e95f91fcc7a621e8b030f6aa23c71fe9838ae2fb4d8118b75602a328f5144044"
+checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
 dependencies = [
  "bytes",
  "libc",
@@ -9470,7 +9470,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "yamux"

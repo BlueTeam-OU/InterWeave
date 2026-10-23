@@ -6,13 +6,15 @@
 # signals and shutdown. Every behaviour it runs is a crate's.
 [package]
 name = "interweave-transport-daemon"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "InterWeave desktop transport daemon: one profile's runtime behind the IPC v2 sockets."
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+# `--version` names the commit it was built from (ADR-0065 decision 6).
+build = "../../tools/stamp/commit_stamp.rs"
 
 [[bin]]
 name = "transport-daemon"

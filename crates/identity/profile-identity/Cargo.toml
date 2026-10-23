@@ -15,7 +15,7 @@
 # constrain what this crate is allowed to call.
 [package]
 name = "interweave-profile-identity"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "InterWeave profile transport identity: Ed25519 persistence and recovery."
 license.workspace = true

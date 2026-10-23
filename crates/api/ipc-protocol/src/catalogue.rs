@@ -80,6 +80,9 @@ pub enum Method {
     /// decision 4).
     #[serde(rename = "admin.peers.own_addresses")]
     AdminPeersOwnAddresses,
+    /// Bootstrap addresses added all or none (2.9, ADR-0062 decision 4).
+    #[serde(rename = "admin.peers.add_addresses")]
+    AdminPeersAddAddresses,
 }
 
 /// One row of the catalogue.
@@ -99,7 +102,7 @@ impl Method {
     /// Every method, in catalogue order. `tests/schema_agreement.rs`
     /// holds this list to the enum's own variants, so a variant missing
     /// here fails a test rather than escaping one.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::ChannelJoin,
         Self::ChannelLeave,
         Self::BroadcastPublish,
@@ -118,6 +121,7 @@ impl Method {
         Self::AdminPeersRemoveAddress,
         Self::AdminPeersListAddresses,
         Self::AdminPeersOwnAddresses,
+        Self::AdminPeersAddAddresses,
     ];
 
     /// THE table: an exhaustive match, so a new method does not compile
@@ -141,7 +145,8 @@ impl Method {
             Self::AdminPeersAddAddress
             | Self::AdminPeersRemoveAddress
             | Self::AdminPeersListAddresses
-            | Self::AdminPeersOwnAddresses => (Admin, C::AdminPeers),
+            | Self::AdminPeersOwnAddresses
+            | Self::AdminPeersAddAddresses => (Admin, C::AdminPeers),
         };
         let since_minor = match self {
             Self::AdminTrustList | Self::AdminTrustSet => 1,
@@ -150,6 +155,7 @@ impl Method {
             | Self::AdminPeersRemoveAddress
             | Self::AdminPeersListAddresses => 7,
             Self::AdminPeersOwnAddresses => 8,
+            Self::AdminPeersAddAddresses => 9,
             _ => 0,
         };
         MethodEntry {
@@ -181,6 +187,7 @@ impl Method {
             Self::AdminPeersRemoveAddress => "admin.peers.remove_address",
             Self::AdminPeersListAddresses => "admin.peers.list_addresses",
             Self::AdminPeersOwnAddresses => "admin.peers.own_addresses",
+            Self::AdminPeersAddAddresses => "admin.peers.add_addresses",
         }
     }
 

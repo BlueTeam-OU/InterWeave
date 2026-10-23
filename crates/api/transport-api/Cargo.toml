@@ -8,7 +8,7 @@
 # the backend replaceable.
 [package]
 name = "interweave-transport-api"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Neutral transport, endpoint, and connectivity contract types for InterWeave."
 license.workspace = true

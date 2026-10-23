@@ -8,7 +8,7 @@
 # no libp2p crate (tools/checks/check_ipc_layering.sh).
 [package]
 name = "interweave-ipc-client"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "InterWeave desktop IPC v2 client implementing the neutral local-session binding."
 license.workspace = true

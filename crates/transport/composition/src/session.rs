@@ -28,10 +28,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AddressChange, AdminBinding, AdminCapability, AdminPort, AdminStatus, BootstrapAddress,
-    DataCapability, DataSessionBinding, DataSessionPort, EndpointAdminView, Generation,
-    IngressCounts, LocalAdminPort, LocalDataSession, OwnAddresses, PeerGateView, PreAuthCounts,
-    ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView,
+    AddressChange, AddressesChange, AdminBinding, AdminCapability, AdminPort, AdminStatus,
+    BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort, EndpointAdminView,
+    Generation, IngressCounts, LocalAdminPort, LocalDataSession, OwnAddresses, PeerGateView,
+    PreAuthCounts, ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, DirectMessageV2, EndpointDirectoryV1,
@@ -820,6 +820,17 @@ impl AdminPort for InProcessAdmin {
         // written before the provider is told (ADR-0062).
         ask_driver(&self.driver()?, |reply| {
             Request::AddBootstrap(address, reply)
+        })
+        .await?
+    }
+
+    async fn add_bootstrap_addresses(
+        &self,
+        addresses: Vec<String>,
+    ) -> Result<AddressesChange, TransportError> {
+        self.require(AdminCapability::Peers)?;
+        ask_driver(&self.driver()?, |reply| {
+            Request::AddBootstraps(addresses, reply)
         })
         .await?
     }

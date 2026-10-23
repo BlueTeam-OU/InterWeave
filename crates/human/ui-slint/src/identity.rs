@@ -219,7 +219,13 @@ pub fn page(flow: &IdentityFlow) -> IdentityPage {
         ScreenId::Done => return page,
     };
     page.title = text(title).into();
-    page.paragraphs = strings(paragraphs.into_iter().map(text));
+    // Last, after what the screen is for: the warning the flow owes
+    // before R2 takes a word (ADR-0043, item 11), on whichever screen
+    // the model says carries it.
+    let warning = flow
+        .warns_active_elsewhere()
+        .then_some(UiText::IdActiveElsewhere);
+    page.paragraphs = strings(paragraphs.into_iter().chain(warning).map(text));
     page.primary = primary.map(text).unwrap_or_default().into();
 
     if screen == ScreenId::W && flow.void_paper() {
@@ -387,6 +393,41 @@ mod tests {
             apply(flow, input.clone());
         }
         page(flow)
+    }
+
+    /// The page binds the model's ADR-0043 warning as the screen's last
+    /// paragraph on R1 and on K1 with a restore, and R2 shows none.
+    #[test]
+    fn r1_and_k1_show_the_active_elsewhere_warning_last() {
+        let warning = Some(en(UiText::IdActiveElsewhere));
+        let last = |page: &IdentityPage| {
+            page.paragraphs
+                .row_data(page.paragraphs.row_count().saturating_sub(1))
+        };
+        let mut fresh = IdentityFlow::new(LIST, Start::FirstRun { void_paper: false });
+        assert_ne!(last(&page(&fresh)), warning, "Welcome restores nothing");
+        let r1 = page_of(&mut fresh, &[IdentityInput::Secondary]);
+        assert_eq!(r1.paragraphs.row_data(1), Some(en(UiText::IdR1Settings)));
+        assert_eq!(last(&r1), warning);
+        let r2 = page_of(&mut fresh, &[IdentityInput::Primary]);
+        assert!(!r2.paragraphs.iter().any(|p| Some(p) == warning));
+
+        let k1 = |expected| {
+            page(&IdentityFlow::new(
+                LIST,
+                Start::Recovery {
+                    reason: RecoveryReason::Key,
+                    expected,
+                },
+            ))
+        };
+        let with_restore = k1(Some(mine()));
+        assert_eq!(
+            with_restore.paragraphs.row_data(0),
+            Some(en(UiText::IdQReasonKey))
+        );
+        assert_eq!(last(&with_restore), warning);
+        assert_ne!(last(&k1(None)), warning, "no restore, no phrase taken");
     }
 
     #[test]

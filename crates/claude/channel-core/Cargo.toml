@@ -10,7 +10,7 @@
 # (check_bridge_default_features.sh).
 [package]
 name = "interweave-claude-channel-core"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "The InterWeave Claude Code Channel bridge's event conversion, reply tokens and tool surface."
 license.workspace = true

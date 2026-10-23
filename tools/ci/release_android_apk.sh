@@ -8,14 +8,20 @@
 # Sign the release APK and print what the release page publishes of it
 # (ADR-0057 decision 1, apps/human-android/RELEASE.md, plan section 22).
 #
-#   tools/ci/release_android_apk.sh [--first-release] <version> <unsigned.apk> <out-dir>
+#   tools/ci/release_android_apk.sh [--first-release] [--root <dir>] <version> <unsigned.apk> <out-dir>
 #
 # <unsigned.apk> is Gradle's assembleRelease output
 # (app/build/outputs/apk/release/app-release-unsigned.apk). Before
 # anything is signed it is REFUSED when:
-#   - <version> is not MAJOR.MINOR.PATCH, or is not the APK's versionName
-#     (the version is a commit in android/app/build.gradle.kts before the
-#     tag, never a value this run invents);
+#   - <version> is not a Semantic Versioning 2.0.0 version without build
+#     metadata (MAJOR.MINOR.PATCH[-pre-release], ADR-0065), or is not the
+#     workspace version -- both release_tag.sh's rule, asked of
+#     `v<version>` against <dir>'s root manifest, by default this
+#     repository's, with --manifest: this runs beside the release key,
+#     so no cargo runs, and the tag job has asked cargo already;
+#   - <version> is not the APK's versionName (the version is a commit in
+#     android/app/build.gradle.kts before the tag, never a value this run
+#     invents);
 #   - its package is not org.interweave.human, or its versionCode is not
 #     a positive integer;
 #   - it is debuggable, or carries native code for an ABI other than
@@ -48,37 +54,55 @@
 #   INTERWEAVE_RELEASE_CERT_SHA256     the expected fingerprint (lowercase
 #                                      hex, no colons), unless --first-release
 #
-# Needs the Android SDK build tools (aapt2, zipalign, apksigner): the
-# directory ANDROID_BUILD_TOOLS names, else the newest under
+# Needs python3 (tomllib), for the workspace version, and the Android
+# SDK build tools (aapt2, zipalign, apksigner): the directory ANDROID_BUILD_TOOLS
+# names, else the newest under
 # ${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools.
 #
 # Exit codes:
 #   0  signed and verified; the fingerprint and hash are printed
 #   1  a refusal above, or a tool failed (named on stderr)
-#   2  usage, or a variable or a tool missing
+#   2  usage, or a variable or a tool missing, or the root manifest
+#      could not be read
 # <<< help
 
 set -euo pipefail
 
 usage() {
-    echo "usage: release_android_apk.sh [--first-release] <version> <unsigned.apk> <out-dir>" >&2
+    echo "usage: release_android_apk.sh [--first-release] [--root <dir>] <version> <unsigned.apk> <out-dir>" >&2
     exit 2
 }
 die() { echo "release_android_apk: $*" >&2; exit 1; }
 
-first_release=0
 case "${1-}" in
 -h | --help)
     sed -n '/^# >>> help$/,/^# <<< help$/p' "$0" | sed '1d;$d;s/^# \{0,1\}//'
     exit 0
     ;;
---first-release) first_release=1; shift ;;
 esac
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+first_release=0
+root="$here/../.."
+while (( $# > 3 )); do
+    case "$1" in
+    --first-release) first_release=1; shift ;;
+    --root) [[ $# -ge 5 ]] || usage; root="$2"; shift 2 ;;
+    *) usage ;;
+    esac
+done
 [[ $# -eq 3 ]] || usage
 version="$1" unsigned="$2" out_dir="$3"
 
-[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
-    || die "version '$version' is not MAJOR.MINOR.PATCH"
+# One rule for the version, the release run's own (ADR-0065 decisions 5
+# and 6): its exit 1 is a refusal, its 2 a manifest it could not read.
+rc=0
+checked="$(bash "$here/release_tag.sh" "v$version" --root "$root" --manifest 2>&1)" || rc=$?
+if (( rc == 1 )); then
+    die "${checked#::error::}"
+elif (( rc != 0 )); then
+    echo "release_android_apk: ${checked#::error::}" >&2
+    exit 2
+fi
 
 apk_name="interweave-$version-arm64-v8a.apk"
 outputs=("$apk_name" "$apk_name.sha256" android-values.json)

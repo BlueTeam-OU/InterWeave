@@ -63,7 +63,7 @@
 # contracts stay free of libp2p (CLAUDE.md §4).
 [package]
 name = "interweave-transport-libp2p"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "InterWeave libp2p transport substrate: TCP, Noise, Yamux, Identify, direct v2, GossipSub, Kademlia."
 license.workspace = true

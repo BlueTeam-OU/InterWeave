@@ -11,7 +11,7 @@
 # nothing depends on this package.
 [package]
 name = "interweave-interoperability-tests"
-version = "0.0.0"
+version.workspace = true
 publish = false
 description = "Interoperability tests for InterWeave composed runtimes."
 license.workspace = true
