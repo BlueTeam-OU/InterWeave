@@ -1756,8 +1756,8 @@ impl Peers {
             origin: a.origin,
             state: match trust.confirmed_list() {
                 _ if !a.dialled => RowState::ProviderOff,
-                // This profile's identity never changes, so the list as
-                // kept answers it.
+                // This node's PeerId as `own` gives it -- the session's,
+                // else the trust list's as kept.
                 _ if a.peer.is_some() && a.peer.as_ref() == own => RowState::ThisDevice,
                 None if a
                     .peer
