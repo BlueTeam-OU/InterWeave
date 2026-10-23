@@ -30,6 +30,7 @@ usage:
   transportctl --profile <name> peers list [--json]
   transportctl --profile <name> peers add|remove <multiaddr-with-peer-id>
   transportctl --profile <name> peers addresses [--json]
+  transportctl --profile <name> peers show [--json]
   transportctl --profile <name> shutdown [--grace <ms>]
   transportctl --profile <name> identity init
   transportctl --profile <name> identity show
@@ -88,6 +89,9 @@ pub(crate) enum Admin {
     RemoveAddress(String),
     /// `admin.peers.list_addresses` (IPC 2.7).
     ListAddresses,
+    /// `admin.peers.own_addresses` (IPC 2.8): this node's own addresses,
+    /// one per line, as the show screen's code carries them.
+    ShowAddresses,
 }
 
 /// An offline identity command: never over IPC (ADR-0033).
@@ -219,6 +223,7 @@ fn admin(words: &[&str], mut flags: Flags) -> Result<Command, String> {
         ["peers", "add", address] => (Admin::AddAddress((*address).to_owned()), false),
         ["peers", "remove", address] => (Admin::RemoveAddress((*address).to_owned()), false),
         ["peers", "addresses"] => (Admin::ListAddresses, true),
+        ["peers", "show"] => (Admin::ShowAddresses, true),
         ["shutdown"] => {
             let grace = flags
                 .grace
@@ -236,7 +241,7 @@ fn admin(words: &[&str], mut flags: Flags) -> Result<Command, String> {
     let json = std::mem::take(&mut flags.json);
     if json && !json_allowed {
         return Err(
-            "--json applies to status, endpoints list, trust list, peers list and peers addresses only"
+            "--json applies to status, endpoints list, trust list, peers list, peers addresses and peers show only"
                 .to_owned(),
         );
     }
@@ -421,6 +426,14 @@ mod tests {
             (Admin::ListAddresses, true)
         );
         assert_eq!(
+            admin_of("--profile p peers show"),
+            (Admin::ShowAddresses, false)
+        );
+        assert_eq!(
+            admin_of("--profile p peers show --json"),
+            (Admin::ShowAddresses, true)
+        );
+        assert_eq!(
             admin_of(
                 "--profile p trust allow 12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
             ),
@@ -532,6 +545,7 @@ mod tests {
             "--profile p peers add",
             "--profile p peers add /ip4/1.2.3.4/tcp/1/p2p/x extra",
             "--profile p peers remove",
+            "--profile p peers show extra",
             "--profile p peers add /ip4/1.2.3.4/tcp/1/p2p/x --json",
             "--profile p peers addresses extra",
             "--profile p shutdown --grace soon",

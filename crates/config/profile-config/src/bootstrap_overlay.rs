@@ -165,7 +165,12 @@ impl BootstrapOverlayError {
 /// applies, so an entry it would refuse is refused here by name, before
 /// anything is written, rather than at wiring where it names nothing
 /// (#367 review F3, `an_entry_the_configuration_refuses_is_refused_here`).
-fn entry_grammar(entry: &str) -> Result<(), &'static str> {
+/// Public because the show side (`admin.peers.own_addresses`) lists only
+/// what an add would take, by this same rule.
+///
+/// # Errors
+/// A short static reason naming the rule the entry fails.
+pub fn entry_grammar(entry: &str) -> Result<(), &'static str> {
     if entry.len() > MAX_STATIC_PEER_BYTES {
         return Err("the entry is longer than a static-bootstrap entry may be");
     }

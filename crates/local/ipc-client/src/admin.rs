@@ -7,14 +7,15 @@ use std::time::Duration;
 
 use interweave_ipc_protocol::{
     AddressList, AddressParams, AddressResult, AdminStatusResult, ENDPOINT_PERSISTED_SINCE_MINOR,
-    EmptyResult, EndpointList, EndpointParams, MAX_SHUTDOWN_GRACE_MS, Method, PeerList,
-    PeerListParams, Request, RequestedCapability, SetDefaultParams, SetEnabledParams,
+    EmptyResult, EndpointList, EndpointParams, MAX_SHUTDOWN_GRACE_MS, Method, OwnAddressList,
+    PeerList, PeerListParams, Request, RequestedCapability, SetDefaultParams, SetEnabledParams,
     SetEnabledResult, ShutdownParams, TRUST_SOURCE_SINCE_MINOR, TrustList, TrustListParams,
     TrustSetParams,
 };
 use interweave_local_client_api::{
     AddressChange, AdminBinding, AdminCapability, AdminPort, AdminStatus, BootstrapAddress,
-    EndpointAdminView, Generation, LocalAdminPort, PeerGateView, TrustAdminView, TrustedPeer,
+    EndpointAdminView, Generation, LocalAdminPort, OwnAddresses, PeerGateView, TrustAdminView,
+    TrustedPeer,
 };
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
 
@@ -181,6 +182,23 @@ impl IpcAdmin {
         }
         self.connection
             .call::<AddressList>(Request::AdminPeersListAddresses)
+            .await
+    }
+
+    /// `admin.peers.own_addresses`'s result object as the daemon sent it,
+    /// for `transportctl peers show --json` and
+    /// [`AdminPort::own_addresses`]. Below 2.8 the method does not exist
+    /// -- though `admin.peers` is granted from 2.7 -- so it is refused
+    /// `ProtocolUnsupported` with nothing sent.
+    ///
+    /// # Errors
+    /// The call's, and `ProtocolUnsupported` below 2.8.
+    pub async fn own_addresses_result(&self) -> Result<OwnAddressList, TransportError> {
+        if self.minor < Method::AdminPeersOwnAddresses.entry().since_minor {
+            return Err(TransportError::ProtocolUnsupported);
+        }
+        self.connection
+            .call::<OwnAddressList>(Request::AdminPeersOwnAddresses)
             .await
     }
 
@@ -451,6 +469,10 @@ impl AdminPort for IpcAdmin {
             .into_iter()
             .map(Into::into)
             .collect())
+    }
+
+    async fn own_addresses(&self) -> Result<OwnAddresses, TransportError> {
+        Ok(self.own_addresses_result().await?.into())
     }
 }
 

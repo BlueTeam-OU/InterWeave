@@ -30,7 +30,7 @@ use std::time::Duration;
 use interweave_local_client_api::{
     AddressChange, AdminBinding, AdminCapability, AdminPort, AdminStatus, BootstrapAddress,
     DataCapability, DataSessionBinding, DataSessionPort, EndpointAdminView, Generation,
-    IngressCounts, LocalAdminPort, LocalDataSession, PeerGateView, PreAuthCounts,
+    IngressCounts, LocalAdminPort, LocalDataSession, OwnAddresses, PeerGateView, PreAuthCounts,
     ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView,
 };
 use interweave_transport_api::{
@@ -838,6 +838,11 @@ impl AdminPort for InProcessAdmin {
     async fn bootstrap_addresses(&self) -> Result<Vec<BootstrapAddress>, TransportError> {
         self.require(AdminCapability::Peers)?;
         ask_driver(&self.driver()?, Request::Bootstrap).await
+    }
+
+    async fn own_addresses(&self) -> Result<OwnAddresses, TransportError> {
+        self.require(AdminCapability::Peers)?;
+        ask_driver(&self.driver()?, Request::OwnAddresses).await?
     }
 
     async fn set_trust(

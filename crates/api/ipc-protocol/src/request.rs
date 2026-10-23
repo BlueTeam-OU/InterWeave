@@ -311,6 +311,8 @@ pub enum Request {
     AdminPeersRemoveAddress(AddressParams),
     /// `admin.peers.list_addresses` (2.7).
     AdminPeersListAddresses,
+    /// `admin.peers.own_addresses` (2.8).
+    AdminPeersOwnAddresses,
 }
 
 impl Request {
@@ -335,6 +337,7 @@ impl Request {
             Self::AdminPeersAddAddress(_) => Method::AdminPeersAddAddress,
             Self::AdminPeersRemoveAddress(_) => Method::AdminPeersRemoveAddress,
             Self::AdminPeersListAddresses => Method::AdminPeersListAddresses,
+            Self::AdminPeersOwnAddresses => Method::AdminPeersOwnAddresses,
         }
     }
 
@@ -387,6 +390,9 @@ impl Request {
             Method::AdminPeersListAddresses => {
                 none(params).map(|()| Self::AdminPeersListAddresses)?
             }
+            Method::AdminPeersOwnAddresses => {
+                none(params).map(|()| Self::AdminPeersOwnAddresses)?
+            }
         })
     }
 
@@ -403,9 +409,10 @@ impl Request {
             Self::BroadcastPublish(p) => serde_json::value::to_raw_value(p),
             Self::DirectSend(p) => serde_json::value::to_raw_value(p),
             Self::EndpointsQuery(p) => serde_json::value::to_raw_value(p),
-            Self::AdminStatus | Self::AdminEndpointsList | Self::AdminPeersListAddresses => {
-                serde_json::value::to_raw_value(&EmptyParams {})
-            }
+            Self::AdminStatus
+            | Self::AdminEndpointsList
+            | Self::AdminPeersListAddresses
+            | Self::AdminPeersOwnAddresses => serde_json::value::to_raw_value(&EmptyParams {}),
             Self::AdminEndpointsRevoke(p) => serde_json::value::to_raw_value(p),
             Self::AdminEndpointsSetEnabled(p) => serde_json::value::to_raw_value(p),
             Self::AdminEndpointsSetDefault(p) => serde_json::value::to_raw_value(p),
@@ -854,6 +861,7 @@ mod tests {
                 address: "x".to_owned(),
             }),
             Request::AdminPeersListAddresses,
+            Request::AdminPeersOwnAddresses,
         ];
         assert_eq!(
             requests.iter().map(Request::method).collect::<Vec<_>>(),

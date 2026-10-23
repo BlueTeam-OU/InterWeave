@@ -964,3 +964,19 @@ async fn item_9_a_message_waiting_at_the_end_goes_with_the_runtime_in_process() 
     suite::an_ended_session_answers_events_with_its_end(&session).await;
     b.shutdown().await.expect("b stops");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bootstrap_addresses_answer_alike_at_every_binding() {
+    let pair = Pair::start().await;
+    let (a, _) = pair.bindings();
+    suite::bootstrap_addresses_answer_alike_at_every_binding(&a, &pair.a_authored).await;
+    pair.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn own_addresses_are_what_an_add_takes() {
+    let pair = Pair::start().await;
+    let (a, b) = pair.bindings();
+    suite::own_addresses_are_what_an_add_takes(&a, &pair.a_peer, &b).await;
+    pair.stop().await;
+}

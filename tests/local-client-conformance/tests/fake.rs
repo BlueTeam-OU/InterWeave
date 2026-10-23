@@ -1120,3 +1120,19 @@ async fn a_revocation_cuts_the_pair_both_ways_until_allowed_again() {
         .expect("allowed");
     across_the_pair(&p, &a, &b, true).await;
 }
+
+/// The fake's profile authors one bootstrap entry, as the composed
+/// runners' A does (B's address).
+#[tokio::test]
+async fn bootstrap_addresses_answer_alike_at_every_binding() {
+    let p = pair();
+    let authored = format!("/ip4/192.168.77.11/tcp/4001/p2p/{}", p.b_peer.as_str());
+    p.a.author_bootstrap(vec![authored.clone()]);
+    suite::bootstrap_addresses_answer_alike_at_every_binding(&p.a, &authored).await;
+}
+
+#[tokio::test]
+async fn own_addresses_are_what_an_add_takes() {
+    let p = pair();
+    suite::own_addresses_are_what_an_add_takes(&p.a, &p.a_peer, &p.b).await;
+}

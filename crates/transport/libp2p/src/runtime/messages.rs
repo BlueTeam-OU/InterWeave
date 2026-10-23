@@ -164,6 +164,12 @@ pub enum SwarmCommand {
         /// Answered with the photograph.
         reply: oneshot::Sender<super::status::RuntimeStatus>,
     },
+    /// This node's own addresses for the show side
+    /// (`admin.peers.own_addresses`, ADR-0062 decision 4).
+    OwnAddresses {
+        /// Answered with the selected, floored list.
+        reply: oneshot::Sender<interweave_local_client_api::OwnAddresses>,
+    },
     /// The gate's hold on each of these peers (`CONNECTIVITY.md` §19).
     PeerGates {
         /// The peers to report, in the order to answer them.

@@ -27,6 +27,9 @@
 //! `admin.peers.*` methods serve, its special-use floor included, and
 //! the overlay it writes lies under this root
 //! (`the_host_adds_an_address_through_its_binding_and_keeps_it_under_its_root`).
+//! The show side, `admin.peers.own_addresses`, is reached the same way,
+//! selected and floored by the substrate, so the app filters nothing
+//! (`the_host_shows_its_own_addresses_through_its_binding`).
 
 use std::path::PathBuf;
 use std::time::Duration;
