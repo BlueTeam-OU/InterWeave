@@ -2500,3 +2500,71 @@ fn a_removal_unknown_read_again_without_its_row_is_as_remove_done() {
     assert_eq!(focus(&m), Some(PeersFocus::Row(at(&a))), "after B: A");
     assert!(!m.peers().focus_row_gone());
 }
+
+/// A Trust still awaited when its page closes -- Done, Back, Escape, or
+/// Peers left -- counts as a Trust whose answer was lost (§5.3): its
+/// peer is pending and its rows claim no trust state, the trust line
+/// says why. Its late answer still lands: made ends it; unconfirmed keeps it pending; one
+/// that wrote nothing has the list read again, which decides it.
+#[test]
+fn a_trust_awaited_when_its_page_closes_is_pending() {
+    let (me, t) = (peer(), peer());
+    let change = TrustChange {
+        peer: t.clone(),
+        allowed: true,
+    };
+    let closed = || {
+        let mut m = opened(&me, &[], &[added(&t)]);
+        let _ = input(&mut m, PeersInput::TrustRow(at(&t)));
+        assert_eq!(
+            input(&mut m, PeersInput::Trust(t.clone())),
+            vec![Intent::SetTrust(change.clone())]
+        );
+        let _ = input(&mut m, PeersInput::Close);
+        m
+    };
+    let state = |m: &UiModel| m.peers().rows(m.trust_settings())[0].state;
+    let m = closed();
+    assert_eq!(state(&m), RowState::TrustUnknown, "neither claimed");
+    assert!(matches!(
+        m.peers().trust_line(m.trust_settings()),
+        Some(TrustLine::Unread { .. })
+    ));
+    assert!(m.trust_settings().is_pending(&t));
+
+    let listed = |trusted: bool| TrustList {
+        local_peer: Some(me.clone()),
+        allowed: if trusted {
+            vec![TrustRow::added_here(t.clone())]
+        } else {
+            Vec::new()
+        },
+    };
+    let mut m = closed();
+    m.trust_settings_mut().set(change.clone(), Ok(listed(true)));
+    assert_eq!(state(&m), RowState::Trusted, "made");
+    assert!(!m.trust_settings().is_pending(&t));
+
+    let mut m = closed();
+    m.trust_settings_mut().set(
+        change.clone(),
+        Err(TrustSetFailure::Unconfirmed(TrustProblem::Unavailable)),
+    );
+    assert_eq!(state(&m), RowState::TrustUnknown, "still lost");
+    assert!(m.trust_settings().is_pending(&t));
+
+    let mut m = closed();
+    m.trust_settings_mut().set(
+        change.clone(),
+        Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    );
+    assert_eq!(state(&m), RowState::TrustUnknown, "until read");
+    assert_eq!(
+        m.trust_settings_mut().take_reread(),
+        Some(Intent::ReadTrust),
+        "read again"
+    );
+    m.trust_settings_mut().read(Ok(listed(false)));
+    assert_eq!(state(&m), RowState::NeedsTrust, "the read decides");
+    assert!(!m.trust_settings().is_pending(&t));
+}

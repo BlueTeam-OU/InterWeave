@@ -945,7 +945,7 @@ impl Peers {
     /// Back or Escape on step one discards what was typed; on step two it
     /// is Done, leaving any undecided block as Not now. Nothing closes
     /// while an add is on its way, so its answer has a page to land on.
-    fn close(&mut self, trust: &TrustSettings) {
+    fn close(&mut self, trust: &mut TrustSettings) {
         if self.in_flight.is_some() || self.check.is_some() {
             return;
         }
@@ -960,6 +960,11 @@ impl Peers {
         for block in &mut page.blocks {
             if block.state(trust) == BlockState::Undecided {
                 block.later = true;
+            }
+            // A Trust still awaited goes with its block: its answer is
+            // lost to the page, and the peer's trust not known (§5.3).
+            if block.trusting {
+                trust.answer_lost(&block.peer);
             }
         }
         self.finish(trust);

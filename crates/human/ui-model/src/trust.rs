@@ -105,6 +105,10 @@ pub struct TrustSettings {
     /// way started: a read ends only what was sent before it.
     sent: u64,
     read_from: u64,
+    /// The change on its way whose waiting block went with its page: its
+    /// answer, when it comes, is no one's to show, so one saying nothing
+    /// was written still leaves the list to read ([`Self::answer_lost`]).
+    unanswered: Option<TrustChange>,
 }
 
 /// Whether a list kept is the daemon's word.
@@ -286,6 +290,15 @@ impl TrustSettings {
         if self.in_flight.as_ref() == Some(&change) {
             self.in_flight = None;
         }
+        // Lost when its page closed: the rows went unknown then, and an
+        // answer that wrote nothing has them read again rather than left
+        // so (`a_trust_awaited_when_its_page_closes_is_pending`).
+        if self.unanswered.as_ref() == Some(&change) {
+            self.unanswered = None;
+            if matches!(answer, Err(TrustSetFailure::NotMade(_))) {
+                self.reread = true;
+            }
+        }
         // Answered as made: what a lost change of this peer left pending
         // is known now. Unconfirmed sets it pending again below.
         if matches!(answer, Ok(_) | Err(TrustSetFailure::MadeNotReadBack(_))) {
@@ -346,6 +359,21 @@ impl TrustSettings {
     fn say(&mut self, outcome: TrustOutcome) {
         self.outcome = Some(outcome);
         self.outcomes = self.outcomes.wrapping_add(1);
+    }
+
+    /// The change of `peer`'s trust on its way lost its waiting block --
+    /// the page closed (add-a-peer §5.3): its answer counts as lost, so
+    /// `peer` is pending and the list kept is not the daemon's word until
+    /// a read started after it was sent succeeds or its answer says it
+    /// was made.
+    pub fn answer_lost(&mut self, peer: &TransportIdentity) {
+        let Some(change) = self.in_flight.clone().filter(|c| &c.peer == peer) else {
+            return;
+        };
+        self.lost.retain(|(p, _)| p != peer);
+        self.lost.push((peer.clone(), self.sent));
+        self.held = Held::MayHaveChanged;
+        self.unanswered = Some(change);
     }
 
     /// Whether a change of `peer`'s trust is pending: its answer lost,
