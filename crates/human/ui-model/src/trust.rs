@@ -193,9 +193,10 @@ impl TrustSettings {
     /// profile's own identity itself. Nothing is sent until
     /// [`Self::confirm`].
     pub fn propose_allow_of(&mut self, peer: &TransportIdentity) -> Option<TrustChange> {
-        // This profile's own identity never changes, so the kept list
-        // answers it; "already trusted" only on the daemon's word, or a
-        // Trust offered while trust is unread would go nowhere.
+        // This profile's own identity from the kept list: should it be
+        // stale, the daemon still refuses its own identity itself. But
+        // "already trusted" only on the daemon's word, or a Trust offered
+        // while trust is unread would go nowhere.
         let own = self
             .list
             .as_ref()
