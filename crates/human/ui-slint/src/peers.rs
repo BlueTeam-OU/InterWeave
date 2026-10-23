@@ -199,6 +199,9 @@ pub(crate) struct PeerLists {
     /// The add page's note last drawn, by the model's count, and its text.
     note_seen: u64,
     note_text: String,
+    /// The page's add was awaiting its answer when last drawn: its wait
+    /// is announced once, as it begins.
+    add_waiting: bool,
     /// The trust line's failed Try again last said, by the model's count.
     trust_line_seen: u64,
     /// The snackbar last drawn, by the model's count, and the one timed.
@@ -228,6 +231,7 @@ impl PeerLists {
         window.set_open_image_label(set(UiText::OpenCodeImage));
         window.set_paste_image_label(set(UiText::PasteCodeImage));
         window.set_add_action_label(set(UiText::AddAction));
+        window.set_add_waiting_label(set(UiText::AddWaiting));
         window.set_trust_step_body(set(UiText::TrustStepBody));
         window.set_trust_step_both(set(UiText::TrustStepBoth));
         window.set_not_now_label(set(UiText::NotNow));
@@ -250,6 +254,7 @@ impl PeerLists {
             note_seen: 0,
             trust_line_seen: 0,
             note_text: String::new(),
+            add_waiting: false,
             snack_seen: 0,
             snack_timed: 0,
         }
@@ -273,6 +278,25 @@ impl View {
         self.render_peer_list(peers, trust, model);
         self.render_add_page(peers, trust);
         let said = self.render_peers_snack(peers, on_page);
+        // The add's wait, said once as it begins, claiming no outcome
+        // (design 5.3; `an_add_on_its_way_reads_adding_and_is_said_once`).
+        let waiting = peers.add_waiting();
+        let begun = waiting && !self.peer_lists.add_waiting;
+        self.peer_lists.add_waiting = waiting;
+        let said = if begun && on_page {
+            let wait = text(UiText::AddWaiting).to_owned();
+            Some(said.map_or_else(
+                || wait.clone(),
+                |rest| {
+                    fill(
+                        text(UiText::AnnounceBoth),
+                        &[("first", &wait), ("rest", &rest)],
+                    )
+                },
+            ))
+        } else {
+            said
+        };
         // A note under the field -- focus kept on the field, which no
         // longer carries it as its description -- is said once each time it
         // is set (design section 5.3); any other set again with the same
@@ -548,6 +572,7 @@ impl View {
         let window = &self.window;
         let host = self.host;
         window.set_peers_add_open(peers.add_open());
+        window.set_add_waiting(peers.add_waiting());
         // The page that covers the list closes a row's menu too, whatever
         // opened the page, or Back would close a menu no one sees and
         // leave the page open (design section 5.3;

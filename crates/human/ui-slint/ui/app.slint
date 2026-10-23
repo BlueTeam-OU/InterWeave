@@ -1984,6 +1984,10 @@ export component AppWindow inherits Window {
     in property <string> open-image-label;
     in property <string> paste-image-label;
     in property <string> add-action-label;
+    // The page's add awaits its answer: Add keeps focus, takes no press,
+    // and reads `add-waiting-label` beside a progress mark (design 5.3).
+    in property <bool> add-waiting;
+    in property <string> add-waiting-label;
     // The page's one note: under the field, under the scan controls, or
     // under Add, by what it is about.
     in property <string> field-note;
@@ -3379,15 +3383,23 @@ export component AppWindow inherits Window {
                     }
                     if root.add-step-one: HorizontalLayout {
                         alignment: start;
+                        spacing: 8px;
                         ActionButton {
-                            text: root.add-action-label;
+                            text: root.add-waiting ? root.add-waiting-label : root.add-action-label;
                             filled: true;
                             target: 48px;
                             focus-key: "add-action";
                             focus-seq: root.focus-seq;
                             focus-wanted: root.focus-target == "add-action";
+                            // A press while it waits is the model's to
+                            // ignore: the control keeps focus, as a
+                            // disabled one could not.
                             pressed => { root.peers-add(); }
                             focused(k) => { root.focus-id = k; }
+                        }
+                        if root.add-waiting: WaitMark {
+                            y: (parent.height - self.height) / 2;
+                            still: root.reduced-motion;
                         }
                     }
                     // Focusable: not permitted or incompatible sends focus

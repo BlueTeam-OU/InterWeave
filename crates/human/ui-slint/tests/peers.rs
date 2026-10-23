@@ -2172,3 +2172,65 @@ fn a_peers_row_fits_a_narrow_window_with_large_text() {
         );
     }
 }
+
+/// An add on its way (design 5.3): Add keeps focus and reads `AddWaiting`
+/// beside a progress mark, said once as the wait begins and not again on
+/// later draws; the answer gives Add back its own label.
+#[test]
+fn an_add_on_its_way_reads_adding_and_is_said_once() {
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let (me, them) = (peer(), peer());
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenAdd);
+    let _ = model.peers_input(PeersInput::FieldChanged(at(&them)));
+    settle_view(&mut view, &mut model);
+    view.window().set_focus_target("add-action".into());
+    view.window()
+        .set_focus_seq(view.window().get_focus_seq().wrapping_add(1));
+    settle_view(&mut view, &mut model);
+    assert_eq!(view.window().get_focus_id().as_str(), "add-action");
+    let slots = |view: &View| {
+        [
+            view.window().get_announcement_a().to_string(),
+            view.window().get_announcement_b().to_string(),
+        ]
+    };
+    let _ = model.peers_input(PeersInput::Add);
+    view.render(&model);
+    let waiting = text(UiText::AddWaiting);
+    assert!(view.window().get_add_waiting());
+    assert!(
+        ElementHandle::find_by_accessible_label(view.window(), waiting)
+            .next()
+            .is_some(),
+        "Add reads {waiting}"
+    );
+    let said = slots(&view);
+    assert!(said.iter().any(|s| s.starts_with(waiting)), "{said:?}");
+    settle_view(&mut view, &mut model);
+    assert_eq!(slots(&view), said, "said once");
+    assert_eq!(
+        view.window().get_focus_id().as_str(),
+        "add-action",
+        "focus kept"
+    );
+    model.addresses_added(
+        &[at(&them)],
+        Ok(interweave_human_client_api::AddressAnswer {
+            outcome: interweave_human_client_api::AddressOutcome::Refused(
+                interweave_human_client_api::AddressRefused::Grammar,
+            ),
+            list: Ok(AddressList { addresses: vec![] }),
+        }),
+    );
+    view.render(&model);
+    assert!(!view.window().get_add_waiting());
+    assert!(
+        ElementHandle::find_by_accessible_label(view.window(), text(UiText::AddAction))
+            .next()
+            .is_some(),
+        "Add's own label back"
+    );
+}
