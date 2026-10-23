@@ -3168,3 +3168,32 @@ fn a_read_speaks_only_for_what_was_sent_before_it_started() {
     );
     assert_eq!(state(&m), RowState::NeedsTrust);
 }
+
+/// The field is held while its add, or that add's check, is on its way:
+/// an edit meanwhile is not taken, so the answer clears or selects in what
+/// was sent and nothing typed is lost unsent (§5.3).
+#[test]
+fn the_field_is_held_while_its_add_is_on_its_way() {
+    use interweave_human_client_api::AddressRefused;
+    let (me, a, b) = (peer(), peer(), peer());
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    assert!(m.peers().busy());
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&b)));
+    assert_eq!(m.peers().field(), at(&a), "held: the edit not taken");
+    m.addresses_added(
+        &[at(&a)],
+        answer(AddressOutcome::Refused(AddressRefused::Grammar), &[]),
+    );
+    assert_eq!(
+        focus(&m),
+        Some(PeersFocus::Field {
+            select: Some(LineSelection::Line(at(&a)))
+        }),
+        "the refused line is the field's"
+    );
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&b)));
+    assert_eq!(m.peers().field(), at(&b), "answered: the field is free");
+}

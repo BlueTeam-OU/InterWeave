@@ -824,6 +824,12 @@ impl Peers {
     /// The field now reads `text`; a note about an empty or a full field
     /// goes once the field no longer is.
     fn field_changed(&mut self, text: String) {
+        // Held while its add or that add's check is on its way: the
+        // answer clears or selects in what was sent, and an edit made
+        // meanwhile would be cleared unsent or leave no line to select.
+        if self.busy() {
+            return;
+        }
         let Some(page) = self.page.as_mut() else {
             return;
         };
