@@ -1624,3 +1624,28 @@ fn this_device_is_known_from_the_session_without_trust() {
     assert!(input(&mut m, PeersInput::TrustRow(at(&me))).is_empty());
     assert!(!m.peers().add_open());
 }
+
+/// With both the session's and the trust list's `PeerId` known, the
+/// session's names this device's row: it is the one a ready session
+/// gave, and the list as kept could be from a read before it.
+#[test]
+fn the_sessions_peer_id_names_this_device_over_the_trust_lists() {
+    let (me, other) = (peer(), peer());
+    // The trust list as read names `other` as local; the session, `me`.
+    let mut m = opened(&other, &[], &[added(&me), added(&other)]);
+    m.this_device(me.clone());
+    let states: Vec<(String, RowState)> = m
+        .peers()
+        .rows(m.trust_settings())
+        .into_iter()
+        .map(|r| (r.address, r.state))
+        .collect();
+    assert!(
+        states.contains(&(at(&me), RowState::ThisDevice)),
+        "{states:?}"
+    );
+    assert!(
+        states.contains(&(at(&other), RowState::NeedsTrust)),
+        "{states:?}"
+    );
+}

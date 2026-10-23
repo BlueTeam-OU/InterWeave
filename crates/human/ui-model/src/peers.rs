@@ -1746,8 +1746,8 @@ impl Peers {
         self.this_device = Some(peer);
     }
 
-    /// This node's `PeerId`: the session's, else the trust list's as
-    /// last read. It never changes, so either answers.
+    /// This node's `PeerId`: the session's, which a ready session gave,
+    /// else the trust list's as last read when no session has said.
     fn own<'a>(&'a self, trust: &'a TrustSettings) -> Option<&'a TransportIdentity> {
         self.this_device
             .as_ref()
