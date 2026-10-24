@@ -54,8 +54,10 @@ disconnected … reason=closed`, and A's send answered `PeerUnreachable`.
 `TRANSPORT.md` classes that as "outcome unknown", not "not sent". B's own
 case had passed: it read the close. `cc64aa55` made A report the close's
 outcome rather than fail on it, as `close_exchange` already does, and
-end only once B has left. A close never sent still fails the run,
-because B passes only on reading it.
+end once B has left. B's case still waits for the close and fails if
+none arrives within its deadline (`tests/android-e2e-cases/src/pairing.rs`,
+the crossing's second side). That is the case's code, which no run here
+exercised and no automated test checks.
 
 Each passing run showed the following, all asserted by the cases:
 
@@ -72,9 +74,9 @@ Each passing run showed the following, all asserted by the cases:
   message A sent was accepted (26–43 tries) and none either way arrived,
   while B still did not trust A. A's row for B ended `denied` in runs 1,
   2, 3, 5 and 6 and `connected` in run 4. On the host stand-ins it read
-  `connected`. A dialled B, and B closed the connection either before or
-  just after it was established. Either way no message crossed, which is
-  what the step asserts.
+  `connected`. No message crossed, which is what the step asserts.
+  This file does not quote the log that would show how B ended each of
+  A's connections.
 - **Step 3, both trust.** A and B were each started afresh, as every
   case on a phone is, and B set A trusted. A message from A was accepted
   by B and read there, a message from B was accepted by A and read
@@ -89,7 +91,10 @@ a peer only after Noise authenticates it, and A is not authorized there
 (`architecture/transport/libp2p/SECURITY.md`, Connectivity
 infrastructure admission). So this row reads the gate's "connect" as a
 connection that carries a message. The test's name keeps the gate's
-words, and the plan's record is where that reading is settled. Step 3 is the positive control. It
+words. architect-cto confirmed this reading on 2026-10-24 (REPLY
+01a16e31), and the plan's (e) entry and closing record are to state it.
+Step 3 is the
+positive control. It
 had the addresses step 1 added. The peer cache and Kademlia are on in
 these profiles, as shipped, so the run does not exclude a cached address
 as a second source of step 3's dial.

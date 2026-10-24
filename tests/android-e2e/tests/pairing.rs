@@ -20,11 +20,10 @@
 //!   Each trusts nobody. Step 1: each adds the other's address, in place
 //!   of the scan, and for a window no message either sends is accepted
 //!   and none arrives. Step 2: A trusts B and B does not, and still
-//!   nothing crosses either way. A dials and its connection comes up, and
-//!   B closes it once established, so A's row may end reading
-//!   `connected` as its last outcome (the stand-ins, 2026-10-24): what
-//!   the step asserts is that no message is accepted, never that no
-//!   connection was made. Step 3: B trusts A,
+//!   nothing crosses either way. A's row may end reading `connected`
+//!   as its last outcome (the stand-ins and one phone run, 2026-10-24),
+//!   since B classes A only after Noise: the step asserts that no
+//!   message is accepted, not that no connection was made. Step 3: B trusts A,
 //!   and a message crosses each way: the positive control. The step had
 //!   the addresses step 1 added. This row's profile keeps the shipped
 //!   peer cache and Kademlia, so another source is not excluded.
@@ -211,8 +210,8 @@ fn pair_step<D: Device>(
     [on_a.result(), on_b.result()]
 }
 
-/// The second row: two fresh sides connect after both trust, and not
-/// before; each apart step lasts `window` from each side's start.
+/// The second row: two fresh sides exchange messages after both trust,
+/// and not before; each apart step lasts `window` from each side's start.
 fn fresh_pair_connects_after_trust<D: Device>(a: &mut Side<D>, b: &mut Side<D>, window: Duration) {
     let (a_peer, b_peer) = (a.device.peer(), b.device.peer());
     a.device.start(&profile(&b_peer, a.at.port(), false));
