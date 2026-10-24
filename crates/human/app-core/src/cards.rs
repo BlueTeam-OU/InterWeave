@@ -15,7 +15,7 @@ use interweave_human_store::{
     StoreError, ValueSource,
 };
 use interweave_human_ui_model::{
-    ContactRef, ContactView, IdentityView, KeyView, Proposal, ProposalContext, RouteView,
+    ContactRef, ContactView, IdentityView, KeyView, Photo, Proposal, ProposalContext, RouteView,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -108,6 +108,16 @@ pub(crate) fn kept_photo(card: &Card) -> Option<&[u8]> {
         .map(|p| p.bytes.as_slice())
 }
 
+/// A kept photo decoded for the model, or nothing when it does not
+/// decode within the card's bound.
+fn shown(bytes: &[u8]) -> Option<Photo> {
+    crate::card_photo::decode_kept(bytes).map(|p| Photo {
+        width: p.width,
+        height: p.height,
+        rgba: p.rgba,
+    })
+}
+
 /// Every contact, as the model shows it.
 pub(crate) fn contact_views(store: &HumanStore) -> Result<Vec<ContactView>, StoreError> {
     Ok(store
@@ -117,10 +127,10 @@ pub(crate) fn contact_views(store: &HumanStore) -> Result<Vec<ContactView>, Stor
             contact_id: c.contact_id,
             name: c.display_name,
             name_from_card: c.name_source == ValueSource::Card,
-            name_at: None,
+            name_at: c.name_at,
             photo_from_card: c.photo_source.map(|s| s == ValueSource::Card),
-            photo_at: None,
-            photo: None,
+            photo_at: c.photo_at,
+            photo: c.photo.as_deref().and_then(shown),
             routes: c
                 .routes
                 .into_iter()
@@ -151,7 +161,7 @@ pub(crate) fn identity_view(
         given: card.name.clone(),
         surname: card.surname.clone(),
         has_photo: card.photo.is_some(),
-        photo: None,
+        photo: card.photo.as_deref().and_then(shown),
         fingerprint: key.fingerprint().to_string(),
         peer: peer.cloned(),
     })

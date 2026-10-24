@@ -862,3 +862,75 @@ async fn a_deleted_contact_is_gone_and_the_next_card_from_its_route_is_a_new_con
     assert_eq!(proposal.accept, AcceptLine::Creates, "a new contact");
     assert_eq!(proposal.key, KeyView::New, "no key survived the delete");
 }
+
+/// A PNG of `w` × `h`, as a person's file might hold one.
+fn png(w: u32, h: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(w, h, |x, y| {
+        image::Rgb([
+            u8::try_from(x % 256).unwrap_or(0),
+            u8::try_from(y % 256).unwrap_or(0),
+            90,
+        ])
+    });
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .expect("a PNG");
+    out
+}
+
+/// What the screens are given of a photo: the own card's, decoded, for
+/// its edit; a proposal's, nothing but that there is one; an accepted
+/// contact's, decoded within the bound, with where it came from and
+/// when, and when the name came too (plan section 29's exit gate: the
+/// contact page says where each value came from).
+#[tokio::test]
+async fn a_photo_reaches_the_screens_decoded_only_once_it_is_accepted_with_its_time() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, Some(key_of(&pb))));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: None,
+        photo: PhotoEdit::Chosen(png(400, 300)),
+    });
+    alice.pump(1).await;
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+    let own = alice.model().identity().expect("the identity").clone();
+    let photo = own.photo.expect("the own card's photo, decoded");
+    assert!(
+        photo.width <= 256 && photo.height <= 256,
+        "the card's bound"
+    );
+    assert_eq!(photo.rgba.len(), (photo.width * photo.height * 4) as usize);
+    assert_eq!((own.given.as_str(), own.surname.as_deref()), ("Ada", None));
+    alice.will(
+        alice
+            .model()
+            .share_card(&direct(b.peer()))
+            .expect("offered"),
+    );
+    alice.pump(2).await;
+    alice.pump(3).await;
+    bob.pump(4).await;
+
+    let from_alice = direct(a.peer());
+    let proposal = bob.model().proposals(&from_alice)[0].clone();
+    assert!(proposal.has_photo, "the proposal says there is one");
+    assert!(
+        bob.model().contacts().is_empty(),
+        "and nothing is decoded for it"
+    );
+
+    bob.will(Intent::AcceptCard(proposal.row));
+    bob.pump(5).await;
+    let contact = bob.model().contacts()[0].clone();
+    let photo = contact.photo.expect("the accepted photo, decoded");
+    assert!(photo.width <= 256 && photo.height <= 256);
+    assert_eq!(contact.photo_from_card, Some(true));
+    assert_eq!(contact.photo_at, Some(WALL), "when it came");
+    assert_eq!(contact.name_at, Some(WALL), "when the name came");
+}

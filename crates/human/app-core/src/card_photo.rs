@@ -108,12 +108,20 @@ pub struct ShownPhoto {
 /// within 256 × 256: the card is kept without it (HUMAN-CHAT.md).
 #[must_use]
 pub fn decode_received(photo: &CardPhoto) -> Option<ShownPhoto> {
+    decode_kept(&photo.bytes)
+}
+
+/// Decode a photo the store kept -- an accepted card's, or the person's
+/// own card's, already re-encoded -- for display, by the same bound as at
+/// Accept (STATE.md: the bytes kept are decoded again at display).
+#[must_use]
+pub fn decode_kept(bytes: &[u8]) -> Option<ShownPhoto> {
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_CARD_PHOTO_SIDE);
     limits.max_image_height = Some(MAX_CARD_PHOTO_SIDE);
     // 256 × 256 RGBA is 256 KiB; a decoder needs little more.
     limits.max_alloc = Some(4 * 1024 * 1024);
-    let image = decode(&photo.bytes, limits, false).ok()?;
+    let image = decode(bytes, limits, false).ok()?;
     let rgba = image.to_rgba8();
     Some(ShownPhoto {
         width: rgba.width(),
