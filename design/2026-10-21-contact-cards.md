@@ -679,12 +679,18 @@ while the Accept's snackbar is open:
 
 - the confirmation row's accessible description is `CardUndoHint`,
   read after the row's text; it goes when the snackbar closes;
-- the snackbar's timeout does not run while focus is in the
-  confirmation row or on the snackbar, and starts again, in full
-  (message-swipe §6's 6 s, or the platform's longer recommendation),
-  when focus leaves both. Its other closers (another snackbar, leaving
-  the conversation, the app going to the background or killed) are
-  unchanged.
+- the snackbar's timeout does not run while focus is anywhere from
+  the confirmation row to the snackbar in the reading order (the row,
+  any message or control after it, the composer, the snackbar), so a
+  person walking from the row to the Undo the hint names is not timed
+  out on the way; it starts, in full (message-swipe §6's 6 s, or the
+  platform's longer recommendation), when focus leaves that span: to
+  something before the row, or out of the conversation's content;
+- whatever focus does, the snackbar is never shown for more than
+  message-swipe §6's 2 minutes, counted from Accept, and then closes
+  as by its timeout; so a person who accepts with a pointer or a touch
+  and moves no focus sees it close by then;
+- its other closers (message-swipe §5) are unchanged.
 
 A photo that fails to decode, or decodes larger than 256 × 256, is
 discarded and the contact is saved without it (HUMAN-CHAT.md);
@@ -735,9 +741,9 @@ card has no markdown source to show.
 purpose.** Accept's result is not announced through the live region,
 as §7's Announcement would have it, because focus moves to the
 confirmation row and reads the result there (§8 Announcements); and its
-snackbar's timeout waits while focus is in that row or on the
-snackbar, with the row's description pointing to the Undo (§5.4.2), so
-the person can still reach the Undo, which the announcement no longer names.
+snackbar's timeout waits while focus is between that row and the
+snackbar, for at most message-swipe §6's 2 minutes, with the row's description pointing to the Undo (§5.4.2), so
+the person can still reach the Undo, though the snackbar is not announced.
 Decline and every Undo (with "Action undone", message-swipe §9) are
 announced as §7 says.
 
@@ -1392,12 +1398,12 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | the share sheet opens | Share, else Add your name | keyboard |
    | the sheet closes after Share | the control that opened it; the header title when that was the empty conversation's offer | keyboard |
    | the sheet cancelled | what opened it (overflow button or the offer's button) | keyboard |
-   | Accept (button or swipe) | the confirmation row (focusable), read once with `CardUndoHint`: no live announcement of `ConfirmContactSaved` or `ConfirmContactUpdated` follows (§8 Announcements); the snackbar stays open while focus is in the row or on it (§5.4.2) | keyboard: wait past 6 s on the row, then Undo is still reached; desktop screen reader: in a case N and a case U accept, the row is read with `CardUndoHint` and neither "Contact saved" nor "Contact updated" follows; TalkBack blocked (§8); swipe with TalkBack cannot occur |
+   | Accept (button or swipe) | the confirmation row (focusable), read once with `CardUndoHint`: no live announcement of `ConfirmContactSaved` or `ConfirmContactUpdated` follows (§8 Announcements); the snackbar's timeout waits while focus is between the row and the snackbar, for at most 2 minutes (§5.4.2) | keyboard: with three or more rows after the confirmation row, wait past 6 s on the row, then move one stop at a time, more than 6 s apart, to Undo, and Undo is still reached; pointer Accept with no further input: the snackbar closes by 2 minutes; desktop screen reader: in a case N and a case U accept, the row is read with `CardUndoHint` and neither "Contact saved" nor "Contact updated" follows; TalkBack blocked (§8); swipe with TalkBack cannot occur |
    | Decline, by button or by keyboard | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title; never the composer | keyboard |
    | Decline by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set elsewhere first, then a swipe |
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
    | case S Close | as Decline | keyboard |
-   | snackbar appears | stays where it was; the snackbar is reachable last in order | keyboard |
+   | snackbar appears (except after Accept, above) | stays where it was; the snackbar is reachable last in order | keyboard |
    | Open your contact {name} from case D, or a shares-a-device link | the contact page title; Back returns to the control that opened it | keyboard |
    | contact deleted | the Contacts list's first row, else its empty text | keyboard |
    | Move: the picker opens | the first eligible contact | keyboard |
