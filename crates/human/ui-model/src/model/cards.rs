@@ -27,9 +27,11 @@ use super::{ConversationKey, Intent, RouteLabel, UiModel};
 use crate::labels::UiText;
 
 /// A photo decoded for display, after Accept or from the person's own
-/// card: the facade decodes it within the card's 256 × 256 bound, and a
-/// received photo never reaches the model before Accept, since a
-/// proposal carries only [`ProposalItem::has_photo`].
+/// card: the facade decodes it within the card's 256 × 256 bound. A
+/// received photo is not decoded before Accept: the model holds the
+/// card's bytes as they came, and a proposal exposes only
+/// [`ProposalItem::has_photo`] (app-core's
+/// `a_photo_reaches_the_screens_decoded_only_once_it_is_accepted_with_its_time`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Photo {
     /// Its width in pixels.
