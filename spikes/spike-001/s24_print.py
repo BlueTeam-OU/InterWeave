@@ -269,6 +269,10 @@ def main() -> int:
         session.thread.join(5)
         (out / "transcript.txt").write_text("".join(json.dumps(v) + "\n" for _, v in session.lines))
         record["control_responses"] = [v for _, v in session.lines if v.get("type") == "control_response"]
+        # The permission mode decides whether reply needs --allowedTools;
+        # extract.py keeps only init's server list, so it is recorded here.
+        record["permission_modes"] = sorted({v.get("permissionMode") for _, v in session.lines
+                                             if v.get("type") == "system" and v.get("subtype") == "init"} - {None})
 
         log = debug.read_text(errors="replace") if debug.exists() else ""
         record["channel_lines"] = [l[25:] for l in log.splitlines() if "Channel" in l and SERVER in l]

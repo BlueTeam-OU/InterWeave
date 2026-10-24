@@ -60,21 +60,21 @@ Model: claude-sonnet-5-5
     "plugin:interweave@interweave"
   ],
   "sandbox": "bwrap: the host's /etc entries read-only, /etc/claude-code a scratch directory read-only",
-  "nonce": "a0435f8c",
-  "message": "S24 a0435f8c: hello from the peer on daemon B",
+  "nonce": "9b0ddd25",
+  "message": "S24 9b0ddd25: hello from the peer on daemon B",
   "steps": [
     {
-      "first_turn_result_at_s": 6.9
+      "first_turn_result_at_s": 13.5
     },
     {
       "peer_send": {
         "answer": "remote transport accepted at endpoint claude",
-        "at_s": 7.0
+        "at_s": 13.7
       }
     },
     {
-      "turn_after_event_at_s": 8.7,
-      "peer_received_reply_at_s": 12.0
+      "turn_after_event_at_s": 16.1,
+      "peer_received_reply_at_s": 18.7
     }
   ],
   "exit_after_stdin_close": 0,
@@ -84,6 +84,9 @@ Model: claude-sonnet-5-5
     "bwrap_wait_status": null
   },
   "control_responses": [],
+  "permission_modes": [
+    "auto"
+  ],
   "channel_lines": [
     "[DEBUG] MCP server \"plugin:interweave:interweave\": Channel notifications re-registered after reconnect",
     "[DEBUG] MCP server \"plugin:interweave:interweave\": Channel notifications re-registered after reconnect"
@@ -112,18 +115,18 @@ Model: claude-sonnet-5-5
 ## Claude Code debug log: the run's own server only
 
 ```text
-2026-10-24T17:27:44.030Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
-2026-10-24T17:27:44.093Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 66ms
-2026-10-24T17:27:44.095Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.1.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
-2026-10-24T17:27:47.572Z [DEBUG] MCP server "plugin:interweave:interweave": Channel notifications re-registered after reconnect
-2026-10-24T17:27:49.524Z [DEBUG] MCP server "plugin:interweave:interweave": notifications/claude/channel: S24 a0435f8c: hello from the peer on daemon B
-2026-10-24T17:27:49.527Z [DEBUG] MCP server "plugin:interweave:interweave": Channel notifications re-registered after reconnect
-2026-10-24T17:27:54.031Z [DEBUG] MCP server "plugin:interweave:interweave": Calling MCP tool: reply
-2026-10-24T17:27:54.086Z [DEBUG] MCP server "plugin:interweave:interweave": Tool 'reply' completed successfully in 56ms
-2026-10-24T17:27:55.502Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
-2026-10-24T17:27:55.508Z [DEBUG] MCP server "plugin:interweave:interweave": UNKNOWN connection closed after 11s (cleanly)
-2026-10-24T17:27:55.510Z [DEBUG] MCP server "plugin:interweave:interweave": Cleared connection cache for reconnection
-2026-10-24T17:27:55.553Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
+2026-10-24T17:30:52.477Z [DEBUG] MCP server "plugin:interweave:interweave": Starting connection with timeout of 30000ms
+2026-10-24T17:30:52.597Z [DEBUG] MCP server "plugin:interweave:interweave": Successfully connected (transport: stdio) in 131ms
+2026-10-24T17:30:52.599Z [DEBUG] MCP server "plugin:interweave:interweave": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"interweave","version":"0.1.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
+2026-10-24T17:30:55.340Z [DEBUG] MCP server "plugin:interweave:interweave": Channel notifications re-registered after reconnect
+2026-10-24T17:31:04.056Z [DEBUG] MCP server "plugin:interweave:interweave": notifications/claude/channel: S24 9b0ddd25: hello from the peer on daemon B
+2026-10-24T17:31:04.081Z [DEBUG] MCP server "plugin:interweave:interweave": Channel notifications re-registered after reconnect
+2026-10-24T17:31:08.390Z [DEBUG] MCP server "plugin:interweave:interweave": Calling MCP tool: reply
+2026-10-24T17:31:08.510Z [DEBUG] MCP server "plugin:interweave:interweave": Tool 'reply' completed successfully in 118ms
+2026-10-24T17:31:10.107Z [DEBUG] MCP server "plugin:interweave:interweave": Sending SIGINT to MCP server process
+2026-10-24T17:31:10.116Z [DEBUG] MCP server "plugin:interweave:interweave": UNKNOWN connection closed after 17s (cleanly)
+2026-10-24T17:31:10.118Z [DEBUG] MCP server "plugin:interweave:interweave": Cleared connection cache for reconnection
+2026-10-24T17:31:10.159Z [DEBUG] MCP server "plugin:interweave:interweave": MCP server process exited cleanly
 ```
 
 ## Session transcript: injected messages, attachments, replies, tool calls
@@ -156,8 +159,8 @@ READY
 **injected/user:**
 
 ```text
-<channel source="plugin:interweave:interweave" delivery_mode="direct" source_peer="12D3KooWJ9Bare2tqpQ31M96i7nccKipFdhLFSagqAH8tXRCuU4C" source_endpoint="claude" destination_endpoint="claude" message_id="eaecd7d0191a7958c97ade31f89fb19b" received_at="2026-10-24T17:27:49.519Z" reply_token="Vr_Xs_XspTr80siWoGs86Q" payload_encoding="utf8">
-S24 a0435f8c: hello from the peer on daemon B
+<channel source="plugin:interweave:interweave" delivery_mode="direct" source_peer="12D3KooWCLsP4d3goDxaeTyUzGsZAen3wkdURsBnXiYWaLMHEN2p" source_endpoint="claude" destination_endpoint="claude" message_id="064ffcf41c00e26ea34348d724671dd6" received_at="2026-10-24T17:31:04.017Z" reply_token="RGOpBZDSstXtqPtGW8rsMQ" payload_encoding="utf8">
+S24 9b0ddd25: hello from the peer on daemon B
 </channel>
 ```
 
@@ -176,7 +179,7 @@ S24 a0435f8c: hello from the peer on daemon B
 **model tool call:** `mcp__plugin_interweave_interweave__reply`
 
 ```text
-{"reply_token": "Vr_Xs_XspTr80siWoGs86Q", "content": "ack"}
+{"reply_token": "RGOpBZDSstXtqPtGW8rsMQ", "content": "ack"}
 ```
 
 **tool result:**
@@ -188,13 +191,13 @@ S24 a0435f8c: hello from the peer on daemon B
 **model:**
 
 ```text
-Sent the `ack` reply. The transport accepted it at endpoint `claude`.
+Sent the ack reply, and the remote transport accepted it.
 ```
 
 ## The far peer's bridge (daemon B): every line it wrote
 
 ```text
 {"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"remote transport accepted at endpoint claude","type":"text"}],"isError":false}}
-{"jsonrpc":"2.0","method":"notifications/claude/channel","params":{"content":"ack","meta":{"delivery_mode":"direct","source_peer":"12D3KooWGoJaH4tiW7qTV3XKm3LHBrumGacztDcfnLRZ9D6atBpp","source_endpoint":"claude","destination_endpoint":"claude","message_id":"4caf4cd28374815908c1dd706e825300","received_at":"2026-10-24T17:27:54.059Z","reply_token":"UXT8kFIC38J9hq6vmBj-Gw","payload_encoding":"utf8"}}}
+{"jsonrpc":"2.0","method":"notifications/claude/channel","params":{"content":"ack","meta":{"delivery_mode":"direct","source_peer":"12D3KooWBmxXi5ALFkKFpDuKPdNvTYVgjLPm2mjAgV8Bg6eCLxkH","source_endpoint":"claude","destination_endpoint":"claude","message_id":"52e94ba4c4cb250450b27df9ee5bbf33","received_at":"2026-10-24T17:31:08.454Z","reply_token":"t-nuF6ECB1FGzjZ4GLIslQ","payload_encoding":"utf8"}}}
 
 ```
