@@ -119,11 +119,11 @@ Where the page shows the identity's fingerprint (`human-client-ui.md`
 - for "temporarily unusable": **Try again** (`TryAgain`, filled
   tonal), and **Make a new key** (`KeyMakeNew`) as a text button after
   it;
-- for "key folder not safe": the reason line is `KeyDirUnsafe`, whose
-  last part, "Folder: {path}", is drawn on a line of its own with the
-  path isolated (left to right, never translated), selectable and
-  copyable as `human-client-ui.md` §11 asks of an exact identifier;
-  there is no second copy of the path. Then **Try again** (`TryAgain`,
+- for "key folder not safe": the reason line is `KeyDirUnsafe`, and
+  under it, on a line of its own, `KeyDirUnsafePath` ("Folder:
+  {path}"), the path isolated (left to right, never translated),
+  selectable and copyable as `human-client-ui.md` §11 asks of an exact
+  identifier; the path appears nowhere else. Then **Try again** (`TryAgain`,
   filled tonal) alone; a new key cannot be made there until the folder
   is fixed. Try again opens the key once more, as in §6, and whatever
   the folder then holds decides the state: the old file opens, or is
@@ -312,8 +312,8 @@ actions; with another kind: that kind's block.
 ## 8. Accessibility
 
 **Reading order**, §4.1's block: the heading (read with "warning"), the
-reason line (for "key folder not safe", its sentences, then "Folder"
-and the path, read as one item), `KeyCannotShare`, then the actions; it sits where the
+reason line (for "key folder not safe", `KeyDirUnsafe`, then
+`KeyDirUnsafePath` read as one item), `KeyCannotShare`, then the actions; it sits where the
 fingerprint row would, so it is read in the page's order. §4.2's row
 reads its third line with the row: "{name}, {route label}, key cannot
 be used". §4.3's sheet: title, "as {identity}", the reason line,
@@ -331,7 +331,7 @@ be used". §4.3's sheet: title, "as {identity}", the reason line,
 | made | the new fingerprint row; `KeyMade` announced once | keyboard; screen reader |
 | failed | the failure line (`KeyNewFailed` or `KeyNewFailedGone`), which is announced by being focused, not again | keyboard; screen reader |
 | Try again, opened | the fingerprint row | keyboard |
-| the "Folder: {path}" line ("key folder not safe") | reached by keyboard in reading order before Try again, so the path can be selected and copied; it opens nothing | keyboard; screen reader reads it once |
+| the `KeyDirUnsafePath` line ("key folder not safe") | reached by keyboard in reading order before Try again, so the path can be selected and copied; it opens nothing | keyboard; screen reader reads it once |
 | Try again, refused again | `KeyNotNowAgain` | keyboard; screen reader |
 | a row under `KeyShareAgainTitle` | the conversation's share sheet, as cards §5.3 opens it | keyboard |
 | Open your card from the sheet | as cards §5.2 | keyboard |
@@ -430,6 +430,8 @@ On both clients unless said; Android's screen-reader checks blocked as
     the open then finds.
 17. Desktop: `identity-keys/` owned by root with mode 0700 shows
     `KeyDirUnsafe`, not `KeyDamaged`, and no Make a new key.
+18. Desktop: `identity-keys/` replaced by a regular file shows
+    `KeyDirUnsafe` with `KeyDirUnsafePath`, and no Make a new key.
 
 ## 10. Strings
 
@@ -464,7 +466,8 @@ as the platform shows it, isolated as a path, never translated.
 | `KeyNewFailed` | InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed before the old file was removed; says nothing about what changed |
 | `KeyExposed` | Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key. | §3 "not protected"; must say why it is refused, and not suggest fixing the file |
 | `KeyNewFailedGone` | The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order) |
-| `KeyDirUnsafe` | The folder that holds this identity's key is a symbolic link, or it is owned by another user account, so InterWeave does not use the key. Make it a regular folder that only your user account owns, then choose Try again. Folder: {path} | §3, desktop only; must name the folder by its path and what to make of it, since the client never changes what it does not own; `{path}` last, so no punctuation touches it |
+| `KeyDirUnsafe` | placeholder: The place where this identity's key is kept is not a regular folder that only your user account owns, so InterWeave does not use the key. Make it such a folder, then choose Try again. | §3, desktop only; must be true for a symbolic link, a folder owned by another user account, and a file where the folder should be; must say what to make of it, since the client never changes what it does not own; awaiting language-culture-en (review round 5) |
+| `KeyDirUnsafePath` | placeholder: Folder: {path} | §4.1, desktop only, the line under `KeyDirUnsafe`; a label and the path, `{path}` last so no punctuation touches it; awaiting language-culture-en |
 | `KeyNewPending` | In some conversations, your card has not reached the contact yet. If InterWeave has not sent the card yet, making a new key cancels it. If InterWeave has already sent the card, it cannot be canceled, and the contact may still receive it with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make (review round 3, F11) |
 | `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
 
@@ -531,4 +534,6 @@ Asked after review round 2, the note built on the reading given:
   its own (`KeyDirUnsafe`, desktop only) naming what to make private
   and where, with Try again; the client never follows or replaces a
   link there and never changes what it does not own. `KeyNewFailed`
-  stays for a tightening or a create the platform refuses.
+  stays for a tightening or a create the platform refuses. A file
+  standing where the directory should be is read here as the same
+  class: the client replaces nothing it did not make (review round 5).
