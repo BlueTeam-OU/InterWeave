@@ -395,6 +395,16 @@ impl UiModel {
         self.cards.proposals.insert(proposal.row, proposal);
     }
 
+    /// A proposal held here, judged again by the facade after a contact
+    /// changed: its context replaces the one shown, and whether it was
+    /// shown stays as it was. A row no longer held -- resolved, or past
+    /// the read bound -- is not brought back.
+    pub fn card_judged(&mut self, proposal: Proposal) {
+        if let Some(held) = self.cards.proposals.get_mut(&proposal.row) {
+            *held = proposal;
+        }
+    }
+
     /// What showing a conversation's card proposals reads: each unread
     /// one's [`Intent::MarkRead`], which removes its durable copy, so a
     /// proposal shown and left undecided is gone at the session's end
@@ -967,6 +977,37 @@ mod tests {
             );
             assert_eq!(name_problem(name).is_none(), ok, "{name:?}");
         }
+    }
+
+    // A proposal judged again replaces a held one in place, shown state
+    // kept, and brings back none the model no longer holds. Mutations:
+    // `card_judged` inserting; `card_judged` clearing the read mark.
+    #[test]
+    fn a_proposal_judged_again_replaces_only_a_held_one_and_keeps_it_shown() {
+        let mut model = UiModel::new();
+        model.card_received(proposal(1, P, "Ada", context()));
+        model.read(row(1));
+        let changed = ProposalContext {
+            changes_nothing: true,
+            updates: Some(ContactRef {
+                contact_id: "c1".to_owned(),
+                name: "Ada".to_owned(),
+            }),
+            ..context()
+        };
+        model.card_judged(proposal(1, P, "Ada", changed));
+        let shown = model.proposals(&direct(P, "human"));
+        assert_eq!(shown[0].accept, AcceptLine::Matches("Ada".to_owned()));
+        assert!(
+            model.proposals_viewed(&direct(P, "human"), true).is_empty(),
+            "still shown"
+        );
+        model.card_judged(proposal(2, P, "Ada", context()));
+        assert_eq!(
+            model.proposals(&direct(P, "human")).len(),
+            1,
+            "row 2 not brought back"
+        );
     }
 
     #[test]
