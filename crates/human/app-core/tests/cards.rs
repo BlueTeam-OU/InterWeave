@@ -1575,3 +1575,83 @@ async fn a_route_is_deleted_and_its_contact_keeps_the_other() {
         }]
     );
 }
+
+/// Contact-cards design 5.4.1 cases U and E, through the loop: a later
+/// card with a new name proposes that name for the contact; once the
+/// person names the contact themselves, the same card says that name stays
+/// and proposes none.
+#[tokio::test]
+async fn a_later_card_names_the_values_it_changes_and_the_edit_it_keeps() {
+    use interweave_human_ui_model::ValueChanges;
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let first = bob.model().proposals(&from_alice)[0].row;
+    bob.will(Intent::AcceptCard(first));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+
+    let share_again = |alice: &mut Root, name: &str| {
+        alice.will(Intent::SetOwnCard {
+            name: name.to_owned(),
+            surname: None,
+            photo: PhotoEdit::Keep,
+        });
+    };
+    share_again(&mut alice, "Ada King");
+    alice.pump(6).await;
+    alice.will(
+        alice
+            .model()
+            .share_card(&direct(b.peer()))
+            .expect("offered"),
+    );
+    alice.pump(7).await;
+    alice.pump(8).await;
+    bob.pump(9).await;
+    let proposal = bob.model().proposals(&from_alice)[0].clone();
+    assert_eq!(
+        proposal.values,
+        ValueChanges {
+            new_name: Some("Ada King".to_owned()),
+            ..ValueChanges::default()
+        },
+        "case U: the new name named"
+    );
+    bob.will(Intent::DeclineCard(proposal.row));
+    bob.pump(10).await;
+
+    bob.will(Intent::RenameContact {
+        contact_id,
+        name: "Countess".to_owned(),
+    });
+    bob.pump(11).await;
+    alice.will(
+        alice
+            .model()
+            .share_card(&direct(b.peer()))
+            .expect("offered"),
+    );
+    alice.pump(12).await;
+    alice.pump(13).await;
+    bob.pump(14).await;
+    let proposal = bob
+        .model()
+        .proposals(&from_alice)
+        .last()
+        .expect("a proposal")
+        .clone();
+    assert_eq!(
+        proposal.values,
+        ValueChanges {
+            kept_name: true,
+            ..ValueChanges::default()
+        },
+        "case E: the person's name stays, no new name proposed"
+    );
+}

@@ -16,7 +16,7 @@ use interweave_human_store::{
 };
 use interweave_human_ui_model::{
     ContactRef, ContactView, IdentityView, KeyView, OwnKey, Photo, Proposal, ProposalContext,
-    RouteView,
+    RouteView, ValueChanges,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -90,7 +90,23 @@ pub(crate) fn context(
                 && (c.photo_source == Some(ValueSource::Person)
                     || c.photo.as_deref() == kept_photo(card))
         });
+    // Value by value, as `accept_card` writes (cases U and E): a person's
+    // name stays, any other becomes the card's; a photo the card carries
+    // replaces one the person did not choose, and a chosen one stays.
+    let card_photo = kept_photo(card);
+    let values = updates.as_ref().map_or_else(ValueChanges::default, |c| {
+        let name_differs = c.display_name != card_as_accepted.display_name();
+        let person_name = c.name_source == ValueSource::Person;
+        let person_photo = c.photo_source == Some(ValueSource::Person);
+        ValueChanges {
+            new_name: (name_differs && !person_name).then(|| card_as_accepted.display_name()),
+            new_photo: card_photo.is_some() && !person_photo && c.photo.as_deref() != card_photo,
+            kept_name: name_differs && person_name,
+            kept_photo: card_photo.is_some() && person_photo,
+        }
+    });
     let context = ProposalContext {
+        values,
         updates: updates.as_ref().map(|c| ContactRef {
             contact_id: c.contact_id.clone(),
             name: c.display_name.clone(),
