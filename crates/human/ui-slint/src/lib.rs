@@ -1125,10 +1125,14 @@ impl View {
     /// desktop. None by default, and none is drawn: typing or pasting the
     /// text does all a scan does. The images' reader is compiled only
     /// with the `desktop` feature; without it an image scan ends at once
-    /// as a cancelled one.
-    pub fn offer_scans(&self, camera: bool, images: bool) {
+    /// as a cancelled one. The clipboard's image is offered apart: the
+    /// clipboard crate decodes it whole before any bound of this client's
+    /// applies, so the desktop withholds it until a bounded read exists
+    /// (#409 F1).
+    pub fn offer_scans(&self, camera: bool, files: bool, clipboard: bool) {
         self.window.set_scan_camera(camera);
-        self.window.set_scan_images(images);
+        self.window.set_scan_images(files);
+        self.window.set_scan_paste(clipboard);
     }
 
     /// Called whenever a window callback queues an input, so the root runs

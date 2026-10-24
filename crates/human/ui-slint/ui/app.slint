@@ -2431,6 +2431,9 @@ export component AppWindow inherits Window {
     // an image file or a pasted one on the desktop.
     in property <bool> scan-camera;
     in property <bool> scan-images;
+    // Paste an image, offered apart from the image file: withheld until
+    // the clipboard can be read within the file's bounds (#409 F1).
+    in property <bool> scan-paste;
     in property <string> scan-code-label;
     in property <string> open-image-label;
     in property <string> paste-image-label;
@@ -4034,7 +4037,7 @@ export component AppWindow inherits Window {
                         accessible-role: text;
                         accessible-label: root.field-note;
                     }
-                    if root.add-step-one && (root.scan-camera || root.scan-images): HorizontalLayout {
+                    if root.add-step-one && (root.scan-camera || root.scan-images || root.scan-paste): HorizontalLayout {
                         alignment: start;
                         spacing: 8px;
                         if root.scan-camera: ActionButton {
@@ -4055,7 +4058,7 @@ export component AppWindow inherits Window {
                             pressed => { root.peers-open-image(); }
                             focused(k) => { root.focus-id = k; }
                         }
-                        if root.scan-images: ActionButton {
+                        if root.scan-paste: ActionButton {
                             text: root.paste-image-label;
                             target: 48px;
                             focus-key: "paste-image";

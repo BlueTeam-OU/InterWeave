@@ -2274,7 +2274,7 @@ fn the_image_controls_scan_and_an_image_without_a_code_is_said_under_them() {
         "not offered"
     );
 
-    view.offer_scans(false, true);
+    view.offer_scans(false, true, true);
     view.render(&model);
     assert!(
         labelled(&view, text(UiText::ScanCode)).is_empty(),
@@ -2516,7 +2516,7 @@ fn a_scan_line_is_drawn_under_the_controls_and_said_once() {
     let me = peer();
     open_peers(&mut view, &mut model, &me, &[], &[]);
     let _ = model.peers_input(PeersInput::OpenAdd);
-    view.offer_scans(false, true);
+    view.offer_scans(false, true, true);
     view.render(&model);
     for (given, words) in [
         (PeersInput::ImageUnreadable, text(UiText::ImageUnreadable)),
@@ -2569,4 +2569,27 @@ fn leaving_peers_closes_show() {
     view.window().invoke_close_peers();
     let _ = intents(&mut view, &mut model);
     assert!(model.peers().show().is_none(), "Peers closed");
+}
+
+/// Each image source is offered on its own: the desktop offers the file
+/// and withholds the clipboard's image until it can be read within the
+/// file's bounds (#409 F1).
+#[test]
+fn the_clipboard_image_is_offered_apart_from_the_file() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    view.offer_scans(false, true, false);
+    view.render(&model);
+    assert_eq!(labelled(&view, text(UiText::OpenCodeImage)).len(), 1);
+    assert!(
+        labelled(&view, text(UiText::PasteCodeImage)).is_empty(),
+        "withheld"
+    );
+    view.offer_scans(false, true, true);
+    view.render(&model);
+    assert_eq!(labelled(&view, text(UiText::PasteCodeImage)).len(), 1);
 }
