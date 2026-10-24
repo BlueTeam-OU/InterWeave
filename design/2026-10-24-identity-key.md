@@ -222,7 +222,7 @@ on this page until the person leaves it; it is not stored.
 **Failed** (the key could not be made or stored — `Random`, a cipher or
 storage refusal): the client opens the key file again and the block
 shows the kind that open finds (§5.2), with `KeyNewFailed` under the
-actions in `error` ("A new key could not be made. Try again.") and
+actions in `error` ("InterWeave could not make a new key. Try again.") and
 **Make a new key** again. It never says nothing changed: on Android the
 old key may already be gone. Pending cards cancelled by the step stay
 cancelled; they could only have delivered the old key.
@@ -377,7 +377,7 @@ label without one (cards §5.7.6).
 | `KeyLostDevice` | This phone no longer allows InterWeave to use this identity's key. | Android, invalidated or gone; must not claim a cause the client cannot know |
 | `KeyBelowDevice` | This identity's key has weaker protection than this phone requires, so InterWeave does not use it. | a downgrade; must say it is refused on purpose, not broken |
 | `KeyOtherDevice` | This identity's key was saved on another device and works only there, not on this computer. | desktop, a sealed record |
-| `KeyNewerVersion` | placeholder: This identity's key is in a form this version of InterWeave cannot read. A newer version may be able to use it. To keep this key, update InterWeave. If you make a new key instead, you lose this key. | must name the way to keep the key before the new-key offer, and say only that a newer version *may* read it (§3: the client cannot know); awaiting language-culture-en after review round 1 |
+| `KeyNewerVersion` | This version of InterWeave cannot use this identity's key, because the key file has a format this version does not know. A newer version may be able to use it. To try to keep the key, update InterWeave first. If you make a new key, you lose this key. | must name the way to keep the key before the new-key offer, and say only that a newer version *may* read it (§3: the client cannot know) |
 | `KeyDamaged` | This identity's key file is not valid, so the key cannot be used. | every damaged or foreign record |
 | `KeyNotNow` | InterWeave could not use this identity's key. The problem may be temporary. Try again. | a platform error; must suggest trying again, not a loss |
 | `KeyMissing` | This identity's key is missing from this device. | a lost file (§7); must not suggest the person deleted it |
@@ -389,14 +389,14 @@ label without one (cards §5.7.6).
 | `KeyNewTitle` | Make a new key for {identity}? | §5.1 title |
 | `KeyNewBody` | The next time you share your card with a contact who has it, their app will show a warning that the card might be from someone else. Tell them it was you. Until then, nothing changes for them. | §5.1; must name the change, the warning they will see, and that nothing happens before a share |
 | `KeyNewOld` | The old key will be deleted and cannot be used again. | §5.1, every kind but missing |
-| `KeyNewOldNewer` | placeholder: A newer version of InterWeave may be able to use the old key. To keep it, update InterWeave instead of making a new key. If you make a new key, you lose the old key, and updating will not bring it back. | §5.1, newer version; must say the choice is the update or the loss, and claim no more than *may*; awaiting language-culture-en after review round 1 |
+| `KeyNewOldNewer` | A newer version of InterWeave may be able to use the old key. To try to keep it, update InterWeave first. If you make a new key, you lose the old key. Updating later will not bring it back. | §5.1, newer version; must say the choice is the update or the loss, and claim no more than *may* |
 | `KeyNewConfirm` | Make a new key | §5.1 confirm |
 | `KeyMaking` | Making a new key… | §5.2 |
 | `KeyMade` | This identity has a new key. Your contacts have the new key only after you share your card with them again. | §5.3 |
 | `KeyShareAgainTitle` | Share your card again in these conversations | §5.3 list heading |
-| `KeyNewFailed` | placeholder: A new key could not be made. Try again. | §5.3 failed; must not say nothing changed (on Android the old key may be gone; the reason line above says what is true now); awaiting language-culture-en after review round 1 |
-| `KeyExposed` | placeholder: This identity's key file could be read by others on this device, so InterWeave does not use it. | §3 "not protected"; must say why it is refused, and not suggest fixing the file; awaiting language-culture-en |
-| `KeyNewPending` | placeholder: Cards you are still sending from this identity will be cancelled, because they carry the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport; awaiting language-culture-en |
+| `KeyNewFailed` | InterWeave could not make a new key. Try again. | §5.3 failed; must not say nothing changed (on Android the old key may be gone; the reason line above says what is true now) |
+| `KeyExposed` | Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key. | §3 "not protected"; must say why it is refused, and not suggest fixing the file |
+| `KeyNewPending` | In some conversations, your card has not been sent yet. Making a new key cancels it there, because that card is signed with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport |
 | `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
 
 `TryAgain` and `Cancel` are the existing keys.
