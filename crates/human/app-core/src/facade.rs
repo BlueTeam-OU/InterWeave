@@ -500,11 +500,18 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         let context = match cards::context(self.client.store_mut(), &peer, &endpoint, &card) {
             Ok(context) => context,
             Err(e) => {
-                // The store wrote the Undo back; only its reading failed.
-                // The copy stays held, so a later listing can show it.
-                updates.push(Update::UnreadNotListed(store_failure(&e)));
-                self.copies.insert((Table::Unread, row), undo.held);
-                return Ok(());
+                // The store wrote the Undo back and cannot say what the
+                // card would now do, so the proposal cannot return: its
+                // copy goes, the Undo is reported failed, and the contacts
+                // are sent as far as they can be read, so the model shows
+                // the store's state rather than the Accept the Undo
+                // reversed (#414 F2).
+                if undo.accept.is_some()
+                    && let Ok(contacts) = cards::contact_views(self.client.store_mut())
+                {
+                    updates.push(Update::ContactsListed(contacts));
+                }
+                return Err(store_failure(&e));
             }
         };
         let received_at = undo.held.received_at();

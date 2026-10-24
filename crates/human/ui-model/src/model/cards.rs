@@ -594,7 +594,7 @@ impl UiModel {
     }
 
     /// The confirmation rows Accepts left in a conversation this session,
-    /// oldest first.
+    /// oldest first, each only while its contact is held.
     #[must_use]
     pub fn card_answers(&self, key: &ConversationKey) -> Vec<CardAnswer> {
         let ConversationKey::Direct {
@@ -609,6 +609,10 @@ impl UiModel {
             .answers
             .values()
             .filter(|a| &a.peer == peer && &a.endpoint == at)
+            // A row that names a contact no longer held -- deleted since,
+            // or an Undo the store wrote and then could not read back --
+            // would say something no longer true.
+            .filter(|a| self.contact(&a.contact_id).is_some())
             .cloned()
             .collect();
         list.sort_by_key(|a| (a.received_at, a.row));
@@ -1299,6 +1303,7 @@ mod tests {
         let key = direct(P, "human");
         model.card_received(proposal(1, P, "Ada", context()));
         model.card_resolved(row(1), saved("c1"));
+        model.contacts_listed(vec![contact("c1", "Ada", P)]);
         assert!(model.proposals(&key).is_empty());
         let answers = model.card_answers(&key);
         assert_eq!(answers.len(), 1);
@@ -1405,6 +1410,7 @@ mod tests {
         let mut model = UiModel::new();
         model.card_received(proposal(1, P, "Ada", context()));
         model.card_resolved(row(1), saved("c1"));
+        model.contacts_listed(vec![contact("c1", "Ada", P)]);
         let id = model.snackbar().expect("up").id;
         let undo = model.undo(id).expect("an Undo");
         model.intent_refused(&undo);
@@ -1438,5 +1444,21 @@ mod tests {
         let mut released = model.take_released().cards;
         released.sort();
         assert_eq!(released, vec![row(1), row(2)]);
+    }
+
+    /// #414 F2: a confirmation row shows only while its contact is held,
+    /// so a contact gone -- deleted, or an Undo written but not read back
+    /// -- leaves no row saying it was saved.
+    #[test]
+    fn a_confirmation_row_shows_only_while_its_contact_is_held() {
+        let mut model = UiModel::new();
+        let key = direct(P, "human");
+        model.card_received(proposal(1, P, "Ada", context()));
+        model.card_resolved(row(1), saved("c1"));
+        assert!(model.card_answers(&key).is_empty(), "not yet listed");
+        model.contacts_listed(vec![contact("c1", "Ada", P)]);
+        assert_eq!(model.card_answers(&key).len(), 1);
+        model.contacts_listed(Vec::new());
+        assert!(model.card_answers(&key).is_empty(), "gone with its contact");
     }
 }
