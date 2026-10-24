@@ -65,8 +65,8 @@ mod unix {
     const USAGE: &str = "usage: claude-channel --profile <name> --endpoint <id> \
          --delivery push|pull [--log-level error|warn|info|debug]";
 
-    /// `status.log.file_error` when the start never named a profile and
-    /// an endpoint whose state directory could hold the file.
+    /// `status.log.file_error` when the arguments did not parse, so no
+    /// profile and endpoint named a file.
     const NO_PROFILE: &str = "no_profile";
 
     pub(crate) fn main() -> ExitCode {
@@ -157,13 +157,15 @@ mod unix {
         let roots = match XdgRoots::from_env() {
             Ok(roots) => roots,
             Err(e) => {
-                let log = Log::stderr_only(level, NO_PROFILE);
-                return (log, Err(refusal("the XDG directories", &e)));
+                let refused = refusal("the XDG directories", &e);
+                return (Log::stderr_only(level, refused.class), Err(refused));
             }
         };
         let log = match ProfilePaths::resolve_offline(&profile, &roots) {
             Ok(paths) => Log::open(level, paths.state_dir(), &endpoint),
-            Err(_) => Log::stderr_only(level, NO_PROFILE),
+            // The refusal's class: `profile_name`, which `resolve` below
+            // refuses the start with too.
+            Err(e) => Log::stderr_only(level, refusal("the profile's paths", &e).class),
         };
         (log, prepare_paths(&profile, endpoint, delivery, &roots))
     }
