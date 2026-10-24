@@ -10,7 +10,7 @@ Model: claude-sonnet-5-5
   "claude_binary_version": "2.1.286",
   "stub_era": "modern",
   "negotiation": "legacy",
-  "nonce": "fd019d1c",
+  "nonce": "4b7292b2",
   "command": [
     "claude",
     "--mcp-config",
@@ -25,13 +25,20 @@ Model: claude-sonnet-5-5
   "steps": [
     {
       "development_warning": true,
-      "at_s": 2.6
+      "at_s": 2.1
     },
     {
-      "channel_decision_at_s": 5.8
+      "channel_decision_at_s": 5.2
     }
   ],
-  "channel_decision": "2026-10-24T16:21:06.706Z [DEBUG] MCP server \"spike001\": Channel notifications registered",
+  "channel_decision": "2026-10-24T18:13:21.232Z [DEBUG] MCP server \"spike001\": Channel notifications registered",
+  "shutdown": {
+    "signals_sent": [
+      "SIGINT to Claude Code"
+    ],
+    "group_empty": true,
+    "bwrap_wait_status": null
+  },
   "versions_in_debug_log": [
     "2.1.286"
   ],
@@ -60,12 +67,13 @@ Model: claude-sonnet-5-5
 ## Claude Code debug log: the run's own server only
 
 ```text
-2026-10-24T16:21:05.950Z [DEBUG] MCP server "spike001": Starting connection with timeout of 30000ms
-2026-10-24T16:21:06.517Z [DEBUG] MCP server "spike001": Successfully connected (transport: stdio) in 569ms
-2026-10-24T16:21:06.518Z [DEBUG] MCP server "spike001": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"spike-001-s23","version":"0.0.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
-2026-10-24T16:21:06.706Z [DEBUG] MCP server "spike001": Channel notifications registered
-2026-10-24T16:21:09.535Z [DEBUG] MCP server "spike001": notifications/claude/channel: S23 fd019d1c: a channel event on the modern stub
-2026-10-24T16:21:32.507Z [DEBUG] MCP server "spike001": Sending SIGINT to MCP server process
+2026-10-24T18:13:20.730Z [DEBUG] MCP server "spike001": Starting connection with timeout of 30000ms
+2026-10-24T18:13:21.051Z [DEBUG] MCP server "spike001": Successfully connected (transport: stdio) in 325ms
+2026-10-24T18:13:21.053Z [DEBUG] MCP server "spike001": Connection established with capabilities: {"hasTools":true,"hasPrompts":false,"hasResources":false,"hasResourceSubscribe":false,"serverVersion":{"name":"spike-001-s23","version":"0.0.0"},"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"}
+2026-10-24T18:13:21.232Z [DEBUG] MCP server "spike001": Channel notifications registered
+2026-10-24T18:13:24.061Z [DEBUG] MCP server "spike001": notifications/claude/channel: S23 4b7292b2: a channel event on the modern stub
+2026-10-24T18:13:47.331Z [DEBUG] MCP server "spike001": Sending SIGINT to MCP server process
+2026-10-24T18:13:47.463Z [DEBUG] MCP server "spike001": MCP server process exited cleanly
 ```
 
 ## Terminal: the development-channel warning (whitespace removed by capture)
@@ -80,14 +88,12 @@ WARNING:Loadingdevelopmentchannels--dangerously-load-development-channelsisforlo
 
 ```text
 <channel source="spike001" chat_id="s23" era="modern">
-S23 fd019d1c: a channel event on the modern stub
+S23 4b7292b2: a channel event on the modern stub
 </channel>
 ```
 
 **model:**
 
 ```text
-I received a channel event from `spike001` (chat `s23`, era `modern`): "S23 fd019d1c: a channel event on the modern stub". It doesn't ask for anything specific, so I haven't taken any action.
-
-What would you like me to do with it?
+I received a channel event ("S23 4b7292b2: a channel event on the modern stub"), but it doesn't contain a task or question for me to act on. What would you like me to do?
 ```

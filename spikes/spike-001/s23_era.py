@@ -13,6 +13,7 @@ to ``server/discover`` and the client's negotiation setting:
   a-modern          the stub offers 2026-07-28; negotiation unset
   b-legacy          the stub answers -32601, as the bridge does (control)
   c-modern-pinned   the stub offers 2026-07-28; MCP_PROTOCOL_NEGOTIATION=legacy
+  d-modern-no-resulttype  as a, the stub's modern results without resultType
 
 The session gets its own scratch CLAUDE_CONFIG_DIR with the folder
 already trusted (s19_channels.seed_config), so the only screen is the
@@ -45,13 +46,14 @@ import traceback
 
 from spike_common import CLAUDE, REPO, child_env, claude_version, raw_dir
 from s19_channels import ANSI, long_term_token, seed_config
-from s22_org_channels import purge_if_token, scrub, token_in
+from s22_org_channels import purge_if_token, scrub, stop_group, token_in
 
 HERE = pathlib.Path(__file__).resolve().parent
 RUNS = {
     "a-modern": {"era": "modern", "negotiation": None},
     "b-legacy": {"era": "legacy", "negotiation": None},
     "c-modern-pinned": {"era": "modern", "negotiation": "legacy"},
+    "d-modern-no-resulttype": {"era": "modern", "negotiation": None, "omit_resulttype": True},
 }
 SETTLE_S = 45
 AFTER_DECISION_S = 25
@@ -81,7 +83,8 @@ def main() -> int:
         workdir.mkdir()
         seed_config(config, workdir)
         mcp = {"mcpServers": {"spike001": {"command": sys.executable, "args": [str(HERE / "s23_stub.py")], "env": {
-            "SPIKE_LOG": str(out / "stub.jsonl"), "SPIKE_ERA": spec["era"], "SPIKE_NONCE": nonce}}}}
+            "SPIKE_LOG": str(out / "stub.jsonl"), "SPIKE_ERA": spec["era"], "SPIKE_NONCE": nonce,
+            **({"SPIKE_OMIT_RESULTTYPE": "1"} if spec.get("omit_resulttype") else {})}}}}
         (workdir / "mcp.json").write_text(json.dumps(mcp, indent=2))
         debug = out / "debug.txt"
         cmd = [CLAUDE, "--mcp-config", "mcp.json", "--strict-mcp-config", "--debug-file", str(debug),
@@ -151,20 +154,17 @@ def main() -> int:
         record["steps"] = steps
         record["channel_decision"] = line
 
+        # SIGINT to Claude Code itself, the shutdown SPIKE-001 measured, so it
+        # stops its server; then the session's whole process group (pty.fork
+        # made Claude Code its leader) is escalated until it is empty, and
+        # nothing is read before that.
         os.kill(pid, signal.SIGINT)
-        pump(5)
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                if os.waitpid(pid, os.WNOHANG)[0]:
-                    break
-                os.kill(pid, sig)
-            except (ChildProcessError, ProcessLookupError):
-                break
-            pump(3)
-        try:
-            os.waitpid(pid, 0)
-        except ChildProcessError:
-            pass
+        end = time.time() + 5
+        while time.time() < end and not os.waitpid(pid, os.WNOHANG)[0]:
+            pump(0.2)
+        record["shutdown"] = stop_group(pid, pump, steps=(("group", signal.SIGTERM, 5),
+                                                           ("group", signal.SIGKILL, 5)))
+        record["shutdown"]["signals_sent"].insert(0, "SIGINT to Claude Code")
         pid = None
         os.close(fd)
         (out / "screen.txt").write_text(ANSI.sub(b"", bytes(screen)).decode("utf-8", "replace"))
@@ -177,7 +177,7 @@ def main() -> int:
             shutil.copy(transcripts[-1], out / "session.jsonl")
         delivered = (out / "session.jsonl").exists() and f"S23 {nonce}" in (out / "session.jsonl").read_text()
         record["event_reached_conversation"] = delivered
-        passed = line is not None and warned
+        passed = line is not None and warned and record["shutdown"]["group_empty"]
     finally:
         if pid is not None:
             try:

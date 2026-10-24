@@ -14,6 +14,9 @@ Configuration, by environment:
   revision the client asked for, so a client that skips the probe or
   falls back still connects.
 - ``SPIKE_NONCE``: placed in the event's body.
+- ``SPIKE_OMIT_RESULTTYPE``: ``1`` leaves ``resultType`` out of every
+  modern result, the cache fields kept, to see what a 2026-07-28 client
+  does with a result that lacks it (S23's d); unset in a to c.
 - ``SPIKE_DELAY_MS``: how long after the handshake completes (the
   discover answer in the modern era, ``notifications/initialized`` in the
   legacy one) the channel event is sent; default 3000.
@@ -38,6 +41,7 @@ ERA = os.environ.get("SPIKE_ERA", "legacy")
 NONCE = os.environ.get("SPIKE_NONCE", "nonce")
 DELAY = int(os.environ.get("SPIKE_DELAY_MS", "3000"))
 MODERN = "2026-07-28"
+OMIT_RESULTTYPE = os.environ.get("SPIKE_OMIT_RESULTTYPE") == "1"
 LOCK = threading.Lock()
 CAPABILITIES = {"experimental": {"claude/channel": {}}, "tools": {}}
 INSTRUCTIONS = ("SPIKE-001 S23 test channel. Events arrive as <channel> tags. "
@@ -88,7 +92,7 @@ def main():
         # on discover and tools/list; initialize and ping get neither. Keyed
         # on SPIKE_ERA, not on the era negotiated, so a legacy client of a
         # modern stub is sent them too (S23's c); a legacy stub sends neither.
-        complete = {"resultType": "complete"} if ERA == "modern" else {}
+        complete = {"resultType": "complete"} if ERA == "modern" and not OMIT_RESULTTYPE else {}
         cache = {**complete, "ttlMs": 0, "cacheScope": "private"} if ERA == "modern" else {}
         if method == "server/discover" and id_ is not None:
             if ERA == "modern":
