@@ -64,12 +64,14 @@ impl AdmissionOrder {
     /// Admit a port that may write: the next stamp, alive until the port
     /// and every request carrying a clone of it have gone.
     pub(crate) fn admit(self: &Arc<Self>) -> Admission {
-        // From 1, so no stamp is below a floor of 0.
+        // The stamp is taken UNDER the lock that publishes it: taken
+        // before, a newer admission could be inserted, write and prune
+        // while the older one is not yet alive, and `oldest_alive` would
+        // skip it. From 1, so no stamp is below a floor of 0.
+        let mut alive = self.alive.lock().unwrap_or_else(PoisonError::into_inner);
         let stamp = self.next.fetch_add(1, Ordering::Relaxed) + 1;
-        self.alive
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(stamp);
+        alive.insert(stamp);
+        drop(alive);
         Admission(Arc::new(Alive {
             stamp,
             order: Arc::clone(self),
