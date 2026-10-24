@@ -973,9 +973,8 @@ ui_texts! {
     CodeImageFilter => "Images (PNG or JPEG)",
     /// Desktop, under the scan controls: the file opened, or the
     /// clipboard's image, could not be read; never "no code", since it
-    /// was never looked at (add-a-peer #408).
-    // PLACEHOLDER (en)
-    ImageUnreadable => "This image could not be opened. Choose a PNG or JPEG image of the other person's code.",
+    /// was never looked at (add-a-peer §5.5).
+    ImageUnreadable => "This image could not be opened. Try another image of the other person's code.",
     /// Desktop, under the scan controls: Paste an image found no image.
     ClipboardNoImage => "There is no image on the clipboard. Copy an image of the other person's code, then choose Paste an image.",
     /// Show, first, before the code: what showing discloses.

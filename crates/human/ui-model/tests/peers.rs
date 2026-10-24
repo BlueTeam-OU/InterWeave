@@ -4570,3 +4570,18 @@ fn a_scan_line_names_its_cause_and_goes_at_the_next_press_or_edit() {
     let _ = input(&mut m, PeersInput::FieldChanged("/ip4".to_owned()));
     assert_eq!(m.peers().add_page_note(), None);
 }
+
+/// A press of Add removes a scan line left on the page: such a line
+/// stands only while the field is empty, so Add says `AddressNeeded`
+/// in its place (§5.3).
+#[test]
+fn a_press_of_add_removes_a_scan_line() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::PasteImage));
+    let _ = input(&mut m, PeersInput::ClipboardNoImage);
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::ClipboardNoImage));
+    assert!(input(&mut m, PeersInput::Add).is_empty());
+    assert_eq!(m.peers().add_page_note(), Some(&AddNote::AddressNeeded));
+}

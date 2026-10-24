@@ -177,7 +177,9 @@ pub enum AddNote {
 impl AddNote {
     /// Whether the note is a scan's own line, under the scan controls:
     /// announced once with focus kept on the control, and gone at the
-    /// next scan press, an edit of the field or the page closing (§5.5).
+    /// next scan press, a press of Add (which finds the field empty, a
+    /// scan's line standing only while it is, and says `AddressNeeded`
+    /// in its place), an edit of the field or the page closing (§5.5).
     #[must_use]
     pub const fn is_scan_line(&self) -> bool {
         matches!(
