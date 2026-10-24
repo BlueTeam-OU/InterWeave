@@ -125,6 +125,20 @@ fn facade(
         channels: profile.channels.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
     };
+    // The identity's own key, by the desktop's rule: a file this build
+    // refuses is said by class and left as it is, and the client runs
+    // with no key, so nothing is signed and no card is shared.
+    let key =
+        match interweave_human_app_core::identity_key(&profile.paths, &profile.endpoints, &store) {
+            Ok(key) => key,
+            Err(e) => {
+                eprintln!(
+                    "interweave-human: the identity's key is not usable: {}",
+                    output::one_line(&e.to_string())
+                );
+                None
+            }
+        };
     let client = TransportClient::new(
         binding.clone(),
         binding,
@@ -134,16 +148,8 @@ fn facade(
         0,
     )?;
     let mut facade = FacadeSide::new(client, wall_ms);
-    // The identity's own key, by the desktop's rule: a file this build
-    // refuses is said by class and left as it is, and the client runs
-    // with no key, so nothing is signed and no card is shared.
-    match interweave_human_app_core::identity_key(&profile.paths, &profile.endpoints) {
-        Ok(Some(key)) => facade.set_identity_key(key),
-        Ok(None) => {}
-        Err(e) => eprintln!(
-            "interweave-human: the identity's key is not usable: {}",
-            output::one_line(&e.to_string())
-        ),
+    if let Some(key) = key {
+        facade.set_identity_key(key);
     }
     Ok(facade)
 }

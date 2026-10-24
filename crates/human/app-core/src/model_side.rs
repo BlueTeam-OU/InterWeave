@@ -76,6 +76,9 @@ pub enum Problem {
     },
     /// The store's unread rows could not be listed again.
     UnreadNotListed(Failure),
+    /// A card's answer or its Undo was carried out, and the cards or
+    /// contacts could not be read back afterwards.
+    CardsNotRead(Failure),
 }
 
 /// How many problems wait for [`ModelSide::take_problems`], at most; past
@@ -206,7 +209,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Update::Received(received) => self.model.received(received),
             Update::ReceivedCard(proposal) => self.model.card_received(*proposal),
             Update::ProposalJudged(proposal) => self.model.card_judged(*proposal),
-            Update::CardResolved(row) => self.model.card_resolved(row),
+            Update::CardResolved { row, outcome } => self.model.card_resolved(row, outcome),
+            Update::ProposalRestored(proposal) => self.model.card_restored(*proposal),
+            Update::ProposalNotRestored(row) => self.model.card_not_restored(row),
+            Update::CardsNotRead(why) => self.problem(Problem::CardsNotRead(why)),
             Update::ContactsListed(contacts) => self.model.contacts_listed(contacts),
             Update::IdentityShown(identity) => self.model.identity_shown(identity),
             Update::CardShared { key, at, .. } => self.model.card_shared(key, at),
@@ -293,7 +299,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 ) = (&command, why)
                 {
                     // The card's copy is gone: so is its proposal.
-                    self.model.card_resolved(*row);
+                    self.model.card_gone(*row);
                 }
                 // A refused Undo closes nothing more, but focus goes where
                 // the action itself sent it; a refused Cancel's row, slid
@@ -306,6 +312,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     Command::Unkeep(row) => Some(Intent::Unkeep(*row)),
                     Command::Restore(row) => Some(Intent::Restore(*row)),
                     Command::Cancel(row) => Some(Intent::Cancel(*row)),
+                    Command::UndoCard(row) => Some(Intent::UndoCard(*row)),
                     _ => None,
                 };
                 if let Some(intent) = undone {
@@ -341,6 +348,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         let released = self.model.take_released();
         commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
         commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
+        commands.extend(released.cards.into_iter().map(Command::ForgetCard));
         // A trust input changes what the settings show -- a proposal to
         // confirm, why a typed value was not proposed -- and may ask the
         // facade nothing, so no update would bring another turn: the
@@ -358,6 +366,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 let released = self.model.take_released();
                 commands.extend(released.copies.into_iter().map(Command::ForgetCopy));
                 commands.extend(released.cancelled.into_iter().map(Command::ForgetCancelled));
+                commands.extend(released.cards.into_iter().map(Command::ForgetCard));
                 // A change's answer may have left the list to read again.
                 if let Some(intent) = self.model.trust_settings_mut().take_reread()
                     && let Some(command) = self.command_for(intent)
@@ -547,6 +556,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 shown: Box::new(self.model.proposal_context(row)?.clone()),
             },
             Intent::DeclineCard(row) => Command::DeclineCard(row),
+            Intent::UndoCard(row) => Command::UndoCard(row),
             Intent::ShareCard(key) => Command::ShareCard(key),
             Intent::SetOwnCard {
                 name,
@@ -631,6 +641,78 @@ mod tests {
         assert_eq!(
             side.take_problems(),
             [Problem::UnreadNotListed(Failure::StorageUnavailable)]
+        );
+    }
+
+    /// #414 F2, F9, F10: an Undo whose card could not be judged again
+    /// drops its confirmation row through `apply`, and a failed read after
+    /// a card's answer is its own problem, not an unread listing.
+    #[test]
+    fn an_undo_not_restored_drops_its_row_and_a_failed_read_back_is_its_own_problem() {
+        use interweave_human_chat_protocol::Card;
+        use interweave_human_store::RowId;
+        use interweave_human_ui_model::{
+            CardOutcome, ContactView, KeyView, Proposal, ProposalContext,
+        };
+        use interweave_transport_api::{EndpointId, TransportIdentity};
+        let peer = TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
+            .expect("a PeerId");
+        let endpoint = EndpointId::parse("human").expect("an endpoint");
+        let row = RowId::from_stored(3);
+        let key = ConversationKey::Direct {
+            peer: peer.clone(),
+            endpoint: Some(endpoint.clone()),
+        };
+        let mut side = ModelSide::new(Nothing, Nothing);
+        side.apply(Update::ReceivedCard(Box::new(Proposal {
+            row,
+            peer: peer.clone(),
+            endpoint,
+            card: Card {
+                app_message_id: "0".repeat(32),
+                name: "Ada".to_owned(),
+                surname: None,
+                photo: None,
+                identity_key: [1; 32],
+                sent_at_ms: None,
+                from_endpoint: None,
+            },
+            received_at: 1,
+            context: ProposalContext {
+                updates: None,
+                shares_node: Vec::new(),
+                same_name: Vec::new(),
+                key_matches: Vec::new(),
+                key: KeyView::New,
+                fingerprint: "0123456789abcdef".to_owned(),
+                changes_nothing: false,
+            },
+        })));
+        side.apply(Update::CardResolved {
+            row,
+            outcome: CardOutcome::Accepted {
+                contact_id: "c1".to_owned(),
+                created: false,
+                photo_dropped: false,
+            },
+        });
+        side.apply(Update::ContactsListed(vec![ContactView {
+            contact_id: "c1".to_owned(),
+            name: "Ada".to_owned(),
+            name_from_card: true,
+            name_at: None,
+            photo_from_card: None,
+            photo_at: None,
+            photo: None,
+            routes: Vec::new(),
+        }]));
+        assert_eq!(side.model().card_answers(&key).len(), 1);
+        side.apply(Update::CardsNotRead(Failure::Corrupt));
+        side.apply(Update::ProposalNotRestored(row));
+        assert!(side.model().card_answers(&key).is_empty(), "the row goes");
+        assert_eq!(
+            side.take_problems(),
+            [Problem::CardsNotRead(Failure::Corrupt)]
         );
     }
 

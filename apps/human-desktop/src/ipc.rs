@@ -39,7 +39,7 @@ pub fn facade_over_ipc(
         },
         CLIENT_KIND,
     );
-    let identity = identity(profile);
+    let identity = identity(profile, &store);
     let config = ClientConfig {
         client_kind: CLIENT_KIND.to_owned(),
         endpoints: profile.endpoints.clone(),
@@ -67,8 +67,8 @@ pub fn facade_over_ipc(
 /// (`interweave_human_app_core::identity_key`, whose tests hold it). A file
 /// this build refuses is named on stderr by class, never its content, and
 /// the client runs with no key: Share says so, and nothing is signed.
-fn identity(profile: &Profile) -> Option<IdentityKey> {
-    match identity_key(&profile.paths, &profile.endpoints) {
+fn identity(profile: &Profile, store: &HumanStore) -> Option<IdentityKey> {
+    match identity_key(&profile.paths, &profile.endpoints, store) {
         Ok(key) => key,
         Err(e) => {
             eprintln!("human-desktop: the identity's key is not usable: {e}");

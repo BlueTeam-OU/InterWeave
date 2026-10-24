@@ -517,7 +517,7 @@ async fn decide<B: DataSessionBinding, A: AdminBinding>(
         .take_updates()
         .into_iter()
         .filter_map(|u| match u {
-            Update::CardResolved(row) => Some(row),
+            Update::CardResolved { row, .. } => Some(row),
             _ => None,
         })
         .collect();

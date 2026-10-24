@@ -44,3 +44,5 @@ interweave-profile-identity = { path = "../../identity/profile-identity" }
 rusqlite = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
+# A test cipher answers its secret in the seam's own wrapper.
+zeroize = { version = "1", default-features = false, features = ["alloc"] }

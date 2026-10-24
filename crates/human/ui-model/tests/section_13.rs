@@ -84,6 +84,7 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         // sends a message.
         | Intent::AcceptCard(_)
         | Intent::DeclineCard(_)
+        | Intent::UndoCard(_)
         | Intent::ShareCard(_)
         | Intent::SetOwnCard { .. }
         | Intent::RenameContact { .. }
