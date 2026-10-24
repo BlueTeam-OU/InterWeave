@@ -96,6 +96,7 @@ fn proposal_value(p: &ProposalItem, key: &ConversationKey, status: &str) -> Valu
         "accept": match &p.accept {
             AcceptLine::Creates => json!({ "creates": true }),
             AcceptLine::Updates(name) => json!({ "updates": name }),
+            AcceptLine::Matches(name) => json!({ "matches": name }),
         },
         "notes": notes,
         "received_at_ms": p.received_at,
@@ -130,6 +131,13 @@ fn proposal(p: &ProposalItem, key: &ConversationKey, status: &str, json: bool) -
         AcceptLine::Creates => out.push_str("    accept creates a contact\n"),
         AcceptLine::Updates(name) => {
             let _ = writeln!(out, "    accept updates {}", one_line(name));
+        }
+        AcceptLine::Matches(name) => {
+            let _ = writeln!(
+                out,
+                "    matches {}; nothing to accept, decline closes it",
+                one_line(name)
+            );
         }
     }
     for note in &p.notes {
@@ -413,7 +421,17 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
     };
     let mut decisions: Vec<(RowId, bool)> = Vec::new();
     for (n, id) in accept.iter().enumerate() {
-        decisions.push((find(id, n, "accept")?, true));
+        let row = find(id, n, "accept")?;
+        if shown
+            .iter()
+            .any(|p| p.row == row && matches!(p.accept, AcceptLine::Matches(_)))
+        {
+            return Err(Failure::Refused(format!(
+                "--accept number {}: {id} matches its contact and changes nothing; --decline closes it",
+                n + 1
+            )));
+        }
+        decisions.push((row, true));
     }
     for (n, id) in decline.iter().enumerate() {
         decisions.push((find(id, n, "decline")?, false));
