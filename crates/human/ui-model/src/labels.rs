@@ -789,25 +789,19 @@ ui_texts! {
     /// CARD CONFIRMATION ROW, in the proposal's place after an Accept
     /// that created a contact (contact-cards design 5.4.2, cases N, D and
     /// P): `{name}` is the contact's name as saved.
-    // PLACEHOLDER (en)
     CardAccepted => "You saved {name} as a contact.",
     /// CARD CONFIRMATION ROW after an Accept that updated a contact (cases
     /// U and E): `{name}` is the contact's name as it stands.
-    // PLACEHOLDER (en)
     CardUpdated => "You updated your contact {name}.",
     /// CARD CONFIRMATION ROW, added when the card's photo did not decode
     /// within its bound and the contact was saved without it.
-    // PLACEHOLDER (en)
-    CardPhotoNotUsed => "The photo could not be shown and was not saved.",
+    CardPhotoNotUsed => "The card's photo could not be used, so the contact was saved without it.",
     /// SNACKBAR, with Undo, after an Accept that created a contact.
-    // PLACEHOLDER (en)
     ConfirmContactSaved => "Contact saved",
     /// SNACKBAR, with Undo, after an Accept that updated a contact.
-    // PLACEHOLDER (en)
     ConfirmContactUpdated => "Contact updated",
     /// SNACKBAR, with Undo, after a Decline: the proposal is gone from
     /// the session unless the person takes it back.
-    // PLACEHOLDER (en)
     ConfirmCardDeclined => "Card declined",
     /// A conversation's action: send this identity's own card to the
     /// counterparty. Offered in a direct conversation only, never sent
