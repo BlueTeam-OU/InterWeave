@@ -117,7 +117,10 @@ pub(crate) fn contact_views(store: &HumanStore) -> Result<Vec<ContactView>, Stor
             contact_id: c.contact_id,
             name: c.display_name,
             name_from_card: c.name_source == ValueSource::Card,
+            name_at: None,
             photo_from_card: c.photo_source.map(|s| s == ValueSource::Card),
+            photo_at: None,
+            photo: None,
             routes: c
                 .routes
                 .into_iter()
@@ -145,7 +148,10 @@ pub(crate) fn identity_view(
             .surname
             .as_ref()
             .map_or_else(|| card.name.clone(), |s| format!("{} {s}", card.name)),
+        given: card.name.clone(),
+        surname: card.surname.clone(),
         has_photo: card.photo.is_some(),
+        photo: None,
         fingerprint: key.fingerprint().to_string(),
         peer: peer.cloned(),
     })

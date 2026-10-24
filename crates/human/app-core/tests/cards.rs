@@ -254,8 +254,8 @@ async fn a_valid_card_accepted_creates_the_contact_and_names_the_conversation() 
     );
     assert_eq!(
         bob.model().title(&from_alice),
-        "Ada Lovelace",
-        "the conversation takes the name"
+        interweave_human_ui_model::isolated("Ada Lovelace"),
+        "the conversation takes the name, isolated"
     );
     let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
         .expect("reopen");
@@ -378,7 +378,10 @@ async fn a_shown_card_is_still_accepted_from_the_sessions_copy() {
     assert!(bob.failed().is_empty(), "{:?}", bob.failed());
     assert!(bob.model().proposals(&from_alice).is_empty());
     assert_eq!(bob.model().contacts().len(), 1, "accepted");
-    assert_eq!(bob.model().title(&from_alice), "Ada Lovelace");
+    assert_eq!(
+        bob.model().title(&from_alice),
+        interweave_human_ui_model::isolated("Ada Lovelace")
+    );
 }
 
 #[tokio::test]

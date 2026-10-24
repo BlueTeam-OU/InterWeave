@@ -24,6 +24,68 @@ use interweave_human_core::RowId;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
 use super::{ConversationKey, Intent, RouteLabel, UiModel};
+use crate::labels::UiText;
+
+/// A photo decoded for display, after Accept or from the person's own
+/// card: the facade decodes it within the card's 256 × 256 bound, and a
+/// received photo never reaches the model before Accept, since a
+/// proposal carries only [`ProposalItem::has_photo`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Photo {
+    /// Its width in pixels.
+    pub width: u32,
+    /// Its height in pixels.
+    pub height: u32,
+    /// Its pixels, RGBA, row by row.
+    pub rgba: Vec<u8>,
+}
+
+/// Why a name typed for a card or a contact cannot be saved, checked on
+/// Save and shown under its field (design section 5.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameProblem {
+    /// Empty, or spaces only.
+    Needed,
+    /// Over 64 characters after NFC.
+    TooLong,
+    /// A control, format, line or paragraph separator character.
+    BadCharacters,
+}
+
+impl NameProblem {
+    /// What its field says.
+    #[must_use]
+    pub const fn text(self) -> UiText {
+        match self {
+            Self::Needed => UiText::CardNameNeeded,
+            Self::TooLong => UiText::CardNameTooLong,
+            Self::BadCharacters => UiText::CardNameBadCharacters,
+        }
+    }
+}
+
+/// What is wrong with `name` as a card's name or surname, by the card's
+/// own rule (`check_draft`, HUMAN-CHAT.md section Contact card), or
+/// nothing: a name the facade would refuse is refused here first, with
+/// the reason a person can act on.
+#[must_use]
+pub fn name_problem(name: &str) -> Option<NameProblem> {
+    if name.trim().is_empty() {
+        return Some(NameProblem::Needed);
+    }
+    let draft = interweave_human_chat_protocol::CardDraft {
+        name,
+        surname: None,
+        photo: None,
+    };
+    if interweave_human_chat_protocol::check_draft(draft).is_ok() {
+        None
+    } else if name.chars().count() > interweave_human_chat_protocol::MAX_CARD_NAME_SCALARS {
+        Some(NameProblem::TooLong)
+    } else {
+        Some(NameProblem::BadCharacters)
+    }
+}
 
 /// What an edit does to a photo.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -142,6 +204,27 @@ pub struct ProposalItem {
     pub received_at: u64,
 }
 
+impl ProposalItem {
+    /// Accept's label, which says what it does before it runs (design
+    /// section 5.4.1): Update contact when a contact holds the route,
+    /// Accept as a new contact beside one of the same name on another
+    /// `PeerId` or one on the same device, else Accept.
+    #[must_use]
+    pub fn accept_text(&self) -> UiText {
+        match self.accept {
+            AcceptLine::Updates(_) => UiText::UpdateContact,
+            AcceptLine::Creates
+                if self.notes.iter().any(|n| {
+                    matches!(n, ProposalNote::SameName(_) | ProposalNote::SharesNode(_))
+                }) =>
+            {
+                UiText::AcceptAsNew
+            }
+            AcceptLine::Creates => UiText::CardAccept,
+        }
+    }
+}
+
 /// One route of a contact, for its page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteView {
@@ -163,8 +246,16 @@ pub struct ContactView {
     pub name: String,
     /// Whether the name came from a card (else the person wrote it).
     pub name_from_card: bool,
+    /// When the name was last set, if known.
+    pub name_at: Option<u64>,
     /// Where the photo came from, if there is one: from a card or not.
+    /// The person's removal is theirs too: a photo of `None` with
+    /// `Some(false)` here is one the person took away.
     pub photo_from_card: Option<bool>,
+    /// When the photo was last set or removed, if known.
+    pub photo_at: Option<u64>,
+    /// The photo, decoded for display.
+    pub photo: Option<Photo>,
     /// Its routes.
     pub routes: Vec<RouteView>,
 }
@@ -176,8 +267,15 @@ pub struct IdentityView {
     pub endpoint: EndpointId,
     /// Its own card's name and surname.
     pub name: String,
+    /// Its own card's name alone, as the person typed it.
+    pub given: String,
+    /// Its own card's surname, if any.
+    pub surname: Option<String>,
     /// Whether its own card has a photo.
     pub has_photo: bool,
+    /// Its own card's photo, decoded for display: exactly what a share
+    /// sends.
+    pub photo: Option<Photo>,
     /// Its key's fingerprint.
     pub fingerprint: String,
     /// This node's `PeerId`, beside the fingerprint, once known.
@@ -239,7 +337,7 @@ impl Cards {
     }
 
     /// The contact holding a direct route, if any.
-    pub(super) fn contact_for(
+    pub(crate) fn contact_for(
         &self,
         peer: &TransportIdentity,
         endpoint: &EndpointId,
@@ -433,6 +531,34 @@ impl UiModel {
         })
     }
 
+    /// The contact a direct conversation's route belongs to, if any.
+    #[must_use]
+    pub fn contact_on(&self, key: &ConversationKey) -> Option<&ContactView> {
+        match key {
+            ConversationKey::Direct {
+                peer,
+                endpoint: Some(at),
+            } => self.cards.contact_for(peer, at),
+            _ => None,
+        }
+    }
+
+    /// The other contacts of this identity with a route on `peer`: what a
+    /// contact page names under a route sharing its device (ADR-0061
+    /// decision 4).
+    #[must_use]
+    pub fn contacts_sharing(
+        &self,
+        contact_id: &str,
+        peer: &TransportIdentity,
+    ) -> Vec<&ContactView> {
+        self.cards
+            .contacts
+            .iter()
+            .filter(|c| c.contact_id != contact_id && c.routes.iter().any(|r| &r.peer == peer))
+            .collect()
+    }
+
     /// The contacts, by name.
     #[must_use]
     pub fn contacts(&self) -> &[ContactView] {
@@ -565,7 +691,10 @@ mod tests {
             contact_id: id.to_owned(),
             name: name.to_owned(),
             name_from_card: true,
+            name_at: None,
             photo_from_card: None,
+            photo_at: None,
+            photo: None,
             routes: vec![RouteView {
                 peer: peer(p),
                 endpoint: endpoint("human"),
@@ -692,7 +821,11 @@ mod tests {
     fn a_contacts_name_titles_its_conversation_told_apart_by_the_short_peer_id_when_shared() {
         let mut model = UiModel::new();
         model.contacts_listed(vec![contact("c1", "Ada", P)]);
-        assert_eq!(model.title(&direct(P, "human")), "Ada");
+        assert_eq!(
+            model.title(&direct(P, "human")),
+            "\u{2068}Ada\u{2069}",
+            "the name, isolated"
+        );
         model.contacts_listed(vec![contact("c1", "Ada", P), contact("c2", "Ada", Q)]);
         let p_title = model.title(&direct(P, "human"));
         let q_title = model.title(&direct(Q, "human"));
@@ -705,7 +838,10 @@ mod tests {
             p_title,
             crate::labels::fill(
                 placeholder_en::text(UiText::ContactTitle),
-                &[("name", "Ada"), ("peer", &crate::labels::short_peer(P))]
+                &[
+                    ("name", &crate::labels::isolated("Ada")),
+                    ("peer", &crate::labels::short_peer(P))
+                ]
             )
         );
     }
@@ -722,7 +858,10 @@ mod tests {
             contact_id: "c1".to_owned(),
             name: "Ada".to_owned(),
             name_from_card: true,
+            name_at: None,
             photo_from_card: None,
+            photo_at: None,
+            photo: None,
             routes: Vec::new(),
         }]);
         let delete = model.delete_contact("c1").expect("offered");
@@ -738,5 +877,111 @@ mod tests {
             !model.offers(&delete),
             "a contact gone is not deleted twice"
         );
+    }
+
+    #[test]
+    fn a_name_is_refused_on_save_for_the_reason_a_person_can_act_on() {
+        assert_eq!(name_problem(""), Some(NameProblem::Needed));
+        assert_eq!(
+            name_problem("   "),
+            Some(NameProblem::Needed),
+            "spaces only"
+        );
+        assert_eq!(name_problem(&"a".repeat(64)), None, "64 is the bound");
+        assert_eq!(name_problem(&"a".repeat(65)), Some(NameProblem::TooLong));
+        assert_eq!(
+            name_problem("Ada\nLovelace"),
+            Some(NameProblem::BadCharacters)
+        );
+        assert_eq!(
+            name_problem("Ada\u{202e}"),
+            Some(NameProblem::BadCharacters),
+            "a bidirectional control, which could close an isolate"
+        );
+        assert_eq!(name_problem("Ada Lovelace"), None);
+        // What the facade's own rule says, for every case above.
+        for (name, ok) in [("Ada", true), ("Ada\u{2069}", false), ("", false)] {
+            let draft = interweave_human_chat_protocol::CardDraft {
+                name,
+                surname: None,
+                photo: None,
+            };
+            assert_eq!(
+                interweave_human_chat_protocol::check_draft(draft).is_ok(),
+                ok,
+                "{name:?}"
+            );
+            assert_eq!(name_problem(name).is_none(), ok, "{name:?}");
+        }
+    }
+
+    #[test]
+    fn accepts_label_says_whether_it_creates_beside_another_or_updates() {
+        let mut model = UiModel::new();
+        model.card_received(proposal(1, P, "Ada", context()));
+        let shown = |m: &UiModel, p: &str| m.proposals(&direct(p, "human"))[0].accept_text();
+        assert_eq!(shown(&model, P), UiText::CardAccept, "case N");
+        let near = |kind: &str| ContactRef {
+            contact_id: kind.to_owned(),
+            name: "Ada".to_owned(),
+        };
+        model.card_received(proposal(
+            2,
+            Q,
+            "Ada",
+            ProposalContext {
+                same_name: vec![near("d")],
+                ..context()
+            },
+        ));
+        assert_eq!(shown(&model, Q), UiText::AcceptAsNew, "case D");
+        model.card_resolved(row(2));
+        model.card_received(proposal(
+            3,
+            Q,
+            "Ada",
+            ProposalContext {
+                shares_node: vec![near("p")],
+                ..context()
+            },
+        ));
+        assert_eq!(shown(&model, Q), UiText::AcceptAsNew, "case P");
+        model.card_resolved(row(3));
+        model.card_received(proposal(
+            4,
+            Q,
+            "Ada",
+            ProposalContext {
+                updates: Some(near("u")),
+                same_name: vec![near("d")],
+                ..context()
+            },
+        ));
+        assert_eq!(
+            shown(&model, Q),
+            UiText::UpdateContact,
+            "case U, whatever else"
+        );
+    }
+
+    #[test]
+    fn a_contact_page_names_only_the_other_contacts_on_the_same_peer() {
+        let mut model = UiModel::new();
+        let mut work = contact("c2", "Ada at work", P);
+        work.routes[0].endpoint = endpoint("work");
+        model.contacts_listed(vec![contact("c1", "Ada", P), work, contact("c3", "Bob", Q)]);
+        let sharing: Vec<&str> = model
+            .contacts_sharing("c1", &peer(P))
+            .iter()
+            .map(|c| c.contact_id.as_str())
+            .collect();
+        assert_eq!(sharing, vec!["c2"], "not itself, not another device");
+        assert_eq!(
+            model
+                .contact_on(&direct(P, "work"))
+                .map(|c| c.contact_id.as_str()),
+            Some("c2")
+        );
+        assert!(model.contact_on(&direct(Q, "work")).is_none());
     }
 }

@@ -983,7 +983,9 @@ impl UiModel {
 
     /// The title, its contact's name once the route belongs to one (plan
     /// §29 step 2, `human-client-ui.md` §4), with the short `PeerId` beside
-    /// it when another contact has that name; else as before.
+    /// it when another contact has that name; else as before. The name is
+    /// isolated ([`crate::labels::isolated`]): a title is a name inside
+    /// other text, in the list, the header and Details alike.
     fn contact_title(
         &self,
         key: &ConversationKey,
@@ -1002,12 +1004,12 @@ impl UiModel {
                 return fill(
                     placeholder_en::text(UiText::ContactTitle),
                     &[
-                        ("name", &contact.name),
+                        ("name", &crate::labels::isolated(&contact.name)),
                         ("peer", &short_peer(peer.as_str())),
                     ],
                 );
             }
-            return contact.name.clone();
+            return crate::labels::isolated(&contact.name);
         }
         title(key, shared)
     }
