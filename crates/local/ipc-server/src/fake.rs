@@ -191,6 +191,14 @@ impl DataSessionPort for FakeSession {
         Ok(EndpointId::parse("remote").expect("endpoint"))
     }
 
+    async fn losses(&self) -> Result<interweave_local_client_api::SessionLosses, TransportError> {
+        self.fake.call("losses".to_owned());
+        Ok(interweave_local_client_api::SessionLosses {
+            queue_overflow: 3,
+            ingress_refused: 5,
+        })
+    }
+
     async fn events(&self, max: usize) -> Result<Vec<SessionEvent>, TransportError> {
         let mut script = self.fake.script();
         let take = max.min(script.events.len());

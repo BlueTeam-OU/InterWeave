@@ -13,7 +13,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use interweave_ipc_protocol::{
     AddressList, AddressResult, AddressesResult, AdminStatusResult, DirectoryResult,
     ENDPOINT_PERSISTED_SINCE_MINOR, EmptyResult, EndpointList, OwnAddressList, PeerList, Request,
-    RequestId, ResponseFrame, SendResult, SetEnabledResult, TRUST_SOURCE_SINCE_MINOR, TrustList,
+    RequestId, ResponseFrame, SendResult, SessionLossesResult, SetEnabledResult,
+    TRUST_SOURCE_SINCE_MINOR, TrustList,
 };
 use interweave_local_client_api::{AdminPort, DataSessionPort};
 use interweave_transport_api::{BroadcastMessageV1, DirectDestination, TransportError};
@@ -62,6 +63,10 @@ pub(crate) async fn data<S: DataSessionPort>(
         }
         Request::EndpointsQuery(p) => match session.query_endpoints(p.peer).await {
             Ok(directory) => ResponseFrame::success(id, &DirectoryResult::from(directory)),
+            Err(code) => ResponseFrame::failure(id, code),
+        },
+        Request::SessionLosses => match session.losses().await {
+            Ok(losses) => ResponseFrame::success(id, &SessionLossesResult::from(losses)),
             Err(code) => ResponseFrame::failure(id, code),
         },
         // Admission refuses the admin domain on the data socket before
@@ -211,9 +216,8 @@ pub(crate) async fn admin<A: AdminPort>(
         | Request::ChannelLeave(_)
         | Request::BroadcastPublish(_)
         | Request::DirectSend(_)
-        | Request::EndpointsQuery(_) => {
-            ResponseFrame::failure(id, TransportError::CapabilityDenied)
-        }
+        | Request::EndpointsQuery(_)
+        | Request::SessionLosses => ResponseFrame::failure(id, TransportError::CapabilityDenied),
     }
 }
 
@@ -304,6 +308,12 @@ mod tests {
                 serde_json::json!({"peer": PEER}),
                 "query ",
                 r#""endpoints":["agent"]"#,
+            ),
+            (
+                Method::SessionLosses,
+                serde_json::json!({}),
+                "losses",
+                r#""result":{"queue_overflow":3,"ingress_refused":5}"#,
             ),
         ];
         for (method, params, call, result) in cases {
