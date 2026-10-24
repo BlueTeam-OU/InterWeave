@@ -88,6 +88,15 @@ export struct ProposalRow {
     accept: string,
     decline: string,
     copy: string,
+    // An Accept was carried out: the row is its confirmation (design
+    // section 5.4.2), `answer` saying what was saved and `photo-note`
+    // that the card's photo was not, or empty; nothing above is shown.
+    answered: bool,
+    answer: string,
+    photo-note: string,
+    // While the Accept's snackbar is open: where its Undo is, read as the
+    // confirmation line's description (design section 5.4.2), or empty.
+    hint: string,
 }
 
 // A contact in the Contacts list.
@@ -1953,6 +1962,49 @@ component NeutralAvatar inherits Rectangle {
     }
 }
 
+// A line of text focus can be moved to: what an action left in a row's
+// place, so focus is never lost when the row it was in is replaced.
+// Wraps, where a heading would elide.
+component FocusLine inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
+    in property <string> text;
+    in property <string> description;
+    in property <string> focus-key;
+    in property <bool> rtl;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    callback focused(string);
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    accessible-description: root.description;
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    VerticalLayout {
+        Text {
+            text: root.text;
+            font-size: Type.body-large;
+            wrap: word-wrap;
+            color: Palette.on-surface;
+            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+            accessible-role: none;
+        }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        shown: root.has-focus;
+    }
+}
+
 // A received card in its conversation (design section 5.4): a row of its
 // own, not a bubble, so the peer's claim never reads as a message the app
 // wrote. Read in order: the claim, the photo line, a key change, the
@@ -1963,6 +2015,10 @@ component ProposalCard inherits Rectangle {
     in property <ProposalRow> card;
     in property <string> code-font;
     in property <bool> rtl;
+    // A focus request (swipe spec section 7): the proposal's first
+    // control, or its confirmation line, takes focus when named.
+    in property <int> focus-seq;
+    in property <string> focus-target;
     callback accept();
     callback decline();
     callback copy();
@@ -1971,7 +2027,28 @@ component ProposalCard inherits Rectangle {
     border-radius: 12px;
     border-width: 1px;
     border-color: Palette.outline-variant;
-    VerticalLayout {
+    if root.card.answered: VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+        FocusLine {
+            text: root.card.answer;
+            description: root.card.hint;
+            rtl: root.rtl;
+            focus-key: "answer:" + root.card.handle;
+            focus-seq: root.focus-seq;
+            focus-wanted: root.focus-target == "answer:" + root.card.handle;
+            focused(k) => { root.focused(k); }
+        }
+        if root.card.photo-note != "": Text {
+            text: root.card.photo-note;
+            font-size: Type.body-medium;
+            wrap: word-wrap;
+            color: Palette.on-surface-variant;
+            accessible-role: text;
+            accessible-label: self.text;
+        }
+    }
+    if !root.card.answered: VerticalLayout {
         padding: 16px;
         spacing: 8px;
         HorizontalLayout {
@@ -2090,6 +2167,8 @@ component ProposalCard inherits Rectangle {
                 text-button: true;
                 target: 48px;
                 focus-key: "proposal-copy:" + root.card.handle;
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "proposal-copy:" + root.card.handle;
                 pressed => { root.copy(); }
                 focused(k) => { root.focused(k); }
             }
@@ -2107,6 +2186,8 @@ component ProposalCard inherits Rectangle {
                 filled: true;
                 target: 48px;
                 focus-key: "proposal-accept:" + root.card.handle;
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "proposal-accept:" + root.card.handle;
                 pressed => { root.accept(); }
                 focused(k) => { root.focused(k); }
             }
@@ -5384,6 +5465,8 @@ export component AppWindow inherits Window {
                     card: proposal;
                     code-font: root.code-font;
                     rtl: root.rtl;
+                    focus-seq: root.focus-seq;
+                    focus-target: root.focus-target;
                     accept => { root.proposal-accept(proposal.handle); }
                     decline => { root.proposal-decline(proposal.handle); }
                     copy => {

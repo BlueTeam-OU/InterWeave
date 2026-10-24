@@ -374,6 +374,11 @@ impl Root {
                 Problem::UnreadNotListed(why) => {
                     log(&format!("unread messages could not be listed: {why:?}"));
                 }
+                Problem::CardsNotRead(why) => {
+                    log(&format!(
+                        "cards or contacts could not be read back: {why:?}"
+                    ));
+                }
             }
         }
     }

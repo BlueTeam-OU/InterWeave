@@ -19,10 +19,11 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use interweave_human_ui_model::{
-    AcceptLine, Avatar, AvatarHue, ContactView, ConversationKey, Intent, KeyView, Photo, PhotoEdit,
-    ProposalItem, ProposalNote, UiModel, UiText, fill, isolated, name_problem, placeholder_en,
-    short_peer,
+    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ConversationKey, Intent, KeyView,
+    Photo, PhotoEdit, ProposalItem, ProposalNote, RowId, UiModel, UiText, fill, isolated,
+    name_problem, placeholder_en, short_peer,
 };
+
 use interweave_transport_api::EndpointId;
 use slint::{
     ComponentHandle as _, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
@@ -266,6 +267,56 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
         accept: text(p.accept_text()).into(),
         decline: text(UiText::CardDecline).into(),
         copy: text(UiText::CopyPeerId).into(),
+        answered: false,
+        answer: SharedString::new(),
+        photo_note: SharedString::new(),
+        hint: SharedString::new(),
+    }
+}
+
+/// The confirmation row an Accept left in its proposal's place (design
+/// section 5.4.2): `name` is the contact's name as it stands.
+fn answer_row(handle: i32, a: &CardAnswer, name: &str, hinted: bool) -> ProposalRow {
+    let template = if a.created {
+        UiText::CardAccepted
+    } else {
+        UiText::CardUpdated
+    };
+    ProposalRow {
+        handle,
+        answered: true,
+        answer: fill(text(template), &[("name", &isolated(name))]).into(),
+        photo_note: if a.photo_dropped {
+            text(UiText::CardPhotoNotUsed).into()
+        } else {
+            SharedString::new()
+        },
+        hint: if hinted {
+            text(UiText::CardUndoHint).into()
+        } else {
+            SharedString::new()
+        },
+        ..ProposalRow::default()
+    }
+}
+
+/// What the proposals list draws, in the conversation's time order: a
+/// proposal, or the confirmation row of one accepted, with the contact's
+/// name as it stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Entry {
+    Proposal(ProposalItem),
+    /// The answer, its contact's name, and whether its Accept's snackbar
+    /// is open (its Undo hint read with it).
+    Answer(CardAnswer, String, bool),
+}
+
+impl Entry {
+    fn place(&self) -> (u64, RowId) {
+        match self {
+            Self::Proposal(p) => (p.received_at, p.row),
+            Self::Answer(a, _, _) => (a.received_at, a.row),
+        }
     }
 }
 
@@ -276,8 +327,16 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
 pub(crate) struct CardScreens {
     pub(crate) page: Option<CardsPage>,
     contact: Option<String>,
-    proposals_shown: Vec<ProposalItem>,
+    proposals_shown: Vec<Entry>,
     proposals: Option<Rc<VecModel<ProposalRow>>>,
+    /// Each drawn row's handle and whether it is a confirmation row, by
+    /// the card's row: where [`FocusTarget::Proposal`] moves focus.
+    ///
+    /// [`FocusTarget::Proposal`]: interweave_human_ui_model::FocusTarget::Proposal
+    pub(crate) drawn_rows: HashMap<RowId, (i32, bool)>,
+    /// The proposal whose own Accept or Decline was pressed last: its
+    /// answer moves focus, as a message row's own button does.
+    pub(crate) pressed: Option<RowId>,
     contacts_shown: Vec<ContactView>,
     contact_rows: Option<Rc<VecModel<ContactListRow>>>,
     contact_drawn: Option<ContactView>,
@@ -294,7 +353,13 @@ impl View {
             CardsInput::Answer(intent) => {
                 let offered = match &intent {
                     Intent::AcceptCard(row) | Intent::DeclineCard(row) => {
-                        model.card_actions(*row).contains(&intent)
+                        let offered = model.card_actions(*row).contains(&intent);
+                        // The row's own button: its answer moves focus
+                        // whatever the focus id last said (swipe spec 7).
+                        if offered {
+                            self.cards.pressed = Some(*row);
+                        }
+                        offered
                     }
                     _ => false,
                 };
@@ -460,10 +525,28 @@ impl View {
     }
 
     fn render_proposals(&mut self, model: &UiModel, window: &AppWindow) {
-        let shown: Vec<ProposalItem> = match (&self.page, &self.shown) {
-            (crate::Page::Conversation, Some(key)) => model.proposals(key),
+        // The card whose Accept's snackbar is open, with its Undo.
+        let undo_open_for = model
+            .snackbar()
+            .filter(|s| s.undo && crate::swipe::is_accept(s.confirms))
+            .and_then(|s| s.card);
+        let mut shown: Vec<Entry> = match (&self.page, &self.shown) {
+            (crate::Page::Conversation, Some(key)) => model
+                .proposals(key)
+                .into_iter()
+                .map(Entry::Proposal)
+                .chain(model.card_answers(key).into_iter().map(|a| {
+                    let name = model
+                        .contact(&a.contact_id)
+                        .map(|c| c.name.clone())
+                        .unwrap_or_default();
+                    let hinted = undo_open_for == Some(a.row);
+                    Entry::Answer(a, name, hinted)
+                }))
+                .collect(),
             _ => Vec::new(),
         };
+        shown.sort_by_key(Entry::place);
         let rows = Rc::clone(
             self.cards
                 .proposals
@@ -471,11 +554,20 @@ impl View {
         );
         if shown != self.cards.proposals_shown {
             let mut answers = HashMap::new();
+            let mut handles = HashMap::new();
             let drawn: Vec<ProposalRow> = shown
                 .iter()
                 .enumerate()
-                .map(|(i, p)| {
+                .map(|(i, entry)| {
                     let handle = i32::try_from(i).unwrap_or(i32::MAX);
+                    let p = match entry {
+                        Entry::Answer(a, name, hinted) => {
+                            handles.insert(a.row, (handle, true));
+                            return answer_row(handle, a, name, *hinted);
+                        }
+                        Entry::Proposal(p) => p,
+                    };
+                    handles.insert(p.row, (handle, false));
                     // Case S offers Decline alone, which the row's one
                     // button, Close, raises whichever callback it takes.
                     match model.card_actions(p.row).as_slice() {
@@ -492,6 +584,7 @@ impl View {
                 .collect();
             rows.set_vec(drawn);
             self.shared.borrow_mut().cards.answers = answers;
+            self.cards.drawn_rows = handles;
             self.cards.proposals_shown = shown;
         }
         window.set_proposals(ModelRc::from(rows));

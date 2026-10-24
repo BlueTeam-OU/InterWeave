@@ -532,7 +532,7 @@ async fn a_keep_of_a_shown_cards_copy_is_refused_and_the_card_stays_decidable() 
     assert!(
         updates
             .iter()
-            .any(|u| matches!(u, Update::CardResolved(r) if *r == row)),
+            .any(|u| matches!(u, Update::CardResolved { row: r, .. } if *r == row)),
         "the copy is still there for Accept: {updates:?}"
     );
     Box::pin(bob.facade.close()).await;
@@ -1194,5 +1194,92 @@ async fn a_matching_card_offers_accept_once_another_card_on_its_route_is_accepte
             Intent::AcceptCard(older.row),
             Intent::DeclineCard(older.row)
         ]
+    );
+}
+
+impl Root {
+    fn view(&mut self, event: ViewEvent) {
+        self.model.surface_mut().batches.push_back(vec![event]);
+    }
+}
+
+/// Contact-cards design 5.4.2 through the loop: Accept saves the contact,
+/// the snackbar's Undo deletes it with its route, and the proposal comes
+/// back read and decidable from the session's copy -- an Accept after the
+/// Undo saves it again.
+#[tokio::test]
+async fn undo_of_an_accept_deletes_the_contact_and_the_proposal_returns_to_accept_again() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let row = bob.model().proposals(&from_alice)[0].row;
+    bob.will(Intent::AcceptCard(row));
+    bob.pump(5).await;
+    assert_eq!(bob.model().contacts().len(), 1);
+    assert_eq!(bob.model().card_answers(&from_alice).len(), 1);
+    let snack = bob.model().snackbar().expect("Contact saved");
+    bob.view(ViewEvent::Undo(snack.id));
+    bob.pump(6).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    assert!(bob.model().contacts().is_empty(), "the contact is gone");
+    assert!(bob.model().card_answers(&from_alice).is_empty());
+    assert_eq!(bob.model().proposals(&from_alice).len(), 1, "back");
+    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen");
+    assert!(store.contacts().expect("read").is_empty(), "nothing stored");
+    assert!(
+        store.unread_inbound().expect("read").is_empty(),
+        "and no durable copy came back: the proposal is read"
+    );
+    drop(store);
+
+    bob.will(Intent::AcceptCard(row));
+    bob.pump(7).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    assert_eq!(bob.model().contacts().len(), 1, "saved again");
+}
+
+/// 5.4.3: Undo of a Decline brings the proposal back; once a snackbar
+/// closes, the facade side lets the card go, and an Undo then finds
+/// nothing to restore.
+#[tokio::test]
+async fn undo_of_a_decline_returns_the_proposal_and_a_closed_snackbar_lets_the_card_go() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let row = bob.model().proposals(&from_alice)[0].row;
+    bob.will(Intent::DeclineCard(row));
+    bob.pump(5).await;
+    assert!(bob.model().proposals(&from_alice).is_empty());
+    let snack = bob.model().snackbar().expect("Card declined");
+    bob.view(ViewEvent::Undo(snack.id));
+    bob.pump(6).await;
+    assert_eq!(bob.model().proposals(&from_alice).len(), 1, "back");
+
+    bob.will(Intent::DeclineCard(row));
+    bob.pump(7).await;
+    let snack = bob.model().snackbar().expect("Card declined");
+    bob.view(ViewEvent::SnackbarClosed(snack.id));
+    bob.pump(8).await;
+    let updates = bob.facade.execute(Command::UndoCard(row), 9).await;
+    assert!(
+        updates.iter().any(|u| matches!(
+            u,
+            Update::Failed {
+                why: Failure::NoSuchRow,
+                ..
+            }
+        )),
+        "the card was let go: {updates:?}"
     );
 }

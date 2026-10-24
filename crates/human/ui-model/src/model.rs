@@ -397,6 +397,9 @@ pub enum Intent {
     AcceptCard(RowId),
     /// Decline it: discard the card, writing nothing.
     DeclineCard(RowId),
+    /// Take back the Accept or Decline of this proposal: only the open
+    /// snackbar's Undo makes one ([`UiModel::undo`]).
+    UndoCard(RowId),
     /// Send this conversation's identity's own card to its route. Only
     /// [`UiModel::share_card`] makes one, for a direct conversation.
     ShareCard(ConversationKey),
