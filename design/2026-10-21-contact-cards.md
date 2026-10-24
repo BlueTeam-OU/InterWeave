@@ -737,7 +737,7 @@ as §7's Announcement would have it, because focus moves to the
 confirmation row and reads the result there (§8 Announcements); and its
 snackbar's timeout waits while focus is in that row or on the
 snackbar, with the row's description pointing to the Undo (§5.4.2), so
-the Undo the announcement no longer points to stays within reach.
+the person can still reach the Undo, which the announcement no longer names.
 Decline and every Undo (with "Action undone", message-swipe §9) are
 announced as §7 says.
 
