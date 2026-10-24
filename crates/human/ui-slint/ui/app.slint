@@ -465,6 +465,10 @@ component ActionButton inherits FocusScope {
     // A filled button: `primary` behind an `on-primary` label, fully
     // rounded, label large (Material's filled button).
     in property <bool> filled;
+    // A tonal button: `primary-container` behind an `on-primary-container`
+    // label, fully rounded, label large -- second to a filled one beside
+    // it (add-a-peer section 5.2's Show my address).
+    in property <bool> tonal;
     // A destructive action: filled in `error` with an `on-error` label, or
     // outlined with its border and label in `error` (design 2026-10-21
     // section 7's Delete stored data).
@@ -473,22 +477,24 @@ component ActionButton inherits FocusScope {
     min-height: root.target;
     // Never narrower than its label: squeezed beside a wrapping text, the
     // label ran out of the button (seen in the rendered window).
-    min-width: max(root.target, label.preferred-width + (root.filled ? 48px : 16px));
+    min-width: max(root.target, label.preferred-width + (root.filled || root.tonal ? 48px : 16px));
     Rectangle {
-        border-width: root.text-button || root.filled ? 0px : 1px;
+        border-width: root.text-button || root.filled || root.tonal ? 0px : 1px;
         border-color: root.on-notice ? Palette.notice-text
             : root.danger ? Palette.error : Palette.outline;
-        background: root.filled ? (root.danger ? Palette.error : Palette.primary) : transparent;
-        border-radius: root.filled ? self.height / 2 : 0px;
+        background: root.filled ? (root.danger ? Palette.error : Palette.primary)
+            : root.tonal ? Palette.primary-container : transparent;
+        border-radius: root.filled || root.tonal ? self.height / 2 : 0px;
         HorizontalLayout {
-            padding-left: root.filled ? 24px : 8px;
-            padding-right: root.filled ? 24px : 8px;
+            padding-left: root.filled || root.tonal ? 24px : 8px;
+            padding-right: root.filled || root.tonal ? 24px : 8px;
             // The caption is the button's label already: not a second node.
             label := Text {
                 text: root.text;
-                font-size: root.text-button || root.filled ? Type.label-large : Type.body-medium;
-                font-weight: root.text-button || root.filled ? 500 : 400;
+                font-size: root.text-button || root.filled || root.tonal ? Type.label-large : Type.body-medium;
+                font-weight: root.text-button || root.filled || root.tonal ? 500 : 400;
                 color: root.filled ? (root.danger ? Palette.on-error : Palette.on-primary)
+                    : root.tonal ? Palette.on-primary-container
                     : root.text-button ? root.ink : root.on-notice ? Palette.notice-text
                     : root.danger ? Palette.error : Palette.on-surface;
                 vertical-alignment: center;
@@ -502,7 +508,7 @@ component ActionButton inherits FocusScope {
         y: -5px;
         width: root.width + 10px;
         height: root.height + 10px;
-        radius: root.filled ? self.height / 2 : 0px;
+        radius: root.filled || root.tonal ? self.height / 2 : 0px;
         shown: root.has-focus;
         on-notice: root.on-notice;
         on-inverse: root.on-inverse;
@@ -1967,6 +1973,27 @@ export component AppWindow inherits Window {
     in-out property <string> copy-text;
     // The add page (section 5.3), in Peers' place.
     in property <bool> peers-add-open;
+    // Show my address (add-a-peer section 5.4), in Peers' place: its
+    // warning first, then the code and the same lines as text, Copy all
+    // addresses and the PeerId alone; or why there is no code.
+    in property <bool> peers-show-open;
+    in property <string> show-my-address-label;
+    in property <string> show-warning;
+    in property <bool> show-code-shown;
+    in property <image> show-code;
+    in property <string> show-code-label;
+    in property <string> show-lines;
+    in property <string> show-peer;
+    in property <string> copy-addresses-label;
+    // No address: what, why and what to do; empty otherwise.
+    in property <string> show-none;
+    in property <string> show-none-why;
+    in property <string> show-none-what;
+    // The read failed: its line, and whether Try again is offered.
+    in property <string> show-problem;
+    in property <bool> show-problem-retry;
+    // The list's own column, neither the add page nor Show covering it.
+    property <bool> peers-list-shown: !root.peers-add-open && !root.peers-show-open;
     in property <string> add-title;
     in property <string> address-field-label;
     in property <string> address-help;
@@ -2089,6 +2116,9 @@ export component AppWindow inherits Window {
     callback peers-add();
     callback peers-scan();
     callback peers-open-image();
+    callback peers-open-show();
+    callback peers-show-closed();
+    callback peers-show-again();
     callback peers-paste-image();
     // A scan's reader is done: its result waits on the Rust side.
     callback peers-image-done();
@@ -2231,6 +2261,11 @@ export component AppWindow inherits Window {
         // typed, step two is Done (section 5.3).
         if (root.peers-page && root.peers-add-open) {
             root.peers-add-closed();
+            return true;
+        }
+        // Back closes Show (section 5.4).
+        if (root.peers-page && root.peers-show-open) {
+            root.peers-show-closed();
             return true;
         }
         if (root.peers-page) {
@@ -2949,6 +2984,10 @@ export component AppWindow inherits Window {
                     root.peers-add-closed();
                     return accept;
                 }
+                if (event.text == Key.Escape && root.peers-show-open) {
+                    root.peers-show-closed();
+                    return accept;
+                }
                 reject
             }
         peers-pane := VerticalLayout {
@@ -2970,7 +3009,7 @@ export component AppWindow inherits Window {
                             label: root.back-label;
                             focus-key: "close-peers";
                             pressed => {
-                                if (root.peers-add-open) { root.peers-add-closed(); } else { root.close-peers-page(); }
+                                if (root.peers-add-open) { root.peers-add-closed(); } else if (root.peers-show-open) { root.peers-show-closed(); } else { root.close-peers-page(); }
                             }
                             focused(k) => { root.focus-id = k; }
                         }
@@ -2979,7 +3018,7 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                         alignment: center;
                         FocusHeading {
-                            text: root.peers-add-open ? root.add-title : root.peers-title;
+                            text: root.peers-add-open ? root.add-title : root.peers-show-open ? root.show-my-address-label : root.peers-title;
                             font-size: Type.title-large;
                             font-weight: 400;
                             rtl: root.rtl;
@@ -2998,7 +3037,7 @@ export component AppWindow inherits Window {
                             label: root.back-label;
                             focus-key: "close-peers";
                             pressed => {
-                                if (root.peers-add-open) { root.peers-add-closed(); } else { root.close-peers-page(); }
+                                if (root.peers-add-open) { root.peers-add-closed(); } else if (root.peers-show-open) { root.peers-show-closed(); } else { root.close-peers-page(); }
                             }
                             focused(k) => { root.focus-id = k; }
                         }
@@ -3013,9 +3052,140 @@ export component AppWindow inherits Window {
                     padding: 5px;
                     spacing: 12px;
                     alignment: start;
+                    // Show my address first, a tonal button: it stays when the
+                    // list cannot be read, Show having its own failure state
+                    // (section 5.2).
+                    if root.peers-list-shown: HorizontalLayout {
+                        alignment: start;
+                        ActionButton {
+                            text: root.show-my-address-label;
+                            tonal: true;
+                            target: 48px;
+                            focus-key: "show-my-address";
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "show-my-address";
+                            pressed => { root.peers-open-show(); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                    // Show (section 5.4): the warning before anything else,
+                    // focus on it when the page opens.
+                    if root.peers-show-open: FocusNote {
+                        text: root.show-warning;
+                        rtl: root.rtl;
+                        focus-key: "show-warning";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "show-warning";
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    // The code: dark on white with its quiet zone in both
+                    // themes, never themed, at least 240 px a side and not
+                    // scaled by the font; one item labelled with how many
+                    // lines it holds, the lines themselves listed below.
+                    if root.peers-show-open && root.show-code-shown: HorizontalLayout {
+                        alignment: center;
+                        Image {
+                            source: root.show-code;
+                            width: max(240px, min(320px, root.width - 48px));
+                            height: self.width;
+                            image-rendering: pixelated;
+                            accessible-role: image;
+                            accessible-label: root.show-code-label;
+                        }
+                    }
+                    // The same lines as text, selectable, in the code font,
+                    // broken at any character, never cut.
+                    if root.peers-show-open && root.show-code-shown: TextInput {
+                        text: root.show-lines;
+                        read-only: true;
+                        single-line: false;
+                        wrap: char-wrap;
+                        font-family: root.code-font;
+                        font-size: Type.body-medium;
+                        color: Palette.on-surface;
+                        min-width: 0;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    if root.peers-show-open && root.show-code-shown: HorizontalLayout {
+                        alignment: start;
+                        ActionButton {
+                            text: root.copy-addresses-label;
+                            target: 48px;
+                            focus-key: "show-copy";
+                            pressed => {
+                                root.copy-text = root.show-lines;
+                                peers-copy.select-all();
+                                peers-copy.copy();
+                                peers-copy.clear-selection();
+                            }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                    // The PeerId alone, for the other person to compare at
+                    // their trust step.
+                    if root.peers-show-open && root.show-code-shown: Text {
+                        text: root.show-peer;
+                        font-family: root.code-font;
+                        font-size: Type.body-medium;
+                        wrap: char-wrap;
+                        min-width: 0;
+                        accessible-role: text;
+                        accessible-label: self.text;
+                    }
+                    if root.peers-show-open && root.show-code-shown: HorizontalLayout {
+                        alignment: start;
+                        ActionButton {
+                            text: root.copy-peer-id-label;
+                            detail: root.show-peer;
+                            text-button: true;
+                            target: 48px;
+                            focus-key: "show-copy-peer";
+                            pressed => {
+                                root.copy-text = root.show-peer;
+                                peers-copy.select-all();
+                                peers-copy.copy();
+                                peers-copy.clear-selection();
+                            }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
+                    // No address another device can reach: what, why, and
+                    // what to do instead.
+                    if root.peers-show-open && root.show-none != "": VerticalLayout {
+                        spacing: 4px;
+                        for line in [root.show-none, root.show-none-why, root.show-none-what]: Text {
+                            text: line;
+                            wrap: word-wrap;
+                            min-width: 0;
+                            color: Palette.on-surface;
+                            accessible-role: text;
+                            accessible-label: self.text;
+                        }
+                    }
+                    // The read failed: never "no address". Its line, focus
+                    // on it, and Try again where a retry may mend it.
+                    if root.peers-show-open && root.show-problem != "": FocusNote {
+                        text: root.show-problem;
+                        rtl: root.rtl;
+                        focus-key: "show-problem";
+                        focus-seq: root.focus-seq;
+                        focus-wanted: root.focus-target == "show-problem";
+                        focused(k) => { root.focus-id = k; }
+                    }
+                    if root.peers-show-open && root.show-problem != "" && root.show-problem-retry: HorizontalLayout {
+                        alignment: start;
+                        ActionButton {
+                            text: root.try-again-label;
+                            target: 48px;
+                            focus-key: "show-retry";
+                            pressed => { root.peers-show-again(); }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
                     // The list unreadable (section 5.7): its line and, where a
                     // retry can mend it, Try again; no Add, no rows.
-                    if !root.peers-add-open && root.peers-problem != "": FocusNote {
+                    if root.peers-list-shown && root.peers-problem != "": FocusNote {
                         text: root.peers-problem;
                         rtl: root.rtl;
                         focus-key: "peers-problem";
@@ -3023,7 +3193,7 @@ export component AppWindow inherits Window {
                         focus-wanted: root.focus-target == "peers-problem";
                         focused(k) => { root.focus-id = k; }
                     }
-                    if !root.peers-add-open && root.peers-problem != "" && root.peers-problem-retry: HorizontalLayout {
+                    if root.peers-list-shown && root.peers-problem != "" && root.peers-problem-retry: HorizontalLayout {
                         alignment: start;
                         ActionButton {
                             text: root.try-again-label;
@@ -3033,7 +3203,7 @@ export component AppWindow inherits Window {
                             focused(k) => { root.focus-id = k; }
                         }
                     }
-                    if !root.peers-add-open && root.peers-list-read: HorizontalLayout {
+                    if root.peers-list-shown && root.peers-list-read: HorizontalLayout {
                         alignment: start;
                         ActionButton {
                             text: root.add-address-label;
@@ -3048,7 +3218,7 @@ export component AppWindow inherits Window {
                     }
                     // At the bound, or with the list off: why Add an address
                     // opened nothing, focus on it.
-                    if !root.peers-add-open && root.peers-add-note != "": FocusNote {
+                    if root.peers-list-shown && root.peers-add-note != "": FocusNote {
                         text: root.peers-add-note;
                         rtl: root.rtl;
                         focus-key: "add-address-note";
@@ -3056,7 +3226,7 @@ export component AppWindow inherits Window {
                         focus-wanted: root.focus-target == "add-address-note";
                         focused(k) => { root.focus-id = k; }
                     }
-                    if !root.peers-add-open && root.peers-list-read && root.peers-trust-line != "": FocusNote {
+                    if root.peers-list-shown && root.peers-list-read && root.peers-trust-line != "": FocusNote {
                         text: root.peers-trust-line;
                         rtl: root.rtl;
                         focus-key: "trust-line";
@@ -3064,7 +3234,7 @@ export component AppWindow inherits Window {
                         focus-wanted: root.focus-target == "trust-line";
                         focused(k) => { root.focus-id = k; }
                     }
-                    if !root.peers-add-open && root.peers-list-read && root.peers-trust-line != "" && root.peers-trust-retry: HorizontalLayout {
+                    if root.peers-list-shown && root.peers-list-read && root.peers-trust-line != "" && root.peers-trust-retry: HorizontalLayout {
                         alignment: start;
                         ActionButton {
                             text: root.try-again-label;
@@ -3076,7 +3246,7 @@ export component AppWindow inherits Window {
                             focused(k) => { root.focus-id = k; }
                         }
                     }
-                    if !root.peers-add-open && root.peers-list-read && root.peers-trust-line == "": Text {
+                    if root.peers-list-shown && root.peers-list-read && root.peers-trust-line == "": Text {
                         text: root.peers-no-trust;
                         wrap: word-wrap;
                         min-width: 0;
@@ -3084,14 +3254,14 @@ export component AppWindow inherits Window {
                         accessible-role: text;
                         accessible-label: self.text;
                     }
-                    if !root.peers-add-open && root.peers-empty != "": Text {
+                    if root.peers-list-shown && root.peers-empty != "": Text {
                         text: root.peers-empty;
                         wrap: word-wrap;
                         min-width: 0;
                         accessible-role: text;
                         accessible-label: self.text;
                     }
-                    if !root.peers-add-open: VerticalLayout {
+                    if root.peers-list-shown: VerticalLayout {
                         spacing: 12px;
                     for row[index] in root.peer-rows: VerticalLayout {
                         spacing: 4px;

@@ -15,7 +15,7 @@ use interweave_human_client_api::{
     TrustList, TrustRow,
 };
 use interweave_human_ui_model::{
-    Intent, RuntimeHost, TrustChange, UiModel, UiText, fill, placeholder_en, short_peer,
+    HostText, Intent, RuntimeHost, TrustChange, UiModel, UiText, fill, placeholder_en, short_peer,
 };
 use interweave_human_ui_slint::{View, ViewEvent};
 use interweave_profile_identity::ProfileIdentity;
@@ -2298,5 +2298,140 @@ fn the_image_controls_scan_and_an_image_without_a_code_is_said_under_them() {
         // Focus moves on a timer's turn, after the render that asks it.
         slint::platform::update_timers_and_animations();
         assert_eq!(view.window().get_focus_target().as_str(), key);
+    }
+}
+
+/// Show my address on Peers reads this device's addresses only when
+/// pressed; the page puts its warning first, focused, then a code that
+/// decodes to exactly the lines listed under it, Copy all addresses and
+/// the PeerId alone; Back closes it, focus back on its control (§5.4,
+/// §6, §8).
+#[test]
+fn show_draws_a_code_that_reads_back_as_its_lines() {
+    use interweave_human_client_api::ShowAddresses;
+    use interweave_human_ui_model::PeersInput;
+    use interweave_human_ui_slint::code::{CodeRead, read_rgba};
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    assert!(!view.window().get_peers_show_open());
+    press(&view, text(UiText::ShowMyAddress));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::ReadOwnAddresses]
+    );
+    slint::platform::update_timers_and_animations();
+    assert!(view.window().get_peers_show_open());
+    assert_eq!(view.window().get_focus_target().as_str(), "show-warning");
+    assert_eq!(labelled(&view, text(UiText::ShowWarning)).len(), 1);
+    assert!(
+        !view.window().get_show_code_shown(),
+        "nothing before the read"
+    );
+
+    let lines = vec![
+        format!("/ip4/203.0.113.9/tcp/4001/p2p/{}", me.as_str()),
+        format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", me.as_str()),
+    ];
+    model.own_addresses_read(Ok(ShowAddresses {
+        peer: me.clone(),
+        addresses: lines.clone(),
+        truncated: false,
+    }));
+    view.render(&model);
+    let w = view.window();
+    assert!(w.get_show_code_shown());
+    let label = text(UiText::QrLabelOther).replace("{n}", "2");
+    assert_eq!(
+        labelled(&view, &label).len(),
+        1,
+        "the code is one labelled item"
+    );
+    assert_eq!(w.get_show_lines().as_str(), lines.join("\n"));
+    assert_eq!(w.get_show_peer().as_str(), me.as_str());
+    assert_eq!(labelled(&view, text(UiText::CopyAddresses)).len(), 1);
+    // What is drawn is what is listed: the code, scaled as a screen
+    // shows it, reads back as the lines.
+    let code = w.get_show_code().to_rgba8().expect("pixels");
+    let (cw, ch) = (code.width() as usize, code.height() as usize);
+    let mut big = Vec::with_capacity(cw * ch * 64);
+    for y in 0..ch * 4 {
+        for x in 0..cw * 4 {
+            let p = code.as_slice()[(y / 4) * cw + x / 4];
+            big.extend_from_slice(&[p.r, p.g, p.b, p.a]);
+        }
+    }
+    assert_eq!(
+        read_rgba(cw * 4, ch * 4, &big),
+        CodeRead::Text(lines.join("\n"))
+    );
+
+    let _ = model.peers_input(PeersInput::CloseShow);
+    view.render(&model);
+    slint::platform::update_timers_and_animations();
+    assert!(!view.window().get_peers_show_open());
+    assert_eq!(view.window().get_focus_target().as_str(), "show-my-address");
+}
+
+/// No address is said with why and what to do, never as a failure; a
+/// failed read is never "no address", with Try again only where a retry
+/// may mend it, focus on its line (§5.4, §8).
+#[test]
+fn show_says_no_address_and_a_failed_read_apart() {
+    use interweave_human_client_api::{AddressProblem, ShowAddresses};
+    use interweave_human_ui_model::PeersInput;
+    let mut view = view();
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    let _ = model.peers_input(PeersInput::OpenShow);
+    model.own_addresses_read(Ok(ShowAddresses {
+        peer: me.clone(),
+        addresses: Vec::new(),
+        truncated: false,
+    }));
+    view.render(&model);
+    let w = view.window();
+    assert!(!w.get_show_code_shown());
+    assert_eq!(w.get_show_none().as_str(), text(UiText::ShowNoAddress));
+    assert_eq!(
+        w.get_show_none_why().as_str(),
+        text(UiText::ShowNoAddressLocalOnly)
+    );
+    assert_eq!(
+        w.get_show_none_what().as_str(),
+        text(UiText::ShowNoAddressWhat)
+    );
+    assert_eq!(w.get_show_problem().as_str(), "");
+    let _ = model.peers_input(PeersInput::CloseShow);
+
+    for (problem, words, retry) in [
+        (
+            AddressProblem::Unavailable,
+            text(UiText::ShowReadFailed),
+            true,
+        ),
+        (
+            AddressProblem::Incompatible,
+            placeholder_en::host_text(RuntimeHost::Daemon, HostText::ShowIncompatible),
+            false,
+        ),
+        (
+            AddressProblem::NotPermitted,
+            placeholder_en::host_text(RuntimeHost::Daemon, HostText::ShowNotPermitted),
+            false,
+        ),
+    ] {
+        let _ = model.peers_input(PeersInput::OpenShow);
+        model.own_addresses_read(Err(problem));
+        view.render(&model);
+        slint::platform::update_timers_and_animations();
+        let w = view.window();
+        assert_eq!(w.get_show_problem().as_str(), words);
+        assert_eq!(w.get_show_none().as_str(), "", "never no address");
+        assert_eq!(w.get_show_problem_retry(), retry, "{problem:?}");
+        assert_eq!(w.get_focus_target().as_str(), "show-problem");
+        let _ = model.peers_input(PeersInput::CloseShow);
     }
 }

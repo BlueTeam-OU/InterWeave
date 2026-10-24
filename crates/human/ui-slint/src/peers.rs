@@ -14,8 +14,8 @@ use interweave_human_client_api::{AddressOrigin, TrustProblem};
 use interweave_human_ui_model::{
     ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, CODE_LINES, HostText,
     LineSelection, ListProblem, Peers, PeersFocus, PeersInput, PeersSnack, Refusal, RowState,
-    RuntimeHost, ScanControl, TYPED_LINES, TrustLine, TrustSettings, UiModel, UiText, fill,
-    placeholder_en, short_peer,
+    RuntimeHost, ScanControl, ShowProblem, ShowState, TYPED_LINES, TrustLine, TrustSettings,
+    UiModel, UiText, fill, placeholder_en, short_peer,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{ModelRc, SharedString, VecModel};
@@ -147,6 +147,9 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
             }),
         );
     }
+    window.on_peers_open_show(on(shared, PeersInput::OpenShow));
+    window.on_peers_show_closed(on(shared, PeersInput::CloseShow));
+    window.on_peers_show_again(on(shared, PeersInput::ShowTryAgain));
     // A reader's result, handed over on the window's thread.
     let s = Rc::clone(shared);
     window.on_peers_image_done(move || {
@@ -239,6 +242,9 @@ pub(crate) struct PeerLists {
     /// The snackbar last drawn, by the model's count, and the one timed.
     snack_seen: u64,
     snack_timed: u64,
+    /// The lines Show's code was last drawn for: drawn again only when
+    /// they change.
+    show_drawn: Option<Vec<String>>,
 }
 
 impl PeerLists {
@@ -270,6 +276,9 @@ impl PeerLists {
         window.set_copy_peer_id_label(set(UiText::CopyPeerId));
         window.set_done_label(set(UiText::IdDone));
         window.set_no_reach_text(set(UiText::NoReachNotice));
+        window.set_show_my_address_label(set(UiText::ShowMyAddress));
+        window.set_show_warning(set(UiText::ShowWarning));
+        window.set_copy_addresses_label(set(UiText::CopyAddresses));
         let _ = host;
         Self {
             rows,
@@ -289,6 +298,7 @@ impl PeerLists {
             add_waiting: false,
             snack_seen: 0,
             snack_timed: 0,
+            show_drawn: None,
         }
     }
 }
@@ -309,6 +319,7 @@ impl View {
         }
         self.render_peer_list(peers, trust, model);
         self.render_add_page(peers, trust);
+        self.render_show(peers);
         let said = self.render_peers_snack(peers, on_page);
         // The add's wait, said once as it begins, claiming no outcome
         // (design 5.3; `an_add_on_its_way_reads_adding_and_is_said_once`).
@@ -600,6 +611,79 @@ impl View {
 
     /// The add page: step one's field, notes and result, and step two's
     /// blocks.
+    /// Show my address (§5.4): the code and its lines, why there is none,
+    /// or why they could not be read.
+    fn render_show(&mut self, peers: &Peers) {
+        let window = &self.window;
+        let show = peers.show();
+        window.set_peers_show_open(show.is_some());
+        let host = self.host;
+        let (none, problem, retry) = match show {
+            Some(ShowState::NoAddress { offline }) => (
+                Some(if *offline {
+                    UiText::ShowNoAddressOffline
+                } else {
+                    UiText::ShowNoAddressLocalOnly
+                }),
+                "",
+                false,
+            ),
+            Some(ShowState::Unread(ShowProblem::Failed)) => {
+                (None, text(UiText::ShowReadFailed), true)
+            }
+            Some(ShowState::Unread(ShowProblem::Incompatible)) => (
+                None,
+                placeholder_en::host_text(host, HostText::ShowIncompatible),
+                false,
+            ),
+            Some(ShowState::Unread(ShowProblem::NotPermitted)) => (
+                None,
+                placeholder_en::host_text(host, HostText::ShowNotPermitted),
+                false,
+            ),
+            Some(ShowState::Shown { .. } | ShowState::Reading) | None => (None, "", false),
+        };
+        let (none, why, what) = none.map_or(("", "", ""), |why| {
+            (
+                text(UiText::ShowNoAddress),
+                text(why),
+                text(UiText::ShowNoAddressWhat),
+            )
+        });
+        let drawn = match show {
+            Some(ShowState::Shown { peer, lines }) => Some((peer, lines)),
+            _ => None,
+        };
+        window.set_show_none(none.into());
+        window.set_show_none_why(why.into());
+        window.set_show_none_what(what.into());
+        window.set_show_problem(problem.into());
+        window.set_show_problem_retry(retry);
+        let Some((peer, lines)) = drawn else {
+            window.set_show_code_shown(false);
+            self.peer_lists.show_drawn = None;
+            return;
+        };
+        if self.peer_lists.show_drawn.as_ref() != Some(lines) {
+            // A code that does not fit is no code: the lines still show.
+            let image = crate::code::drawn(lines).unwrap_or_default();
+            window.set_show_code(image);
+            self.peer_lists.show_drawn = Some(lines.clone());
+        }
+        window.set_show_code_shown(true);
+        let label = if lines.len() == 1 {
+            text(UiText::QrLabelOne).to_owned()
+        } else {
+            fill(
+                text(UiText::QrLabelOther),
+                &[("n", &lines.len().to_string())],
+            )
+        };
+        window.set_show_code_label(label.into());
+        window.set_show_lines(lines.join("\n").into());
+        window.set_show_peer(peer.as_str().into());
+    }
+
     /// The scan controls this platform offers, and the reader a scan the
     /// model opened needs, started once: the desktop's image dialog or its
     /// clipboard. The camera's viewfinder is the Android app's.
@@ -900,6 +984,9 @@ impl View {
                 format!("row-menu:{}", self.peer_lists.row_handles.of(address))
             }
             PeersFocus::AddAddressNote => "add-address-note".to_owned(),
+            PeersFocus::ShowWarning => "show-warning".to_owned(),
+            PeersFocus::ShowProblem => "show-problem".to_owned(),
+            PeersFocus::ShowOpener => "show-my-address".to_owned(),
             PeersFocus::ListProblem => "peers-problem".to_owned(),
             PeersFocus::TrustRetry => "trust-retry".to_owned(),
             PeersFocus::TrustLine => "trust-line".to_owned(),

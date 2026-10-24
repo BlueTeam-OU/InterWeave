@@ -3188,6 +3188,7 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::ReadAddresses
         | Intent::AddAddresses(_)
         | Intent::RemoveAddress(_)
+        | Intent::ReadOwnAddresses
         // Edits come from the settings and the contact page's own
         // controls, never an item's.
         | Intent::SetOwnCard { .. }
