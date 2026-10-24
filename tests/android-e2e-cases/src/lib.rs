@@ -104,6 +104,10 @@ pub mod keys {
     pub const CONNECTED_AFTER: &str = "connected_after_ms";
     /// [`super::cases::PAIR`]: the sends tried, and refused, while apart.
     pub const TRIES: &str = "tries";
+    /// [`super::cases::PAIR`], the first side of a crossing step: its
+    /// close's outcome, `accepted` or the error's class name, reported
+    /// and never failed on.
+    pub const CLOSE: &str = "close";
     /// [`super::cases::PAIR`]: whether this side trusts the peer at the
     /// step's end.
     pub const TRUSTED: &str = "trusted";
@@ -179,7 +183,8 @@ pub mod cases {
     /// phone's address (in place of the scan), trust it or not, and expect
     /// the pair apart for a window or a message across each way.
     /// Arguments: [`super::PairArgs`]; answers [`super::keys::TRIES`] when
-    /// apart, [`super::keys::TRUSTED`] and [`super::keys::LAST_OUTCOME`].
+    /// apart, [`super::keys::CLOSE`] on a crossing's first side,
+    /// [`super::keys::TRUSTED`] and [`super::keys::LAST_OUTCOME`].
     pub const PAIR: &str = "pair";
 
     /// The cases a runner must have the runtime ALONE serving for: the

@@ -415,12 +415,15 @@ pub enum PairExpect {
     /// whole window: the control before the trust is mutual.
     Apart(Duration),
     /// A message crosses each way within the deadline. `first` names the
-    /// side that sends the close, so the other outlives its acceptance.
+    /// side that sends the close: the other ends on reading it, and the
+    /// first ends only once the other has left, so neither process -- its
+    /// runtime, on a device -- ends while the other still needs it.
     Crosses {
-        /// How long the route may take.
+        /// How long the route may take, and then how long the other side
+        /// may take to leave.
         deadline: Duration,
-        /// This side sends the close and ends on its acceptance; the
-        /// other ends on reading it.
+        /// This side sends the close and ends once the other has left;
+        /// the other ends on reading the close.
         first: bool,
     },
 }
@@ -629,10 +632,34 @@ pub(crate) async fn pair<B: DataSessionBinding + AdminBinding>(
             told.take_message(&session, peer, &theirs, deadline).await?;
             let (close_id, close) = pair_close(args.serial);
             if first {
-                session
+                // ITS OUTCOME IS REPORTED, NOT RELIED ON, as
+                // `close_exchange`'s: the second side ends on reading the
+                // close, and its process is its runtime, so the
+                // acceptance can be lost on the closing connection --
+                // `TRANSPORT.md`'s "outcome unknown", which the second
+                // two-phone run of row 2 met (2026-10-24). That the close
+                // arrived is the second side's pass; a close never sent
+                // fails there.
+                let sent = session
                     .send_direct(to(peer), close_id, payload(&close)?)
-                    .await
-                    .map_err(|e| format!("the close was not accepted: {e:?}"))?;
+                    .await;
+                out.insert(
+                    keys::CLOSE.to_owned(),
+                    sent.map_or_else(|e| format!("{e:?}"), |_| "accepted".to_owned())
+                        .into(),
+                );
+                // The other side may still be owed the acceptance of its
+                // own message; it leaves once it has read the close.
+                let gone_by = tokio::time::Instant::now() + deadline;
+                while row_of(&port, peer).await?.is_some_and(|r| r.connected) {
+                    if tokio::time::Instant::now() >= gone_by {
+                        return Err(format!(
+                            "{} stayed connected {deadline:?} after the close",
+                            peer.as_str()
+                        ));
+                    }
+                    tokio::time::sleep(POLL).await;
+                }
             } else {
                 told.take_message(&session, peer, &close, deadline).await?;
             }
