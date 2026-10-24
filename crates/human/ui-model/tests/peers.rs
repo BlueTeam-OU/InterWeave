@@ -869,10 +869,44 @@ fn a_superseded_add_is_decided_on_its_list_read_back() {
 /// The lines an earlier add left unknown stay unknown through a
 /// superseded add whose read back failed, which still says
 /// `AddSuperseded`; a read back that succeeds settles them, listed or
-/// not (§5.7, "unsettled lines").
+/// not (§5.7, "unsettled lines") -- listed, after an add of another
+/// line, too.
 #[test]
 fn a_superseded_add_settles_unknown_lines_only_by_its_read() {
-    let (me, a) = (peer(), peer());
+    let (me, a, b) = (peer(), peer(), peer());
+    // A left unknown; an add of B superseded, its read back listing A
+    // and not B; A again, writing nothing: its own outcome, AddFailed.
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::Unconfirmed(
+            AddressProblem::Unavailable,
+        )),
+    );
+    let _ = m.peers_turn();
+    m.addresses_read(Err(AddressProblem::Internal));
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&b)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(&[at(&b)], superseded(None, Ok(list(&[added(&a)]))));
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Superseded { lines: 1 })
+    );
+    let _ = input(&mut m, PeersInput::FieldChanged(at(&a)));
+    let _ = input(&mut m, PeersInput::Add);
+    m.addresses_added(
+        &[at(&a)],
+        Err(AddressChangeFailure::NotMade(AddressProblem::Internal)),
+    );
+    assert_eq!(
+        m.peers().add_page_note(),
+        Some(&AddNote::Failed),
+        "settled by the read that listed it"
+    );
+
     let lost = || {
         Err(AddressChangeFailure::Unconfirmed(
             AddressProblem::Unavailable,

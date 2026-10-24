@@ -2096,10 +2096,10 @@ impl Peers {
     /// An add refused `superseded`, decided on its list read back as an
     /// unknown add's is: every line listed, as checked, step two after
     /// it; else `AddSuperseded`, focus on Add. The read settles the lines
-    /// an earlier add left unknown as any list an answer brings does
-    /// ([`Self::take_list`]); when it failed they stay unknown, and the
-    /// line is still `AddSuperseded`, never `AddUnknown`, whose retry
-    /// §5.7 rules out (`a_superseded_add_settles_unknown_lines_only_by_its_read`).
+    /// an earlier add left unknown, listed or not; when it failed they
+    /// stay unknown, and the line is still `AddSuperseded`, never
+    /// `AddUnknown`, whose retry §5.7 rules out
+    /// (`a_superseded_add_settles_unknown_lines_only_by_its_read`).
     fn add_superseded(
         &mut self,
         lines: &[String],
@@ -2115,6 +2115,11 @@ impl Peers {
             return;
         };
         self.take_list(Ok(list));
+        // `take_list` settles only a line it shows missing; this read
+        // settles the listed ones too (§5.7, "listed or not").
+        if let Some(page) = self.page.as_mut() {
+            page.unknown = None;
+        }
         if self
             .list
             .as_ref()
