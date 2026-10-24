@@ -13,7 +13,8 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{
-    ClientEvent, Destination, Diagnostics, Inbound, OutboundUpdate, RowError, SendError,
+    AddressChangeFailure, AddressProblem, ClientEvent, Destination, Diagnostics, Inbound,
+    OutboundUpdate, RowError, SendError, SessionState,
 };
 use interweave_human_store::identity_key::IdentityKey;
 use interweave_human_store::{ReadEphemeral, RowId, StoreError};
@@ -168,6 +169,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 self.outbound.insert(update.row, update.clone());
             }
         }
+        if matches!(event, ClientEvent::Session(SessionState::Ready { .. }))
+            && let Some(peer) = self.client.local_peer()
+        {
+            updates.push(Update::ThisDevice(peer.clone()));
+        }
         updates.push(Update::Client(event));
         if relist {
             // What the facade committed but could not hand over is in the
@@ -300,6 +306,34 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                     Box::pin(self.client.set_trust(change.peer.clone(), change.allowed)).await;
                 updates.push(Update::TrustSet {
                     change: change.clone(),
+                    answer,
+                });
+                Ok(())
+            }
+            Command::ReadAddresses => {
+                let answer = Box::pin(self.client.addresses()).await;
+                updates.push(Update::AddressesRead(answer));
+                Ok(())
+            }
+            Command::AddAddresses(lines) => {
+                let answer = match lines.as_slice() {
+                    [line] => Box::pin(self.client.add_address(line.clone())).await,
+                    // Several lines are one add, all or none, and never
+                    // one call per line (ADR-0062 decision 4): the method
+                    // that takes them comes at IPC 2.9, so until then the
+                    // add is not made, as a runtime without it answers.
+                    _ => Err(AddressChangeFailure::NotMade(AddressProblem::Incompatible)),
+                };
+                updates.push(Update::AddressesAdded {
+                    lines: lines.clone(),
+                    answer,
+                });
+                Ok(())
+            }
+            Command::RemoveAddress(address) => {
+                let answer = Box::pin(self.client.remove_address(address.clone())).await;
+                updates.push(Update::AddressRemoved {
+                    address: address.clone(),
                     answer,
                 });
                 Ok(())

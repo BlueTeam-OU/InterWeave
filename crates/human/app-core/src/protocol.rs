@@ -8,14 +8,15 @@
 
 use interweave_human_chat_protocol::HumanChatV2;
 use interweave_human_client_api::{
-    ClientEvent, Destination, Diagnostics, Received, SendError, TrustList, TrustProblem,
-    TrustSetFailure,
+    AddressAnswer, AddressChangeFailure, AddressList, AddressProblem, ClientEvent, Destination,
+    Diagnostics, Received, SendError, TrustList, TrustProblem, TrustSetFailure,
 };
 use interweave_human_store::RowId;
 use interweave_human_ui_model::{
     ContactView, ConversationKey, IdentityView, ItemKey, ListedInbound, ListedOutbound, PhotoEdit,
     Proposal, ProposalContext, Table, TrustChange,
 };
+use interweave_transport_api::TransportIdentity;
 
 /// A person's intent, resolved by the model, for the facade side to carry
 /// out against the facade and the store.
@@ -61,6 +62,12 @@ pub enum Command {
     ReadTrust,
     /// Make a trust change the person confirmed.
     SetTrust(TrustChange),
+    /// Read the addresses this device holds for reaching peers.
+    ReadAddresses,
+    /// Add these lines, all or none (ADR-0062 decision 4).
+    AddAddresses(Vec<String>),
+    /// Remove an address added here.
+    RemoveAddress(String),
     /// Accept the card an unread row holds: the row is read, the card
     /// verified again, and the contact written as its proposal said.
     AcceptCard {
@@ -165,6 +172,10 @@ pub enum Update {
     Client(ClientEvent),
     /// The facade's counters changed.
     Diagnostics(Diagnostics),
+    /// This node's `PeerId`, once a session is ready and the facade
+    /// knows it: Peers reads an address naming it as this device's own,
+    /// whether or not the trust list was ever read (design section 5.2).
+    ThisDevice(TransportIdentity),
     /// A send was committed as `row`.
     Sent {
         /// The conversation it was sent from.
@@ -224,8 +235,25 @@ pub enum Update {
         /// The answer.
         answer: Result<TrustList, TrustSetFailure>,
     },
+    /// The runtime's answer to reading the addresses.
+    AddressesRead(Result<AddressList, AddressProblem>),
+    /// The runtime's answer to an add of `lines`.
+    AddressesAdded {
+        /// The lines, as sent.
+        lines: Vec<String>,
+        /// The answer.
+        answer: Result<AddressAnswer, AddressChangeFailure>,
+    },
+    /// The runtime's answer to a removal of `address`.
+    AddressRemoved {
+        /// The address.
+        address: String,
+        /// The answer.
+        answer: Result<AddressAnswer, AddressChangeFailure>,
+    },
     /// A command finished. Every command ends with this or `Failed`, so
-    /// the model side can offer the same action again.
+    /// the model side can offer the same action again; an admin command
+    /// whose answer is an update of its own is freed by that answer too.
     Done(Command),
     /// A command could not be carried out; nothing changed.
     Failed {

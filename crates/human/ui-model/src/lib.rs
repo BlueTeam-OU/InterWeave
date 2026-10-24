@@ -18,6 +18,7 @@ mod identity_flow;
 mod labels;
 mod look;
 mod model;
+mod peers;
 mod picker;
 mod presence;
 mod store_recovery;
@@ -44,11 +45,16 @@ pub use model::{
     RowAction, SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table, Trust, UiModel,
     UndoClosed, ViewEvent,
 };
+pub use peers::{
+    ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES,
+    LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus, PeersInput, PeersSnack,
+    Refusal, RowReadBack, RowState, ScanVerdict, TYPED_LINES, TrustLine, lines_of,
+};
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};
 pub use store_recovery::{
     DiscardConfirmation, DiscardKind, Effect as StoreEffect, Phase as StorePhase, StoreRecovery,
     StoreScreen,
 };
-pub use trust::{EntryProblem, TrustChange, TrustInput, TrustOutcome, TrustSettings};
+pub use trust::{EntryProblem, OutcomeFrom, TrustChange, TrustInput, TrustOutcome, TrustSettings};
 pub use waiting::{age_text, announced_change, next_age_change, waiting_text};

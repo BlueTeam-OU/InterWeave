@@ -27,10 +27,10 @@ use std::time::{Duration, Instant};
 use interweave_human_client_api::{Connectivity, OutboundStatus, TrustOrigin};
 use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, FocusTarget,
-    HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, Reply, Retention, RowAction,
-    RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome, TrustSettings,
-    UiModel, UiText, announced_change, attention_class, fill, next_age_change, placeholder_en,
-    short_peer, visible_destination, waiting_text,
+    HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, OutcomeFrom, Reply, Retention,
+    RowAction, RuntimeHost, SessionNotice, Snackbar, TrustChange, TrustInput, TrustOutcome,
+    TrustSettings, UiModel, UiText, announced_change, attention_class, fill, next_age_change,
+    placeholder_en, short_peer, visible_destination, waiting_text,
 };
 use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
@@ -39,6 +39,7 @@ mod body;
 mod clock;
 mod gesture;
 mod identity;
+mod peers;
 mod refusal;
 mod store_screen;
 mod swipe;
@@ -78,6 +79,7 @@ pub use generated::Palette;
 /// The start-up refusal screen's window, for a test that reads its tree.
 pub use generated::RefusalWindow;
 use generated::{ActionRow, BodyLine, ConversationRow, LineKind, LinkRow, MessageRow, TrustRow};
+use interweave_human_ui_model::PeersInput;
 
 /// The view's window, to run the event loop on: shows it, and returns
 /// once the person closes it or [`quit_event_loop`] is called.
@@ -297,6 +299,16 @@ enum Input {
     /// What the person did in the trust settings: a removal names its
     /// peer by identity, as rendered.
     Trust(TrustInput),
+    /// Peers opened (`true`) or closed.
+    PeersPage(bool),
+    /// What the person did on Peers or its add page: a row or a block
+    /// names its address or its peer, as rendered.
+    Peers(PeersInput),
+    /// The action of Peers' snackbar, by the model's count when it was
+    /// drawn: Undo or Try again, by what it said.
+    PeersSnackAction(u64),
+    /// Peers' snackbar closed without its action.
+    PeersSnackClosed(u64),
 }
 
 /// What made an item action: its row button, or a touch swipe.
@@ -365,6 +377,10 @@ struct Shared {
     once_notice: Option<UiText>,
     /// The trusted peers as rendered, by handle.
     trusted: HashMap<i32, TransportIdentity>,
+    /// Peers' rows as rendered, by handle: the address and its peer.
+    peer_rows: HashMap<i32, (String, Option<TransportIdentity>)>,
+    /// The add page's step-two blocks as rendered, by handle.
+    blocks: HashMap<i32, TransportIdentity>,
     /// The trust change the confirmation shows, as rendered: what a press
     /// of Confirm names.
     pending_shown: Option<TrustChange>,
@@ -412,7 +428,9 @@ impl SnackUp {
     fn closed_by(&self, input: &Input) -> bool {
         match input {
             Input::SnackClosed(id) => *id == self.id,
-            Input::Left | Input::TrustPage(true) => self.conversation.is_some(),
+            Input::Left | Input::TrustPage(true) | Input::PeersPage(true) => {
+                self.conversation.is_some()
+            }
             Input::Select(key) => self.conversation.as_ref().is_some_and(|c| c != key),
             _ => false,
         }
@@ -491,6 +509,29 @@ impl Shared {
             }
             return self.wake.clone();
         }
+        // The add page's field is state as the trust entry is, by the same
+        // rule: it replaces a queued edit of the field only while no later
+        // Peers input follows it.
+        if let Input::Peers(PeersInput::FieldChanged(typed)) = &input {
+            let last = self
+                .inputs
+                .iter_mut()
+                .rev()
+                .find(|i| matches!(i, Input::Peers(_) | Input::PeersPage(_)));
+            if let Some(Input::Peers(PeersInput::FieldChanged(queued))) = last {
+                queued.clone_from(typed);
+            } else {
+                self.inputs.push_back(input);
+            }
+            return self.wake.clone();
+        }
+        // Peers' snackbar closing is state, as the conversation's is.
+        if let Input::PeersSnackClosed(_) = input {
+            if !self.inputs.contains(&input) {
+                self.inputs.push_back(input);
+            }
+            return self.wake.clone();
+        }
         // A focus change is STATE, not a press: refusing it would leave the
         // view believing it still had focus, and a later selection would
         // read while unfocused (review F2). So it is never refused. It
@@ -536,6 +577,8 @@ impl Shared {
                     Input::Focus(_)
                         | Input::Draft(..)
                         | Input::Trust(TrustInput::EntryChanged(_))
+                        | Input::Peers(PeersInput::FieldChanged(_))
+                        | Input::PeersSnackClosed(_)
                         | Input::SnackClosed(_)
                         | Input::Left
                 )
@@ -646,6 +689,8 @@ enum Page {
     Conversation,
     /// The trust settings, in its place.
     Trust,
+    /// Peers, in its place.
+    Peers,
 }
 
 /// The reference view: one window, bound to a [`UiModel`].
@@ -694,6 +739,16 @@ pub struct View {
     focus_wanted: Rc<RefCell<Option<String>>>,
     /// The trust settings' outcome count last announced.
     trust_announced: u64,
+    /// The page on show when the trust settings' latest outcome came. A
+    /// trust step's outcome is its block's to say wherever it lands, and
+    /// a read's that lands on Peers is its trust line's: neither is
+    /// announced nor left for the Trust page, where a retry's "nothing
+    /// was changed" would be false while the block's earlier Trust is
+    /// unknown (`a_pending_trust_retried_without_a_write_says_no_nothing_changed`,
+    /// `a_trust_outcome_is_said_where_its_change_was_made`).
+    trust_outcome_on: Page,
+    /// Peers' lists and what of its requests the view carried out.
+    peer_lists: peers::PeerLists,
     /// Where the runtime runs, which the texts that name it follow.
     host: RuntimeHost,
     shared: Rc<RefCell<Shared>>,
@@ -778,6 +833,7 @@ impl View {
         let conversations = Rc::new(VecModel::<ConversationRow>::default());
         let messages = Rc::new(VecModel::<MessageRow>::default());
         let trusted = Rc::new(VecModel::<TrustRow>::default());
+        let peer_lists = peers::PeerLists::new(&window, host);
         window.set_conversations(ModelRc::from(Rc::clone(&conversations)));
         window.set_messages(ModelRc::from(Rc::clone(&messages)));
         window.set_trusted(ModelRc::from(Rc::clone(&trusted)));
@@ -884,6 +940,7 @@ impl View {
         let s = Rc::clone(&shared);
         window.on_identifier_copied(move || enqueue(&s, Input::IdentifierCopied));
         wire_trust(&window, &shared);
+        peers::wire(&window, &shared);
 
         let (s, w) = (Rc::clone(&shared), swipe::weak(&window));
         window.on_swipe_moved(move |key, px, py, cx, cy, width, window_width| {
@@ -959,6 +1016,8 @@ impl View {
             removing: None,
             focus_wanted: Rc::new(RefCell::new(None)),
             trust_announced: 0,
+            trust_outcome_on: Page::Conversation,
+            peer_lists,
             host,
             shared,
             leaving_messages: Vec::new(),
@@ -1256,6 +1315,7 @@ impl View {
                     // dropping a change still waiting, and only then is the
                     // conversation on screen to read.
                     let leaving = self.page == Page::Trust;
+                    let leaving_peers = self.page == Page::Peers;
                     self.page = Page::Conversation;
                     // Leaving a conversation closes its snackbar (§5).
                     if let Some(snack) = model.snackbar()
@@ -1279,6 +1339,11 @@ impl View {
                     self.selection_unrendered = true;
                     if leaving {
                         out.push(ViewEvent::Trust(TrustInput::Cancel));
+                        return out;
+                    }
+                    // Leaving Peers is its add page's Close, as Back is.
+                    if leaving_peers && model.peers().add_open() {
+                        out.push(ViewEvent::Peers(PeersInput::Close));
                         return out;
                     }
                 }
@@ -1391,6 +1456,58 @@ impl View {
                     out.push(ViewEvent::Trust(input));
                     return out;
                 }
+                // The root applies a Peers input before the next take.
+                Input::PeersPage(open) => {
+                    self.page = if open {
+                        Page::Peers
+                    } else {
+                        Page::Conversation
+                    };
+                    self.selection_unrendered = true;
+                    if open {
+                        out.push(ViewEvent::Peers(PeersInput::Opened));
+                        return out;
+                    }
+                    if model.peers().add_open() {
+                        out.push(ViewEvent::Peers(PeersInput::Close));
+                        return out;
+                    }
+                }
+                Input::Peers(input) => {
+                    out.push(ViewEvent::Peers(input));
+                    return out;
+                }
+                // Resolved against the snackbar the model holds now: a
+                // press on one a later answer replaced does nothing.
+                Input::PeersSnackAction(id) => {
+                    let (snack, count) = model.peers().snack();
+                    if count == id {
+                        let input = match snack {
+                            Some(interweave_human_ui_model::PeersSnack::Removed { .. }) => {
+                                Some(PeersInput::Undo)
+                            }
+                            Some(_) => Some(PeersInput::TryAgain),
+                            None => None,
+                        };
+                        if let Some(input) = input {
+                            out.push(ViewEvent::Peers(input));
+                            return out;
+                        }
+                    }
+                }
+                Input::PeersSnackClosed(id) => {
+                    if model.peers().snack().1 == id && model.peers().snack().0.is_some() {
+                        // Its action leaves with it, so ask the two records
+                        // that outlive it: the action's own last focus
+                        // change, and focus-id, which only another control
+                        // taking focus rewrites. Either alone can be stale
+                        // (`a_stale_focus_id_alone_sends_no_focus_to_the_row_menu`).
+                        let from_action = self.window.get_peers_snack_action_focused()
+                            && self.window.get_focus_id().as_str() == "peers-snack-action";
+                        out.push(ViewEvent::Peers(PeersInput::SnackClosed { from_action }));
+                        return out;
+                    }
+                }
             }
         }
         // A selection is shown by the take that resolves it. A root renders
@@ -1472,7 +1589,7 @@ impl View {
     fn on_screen(&self) -> Option<&ConversationKey> {
         match self.page {
             Page::Conversation if self.window.get_pane_shown() => self.shown.as_ref(),
-            Page::Conversation | Page::Trust => None,
+            Page::Conversation | Page::Trust | Page::Peers => None,
         }
     }
 
@@ -1504,8 +1621,9 @@ impl View {
         // slot, and the first would never be heard (review F5).
         let conversation = self.conversation_announcement(model);
         let trust = self.render_trust(model);
+        let peers = self.render_peers(model);
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
-        let said = [conversation, trust, outcome]
+        let said = [conversation, trust, peers, outcome]
             .into_iter()
             .flatten()
             .reduce(|first, rest| {
@@ -2084,7 +2202,18 @@ impl View {
         window.set_has_pending(pending.is_some());
         window.set_pending_text(pending.unwrap_or_default().into());
         let (outcome, count) = settings.outcome();
+        if count != self.trust_announced {
+            self.trust_outcome_on = self.page;
+        }
+        // A trust step's outcome is its block's to say, wherever it lands;
+        // a read's that lands on Peers is its trust line's (§5.2, §5.3).
+        let by_peers = match settings.outcome_from() {
+            OutcomeFrom::TrustStep => true,
+            OutcomeFrom::Read => self.trust_outcome_on == Page::Peers,
+            OutcomeFrom::Settings => false,
+        };
         let said = outcome
+            .filter(|_| !by_peers)
             .map(|outcome| outcome_text(self.host, outcome))
             .unwrap_or_default();
         // The entry's problem goes under its field; every other outcome
@@ -2330,6 +2459,40 @@ impl View {
             if let (Some(window), Some(target)) = (window.upgrade(), target) {
                 window.set_focus_target(target.into());
                 window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
+            }
+        });
+    }
+
+    /// Focus `target`, a control the same render that asks for it may
+    /// make -- Peers' blocks, snackbar action and list controls. Such a
+    /// control's `changed focus-seq` handler sees no change on the first
+    /// value it reads (measured: the first bump after the snackbar was
+    /// made focused nothing, a second one did), so the target is set and
+    /// bumped on the next turn as [`Self::focus_key`] does, and bumped
+    /// once more on the turn after. It shares `focus_key`'s one pending
+    /// request, so the newest wins. Not for the conversation views: a
+    /// late bump there took focus back from a row the person had moved
+    /// to (swipe.rs, measured).
+    fn focus_key_after_draw(&self, target: String) {
+        if self.focus_wanted.borrow_mut().replace(target).is_some() {
+            // Already scheduled: it applies this target instead.
+            return;
+        }
+        let (window, wanted) = (swipe::weak(&self.window), Rc::clone(&self.focus_wanted));
+        defer(move || {
+            let target = wanted.borrow_mut().take();
+            if let (Some(shown), Some(target)) = (window.upgrade(), target) {
+                shown.set_focus_target(target.clone().into());
+                shown.set_focus_seq(shown.get_focus_seq().wrapping_add(1));
+                // Once more a turn later, unless a newer request came.
+                defer(move || {
+                    if let Some(window) = window.upgrade()
+                        && wanted.borrow().is_none()
+                        && window.get_focus_target().as_str() == target
+                    {
+                        window.set_focus_seq(window.get_focus_seq().wrapping_add(1));
+                    }
+                });
             }
         });
     }
@@ -2973,8 +3136,9 @@ fn status_mark(item: &MessageItem) -> StatusMark {
 /// The control text for an intent a view offers as a button, or `None`
 /// for one it never offers that way: `MarkRead` comes from a focused
 /// view alone, `Send` from the composer, `OpenLink` from a link's own
-/// control, labelled with its destination, and the trust intents from the
-/// trust settings' own controls, never an item's.
+/// control, labelled with its destination, and the trust and address
+/// intents from the trust settings' and Peers' own controls, never an
+/// item's.
 fn action_text(intent: &Intent) -> Option<&'static str> {
     let text = match intent {
         Intent::Retry(_) => UiText::Retry,
@@ -2997,6 +3161,10 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::Restore(_)
         | Intent::ReadTrust
         | Intent::SetTrust(_)
+        // The addresses come from Peers' own controls, never an item's.
+        | Intent::ReadAddresses
+        | Intent::AddAddresses(_)
+        | Intent::RemoveAddress(_)
         // Edits come from the settings and the contact page's own
         // controls, never an item's.
         | Intent::SetOwnCard { .. }

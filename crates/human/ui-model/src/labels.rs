@@ -793,6 +793,181 @@ ui_texts! {
     /// The identity and contact pages: the label beside an identity key's
     /// fingerprint, 16 lowercase hex characters.
     Fingerprint => "Key fingerprint",
+    /// PEERS BY ADDRESS (ADR-0062; design/2026-10-22-add-a-peer.md
+    /// §9, every value below language-culture-en's except where marked):
+    /// the Chats menu item, the page's title and the no-reach notice's
+    /// action.
+    PeersTitle => "Peers",
+    /// Peers and Connect: opens the add page.
+    AddAddress => "Add an address",
+    /// Peers and Connect: opens the show page.
+    ShowMyAddress => "Show my address",
+    /// Under Peers' two actions: an address is not trust.
+    PeersNoTrust => "An address lets this device reach a peer. Adding an address does not mean that you trust the peer. Trust is a separate step.",
+    /// In `PeersNoTrust`'s place while the trust list is unread or not
+    /// confirmed, with or without Try again: no row's trust is claimed.
+    PeersTrustUnread => "The list of trusted peers could not be read, so this page does not show whether each peer is trusted.",
+    /// A row's state: its peer is trusted, so this device dials it --
+    /// never that the peer is reachable.
+    PeerStateTrusted => "Trusted: this device tries to connect to this address",
+    /// A row's state: its peer is not trusted.
+    PeerStateNeedsTrust => "Not trusted: this device does not connect to this address",
+    /// A row's state: its peer is this device, whatever trust says.
+    PeerStateThisDevice => "Own address: this address belongs to this device and cannot be used to reach another device",
+    /// A row's state: the configuration turns the list off.
+    PeerStateProviderOff => "Not used: this device's configuration turns this list off",
+    /// A row's origin: the device's configuration.
+    PeerFromConfig => "From this device's configuration",
+    /// A row's menu, its accessible name; `{peer}` the short `PeerId`.
+    PeerMenu => "Options for {peer}",
+    /// A row's menu item.
+    CopyAddress => "Copy address",
+    /// An added row's menu item.
+    RemoveAddress => "Remove",
+    /// A configuration row's menu, in place of Remove.
+    PeerConfigNotRemovable => "Set in this device's configuration, so it cannot be removed here.",
+    /// Peers with no address.
+    PeersEmpty => "No addresses yet. Add the address of someone you want to reach, or show yours so they can add you.",
+    /// Under Add an address at the bound; `{max}` the bound.
+    PeersLimit => "This device can hold at most {max} addresses. Remove one to add another.",
+    /// Under Add an address when the configuration turns the list off.
+    PeersListOff => "This device's configuration turns the list of addresses off.",
+    /// The snackbar after removing a row whose list is off: no Undo.
+    ConfirmAddressRemovedFinal => "Address removed. It cannot be added again while this device's configuration turns the list off.",
+    /// The snackbar after a removal, with Undo.
+    ConfirmAddressRemoved => "Address removed",
+    /// The same, when the removed address's peer is still trusted.
+    ConfirmAddressRemovedTrusted => "Address removed. You still trust this peer.",
+    /// The snackbar after a failed Undo, with Try again.
+    UndoFailed => "The address could not be added back. It is still removed.",
+    /// The add page's field.
+    AddressField => "Address",
+    /// Under the field.
+    AddressHelp => "An address starts like /ip4/192.168.1.20/tcp/4001/p2p/ and ends with a PeerId. Ask the other person to show theirs.",
+    /// Android: opens the scanner.
+    ScanCode => "Scan a code",
+    /// Desktop: opens a file dialog for an image with a code.
+    OpenCodeImage => "Open an image…",
+    /// Desktop: reads an image with a code from the clipboard.
+    PasteCodeImage => "Paste an image",
+    /// The add page's primary.
+    AddAction => "Add",
+    /// Add's label, and its one announcement, while the page's add awaits
+    /// its answer: says it is under way, claims no outcome.
+    // PLACEHOLDER (en)
+    AddWaiting => "Adding…",
+    /// Under the field: the add stored nothing. `{line}` the line,
+    /// `{reason}` one Refused* value.
+    AddRefused => "Not added: {line}. {reason}",
+    /// The refusal's first drawn text, above the refused line, when it
+    /// names one, and the reason; with no line, it and the reason read
+    /// together are the label.
+    AddRefusedLead => "Not added:",
+    /// A refusal: the grammar.
+    RefusedGrammar => "This is not an InterWeave address.",
+    /// A refusal: a special-use address.
+    RefusedSpecialUse => "This address cannot be reached from another device.",
+    /// A refusal: a line naming this device's own `PeerId`, refused
+    /// before sending, and the runtime's `own_peer`.
+    RefusedOwnAddress => "This is this device's own address, so it cannot be used to reach another device. Add the other person's address instead.",
+    /// A refusal: a DNS name in a scanned code.
+    RefusedDnsFromScan => "This address uses a name instead of numbers, and a scanned code cannot add such an address. If you know that the address is correct, type it in the field.",
+    /// A refusal: a code over its bound; `{max}` the code's bound.
+    RefusedTooMany => "This code has more than {max} addresses.",
+    /// A refusal: the device's bound, naming the line past it; `{max}`
+    /// that bound.
+    // PLACEHOLDER (en)
+    RefusedLimit => "This device can hold at most {max} addresses. With this address, it would hold more than {max}. Nothing was added.",
+    /// A refusal: the list is off.
+    RefusedListOff => "This device's configuration turns the list of addresses off, so no address can be added.",
+    /// Step one's result, one line; `{peer}` the short `PeerId`.
+    AddedLineOne => "Added 1 address for {peer}.",
+    /// Step one's result, `{n}` lines.
+    AddedLineOther => "Added {n} addresses for {peer}.",
+    /// Step one's result: the one line was already there.
+    AddedUnchangedOne => "Nothing was added. This device already has this address.",
+    /// Step one's result: every line was already there.
+    AddedUnchangedOther => "Nothing was added. This device already has these addresses.",
+    /// Step two's block title; `{peer}` the short `PeerId`.
+    TrustStepTitle => "Do you trust {peer}?",
+    /// Step two's block body.
+    TrustStepBody => "InterWeave connects to this address only after you trust this PeerId. Trust lets this peer exchange messages with you. Before you choose Trust, compare this PeerId with the one on the other person's screen.",
+    /// Step two: both ways.
+    TrustStepBoth => "The other person also has to add your address and trust you. Each device connects only to peers that it trusts, so nothing connects until both of you have done this.",
+    /// Step two's Trust, and a row's.
+    TrustThisPeer => "Trust",
+    /// Step two's Not now, and Connect's.
+    NotNow => "Not now",
+    /// A block's state once trusted.
+    TrustStepDone => "Trusted",
+    /// A block's state after Not now.
+    TrustStepLater => "Not trusted yet",
+    /// A block's state while its Trust awaits its answer, beside a
+    /// progress mark: claims no outcome.
+    TrustStepWaiting => "InterWeave is trusting {peer}. This is not finished yet.",
+    /// A block's state after Not now or Done while its peer's trust is
+    /// not known: claims no trust state.
+    TrustStepLaterUnknown => "You did not choose Trust. InterWeave could not check whether this peer is already trusted.",
+    /// The snackbar when every block was trusted.
+    ConfirmPeerTrusted => "Peer trusted",
+    /// The snackbar when an address was added.
+    ConfirmAddressAdded => "Address added",
+    /// Announced only, before focus moves, when focus was asked for a
+    /// row after the person's own act on it and a later read no longer
+    /// has it: claims nothing about who removed it or about trust.
+    PeerRowGoneAfterAct => "The address you acted on is no longer in the list of addresses.",
+    /// Announced only, before focus moves, when focus is on a row, or a
+    /// control of it, however it got there, and a later read drops it:
+    /// says nothing of who moved focus, who removed it, or trust.
+    // PLACEHOLDER (en)
+    PeerRowGone => "The address that was focused is no longer in the list of addresses.",
+    /// Chats' notice: the list and the trust set are both empty.
+    NoReachNotice => "InterWeave cannot reach anyone yet. Add a peer's address, then trust the peer.",
+    /// Under the scan controls: a scan pressed with an address in the
+    /// field.
+    ScanAfterField => "The field already has an address. Choose Add, or clear the field. Then try again.",
+    /// Under the field: Add with nothing in it.
+    AddressNeeded => "The field is empty, so nothing was added. Type or paste an address, then choose Add.",
+    /// Under Add: the call failed, nothing was changed.
+    AddFailed => "The address could not be saved. Nothing was changed. Try again.",
+    /// Under Add: the answer was lost and the list could not be read back;
+    /// adding again is safe. One line.
+    AddUnknownOne => "InterWeave could not check whether the address was saved. Choose Add to try again. If an address is already saved, it is not saved again.",
+    /// The same, several lines.
+    AddUnknownOther => "InterWeave could not check whether the addresses were saved. Choose Add to try again. If an address is already saved, it is not saved again.",
+    /// The snackbar after a removal not made, with Try again.
+    RemoveFailed => "The address could not be removed. It is still in the list.",
+    /// The snackbar after a removal whose answer was lost and whose list
+    /// could not be read back, with Try again: says neither.
+    RemoveUnknown => "InterWeave could not check whether the address was removed. Removing it again does no harm.",
+    /// The snackbar after an Undo likewise.
+    UndoUnknown => "InterWeave could not check whether the address was added back. Adding it back again does no harm.",
+    /// Step one's result after a read back that lists one line: never
+    /// that this add made it.
+    AddedCheckedOne => "This device has this address.",
+    /// The same, `{n}` lines.
+    AddedCheckedOther => "This device has these {n} addresses.",
+    /// Step one's result for several peers; `{count}` the peers.
+    AddedLineSeveral => "Added {n} addresses in total, for {count} peers.",
+    /// Under the field: typed lines past the bound; `{n}` the lines,
+    /// `{max}` the bound.
+    RefusedTooManyLines => "The field has {n} addresses. You can add at most {max} at one time. Delete some from the field, then choose Add.",
+    /// Peers, in place of the list: anything but the runtime unreachable.
+    PeersReadFailed => "The list of addresses could not be read.",
+    /// A step-two block: the trust answer was lost and could not be
+    /// checked; `{peer}` the short `PeerId`.
+    TrustStepUnknown => "InterWeave could not check whether {peer} is trusted. Choose Trust to try again. Trusting a peer twice does no harm.",
+    /// A step-two block: the trust read back after a lost answer does not
+    /// list the peer.
+    TrustStepNotMade => "{peer} is still not trusted. Your choice of Trust was not saved. Choose Trust to try again.",
+    /// Under Add: a daemon with the one-address add only did not take
+    /// several lines; `{n}` the lines. Daemon only: the embedded runtime
+    /// is this app's own version.
+    AddSeveralIncompatible => "The transport daemon is an older version that can add only one address at a time, so these {n} addresses were not added. Put one address in the field, then choose Add. Or update InterWeave and the transport daemon to the same version.",
+    /// Desktop: an image with no code in it.
+    ImageNoCode => "No code was found in this image.",
+    /// A code that carries no address.
+    ScanNotAddress => "This code does not contain an InterWeave address.",
 }
 
 /// Where the transport runtime runs, which decides how a text that names
@@ -844,6 +1019,28 @@ macro_rules! host_texts {
 }
 
 host_texts! {
+    /// PEERS BY ADDRESS (design/2026-10-22-add-a-peer.md §9), in place of
+    /// the list: the runtime cannot be reached.
+    PeersReadUnavailable => {
+        daemon: "The list of addresses cannot be read, because the transport daemon cannot be reached.",
+        embedded: "The list of addresses cannot be read, because the network service is not running.",
+    },
+    /// Peers and the add page: this app may not administer the addresses.
+    PeersNotPermitted => {
+        daemon: "This app is not allowed to read or change the list of addresses on this transport daemon.",
+        embedded: "This app is not allowed to read or change the list of addresses.",
+    },
+    /// In `PeersNoTrust`'s place: this app may not read the trust list, so
+    /// no row's trust is shown; no Try again.
+    PeersTrustNotPermitted => {
+        daemon: "This app is not allowed to read the list of trusted peers on this transport daemon, so this page does not show whether each peer is trusted.",
+        embedded: "This app is not allowed to read the list of trusted peers, so this page does not show whether each peer is trusted.",
+    },
+    /// Peers and the add page: the runtime predates the methods.
+    PeersIncompatible => {
+        daemon: "The transport daemon is a different version from this app, so the list of addresses cannot be read or changed here. To use Peers, update InterWeave and the transport daemon to the same version.",
+        embedded: "This version of the app cannot read or change the list of addresses.",
+    },
     /// Nothing runs the transport for this profile; the window connects
     /// once it starts. On the desktop the person starts the daemon; on
     /// Android the app starts its own service.
@@ -1479,6 +1676,9 @@ mod tests {
             ("contact", "Ada"),
             ("old", "0123456789abcdef"),
             ("new", "fedcba9876543210"),
+            ("max", "64"),
+            ("count", "2"),
+            ("line", "/ip4/192.168.1.20/tcp/4001/p2p/x"),
         ];
         for text in UiText::ALL {
             let filled = fill(placeholder_en::text(*text), &values);
@@ -1573,11 +1773,22 @@ mod tests {
         assert_eq!(short_peer("abc"), "…abc");
     }
 
+    /// Pairs whose English is one word and whose meaning is not:
+    /// another language may need two words, so each keeps its key.
+    const ONE_ENGLISH_WORD: &[(UiText, UiText)] = &[
+        // The trust settings' heading, a noun; step two's button, a verb.
+        (UiText::TrustHeading, UiText::TrustThisPeer),
+    ];
+
     #[test]
     fn every_ui_text_appears_once_in_all() {
+        for (a, b) in ONE_ENGLISH_WORD {
+            assert_eq!(placeholder_en::text(*a), placeholder_en::text(*b));
+        }
         for &host in RuntimeHost::ALL {
             let mut texts: Vec<&str> = UiText::ALL
                 .iter()
+                .filter(|t| !ONE_ENGLISH_WORD.iter().any(|(_, b)| b == *t))
                 .map(|t| placeholder_en::text(*t))
                 .chain(
                     HostText::ALL

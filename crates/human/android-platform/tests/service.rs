@@ -827,6 +827,27 @@ fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
     service.stop(GRACE).expect("it ran");
 }
 
+/// A view attaching to a facade whose session is ready is told this
+/// node's `PeerId` with its listing, as the Ready it missed would have
+/// told it: Peers reads this device's own row by it.
+#[test]
+fn a_view_attaching_late_is_told_this_device() {
+    let app = app();
+    let service = started(&app);
+    let mut first = attach(&service);
+    let mut held = Vec::new();
+    until(&mut first, &mut held, "a ready session", is_ready);
+    let mut late = attach(&service);
+    let mut held = Vec::new();
+    until(
+        &mut late,
+        &mut held,
+        "this device's PeerId",
+        |message| matches!(message, ToView::Update(u) if matches!(**u, Update::ThisDevice(_))),
+    );
+    service.stop(GRACE).expect("it ran");
+}
+
 /// A stand-in for the Keystore's store key, sealing nothing (the secret
 /// is the body) so it can be told to refuse as invalidated: what the
 /// Service does with that refusal, not the Keystore, is what is tested

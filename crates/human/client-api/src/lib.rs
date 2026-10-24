@@ -468,3 +468,134 @@ pub enum TrustSetFailure {
     /// Made, and the allowlist could not be read back after it.
     MadeNotReadBack(TrustProblem),
 }
+
+/// The addresses this device holds for reaching peers (ADR-0062): the
+/// configuration's entries first, then those added here, each in the
+/// order the runtime holds them. An address grants no trust; whether a
+/// peer is trusted is the [`TrustList`]'s to say.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AddressList {
+    /// Every address, at most the runtime's bound of them.
+    pub addresses: Vec<PeerAddress>,
+}
+
+impl AddressList {
+    /// Whether the list holds nothing: half of ADR-0062 decision 8's
+    /// no-reach condition.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.addresses.is_empty()
+    }
+}
+
+/// One address, as the runtime listed it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerAddress {
+    /// A `multiaddr-with-peer-id`, as the runtime holds it.
+    pub address: String,
+    /// The peer it reaches: its last `/p2p/` component, the destination
+    /// of a circuit route. `None` only for an address whose last
+    /// component is not a canonical `PeerId`, which the runtime's grammar
+    /// does not admit.
+    pub peer: Option<TransportIdentity>,
+    /// Where it comes from.
+    pub origin: AddressOrigin,
+    /// Whether this device dials it once its peer is trusted: `false`
+    /// exactly when the configuration turns the list off.
+    pub dialled: bool,
+}
+
+impl PeerAddress {
+    /// The peer `address` reaches: its last `/p2p/` component, which for
+    /// a circuit route is the destination and not the relay. Read, never
+    /// judged: the runtime's grammar is the judge, so a string it would
+    /// refuse may still name a peer here.
+    #[must_use]
+    pub fn peer_of(address: &str) -> Option<TransportIdentity> {
+        let (_, peer) = address.rsplit_once("/p2p/")?;
+        TransportIdentity::parse(peer).ok()
+    }
+}
+
+/// Where an address comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AddressOrigin {
+    /// The device's configuration: the operator's, not removable here.
+    Configured,
+    /// Added here.
+    AddedHere,
+}
+
+/// What an add or a removal did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddressOutcome {
+    /// Added: in force, and dialled once `peer` is trusted.
+    Added {
+        /// The peer the address reaches.
+        peer: Option<TransportIdentity>,
+    },
+    /// Removed: dialled no more.
+    Removed,
+    /// Nothing to do: the address was already there, or was not.
+    Unchanged,
+    /// Refused by name; nothing was written.
+    Refused(AddressRefused),
+}
+
+/// Why the runtime refused an address change, by its rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AddressRefused {
+    /// Not an InterWeave address (the grammar).
+    Grammar,
+    /// A class no other device can reach (ADR-0052 rule 2's floor).
+    SpecialUse,
+    /// The list is at its bound.
+    Bound,
+    /// The configuration turns the list off: an add only.
+    ListOff,
+    /// The configuration's own entry: a removal only.
+    Configured,
+    /// The address names this node's own `PeerId`: an add only, from IPC
+    /// 2.9 (`own_peer`); below it the runtime answers the grammar. The
+    /// client refuses such a line itself before sending (add-a-peer §5.3).
+    OwnPeer,
+}
+
+/// An address change's answer: what it did, and the list read back
+/// after it, which is what the runtime holds and not what was asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddressAnswer {
+    /// What the change did: known whenever the runtime answered, so a
+    /// failed read-back never hides it.
+    pub outcome: AddressOutcome,
+    /// The list afterwards, or why it could not be read back: then the
+    /// list on show may not include the change, and is read again.
+    pub list: Result<AddressList, AddressProblem>,
+}
+
+/// Why reading or changing the addresses failed: a class, for the view;
+/// the raw code is not kept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AddressProblem {
+    /// The runtime cannot be reached, or is stopping.
+    Unavailable,
+    /// This client may not administer the addresses here.
+    NotPermitted,
+    /// The runtime predates the addresses' methods (a mixed install).
+    Incompatible,
+    /// Anything else, a failed write of the list included.
+    Internal,
+}
+
+/// Why an address change has no answer, kept apart as
+/// [`TrustSetFailure`] keeps them: whether the change was made is what a
+/// person must be told truly. A change the runtime answered is an
+/// [`AddressAnswer`], its list read back or not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AddressChangeFailure {
+    /// Not made: never sent, or failed with nothing written.
+    NotMade(AddressProblem),
+    /// May have been made: the request may have reached the runtime
+    /// before the failure.
+    Unconfirmed(AddressProblem),
+}
