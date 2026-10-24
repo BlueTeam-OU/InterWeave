@@ -4,7 +4,7 @@ class: solution
 description: "Which message kinds the InterWeave human client shows and which per-row actions each has — the base for any gesture/swipe design"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

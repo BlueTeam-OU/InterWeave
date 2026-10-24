@@ -5,7 +5,7 @@ topic: "j85-snackbar-closing-rule"
 description: "ui-slint: one rule in Shared::push takes the snackbar off screen when an input that will close it is queued (SnackUp::closed_by); InterWeave #292"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

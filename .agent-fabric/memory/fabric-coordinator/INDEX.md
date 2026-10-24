@@ -3,7 +3,7 @@ role: "fabric-coordinator"
 class: index
 description: "What fabric-coordinator knows and where it lives."
 tier: 1
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 ---
 
 # fabric-coordinator — knowledge index
@@ -43,6 +43,19 @@ control plane checked out beside it.
 - [`../agent-fabric/memory/domains/fabric-coordinator/domain/software-factory-loops-graphs-harnesses.md`](../agent-fabric/memory/domains/fabric-coordinator/domain/software-factory-loops-graphs-harnesses.md) — the "software factory" article (2026-09-11) — planning and execution loops, a dependency graph, a harness, an outer loop; what it claims and where the fabric already matches
 - [`../agent-fabric/memory/domains/fabric-coordinator/domain/yamux-silent-downgrade.md`](../agent-fabric/memory/domains/fabric-coordinator/domain/yamux-silent-downgrade.md) — Tuning libp2p yamux via any setter silently swaps the muxer to vulnerable yamux 0.12.1, and cargo-deny cannot see it; InterWeave now guards it with check_yamux_muxer.sh
 - [`../agent-fabric/memory/shared/domain-claude-code-attribution-reminder.md`](../agent-fabric/memory/shared/domain-claude-code-attribution-reminder.md) — The attribution key is written by runtime/claude-code/user-settings.py, run from tools/fabric/bootstrap.py (shared)
+
+## solution
+
+- [`.agent-fabric/memory/fabric-coordinator/solution.md`](.agent-fabric/memory/fabric-coordinator/solution.md) — why interweave-human send/listen cannot carry GZCoord between agents, and what ADR-064 chose instead
+
+## workflow
+
+- [`.agent-fabric/memory/fabric-coordinator/workflow/fabric-ref-bump-rides-the-consumer.md`](.agent-fabric/memory/fabric-coordinator/workflow/fabric-ref-bump-rides-the-consumer.md) — How an InterWeave .agent-fabric/fabric-ref bump is delivered and checked when another role's PR needs it
+- [`.agent-fabric/memory/fabric-coordinator/workflow/never-list-work-as-contributor-patches.md`](.agent-fabric/memory/fabric-coordinator/workflow/never-list-work-as-contributor-patches.md) — When python-devs are idle and the only Python work is on CONTRIBUTOR_NEVER, they write it as a patch the coordinator commits
+- [`.agent-fabric/memory/fabric-coordinator/workflow/per-job-auto-mode-entry-procedure.md`](.agent-fabric/memory/fabric-coordinator/workflow/per-job-auto-mode-entry-procedure.md) — How a per-job auto-mode allow entry (policies/auto-mode.json) is landed and what bit last time — owner's choice, own PR, revert elsewhere, review against the driver
+- [`.agent-fabric/memory/fabric-coordinator/workflow/review-report-arrives-as-message.md`](.agent-fabric/memory/fabric-coordinator/workflow/review-report-arrives-as-message.md) — a code-review subagent's report comes back as a hand-back message, not in its task output file; post-review needs it copied from there
+- [`.agent-fabric/memory/fabric-coordinator/workflow/search-own-jobs-before-a-record.md`](.agent-fabric/memory/fabric-coordinator/workflow/search-own-jobs-before-a-record.md) — before drafting a record on a subject, search your own job list and memories for an older job on it — it may carry the owner's word
+- [`.agent-fabric/memory/fabric-coordinator/workflow/withdrawn-request-check-the-thread-first.md`](.agent-fabric/memory/fabric-coordinator/workflow/withdrawn-request-check-the-thread-first.md) — before starting a job from a REQUEST, read its whole thread and the state of what it names (the PR) — a withdrawal or a merge can sit there unread, and the work already written for its siblings must come out too
 
 ## recall
 
