@@ -378,7 +378,9 @@ impl core::fmt::Display for IdentityKeyFileError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Exists => f.write_str("the identity already has a key"),
-            Self::Missing => f.write_str("the identity's key file is gone, and its card was shared"),
+            Self::Missing => {
+                f.write_str("the identity's key file is gone, and its card was shared")
+            }
             Self::Key(e) => e.fmt(f),
             Self::Persist(e) => write!(f, "the identity's key file: {e}"),
         }
