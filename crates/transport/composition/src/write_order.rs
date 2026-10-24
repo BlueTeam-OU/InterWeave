@@ -199,6 +199,12 @@ mod tests {
         let order = Arc::new(AdmissionOrder::default());
         let status = order.admit_writer(&BTreeSet::from([AdminCapability::Status]));
         assert!(status.is_none());
+        let others = order.admit_writer(&BTreeSet::from([
+            AdminCapability::Status,
+            AdminCapability::Endpoints,
+            AdminCapability::Shutdown,
+        ]));
+        assert!(others.is_none(), "no ordered write among them");
         assert_eq!(
             order.oldest_alive(),
             None,
