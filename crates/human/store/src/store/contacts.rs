@@ -87,6 +87,17 @@ pub struct Contact {
     pub routes: Vec<ContactRoute>,
 }
 
+/// What [`HumanStore::delete_route`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteDeleted {
+    /// The route and its recorded key are gone; the contact stays.
+    Deleted,
+    /// The contact's only route: nothing was written.
+    LastRoute,
+    /// The contact holds no such route, or there is no such contact.
+    NoSuchRoute,
+}
+
 /// A card the person accepted, as the parser gave it.
 #[derive(Debug, Clone, Copy)]
 pub struct AcceptedCard<'a> {
@@ -674,6 +685,59 @@ impl HumanStore {
         })();
         let deleted = result.map_err(|e| self.note_store_failure(e))?;
         if deleted {
+            self.release_done();
+        }
+        Ok(deleted)
+    }
+
+    /// Delete one route of a contact, with the identity key it recorded
+    /// (ADR-0059 decision 9: deleting a contact's routes): the contact
+    /// stays with its others. A contact's last route is refused in the
+    /// same transaction and nothing is written, since a contact with no
+    /// route is a delete of the contact, which is the person's
+    /// [`HumanStore::delete_contact`]. What was deleted leaves the log as a
+    /// deleted contact does
+    /// (`a_deleted_route_leaves_both_files_and_the_last_is_refused`). A
+    /// card from the route is a new proposal afterwards, its key
+    /// unrecorded.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn delete_route(
+        &mut self,
+        contact_id: &str,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+    ) -> Result<RouteDeleted, StoreError> {
+        let result = (|| -> Result<RouteDeleted, StoreError> {
+            let tx = self.conn.transaction()?;
+            let routes: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM contact_routes WHERE contact_id = ?1",
+                params![contact_id],
+                |r| r.get(0),
+            )?;
+            let held: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM contact_routes
+                                WHERE contact_id = ?1 AND peer_id = ?2 AND endpoint_id = ?3)",
+                params![contact_id, peer.as_str(), endpoint.as_str()],
+                |r| r.get(0),
+            )?;
+            if !held {
+                return Ok(RouteDeleted::NoSuchRoute);
+            }
+            if routes <= 1 {
+                return Ok(RouteDeleted::LastRoute);
+            }
+            tx.execute(
+                "DELETE FROM contact_routes
+                  WHERE contact_id = ?1 AND peer_id = ?2 AND endpoint_id = ?3",
+                params![contact_id, peer.as_str(), endpoint.as_str()],
+            )?;
+            tx.commit()?;
+            Ok(RouteDeleted::Deleted)
+        })();
+        let deleted = result.map_err(|e| self.note_store_failure(e))?;
+        if deleted == RouteDeleted::Deleted {
             self.release_done();
         }
         Ok(deleted)
