@@ -2731,3 +2731,55 @@ fn the_camera_stopping_closes_the_viewfinder() {
     assert!(!view.window().get_viewfinder_open());
     assert!(!model.peers().scan_open());
 }
+
+/// The viewfinder is modal: Tab and Backtab keep focus on its Close,
+/// never the add page under it; and when it closes, its last frame goes
+/// with it, no picture kept (#418 F3, F5).
+#[test]
+fn the_viewfinder_keeps_focus_and_keeps_no_frame() {
+    use slint::platform::{Key, WindowEvent};
+    let key = |view: &View, k: Key| {
+        let text: slint::SharedString = k.into();
+        let window = view.window().window();
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text });
+        slint::platform::update_timers_and_animations();
+    };
+    let mut view = view();
+    view.camera_hook(|_| {});
+    let mut model = UiModel::new();
+    let me = peer();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    press(&view, text(UiText::AddAddress));
+    let _ = intents(&mut view, &mut model);
+    view.offer_scans(true, false, false);
+    view.render(&model);
+    press(&view, text(UiText::ScanCode));
+    let _ = intents(&mut view, &mut model);
+    // The window's draw makes the viewfinder's controls before focus
+    // moves; headless, a walk of the tree stands for it. Focus moves a
+    // turn after the render, and once more the turn after.
+    assert_eq!(labelled(&view, text(UiText::CloseScanner)).len(), 1);
+    slint::platform::update_timers_and_animations();
+    slint::platform::update_timers_and_animations();
+    assert_eq!(view.window().get_focus_target().as_str(), "close-scanner");
+    assert_eq!(view.window().get_focus_id().as_str(), "close-scanner");
+    for k in [Key::Tab, Key::Backtab, Key::Tab] {
+        key(&view, k);
+        assert_eq!(
+            view.window().get_focus_id().as_str(),
+            "close-scanner",
+            "{k:?}"
+        );
+    }
+    view.camera_frame(4, 4, &[128; 16]);
+    view.render(&model);
+    assert!(view.window().get_viewfinder_frame().size().width > 0);
+    press(&view, text(UiText::CloseScanner));
+    let _ = intents(&mut view, &mut model);
+    assert_eq!(
+        view.window().get_viewfinder_frame().size().width,
+        0,
+        "the last frame went with the viewfinder"
+    );
+}

@@ -803,10 +803,18 @@ impl View {
     fn render_scan(&mut self, peers: &Peers) {
         let mut shared = self.shared.borrow_mut();
         let camera = peers.scan_open() && shared.scan_control == Some(ScanControl::Camera);
+        let opening = camera && !self.window.get_viewfinder_open();
         self.window.set_viewfinder_open(camera);
+        // Focus to the viewfinder's Close as it opens: its one stop.
+        if opening {
+            self.focus_key_after_draw("close-scanner".to_owned());
+        }
         if !camera {
             self.peer_lists.viewfinder_not_address = false;
+            // The last frame goes with the viewfinder: no picture is kept
+            // (CameraWhy; #418 F3).
             self.window.set_viewfinder_has_frame(false);
+            self.window.set_viewfinder_frame(slint::Image::default());
         }
         self.window.set_viewfinder_note(
             if self.peer_lists.viewfinder_not_address {

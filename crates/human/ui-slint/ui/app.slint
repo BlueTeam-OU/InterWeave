@@ -6238,6 +6238,12 @@ export component AppWindow inherits Window {
                 root.peers-scanner-closed();
                 return accept;
             }
+            // A modal surface keeps focus: Close is its one stop, so Tab
+            // never reaches the add page under it (#418 F5).
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                close-scanner.focus();
+                return accept;
+            }
             reject
         }
         Rectangle {
@@ -6269,13 +6275,16 @@ export component AppWindow inherits Window {
             spacing: 12px;
             HorizontalLayout {
                 alignment: end;
-                IconButton {
+                close-scanner := IconButton {
                     glyph: Glyph.cancel;
                     label: root.close-scanner-label;
                     ink: #ffffff;
                     rtl: root.rtl;
                     focus-key: "close-scanner";
-                    init => { self.focus(); }
+                    // Focus comes as the viewfinder opens, asked by the view
+                    // once the frame that draws it is done.
+                    focus-seq: root.focus-seq;
+                    focus-wanted: root.focus-target == "close-scanner";
                     pressed => { root.peers-scanner-closed(); }
                     focused(k) => { root.focus-id = k; }
                 }
