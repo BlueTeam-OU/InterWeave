@@ -803,6 +803,83 @@ async fn a_list_of_addresses_is_added_whole_or_refused_by_its_line() {
     b_daemon.terminate().await;
 }
 
+/// With no daemon at all: `identity show` names any human endpoint of the
+/// profile -- the one in front by name or not, another one's key file
+/// read and never made -- and a list of addresses this client refuses is
+/// refused before any socket, exit 1 rather than 3.
+#[test]
+fn identity_show_names_any_human_endpoint_and_a_list_is_judged_before_any_daemon() {
+    let home = Home::new("human-desktop");
+    let peer = Home::new("human-desktop").write_key();
+    home.write_key();
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let shipped = example(
+        "human-desktop.yaml",
+        &peer,
+        &format!("/ip4/{ip}/tcp/{}", free_port(ip)),
+        None,
+    );
+    let claude = "    - { id: claude,";
+    assert_eq!(shipped.matches(claude).count(), 1, "the example's shape");
+    home.write_config(&shipped.replace(
+        claude,
+        "    - { id: human-spare, enabled: true, advertise: true, \
+         allowed_client_kinds: [human-client], inbound: inherit_profile_trust, \
+         outbound: inherit_profile_trust }\n    - { id: claude,",
+    ));
+
+    let out = human(&home, &["identity", "show", "--json"], "");
+    assert_eq!(code(&out), Some(0), "{}", said(&out));
+    let front = lines(&out)[0]["fingerprint"].clone();
+    assert!(front.is_string(), "{}", said(&out));
+    let out = human(&home, &["identity", "show", "human", "--json"], "");
+    assert_eq!(
+        code(&out),
+        Some(0),
+        "named, the one in front: {}",
+        said(&out)
+    );
+    assert_eq!(lines(&out)[0]["fingerprint"], front);
+    let out = human(&home, &["identity", "show", "human-spare", "--json"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    assert_eq!(lines(&out)[0]["key_problem"], "absent", "{}", said(&out));
+    assert!(
+        !home
+            .paths
+            .state_dir()
+            .join("identity-keys")
+            .join("human-spare.key")
+            .exists(),
+        "no key is made for it"
+    );
+    let out = human(&home, &["identity", "show", "claude"], "");
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+
+    let list = home.paths.state_dir().join("empty.txt");
+    std::fs::write(&list, "\n  \n").expect("written");
+    let path = list.to_str().expect("a UTF-8 path");
+    let out = human(&home, &["peers", "add", "--file", path], "");
+    assert_eq!(
+        code(&out),
+        Some(1),
+        "refused before any daemon: {}",
+        said(&out)
+    );
+    let seventeen: String = (1..=17).fold(String::new(), |mut s, n| {
+        s.push_str(&format!("/ip4/{ip}/tcp/{n}\n"));
+        s
+    });
+    let out = human(&home, &["peers", "add", "-"], &seventeen);
+    assert_eq!(code(&out), Some(1), "{}", said(&out));
+    let out = human(&home, &["peers", "add", "-"], &format!("/ip4/{ip}/tcp/1\n"));
+    assert_eq!(
+        code(&out),
+        Some(3),
+        "the control: a list it takes needs the daemon: {}",
+        said(&out)
+    );
+}
+
 /// ADR-0060 decision 6 as a shell runs it: a store whose key is gone is
 /// reported needing recovery, its discard is refused without the scope it
 /// lists, and the confirmed discard recreates it empty. The daemon is A's
