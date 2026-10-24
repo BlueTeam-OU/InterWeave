@@ -23,6 +23,7 @@ pub mod mesh_id;
 pub mod preauth;
 pub mod reachability;
 pub mod relay;
+pub mod session_losses;
 pub mod session_queue;
 pub mod topic;
 
@@ -68,6 +69,7 @@ pub use ingress::{
 };
 pub use interweave_trust_api::{EndpointTrustPolicy, PeerTrustPolicy};
 pub use mesh_id::{MeshMessageId, gossipsub_message_id_v1};
+pub use session_losses::{LossLedger, SessionLosses};
 pub use session_queue::{BroadcastEvent, Pushed, SessionDrop, SessionQueues};
 pub use topic::{TopicKey, topic_key_v1};
 // Same reason: `EndpointRegistry::claim` takes a `Generation`, so it is

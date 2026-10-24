@@ -207,6 +207,10 @@ pub fn admit_broadcast(
     //    the same words, because a bound is worth exactly what its stated
     //    scope is.
     if let Err(refusal) = admit_prefix(source, clocks.monotonic_ms, &mut ctx.prefix) {
+        // COUNTED HERE, the one place a broadcast is refused at ingress:
+        // one increment for the channel, none per session, so the work
+        // the bucket bounds stays bounded (`session_losses`).
+        ctx.queues.losses_mut().refused(channel);
         return BroadcastAdmission::Refused(refusal);
     }
 
@@ -393,6 +397,7 @@ mod tests {
                 subs.join(channel(), (*s).to_owned())
                     .expect("within the bounds");
                 queues.open(*s, 8);
+                queues.losses_mut().joined(s, &channel());
             }
             Self {
                 trust: PeerTrustPolicy::new([peer(P1)]).expect("a small allowlist"),
@@ -593,6 +598,42 @@ mod tests {
             BroadcastAdmission::Refused(Refusal::Draining)
         );
         assert!(w.queues.drain("human").is_empty());
+    }
+
+    /// `session.losses`' two counts move at the two places a copy is lost,
+    /// for the session that lost it, and nowhere else.
+    #[test]
+    fn a_refused_broadcast_and_an_overflowed_copy_are_counted_for_their_sessions() {
+        let mut w = World::new(&["fast", "slow"]);
+        w.queues.open("slow", 1);
+        assert!(matches!(
+            w.admit(&frame(7, b"one"), P1, 0),
+            BroadcastAdmission::Delivered { .. }
+        ));
+        assert_eq!(
+            w.queues.losses().read("slow"),
+            crate::SessionLosses::default(),
+            "the control: a delivery with room costs nothing"
+        );
+        assert!(matches!(
+            w.admit(&frame(8, b"two"), P1, 1),
+            BroadcastAdmission::Delivered { .. }
+        ));
+        assert_eq!(w.queues.losses().read("slow").queue_overflow, 1);
+        assert_eq!(w.queues.losses().read("fast").queue_overflow, 0);
+
+        w.draining = true;
+        assert!(matches!(
+            w.admit(&frame(9, b"three"), P1, 2),
+            BroadcastAdmission::Refused(_)
+        ));
+        for session in ["fast", "slow"] {
+            assert_eq!(
+                w.queues.losses().read(session).ingress_refused,
+                1,
+                "{session} held the channel the gate refused on"
+            );
+        }
     }
 
     #[test]
