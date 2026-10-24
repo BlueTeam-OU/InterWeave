@@ -59,7 +59,7 @@ Each fact names the run that shows it.
 ### Handshake
 1. Claude Code first sends `server/discover`, the 2026-07-28-era probe. A server that answers `-32601` is then sent `initialize`, asking for `2025-11-25`, and the debug log records `protocolEra: legacy`. This happened with negotiation unset (`r1-default`) and with `auto` (`r4-negotiation-auto`).
 2. `MCP_PROTOCOL_NEGOTIATION=legacy` skips the probe and sends `initialize` directly, with the same revision. (`r4-negotiation-legacy`)
-3. Not measured. The Claude Code MCP documentation (code.claude.com/docs/en/mcp, "Push messages with channels", read 2026-10-03) says that on the v2 MCP client runtime, a channel server that negotiates revision 2026-07-28 is not registered as a channel.
+3. Not measured. The Claude Code MCP documentation (code.claude.com/docs/en/mcp, "Push messages with channels", read 2026-10-03) says that on the v2 MCP client runtime, a channel server that negotiates revision 2026-07-28 is not registered as a channel. S23 measured it on 2.1.286 (fact 35).
 
 ### Enabling
 4. In `-p` sessions no channel event reached the model at the three timings tried: at once, at 2 s, and at 0.5 s with a second turn at 8 s. The stub's tools were listed. (`r1-default`, `r2-delay-2s`, `r3-two-turns`)
@@ -154,6 +154,24 @@ Runs a, c and d use `/etc/claude-code/managed-settings.d/interweave.json`. This 
 32. `channelsEnabled: false` did not refuse on this login (c). Read from the binary: for a claude.ai login, the gate reads `channelsEnabled` only when the subscription is Team or Enterprise. For any other login, it refuses whenever a policy exists without `channelsEnabled: true`, with "channels not enabled by org policy (set channelsEnabled: true in managed settings)". So on this account, `allowedChannelPlugins` alone decides. That refusal was not measured: it needs a Team or Enterprise subscription, or a login that is not claude.ai.
 33. Without managed settings, the session is refused as S19's c was, with the same text (b).
 
+## S23: a channel server on the 2026-07-28 revision (plan §19)
+
+Run on 2026-10-24 against **Claude Code 2.1.286**, the build this host runs (the version each session's debug log and `server/discover` or `initialize` `clientInfo` name), on this login's account, by `s23_era.py` as committed at `319b2065`. The server is `s23_stub.py`, not the stub of 2026-10-03. It is a std-only Python channel server that declares `experimental["claude/channel"]` and `tools` in every run, and differs between runs only in how it answers `server/discover`. Each run is one interactive session, started with its own scratch `CLAUDE_CONFIG_DIR` and the folder pre-trusted. The server is loaded with `--mcp-config` and the development flag `server:spike001`, and the development warning is accepted. Nothing is typed after that: an idle session answers a channel event on its own (fact 9). The stub sends one event 3 s after its handshake completes, which is its `server/discover` answer in the modern era and `notifications/initialized` in the legacy one. Each session was stopped with SIGINT, as SPIKE-001 measured.
+
+| Run | `server/discover` answer | Client setting | Debug log for `spike001` | Event in the conversation |
+|---|---|---|---|---|
+| `s23-a-modern` | a DiscoverResult, `supportedVersions: ["2026-07-28"]` | negotiation unset | `Channel notifications skipped: connection negotiated a modern protocol revision with no unsolicited notification path` | no |
+| `s23-b-legacy` | `-32601`, as the bridge answers (control) | negotiation unset | `Channel notifications registered` | yes |
+| `s23-c-modern-pinned` | as a | `MCP_PROTOCOL_NEGOTIATION=legacy` | `Channel notifications registered` | yes |
+
+34. A server that answers `server/discover` with a DiscoverResult offering `2026-07-28` is connected in the modern era (a). No `initialize` is sent. Every request carries the 2026-07-28 `_meta` envelope: `io.modelcontextprotocol/protocolVersion`, `…/clientInfo` and `…/clientCapabilities`. The debug log records `protocolEra` `modern`, and the server's tools are fetched with `tools/list`. The probe itself is fact 1's.
+35. A 2.1.286 session does not register a channel on a modern-era connection (a). The debug log says `Channel notifications skipped: connection negotiated a modern protocol revision with no unsolicited notification path`. The stub sent its `notifications/claude/channel` 3 s after its discover answer, and nothing reached the conversation. The legacy control registered, and its event reached the model as a `<channel>` tag (b). This is fact 3, now measured: the documentation was right for this build.
+36. Read from the 2.1.286 binary, not measured: the refusal is the gate's second check, the era, which fact 23 lists. It comes straight after the capability check and before the provider, policy, session-list and allowlist checks, so no flag or setting reaches past it. The session's notice for it is `Channel messages from "<server>" are unavailable: this connection's protocol version has no channel delivery path`; the captured screen of a does not show it. The permission relay's server filter also excludes a modern-era connection.
+37. `MCP_PROTOCOL_NEGOTIATION=legacy` makes the same modern-capable server register (c). The probe is skipped, `initialize` asks for `2025-11-25`, and the channel registers and delivers as b's did. So when a server speaks both eras, the client's negotiation setting decides which one it gets, and only the legacy one has a channel.
+38. A result on a 2026-07-28 connection must carry `resultType`. In a first attempt of a, the stub's `tools/list` result had none, and the client rejected it: "missing required resultType — servers implementing protocol revision 2026-07-28 MUST include it". That attempt was replaced before anything was committed, and the committed runs send `"resultType": "complete"` on every modern result. The `server/discover` result was accepted without one.
+
+What this changes in the bridge: nothing. The bridge answers `server/discover` with `-32601`, and answers `initialize` with `2025-11-25` whatever revision it is asked for (`apps/claude-channel/src/mcp.rs`, test `discover_is_method_not_found_and_initialize_is_2025_11_25`). That is b's shape, the one that registers. If the bridge served the revision on this build, its channel would be lost.
+
 ## Where the architecture disagrees
 
 The documents are listed by document and sentence. Amending them is architect-cto's (`architecture/plugin/`) and the contract owner's (`contracts/CHANNEL-EVENT.md`, under ADR-0049).
@@ -163,7 +181,7 @@ The documents are listed by document and sentence. Amending them is architect-ct
 - **`architecture/plugin/LIFECYCLE.md` §Shutdown**, "MCP stdin close/SIGTERM stops only the bridge": the first signal is SIGINT, with no stdin close (fact 18). A server still alive after it gets SIGTERM at about 100 ms and SIGKILL at about 500 ms. A bridge cannot count on a graceful window, so releasing its lease must not depend on the bridge doing work after the first signal.
 - **`architecture/plugin/CLAUDE-CODE-CHANNEL.md` §Session behavior**, "If daemon is unavailable, bridge remains a functioning MCP server": right, and necessary. A bridge that exits is not restarted (fact 19).
 - **`architecture/plugin/PACKAGING.md`**, "Exact Claude manifest syntax remains SPIKE-001": measured as `plugin.json` with a `channels` array naming the `.mcp.json` server, validated and loaded (facts 7 and 8).
-- **`architecture/plugin/CLAUDE-CODE-CHANNEL.md` §Capability declaration**: the declaration as written is what the stub declared, and it registered (facts 5 and 7). Answering `server/discover` with `-32601` kept the stub in the legacy era, where it registered (facts 1 and 2). Whether a 2026-07-28-era answer would also register is not measured; the documentation says it would not (fact 3).
+- **`architecture/plugin/CLAUDE-CODE-CHANNEL.md` §Capability declaration**: the declaration as written is what the stub declared, and it registered (facts 5 and 7). Answering `server/discover` with `-32601` kept the stub in the legacy era, where it registered (facts 1 and 2). A 2026-07-28-era answer does not register on 2.1.286 (S23, fact 35), so the declaration's legacy answer is the one that works.
 
 ## Not established
 
@@ -172,6 +190,6 @@ The documents are listed by document and sentence. Amending them is architect-ct
 - The `channelsEnabled` refusal (fact 32): it needs a Team or Enterprise subscription, or a login that is not claude.ai. Also not measured: a managed settings file written to the host's own `/etc`, rather than presented to one process; and server-managed or MDM policy, which rank above the file (fact 29).
 - Permission relay, which the design does not declare.
 - Size limits on `content` and `meta`, and behaviour under load.
-- A server negotiating the 2026-07-28 revision (fact 3).
+- A server negotiating the 2026-07-28 revision on a build after 2.1.286. On 2.1.286 it is not registered (S23, fact 35).
 - Whether any non-interactive surface delivers channels.
 - Any other `-p` timing than the three tried (fact 4).
