@@ -1520,15 +1520,40 @@ async fn a_bare_address_intent_reaches_nothing() {
         ViewEvent::Intent(Intent::ReadAddresses),
         ViewEvent::Intent(Intent::AddAddresses(vec![address.clone()])),
         ViewEvent::Intent(Intent::RemoveAddress(address)),
+        ViewEvent::Intent(Intent::ReadOwnAddresses),
     ]);
     root.pump(1).await;
     assert!(
         !root.commands.iter().any(|c| matches!(
             c,
-            Command::ReadAddresses | Command::AddAddresses(_) | Command::RemoveAddress(_)
+            Command::ReadAddresses
+                | Command::AddAddresses(_)
+                | Command::RemoveAddress(_)
+                | Command::ReadOwnAddresses
         )),
         "{:?}",
         root.commands
+    );
+}
+
+/// Show my address reaches the facade as one read of this node's own
+/// addresses, and what it answers is what Show draws.
+#[tokio::test]
+async fn show_reads_this_nodes_addresses_through_the_facade() {
+    use interweave_human_ui_model::{PeersInput, ShowState};
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
+    root.will(vec![ViewEvent::Peers(PeersInput::OpenShow)]);
+    root.pump(1).await;
+    assert_eq!(root.commands, vec![Command::ReadOwnAddresses]);
+    let want = format!("/ip4/192.168.77.10/tcp/4001/p2p/{}", a.peer().as_str());
+    assert_eq!(
+        root.model().peers().show(),
+        Some(&ShowState::Shown {
+            peer: a.peer().clone(),
+            lines: vec![want]
+        })
     );
 }
 
@@ -1584,8 +1609,8 @@ async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
     let many: Vec<String> = (0..=TYPED_LINES)
         .map(|i| format!("/ip4/192.168.1.{i}/tcp/4001/p2p/{}", b.peer().as_str()))
         .collect();
-    let (e, _) = FakeNetwork::pair(node(), node());
-    let (mut root, _) = Root::new(facade(&e, memory()));
+    let (fifth, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&fifth, memory()));
     root.settled(0).await;
     root.will(vec![
         ViewEvent::Peers(PeersInput::OpenAdd),

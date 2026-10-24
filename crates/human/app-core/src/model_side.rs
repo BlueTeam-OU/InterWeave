@@ -262,6 +262,11 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                     .remove(&InFlight::Other(Command::ReadAddresses));
                 self.model.addresses_read(answer);
             }
+            Update::OwnAddressesRead(answer) => {
+                self.in_flight
+                    .remove(&InFlight::Other(Command::ReadOwnAddresses));
+                self.model.own_addresses_read(answer);
+            }
             Update::AddressesAdded { lines, answer } => {
                 self.in_flight
                     .remove(&InFlight::Other(Command::AddAddresses(lines.clone())));
@@ -411,7 +416,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                         | Intent::SetTrust(_)
                         | Intent::ReadAddresses
                         | Intent::AddAddresses(_)
-                        | Intent::RemoveAddress(_),
+                        | Intent::RemoveAddress(_)
+                        | Intent::ReadOwnAddresses,
                     ) => {}
                     ViewEvent::Intent(intent) => {
                         unrendered |=
@@ -530,6 +536,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             Intent::ReadTrust => Command::ReadTrust,
             Intent::SetTrust(change) => Command::SetTrust(change),
             Intent::ReadAddresses => Command::ReadAddresses,
+            Intent::ReadOwnAddresses => Command::ReadOwnAddresses,
             Intent::AddAddresses(lines) => Command::AddAddresses(lines),
             Intent::RemoveAddress(address) => Command::RemoveAddress(address),
             // Accept carries the context the person was shown; a proposal

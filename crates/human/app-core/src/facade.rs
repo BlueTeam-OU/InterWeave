@@ -315,6 +315,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 updates.push(Update::AddressesRead(answer));
                 Ok(())
             }
+            Command::ReadOwnAddresses => {
+                let answer = Box::pin(self.client.own_addresses()).await;
+                updates.push(Update::OwnAddressesRead(answer));
+                Ok(())
+            }
             Command::AddAddresses(lines) => {
                 // One add, all or none, whatever its lines (ADR-0062
                 // decision 4): the facade chooses the method.
