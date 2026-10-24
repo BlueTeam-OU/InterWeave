@@ -504,6 +504,10 @@ impl UiModel {
     /// needed is let go.
     pub fn card_resolved(&mut self, row: RowId, outcome: CardOutcome) {
         let leaving = self.focus_after_proposal(row);
+        // The facade side replaced the answer it held for an open card
+        // snackbar's Undo with this one: that Undo is gone whatever this
+        // answer opens.
+        self.close_card_snackbar();
         let Some(proposal) = self.cards.resolved(row) else {
             self.swipe_release_card(row);
             return;
@@ -1410,5 +1414,29 @@ mod tests {
             Some(FocusTarget::Proposal(row(1)))
         );
         assert_eq!(model.take_released().cards, vec![row(1)]);
+    }
+
+    /// #414 F1: an answer that opens no snackbar -- case S's Close here --
+    /// still replaces the card the facade side held for the open
+    /// snackbar's Undo, so that snackbar closes and offers no Undo the
+    /// facade would refuse.
+    #[test]
+    fn an_answer_with_no_snackbar_closes_the_open_card_snackbar() {
+        let mut model = UiModel::new();
+        model.card_received(proposal(1, P, "Ada", context()));
+        let mut same = context();
+        same.updates = Some(crate::ContactRef {
+            contact_id: "c1".to_owned(),
+            name: "Ada".to_owned(),
+        });
+        same.changes_nothing = true;
+        model.card_received(proposal(2, P, "Ada", same));
+        model.card_resolved(row(1), saved("c1"));
+        assert!(model.snackbar().is_some(), "Contact saved, with Undo");
+        model.card_resolved(row(2), CardOutcome::Declined);
+        assert!(model.snackbar().is_none(), "its Undo is gone: closed");
+        let mut released = model.take_released().cards;
+        released.sort();
+        assert_eq!(released, vec![row(1), row(2)]);
     }
 }

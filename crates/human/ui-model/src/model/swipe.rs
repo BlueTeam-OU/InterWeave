@@ -836,6 +836,23 @@ impl UiModel {
         }
     }
 
+    /// Close the open snackbar if its Undo is a card's: the facade side
+    /// holds one card answer, and every answer replaces it, so an answer
+    /// that opens no snackbar of its own -- case S's Close, a proposal
+    /// the model let go -- leaves no Undo the facade can no longer carry
+    /// out (#414 F1).
+    pub(super) fn close_card_snackbar(&mut self) {
+        let card = self
+            .swipe
+            .open
+            .as_ref()
+            .is_some_and(|o| matches!(o.undo, Undo::Card { .. }));
+        if card && let Some(open) = self.swipe.open.take() {
+            self.closed_under(&open);
+            self.finish(open);
+        }
+    }
+
     /// Let go of what the facade side holds for the Undo of `row`'s answer.
     pub(super) fn swipe_release_card(&mut self, row: RowId) {
         self.swipe.released.cards.push(row);
