@@ -967,7 +967,13 @@ impl View {
             .inputs
             .iter()
             .any(|i| matches!(i, Input::PeersSnackClosed(id) if *id == snacks));
-        window.set_peers_snack_shown(on_page && snack.is_some() && !closing);
+        let shown = on_page && snack.is_some() && !closing;
+        window.set_peers_snack_shown(shown);
+        // The pointer's report goes with the snackbar it was on; a new
+        // one sets it again as the pointer moves.
+        if !shown {
+            window.set_peers_snack_pointer_on(false);
+        }
         window.set_peers_snack_id(i32::try_from(snacks).unwrap_or(i32::MAX));
         let said_snack = snack.map(snack_text);
         if let Some(s) = snack {
@@ -990,9 +996,14 @@ impl View {
                 window.set_peers_snack_action_focused(false);
                 let shared = Rc::clone(&self.shared);
                 let ms = self.shared.borrow().touch.snackbar_ms;
-                slint::Timer::single_shot(Duration::from_millis(ms), move || {
-                    enqueue(&shared, Input::PeersSnackClosed(snacks));
-                });
+                if superseded_snack(s) {
+                    let up = Duration::from_millis(ms.max(NO_ACTION_MIN_MS));
+                    close_when_free(slint::ComponentHandle::as_weak(window), shared, snacks, up);
+                } else {
+                    slint::Timer::single_shot(Duration::from_millis(ms), move || {
+                        enqueue(&shared, Input::PeersSnackClosed(snacks));
+                    });
+                }
             }
         }
 
@@ -1003,6 +1014,45 @@ impl View {
         }
         None
     }
+}
+
+/// The least time up of a snackbar with no action, three sentences long
+/// with nothing to keep it on screen (add-a-peer §5.7): the platform's
+/// longer timeout still wins.
+pub(crate) const NO_ACTION_MIN_MS: u64 = 10_000;
+
+/// How soon a snackbar held by the pointer is looked at again.
+const HELD_RECHECK: Duration = Duration::from_secs(1);
+
+/// The two snackbars a superseded refusal says, which have no action.
+const fn superseded_snack(snack: &PeersSnack) -> bool {
+    matches!(
+        snack,
+        PeersSnack::RemoveSuperseded { .. } | PeersSnack::UndoSuperseded { .. }
+    )
+}
+
+/// Close snackbar `id` once `after` has passed and the pointer is not on
+/// it, looking again each [`HELD_RECHECK`] while it is (§5.7). It has no
+/// control, so keyboard focus cannot be on it.
+fn close_when_free(
+    window: slint::Weak<AppWindow>,
+    shared: Rc<RefCell<Shared>>,
+    id: u64,
+    after: Duration,
+) {
+    slint::Timer::single_shot(after, move || {
+        let held = window.upgrade().is_some_and(|w| {
+            w.get_peers_snack_shown()
+                && i64::from(w.get_peers_snack_id()) == i64::try_from(id).unwrap_or(-1)
+                && w.get_peers_snack_pointer_on()
+        });
+        if held {
+            close_when_free(window, shared, id, HELD_RECHECK);
+        } else {
+            enqueue(&shared, Input::PeersSnackClosed(id));
+        }
+    });
 }
 
 fn note_text(host: RuntimeHost, note: &AddNote) -> String {
@@ -1031,6 +1081,8 @@ fn note_text(host: RuntimeHost, note: &AddNote) -> String {
         AddNote::Checking => String::new(),
         AddNote::Unknown { lines: 1 } => text(UiText::AddUnknownOne).to_owned(),
         AddNote::Unknown { .. } => text(UiText::AddUnknownOther).to_owned(),
+        AddNote::Superseded { lines: 1 } => text(UiText::AddSupersededOne).to_owned(),
+        AddNote::Superseded { .. } => text(UiText::AddSupersededOther).to_owned(),
         AddNote::SeveralIncompatible { lines } => fill(
             text(UiText::AddSeveralIncompatible),
             &[("n", &lines.to_string())],
@@ -1045,6 +1097,9 @@ fn block_problem(host: RuntimeHost, problem: BlockProblem, short: &str) -> Strin
         BlockProblem::NotMade => fill(text(UiText::TrustStepNotMade), &[("peer", short)]),
         BlockProblem::Unknown => fill(text(UiText::TrustStepUnknown), &[("peer", short)]),
         BlockProblem::Superseded => fill(text(UiText::TrustStepSuperseded), &[("peer", short)]),
+        BlockProblem::SupersededUnread => {
+            fill(text(UiText::TrustStepSupersededUnread), &[("peer", short)])
+        }
     }
 }
 
@@ -1152,6 +1207,8 @@ fn snack_text(snack: &PeersSnack) -> String {
         ) => return refusal_text(*why),
         PeersSnack::UndoFailed { .. } => text(UiText::UndoFailed),
         PeersSnack::UndoUnknown { .. } => text(UiText::UndoUnknown),
+        PeersSnack::RemoveSuperseded { .. } => text(UiText::RemoveSuperseded),
+        PeersSnack::UndoSuperseded { .. } => text(UiText::UndoSuperseded),
         PeersSnack::Added => text(UiText::ConfirmAddressAdded),
         // Step one's own line, as the page closes on it (section 5.3).
         PeersSnack::AddedUnchanged { lines } => {
