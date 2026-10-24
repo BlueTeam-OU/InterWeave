@@ -1155,12 +1155,13 @@ fn a_key_that_cannot_be_used_is_said_and_a_new_key_is_confirmed_then_made() {
     assert_eq!(view.window().get_focus_target(), "own-key-making");
 
     model.key_made(
-        IdentityView {
+        Some(IdentityView {
             key: OwnKey::Ready {
                 fingerprint: "fedcba9876543210".to_owned(),
             },
             ..keyless(KeyProblem::Damaged)
-        },
+        }),
+        "fedcba9876543210".to_owned(),
         vec![direct(P)],
     );
     view.render(&model);
