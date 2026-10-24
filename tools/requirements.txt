@@ -27,10 +27,9 @@
 attrs==26.1.0 \
     --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309 \
     --hash=sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32
-# brotli: for the decoder verify_fixture_vectors.py gains in Stage 14 batch 3,
-# for the brotli-compressed human-chat-v2 vectors (plan §17). Nothing imports
-# it before that commit; it is installed ahead so that commit needs no CI
-# change. No dependencies.
+# brotli: verify_fixture_vectors.py decodes the brotli-compressed
+# human-chat-v2 vectors with it (fixtures/human-chat-v2, plan §17).
+# No dependencies.
 brotli==1.2.1 \
     --hash=sha256:0023348c448140a6ea71615eba331835c971d38ae8acf8a89b4e963b1f38f131 \
     --hash=sha256:00a50d063aae2e69c2eb28818ccf6dc3e51f2ea5b74e3c2082a47943ee23f399 \
