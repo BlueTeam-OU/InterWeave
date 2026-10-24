@@ -67,3 +67,47 @@ and `profile-config`'s `MAX_ENDPOINTS` is 64. The record now says max
 same, and ADR-0061's cap cites the bound that exists. The advertised
 endpoints' 16 / 32 is a real key (`directory.max_advertised`) and
 stands.
+
+### Amendment 2026-10-24 — A session reads its own broadcast losses as lower bounds
+
+This record bounded what a slow consumer costs the node — the oldest
+copy dropped, the over-rate broadcast refused before fan-out — and
+counted both only in the operator's view (`admin.status`), so a data
+client could not say whether it had missed anything. The Claude Channel
+bridge's status needed exactly that sentence (`CHANNEL-EVENT.md`
+§Delivery), and a
+human client that shows a broadcast log is owed it as much. The record
+now says a session reads what it lost: `session.losses` on the data
+socket under `commands`, IPC 2.11, and `DataSessionPort::losses` at every
+binding — two counts, the copies its own queue dropped or could not
+take, and the broadcasts the ingress gate refused on a channel it held
+at the time.
+
+Four shapes were rejected, and the reasons are what a later reader
+needs. A pushed notice was rejected because a loss is a count and not an
+event: a push would compete for the queue whose overflow it reports, and
+in the reserved lane it would displace the states that lane exists for.
+An exact figure was rejected because it cannot be measured: the GossipSub
+backend drops before the runtime sees a message (validation, the mesh,
+its own queue), so an exact count would claim what nothing observed and a
+reader would act on a zero; the counts are therefore lower bounds, and
+every text that carries them says so. A per-peer or per-channel
+breakdown was rejected because the data socket is a non-admin surface:
+naming the publisher whose broadcasts were refused is an oracle on who
+publishes and when, and a per-channel table grows with the channels a
+client joins; two counters per session are bounded by construction. And
+a reset on leave was rejected because a leave and a rejoin are the
+ordinary life of a channel for a bridge that reconnects, and a count that
+fell would read as recovery. Permanence is stated because ADR-0019's
+dedup keeps the id of a broadcast every joined session lost, so a
+republish is swallowed: a consumer reports a loss, never a delay, and
+does not retry.
+
+One limit is accepted and named beside the method rather than removed: a
+session that declines route notices over IPC asks for the minor below
+2.4 — negotiation is the only lever the client has (#245 N5) — so it
+cannot read a 2.11 method and is answered `ProtocolUnsupported` without
+asking. No production client declines route notices (the bridge and the
+human clients take them), so the limit costs nothing today; a client
+that one day needs both makes declining a `hello` feature of its own,
+decided then, never a second cap on the minor.
