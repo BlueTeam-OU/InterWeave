@@ -189,12 +189,13 @@ impl fmt::Display for Line {
 pub struct Log {
     level: Level,
     file: Option<PathBuf>,
-    /// Why there is no file, or why the last write to it failed.
+    /// Why there is no file, or that a write to it has failed since the
+    /// start; it stays set once one has.
     file_error: Option<&'static str>,
 }
 
 impl Log {
-    /// stderr alone: a start that never named its profile and endpoint.
+    /// stderr alone, `why` being the class `status.log.file_error` says.
     #[must_use]
     pub const fn stderr_only(level: Level, why: &'static str) -> Self {
         Self {
@@ -254,19 +255,21 @@ impl Log {
             return;
         }
         let text = cut(format!("claude-channel: {line}"), MAX_LINE_BYTES - 1);
-        eprintln!("{text}");
-        let Some(path) = &self.file else {
-            return;
-        };
-        let stamped = format!(
-            "{} {:<5} {text}",
-            rfc3339_utc(wall_ms()).unwrap_or_default(),
-            line.level().as_str()
-        );
-        let stamped = cut(stamped, MAX_LINE_BYTES - 1) + "\n";
-        if append(path, stamped.as_bytes()).is_err() {
-            self.file_error = Some("write");
+        // The file first: it is the copy that outlives a host gone.
+        if let Some(path) = &self.file {
+            let stamped = format!(
+                "{} {:<5} {text}",
+                rfc3339_utc(wall_ms()).unwrap_or_default(),
+                line.level().as_str()
+            );
+            let stamped = cut(stamped, MAX_LINE_BYTES - 1) + "\n";
+            if append(path, stamped.as_bytes()).is_err() {
+                self.file_error = Some("write");
+            }
         }
+        // NOT `eprintln!`, which panics on a stderr the host closed
+        // (`a_closed_stderr_neither_ends_the_bridge_nor_costs_the_file_its_lines`).
+        let _ = writeln!(std::io::stderr().lock(), "{text}");
     }
 }
 
@@ -313,7 +316,6 @@ const fn persist_class(error: &PersistError) -> &'static str {
     match error {
         PersistError::DirectoryNotPrivate { .. } => "directory_not_private",
         PersistError::UnsupportedPlatform => "unsupported_platform",
-        PersistError::MissingHome => "home_unset",
         _ => "directory",
     }
 }
