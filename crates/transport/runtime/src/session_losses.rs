@@ -44,14 +44,9 @@ use std::collections::BTreeMap;
 
 use interweave_transport_api::ChannelId;
 
-/// One session's two counts, as `session.losses` answers them.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct SessionLosses {
-    /// Copies this session's queue dropped or refused.
-    pub queue_overflow: u64,
-    /// Broadcasts the ingress gate refused on a channel this session held.
-    pub ingress_refused: u64,
-}
+/// One session's two counts, as `session.losses` answers them: the
+/// neutral API's type, so every binding answers the same shape.
+pub use interweave_local_client_api::SessionLosses;
 
 /// One channel's refusal count and how many sessions hold a mark on it.
 #[derive(Debug, Default)]
