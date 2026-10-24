@@ -416,8 +416,6 @@ struct Shared {
     window: slint::Weak<AppWindow>,
 }
 
-/// A snackbar, as the queue judges what closes it.
-#[derive(Clone)]
 /// An Accept's snackbar's clock (contact-cards design section 5.4.2):
 /// its full timeout runs only while focus is outside the span from its
 /// confirmation row to its Undo, starting again in full each time focus
@@ -434,6 +432,8 @@ struct AcceptSnack {
     cap: Instant,
 }
 
+/// A snackbar, as the queue judges what closes it.
+#[derive(Clone)]
 struct SnackUp {
     id: u64,
     /// The conversation it is shown in; `None` on the list.
@@ -2394,7 +2394,9 @@ impl View {
                     shared.accept_snack = None;
                     true
                 }
-                None => false,
+                // Closed by its own clock, or never started: no poll runs
+                // with nothing to time (#414 F5).
+                None => true,
             }
         };
         if stale {
@@ -2485,6 +2487,13 @@ impl View {
             self.window.set_focus_id(SharedString::new());
         }
         said.flatten()
+    }
+
+    /// Whether an Accept snackbar's clock is polling: for a test.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn accept_clock_running(&self) -> bool {
+        self.accept_timer.running()
     }
 
     /// Run Accept snackbar `id`'s clock (contact-cards design section

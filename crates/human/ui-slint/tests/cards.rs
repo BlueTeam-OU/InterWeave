@@ -901,7 +901,7 @@ fn a_contact_page_names_the_other_contacts_on_its_device_and_no_other() {
 
 /// Contact-cards design 5.4.2 and 5.4.3, drawn: Decline takes the row
 /// away with "Card declined" and its Undo; the Undo raises the card's
-/// Undo and the proposal is drawn again, focus on its first control.
+/// Undo and the proposal is drawn again, focus on its Accept.
 /// Accept leaves its confirmation row, which takes focus, and its own
 /// snackbar replaces the last one.
 #[test]
@@ -1018,6 +1018,11 @@ fn an_accept_snackbar_waits_while_focus_is_in_its_span() {
     assert!(
         model.snackbar().is_none(),
         "the full time ran outside the span"
+    );
+    view.render(&model);
+    assert!(
+        !view.accept_clock_running(),
+        "its poll stops with it (#414 F5)"
     );
     assert!(
         labelled(&view, &saved)[0]
