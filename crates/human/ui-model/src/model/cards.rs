@@ -25,6 +25,7 @@ use interweave_transport_api::{EndpointId, TransportIdentity};
 
 use super::{ConversationKey, Intent, RouteLabel, UiModel};
 use crate::labels::UiText;
+use unicode_normalization::UnicodeNormalization as _;
 
 /// A photo decoded for display, after Accept or from the person's own
 /// card: the facade decodes it within the card's 256 × 256 bound. A
@@ -75,14 +76,28 @@ pub fn name_problem(name: &str) -> Option<NameProblem> {
     if name.trim().is_empty() {
         return Some(NameProblem::Needed);
     }
-    let draft = interweave_human_chat_protocol::CardDraft {
-        name,
-        surname: None,
-        photo: None,
+    let passes = |name: &str| {
+        interweave_human_chat_protocol::check_draft(interweave_human_chat_protocol::CardDraft {
+            name,
+            surname: None,
+            photo: None,
+        })
+        .is_ok()
     };
-    if interweave_human_chat_protocol::check_draft(draft).is_ok() {
-        None
-    } else if name.chars().count() > interweave_human_chat_protocol::MAX_CARD_NAME_SCALARS {
+    if passes(name) {
+        return None;
+    }
+    // The rule counts after NFC, which can lengthen a name. A character it
+    // refuses is found first, in pieces short enough that length is not
+    // the reason (a prefix of an NFC string is NFC), so a long name with a
+    // line break is asked to lose the line break, which the person cannot
+    // otherwise see; only a clean name is too long.
+    let nfc: Vec<char> = name.nfc().collect();
+    let max = interweave_human_chat_protocol::MAX_CARD_NAME_SCALARS;
+    let clean = nfc
+        .chunks(max)
+        .all(|piece| passes(&piece.iter().collect::<String>()));
+    if clean && nfc.len() > max {
         Some(NameProblem::TooLong)
     } else {
         Some(NameProblem::BadCharacters)
@@ -921,6 +936,23 @@ mod tests {
             "a bidirectional control, which could close an isolate"
         );
         assert_eq!(name_problem("Ada Lovelace"), None);
+        // Counted after NFC, as the rule counts: 64 U+0958 are 128 scalars
+        // there, too long and nothing else. Mutation: counting raw chars.
+        assert_eq!(
+            name_problem(&"\u{0958}".repeat(64)),
+            Some(NameProblem::TooLong)
+        );
+        // A bad character is the reason even in a long name, and past the
+        // first 64. Mutations: length tested first; only the first piece
+        // checked.
+        assert_eq!(
+            name_problem(&format!("{}\n", "a".repeat(70))),
+            Some(NameProblem::BadCharacters)
+        );
+        assert_eq!(
+            name_problem(&format!("{}\n{}", "a".repeat(10), "a".repeat(70))),
+            Some(NameProblem::BadCharacters)
+        );
         // What the facade's own rule says, for every case above.
         for (name, ok) in [("Ada", true), ("Ada\u{2069}", false), ("", false)] {
             let draft = interweave_human_chat_protocol::CardDraft {
