@@ -413,7 +413,7 @@ fn the_contact_page_says_where_each_value_came_from_and_a_local_edit_stands() {
     );
     // A later card from the route arrives and is accepted: the facade
     // lists the contact with the person's name kept (app-core's
-    // `a_card_with_a_changed_key_is_a_key_change_and_accepted_only_by_the_person`).
+    // `a_changed_key_on_a_known_route_is_a_key_change_and_a_local_edit_stands`).
     model.card_received(proposal(2, P, card("Ada again", false), context()));
     model.card_resolved(row(2));
     model.contacts_listed(vec![edited]);
