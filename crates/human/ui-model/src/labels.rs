@@ -970,8 +970,14 @@ ui_texts! {
     ScanNotAddress => "This code does not contain an InterWeave address.",
     /// Desktop: the image dialog's filter, which offers PNG and JPEG
     /// files only (§5.5).
-    // PLACEHOLDER (en)
     CodeImageFilter => "Images (PNG or JPEG)",
+    /// Desktop, under the scan controls: the file opened, or the
+    /// clipboard's image, could not be read; never "no code", since it
+    /// was never looked at (add-a-peer #408).
+    // PLACEHOLDER (en)
+    ImageUnreadable => "This image could not be opened. Choose a PNG or JPEG image of the other person's code.",
+    /// Desktop, under the scan controls: Paste an image found no image.
+    ClipboardNoImage => "There is no image on the clipboard. Copy an image of the other person's code, then choose Paste an image.",
     /// Show, first, before the code: what showing discloses.
     ShowWarning => "Anyone who sees this screen can learn this device's addresses and its PeerId.",
     /// The code's accessible label, one address.
