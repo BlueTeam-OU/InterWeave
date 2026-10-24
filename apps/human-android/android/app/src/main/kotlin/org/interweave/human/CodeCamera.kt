@@ -31,6 +31,8 @@ class CodeCamera(context: Context) {
     private var device: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var reader: ImageReader? = null
+    /** Closed by its owner: a late failure callback tells no one (#418 review risk). */
+    @Volatile private var stopped = false
 
     /** The back camera if there is one, else the first; null with none. */
     private fun cameraId(): String? {
@@ -44,6 +46,7 @@ class CodeCamera(context: Context) {
     @SuppressLint("MissingPermission") // the caller asked CAMERA first
     fun open() {
         if (device != null) return
+        stopped = false
         val id = cameraId()
         if (id == null) {
             Native.cameraClosed()
@@ -112,14 +115,20 @@ class CodeCamera(context: Context) {
         }
     }
 
-    /** The camera went away under the scan: stopped, and the window told. */
+    /** The camera went away under the scan: stopped, and the window told -- unless its owner closed it first. */
     private fun closed() {
-        close()
-        Native.cameraClosed()
+        val told = !stopped
+        release()
+        if (told) Native.cameraClosed()
     }
 
     /** Stop and release everything; nothing is told. Safe to repeat. */
     fun close() {
+        stopped = true
+        release()
+    }
+
+    private fun release() {
         try { session?.close() } catch (e: Exception) {}
         try { device?.close() } catch (e: Exception) {}
         try { reader?.close() } catch (e: Exception) {}

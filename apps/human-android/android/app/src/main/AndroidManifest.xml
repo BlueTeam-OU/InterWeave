@@ -15,8 +15,9 @@
          (android-key-custody.md). -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- Scan a code (add-a-peer 5.5; ADR-0062 decision 8 as amended): asked
-         at the first Scan and nowhere else. The camera is not a required
-         feature, so a phone without one installs and offers typing. -->
+         by the Activity on a Scan press when not held (MainActivity's
+         CAMERA_START). The camera is not a required feature, so a phone
+         without one installs and offers typing. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 

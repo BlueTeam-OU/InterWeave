@@ -61,8 +61,14 @@ class MainActivity : NativeActivity() {
     // 01a155b3). Kept across a recreation in this process (onCreate); a
     // cold launch, in a new process, prompts again.
     private var unlockDeclined = false
-    /** Scan a code's camera, open only while the viewfinder is (add-a-peer 5.5). */
+    /** Scan a code's camera, opened for the viewfinder and closed with it (add-a-peer 5.5). */
     private var camera: CodeCamera? = null
+    /**
+     * A scan wants the camera: set at CAMERA_START, cleared at CAMERA_STOP
+     * and at the Activity's stop. A grant that answers after the scan ended
+     * opens nothing (#418 F1).
+     */
+    private var cameraWanted = false
     /** Open settings was pressed: the return is told to the window. */
     private var inSettings = false
 
@@ -207,8 +213,10 @@ class MainActivity : NativeActivity() {
 
     override fun onStop() {
         shown = false
-        // The camera never runs behind the app; the window closes the
-        // viewfinder at the same stop (activity.rs).
+        // The camera is closed at the Activity's stop, and a grant answered
+        // after it opens nothing; the window closes the viewfinder at the
+        // same stop (activity.rs).
+        cameraWanted = false
         closeCamera()
         if (front === this) front = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -250,11 +258,22 @@ class MainActivity : NativeActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == CAMERA_REQUEST) {
-            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-                openCamera()
-            } else {
-                // Refused for good when the system will not ask again.
-                Native.cameraDenied(!shouldShowRequestPermissionRationale(Manifest.permission.CAMERA))
+            val result = grantResults.firstOrNull()
+            when {
+                // Cancelled with no answer (the request torn down): the scan
+                // ends as a closed one, nothing refused.
+                result == null -> if (cameraWanted) Native.cameraClosed()
+                result == PackageManager.PERMISSION_GRANTED -> if (cameraWanted) openCamera()
+                else -> {
+                    // Refused for good only once refused before and the
+                    // system says it will not ask again: a first refusal,
+                    // or a dismissed dialog, is never "for good" (#418 F2).
+                    val prefs = getPreferences(Context.MODE_PRIVATE)
+                    val refusedBefore = prefs.getBoolean(CAMERA_REFUSED, false)
+                    val asksAgain = shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)
+                    prefs.edit().putBoolean(CAMERA_REFUSED, true).apply()
+                    if (cameraWanted) Native.cameraDenied(refusedBefore && !asksAgain)
+                }
             }
             return
         }
@@ -492,15 +511,19 @@ class MainActivity : NativeActivity() {
             }
             Ask.RESTART -> local?.restart() ?: connect()
             // Scan a code (add-a-peer 5.5): the camera permission is asked
-            // here, at the first Scan, and nowhere else.
+            // here, on a Scan press, when the app does not hold it.
             Ask.CAMERA_START -> {
+                cameraWanted = true
                 if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                     openCamera()
                 } else {
                     requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_REQUEST)
                 }
             }
-            Ask.CAMERA_STOP -> closeCamera()
+            Ask.CAMERA_STOP -> {
+                cameraWanted = false
+                closeCamera()
+            }
             Ask.OPEN_SETTINGS -> {
                 inSettings = true
                 startActivity(
@@ -609,6 +632,8 @@ class MainActivity : NativeActivity() {
         private const val RUNTIME_INTERNET_SDK = 37
         private const val NETWORK_REQUEST = 2
         private const val CAMERA_REQUEST = 3
+        /** A CAMERA refusal was seen: the next one the system will not ask again is "for good". */
+        private const val CAMERA_REFUSED = "camera-refused"
         private const val NOTIFICATIONS_REQUEST = 1
         private const val UNLOCK_DECLINED = "unlock-declined"
         private const val UNLOCK_DECLINED_IN = "unlock-declined-in"

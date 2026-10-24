@@ -158,9 +158,12 @@ pub(crate) fn camera_frame(width: usize, height: usize, stride: usize, plane: &[
     if !draw && text.is_none() {
         return;
     }
-    // The back camera's sensor is mounted a quarter turn from the
-    // phone's portrait: its landscape frames are turned for the drawing,
-    // so the person aims at what they see. Reading needs no turn.
+    // Assumed, not read: a back camera whose sensor sits a quarter turn
+    // clockwise from the phone's portrait, as the Pixel 9a's does, so its
+    // landscape frames are turned for the drawing. A sensor mounted the
+    // other way, or a front camera, draws upside down or mirrored until
+    // the sensor's orientation is passed with the frame (#418 F4).
+    // Reading needs no turn.
     let (luma_drawn, dw, dh) = if draw && width > height {
         (
             interweave_human_ui_slint::code::turned_clockwise(&luma, width, height),
