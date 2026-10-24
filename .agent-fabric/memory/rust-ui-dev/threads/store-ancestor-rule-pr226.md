@@ -5,7 +5,7 @@ topic: "store-ancestor-rule-pr226"
 description: "j32 — human store routed through profile-config's ancestor walk (PR #226); Android /data 0771 system conflict raised to architect-cto"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

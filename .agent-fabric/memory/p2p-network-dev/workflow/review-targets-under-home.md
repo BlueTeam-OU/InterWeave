@@ -5,7 +5,7 @@ topic: "review-targets-under-home"
 description: "Review subagents' CARGO_TARGET_DIR goes under /home, never /var/tmp (shared 40G root fs filled on 2026-10-07); clean finished review dirs at once"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

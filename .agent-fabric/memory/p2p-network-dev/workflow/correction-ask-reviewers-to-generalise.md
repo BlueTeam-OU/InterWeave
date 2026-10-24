@@ -5,7 +5,7 @@ topic: "correction-ask-reviewers-to-generalise"
 description: "Correction to workflow/ask-reviewers-to-generalise-findings.md line 19: the ask goes in the review class's brief and dispatch prompt, not an @codex request"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

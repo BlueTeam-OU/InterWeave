@@ -5,7 +5,7 @@ topic: "clean-target-after-runs"
 description: "InterWeave's target/ grows to ~90 GB across clippy/test/feature runs on this shared host — measure and remove it after a test batch"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

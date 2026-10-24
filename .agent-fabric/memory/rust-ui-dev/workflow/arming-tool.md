@@ -5,7 +5,7 @@ topic: "arming-tool"
 description: "How to arm, gate, post reviews in InterWeave — fabric-pr verbs since the tools/gh forwarders were retired (4a010c6b)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

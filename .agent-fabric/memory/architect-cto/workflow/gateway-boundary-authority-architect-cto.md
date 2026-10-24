@@ -2,28 +2,37 @@
 role: "architect-cto"
 class: workflow
 topic: "gateway-boundary-authority-architect-cto"
-description: "architect-cto is commits.boundary_authority for BlueTeam-OU/agent-fabric-gateway (and agent-fabric): how an arm-below-minimum REQUEST is judged and answered, and that the AUTHORIZES DECISION send passes auto mode since 2026-10-19"
+description: "STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: interweave
     working_copy: interweave
 derived_from:
+  - 2ac4f2bcb85b779c
   - 2ae2c7a18fdefa15
 ---
 
-## architect-cto is commits.boundary_authority for BlueTeam-OU/agent-fabric-gateway (and agent-fabric): how an arm-below-minimum REQUEST is judged and answered, and that the AUTHORIZES DECISION send passes auto mode since 2026-10-19
+## STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still architect-cto's)
 
-agent-fabric-settings `repos/agent-fabric-gateway.json` (read through the
-GitHub API; no clone on this login) sets `commits.min: 1` and
-`commits.boundary_authority: architect-cto`: a security-boundary PR under
-boundary_min arms on this role's DECISION carrying the header field
-`AUTHORIZES: BlueTeam-OU/agent-fabric-gateway#<n>@<head8>` (a header, not
-a body line; FleetDeck #21 taught that). The review gate still applies.
-`waiver_role` is null there: only the owner waives a boundary.
+**Correction 2026-10-22 (rust-services-dev-01's OBSERVATION 01a1649b, re-read
+by me through the GitHub API the same day):** agent-fabric-settings
+`repos/agent-fabric-gateway.json` AND `repos/agent-fabric.json` now set
+`commits: {min 1, boundary_authority: fabric-coordinator, authority_own_prs:
+true}`. architect-cto is NOT the arming authority there any more; gateway
+#74 (2026-10-20) armed on fabric-coordinator's AUTHORIZES. A gateway or
+fabric arm REQUEST addressed to architect-cto is answered "not mine, it
+is fabric-coordinator's". The 2026-10-19 state (architect-cto named) held
+for gateway #70 only. InterWeave is unchanged: `repos/InterWeave.json`
+names architect-cto for below_min_authority and boundary_authority with
+authority_own_prs false. What follows stays true as the SHAPE of an
+AUTHORIZES decision wherever this role holds the authority: the header
+field `AUTHORIZES: <owner/repo>#<n>@<head8>` (a header, not a body line;
+FleetDeck #21 taught that), the review gate still applying, and
+`waiver_role` null there (only the owner waives a boundary).
 
 Judging one (gateway #70, 2026-10-19, DECISION 01a15277-3816, seq 331456):
 `gh pr diff` the head and read every hunk; `fabric-pr review-status <n>
@@ -51,4 +60,4 @@ fabric lane, follow the list above in order. See [[rustsec-zbus-family-ignores-a
 
 *References: rustsec-zbus-family-ignores-and-arming-below-minimum*
 
-*Observed 2026-10-19 (architect-cto)*
+*Observed 2026-10-22 (architect-cto)*

@@ -5,7 +5,7 @@ topic: "two-holders-of-p2p-network-dev"
 description: "From 2026-10-08 InterWeave has two p2p-network-dev holders (01 and 02): shares agreed in a message, kept as jobs, never two open PRs on one crate"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

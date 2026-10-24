@@ -3,7 +3,7 @@ role: "ux-designer"
 class: index
 description: "What ux-designer knows and where it lives."
 tier: 1
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 ---
 
 # ux-designer — knowledge index
@@ -43,13 +43,23 @@ control plane checked out beside it.
 
 ## workflow
 
-- [`.agent-fabric/memory/ux-designer/workflow.md`](.agent-fabric/memory/ux-designer/workflow.md) — How ux-designer reaches InterWeave's Android test phone (Pixel 9a) for a device review — the lease, pairing, cleanup
+- [`.agent-fabric/memory/ux-designer/workflow/answer-in-spec-before-message.md`](.agent-fabric/memory/ux-designer/workflow/answer-in-spec-before-message.md) — A design answer sent by message before it is written into the spec and reviewed gets corrected later, and the builder builds the wrong version
+- [`.agent-fabric/memory/ux-designer/workflow/define-once-point-elsewhere.md`](.agent-fabric/memory/ux-designer/workflow/define-once-point-elsewhere.md) — In a spec, a state condition used in several sections is defined in one place; other sections point to it, never paraphrase it
+- [`.agent-fabric/memory/ux-designer/workflow/device-run-check-focus.md`](.agent-fabric/memory/ux-designer/workflow/device-run-check-focus.md) — On the shared Pixel, a scripted device run checks which app has focus before every tap and stops if it is not InterWeave; blind tap sequences can hit system settings
+- [`.agent-fabric/memory/ux-designer/workflow/never-blind-inbox-watch.md`](.agent-fabric/memory/ux-designer/workflow/never-blind-inbox-watch.md) — Never start gzcoord-inbox with output to /dev/null or with & disown; it swallows the next delivery
+- [`.agent-fabric/memory/ux-designer/workflow/review-fixes-open-new-questions.md`](.agent-fabric/memory/ux-designer/workflow/review-fixes-open-new-questions.md) — In a spec review loop, each fix of a rule (a new case, an invariant) breeds a P2/P3 in the paths it did not touch; grep every path that writes the same state before committing the fix
+- [`.agent-fabric/memory/ux-designer/workflow/spec-cites-only-recorded-methods.md`](.agent-fabric/memory/ux-designer/workflow/spec-cites-only-recorded-methods.md) — a design note names an API method or IPC minor as settled only if it is in architecture/contracts on main; otherwise as a dependency with its owner and the acceptance it blocks
+- [`.agent-fabric/memory/ux-designer/workflow/workflow-carried-2026-10-18.md`](.agent-fabric/memory/ux-designer/workflow/workflow-carried-2026-10-18.md) — How ux-designer reaches InterWeave's Android test phone (Pixel 9a) for a device review — the lease, pairing, cleanup
 
 ## threads
 
 - [`.agent-fabric/memory/ux-designer/threads/android-identity-j27.md`](.agent-fabric/memory/ux-designer/threads/android-identity-j27.md) — j27: Android identity screens design note (create, show phrase, recover) for plan §20 steps 7-8 — where it is and what it waits on
 - [`.agent-fabric/memory/ux-designer/threads/android-look-proposal.md`](.agent-fabric/memory/ux-designer/threads/android-look-proposal.md) — Owner asked (2026-10-16) for the Android client to look like an Android app with colour, not a prebeta; Material 3 proposal awaiting owner decisions
+- [`.agent-fabric/memory/ux-designer/threads/j29-contact-cards-plan.md`](.agent-fabric/memory/ux-designer/threads/j29-contact-cards-plan.md) — Contact-card UX spec (j29, REQUEST 01a15d2a from architect-cto-01) - written as design/2026-10-21-contact-cards.md, branch docs/contact-cards, PR after #333 merges
+- [`.agent-fabric/memory/ux-designer/threads/j38-add-peer-trust-unread.md`](.agent-fabric/memory/ux-designer/threads/j38-add-peer-trust-unread.md) — j38 — add-a-peer note revision on #385 (trust unread on Peers, interim one-line add, Connect lines); state and follow-ups
+- [`.agent-fabric/memory/ux-designer/threads/j39-add-peer-unknown-retries.md`](.agent-fabric/memory/ux-designer/threads/j39-add-peer-unknown-retries.md) — j39 state — add-a-peer unknown-retry rule and Peers row contact names, PR #388
 - [`.agent-fabric/memory/ux-designer/threads/stage17-android-review-j26.md`](.agent-fabric/memory/ux-designer/threads/stage17-android-review-j26.md) — j26: plan §20 clause (j) — my on-device look-and-feel review of the Android app is a condition of Stage 17's close; status and what it waits on
+- [`.agent-fabric/memory/ux-designer/threads/stage21-design-backlog.md`](.agent-fabric/memory/ux-designer/threads/stage21-design-backlog.md) — flows owed to design/ when Stage 21 opens at Stage 17's close — peer by address (ADR-0062) and key-change proposal (ADR-0063)
 - [`.agent-fabric/memory/ux-designer/threads/swipe-actions-j1.md`](.agent-fabric/memory/ux-designer/threads/swipe-actions-j1.md) — Status of j1, swipe actions on messages in the Android client — spec merged, build merged; the device review is partial and blocked on the phone link, TalkBack items deferred (IW #297)
 
 ## recall
