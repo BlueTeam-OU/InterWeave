@@ -320,11 +320,12 @@ sig_case() {
     kill "-$sig" "$wrapper"
     # Repeats: one more signal every 0.3s, polling every 0.1s for when the
     # command died, in milliseconds after the first signal. The clock is
-    # bash's EPOCHREALTIME, as the wrapper's is, never `date +%s%3N`: the
-    # uutils date of the CI image (Ubuntu 26.04, 0.10.0) drops %3N's
-    # leading zeros, so in the first tenth of every second it prints a
-    # wrong millisecond, and this case read deaths at the 1s deadline as
-    # 235ms or 1871ms (five red runs, 2026-10-24).
+    # bash's EPOCHREALTIME, as the wrapper's is, rather than `date +%s%3N`:
+    # the uutils date of the CI image (Ubuntu 26.04, 0.10.0) cuts %3N from
+    # the unpadded nanoseconds (034705108 gives 347), so in the first
+    # tenth of a second it prints a wrong millisecond. Timed with it, this
+    # case read deaths at the 1s deadline as 235ms to 1871ms (five red
+    # runs, 2026-10-24).
     local t0 died_ms="" r
     t0=$(ms_now)
     for ((r = 1; r <= ${SIG_REPEAT:-0} * 3; r++)); do
