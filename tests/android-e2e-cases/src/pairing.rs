@@ -419,8 +419,9 @@ pub enum PairExpect {
     /// side that sends the close: the other ends on reading it, and the
     /// first waits for the other to leave, so that its process -- its
     /// runtime, on a device -- is still up while the other may need it.
-    /// Only a device shows the difference: a host stand-in's runtime
-    /// outlives its case.
+    /// A host stand-in's runtime outlives its case, so the stand-in rows
+    /// pass with or without the wait; the two-phone rows are where it
+    /// shows.
     Crosses {
         /// How long the route may take, and then how long the other side
         /// may take to leave.
