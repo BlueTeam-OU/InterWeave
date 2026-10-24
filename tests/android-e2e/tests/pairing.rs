@@ -14,7 +14,9 @@
 //!   it ends only once A has left, which the host makes happen after A's
 //!   case passes. A is killed and started again, and A's case finds the address still
 //!   listed as added and connects again, with no add; B sees it again.
-//! - **Two fresh profiles connect after both trust, and not before.**
+//! - **Two fresh profiles exchange messages after both trust, and not
+//!   before** (the gate's "connect", read as a connection that carries a
+//!   message).
 //!   Each trusts nobody. Step 1: each adds the other's address, in place
 //!   of the scan, and for a window no message either sends is accepted
 //!   and none arrives. Step 2: A trusts B and B does not, and still

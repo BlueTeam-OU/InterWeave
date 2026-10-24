@@ -417,8 +417,10 @@ pub enum PairExpect {
     Apart(Duration),
     /// A message crosses each way within the deadline. `first` names the
     /// side that sends the close: the other ends on reading it, and the
-    /// first ends only once the other has left, so neither process -- its
-    /// runtime, on a device -- ends while the other still needs it.
+    /// first waits for the other to leave, so that its process -- its
+    /// runtime, on a device -- is still up while the other may need it.
+    /// Only a device shows the difference: a host stand-in's runtime
+    /// outlives its case.
     Crosses {
         /// How long the route may take, and then how long the other side
         /// may take to leave.
@@ -638,9 +640,7 @@ pub(crate) async fn pair<B: DataSessionBinding + AdminBinding>(
                 // close, and its process is its runtime, so the
                 // acceptance can be lost on the closing connection --
                 // `TRANSPORT.md`'s "outcome unknown", which the second
-                // two-phone run of row 2 met (2026-10-24). That the close
-                // arrived is the second side's pass; a close never sent
-                // fails there.
+                // two-phone run of row 2 met (2026-10-24).
                 let sent = session
                     .send_direct(to(peer), close_id, payload(&close)?)
                     .await;

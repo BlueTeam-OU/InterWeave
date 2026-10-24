@@ -105,9 +105,7 @@ pub mod keys {
     /// [`super::cases::PAIR`]: the sends tried, and refused, while apart.
     pub const TRIES: &str = "tries";
     /// [`super::cases::PAIR`], the first side of a crossing step: its
-    /// close's outcome, `accepted` or the error's class name, reported
-    /// rather than failed on: the second side passes only on reading the
-    /// close (run 2 of `runs/2026-10-24-pixel-9a-a40-wifi-fresh-pair.md`).
+    /// close's outcome, `accepted` or the error's class name.
     pub const CLOSE: &str = "close";
     /// [`super::cases::PAIR`]: whether this side trusts the peer at the
     /// step's end.

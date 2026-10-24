@@ -1,4 +1,4 @@
-# android-e2e: two fresh phones connect after both trust, and not before — Pixel 9a and A40 over Wi-Fi, 2026-10-24
+# android-e2e: two fresh phones exchange messages after both trust, and not before — Pixel 9a and A40 over Wi-Fi, 2026-10-24
 
 Plan §29 (e)'s second device row, `tests/pairing.rs`'s
 `on_two_phones_two_fresh_profiles_connect_after_both_trust_and_not_before`.
@@ -82,12 +82,14 @@ Each passing run showed the following, all asserted by the cases:
   4–6. Both rows ended `connected`.
 
 So no message crosses until each side has the other's address AND
-trusts the other's PeerId. With one-sided trust, A's dial can finish its
-handshake (A's row `connected`, run 4) before B closes it. B classes a
-peer only after Noise authenticates it, and A is not authorized there
+trusts the other's PeerId. With one-sided trust, A's row for B read
+`connected` in run 4, and no message crossed. This file does not quote
+the log that would show B closing that connection. By design, B classes
+a peer only after Noise authenticates it, and A is not authorized there
 (`architecture/transport/libp2p/SECURITY.md`, Connectivity
-infrastructure admission). The gate's "connect" is read here as a
-connection that carries a message. Step 3 is the positive control. It
+infrastructure admission). So this row reads the gate's "connect" as a
+connection that carries a message. The test's name keeps the gate's
+words, and the plan's record is where that reading is settled. Step 3 is the positive control. It
 had the addresses step 1 added. The peer cache and Kademlia are on in
 these profiles, as shipped, so the run does not exclude a cached address
 as a second source of step 3's dial.
