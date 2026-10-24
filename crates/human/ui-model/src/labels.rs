@@ -814,11 +814,12 @@ ui_texts! {
     /// and Decline (design/2026-10-21-contact-cards.md section 5.4.1).
     // PLACEHOLDER (en)
     CardSame => "This card matches your contact {contact}.",
-    /// CARD PROPOSAL: when the card came, `{date}` in the list's time
-    /// format. A proposal is drawn after the conversation's messages,
-    /// not at its place in time, so the row says when.
+    /// CARD PROPOSAL: when the card came, `{date}` its calendar date and
+    /// `{time}` its clock time. A proposal is drawn after the
+    /// conversation's messages, not at its place in time, so the row says
+    /// when.
     // PLACEHOLDER (en)
-    CardReceivedAt => "Card received {date}",
+    CardReceivedAt => "Card received {date} at {time}",
     /// The Chats menu item and the page listing this identity's contacts.
     // PLACEHOLDER (en)
     ContactsTitle => "Contacts",
