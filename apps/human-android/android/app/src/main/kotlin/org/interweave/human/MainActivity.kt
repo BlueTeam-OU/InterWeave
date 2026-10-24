@@ -61,6 +61,10 @@ class MainActivity : NativeActivity() {
     // 01a155b3). Kept across a recreation in this process (onCreate); a
     // cold launch, in a new process, prompts again.
     private var unlockDeclined = false
+    /** Scan a code's camera, open only while the viewfinder is (add-a-peer 5.5). */
+    private var camera: CodeCamera? = null
+    /** Open settings was pressed: the return is told to the window. */
+    private var inSettings = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // A recreation the system made in this process (a language change,
@@ -72,6 +76,9 @@ class MainActivity : NativeActivity() {
             it.getBoolean(UNLOCK_DECLINED) && it.getString(UNLOCK_DECLINED_IN) == PROCESS_TOKEN
         } ?: false
         super.onCreate(savedInstanceState)
+        // Scan a code is offered only on a phone with a camera; the app
+        // installs without one (add-a-peer 5.5, the camera not required).
+        Native.cameraAvailable(packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY))
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -182,6 +189,10 @@ class MainActivity : NativeActivity() {
         // Back from the prompt or the settings page: a grant restarts the
         // Service with its runtime.
         local?.recheck()
+        if (inSettings) {
+            inSettings = false
+            Native.settingsReturned()
+        }
     }
 
     override fun onDestroy() {
@@ -196,6 +207,9 @@ class MainActivity : NativeActivity() {
 
     override fun onStop() {
         shown = false
+        // The camera never runs behind the app; the window closes the
+        // viewfinder at the same stop (activity.rs).
+        closeCamera()
         if (front === this) front = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
@@ -235,6 +249,15 @@ class MainActivity : NativeActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CAMERA_REQUEST) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                openCamera()
+            } else {
+                // Refused for good when the system will not ask again.
+                Native.cameraDenied(!shouldShowRequestPermissionRationale(Manifest.permission.CAMERA))
+            }
+            return
+        }
         if (requestCode != NETWORK_REQUEST) return
         // Granted or not, the Service starts: in the posture when denied,
         // so the person's messages are never withheld for want of a
@@ -468,6 +491,22 @@ class MainActivity : NativeActivity() {
                 local?.online() ?: connect()
             }
             Ask.RESTART -> local?.restart() ?: connect()
+            // Scan a code (add-a-peer 5.5): the camera permission is asked
+            // here, at the first Scan, and nowhere else.
+            Ask.CAMERA_START -> {
+                if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    openCamera()
+                } else {
+                    requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_REQUEST)
+                }
+            }
+            Ask.CAMERA_STOP -> closeCamera()
+            Ask.OPEN_SETTINGS -> {
+                inSettings = true
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
+                )
+            }
             // Show my address: the flag before its addresses are drawn,
             // which the window does once told (add-a-peer section 5.4).
             Ask.SHOW_SECURE -> {
@@ -555,10 +594,21 @@ class MainActivity : NativeActivity() {
         )
     }
 
+    private fun openCamera() {
+        val c = camera ?: CodeCamera(this).also { camera = it }
+        c.open()
+    }
+
+    private fun closeCamera() {
+        camera?.close()
+        camera = null
+    }
+
     companion object {
         /** The first API level where INTERNET is a runtime permission (j59, measured on API 37). */
         private const val RUNTIME_INTERNET_SDK = 37
         private const val NETWORK_REQUEST = 2
+        private const val CAMERA_REQUEST = 3
         private const val NOTIFICATIONS_REQUEST = 1
         private const val UNLOCK_DECLINED = "unlock-declined"
         private const val UNLOCK_DECLINED_IN = "unlock-declined-in"

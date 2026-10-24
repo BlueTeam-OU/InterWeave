@@ -168,6 +168,21 @@ internal object Native {
     /** FLAG_SECURE is on for Show my address: it may draw its addresses. */
     @JvmStatic external fun showSecured()
 
+    /** Whether the phone has a camera at all: Scan a code is offered only then. */
+    @JvmStatic external fun cameraAvailable(present: Boolean)
+
+    /** One camera frame's luma plane, row by row with `rowStride` bytes a row. */
+    @JvmStatic external fun cameraFrame(width: Int, height: Int, rowStride: Int, luma: java.nio.ByteBuffer)
+
+    /** The camera permission refused at Scan a code; `forGood` when it will not be asked again. */
+    @JvmStatic external fun cameraDenied(forGood: Boolean)
+
+    /** The camera stopped under the scan (failed to open, or taken away). */
+    @JvmStatic external fun cameraClosed()
+
+    /** Back from the app's system settings, opened by Open settings. */
+    @JvmStatic external fun settingsReturned()
+
     /** True when Back found no way back: finish. BLOCKS. */
     @JvmStatic external fun waitLeave(timeoutMs: Long): Boolean
 
@@ -193,6 +208,11 @@ internal object Ask {
     const val RESTART = 9
     // Show my address opened: FLAG_SECURE on, then Native.showSecured.
     const val SHOW_SECURE = 10
+    // Scan a code: the camera on (CAMERA asked first if not held), off.
+    const val CAMERA_START = 11
+    const val CAMERA_STOP = 12
+    // Open settings on the camera's denied-for-good line.
+    const val OPEN_SETTINGS = 13
 }
 
 /** The keys of the texts the platform shows, as `jni.rs` maps them. */

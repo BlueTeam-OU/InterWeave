@@ -82,6 +82,13 @@ pub(crate) mod ask {
     /// `Native.showSecured`, after which the window draws its addresses;
     /// [`SECURE_OFF`] once a frame without it was drawn.
     pub(crate) const SHOW_SECURE: jint = 10;
+    /// Scan a code opened: the camera on, `CAMERA` asked first if the app
+    /// does not hold it (add-a-peer §5.5: at the first Scan, nowhere else).
+    pub(crate) const CAMERA_START: jint = 11;
+    /// The viewfinder closed: the camera off.
+    pub(crate) const CAMERA_STOP: jint = 12;
+    /// Open settings on the camera's denied-for-good line.
+    pub(crate) const OPEN_SETTINGS: jint = 13;
 }
 
 /// The asks, in order, for one waiting Kotlin thread.
