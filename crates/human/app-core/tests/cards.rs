@@ -415,11 +415,10 @@ async fn two_cards_on_one_route_before_any_accept_never_take_the_second_key_unse
     } else {
         (both[1].row, both[0].row)
     };
+    // Both accepted before the facade has run: the second goes as it was
+    // shown, new, which the first's Accept made untrue; it is refused and
+    // given again.
     bob.will(Intent::AcceptCard(one));
-    bob.pump(6).await;
-    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
-
-    // The second, still shown as new, is refused and given again.
     bob.will(Intent::AcceptCard(two));
     bob.pump(7).await;
     assert!(
@@ -1054,4 +1053,128 @@ async fn a_card_that_changes_nothing_offers_close_alone_and_one_that_changes_a_c
     )
     .await;
     assert_eq!(photo.accept, AcceptLine::Updates("Countess".to_owned()));
+}
+
+// A held proposal is judged again when the person changes a contact: a
+// card that matched a contact (case S, Close alone) offers Accept once
+// that contact is deleted, since Accept would now make one -- whether the
+// proposal was still unshown or shown and undecided. Mutation: the facade
+// not judging held proposals again after a delete (Close alone stays).
+#[tokio::test]
+async fn a_matching_card_offers_accept_again_once_its_contact_is_deleted() {
+    for shown_first in [false, true] {
+        let (a, b) = FakeNetwork::pair(node(), node());
+        let (pa, pb) = (profile(), profile());
+        let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+        let mut bob = Root::new(facade(&b, &pb, None));
+        alice.pump(0).await;
+        bob.pump(0).await;
+        shared(&mut alice, &mut bob, &b).await;
+        let from_alice = direct(a.peer());
+        let first = bob.model().proposals(&from_alice)[0].row;
+        bob.will(Intent::AcceptCard(first));
+        bob.pump(5).await;
+        let contact_id = bob.model().contacts()[0].contact_id.clone();
+        let same = shared_again(
+            &mut alice,
+            &mut bob,
+            (&a, &b),
+            ("Ada", Some("Lovelace"), PhotoEdit::Keep),
+            10,
+        )
+        .await;
+        assert_eq!(same.accept, AcceptLine::Matches("Ada Lovelace".to_owned()));
+        if shown_first {
+            let viewed = bob.model().proposals_viewed(&from_alice, true);
+            assert!(!viewed.is_empty(), "shown, so read");
+            bob.model
+                .surface_mut()
+                .batches
+                .push_back(viewed.into_iter().map(ViewEvent::Intent).collect());
+            bob.pump(15).await;
+        }
+        bob.will(Intent::DeleteContact { contact_id });
+        bob.pump(20).await;
+        assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+        let again = bob.model().proposals(&from_alice);
+        assert_eq!(again.len(), 1, "shown first: {shown_first}");
+        assert_eq!(
+            again[0].accept,
+            AcceptLine::Creates,
+            "shown first: {shown_first}"
+        );
+        assert_eq!(
+            bob.model().card_actions(again[0].row),
+            vec![
+                Intent::AcceptCard(again[0].row),
+                Intent::DeclineCard(again[0].row)
+            ]
+        );
+        bob.will(Intent::AcceptCard(again[0].row));
+        bob.pump(25).await;
+        assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+        assert_eq!(bob.model().contacts().len(), 1, "accepted as a new contact");
+    }
+}
+
+// The same after an Accept: of two cards on one route, the older matches
+// its contact (case S) until the newer, carrying another name, is
+// accepted; then the older would write its name back, so it offers
+// Accept. Mutation: the facade not judging held proposals again after an
+// Accept.
+#[tokio::test]
+async fn a_matching_card_offers_accept_once_another_card_on_its_route_is_accepted() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let first = bob.model().proposals(&from_alice)[0].row;
+    bob.will(Intent::AcceptCard(first));
+    bob.pump(5).await;
+    let older = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", Some("Lovelace"), PhotoEdit::Keep),
+        10,
+    )
+    .await;
+    assert_eq!(older.accept, AcceptLine::Matches("Ada Lovelace".to_owned()));
+    // A second card on the route, with another surname.
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: Some("Byron".to_owned()),
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(20).await;
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(21).await;
+    alice.pump(22).await;
+    bob.pump(23).await;
+    let both = bob.model().proposals(&from_alice);
+    assert_eq!(both.len(), 2);
+    let newer = both
+        .iter()
+        .find(|p| p.row != older.row)
+        .expect("the newer")
+        .clone();
+    assert_eq!(newer.accept, AcceptLine::Updates("Ada Lovelace".to_owned()));
+    bob.will(Intent::AcceptCard(newer.row));
+    bob.pump(25).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    let left = bob.model().proposals(&from_alice);
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].row, older.row);
+    assert_eq!(left[0].accept, AcceptLine::Updates("Ada Byron".to_owned()));
+    assert_eq!(
+        bob.model().card_actions(older.row),
+        vec![
+            Intent::AcceptCard(older.row),
+            Intent::DeclineCard(older.row)
+        ]
+    );
 }
