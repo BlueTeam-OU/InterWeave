@@ -110,8 +110,12 @@ pub enum FocusTarget {
     /// The conversation list's heading, once no conversation is left on it.
     ConversationsHeading,
     /// A card's proposal, or the confirmation row its Accept left in its
-    /// place, by the card's row.
+    /// place, by the card's row: the row's first control.
     Proposal(RowId),
+    /// A card's proposal's Accept, or Close where the card changes nothing:
+    /// where an Undo of its answer sends focus (contact-cards design
+    /// section 9's focus table).
+    ProposalAccept(RowId),
 }
 
 /// What the view says once, through its polite live region.
@@ -874,7 +878,7 @@ impl UiModel {
         self.swipe.card_focus = None;
         self.set_outcome(
             Some(Announce::Restored),
-            Some(FocusTarget::Proposal(row)),
+            Some(FocusTarget::ProposalAccept(row)),
             None,
         );
     }

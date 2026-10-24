@@ -1336,7 +1336,7 @@ mod tests {
         );
         let outcome = model.outcome().expect("an outcome");
         assert_eq!(outcome.announce, Some(Announce::Restored));
-        assert_eq!(outcome.focus, Some(FocusTarget::Proposal(row(1))));
+        assert_eq!(outcome.focus, Some(FocusTarget::ProposalAccept(row(1))));
         assert!(
             model.take_released().cards.is_empty(),
             "an Undo taken releases nothing: the facade gave it back"
