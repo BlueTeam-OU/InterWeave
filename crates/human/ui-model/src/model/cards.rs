@@ -799,13 +799,6 @@ impl UiModel {
         }
     }
 
-    /// The confirmation closed without a new key.
-    pub fn new_key_cancelled(&mut self) {
-        if matches!(self.cards.key_step, Some(KeyStep::Confirming { .. })) {
-            self.cards.key_step = None;
-        }
-    }
-
     /// The confirmation's Make a new key: the key is made from here.
     #[must_use]
     pub fn confirm_new_key(&mut self) -> Option<Intent> {
@@ -846,8 +839,9 @@ impl UiModel {
         self.cards.key_step = again.then_some(KeyStep::StillNotNow);
     }
 
-    /// The card page was left: what it showed of a key step goes.
-    pub fn key_page_left(&mut self) {
+    /// The confirmation cancelled, or the card page left: what it showed
+    /// of a key step goes; one under way stays.
+    pub fn key_step_closed(&mut self) {
         if !matches!(self.cards.key_step, Some(KeyStep::Making | KeyStep::Asking)) {
             self.cards.key_step = None;
         }
@@ -1733,7 +1727,7 @@ mod tests {
             model.key_step(),
             Some(&KeyStep::Confirming { pending: true })
         );
-        model.new_key_cancelled();
+        model.key_step_closed();
         assert_eq!(model.key_step(), None, "cancelled: nothing made");
 
         assert_eq!(model.ask_new_key(), Some(Intent::AskNewKey));
@@ -1749,7 +1743,7 @@ mod tests {
         );
         assert_eq!(model.key_step(), Some(&KeyStep::Made { share_again: back }));
         assert_eq!(model.key_problem(), None);
-        model.key_page_left();
+        model.key_step_closed();
         assert_eq!(model.key_step(), None, "the list is not kept");
 
         model.identity_shown(own(OwnKey::Unusable(KeyProblem::DirUnsafe {

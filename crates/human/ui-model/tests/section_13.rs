@@ -92,6 +92,7 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         | Intent::AskNewKey
         | Intent::MakeNewKey
         | Intent::RetryKey
+        | Intent::CloseKeyStep
         | Intent::SetOwnCard { .. }
         | Intent::RenameContact { .. }
         | Intent::SetContactPhoto { .. }

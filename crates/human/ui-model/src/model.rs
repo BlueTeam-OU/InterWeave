@@ -412,6 +412,9 @@ pub enum Intent {
     MakeNewKey,
     /// Open the identity in front's key once more (section 6).
     RetryKey,
+    /// Close what the card page shows of a key step: the confirmation
+    /// cancelled, or the page left. The model's alone.
+    CloseKeyStep,
     /// The person's edit of their identity's own card, from its settings.
     SetOwnCard {
         /// The name.
