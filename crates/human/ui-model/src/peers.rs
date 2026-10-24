@@ -163,6 +163,14 @@ pub enum AddNote {
         /// How many lines the add carried.
         lines: usize,
     },
+    /// Refused `superseded` (IPC 2.10): another admin connection's later
+    /// write of a line stands, and the list read back lacks a line or
+    /// could not be read. No Try again, and nothing said of the list,
+    /// since it is also said when the read failed (§5.7).
+    Superseded {
+        /// How many lines the add carried.
+        lines: usize,
+    },
     /// An add of several lines, typed or scanned, not taken: nothing
     /// added. A runtime with the one-address add only (IPC 2.7 or 2.8)
     /// answers so, the facade sending nothing to it.
@@ -274,9 +282,22 @@ pub enum BlockProblem {
     NotMade,
     /// The answer was lost and the trust list could not be read back.
     Unknown,
-    /// Refused because a later change of the peer from another admin
-    /// connection stands (IPC 2.10, `superseded`), and the trust list
-    /// read again does not list the peer.
+    /// Refused `superseded` (IPC 2.10): another admin connection's later
+    /// change of the peer may stand, and the trust list read again does
+    /// not list the peer. Trust stays offered (§5.3).
+    Superseded,
+    /// Refused `superseded`, and the trust list could not be read again:
+    /// no trust state claimed, and never [`Self::Unknown`], whose retry
+    /// §5.7 rules out (§5.3).
+    SupersededUnread,
+}
+
+/// Why a block's trust list is read back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadBack {
+    /// Its Trust's answer was lost, or none came.
+    Lost,
+    /// Its Trust was refused `superseded` (§5.3).
     Superseded,
 }
 
@@ -286,8 +307,9 @@ struct TrustBlock {
     later: bool,
     /// Trust sent and not answered.
     trusting: bool,
-    /// Its answer was lost: the trust list is read back.
-    checking: bool,
+    /// The trust list is read back for its Trust, and why: the answer
+    /// lost, or refused `superseded`, which says its own lines.
+    checking: Option<ReadBack>,
     problem: Option<BlockProblem>,
     /// Whether its peer is trusted, as the latest thing that told this
     /// device succeeded (§5.3): the trust list on the daemon's word when
@@ -304,7 +326,7 @@ impl TrustBlock {
             peer,
             later: false,
             trusting: false,
-            checking: false,
+            checking: None,
             problem: None,
             known,
         }
@@ -313,7 +335,7 @@ impl TrustBlock {
     /// What is known of its peer's trust: the trust list while it is the
     /// daemon's word, else the block's own last known answer.
     fn known(&self, trust: &TrustSettings) -> Option<bool> {
-        if self.checking {
+        if self.checking.is_some() {
             return None;
         }
         trust
@@ -329,7 +351,7 @@ impl TrustBlock {
     fn state(&self, trust: &TrustSettings) -> BlockState {
         if self.allowed(trust) {
             BlockState::Trusted
-        } else if self.checking {
+        } else if self.checking.is_some() {
             BlockState::Checking
         } else if self.trusting {
             BlockState::Trusting
@@ -447,6 +469,19 @@ pub enum PeersSnack {
     /// An Undo's answer was lost and the list could not be read back.
     /// Try again.
     UndoUnknown {
+        /// The address.
+        address: String,
+    },
+    /// A removal refused `superseded` (IPC 2.10), the list read back
+    /// still listing the row. No action: a retry could undo a change made
+    /// on purpose elsewhere (§5.7).
+    RemoveSuperseded {
+        /// The address.
+        address: String,
+    },
+    /// An Undo refused `superseded`, the list read back not listing the
+    /// row. No action, as for a removal.
+    UndoSuperseded {
         /// The address.
         address: String,
     },
@@ -810,10 +845,8 @@ fn pending_address(check: &Check) -> Option<&str> {
 
 /// The add page's refusal for the runtime's, or `None` for one that
 /// names no rule of the address: a removal's own (`Configured`), which
-/// an add never meets, and a write another admin connection's later one
-/// superseded, which wrote nothing and is said as not made -- the list
-/// read back shows what stands
-/// (`each_runtime_refusal_is_named_and_stores_nothing`).
+/// an add never meets, and `Superseded`, which each change decides on
+/// its list read back before it gets here ([`superseded`]).
 const fn refusal_of(why: AddressRefused) -> Option<Refusal> {
     Some(match why {
         AddressRefused::Grammar => Refusal::Grammar,
@@ -823,6 +856,30 @@ const fn refusal_of(why: AddressRefused) -> Option<Refusal> {
         AddressRefused::OwnPeer => Refusal::OwnAddress,
         AddressRefused::Configured | AddressRefused::Superseded => return None,
     })
+}
+
+/// Whether an answer is the refusal `superseded` (IPC 2.10): nothing
+/// written, and the list read back decides what is said, never the
+/// not-written lines and never a Try again (§5.7).
+const fn superseded(outcome: &AddressOutcome) -> bool {
+    matches!(
+        outcome,
+        AddressOutcome::Refused(AddressRefused::Superseded)
+            | AddressOutcome::RefusedLine {
+                why: AddressRefused::Superseded,
+                ..
+            }
+    )
+}
+
+/// Peers' unreadable state for a read that failed.
+const fn list_problem(problem: AddressProblem) -> ListProblem {
+    match problem {
+        AddressProblem::Unavailable => ListProblem::Unavailable,
+        AddressProblem::Internal => ListProblem::Failed,
+        AddressProblem::NotPermitted => ListProblem::Barred(Barred::NotPermitted),
+        AddressProblem::Incompatible => ListProblem::Barred(Barred::Incompatible),
+    }
 }
 
 const fn barred(problem: AddressProblem) -> Option<Barred> {
@@ -970,7 +1027,7 @@ impl Peers {
             PeersInput::NotNow(peer) => {
                 if let Some(block) = self.block_mut(&peer)
                     && !block.trusting
-                    && !block.checking
+                    && block.checking.is_none()
                 {
                     // A block whose Trust was pressed keeps its last line
                     // (§5.3): its problem text stays as it stands.
@@ -1326,7 +1383,7 @@ impl Peers {
     /// the confirmation. A row's Trust is [`Self::trust_row`].
     fn trust(&mut self, peer: &TransportIdentity, trust: &mut TrustSettings) -> Option<Intent> {
         if let Some(block) = self.block_mut(peer) {
-            if block.trusting || block.checking || trust.in_flight().is_some() {
+            if block.trusting || block.checking.is_some() || trust.in_flight().is_some() {
                 return None;
             }
             let change = trust.propose_allow_of(peer)?;
@@ -1683,12 +1740,7 @@ impl Peers {
                 // A row restored while unread is not drawn with no list;
                 // its Try again succeeding goes as on opening (§8).
                 self.restored = None;
-                self.list_problem = Some(match problem {
-                    AddressProblem::Unavailable => ListProblem::Unavailable,
-                    AddressProblem::Internal => ListProblem::Failed,
-                    AddressProblem::NotPermitted => ListProblem::Barred(Barred::NotPermitted),
-                    AddressProblem::Incompatible => ListProblem::Barred(Barred::Incompatible),
-                });
+                self.list_problem = Some(list_problem(problem));
             }
         }
     }
@@ -1736,6 +1788,20 @@ impl Peers {
             }
         };
         match answer {
+            Ok(answer) if superseded(&answer.outcome) => match answer.list {
+                Ok(list) => {
+                    self.read_back_superseded(address, list);
+                    if self.list.as_ref().is_some_and(|l| listed(l, address)) {
+                        self.say(PeersSnack::RemoveSuperseded {
+                            address: address.to_owned(),
+                        });
+                        self.ask_focus(PeersFocus::RowMenu(address.to_owned()));
+                    } else {
+                        self.removed(address, &before, trust);
+                    }
+                }
+                Err(problem) => self.unreadable(problem),
+            },
             Ok(answer) => {
                 // An answer decides it: nothing is unknown about it now.
                 self.settle_pending(address);
@@ -1809,6 +1875,26 @@ impl Peers {
         }
     }
 
+    /// The list read back after a removal or an Undo of `address` refused
+    /// `superseded`: a read started after it, which decides what it said
+    /// and leaves nothing of it unknown. The refusal alone settles
+    /// nothing, so an unreadable list leaves it as it was (§5.7).
+    fn read_back_superseded(&mut self, address: &str, list: AddressList) {
+        self.settle_pending(address);
+        self.take_list(Ok(list));
+    }
+
+    /// The read back of a removal or an Undo refused `superseded` failed:
+    /// Peers in its unreadable state with the read's line, focus on it
+    /// (§5.7, §8), no read owed beyond the one made.
+    fn unreadable(&mut self, problem: AddressProblem) {
+        self.list = None;
+        self.list_problem = Some(list_problem(problem));
+        self.snack = None;
+        self.restored = None;
+        self.ask_focus(PeersFocus::ListProblem);
+    }
+
     /// A Remove or an Undo answered not permitted or incompatible: Peers
     /// goes to its unreadable state with that line, focus on it.
     fn bar(&mut self, b: Barred) {
@@ -1826,6 +1912,10 @@ impl Peers {
         trust: &TrustSettings,
     ) {
         let answer = match answer {
+            Ok(answer) if superseded(&answer.outcome) => {
+                self.add_superseded(&lines, answer.list, trust);
+                return;
+            }
             Ok(answer) => {
                 // A real answer decides the add: nothing is unknown now.
                 if let Some(page) = self.page.as_mut() {
@@ -1945,6 +2035,40 @@ impl Peers {
         }
     }
 
+    /// An add refused `superseded`, decided on its list read back as an
+    /// unknown add's is: every line listed, as checked, step two after
+    /// it; else `AddSuperseded`, focus on Add. The read settles the lines
+    /// an earlier add left unknown as any list an answer brings does
+    /// ([`Self::take_list`]); when it failed they stay unknown, and the
+    /// line is still `AddSuperseded`, never `AddUnknown`, whose retry
+    /// §5.7 rules out (`a_superseded_add_settles_unknown_lines_only_by_its_read`).
+    fn add_superseded(
+        &mut self,
+        lines: &[String],
+        list: Result<AddressList, AddressProblem>,
+        trust: &TrustSettings,
+    ) {
+        let note = AddNote::Superseded { lines: lines.len() };
+        let Ok(list) = list else {
+            // The one read made, and it failed: nothing more is read for
+            // it (acceptance 10).
+            self.held = Held::MayHaveChanged;
+            self.page_note(note, PeersFocus::AddButton);
+            return;
+        };
+        self.take_list(Ok(list));
+        if self
+            .list
+            .as_ref()
+            .is_some_and(|l| lines.iter().all(|line| listed(l, line)))
+        {
+            let result = AddResult::Checked { lines: lines.len() };
+            self.accepted(result, &peers_of(lines), trust);
+        } else {
+            self.page_note(note, PeersFocus::AddButton);
+        }
+    }
+
     fn page_note(&mut self, note: AddNote, focus: PeersFocus) {
         if let Some(page) = self.page.as_mut() {
             page.note = Some(note);
@@ -1998,6 +2122,17 @@ impl Peers {
         answer: Result<AddressAnswer, AddressChangeFailure>,
     ) {
         match answer {
+            Ok(answer) if superseded(&answer.outcome) => match answer.list {
+                Ok(list) => {
+                    self.read_back_superseded(&address, list);
+                    if self.list.as_ref().is_some_and(|l| listed(l, &address)) {
+                        self.undone(address);
+                    } else {
+                        self.undo_not_made(PeersSnack::UndoSuperseded { address });
+                    }
+                }
+                Err(problem) => self.unreadable(problem),
+            },
             Ok(answer) => {
                 self.settle_pending(&address);
                 self.take_list(answer.list);
@@ -2364,7 +2499,7 @@ impl Peers {
             if block.known == Some(true)
                 && known_before != Some(true)
                 && !block.trusting
-                && !block.checking
+                && block.checking.is_none()
             {
                 moved = true;
             }
@@ -2379,15 +2514,23 @@ impl Peers {
             // (`an_unknown_trust_a_later_read_decides_is_no_longer_unknown`).
             // Focus stays where it is: §8 names no move for a read the
             // person did not ask for (asked of ux-designer-01).
-            if block.problem == Some(BlockProblem::Unknown)
-                && !on_its_way
+            // A superseded Trust left unread is decided the same way by a
+            // read started after its refusal, in its own lines (§5.3).
+            if matches!(
+                block.problem,
+                Some(BlockProblem::Unknown | BlockProblem::SupersededUnread)
+            ) && !on_its_way
                 && !block.trusting
-                && !block.checking
+                && block.checking.is_none()
                 && trust
                     .confirmed_list()
                     .is_some_and(|l| !l.allows(&block.peer))
             {
-                block.problem = Some(BlockProblem::NotMade);
+                block.problem = Some(if block.problem == Some(BlockProblem::Unknown) {
+                    BlockProblem::NotMade
+                } else {
+                    BlockProblem::Superseded
+                });
             }
             if block.trusting && !on_its_way {
                 block.trusting = false;
@@ -2399,13 +2542,15 @@ impl Peers {
                         Some(TrustOutcome::Changed(c)) if c.peer == block.peer => {
                             block.known = Some(true);
                         }
-                        // Unconfirmed, or refused because another admin
-                        // connection's change stands: the list read again
-                        // decides.
-                        Some(TrustOutcome::Unconfirmed(c) | TrustOutcome::Superseded(c))
-                            if c.peer == block.peer =>
-                        {
-                            block.checking = true;
+                        // Unconfirmed, or refused superseded: the list read
+                        // again decides, a superseded one in its own lines.
+                        Some(
+                            outcome @ (TrustOutcome::Unconfirmed(c) | TrustOutcome::Superseded(c)),
+                        ) if c.peer == block.peer => {
+                            block.checking = Some(match outcome {
+                                TrustOutcome::Superseded(_) => ReadBack::Superseded,
+                                _ => ReadBack::Lost,
+                            });
                             block.known = None;
                             checking.get_or_insert_with(|| block.peer.clone());
                         }
@@ -2428,20 +2573,20 @@ impl Peers {
                         _ => block.problem = Some(BlockProblem::NotMade),
                     }
                 }
-            } else if block.checking && !trust.reading() && !trust.reread_owed() {
-                block.checking = false;
+            } else if block.checking.is_some() && !trust.reading() && !trust.reread_owed() {
+                let superseded = block.checking.take() == Some(ReadBack::Superseded);
                 moved = true;
                 if !block.allowed(trust) {
+                    let read = trust.confirmed_list().is_some();
                     block.problem = Some(match trust.outcome().0 {
+                        _ if superseded && read => BlockProblem::Superseded,
+                        _ if superseded => BlockProblem::SupersededUnread,
                         Some(TrustOutcome::NotReadAgain(_)) => BlockProblem::Unknown,
-                        Some(TrustOutcome::Superseded(c)) if c.peer == block.peer => {
-                            BlockProblem::Superseded
-                        }
                         _ => BlockProblem::NotMade,
                     });
                 }
             }
-            if moved && problem.is_none() && block.problem.is_some() && !block.checking {
+            if moved && problem.is_none() && block.problem.is_some() && block.checking.is_none() {
                 problem = Some(block.peer.clone());
             }
             moved |= moved_before;
