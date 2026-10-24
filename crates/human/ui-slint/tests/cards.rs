@@ -640,8 +640,11 @@ fn share_shows_what_goes_first_and_sends_only_on_share_in_a_direct_conversation(
     let _ = shown(&mut view, &mut model, P);
     press(&view, text(UiText::MoreOptions));
     press(&view, text(UiText::ShareCard));
-    let _ = intents(&mut view, &mut model);
-    let title = model.title(&direct(P));
+    assert!(
+        intents(&mut view, &mut model).is_empty(),
+        "opening the sheet sends nothing"
+    );
+    let title = model.drawn_title(&direct(P));
     assert!(shows(
         &view,
         &fill(text(UiText::ShareCardTitle), &[("title", &title)])
@@ -657,7 +660,10 @@ fn share_shows_what_goes_first_and_sends_only_on_share_in_a_direct_conversation(
 
     press(&view, text(UiText::MoreOptions));
     press(&view, text(UiText::ShareCard));
-    let _ = intents(&mut view, &mut model);
+    assert!(
+        intents(&mut view, &mut model).is_empty(),
+        "opening the sheet sends nothing"
+    );
     press(&view, text(UiText::ShareCardAction));
     assert_eq!(
         intents(&mut view, &mut model),
