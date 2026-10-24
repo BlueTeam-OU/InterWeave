@@ -80,6 +80,8 @@ struct Scripted {
     renders: usize,
     /// Whether each render was shown a trust change to confirm.
     pending_shown: Vec<bool>,
+    /// Peers as the last render was shown it.
+    peers_shown: Option<interweave_human_ui_model::Peers>,
 }
 
 impl Scripted {
@@ -93,6 +95,7 @@ impl Surface for Scripted {
         self.renders += 1;
         self.pending_shown
             .push(model.trust_settings().pending().is_some());
+        self.peers_shown = Some(model.peers().clone());
     }
 
     fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
@@ -173,6 +176,24 @@ impl Root {
             self.updates.push(update.clone());
             self.model.apply(update);
         }
+    }
+
+    /// Pump until the session is ready and the reads it owes at start
+    /// -- the trust and address lists, for the no-reach notice -- are
+    /// answered, then forget what was asked: a test of what a person's
+    /// input asks starts from here.
+    async fn settled(&mut self, now: u64) {
+        for _ in 0..4 {
+            self.pump(now).await;
+        }
+        assert!(
+            self.commands.contains(&Command::ReadTrust)
+                && self.commands.contains(&Command::ReadAddresses),
+            "{:?}",
+            self.commands
+        );
+        self.commands.clear();
+        self.updates.clear();
     }
 
     fn will(&mut self, events: Vec<ViewEvent>) {
@@ -462,6 +483,7 @@ async fn a_keep_with_no_copy_held_fails_and_changes_nothing() {
 async fn a_link_is_opened_only_when_allowlisted_and_never_reaches_the_facade() {
     let (a, _b) = FakeNetwork::pair(node(), node());
     let (mut alice, opened) = Root::new(facade(&a, memory()));
+    alice.settled(0).await;
     alice.will(vec![
         ViewEvent::Intent(Intent::OpenLink("https://example.org/a".to_owned())),
         ViewEvent::Intent(Intent::OpenLink("javascript:alert(1)".to_owned())),
@@ -478,7 +500,7 @@ async fn a_link_is_opened_only_when_allowlisted_and_never_reaches_the_facade() {
 async fn an_ask_for_network_access_reaches_the_platform_and_never_the_facade() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let (mut alice, opened) = Root::new(facade(&a, memory()));
-    alice.pump(0).await;
+    alice.settled(0).await;
     let to_bob = direct(b.peer());
     alice.model.network_access(false);
     alice.will(vec![
@@ -813,6 +835,7 @@ async fn a_hide_is_rendered_in_the_turn_that_took_it() {
 async fn a_trust_intent_handed_over_bare_reaches_nothing() {
     let (a, b) = FakeNetwork::pair(node(), node());
     let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
     root.will(vec![
         ViewEvent::Intent(Intent::ReadTrust),
         ViewEvent::Intent(Intent::SetTrust(TrustChange {
@@ -1443,7 +1466,7 @@ async fn an_ask_for_authentication_reaches_the_platform_and_never_the_facade() {
     use interweave_human_ui_model::SessionNotice;
     let (a, _) = FakeNetwork::pair(node(), node());
     let (mut alice, opened) = Root::new(facade(&a, memory()));
-    alice.pump(0).await;
+    alice.settled(0).await;
     alice.model.authentication_needed(true);
     assert_eq!(
         alice.model().session_notice(),
@@ -1459,4 +1482,434 @@ async fn an_ask_for_authentication_reaches_the_platform_and_never_the_facade() {
         alice.model().session_notice(),
         Some(SessionNotice::AuthenticationNeeded)
     );
+}
+
+/// A session ready reads the trust and address lists once, for the
+/// no-reach notice, and both are read in. (A runtime without the address
+/// methods is the facade's own test: `a_runtime_without_the_methods_is_incompatible`.)
+#[tokio::test]
+async fn a_ready_session_reads_both_lists_once() {
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
+    for now in 1..4 {
+        root.pump(now).await;
+    }
+    assert!(
+        !root
+            .commands
+            .iter()
+            .any(|c| matches!(c, Command::ReadTrust | Command::ReadAddresses)),
+        "read once: {:?}",
+        root.commands
+    );
+    assert!(root.model().trust_settings().list().is_some());
+    assert!(root.model().peers().list().is_some());
+    assert_eq!(root.model().peers().list_problem(), None);
+}
+
+/// An address intent handed over bare reaches nothing: the addresses
+/// change only through Peers' inputs, after the client's own rules.
+#[tokio::test]
+async fn a_bare_address_intent_reaches_nothing() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
+    let address = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", b.peer().as_str());
+    root.will(vec![
+        ViewEvent::Intent(Intent::ReadAddresses),
+        ViewEvent::Intent(Intent::AddAddresses(vec![address.clone()])),
+        ViewEvent::Intent(Intent::RemoveAddress(address)),
+        ViewEvent::Intent(Intent::ReadOwnAddresses),
+    ]);
+    root.pump(1).await;
+    assert!(
+        !root.commands.iter().any(|c| matches!(
+            c,
+            Command::ReadAddresses
+                | Command::AddAddresses(_)
+                | Command::RemoveAddress(_)
+                | Command::ReadOwnAddresses
+        )),
+        "{:?}",
+        root.commands
+    );
+}
+
+/// Show my address reaches the facade as one read of this node's own
+/// addresses, and what it answers is what Show draws.
+#[tokio::test]
+async fn show_reads_this_nodes_addresses_through_the_facade() {
+    use interweave_human_ui_model::{PeersInput, ShowState};
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
+    root.will(vec![ViewEvent::Peers(PeersInput::OpenShow)]);
+    root.pump(1).await;
+    assert_eq!(root.commands, vec![Command::ReadOwnAddresses]);
+    let want = format!("/ip4/192.168.77.10/tcp/4001/p2p/{}", a.peer().as_str());
+    assert_eq!(
+        root.model().peers().show(),
+        Some(&ShowState::Shown {
+            peer: a.peer().clone(),
+            lines: vec![want]
+        })
+    );
+}
+
+/// Peers' add reaches the facade as one add of all its lines: one line
+/// is the runtime's single add, which this fake answers as added;
+/// several, typed or scanned, are one add, never split, which the
+/// runtime's add of several answers; more than `TYPED_LINES` typed are
+/// refused before anything is sent.
+#[tokio::test]
+async fn an_add_reaches_the_runtime_whole_and_says_what_it_answered() {
+    use interweave_human_ui_model::{AddNote, PeersInput, ScanControl, TYPED_LINES};
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let one = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", b.peer().as_str());
+    let two = format!("/ip4/192.168.1.21/tcp/4001/p2p/{}", b.peer().as_str());
+
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
+    root.will(vec![
+        ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::FieldChanged(one.clone())),
+        ViewEvent::Peers(PeersInput::Add),
+    ]);
+    root.pump(1).await;
+    assert_eq!(
+        root.commands,
+        vec![Command::AddAddresses(vec![one.clone()])]
+    );
+    // The pair trust each other: added, no trust step, the page closed.
+    assert!(
+        !root.model().peers().add_open(),
+        "{:?}",
+        root.model().peers().add_page_note()
+    );
+    assert_eq!(
+        root.model().peers().snack().0,
+        Some(&interweave_human_ui_model::PeersSnack::Added)
+    );
+
+    let (c, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&c, memory()));
+    root.settled(0).await;
+    root.will(vec![
+        ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::FieldChanged(format!("{one}\n{two}"))),
+        ViewEvent::Peers(PeersInput::Add),
+    ]);
+    root.pump(1).await;
+    assert_eq!(
+        root.commands,
+        vec![Command::AddAddresses(vec![one.clone(), two.clone()])],
+        "two typed lines are one add"
+    );
+    let many: Vec<String> = (0..=TYPED_LINES)
+        .map(|i| format!("/ip4/192.168.1.{i}/tcp/4001/p2p/{}", b.peer().as_str()))
+        .collect();
+    let (fifth, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&fifth, memory()));
+    root.settled(0).await;
+    root.will(vec![
+        ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::FieldChanged(many.join("\n"))),
+        ViewEvent::Peers(PeersInput::Add),
+    ]);
+    root.pump(1).await;
+    assert!(root.commands.is_empty(), "one line too many sends nothing");
+    assert_eq!(
+        root.model().peers().add_page_note(),
+        Some(&AddNote::TooManyLines {
+            lines: TYPED_LINES + 1
+        })
+    );
+
+    let (d, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&d, memory()));
+    root.settled(0).await;
+    root.will(vec![
+        ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::ScanPressed(ScanControl::PasteImage)),
+        ViewEvent::Peers(PeersInput::Scanned(format!("{one}\n{two}"))),
+    ]);
+    root.pump(1).await;
+    assert_eq!(root.commands, vec![Command::AddAddresses(vec![one, two])]);
+    // Both lines added; their peer is not this node's to trust yet.
+    assert_eq!(
+        root.model().peers().add_result(),
+        Some(&interweave_human_ui_model::AddResult::Added {
+            lines: 2,
+            peers: vec![b.peer().clone()]
+        }),
+        "{:?}",
+        root.model().peers().add_page_note()
+    );
+}
+
+/// The words' `{max}` is the configuration's bound, which the runtime
+/// enforces: one value, held equal here.
+#[test]
+fn the_address_bound_in_the_words_is_the_configurations() {
+    assert_eq!(
+        interweave_human_ui_model::ADDRESS_BOUND,
+        interweave_profile_config::MAX_STATIC_BOOTSTRAP_PEERS
+    );
+}
+
+/// A step-two Trust's answer reaches Peers only at the turn's end, after
+/// its render, and asks the facade nothing: the turn that takes it draws
+/// it all the same -- a refused Trust's problem line in its block, and a
+/// made one's decided page closing -- with no other wake.
+#[tokio::test]
+async fn a_step_two_trust_answer_is_drawn_by_the_turn_that_takes_it() {
+    use interweave_human_client_api::{
+        AddressAnswer, AddressList, AddressOrigin, AddressOutcome, PeerAddress, TrustList,
+        TrustProblem, TrustRow, TrustSetFailure,
+    };
+    use interweave_human_ui_model::{BlockProblem, PeersInput};
+    for made in [false, true] {
+        // A peer the pair's trust lists do not hold, so its add has a block.
+        let (a, _) = FakeNetwork::pair(node(), node());
+        let stranger = ProfileIdentity::generate()
+            .transport_identity()
+            .expect("a peer");
+        let line = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", stranger.as_str());
+        let (mut root, _) = Root::new(facade(&a, memory()));
+        root.settled(0).await;
+        root.will(vec![
+            ViewEvent::Peers(PeersInput::OpenAdd),
+            ViewEvent::Peers(PeersInput::FieldChanged(line.clone())),
+            ViewEvent::Peers(PeersInput::Add),
+        ]);
+        let _ = root.model.turn();
+        root.model.apply(Update::AddressesAdded {
+            lines: vec![line.clone()],
+            answer: Ok(AddressAnswer {
+                outcome: AddressOutcome::Added {
+                    peer: Some(stranger.clone()),
+                },
+                list: Ok(AddressList {
+                    addresses: vec![PeerAddress {
+                        address: line.clone(),
+                        peer: Some(stranger.clone()),
+                        origin: AddressOrigin::AddedHere,
+                        dialled: true,
+                    }],
+                }),
+            }),
+        });
+        root.will(vec![ViewEvent::Peers(PeersInput::Trust(stranger.clone()))]);
+        let commands = root.model.turn();
+        assert!(
+            commands.iter().any(|c| matches!(c, Command::SetTrust(_))),
+            "{commands:?}"
+        );
+        let change = TrustChange {
+            peer: stranger.clone(),
+            allowed: true,
+        };
+        root.model.apply(Update::TrustSet {
+            change,
+            answer: if made {
+                Ok(TrustList {
+                    local_peer: Some(a.peer().clone()),
+                    allowed: vec![TrustRow::added_here(stranger.clone())],
+                })
+            } else {
+                Err(TrustSetFailure::NotMade(TrustProblem::NotPermitted))
+            },
+        });
+        let _ = root.model.turn();
+        let shown = root.model.surface().peers_shown.clone().expect("rendered");
+        if made {
+            assert!(!shown.add_open(), "the decided page closed, drawn");
+        } else {
+            let trust = root.model().trust_settings();
+            assert_eq!(
+                shown.blocks(trust)[0].problem,
+                Some(BlockProblem::Trust(TrustProblem::NotPermitted)),
+                "the refusal drawn in its block"
+            );
+        }
+    }
+}
+
+/// A session that becomes ready again -- a reconnection, the runtime
+/// perhaps restarted with other lists -- reads both lists again, once,
+/// though both were read before; and the facade names this node's
+/// `PeerId` with it, for Peers' own row.
+#[tokio::test]
+async fn a_new_session_reads_both_lists_again() {
+    use interweave_human_client_api::{ClientEvent, SessionState};
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    for now in 0..4 {
+        root.pump(now).await;
+    }
+    assert!(
+        root.updates
+            .iter()
+            .any(|u| matches!(u, Update::ThisDevice(p) if p == a.peer())),
+        "the session's PeerId sent with Ready"
+    );
+    // Both lists read: the fake answers the address read as from an
+    // older runtime, so it is given here as read and empty.
+    root.model.apply(Update::AddressesRead(Ok(
+        interweave_human_client_api::AddressList {
+            addresses: Vec::new(),
+        },
+    )));
+    assert!(root.model().trust_settings().list().is_some());
+    assert!(root.model().peers().list().is_some());
+    root.commands.clear();
+    root.model.apply(Update::Client(ClientEvent::Session(
+        SessionState::Reconnecting {
+            attempt: 1,
+            next_at: 0,
+        },
+    )));
+    root.model
+        .apply(Update::Client(ClientEvent::Session(SessionState::Ready {
+            endpoint: None,
+        })));
+    let commands = root.model.turn();
+    let count = |want: fn(&Command) -> bool| commands.iter().filter(|c| want(c)).count();
+    assert_eq!(
+        count(|c| matches!(c, Command::ReadTrust)),
+        1,
+        "{commands:?}"
+    );
+    assert_eq!(
+        count(|c| matches!(c, Command::ReadAddresses)),
+        1,
+        "{commands:?}"
+    );
+}
+
+/// An admin answer and its `Done` are separate updates, and each platform
+/// may deliver them in separate turns: the answer frees the command, so a
+/// retry the model offers once it is answered is sent, never dropped as
+/// still on its way -- which would leave Peers busy, its add page with no
+/// way out, for good.
+#[tokio::test]
+async fn an_admin_retry_answered_before_its_done_is_sent() {
+    use interweave_human_client_api::{
+        AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
+        AddressProblem, ClientEvent, PeerAddress, SessionState, TrustProblem, TrustSetFailure,
+    };
+    use interweave_human_ui_model::PeersInput;
+    let (a, _) = FakeNetwork::pair(node(), node());
+    let stranger = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a peer");
+    let line = format!("/ip4/192.168.1.20/tcp/4001/p2p/{}", stranger.as_str());
+    let (mut root, _) = Root::new(facade(&a, memory()));
+    root.settled(0).await;
+    let issued = |commands: &[Command], want: &Command| commands.iter().any(|c| c == want);
+
+    // Both reads, answered failed with no Done; a new session reads again.
+    let again = |root: &mut Root| {
+        root.model.apply(Update::Client(ClientEvent::Session(
+            SessionState::Reconnecting {
+                attempt: 1,
+                next_at: 0,
+            },
+        )));
+        root.model
+            .apply(Update::Client(ClientEvent::Session(SessionState::Ready {
+                endpoint: None,
+            })));
+    };
+    again(&mut root);
+    let commands = root.model.turn();
+    assert!(issued(&commands, &Command::ReadTrust), "{commands:?}");
+    assert!(issued(&commands, &Command::ReadAddresses), "{commands:?}");
+    root.model
+        .apply(Update::TrustRead(Err(TrustProblem::Unavailable)));
+    root.model
+        .apply(Update::AddressesRead(Err(AddressProblem::Unavailable)));
+    again(&mut root);
+    let commands = root.model.turn();
+    assert!(issued(&commands, &Command::ReadTrust), "{commands:?}");
+    assert!(issued(&commands, &Command::ReadAddresses), "{commands:?}");
+    root.model.apply(Update::Done(Command::ReadTrust));
+    root.model.apply(Update::Done(Command::ReadAddresses));
+
+    // An add not made, and its retry.
+    let add = Command::AddAddresses(vec![line.clone()]);
+    root.will(vec![
+        ViewEvent::Peers(PeersInput::OpenAdd),
+        ViewEvent::Peers(PeersInput::FieldChanged(line.clone())),
+        ViewEvent::Peers(PeersInput::Add),
+    ]);
+    assert!(issued(&root.model.turn(), &add));
+    root.model.apply(Update::AddressesAdded {
+        lines: vec![line.clone()],
+        answer: Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    });
+    root.will(vec![ViewEvent::Peers(PeersInput::Add)]);
+    let commands = root.model.turn();
+    assert!(issued(&commands, &add), "the retry sent: {commands:?}");
+    root.model.apply(Update::Done(add.clone()));
+
+    // Made, so the step's Trust is offered: refused, and pressed again.
+    let listed = AddressList {
+        addresses: vec![PeerAddress {
+            address: line.clone(),
+            peer: Some(stranger.clone()),
+            origin: AddressOrigin::AddedHere,
+            dialled: true,
+        }],
+    };
+    root.model.apply(Update::AddressesAdded {
+        lines: vec![line.clone()],
+        answer: Ok(AddressAnswer {
+            outcome: AddressOutcome::Added {
+                peer: Some(stranger.clone()),
+            },
+            list: Ok(listed.clone()),
+        }),
+    });
+    root.model.apply(Update::Done(add));
+    let set = Command::SetTrust(TrustChange {
+        peer: stranger.clone(),
+        allowed: true,
+    });
+    root.will(vec![ViewEvent::Peers(PeersInput::Trust(stranger.clone()))]);
+    assert!(issued(&root.model.turn(), &set));
+    root.model.apply(Update::TrustSet {
+        change: TrustChange {
+            peer: stranger.clone(),
+            allowed: true,
+        },
+        answer: Err(TrustSetFailure::NotMade(TrustProblem::Unavailable)),
+    });
+    // Peers takes a Trust answer at the turn's end: the block offers its
+    // Trust again from the next.
+    let _ = root.model.turn();
+    root.will(vec![ViewEvent::Peers(PeersInput::Trust(stranger.clone()))]);
+    let commands = root.model.turn();
+    assert!(
+        issued(&commands, &set),
+        "the Trust again sent: {commands:?}"
+    );
+    root.model.apply(Update::Done(set));
+
+    // A removal not made, and its Try again.
+    let remove = Command::RemoveAddress(line.clone());
+    root.will(vec![ViewEvent::Peers(PeersInput::Remove(line.clone()))]);
+    assert!(issued(&root.model.turn(), &remove));
+    root.model.apply(Update::AddressRemoved {
+        address: line.clone(),
+        answer: Err(AddressChangeFailure::NotMade(AddressProblem::Unavailable)),
+    });
+    root.will(vec![ViewEvent::Peers(PeersInput::TryAgain)]);
+    let commands = root.model.turn();
+    assert!(
+        issued(&commands, &remove),
+        "the Try again sent: {commands:?}"
+    );
+    root.model.apply(Update::Done(remove));
 }

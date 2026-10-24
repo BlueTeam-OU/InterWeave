@@ -41,10 +41,14 @@ use interweave_transport_api::{
 use serde_json::{Map, Value};
 
 mod human_chat;
+mod pairing;
 
 pub use human_chat::{
     AppClient, Handed, HumanChatArgs, Recording, RecordingSession, Tap, chat_text,
     desktop_message_id, parse_payloads,
+};
+pub use pairing::{
+    AddedAddressArgs, AwaitPeerArgs, PairArgs, PairExpect, pair_close, pair_message,
 };
 
 /// The result JSON's keys. The instrumentation copies each to the status
@@ -90,6 +94,25 @@ pub mod keys {
     /// the route held, its end within a second of the first read's, as
     /// TEXT (`route_hold`).
     pub const READS: &str = "reads";
+    /// [`super::cases::ADDED_ADDRESS`] and [`super::cases::AWAIT_PEER`]:
+    /// whether an address for the peer was held from an earlier run and
+    /// removed first.
+    pub const REMOVED_FIRST: &str = "removed_first";
+    /// [`super::cases::ADDED_ADDRESS`] and [`super::cases::AWAIT_PEER`]:
+    /// milliseconds from holding the address, or from the far end's
+    /// start, to the peer's row reading connected.
+    pub const CONNECTED_AFTER: &str = "connected_after_ms";
+    /// [`super::cases::PAIR`]: the sends tried, and refused, while apart.
+    pub const TRIES: &str = "tries";
+    /// [`super::cases::PAIR`], the first side of a crossing step: its
+    /// close's outcome, `accepted` or the error's class name.
+    pub const CLOSE: &str = "close";
+    /// [`super::cases::PAIR`]: whether this side trusts the peer at the
+    /// step's end.
+    pub const TRUSTED: &str = "trusted";
+    /// [`super::cases::PAIR`]: the peer row's last outcome at the step's
+    /// end, `none` with no row or no dial yet.
+    pub const LAST_OUTCOME: &str = "last_outcome";
     /// [`RESULT`] of a case that held.
     pub const PASS: &str = "pass";
     /// [`RESULT`] of a case that did not, or could not run.
@@ -138,6 +161,31 @@ pub mod cases {
     /// plain and `;ce=br`. Arguments: [`super::HumanChatArgs`].
     pub const HUMAN_CHAT: &str = "human_chat";
 
+    /// Plan §29 (e), the first device row: an address added for a trusted
+    /// peer through the binding is dialled, and survives a restart as an
+    /// added entry that is dialled again, with no entry authored for the
+    /// peer; each time the connection is held up for a while before the
+    /// case ends. Arguments: [`super::AddedAddressArgs`]; answers
+    /// [`super::keys::REMOVED_FIRST`] on an add and
+    /// [`super::keys::CONNECTED_AFTER`].
+    pub const ADDED_ADDRESS: &str = "added_address";
+
+    /// The far end of [`ADDED_ADDRESS`]: hold no bootstrap address for the
+    /// peer, wait until its row reads connected -- the peer's dial -- and
+    /// then until the peer has left, so this side's runtime outlives the
+    /// dialler's reading of its own row.
+    /// Arguments: [`super::AwaitPeerArgs`]; answers
+    /// [`super::keys::REMOVED_FIRST`] and [`super::keys::CONNECTED_AFTER`].
+    pub const AWAIT_PEER: &str = "await_peer";
+
+    /// Plan §29 (e), the second device row, one step of it: add the other
+    /// phone's address (in place of the scan), trust it or not, and expect
+    /// the pair apart for a window or a message across each way.
+    /// Arguments: [`super::PairArgs`]; answers [`super::keys::TRIES`] when
+    /// apart, [`super::keys::CLOSE`] on a crossing's first side,
+    /// [`super::keys::TRUSTED`] and [`super::keys::LAST_OUTCOME`].
+    pub const PAIR: &str = "pair";
+
     /// The cases a runner must have the runtime ALONE serving for: the
     /// app's runtime with the app's launch, identity and paths, and no
     /// store and no facade, so the `human` lease is free for the case
@@ -146,7 +194,15 @@ pub mod cases {
     /// service host (`ServiceHost::start_runtime_alone`, called by the
     /// instrumentation in apps/human-android/src/e2e.rs). The others run
     /// before it starts, as [`PROVISION`] must.
-    pub const NEED_A_RUNTIME: &[&str] = &[PATHS, TRUST_BOUNDARY, AUDIT, ROUTE_HOLD];
+    pub const NEED_A_RUNTIME: &[&str] = &[
+        PATHS,
+        TRUST_BOUNDARY,
+        AUDIT,
+        ROUTE_HOLD,
+        ADDED_ADDRESS,
+        AWAIT_PEER,
+        PAIR,
+    ];
 
     /// The cases a runner must have the app's service serving for in
     /// full -- runtime, store, facade and hub -- handing the case
@@ -297,6 +353,27 @@ fn dispatch<B: DataSessionBinding + AdminBinding>(
                 .binding
                 .ok_or_else(|| "no runtime is serving: start the app's service first".to_owned())?;
             out.extend(block_on(route_hold(&binding, &args))??);
+        }
+        cases::ADDED_ADDRESS => {
+            let args = AddedAddressArgs::from_json(&args)?;
+            let binding = ctx
+                .binding
+                .ok_or_else(|| "no runtime is serving: start the app's service first".to_owned())?;
+            out.extend(block_on(pairing::added_address(&binding, &args))??);
+        }
+        cases::AWAIT_PEER => {
+            let args = AwaitPeerArgs::from_json(&args)?;
+            let binding = ctx
+                .binding
+                .ok_or_else(|| "no runtime is serving: start the app's service first".to_owned())?;
+            out.extend(block_on(pairing::await_peer(&binding, &args))??);
+        }
+        cases::PAIR => {
+            let args = PairArgs::from_json(&args)?;
+            let binding = ctx
+                .binding
+                .ok_or_else(|| "no runtime is serving: start the app's service first".to_owned())?;
+            out.extend(block_on(pairing::pair(&binding, &args))??);
         }
         cases::HUMAN_CHAT => {
             let args = HumanChatArgs::from_json(&args)?;

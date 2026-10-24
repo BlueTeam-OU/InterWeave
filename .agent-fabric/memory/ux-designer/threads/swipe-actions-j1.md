@@ -5,7 +5,7 @@ topic: "swipe-actions-j1"
 description: "Status of j1, swipe actions on messages in the Android client — spec merged, build merged; the device review is partial and blocked on the phone link, TalkBack items deferred (IW #297)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "owner-finds-ui-ugly"
 description: "Owner judged the Android client \"aesthetically very bad\" (2026-10-18) while the pre-j98 build was on the Pixel"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

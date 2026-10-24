@@ -252,4 +252,70 @@ mod tests {
             ]
         );
     }
+
+    /// An identity key the runtime logs reaches the platform's log as its
+    /// fingerprint and nothing of its secret: its bytes as a log writes
+    /// them, their base64 and their hex are in no line (human-client-ui.md
+    /// section 13; ADR-0063 decision 2). On the audit target, which every
+    /// level admits, so the other test's level cannot drop it.
+    #[test]
+    fn an_identity_key_logged_reaches_the_platform_as_its_fingerprint_alone() {
+        use base64::Engine as _;
+        use interweave_human_store::identity_key;
+        use interweave_human_store::key_custody::FilesystemCustody;
+        let scratch = std::env::temp_dir().join(format!(
+            "interweave-log-key-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        ));
+        std::fs::create_dir(&scratch).expect("scratch");
+        let paths = interweave_profile_config::TrustBoundary::new(&scratch)
+            .and_then(|b| interweave_profile_config::ProfilePaths::resolve_embedded("test", b))
+            .expect("paths");
+        let human = interweave_transport_api::EndpointId::parse("human").expect("valid");
+        let key = identity_key::create(&paths, &human, &FilesystemCustody).expect("a key");
+        let record = base64::engine::general_purpose::STANDARD
+            .decode(
+                std::fs::read_to_string(identity_key::key_path(&paths, &human))
+                    .expect("the key file")
+                    .trim(),
+            )
+            .expect("base64");
+        let _ = std::fs::remove_dir_all(&scratch);
+        // The record's last 32 bytes are the secret at the filesystem floor.
+        let secret = &record[record.len() - 32..];
+        let forms = [
+            format!("{secret:?}"),
+            base64::engine::general_purpose::STANDARD.encode(secret),
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(secret),
+            secret.iter().fold(String::new(), |mut s, b| {
+                let _ = write!(s, "{b:02x}");
+                s
+            }),
+        ];
+        let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+        let held = Arc::clone(&lines);
+        let subscriber =
+            tracing_subscriber::registry().with(Platform::new(move |_, line: &str| {
+                held.lock().expect("lines").push(line.to_owned());
+            }));
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(target: "interweave::audit", key = ?key, "identity opened");
+        });
+        let lines = lines.lock().expect("lines").clone();
+        assert_eq!(lines.len(), 1, "the control: the line was written");
+        assert!(
+            lines[0].contains(&key.fingerprint().to_string()),
+            "the control: the key was formatted into it: {}",
+            lines[0]
+        );
+        for form in &forms {
+            assert!(
+                !lines[0].contains(form.as_str()),
+                "the log holds the secret"
+            );
+        }
+    }
 }

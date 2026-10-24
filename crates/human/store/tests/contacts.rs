@@ -448,3 +448,130 @@ fn a_deleted_contact_leaves_both_files_before_the_call_returns() {
     assert!(control, "the control: the search sees a kept contact");
     drop(store);
 }
+
+/// When the photo came, as the contact page says it beside where from:
+/// the card's Accept, then the person's removal, which a later card's
+/// photo leaves alone.
+#[test]
+fn a_photo_records_when_it_was_set_and_a_later_card_keeps_the_persons_time() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let first = store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(b"jpeg"),
+                ..card(&p, &human, "Ada", 1)
+            },
+            10,
+        )
+        .expect("accepted");
+    let read = |store: &HumanStore| {
+        store
+            .contact(&first.contact_id)
+            .expect("read")
+            .expect("there")
+    };
+    let contact = read(&store);
+    assert_eq!(contact.photo_source, Some(ValueSource::Card));
+    assert_eq!(contact.photo_at, Some(10));
+
+    assert!(
+        store
+            .set_contact_photo(&first.contact_id, None, 30)
+            .expect("removed")
+    );
+    store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(b"jpeg2"),
+                ..card(&p, &human, "Ada", 1)
+            },
+            40,
+        )
+        .expect("a later card");
+    let contact = read(&store);
+    assert_eq!(contact.photo_source, Some(ValueSource::Person));
+    assert_eq!(contact.photo_at, Some(30), "the person's removal, and when");
+    assert_eq!(contact.photo, None);
+}
+
+/// Undo after an Accept that created the contact (contact-cards design
+/// section 5.4.2): the contact and its route are gone, so the same card
+/// is a first card again, and no other contact is touched.
+#[test]
+fn undo_of_an_accept_that_created_deletes_the_contact_and_its_route() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let other = store
+        .accept_card(&card(&peer(Q), &human, "Grace", 2), 5)
+        .expect("accepted");
+    let accepted = store
+        .accept_card(&card(&p, &human, "Ada", 1), 10)
+        .expect("accepted");
+    assert_eq!(accepted.undo.contact_id(), accepted.contact_id);
+    assert!(store.undo_accept(&accepted.undo).expect("undone"));
+    assert!(store.contact(&accepted.contact_id).expect("read").is_none());
+    assert!(store.contact_for_route(&p, &human).expect("read").is_none());
+    assert_eq!(
+        store
+            .card_standing(&card(&p, &human, "Ada", 1))
+            .expect("standing")
+            .key,
+        KeyStanding::Unrecorded,
+        "no key stays behind"
+    );
+    assert!(
+        store.contact(&other.contact_id).expect("read").is_some(),
+        "the control: another contact stays"
+    );
+}
+
+/// Undo after an Accept that updated a contact: the name, the photo, the
+/// times and the route's key are what they were before the Accept, a key
+/// change included; a contact deleted since is not made again.
+#[test]
+fn undo_of_an_accept_that_updated_writes_back_the_values_and_the_key_it_had() {
+    let (_dir, mut store) = store();
+    let (p, human) = (peer(P), endpoint("human"));
+    let photo: &[u8] = b"photo one";
+    let first = store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(photo),
+                ..card(&p, &human, "Ada", 1)
+            },
+            10,
+        )
+        .expect("first");
+    let before = store
+        .contact(&first.contact_id)
+        .expect("read")
+        .expect("there");
+    let changed = store
+        .accept_card(
+            &AcceptedCard {
+                photo: Some(b"photo two"),
+                ..card(&p, &human, "Ada L.", 9)
+            },
+            20,
+        )
+        .expect("a key change, accepted");
+    assert_eq!(changed.key, KeyStanding::Changed { recorded: [1; 32] });
+    assert!(store.undo_accept(&changed.undo).expect("undone"));
+    let after = store
+        .contact(&first.contact_id)
+        .expect("read")
+        .expect("there");
+    assert_eq!(after, before, "every value as it was, the key included");
+    assert_eq!(after.routes[0].identity_key, Some([1; 32]));
+
+    assert!(store.delete_contact(&first.contact_id).expect("deleted"));
+    assert!(
+        !store.undo_accept(&changed.undo).expect("asked"),
+        "nothing to undo on"
+    );
+    assert!(
+        store.contacts().expect("read").is_empty(),
+        "nothing made again"
+    );
+}

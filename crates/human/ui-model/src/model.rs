@@ -10,8 +10,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use interweave_human_chat_protocol::{HumanChatV2, Rendered, is_allowed_link_scheme, render};
 use interweave_human_client_api::{
-    ClientEvent, Connectivity, Destination, Diagnostics, Origin, OutboundStatus, OutboundUpdate,
-    SendError, SessionState,
+    AddressAnswer, AddressChangeFailure, AddressList, AddressProblem, ClientEvent, Connectivity,
+    Destination, Diagnostics, Origin, OutboundStatus, OutboundUpdate, SendError, SessionState,
+    ShowAddresses,
 };
 use interweave_human_core::RowId;
 use interweave_transport_api::{
@@ -23,6 +24,7 @@ use crate::labels::{
     session_problem_class, short_peer,
 };
 use crate::look::Avatar;
+use crate::peers::{Peers, PeersInput, ScanVerdict};
 use crate::trust::{TrustChange, TrustInput, TrustSettings};
 
 pub(crate) mod cards;
@@ -111,6 +113,9 @@ pub enum ViewEvent {
     /// [`TrustSettings::input`] before taking the view's events again, and
     /// carries out the intent it returns.
     Trust(TrustInput),
+    /// The person acted on Peers or its add page: the root passes it to
+    /// [`UiModel::peers_input`] and carries out the intents it returns.
+    Peers(PeersInput),
     /// The person pressed the Undo of the snackbar with this id: the root
     /// passes it to [`UiModel::undo`] and carries out what it returns.
     Undo(u64),
@@ -239,6 +244,11 @@ pub struct ConversationSummary {
     /// shown as a label (agreed item 3c). Never the envelope's
     /// `from_endpoint` or anything in the text.
     pub title: String,
+    /// The title as a view draws it: the same, a contact's name inside a
+    /// first-strong isolate ([`crate::labels::isolated`]), since a drawn
+    /// title sits in other text -- a row, a header, an announcement. A
+    /// terminal or a script gets [`ConversationSummary::title`], plain.
+    pub drawn_title: String,
     /// How many of its messages are unread.
     pub unread: usize,
     /// The latest local time of any of its messages.
@@ -387,6 +397,9 @@ pub enum Intent {
     AcceptCard(RowId),
     /// Decline it: discard the card, writing nothing.
     DeclineCard(RowId),
+    /// Take back the Accept or Decline of this proposal: only the open
+    /// snackbar's Undo makes one ([`UiModel::undo`]).
+    UndoCard(RowId),
     /// Send this conversation's identity's own card to its route. Only
     /// [`UiModel::share_card`] makes one, for a direct conversation.
     ShareCard(ConversationKey),
@@ -422,6 +435,19 @@ pub enum Intent {
         /// The contact.
         contact_id: String,
     },
+    /// Read the addresses this device holds for reaching peers (ADR-0062):
+    /// Peers opened, the app started, or a change's list was not read
+    /// back.
+    ReadAddresses,
+    /// Add these lines, all or none: the add page's typed lines or a
+    /// scanned code, or an Undo's one address. Only [`crate::Peers`]
+    /// makes one, after the client's own two rules.
+    AddAddresses(Vec<String>),
+    /// Remove an address added here.
+    RemoveAddress(String),
+    /// Read this device's own addresses for Show (ADR-0062 decision 4):
+    /// only on the person's act, never otherwise.
+    ReadOwnAddresses,
     /// Make a trust change the person confirmed in the trust settings,
     /// which showed its exact `PeerId` and scope (`human-client-ui.md` §8).
     /// Only [`crate::TrustSettings::confirm`] makes one.
@@ -589,6 +615,7 @@ pub struct UiModel {
     session: SessionState,
     diagnostics: Diagnostics,
     trust: TrustSettings,
+    peers: Peers,
     /// The snackbar, its Undo and the latest outcome.
     swipe: swipe::SwipeState,
     /// Card proposals, the contacts and the identity in front.
@@ -630,6 +657,7 @@ impl UiModel {
             },
             diagnostics: Diagnostics::default(),
             trust: TrustSettings::default(),
+            peers: Peers::default(),
             swipe: swipe::SwipeState::default(),
             cards: cards::Cards::default(),
         }
@@ -657,6 +685,9 @@ impl UiModel {
             // have folded the ending into it
             // (`a_session_event_clears_every_path`).
             ClientEvent::Session(state) => {
+                if matches!(state, SessionState::Ready { .. }) {
+                    self.trust.session_ready();
+                }
                 self.session = state;
                 self.paths.clear();
             }
@@ -929,7 +960,8 @@ impl UiModel {
                 .entry(&item.conversation)
                 .or_insert_with(|| ConversationSummary {
                     key: item.conversation.clone(),
-                    title: self.contact_title(&item.conversation, &shared),
+                    title: self.contact_title(&item.conversation, &shared, Isolate::No),
+                    drawn_title: self.contact_title(&item.conversation, &shared, Isolate::Yes),
                     unread: 0,
                     last_activity: 0,
                     avatar: Avatar::of(&item.conversation),
@@ -959,17 +991,30 @@ impl UiModel {
     /// is open.
     #[must_use]
     pub fn title(&self, key: &ConversationKey) -> String {
-        self.contact_title(key, &self.peers_with_routes())
+        self.contact_title(key, &self.peers_with_routes(), Isolate::No)
+    }
+
+    /// [`UiModel::title`] as a view draws it: a contact's name isolated
+    /// ([`ConversationSummary::drawn_title`]).
+    #[must_use]
+    pub fn drawn_title(&self, key: &ConversationKey) -> String {
+        self.contact_title(key, &self.peers_with_routes(), Isolate::Yes)
     }
 
     /// The title, its contact's name once the route belongs to one (plan
     /// §29 step 2, `human-client-ui.md` §4), with the short `PeerId` beside
-    /// it when another contact has that name; else as before.
+    /// it when another contact has that name; else as before. `isolate`
+    /// wraps the name for a view that draws it in other text.
     fn contact_title(
         &self,
         key: &ConversationKey,
         shared: &BTreeSet<&TransportIdentity>,
+        isolate: Isolate,
     ) -> String {
+        let name = |n: &str| match isolate {
+            Isolate::Yes => crate::labels::isolated(n),
+            Isolate::No => n.to_owned(),
+        };
         if let ConversationKey::Direct {
             peer,
             endpoint: Some(at),
@@ -983,12 +1028,12 @@ impl UiModel {
                 return fill(
                     placeholder_en::text(UiText::ContactTitle),
                     &[
-                        ("name", &contact.name),
+                        ("name", &name(&contact.name)),
                         ("peer", &short_peer(peer.as_str())),
                     ],
                 );
             }
-            return contact.name.clone();
+            return name(&contact.name);
         }
         title(key, shared)
     }
@@ -1193,6 +1238,82 @@ impl UiModel {
     /// daemon's answers.
     pub const fn trust_settings_mut(&mut self) -> &mut TrustSettings {
         &mut self.trust
+    }
+
+    /// Peers by address (ADR-0062).
+    #[must_use]
+    pub const fn peers(&self) -> &Peers {
+        &self.peers
+    }
+
+    /// Apply what the person did on Peers: the intents it asks for. Trust
+    /// on step two passes through the trust settings, the one way a trust
+    /// change is made.
+    pub fn peers_input(&mut self, input: PeersInput) -> Vec<Intent> {
+        self.peers.input(input, &mut self.trust)
+    }
+
+    /// This node's `PeerId`, as the session that became ready knows it.
+    pub fn this_device(&mut self, peer: TransportIdentity) {
+        self.peers.this_device(peer);
+    }
+
+    /// Read the addresses: at start, for the no-reach notice.
+    pub fn read_addresses(&mut self) -> Option<Intent> {
+        self.peers.read()
+    }
+
+    /// The runtime's answer to a read of the addresses.
+    pub fn addresses_read(&mut self, answer: Result<AddressList, AddressProblem>) {
+        self.peers.read_answer(answer, &self.trust);
+    }
+
+    /// The runtime's answer to Show's read of this device's addresses.
+    pub fn own_addresses_read(&mut self, answer: Result<ShowAddresses, AddressProblem>) {
+        self.peers.own_answer(answer);
+    }
+
+    /// A code read, or an image decoded: whether the viewfinder stays
+    /// open, and the add it asks for.
+    pub fn scanned(&mut self, text: &str) -> (ScanVerdict, Option<Intent>) {
+        self.peers.scanned(text, &self.trust)
+    }
+
+    /// The runtime's answer to an add of `lines`.
+    pub fn addresses_added(
+        &mut self,
+        lines: &[String],
+        answer: Result<AddressAnswer, AddressChangeFailure>,
+    ) {
+        self.peers.add_answer(lines, answer, &self.trust);
+    }
+
+    /// The runtime's answer to a removal of `address`.
+    pub fn address_removed(
+        &mut self,
+        address: &str,
+        answer: Result<AddressAnswer, AddressChangeFailure>,
+    ) {
+        self.peers.remove_answer(address, answer, &self.trust);
+    }
+
+    /// What Peers asks between turns: a read a change left owed, the
+    /// trust set's read a trust step an add opened owes, and closing the
+    /// add page once trust's answers decided it.
+    pub fn peers_turn(&mut self) -> Option<Intent> {
+        let intent = self.peers.turn(&self.trust);
+        // A trust step an add opened reads the trust set itself, once the
+        // turn asks nothing else.
+        if intent.is_none() && self.peers.take_trust_read() {
+            return self.trust.opened();
+        }
+        intent
+    }
+
+    /// Whether Chats shows the no-reach notice (ADR-0062 decision 8).
+    #[must_use]
+    pub fn no_reach(&self) -> bool {
+        self.peers.no_reach(&self.trust)
     }
 
     /// What trust to show for `peer`.
@@ -1533,6 +1654,13 @@ fn conversation_of(destination: &Destination) -> ConversationKey {
 /// (human-client-ui.md §4 at a5ecfc04; #304 F6). One conversation with a
 /// peer has no route in its title; its details show it. The envelope's
 /// own `from_endpoint` and the message text never enter it.
+/// Whether a title wraps a contact's name in a first-strong isolate.
+#[derive(Clone, Copy)]
+enum Isolate {
+    Yes,
+    No,
+}
+
 fn title(key: &ConversationKey, shared: &BTreeSet<&TransportIdentity>) -> String {
     match key {
         ConversationKey::Channel(channel) => format!("#{}", channel.as_str()),

@@ -5,7 +5,7 @@ topic: "pipe-masks-exit-status"
 description: "cargo clippy/test piped into grep in a && chain: grep's exit status decides, so a failing lint lets the commit through"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

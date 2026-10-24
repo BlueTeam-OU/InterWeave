@@ -5,7 +5,7 @@ topic: "spike-harness-from-the-requirement"
 description: "Before building a spike harness, re-read the governing ADR/SPIKES.md/design doc wording for each row — not my own plan's paraphrase"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

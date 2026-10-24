@@ -28,7 +28,11 @@ if [ "${PHONE_RUN_TEST_HELD:-}" != 1 ]; then
   exec fabric-lease pixel-9a -- env PHONE_RUN_TEST_HELD=1 bash "$0" "$@"
 fi
 here=$(cd "$(dirname "$0")" && pwd)
-T=$(mktemp -d "${TMPDIR:-/tmp}/phone-run-test.XXXXXX")
+# Checked before the trap is set: an empty $T would make cleanup's
+# pkill -f match every process and rm -rf an empty path, and the stubs
+# would be written under /.
+T=$(mktemp -d "${TMPDIR:-/tmp}/phone-run-test.XXXXXX") && [ -d "$T" ] \
+  || { echo "test_phone-run: mktemp failed" >&2; exit 1; }
 fail=0
 # Every case's group goes before the stubs do: a watcher left running
 # after $T/bin is gone would reach the host's real adb.

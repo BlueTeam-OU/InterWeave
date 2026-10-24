@@ -672,6 +672,27 @@ it had. The proposal row returns,
 read, as it was. A kill inside the window leaves the contact saved,
 which is what the snackbar said.
 
+Accept is not announced through the live region (§8 Announcements):
+focus moves to the confirmation row, whose text is the result. So that
+a person who hears the row can still find the Undo, these hold
+while the Accept's snackbar is open:
+
+- the confirmation row's accessible description is `CardUndoHint`,
+  read after the row's text; it goes when the snackbar closes;
+- the snackbar's timeout does not run while focus is anywhere from
+  the confirmation row to the snackbar in the reading order (the row,
+  any message or control after it, the composer, the snackbar), so the
+  snackbar does not time out while the person moves focus from the row
+  to the Undo that the hint names (within the cap below); it starts, in full (message-swipe §6's
+  6 s, or the platform's longer recommendation), when focus leaves that
+  span: to something before the row, or out of the conversation's
+  content; and it stops again if focus comes back into the span;
+- whatever focus does, the snackbar is never shown for more than
+  message-swipe §6's 2 minutes, counted from Accept, and then closes
+  as by its timeout; so a person who accepts with a pointer or a touch
+  and moves no focus sees it close by then;
+- its other closers (message-swipe §5) are unchanged.
+
 A photo that fails to decode, or decodes larger than 256 × 256, is
 discarded and the contact is saved without it (HUMAN-CHAT.md);
 `CardPhotoNotUsed` is added to the confirmation row. The accept is not
@@ -716,6 +737,16 @@ press, or Enter on the focused row), holding the same actions the row shows
 with the case's labels — Accept and Decline, or in case S Close alone —
 then Copy PeerId; it has no Show source, since a
 card has no markdown source to show.
+
+**Two differences from message-swipe §6 and §7 for Accept, on
+purpose.** Accept's result is not announced through the live region,
+as §7's Announcement would have it, because focus moves to the
+confirmation row and reads the result there (§8 Announcements); and its
+snackbar's timeout waits while focus is between that row and the
+snackbar, for at most message-swipe §6's 2 minutes, with the row's description pointing to the Undo (§5.4.2), so
+the person can still reach the Undo, though the snackbar is not announced.
+Decline and every Undo (with "Action undone", message-swipe §9) are
+announced as §7 says.
 
 #### 5.4.5 Several proposals, and a proposal while away
 
@@ -964,6 +995,10 @@ none is specified here (§11).
   discard every identity's card is made again with its label as its
   name (ADR-0061 d. 1); it shows as the label, and Share shows that name
   in the preview, so the person sees what goes and can edit first.
+- **Key cannot be used**: its identity key file was refused at open,
+  or is missing after it shared its card. It sends and receives as
+  before; Share and the card page show the state and the way to a new
+  key, which `design/2026-10-24-identity-key.md` defines.
 
 ## 6. Showing contacts
 
@@ -1247,6 +1282,10 @@ accessibility tree) are checked now.
   character only on request (the platform's own); the label says what
   it is. The row's custom actions (Android) are Accept and Decline with
   the case labels, as the swipe spec's §7 does for its rows.
+- Confirmation row (§5.4.2): one focusable group, read as
+  `CardAccepted` or `CardUpdated` (with the name as saved), then
+  `CardPhotoNotUsed` when it shows, then, while the Accept's snackbar
+  is open, `CardUndoHint` as its description.
 - Own card row: "You shared your card", the name, status, time.
 - Share sheet: title, the "as {identity}" line when shown, then the
   preview as one item (`ShareCardPreviewSpoken`, or
@@ -1266,9 +1305,15 @@ accessibility tree) are checked now.
 
 **Announcements** (the app's two alternating live strings): a card
 arriving in the shown conversation is announced as `AnnounceCard` ("New
-contact card"), never with the name; Accept, Decline, photo removed,
+contact card"), never with the name; Decline, photo removed,
 contact deleted, a Move, Make default and a switch announce their
-snackbar text; the transition of §5.7.5 announces `SwitchingTo`; the
+snackbar text; Accept announces nothing of its own. Focus moves to the confirmation
+row (§9 item 1's focus table), and the screen reader reads that row:
+`CardAccepted` or `CardUpdated`, and `CardPhotoNotUsed` when it
+shows. So the person hears the result once, and does not hear it again
+as "Contact saved" or "Contact updated". The snackbar with its Undo is
+shown without an announcement and is reached last in the reading order
+(language-culture-en's observation 01a16df9, 2026-10-24); the transition of §5.7.5 announces `SwitchingTo`; the
 sheet's Share announces nothing extra (focus moves, and the row
 appears with "Sending"). Nothing that arrives for an identity not in
 front is announced in the app: its notification is the platform's.
@@ -1354,12 +1399,12 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | the share sheet opens | Share, else Add your name | keyboard |
    | the sheet closes after Share | the control that opened it; the header title when that was the empty conversation's offer | keyboard |
    | the sheet cancelled | what opened it (overflow button or the offer's button) | keyboard |
-   | Accept (button or swipe) | the confirmation row | keyboard; swipe with TalkBack cannot occur |
+   | Accept (button or swipe) | the confirmation row (focusable), read once with `CardUndoHint`: no live announcement of `ConfirmContactSaved` or `ConfirmContactUpdated` follows (§8 Announcements); the snackbar's timeout waits while focus is between the row and the snackbar, for at most 2 minutes (§5.4.2) | keyboard: with three or more rows after the confirmation row, wait past 6 s on the row, then move one stop at a time, more than 6 s apart, to Undo, and Undo is still reached; move focus to something before the row, then back to the row within 6 s, wait past 6 s, and Undo is still reached; pointer Accept with no further input: the snackbar closes by 2 minutes; desktop screen reader: in a case N and a case U accept, the row is read with `CardUndoHint` and neither "Contact saved" nor "Contact updated" follows; TalkBack blocked (§8); swipe with TalkBack cannot occur |
    | Decline, by button or by keyboard | message-swipe §7's removal rule: only if focus was in the row, to the next row's first control, else the previous row's, else the conversation's header title; never the composer | keyboard |
    | Decline by a touch swipe | stays where it was (message-swipe §7) | keyboard focus set elsewhere first, then a swipe |
    | Undo of Accept or Decline | the proposal row's Accept | keyboard |
    | case S Close | as Decline | keyboard |
-   | snackbar appears | stays where it was; the snackbar is reachable last in order | keyboard |
+   | snackbar appears (except after Accept, above) | stays where it was; the snackbar is reachable last in order | keyboard |
    | Open your contact {name} from case D, or a shares-a-device link | the contact page title; Back returns to the control that opened it | keyboard |
    | contact deleted | the Contacts list's first row, else its empty text | keyboard |
    | Move: the picker opens | the first eligible contact | keyboard |
@@ -1618,8 +1663,9 @@ and are for them to write.
 | `CardSame` | This card matches your contact {name}. | case S |
 | `CardAccepted` | You saved {name} as a contact. | confirmation row, cases N, D and P |
 | `CardUpdated` | You updated your contact {name}. | confirmation row, cases U and E (language-culture-en's text) |
-| `CardPhotoNotUsed` | The photo could not be shown and was not saved. | confirmation row addition |
-| `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo |
+| `CardPhotoNotUsed` | The card's photo could not be used, so the contact was saved without it. | confirmation row addition, in both cases of §5.4.2 (the photo fails to decode, or decodes larger than 256 × 256); must not say the photo was shown, since it is decoded only at Accept (language-culture-en's final English, 2026-10-24) |
+| `ConfirmContactSaved` / `ConfirmContactUpdated` | Contact saved / Contact updated | snackbars, with Undo; not announced (§8 Announcements) |
+| `CardUndoHint` | You can undo this change. Undo comes after all the messages in this conversation. | accessible description of the confirmation row while the Accept's snackbar is open (§5.4.2), never shown as text; must say that the save can be undone and where the Undo is, in a phrase read after `CardAccepted` or `CardUpdated` |
 | `ConfirmCardDeclined` | Card declined | snackbar, with Undo |
 | `CardPreviewReceived` / `CardPreviewSent` | Contact card / You shared a card | list previews |
 | `CardNotification` | You received a contact card. | notification body; never the name |

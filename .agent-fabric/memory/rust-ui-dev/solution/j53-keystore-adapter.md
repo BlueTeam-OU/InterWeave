@@ -5,7 +5,7 @@ topic: "j53-keystore-adapter"
 description: "j53 (§20 step 6) Keystore SeedCipher built on batch-2 branch; design, what is unverified, open ruling on the user-presence window"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

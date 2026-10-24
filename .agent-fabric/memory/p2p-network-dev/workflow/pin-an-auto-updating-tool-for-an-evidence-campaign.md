@@ -5,7 +5,7 @@ topic: "pin-an-auto-updating-tool-for-an-evidence-campaign"
 description: "Claude Code updated itself mid-campaign (2.1.285 → 2.1.288) and runs were stamped with the wrong build; run the binary by explicit path with DISABLE_AUTOUPDATER=1 and stamp each run from the version the session itself reports, failing on…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -117,6 +117,7 @@ fn intents(view: &mut View, model: &mut UiModel) -> Vec<Intent> {
                 ViewEvent::Intent(intent) => out.push(intent),
                 ViewEvent::DraftChanged { key, draft } => model.draft_changed(key, draft),
                 ViewEvent::Trust(input) => out.extend(model.trust_settings_mut().input(input)),
+                ViewEvent::Peers(input) => out.extend(model.peers_input(input)),
                 ViewEvent::Undo(id) => out.extend(model.undo(id)),
                 ViewEvent::SnackbarClosed(id) => model.snackbar_closed(id),
                 ViewEvent::IdentifierCopied(key) => model.identifier_copied(key),
@@ -1972,7 +1973,7 @@ fn the_apps_options_name_trust_and_hand_focus_back() {
     assert_eq!(
         labelled(&view, text(UiText::TrustHeading)).len(),
         1,
-        "the menu's one entry"
+        "Trust is one of the menu's entries"
     );
     // The first entry takes focus once it is in the window.
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(2));

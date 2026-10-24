@@ -18,6 +18,7 @@ mod identity_flow;
 mod labels;
 mod look;
 mod model;
+mod peers;
 mod picker;
 mod presence;
 mod store_recovery;
@@ -27,15 +28,18 @@ mod waiting;
 pub use identity_flow::{
     Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, Words,
 };
+/// The store row an intent names, as the model hands it to a view.
+pub use interweave_human_core::RowId;
 pub use labels::{
-    ErrorClass, HostText, LabelKey, RuntimeHost, UiText, attention_class, fill, outbound_label,
-    placeholder_en, send_error_class, send_problem_class, session_problem_class, short_peer,
-    visible_destination,
+    ErrorClass, HostText, LabelKey, RuntimeHost, UiText, attention_class, fill, isolated,
+    outbound_label, placeholder_en, send_error_class, send_problem_class, session_problem_class,
+    short_peer, visible_destination,
 };
 pub use look::{Avatar, AvatarHue, Day, LocalTime, Weekday, local_time};
 pub use model::cards::{
-    AcceptLine, ContactRef, ContactView, IdentityView, KeyView, PhotoEdit, Proposal,
-    ProposalContext, ProposalItem, ProposalNote, READ_PROPOSAL_CAP, RouteView,
+    AcceptLine, CardAnswer, CardOutcome, ContactRef, ContactView, IdentityView, KeyView,
+    NameProblem, Photo, PhotoEdit, Proposal, ProposalContext, ProposalItem, ProposalNote,
+    READ_PROPOSAL_CAP, RouteView, name_problem,
 };
 pub use model::{
     Announce, Composer, Confirmation, ConversationKey, ConversationSummary, DEDUP_CAP, Direction,
@@ -44,11 +48,17 @@ pub use model::{
     RowAction, SESSION_ITEM_CAP, SessionNotice, Snackbar, SwipeOffer, Table, Trust, UiModel,
     UndoClosed, ViewEvent,
 };
+pub use peers::{
+    ADDRESS_BOUND, AddNote, AddResult, Barred, BlockProblem, BlockState, BlockView, CODE_LINES,
+    LineSelection, LineSource, ListProblem, PeerRow, Peers, PeersFocus, PeersInput, PeersSnack,
+    Refusal, RowReadBack, RowState, ScanControl, ScanVerdict, ShowProblem, ShowState, TYPED_LINES,
+    TrustLine, lines_of,
+};
 pub use picker::{MAX_CHIPS, PHRASE_WORDS, PhraseEntry, Suggestions, WordPicker};
 pub use presence::{Admit, PresenceGate, Prompted, WINDOW_MS};
 pub use store_recovery::{
     DiscardConfirmation, DiscardKind, Effect as StoreEffect, Phase as StorePhase, StoreRecovery,
     StoreScreen,
 };
-pub use trust::{EntryProblem, TrustChange, TrustInput, TrustOutcome, TrustSettings};
+pub use trust::{EntryProblem, OutcomeFrom, TrustChange, TrustInput, TrustOutcome, TrustSettings};
 pub use waiting::{age_text, announced_change, next_age_change, waiting_text};

@@ -27,5 +27,5 @@ mod protocol;
 
 pub use facade::{CANCELLED_CAP, FacadeSide, READ_COPY_CAP};
 pub use model_side::{ModelSide, Opener, PROBLEM_CAP, Problem, Surface};
-pub use profile::{CLIENT_KIND, identity_key, leasable_endpoints};
+pub use profile::{CLIENT_KIND, identity_key, identity_key_under, leasable_endpoints};
 pub use protocol::{Command, Failure, Listing, Update};

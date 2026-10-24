@@ -77,7 +77,7 @@ impl Side {
             TrustBoundary::new(self.dir.path()).expect("a boundary"),
         )
         .expect("paths");
-        interweave_human_app_core::identity_key(&paths, &[endpoint()])
+        interweave_human_app_core::identity_key(&paths, &[endpoint()], &store(self.dir.path()))
             .expect("opened or made")
             .expect("a key")
     }
@@ -185,7 +185,7 @@ async fn the_own_card_is_set_and_shown_with_its_fingerprint() {
 
 #[tokio::test]
 async fn a_shared_card_is_a_proposal_that_accept_makes_a_contact() {
-    let (alice, _bob, mut b_run) = shared().await;
+    let (alice, _bob, mut b_run) = Box::pin(shared()).await;
     let (out, listed) = run(&mut b_run, Verb::Proposals, true).await;
     listed.expect("proposals");
     let held = lines(&out);
@@ -225,7 +225,7 @@ async fn a_shared_card_is_a_proposal_that_accept_makes_a_contact() {
 
 #[tokio::test]
 async fn a_proposal_shown_and_left_undecided_is_gone_from_the_next_run() {
-    let (alice, bob, mut b_run) = shared().await;
+    let (alice, bob, mut b_run) = Box::pin(shared()).await;
     let (out, read) = run(
         &mut b_run,
         Verb::ProposalsRead {
@@ -248,7 +248,7 @@ async fn a_proposal_shown_and_left_undecided_is_gone_from_the_next_run() {
 
 #[tokio::test]
 async fn decline_writes_nothing() {
-    let (alice, _bob, mut b_run) = shared().await;
+    let (alice, _bob, mut b_run) = Box::pin(shared()).await;
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
     let (out, declined) = run(
@@ -269,7 +269,7 @@ async fn decline_writes_nothing() {
 
 #[tokio::test]
 async fn a_decision_naming_no_proposal_refuses_before_anything_is_read() {
-    let (alice, _bob, mut b_run) = shared().await;
+    let (alice, _bob, mut b_run) = Box::pin(shared()).await;
     for (accept, decline) in [
         (vec!["u999".to_owned()], vec![]),
         (vec![], vec!["p1".to_owned()]),
@@ -307,7 +307,7 @@ async fn a_decision_naming_no_proposal_refuses_before_anything_is_read() {
 
 #[tokio::test]
 async fn a_decision_that_fails_after_the_read_still_prints_the_proposals() {
-    let (alice, bob, mut b_run) = shared().await;
+    let (alice, bob, mut b_run) = Box::pin(shared()).await;
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
     // The card's row cannot be read back now: showing it fails after the
@@ -338,7 +338,7 @@ async fn a_decision_that_fails_after_the_read_still_prints_the_proposals() {
 
 #[tokio::test]
 async fn a_contact_is_renamed_its_photo_removed_and_deleted_by_the_person() {
-    let (alice, _bob, mut b_run) = shared().await;
+    let (alice, _bob, mut b_run) = Box::pin(shared()).await;
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
     run(
@@ -471,7 +471,7 @@ async fn listen_prints_a_card_as_a_proposal_and_leaves_it_unread() {
 
 #[tokio::test]
 async fn an_accept_made_before_another_fails_is_printed_accepted() {
-    let (alice, bob, mut b_run) = shared().await;
+    let (alice, bob, mut b_run) = Box::pin(shared()).await;
     // A second card on the same route: shown as creating a contact too,
     // which the first accept makes false, so the second is refused as
     // changed after the first was made.
@@ -508,7 +508,7 @@ async fn an_accept_made_before_another_fails_is_printed_accepted() {
 
 #[tokio::test]
 async fn proposals_are_read_on_a_route_naming_its_endpoint() {
-    let (alice, _bob, mut b_run) = shared().await;
+    let (alice, _bob, mut b_run) = Box::pin(shared()).await;
     let (out, refused) = run(
         &mut b_run,
         Verb::ProposalsRead {
@@ -526,4 +526,49 @@ async fn proposals_are_read_on_a_route_naming_its_endpoint() {
     assert!(out.is_empty());
     let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
     assert_eq!(lines(&out)[0]["status"], "unread");
+}
+
+// Case S: a card that changes nothing of its contact says `matches`, and
+// an `--accept` naming it is refused before anything is read, so it stays
+// unread; `--decline` closes it. Mutations: `matches` printed as
+// `updates`; the refusal removed (the accept reaches the model, which
+// offers Decline alone, and is refused after the read).
+#[tokio::test]
+async fn a_card_that_changes_nothing_says_it_matches_and_is_only_declined() {
+    let (alice, bob, mut b_run) = Box::pin(shared()).await;
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    let id = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    let accept = |id: String| Verb::ProposalsRead {
+        conversation: alice.route(),
+        accept: vec![id],
+        decline: vec![],
+    };
+    run(&mut b_run, accept(id), true).await.1.expect("accepted");
+    // The same card again.
+    let mut a_run = alice.session();
+    let (_, shared) = run(&mut a_run, Verb::CardShare(bob.route()), true).await;
+    shared.expect("shared again");
+    a_run.close().await;
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    let held = lines(&out);
+    assert_eq!(held.len(), 1, "{out}");
+    assert_eq!(held[0]["accept"]["matches"], "Ada Lovelace", "{out}");
+    let id = held[0]["id"].as_str().expect("id").to_owned();
+    let (out, refused) = run(&mut b_run, accept(id.clone()), true).await;
+    assert!(matches!(refused, Err(Failure::Refused(_))), "{refused:?}");
+    assert!(out.is_empty(), "nothing read or printed: {out}");
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    assert_eq!(lines(&out)[0]["status"], "unread", "{out}");
+    let (out, closed) = run(
+        &mut b_run,
+        Verb::ProposalsRead {
+            conversation: alice.route(),
+            accept: vec![],
+            decline: vec![id],
+        },
+        true,
+    )
+    .await;
+    closed.expect("declined");
+    assert_eq!(lines(&out)[0]["status"], "declined");
 }

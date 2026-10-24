@@ -19,9 +19,15 @@ use interweave_profile_config::{
 };
 
 /// The profile's document: the embedded deployment, wildcard listeners,
-/// the human endpoint open to this client's kind, no IPC, and no trusted
-/// peer, relay or AutoNAT server -- those name infrastructure a default
-/// cannot know.
+/// the human endpoint open to this client's kind and kept out of the
+/// endpoint directory, no IPC, and no trusted peer, relay or AutoNAT
+/// server -- those name infrastructure a default cannot know.
+///
+/// The endpoint is not advertised because no control in the app changes
+/// it, and `human-client-ui.md` §13 asks every identity's endpoint to
+/// have advertise off (`the_stand_in_profile_advertises_no_endpoint`). A
+/// profile already written keeps what it says: [`provision`] never
+/// rewrites one, and ADR-0028's overlay is what changes it.
 fn document(profile: &str) -> String {
     format!(
         "schema_version: 2
@@ -43,7 +49,7 @@ endpoints:
   entries:
     - id: human
       enabled: true
-      advertise: true
+      advertise: false
       allowed_client_kinds: [human-client]
       inbound: inherit_profile_trust
       outbound: inherit_profile_trust

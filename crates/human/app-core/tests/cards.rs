@@ -23,7 +23,8 @@ use interweave_human_store::{
 };
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
-    AcceptLine, ConversationKey, Intent, KeyView, PhotoEdit, Table, UiModel, ViewEvent,
+    AcceptLine, ConversationKey, Intent, KeyView, PhotoEdit, ProposalItem, Table, UiModel, UiText,
+    ViewEvent,
 };
 use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
 use interweave_profile_config::TrustBoundary;
@@ -414,11 +415,10 @@ async fn two_cards_on_one_route_before_any_accept_never_take_the_second_key_unse
     } else {
         (both[1].row, both[0].row)
     };
+    // Both accepted before the facade has run: the second goes as it was
+    // shown, new, which the first's Accept made untrue; it is refused and
+    // given again.
     bob.will(Intent::AcceptCard(one));
-    bob.pump(6).await;
-    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
-
-    // The second, still shown as new, is refused and given again.
     bob.will(Intent::AcceptCard(two));
     bob.pump(7).await;
     assert!(
@@ -441,6 +441,24 @@ async fn two_cards_on_one_route_before_any_accept_never_take_the_second_key_unse
             recorded: first_key.clone()
         },
         "given again as the key change it now is"
+    );
+    // Given again as judged, never as a card received anew, so a row the
+    // model has let go is not brought back. Mutation: the refusal handing
+    // it over as ReceivedCard.
+    assert!(
+        bob.updates
+            .iter()
+            .any(|u| matches!(u, Update::ProposalJudged(p) if p.row == two)),
+        "{:?}",
+        bob.updates
+    );
+    assert_eq!(
+        bob.updates
+            .iter()
+            .filter(|u| matches!(u, Update::ReceivedCard(p) if p.row == two))
+            .count(),
+        1,
+        "received once, when it arrived"
     );
     // Accepted as shown now, it writes: the copy was put back.
     bob.will(Intent::AcceptCard(two));
@@ -514,7 +532,7 @@ async fn a_keep_of_a_shown_cards_copy_is_refused_and_the_card_stays_decidable() 
     assert!(
         updates
             .iter()
-            .any(|u| matches!(u, Update::CardResolved(r) if *r == row)),
+            .any(|u| matches!(u, Update::CardResolved { row: r, .. } if *r == row)),
         "the copy is still there for Accept: {updates:?}"
     );
     Box::pin(bob.facade.close()).await;
@@ -858,4 +876,410 @@ async fn a_deleted_contact_is_gone_and_the_next_card_from_its_route_is_a_new_con
     let proposal = bob.model().proposals(&direct(a.peer()))[0].clone();
     assert_eq!(proposal.accept, AcceptLine::Creates, "a new contact");
     assert_eq!(proposal.key, KeyView::New, "no key survived the delete");
+}
+
+/// A PNG of `w` × `h`, as a person's file might hold one.
+fn png(w: u32, h: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(w, h, |x, y| {
+        image::Rgb([
+            u8::try_from(x % 256).unwrap_or(0),
+            u8::try_from(y % 256).unwrap_or(0),
+            90,
+        ])
+    });
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .expect("a PNG");
+    out
+}
+
+/// What the screens are given of a photo: the own card's, decoded, for
+/// its edit; a proposal's, nothing but that there is one; an accepted
+/// contact's, decoded within the bound, with where it came from and
+/// when, and when the name came too (plan section 29's exit gate: the
+/// contact page says where each value came from).
+#[tokio::test]
+async fn a_photo_reaches_the_screens_decoded_only_once_it_is_accepted_with_its_time() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, Some(key_of(&pb))));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: None,
+        photo: PhotoEdit::Chosen(png(400, 300)),
+    });
+    alice.pump(1).await;
+    assert!(alice.failed().is_empty(), "{:?}", alice.failed());
+    let own = alice.model().identity().expect("the identity").clone();
+    let photo = own.photo.expect("the own card's photo, decoded");
+    assert!(
+        photo.width <= 256 && photo.height <= 256,
+        "the card's bound"
+    );
+    assert_eq!(photo.rgba.len(), (photo.width * photo.height * 4) as usize);
+    assert_eq!((own.given.as_str(), own.surname.as_deref()), ("Ada", None));
+    alice.will(
+        alice
+            .model()
+            .share_card(&direct(b.peer()))
+            .expect("offered"),
+    );
+    alice.pump(2).await;
+    alice.pump(3).await;
+    bob.pump(4).await;
+
+    let from_alice = direct(a.peer());
+    let proposal = bob.model().proposals(&from_alice)[0].clone();
+    assert!(proposal.has_photo, "the proposal says there is one");
+    assert!(
+        bob.model().contacts().is_empty(),
+        "and nothing is decoded for it"
+    );
+
+    bob.will(Intent::AcceptCard(proposal.row));
+    bob.pump(5).await;
+    let contact = bob.model().contacts()[0].clone();
+    let photo = contact.photo.expect("the accepted photo, decoded");
+    assert!(photo.width <= 256 && photo.height <= 256);
+    assert_eq!(contact.photo_from_card, Some(true));
+    assert_eq!(contact.photo_at, Some(WALL), "when it came");
+    assert_eq!(contact.name_at, Some(WALL), "when the name came");
+}
+
+/// Alice sets her card to `name` and `surname` with `photo` and shares it
+/// with Bob again, from `t`; the proposal Bob is shown.
+async fn shared_again(
+    alice: &mut Root,
+    bob: &mut Root,
+    (a, b): (&FakeNode, &FakeNode),
+    card: (&str, Option<&str>, PhotoEdit),
+    t: u64,
+) -> ProposalItem {
+    alice.will(Intent::SetOwnCard {
+        name: card.0.to_owned(),
+        surname: card.1.map(str::to_owned),
+        photo: card.2,
+    });
+    alice.pump(t).await;
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(t + 1).await;
+    alice.pump(t + 2).await;
+    bob.pump(t + 3).await;
+    let shown = bob.model().proposals(&direct(a.peer()));
+    assert_eq!(shown.len(), 1, "one proposal at a time here");
+    shown[0].clone()
+}
+
+// Case S (design/2026-10-21-contact-cards.md section 5.4.1): a card is
+// Close alone when Accept would write nothing -- the key recorded and each
+// value the person's or already the card's -- and Update whenever a value
+// that is not the person's would change. Mutations: `changes_nothing`
+// ignoring the person's name (the "Countess" case is Update); ignoring the
+// photo (the photo case is Close). Ignoring the key is caught by
+// `a_changed_key_on_a_known_route_is_a_key_change_and_a_local_edit_stands`,
+// whose card matches the person's name and holds no photo.
+#[tokio::test]
+async fn a_card_that_changes_nothing_offers_close_alone_and_one_that_changes_a_card_value_updates()
+{
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let first = bob.model().proposals(&direct(a.peer()))[0].clone();
+    assert_eq!(first.accept, AcceptLine::Creates);
+    bob.will(Intent::AcceptCard(first.row));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+
+    // The same card again: nothing to write, so Close (Decline) alone.
+    let same = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", Some("Lovelace"), PhotoEdit::Keep),
+        10,
+    )
+    .await;
+    assert_eq!(same.accept, AcceptLine::Matches("Ada Lovelace".to_owned()));
+    assert_eq!(same.accept_text(), UiText::Close);
+    assert_eq!(
+        bob.model().card_actions(same.row),
+        vec![Intent::DeclineCard(same.row)]
+    );
+    bob.will(Intent::DeclineCard(same.row));
+    bob.pump(15).await;
+    assert!(
+        bob.model().proposals(&direct(a.peer())).is_empty(),
+        "closed"
+    );
+
+    // A changed name the card gave: Update.
+    let renamed = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", None, PhotoEdit::Keep),
+        20,
+    )
+    .await;
+    assert_eq!(
+        renamed.accept,
+        AcceptLine::Updates("Ada Lovelace".to_owned())
+    );
+    assert_eq!(
+        bob.model().card_actions(renamed.row),
+        vec![
+            Intent::AcceptCard(renamed.row),
+            Intent::DeclineCard(renamed.row)
+        ]
+    );
+    bob.will(Intent::DeclineCard(renamed.row));
+    bob.pump(25).await;
+
+    // The person names the contact: a card's other name changes nothing.
+    bob.will(Intent::RenameContact {
+        contact_id,
+        name: "Countess".to_owned(),
+    });
+    bob.pump(30).await;
+    let kept = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", Some("Byron"), PhotoEdit::Keep),
+        40,
+    )
+    .await;
+    assert_eq!(kept.accept, AcceptLine::Matches("Countess".to_owned()));
+    bob.will(Intent::DeclineCard(kept.row));
+    bob.pump(45).await;
+
+    // A photo the contact does not hold, and no person's photo: Update.
+    let photo = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", Some("Byron"), PhotoEdit::Chosen(png(64, 64))),
+        50,
+    )
+    .await;
+    assert_eq!(photo.accept, AcceptLine::Updates("Countess".to_owned()));
+}
+
+// A held proposal is judged again when the person changes a contact: a
+// card that matched a contact (case S, Close alone) offers Accept once
+// that contact is deleted, since Accept would now make one -- whether the
+// proposal was still unshown or shown and undecided. Mutation: the facade
+// not judging held proposals again after a delete (Close alone stays).
+#[tokio::test]
+async fn a_matching_card_offers_accept_again_once_its_contact_is_deleted() {
+    for shown_first in [false, true] {
+        let (a, b) = FakeNetwork::pair(node(), node());
+        let (pa, pb) = (profile(), profile());
+        let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+        let mut bob = Root::new(facade(&b, &pb, None));
+        alice.pump(0).await;
+        bob.pump(0).await;
+        shared(&mut alice, &mut bob, &b).await;
+        let from_alice = direct(a.peer());
+        let first = bob.model().proposals(&from_alice)[0].row;
+        bob.will(Intent::AcceptCard(first));
+        bob.pump(5).await;
+        let contact_id = bob.model().contacts()[0].contact_id.clone();
+        let same = shared_again(
+            &mut alice,
+            &mut bob,
+            (&a, &b),
+            ("Ada", Some("Lovelace"), PhotoEdit::Keep),
+            10,
+        )
+        .await;
+        assert_eq!(same.accept, AcceptLine::Matches("Ada Lovelace".to_owned()));
+        if shown_first {
+            let viewed = bob.model().proposals_viewed(&from_alice, true);
+            assert!(!viewed.is_empty(), "shown, so read");
+            bob.model
+                .surface_mut()
+                .batches
+                .push_back(viewed.into_iter().map(ViewEvent::Intent).collect());
+            bob.pump(15).await;
+        }
+        bob.will(Intent::DeleteContact { contact_id });
+        bob.pump(20).await;
+        assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+        let again = bob.model().proposals(&from_alice);
+        assert_eq!(again.len(), 1, "shown first: {shown_first}");
+        assert_eq!(
+            again[0].accept,
+            AcceptLine::Creates,
+            "shown first: {shown_first}"
+        );
+        assert_eq!(
+            bob.model().card_actions(again[0].row),
+            vec![
+                Intent::AcceptCard(again[0].row),
+                Intent::DeclineCard(again[0].row)
+            ]
+        );
+        bob.will(Intent::AcceptCard(again[0].row));
+        bob.pump(25).await;
+        assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+        assert_eq!(bob.model().contacts().len(), 1, "accepted as a new contact");
+    }
+}
+
+// The same after an Accept: of two cards on one route, the older matches
+// its contact (case S) until the newer, carrying another name, is
+// accepted; then the older would write its name back, so it offers
+// Accept. Mutation: the facade not judging held proposals again after an
+// Accept.
+#[tokio::test]
+async fn a_matching_card_offers_accept_once_another_card_on_its_route_is_accepted() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let first = bob.model().proposals(&from_alice)[0].row;
+    bob.will(Intent::AcceptCard(first));
+    bob.pump(5).await;
+    let older = shared_again(
+        &mut alice,
+        &mut bob,
+        (&a, &b),
+        ("Ada", Some("Lovelace"), PhotoEdit::Keep),
+        10,
+    )
+    .await;
+    assert_eq!(older.accept, AcceptLine::Matches("Ada Lovelace".to_owned()));
+    // A second card on the route, with another surname.
+    alice.will(Intent::SetOwnCard {
+        name: "Ada".to_owned(),
+        surname: Some("Byron".to_owned()),
+        photo: PhotoEdit::Keep,
+    });
+    alice.pump(20).await;
+    alice.will(Intent::ShareCard(direct(b.peer())));
+    alice.pump(21).await;
+    alice.pump(22).await;
+    bob.pump(23).await;
+    let both = bob.model().proposals(&from_alice);
+    assert_eq!(both.len(), 2);
+    let newer = both
+        .iter()
+        .find(|p| p.row != older.row)
+        .expect("the newer")
+        .clone();
+    assert_eq!(newer.accept, AcceptLine::Updates("Ada Lovelace".to_owned()));
+    bob.will(Intent::AcceptCard(newer.row));
+    bob.pump(25).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    let left = bob.model().proposals(&from_alice);
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].row, older.row);
+    assert_eq!(left[0].accept, AcceptLine::Updates("Ada Byron".to_owned()));
+    assert_eq!(
+        bob.model().card_actions(older.row),
+        vec![
+            Intent::AcceptCard(older.row),
+            Intent::DeclineCard(older.row)
+        ]
+    );
+}
+
+impl Root {
+    fn view(&mut self, event: ViewEvent) {
+        self.model.surface_mut().batches.push_back(vec![event]);
+    }
+}
+
+/// Contact-cards design 5.4.2 through the loop: Accept saves the contact,
+/// the snackbar's Undo deletes it with its route, and the proposal comes
+/// back read and decidable from the session's copy -- an Accept after the
+/// Undo saves it again.
+#[tokio::test]
+async fn undo_of_an_accept_deletes_the_contact_and_the_proposal_returns_to_accept_again() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let row = bob.model().proposals(&from_alice)[0].row;
+    bob.will(Intent::AcceptCard(row));
+    bob.pump(5).await;
+    assert_eq!(bob.model().contacts().len(), 1);
+    assert_eq!(bob.model().card_answers(&from_alice).len(), 1);
+    let snack = bob.model().snackbar().expect("Contact saved");
+    bob.view(ViewEvent::Undo(snack.id));
+    bob.pump(6).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    assert!(bob.model().contacts().is_empty(), "the contact is gone");
+    assert!(bob.model().card_answers(&from_alice).is_empty());
+    assert_eq!(bob.model().proposals(&from_alice).len(), 1, "back");
+    let store = HumanStore::open_profile(&pb.paths, &FilesystemCustody, StoreOptions::default())
+        .expect("reopen");
+    assert!(store.contacts().expect("read").is_empty(), "nothing stored");
+    assert!(
+        store.unread_inbound().expect("read").is_empty(),
+        "and no durable copy came back: the proposal is read"
+    );
+    drop(store);
+
+    bob.will(Intent::AcceptCard(row));
+    bob.pump(7).await;
+    assert!(bob.failed().is_empty(), "{:?}", bob.failed());
+    assert_eq!(bob.model().contacts().len(), 1, "saved again");
+}
+
+/// 5.4.3: Undo of a Decline brings the proposal back; once a snackbar
+/// closes, the facade side lets the card go, and an Undo then finds
+/// nothing to restore.
+#[tokio::test]
+async fn undo_of_a_decline_returns_the_proposal_and_a_closed_snackbar_lets_the_card_go() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let (pa, pb) = (profile(), profile());
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let mut bob = Root::new(facade(&b, &pb, None));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let from_alice = direct(a.peer());
+    let row = bob.model().proposals(&from_alice)[0].row;
+    bob.will(Intent::DeclineCard(row));
+    bob.pump(5).await;
+    assert!(bob.model().proposals(&from_alice).is_empty());
+    let snack = bob.model().snackbar().expect("Card declined");
+    bob.view(ViewEvent::Undo(snack.id));
+    bob.pump(6).await;
+    assert_eq!(bob.model().proposals(&from_alice).len(), 1, "back");
+
+    bob.will(Intent::DeclineCard(row));
+    bob.pump(7).await;
+    let snack = bob.model().snackbar().expect("Card declined");
+    bob.view(ViewEvent::SnackbarClosed(snack.id));
+    bob.pump(8).await;
+    let updates = bob.facade.execute(Command::UndoCard(row), 9).await;
+    assert!(
+        updates.iter().any(|u| matches!(
+            u,
+            Update::Failed {
+                why: Failure::NoSuchRow,
+                ..
+            }
+        )),
+        "the card was let go: {updates:?}"
+    );
 }

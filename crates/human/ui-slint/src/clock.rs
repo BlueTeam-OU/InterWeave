@@ -10,7 +10,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::{Local, Offset as _, TimeZone as _};
+use chrono::{Datelike as _, Local, Offset as _, TimeZone as _};
 use interweave_human_ui_model::{
     Day, LocalTime, UiText, Weekday, fill, local_time, placeholder_en,
 };
@@ -65,6 +65,34 @@ impl Clock {
             Day::Today => clock_text(local.hour, local.minute, self.hour24),
             day => day_text(day),
         }
+    }
+
+    /// The calendar date of `at_ms` in the local zone, the year left out
+    /// in the current one: what a `{date}` placeholder takes ("You shared
+    /// your card here on {date}."), never the list's relative day, which
+    /// would read "on 14:05" and go stale at midnight.
+    pub(crate) fn date_text(&self, at_ms: u64) -> String {
+        let local_date = |ms: u64| {
+            let secs =
+                i64::try_from(ms / 1000).unwrap_or(i64::MAX / 2) + i64::from((self.offset)(ms));
+            chrono::DateTime::from_timestamp(secs, 0).map(|t| t.date_naive())
+        };
+        let (Some(date), Some(today)) = (local_date(at_ms), local_date(self.now_ms())) else {
+            return String::new();
+        };
+        day_text(Day::Date {
+            year: date.year(),
+            month: u8::try_from(date.month()).unwrap_or(1),
+            day: u8::try_from(date.day()).unwrap_or(1),
+            this_year: date.year() == today.year(),
+        })
+    }
+
+    /// The clock time of `at_ms` in the local zone, in the platform's
+    /// hour setting.
+    pub(crate) fn time_text(&self, at_ms: u64) -> String {
+        let local = self.local(at_ms);
+        clock_text(local.hour, local.minute, self.hour24)
     }
 
     /// When the day the list's times are reckoned from next changes, in
@@ -205,6 +233,24 @@ mod tests {
         assert_eq!(clock_text(12, 30, false), "12:30 PM");
         assert_eq!(clock_text(13, 5, false), "1:05 PM");
         assert_eq!(clock_text(23, 59, false), "11:59 PM");
+    }
+
+    // A `{date}` is the calendar date whatever the day: today's is a date
+    // and not a clock time, and the year shows only outside the current
+    // one. Mutations: `date_text` returning `list_time`; `this_year`
+    // always true.
+    #[test]
+    fn a_date_is_the_calendar_date_today_and_every_day() {
+        // 2026-10-24 12:00 UTC, at offset zero.
+        const NOW: u64 = 1_792_843_200_000;
+        let clock = Clock::new(|| NOW, |_| 0);
+        assert_eq!(clock.date_text(NOW), "Oct 24");
+        assert_eq!(clock.date_text(NOW - 86_400_000), "Oct 23");
+        assert_eq!(clock.date_text(NOW - 365 * 86_400_000), "Oct 24, 2025");
+        assert_eq!(clock.time_text(NOW), "12:00");
+        // An offset that crosses midnight moves the date with it.
+        let east = Clock::new(|| NOW, |_| 13 * 3600);
+        assert_eq!(east.date_text(NOW), "Oct 25");
     }
 
     #[test]
