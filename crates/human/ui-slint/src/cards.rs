@@ -8,8 +8,10 @@
 //! judged against the model when it is taken.
 //!
 //! What a proposal shows of its photo is only that there is one: the
-//! model is never given a received photo before Accept, so no image of it
-//! can be drawn. A received name is drawn inside an isolate wherever it
+//! model holds a received photo's bytes undecoded until Accept, and a
+//! `ProposalItem` exposes no more than that it exists, so no image of it
+//! is drawn
+//! (`a_proposal_names_the_claim_beside_the_full_peer_id_and_draws_no_image_before_accept`). A received name is drawn inside an isolate wherever it
 //! sits inside other text ([`isolated`]).
 
 use std::cell::RefCell;
