@@ -403,6 +403,15 @@ pub enum Intent {
     /// Send this conversation's identity's own card to its route. Only
     /// [`UiModel::share_card`] makes one, for a direct conversation.
     ShareCard(ConversationKey),
+    /// Ask what making a new key for the identity in front would cancel:
+    /// the facade answers before the confirmation opens
+    /// ([`UiModel::new_key_asked`]).
+    AskNewKey,
+    /// Make a new key for the identity in front, as the person confirmed
+    /// (design/2026-10-24-identity-key.md section 5).
+    MakeNewKey,
+    /// Open the identity in front's key once more (section 6).
+    RetryKey,
     /// The person's edit of their identity's own card, from its settings.
     SetOwnCard {
         /// The name.

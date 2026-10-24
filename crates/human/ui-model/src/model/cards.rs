@@ -322,10 +322,112 @@ pub struct IdentityView {
     /// Its own card's photo, decoded for display: exactly what a share
     /// sends.
     pub photo: Option<Photo>,
-    /// Its key's fingerprint.
-    pub fingerprint: String,
+    /// Its key: its fingerprint, or why it cannot be used.
+    pub key: OwnKey,
     /// This node's `PeerId`, beside the fingerprint, once known.
     pub peer: Option<TransportIdentity>,
+}
+
+/// An identity's own key as the client can use it
+/// (design/2026-10-24-identity-key.md).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnKey {
+    /// It opened: its fingerprint, 16 lowercase hex characters.
+    Ready {
+        /// The fingerprint.
+        fingerprint: String,
+    },
+    /// It was refused at open, for this reason.
+    Unusable(KeyProblem),
+}
+
+impl OwnKey {
+    /// The fingerprint, when the key opened.
+    #[must_use]
+    pub fn fingerprint(&self) -> Option<&str> {
+        match self {
+            Self::Ready { fingerprint } => Some(fingerprint),
+            Self::Unusable(_) => None,
+        }
+    }
+}
+
+/// Why an identity's key cannot be used, in the person's terms (section 3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyProblem {
+    /// The platform no longer lets the client use it.
+    LostOnDevice,
+    /// Protected less than this device requires.
+    BelowDevice,
+    /// Saved on another device and usable only there.
+    OtherDevice,
+    /// A format this version does not know; a newer one may read it.
+    NewerVersion,
+    /// Not a valid key file for this identity.
+    Damaged,
+    /// Other users may read or change it.
+    Exposed,
+    /// The key folder is not one only this account owns.
+    DirUnsafe {
+        /// The folder's full path, shown under the reason.
+        folder: String,
+    },
+    /// A problem that may be temporary.
+    NotNow,
+    /// Gone from this device after the card was shared.
+    Missing,
+}
+
+impl KeyProblem {
+    /// Whether a new key may be made: not while the key folder is not one
+    /// this account owns, which the client never changes.
+    #[must_use]
+    pub const fn offers_new_key(&self) -> bool {
+        !matches!(self, Self::DirUnsafe { .. })
+    }
+
+    /// Whether Try again is offered: for a problem that may pass, or a
+    /// folder the person can fix.
+    #[must_use]
+    pub const fn offers_try_again(&self) -> bool {
+        matches!(self, Self::NotNow | Self::DirUnsafe { .. })
+    }
+
+    /// Whether a new key deletes a file that is there: every kind but
+    /// a missing one.
+    #[must_use]
+    pub const fn deletes_old_file(&self) -> bool {
+        !matches!(self, Self::Missing)
+    }
+}
+
+/// Where Make a new key and Try again stand on the card page (sections 5
+/// and 6), this session: held until the page is left.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyStep {
+    /// Make a new key was pressed: the facade is asked what it cancels.
+    Asking,
+    /// The confirmation is open; `pending` says own cards not yet
+    /// accepted by the remote transport would be cancelled.
+    Confirming {
+        /// Own cards still on their way.
+        pending: bool,
+    },
+    /// Confirmed: the key is being made.
+    Making,
+    /// Made: the conversations whose counterparts hold or may hold the
+    /// old key, most recently shared first.
+    Made {
+        /// Where to share the card again.
+        share_again: Vec<ConversationKey>,
+    },
+    /// Not made: `gone` says the old file was already removed.
+    Failed {
+        /// The saved key is gone.
+        gone: bool,
+    },
+    /// Try again refused with the same kind.
+    StillNotNow,
 }
 
 /// How many proposals shown and read the model holds: as many as the
@@ -352,6 +454,8 @@ pub(super) struct Cards {
     /// proposals (contact-cards design 5.4.2), up to [`READ_PROPOSAL_CAP`],
     /// the oldest going first.
     answers: BTreeMap<RowId, CardAnswer>,
+    /// Make a new key or Try again, on the card page.
+    key_step: Option<KeyStep>,
 }
 
 /// The confirmation row an Accept leaves in its proposal's place: "You
@@ -655,6 +759,98 @@ impl UiModel {
     /// The identity in front, as the facade read it.
     pub fn identity_shown(&mut self, identity: IdentityView) {
         self.cards.identity = Some(identity);
+    }
+
+    /// The identity in front's key problem, if its key cannot be used.
+    #[must_use]
+    pub fn key_problem(&self) -> Option<&KeyProblem> {
+        match &self.cards.identity.as_ref()?.key {
+            OwnKey::Unusable(problem) => Some(problem),
+            OwnKey::Ready { .. } => None,
+        }
+    }
+
+    /// Where Make a new key and Try again stand.
+    #[must_use]
+    pub const fn key_step(&self) -> Option<&KeyStep> {
+        self.cards.key_step.as_ref()
+    }
+
+    /// Make a new key, pressed: the facade is asked what it would cancel,
+    /// when the problem offers a new key and nothing is under way.
+    #[must_use]
+    pub fn ask_new_key(&mut self) -> Option<Intent> {
+        let offered = self.key_problem().is_some_and(KeyProblem::offers_new_key);
+        let idle = !matches!(
+            self.cards.key_step,
+            Some(KeyStep::Asking | KeyStep::Confirming { .. } | KeyStep::Making)
+        );
+        (offered && idle).then(|| {
+            self.cards.key_step = Some(KeyStep::Asking);
+            Intent::AskNewKey
+        })
+    }
+
+    /// The facade answered whether own cards are on their way: the
+    /// confirmation opens.
+    pub fn new_key_asked(&mut self, pending: bool) {
+        if self.cards.key_step == Some(KeyStep::Asking) {
+            self.cards.key_step = Some(KeyStep::Confirming { pending });
+        }
+    }
+
+    /// The confirmation closed without a new key.
+    pub fn new_key_cancelled(&mut self) {
+        if matches!(self.cards.key_step, Some(KeyStep::Confirming { .. })) {
+            self.cards.key_step = None;
+        }
+    }
+
+    /// The confirmation's Make a new key: the key is made from here.
+    #[must_use]
+    pub fn confirm_new_key(&mut self) -> Option<Intent> {
+        matches!(self.cards.key_step, Some(KeyStep::Confirming { .. })).then(|| {
+            self.cards.key_step = Some(KeyStep::Making);
+            Intent::MakeNewKey
+        })
+    }
+
+    /// The new key was made: the identity with its fingerprint, and where
+    /// to share the card again.
+    pub fn key_made(&mut self, identity: IdentityView, share_again: Vec<ConversationKey>) {
+        self.cards.identity = Some(identity);
+        self.cards.key_step = Some(KeyStep::Made { share_again });
+    }
+
+    /// No new key was made: the identity as the open now finds it, and
+    /// whether the old file went first.
+    pub fn key_not_made(&mut self, identity: IdentityView, gone: bool) {
+        self.cards.identity = Some(identity);
+        self.cards.key_step = Some(KeyStep::Failed { gone });
+    }
+
+    /// Try again, when its problem offers it and nothing is under way.
+    #[must_use]
+    pub fn retry_key(&self) -> Option<Intent> {
+        let offered = self.key_problem().is_some_and(KeyProblem::offers_try_again);
+        (offered && !matches!(self.cards.key_step, Some(KeyStep::Making)))
+            .then_some(Intent::RetryKey)
+    }
+
+    /// Try again's answer: the identity as the open found it; the same
+    /// temporary kind again says so.
+    pub fn key_retried(&mut self, identity: IdentityView) {
+        let again = matches!(identity.key, OwnKey::Unusable(KeyProblem::NotNow))
+            && matches!(self.key_problem(), Some(KeyProblem::NotNow));
+        self.cards.identity = Some(identity);
+        self.cards.key_step = again.then_some(KeyStep::StillNotNow);
+    }
+
+    /// The card page was left: what it showed of a key step goes.
+    pub fn key_page_left(&mut self) {
+        if !matches!(self.cards.key_step, Some(KeyStep::Making | KeyStep::Asking)) {
+            self.cards.key_step = None;
+        }
     }
 
     /// The context a proposal was shown with: what its Accept carries.
@@ -1499,5 +1695,75 @@ mod tests {
         let outcome = model.outcome().expect("an outcome");
         assert_eq!(outcome.announce, Some(Announce::Restored));
         assert_eq!(outcome.focus, Some(FocusTarget::Header(key)));
+    }
+
+    fn own(key: OwnKey) -> IdentityView {
+        IdentityView {
+            endpoint: endpoint("human"),
+            name: "Ada".to_owned(),
+            given: "Ada".to_owned(),
+            surname: None,
+            has_photo: false,
+            photo: None,
+            key,
+            peer: None,
+        }
+    }
+
+    /// design/2026-10-24-identity-key.md sections 5 and 6: Make a new key
+    /// asks first, opens the confirmation with what it cancels, makes the
+    /// key only on its confirm, and ends made or failed; a folder this
+    /// account does not own offers no new key, only Try again; Try again
+    /// refused with the same temporary kind says so.
+    #[test]
+    fn a_new_key_is_asked_confirmed_and_made_and_try_again_says_a_repeat() {
+        let mut model = UiModel::new();
+        model.identity_shown(own(OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        }));
+        assert_eq!(model.ask_new_key(), None, "a key that opens offers none");
+
+        model.identity_shown(own(OwnKey::Unusable(KeyProblem::Damaged)));
+        assert_eq!(model.retry_key(), None, "damage is not tried again");
+        assert_eq!(model.confirm_new_key(), None, "never before the ask");
+        assert_eq!(model.ask_new_key(), Some(Intent::AskNewKey));
+        assert_eq!(model.ask_new_key(), None, "one ask at a time");
+        model.new_key_asked(true);
+        assert_eq!(
+            model.key_step(),
+            Some(&KeyStep::Confirming { pending: true })
+        );
+        model.new_key_cancelled();
+        assert_eq!(model.key_step(), None, "cancelled: nothing made");
+
+        assert_eq!(model.ask_new_key(), Some(Intent::AskNewKey));
+        model.new_key_asked(false);
+        assert_eq!(model.confirm_new_key(), Some(Intent::MakeNewKey));
+        assert_eq!(model.key_step(), Some(&KeyStep::Making));
+        let back = vec![direct(P, "human")];
+        model.key_made(
+            own(OwnKey::Ready {
+                fingerprint: "fedcba9876543210".to_owned(),
+            }),
+            back.clone(),
+        );
+        assert_eq!(model.key_step(), Some(&KeyStep::Made { share_again: back }));
+        assert_eq!(model.key_problem(), None);
+        model.key_page_left();
+        assert_eq!(model.key_step(), None, "the list is not kept");
+
+        model.identity_shown(own(OwnKey::Unusable(KeyProblem::DirUnsafe {
+            folder: "/x".to_owned(),
+        })));
+        assert_eq!(model.ask_new_key(), None, "a folder not owned: no new key");
+        assert_eq!(model.retry_key(), Some(Intent::RetryKey));
+
+        model.identity_shown(own(OwnKey::Unusable(KeyProblem::NotNow)));
+        model.key_retried(own(OwnKey::Unusable(KeyProblem::NotNow)));
+        assert_eq!(model.key_step(), Some(&KeyStep::StillNotNow));
+        model.key_retried(own(OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        }));
+        assert_eq!(model.key_step(), None, "opened");
     }
 }
