@@ -1540,17 +1540,18 @@ fn a_superseded_trust_left_unread_is_decided_by_a_later_read() {
                 }));
                 let _ = m.peers_turn();
                 let blocks = m.peers().blocks(m.trust_settings());
+                assert!(m.peers().add_open(), "the page stays open");
+                assert_eq!(
+                    focus(&m),
+                    Some(PeersFocus::BlockProblem(them.clone())),
+                    "focus not moved by the read"
+                );
                 if trusted {
-                    // As an unknown block's: decided, its step settled
-                    // (`an_unknown_trust_a_later_read_decides_is_no_longer_unknown`).
-                    assert!(
-                        blocks.is_empty() || blocks[0].state == BlockState::Trusted,
-                        "{blocks:?}"
-                    );
+                    assert_eq!(blocks[0].state, BlockState::Trusted);
+                    assert_eq!(blocks[0].problem, None);
                 } else {
                     assert_eq!(blocks[0].state, BlockState::Undecided);
                     assert_eq!(blocks[0].problem, Some(BlockProblem::Superseded));
-                    assert!(m.peers().add_open(), "the page stays open");
                 }
             }
         }
@@ -4425,7 +4426,8 @@ fn a_removal_answered_after_a_failed_read_is_told_against_its_own_list() {
 /// A block whose Trust was left unknown, the page kept open, and a later
 /// read of the trust list succeeding: the read decides it (§5.7, "until a
 /// read shows it") -- not listed, the block says its Trust was not made
-/// and offers Trust again; listed, it is trusted. Never left unknown.
+/// and offers Trust again; listed, it is trusted. Never left unknown, and
+/// the page stays open either way, focus where it was (§5.3, §8).
 #[test]
 fn an_unknown_trust_a_later_read_decides_is_no_longer_unknown() {
     for listed in [false, true] {
@@ -4476,11 +4478,13 @@ fn an_unknown_trust_a_later_read_decides_is_no_longer_unknown() {
         }));
         let _ = m.peers_turn();
         let block = &m.peers().blocks(m.trust_settings());
+        // Decided in place either way: the page stays open, since only
+        // the person's act closes it (§5.3).
+        assert!(m.peers().add_open(), "the page stays open");
         if listed {
-            assert!(
-                block.is_empty() || block[0].problem.is_none(),
-                "listed: trusted, {block:?}"
-            );
+            assert_eq!(block[0].state, BlockState::Trusted, "listed: trusted");
+            assert_eq!(block[0].problem, None);
+            assert_eq!(focus(&m), before, "focus not moved by the read");
         } else {
             assert_eq!(
                 block[0].problem,

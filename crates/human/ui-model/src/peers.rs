@@ -2557,19 +2557,29 @@ impl Peers {
             if let Some(list) = trust.confirmed_list() {
                 block.known = Some(list.allows(&block.peer));
             }
+            // A block whose Trust was pressed and left not known: a read
+            // the person did not ask for decides it in place -- the page
+            // stays open and focus stays where it is (§5.3, §8).
+            let left_unknown = matches!(
+                block.problem,
+                Some(BlockProblem::Unknown | BlockProblem::SupersededUnread)
+            ) && !block.trusting
+                && block.checking.is_none();
             // A read that shows the peer trusted decides the block as its
             // own Trust would: the step settles (§5.3).
             if block.known == Some(true)
                 && known_before != Some(true)
                 && !block.trusting
                 && block.checking.is_none()
+                && !left_unknown
             {
                 moved = true;
             }
             let on_its_way = trust.in_flight().is_some_and(|c| c.peer == block.peer);
             if block.problem.is_some() && block.allowed(trust) {
                 block.problem = None;
-                moved = true;
+                // (`a_superseded_trust_left_unread_is_decided_by_a_later_read`)
+                moved |= !left_unknown;
             }
             // An unknown Trust stays unknown only until a read shows it
             // (§5.7): a confirmed list not naming the peer says it was not
