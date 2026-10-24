@@ -17,7 +17,8 @@
 //! daemon's act.
 
 /// `claude-channel --version`: the workspace version, which the plugin's
-/// manifest carries too, with the commit as build metadata (`build.rs`).
+/// manifest carries too, with the commit as build metadata
+/// (`tools/stamp/commit_stamp.rs`).
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("INTERWEAVE_COMMIT"));
 
 fn main() -> std::process::ExitCode {
