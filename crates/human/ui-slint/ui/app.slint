@@ -1879,13 +1879,17 @@ component NameField inherits VerticalLayout {
 }
 
 // A photo in a circle, or the name's initials on its hue without one.
-// Decoration: the name beside it is what is read.
+// Decoration: the name beside it is what is read. The desktop's software
+// renderer does not clip an image to rounded corners, so the corners
+// outside the circle are painted over in `backdrop`, the colour of what
+// lies behind: a circle on every renderer, as the initials are.
 component PhotoCircle inherits Rectangle {
     in property <bool> has-photo;
     in property <image> photo;
     in property <string> letters;
     in property <int> hue;
     in property <length> size: 40px;
+    in property <brush> backdrop: Palette.surface;
     accessible-role: none;
     width: root.size;
     height: root.size;
@@ -1901,6 +1905,17 @@ component PhotoCircle inherits Rectangle {
         height: root.size;
         source: root.photo;
         image-fit: cover;
+        accessible-role: none;
+    }
+    // The square less the circle, even-odd: the four corners.
+    if root.has-photo: Path {
+        width: root.size;
+        height: root.size;
+        viewbox-width: 2;
+        viewbox-height: 2;
+        fill-rule: evenodd;
+        commands: "M 0 0 L 2 0 L 2 2 L 0 2 Z M 1 0 A 1 1 0 1 0 1 2 A 1 1 0 1 0 1 0 Z";
+        fill: root.backdrop;
         accessible-role: none;
     }
 }
@@ -5855,6 +5870,7 @@ export component AppWindow inherits Window {
                             photo: root.own-photo;
                             letters: root.own-letters;
                             hue: root.own-hue;
+                            backdrop: share-box.background;
                         }
                         VerticalLayout {
                             alignment: center;
