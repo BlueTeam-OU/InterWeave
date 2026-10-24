@@ -1294,7 +1294,7 @@ impl View {
     /// The platform has secured the window, as [`Self::guard_show`] asked:
     /// Show may draw its addresses at the next render.
     pub fn show_secured(&mut self) {
-        if let Some(guard) = self.peer_lists.show_guard.as_mut() {
+        if let Some(guard) = self.peer_lists.show_guard.as_ref() {
             guard.secured();
         }
     }
@@ -1405,9 +1405,8 @@ impl View {
                         out.push(ViewEvent::Trust(TrustInput::Cancel));
                         return out;
                     }
-                    // Leaving Peers is its add page's Close, as Back is.
-                    if leaving_peers && model.peers().add_open() {
-                        out.push(ViewEvent::Peers(PeersInput::Close));
+                    if leaving_peers && let Some(close) = leaving_peers_closes(model) {
+                        out.push(close);
                         return out;
                     }
                 }
@@ -1503,6 +1502,12 @@ impl View {
                 // waiting for confirmation: none is made from a page the
                 // person left.
                 Input::TrustPage(open) => {
+                    if open
+                        && self.page == Page::Peers
+                        && let Some(close) = leaving_peers_closes(model)
+                    {
+                        out.push(close);
+                    }
                     self.page = if open {
                         Page::Trust
                     } else {
@@ -1532,8 +1537,8 @@ impl View {
                         out.push(ViewEvent::Peers(PeersInput::Opened));
                         return out;
                     }
-                    if model.peers().add_open() {
-                        out.push(ViewEvent::Peers(PeersInput::Close));
+                    if let Some(close) = leaving_peers_closes(model) {
+                        out.push(close);
                         return out;
                     }
                 }
@@ -3203,6 +3208,18 @@ fn status_mark(item: &MessageItem) -> StatusMark {
 /// control, labelled with its destination, and the trust and address
 /// intents from the trust settings' and Peers' own controls, never an
 /// item's.
+/// What leaving Peers closes: its add page, as Back does, or Show, which
+/// is never left open behind another page (add-a-peer §5.4; #409 F1).
+fn leaving_peers_closes(model: &UiModel) -> Option<ViewEvent> {
+    if model.peers().add_open() {
+        Some(ViewEvent::Peers(PeersInput::Close))
+    } else if model.peers().show().is_some() {
+        Some(ViewEvent::Peers(PeersInput::CloseShow))
+    } else {
+        None
+    }
+}
+
 fn action_text(intent: &Intent) -> Option<&'static str> {
     let text = match intent {
         Intent::Retry(_) => UiText::Retry,

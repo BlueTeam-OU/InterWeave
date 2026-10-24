@@ -258,27 +258,78 @@ pub(crate) struct PeerLists {
 }
 
 /// Show's secure flag, asked of the platform ([`View::guard_show`]).
+///
+/// Every ask on is counted and every confirmation, which the platform
+/// gives in the order asked: the addresses are drawn only once the last
+/// ask on has been confirmed, so a confirmation of an earlier opening
+/// secures nothing later. An ask off waits for a frame without Show and
+/// is dropped if Show opened again meanwhile, so a closed opening's off
+/// never follows a newer opening's on (#409 C3).
 pub(crate) struct ShowGuard {
     ask: Rc<dyn Fn(bool)>,
-    /// Asked on, and not yet asked off.
-    asked: bool,
-    /// The platform said the flag is on.
-    secured: bool,
+    /// Shared with an off waiting for its frame.
+    state: Rc<std::cell::Cell<GuardState>>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct GuardState {
+    /// Asked on, and not asked off since.
+    open: bool,
+    /// Asks on so far.
+    asked: u64,
+    /// The platform's confirmations so far.
+    confirmed: u64,
 }
 
 impl ShowGuard {
     pub(crate) fn new(ask: Rc<dyn Fn(bool)>) -> Self {
         Self {
             ask,
-            asked: false,
-            secured: false,
+            state: Rc::default(),
         }
     }
 
-    pub(crate) const fn secured(&mut self) {
-        if self.asked {
-            self.secured = true;
+    /// The platform confirmed an ask on; one beyond the asks is none's.
+    pub(crate) fn secured(&self) {
+        let mut state = self.state.get();
+        state.confirmed = (state.confirmed + 1).min(state.asked);
+        self.state.set(state);
+    }
+
+    /// Whether the window may draw Show's addresses: Show asked on, and
+    /// its latest ask confirmed.
+    fn drawable(&self) -> bool {
+        let state = self.state.get();
+        state.open && state.confirmed == state.asked
+    }
+
+    /// Show is open: the flag asked on, once per opening.
+    fn opened(&self) {
+        let mut state = self.state.get();
+        if !state.open {
+            state.open = true;
+            state.asked += 1;
+            self.state.set(state);
+            (self.ask)(true);
         }
+    }
+
+    /// Show is closed: the off to run once a frame without it has been
+    /// drawn, which does nothing if Show opened again by then; `None`
+    /// when it was not open.
+    fn closed(&self) -> Option<impl FnOnce() + 'static> {
+        let mut state = self.state.get();
+        if !state.open {
+            return None;
+        }
+        state.open = false;
+        self.state.set(state);
+        let (ask, shared) = (Rc::clone(&self.ask), Rc::clone(&self.state));
+        Some(move || {
+            if !shared.get().open {
+                ask(false);
+            }
+        })
     }
 }
 
@@ -658,21 +709,16 @@ impl View {
         // without Show has been, never before.
         let mut held = false;
         let mut clear = None;
-        if let Some(guard) = self.peer_lists.show_guard.as_mut() {
+        if let Some(guard) = self.peer_lists.show_guard.as_ref() {
             if show.is_some() {
-                if !guard.asked {
-                    guard.asked = true;
-                    (guard.ask)(true);
-                }
-                held = !guard.secured;
-            } else if guard.asked {
-                guard.asked = false;
-                guard.secured = false;
-                clear = Some(Rc::clone(&guard.ask));
+                guard.opened();
+                held = !guard.drawable();
+            } else {
+                clear = guard.closed();
             }
         }
-        if let Some(ask) = clear {
-            let _ = self.after_next_frame(move || ask(false));
+        if let Some(off) = clear {
+            let _ = self.after_next_frame(off);
         }
         let window = &self.window;
         window.set_peers_show_open(show.is_some());
@@ -1160,5 +1206,61 @@ mod tests {
             Some((13, i32::try_from(field.len()).unwrap()))
         );
         assert_eq!(selection_offsets(field, &LineSelection::From(3)), None);
+    }
+}
+
+#[cfg(test)]
+mod show_guard_tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use super::ShowGuard;
+
+    fn guard() -> (ShowGuard, Rc<RefCell<Vec<bool>>>) {
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let log = Rc::clone(&asked);
+        (
+            ShowGuard::new(Rc::new(move |on| log.borrow_mut().push(on))),
+            asked,
+        )
+    }
+
+    /// A closed opening's off, run after Show opened again, asks
+    /// nothing: the newer opening's on is never followed by it (#409 C3).
+    #[test]
+    fn a_closed_openings_off_never_follows_a_newer_on() {
+        let (g, asked) = guard();
+        g.opened();
+        g.secured();
+        let off = g.closed().expect("it was open");
+        g.opened();
+        off();
+        assert_eq!(*asked.borrow(), vec![true, true], "no off after the new on");
+        // Closed for good, its off runs.
+        let off = g.closed().expect("open again");
+        off();
+        assert_eq!(*asked.borrow(), vec![true, true, false]);
+    }
+
+    /// Only the latest ask's confirmation lets the addresses be drawn: an
+    /// earlier opening's, arriving late, secures nothing (#409 C3).
+    #[test]
+    fn only_the_latest_asks_confirmation_draws() {
+        let (g, _) = guard();
+        g.opened();
+        let _ = g.closed();
+        g.opened();
+        assert!(!g.drawable());
+        g.secured();
+        assert!(!g.drawable(), "the first opening's confirmation");
+        g.secured();
+        assert!(g.drawable(), "the second's");
+        g.secured();
+        let _ = g.closed();
+        g.opened();
+        assert!(
+            !g.drawable(),
+            "a confirmation beyond the asks counts for none"
+        );
     }
 }

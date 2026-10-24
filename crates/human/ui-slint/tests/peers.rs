@@ -2530,3 +2530,40 @@ fn a_scan_line_is_drawn_under_the_controls_and_said_once() {
         assert_eq!(slots(&view), before, "said once");
     }
 }
+
+/// Leaving Peers closes Show, never left open behind another page: to
+/// the trust settings, by a conversation picked, or closing Peers
+/// (§5.4; #409 F1).
+#[test]
+fn leaving_peers_closes_show() {
+    use interweave_human_client_api::ShowAddresses;
+    use interweave_human_ui_model::PeersInput;
+    let me = peer();
+    let open_show = |view: &mut View, model: &mut UiModel| {
+        let _ = model.peers_input(PeersInput::OpenShow);
+        model.own_addresses_read(Ok(ShowAddresses {
+            peer: me.clone(),
+            addresses: vec![at(&me)],
+            truncated: false,
+        }));
+        view.render(model);
+        assert!(model.peers().show().is_some());
+    };
+    let mut view = view();
+    let mut model = UiModel::new();
+    open_peers(&mut view, &mut model, &me, &[], &[]);
+    open_show(&mut view, &mut model);
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::TrustHeading));
+    let _ = intents(&mut view, &mut model);
+    assert!(model.peers().show().is_none(), "to the trust settings");
+
+    // Back to Peers, Show again, then Peers closed.
+    press(&view, text(UiText::AppOptions));
+    press(&view, text(UiText::PeersTitle));
+    let _ = intents(&mut view, &mut model);
+    open_show(&mut view, &mut model);
+    view.window().invoke_close_peers();
+    let _ = intents(&mut view, &mut model);
+    assert!(model.peers().show().is_none(), "Peers closed");
+}
