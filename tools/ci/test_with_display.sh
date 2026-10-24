@@ -324,8 +324,8 @@ sig_case() {
     # the uutils date of the CI image (Ubuntu 26.04, 0.10.0) cuts %3N from
     # the unpadded nanoseconds (034705108 gives 347), so in the first
     # tenth of a second it prints a wrong millisecond. Timed with it, this
-    # case read deaths at the 1s deadline as 235ms to 1871ms (five red
-    # runs, 2026-10-24).
+    # case read deaths at the 1s deadline as 368ms to 615ms on CI (five
+    # red runs, 2026-10-24).
     local t0 died_ms="" r
     t0=$(ms_now)
     for ((r = 1; r <= ${SIG_REPEAT:-0} * 3; r++)); do
