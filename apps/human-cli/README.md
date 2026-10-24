@@ -4,7 +4,7 @@
 
 It is the desktop client's composition with no display: the same store, facade (`crates/human/app-core`) and model (`crates/human/ui-model`), over the daemon's data socket. A verb is a script of what a person does in the window (view a conversation, type and press Send, press Cancel on a row, confirm a trust change), and the model resolves it into the commands the facade carries out (`src/session.rs`, `src/verbs.rs`). A view never reaches past the facade, and this one is no exception. `identities` and `peers` are the exceptions the model leaves: no model holds an endpoint's administration or the profile's bootstrap addresses, so they call the daemon's admin methods, as `transportctl` does, `identities` narrowed to the profile's human endpoints. `store health` and `store discard` work on the store's files and key alone.
 
-`interweave-human --help` prints every verb and every exit code.
+`interweave-human --help` prints every verb and every exit code. `interweave-human --version`, alone, prints the workspace version with the commit it was built from as build metadata, `interweave-human 0.1.0+<twelve hex digits>` (ADR-0065 decision 6); beside any other argument it is a usage error.
 
 ## Batches
 
@@ -81,6 +81,7 @@ Why a verb failed is said on stderr, in English for a person. A script reads the
 - `src/verbs_tests.rs` and `src/cards_tests.rs`: each verb through the model and the facade, against the in-memory node pair app-core's own tests use, over a file store where the next run is the claim.
 - `src/store.rs`: `store health` and `store discard` over a real profile directory and the desktop's key custody: a discard refused without its scope removes nothing, a confirmed one recreates an empty store under a new key, a store that opens is never discarded.
 - `tests/process.rs`: the binary's `--help`, a usage error and a refused profile.
+- `tests/version.rs`: `--version` against the root manifest's version and `git rev-parse HEAD`, and `--version` beside another argument as exit 2.
 - `tests/desktop-e2e/tests/human_cli.rs`: every verb of batches 1, 2 and 3 run as the binary against two real daemons; `card set --photo <file>` and `contacts photo <file>` are not run with an image anywhere in this crate: the file read and its bound are tested here (`a_photo_file_past_the_bound_is_refused_unread`), and what the facade does with the bytes is app-core's.
 
 ## Release
