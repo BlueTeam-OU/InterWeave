@@ -158,13 +158,25 @@ pub(crate) fn camera_frame(width: usize, height: usize, stride: usize, plane: &[
     if !draw && text.is_none() {
         return;
     }
+    // The back camera's sensor is mounted a quarter turn from the
+    // phone's portrait: its landscape frames are turned for the drawing,
+    // so the person aims at what they see. Reading needs no turn.
+    let (luma_drawn, dw, dh) = if draw && width > height {
+        (
+            interweave_human_ui_slint::code::turned_clockwise(&luma, width, height),
+            height,
+            width,
+        )
+    } else {
+        (luma, width, height)
+    };
     let (w, h) = (
-        u32::try_from(width).unwrap_or(0),
-        u32::try_from(height).unwrap_or(0),
+        u32::try_from(dw).unwrap_or(0),
+        u32::try_from(dh).unwrap_or(0),
     );
     with_view(move |view| {
         if draw {
-            view.camera_frame(w, h, &luma);
+            view.camera_frame(w, h, &luma_drawn);
         }
         if let Some(text) = &text {
             view.camera_read(text);
