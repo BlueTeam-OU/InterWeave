@@ -163,13 +163,17 @@ androidComponents {
             group = "verification"
             description = "Fails if the ${variant.name} APK's versionName is not the workspace version."
             val merged = variant.artifacts.get(SingleArtifact.MERGED_MANIFEST)
+            // Plain values for the action: the Variant itself holds the
+            // project's services, which the configuration cache cannot
+            // store (review of #404).
+            val variantName = variant.name
             val expected = workspaceVersion
             inputs.file(merged)
             doLast {
                 val found = Regex("""android:versionName="([^"]*)"""")
                     .find(merged.get().asFile.readText())?.groupValues?.get(1)
                 check(found == expected) {
-                    "the ${variant.name} APK's versionName is '$found', not the workspace version $expected"
+                    "the $variantName APK's versionName is '$found', not the workspace version $expected"
                 }
             }
         }
