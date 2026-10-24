@@ -194,6 +194,52 @@ So `allowedChannelPlugins` decides here, and that refusal stays not
 established, as do a file in the host's own `/etc`, server-managed or
 MDM policy, and Anthropic's allowlist.
 
+**Carried measurement, S23 (2026-10-24, Claude Code 2.1.286,
+rust-services-dev, plan §19): no channel registers on the 2026-07-28
+revision.** Read off `spikes/spike-001/README.md` §S23 (facts 34–38,
+runs `s23-*`). The server, `s23_stub.py`, differed between runs only in
+its answer to `server/discover`. When it offered `2026-07-28`, the
+client negotiated the modern era, with no `initialize` and every
+request carrying the revision's `_meta` envelope. It then skipped the
+channel: "connection negotiated a modern protocol revision with no
+unsolicited notification path". The event the server sent never
+reached the conversation. Answering `-32601`, as the bridge does,
+registered and delivered. The same modern-capable server under
+`MCP_PROTOCOL_NEGOTIATION=legacy` registered too. Read from the binary,
+not measured: the era is the gate's second check, before any flag,
+policy or allowlist, and the permission relay excludes a modern
+connection as well. A modern `tools/list` result without `resultType`
+is rejected, while a discover result without it was accepted (run d). So fact 3 holds on this build, and the bridge
+stays legacy, as it is (`apps/claude-channel/src/mcp.rs`). A build
+after 2.1.286 is not established.
+
+**Carried measurement, S24 (2026-10-24, Claude Code 2.1.286,
+rust-services-dev, plan §19): a channel reaches a non-interactive
+session on the organisation path; Anthropic's allowlist was not tried.**
+Read off `spikes/spike-001/README.md` §S24 (facts 39–44, runs `s24-a`
+to `s24-h`). Each run was one `claude -p` session with stream-json in
+and out and stdin held open, on S22's install. Runs a, b, e, g and h
+had S22's allow entry; c, d and f had no managed settings. Runs a, b and
+e to h had two daemons and a far peer; c and d had neither. With the
+allow entry, the channel registered through `--channels
+plugin:interweave@interweave` alone (b), and through the stream-json
+control request `channel_enable` alone (g). The peer's message, sent
+after the first turn had ended, started a turn of its own about 2 s
+later with nothing written to the session. The model called `reply`,
+and the peer had `ack` 4 to 5 s after its send. The allow entry without
+a flag or a request delivered nothing (e). The development flag gave
+these sessions nothing: with it and no managed settings nothing was
+delivered (f), and `channel_enable` was refused on the allowlist
+exactly as without it (d, c). That fits fact 4's runs having seen
+nothing, but they ran 2.1.285 with a bare `--mcp-config` server and a
+plain `-p`, which S24 did not, so their cause is inferred. h ran in
+the `auto` permission mode, from a source not established (the other
+runs did not record theirs), and in it `reply` reached the peer
+without `--allowedTools`. A print session that skips a channel logs nothing about it. Not
+established: Anthropic's allowlist in `-p`, a bare `--mcp-config`
+server in `-p`, another permission mode, an event arriving during a
+turn, and a session whose stdin has closed.
+
 ---
 
 ## SPIKE-002 — transport wire/race and GossipSub cache behavior
