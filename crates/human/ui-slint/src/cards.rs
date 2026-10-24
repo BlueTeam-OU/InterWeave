@@ -203,8 +203,8 @@ fn image(photo: &Photo) -> Image {
     ))
 }
 
-/// A proposal as its row draws it; `received` is when it came, as the
-/// clock words it.
+/// A proposal as its row draws it; `received` is the line saying when it
+/// came.
 fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
     let name = isolated(&p.name);
     let context = match &p.accept {
@@ -261,7 +261,7 @@ fn proposal_row(handle: i32, p: &ProposalItem, received: &str) -> ProposalRow {
         } else {
             text(UiText::CardGoesAtClose).into()
         },
-        received: fill(text(UiText::CardReceivedAt), &[("date", received)]).into(),
+        received: received.into(),
         closes: matches!(p.accept, AcceptLine::Matches(_)),
         accept: text(p.accept_text()).into(),
         decline: text(UiText::CardDecline).into(),
@@ -448,6 +448,17 @@ impl View {
         self.render_share(model, &window);
     }
 
+    /// When a card came, as its row says it: the date and the time.
+    fn received(&self, at_ms: u64) -> String {
+        fill(
+            text(UiText::CardReceivedAt),
+            &[
+                ("date", &self.clock.date_text(at_ms)),
+                ("time", &self.clock.time_text(at_ms)),
+            ],
+        )
+    }
+
     fn render_proposals(&mut self, model: &UiModel, window: &AppWindow) {
         let shown: Vec<ProposalItem> = match (&self.page, &self.shown) {
             (crate::Page::Conversation, Some(key)) => model.proposals(key),
@@ -476,7 +487,7 @@ impl View {
                         }
                         _ => {}
                     }
-                    proposal_row(handle, p, &self.clock.list_time(p.received_at))
+                    proposal_row(handle, p, &self.received(p.received_at))
                 })
                 .collect();
             rows.set_vec(drawn);
@@ -571,7 +582,7 @@ impl View {
         window.set_contact_hue(contact_hue(&contact));
         window.set_contact_has_photo(contact.photo.is_some());
         window.set_contact_photo(contact.photo.as_ref().map(image).unwrap_or_default());
-        let when = |at: Option<u64>| at.map_or_else(String::new, |at| self.clock.list_time(at));
+        let when = |at: Option<u64>| at.map_or_else(String::new, |at| self.clock.date_text(at));
         let name_source = if contact.name_from_card {
             UiText::ContactNameFromCard
         } else {
@@ -676,7 +687,10 @@ impl View {
             window.set_share_open(false);
         }
         self.shared.borrow_mut().cards.shareable = key.clone().filter(|_| offered);
-        let title = key.as_ref().map(|k| model.drawn_title(k)).unwrap_or_default();
+        let title = key
+            .as_ref()
+            .map(|k| model.drawn_title(k))
+            .unwrap_or_default();
         window.set_share_title(fill(text(UiText::ShareCardTitle), &[("title", &title)]).into());
         window.set_share_preview_heading(
             fill(text(UiText::ShareCardPreview), &[("title", &title)]).into(),
@@ -706,7 +720,7 @@ impl View {
                 |at| {
                     fill(
                         text(UiText::DetailsCardShared),
-                        &[("date", &self.clock.list_time(at))],
+                        &[("date", &self.clock.date_text(at))],
                     )
                 },
             ),

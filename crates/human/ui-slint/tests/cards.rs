@@ -293,9 +293,12 @@ fn accepts_label_and_context_say_what_it_will_do_and_decline_answers_its_row() {
 }
 
 /// What the row says of when its card came, at the tests' clock (NOW is
-/// 12:00 UTC, the offset zero).
+/// 2026-10-24 12:00 UTC, the offset zero).
 fn received_noon() -> String {
-    fill(text(UiText::CardReceivedAt), &[("date", "12:00")])
+    fill(
+        text(UiText::CardReceivedAt),
+        &[("date", "Oct 24"), ("time", "12:00")],
+    )
 }
 
 // Case S (design/2026-10-21-contact-cards.md section 5.4.1): a card that
@@ -436,9 +439,11 @@ fn the_contact_page_says_where_each_value_came_from_and_a_local_edit_stands() {
     model.contacts_listed(vec![ada.clone()]);
     view.render(&model);
     open_contact(&mut view, &mut model, "Ada");
-    let at = view.window().get_contact_name_source().to_string();
-    assert!(at.starts_with("Name from their card, "), "{at}");
-    assert_ne!(at, "Name from their card, ", "with when");
+    // `{date}` is the calendar date, never the list's "12:00".
+    assert_eq!(
+        view.window().get_contact_name_source(),
+        fill(text(UiText::ContactNameFromCard), &[("date", "Oct 24")])
+    );
     assert!(
         view.window()
             .get_contact_photo_source()
@@ -668,6 +673,13 @@ fn share_shows_what_goes_first_and_sends_only_on_share_in_a_direct_conversation(
     assert_eq!(
         intents(&mut view, &mut model),
         vec![Intent::ShareCard(direct(P))]
+    );
+    // The facade says it went; Details says when, as a date.
+    model.card_shared(direct(P), NOW);
+    view.render(&model);
+    assert_eq!(
+        view.window().get_details_card(),
+        fill(text(UiText::DetailsCardShared), &[("date", "Oct 24")])
     );
 
     let room = ConversationKey::Channel(ChannelId::parse("room").expect("a channel"));
