@@ -35,6 +35,28 @@
     },
     {
       "agent": "p2p-network-dev-02",
+      "applied_key": "30002cddefa60701",
+      "heading": "Testing an in-process mobile runtime on a real device: run one generic case body in the app's own process (instrumentation) and on a host stand-in that runs the SAME composition; never a debug IPC port",
+      "host": "develop-qzapp",
+      "memory": "domain-device-tests-run-in-the-app-process",
+      "replaced": "Testing an in-process mobile runtime on a real device: run one generic case body in the app's own process (instrumentation) and on a host stand-in that runs the SAME composition; never a debug IPC port",
+      "replaced_key": "989441dec3184873",
+      "slice": "memory/domains/p2p-network-dev/domain/domain-device-tests-run-in-the-app-process.md",
+      "stamp": "2026-10-24"
+    },
+    {
+      "agent": "p2p-network-dev-02",
+      "applied_key": "ccc0b38299764d4b",
+      "heading": "On a phone the name resolver comes from the per-network platform view and is rebuilt when it changes; unobserved (no default or no link reported) keeps the resolver, but a reported link's empty DNS facts are observed and install the empty resolver; no search list; strict Private DNS fails closed",
+      "host": "develop-qzapp",
+      "memory": "domain-mobile-resolver-from-the-network-view",
+      "replaced": "On a phone the name resolver's config comes from the per-network platform view (nameservers change with Wi-Fi/cellular/VPN), never from launch or the libc config; no search list; strict Private DNS fails named lookups closed",
+      "replaced_key": "ddab5cfc3f7f6196",
+      "slice": "memory/domains/p2p-network-dev/domain/domain-mobile-resolver-from-the-network-view.md",
+      "stamp": "2026-10-24"
+    },
+    {
+      "agent": "p2p-network-dev-02",
       "applied_key": "3b5a9ac53224caed",
       "heading": "radicle-node killed hard won't restart (stale control.sock); why --force is not the fix",
       "host": "develop-qzapp",
@@ -126,13 +148,6 @@
       "rule": "same-agent"
     },
     {
-      "agent": "architect-cto-01",
-      "decision": "supersede",
-      "key": "architect-cto/threads:threads-carried-2026-10-18#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)",
-      "observed_at": "2026-10-21",
-      "rule": "same-agent"
-    },
-    {
       "agent": "devex-tooling",
       "decision": "supersede",
       "key": "devex-tooling/solution:rust-job-cache-and-nextest-measured#InterWeave rust CI job — cargo target cache sizes, nextest gains, and how a warm cache was measured before merge (PR #288, 2026-10-16)",
@@ -165,6 +180,13 @@
       "decision": "drop",
       "key": "p2p-network-dev/workflow:routing-tests-run-on-the-hosts-private-address#ADR-0052's floor refuses loopback from a peer, so any test that needs a peer's ADVERTISED address to be learned or routed must listen on the host's private address; and an absence-only test goes vacuous when the sibling that was its control breaks@d9a46bca68fa",
       "observed_at": "2026-09-25"
+    },
+    {
+      "agent": "p2p-network-dev-02",
+      "decision": "supersede",
+      "key": "p2p-network-dev/domain:domain-free-port-same-port-reuseport#two bind-port-0 \"free port\" asks in a row can return the same port; libp2p-tcp's SO_REUSEPORT lets both daemons bind it, and each one's dial to the other is stripped as its own listen address (NoAddresses)",
+      "observed_at": "2026-10-20",
+      "rule": "same-agent"
     },
     {
       "agent": "p2p-network-dev-02",
@@ -265,6 +287,7 @@
     ".agent-fabric/memory/architect-cto/threads/stage-20-fleet-carrier-2026-10-19.md",
     ".agent-fabric/memory/architect-cto/threads/stage-21-beside-17-2026-10-21.md",
     ".agent-fabric/memory/architect-cto/threads/stage-21-close-2026-10-24.md",
+    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18-2.md",
     ".agent-fabric/memory/architect-cto/workflow/architect-cto-arms-gzapp-interweave.md",
     ".agent-fabric/memory/architect-cto/workflow/gateway-boundary-authority-architect-cto.md",
     ".agent-fabric/memory/architect-cto/workflow/never-commit-in-the-same-command-as-an-edit-script.md",
@@ -552,24 +575,26 @@
     ".agent-fabric/memory/p2p-network-dev/workflow/workflow-shared-target-xtask-reads-other-worktree.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/workflow-subuid-shim-for-sudo-u.md",
     ".agent-fabric/memory/p2p-network-dev/workflow/workflow-to-role-finding-goes-to-the-holder-in-the-crate.md",
+    ".agent-fabric/memory/rust-services-dev/workflow/workflow-carried-2026-10-24.md",
     "memory/domains/rust-services-dev/domain/managed-settings-linux-path.md",
     "memory/domains/rust-services-dev/domain/s19-driver-shape.md",
     ".agent-fabric/memory/rust-services-dev/solution/bridge-pull-event-double-escaped.md",
     ".agent-fabric/memory/rust-services-dev/solution/channels-allowlist-gate.md",
     ".agent-fabric/memory/rust-services-dev/solution/claude-plugin-runtime-facts.md",
     ".agent-fabric/memory/rust-services-dev/solution/plugin-version-from-workspace.md",
-    ".agent-fabric/memory/rust-services-dev/workflow/workflow-carried-2026-10-24.md",
     ".agent-fabric/memory/rust-services-dev/workflow/git-rm-then-commit-stages-only-the-rm.md",
     ".agent-fabric/memory/rust-services-dev/workflow/mutation-runs-save-the-fix-first.md",
     ".agent-fabric/memory/rust-services-dev/workflow/narrow-before-driving.md",
     ".agent-fabric/memory/rust-services-dev/workflow/spike-tmpdir-sun-len.md",
     ".agent-fabric/memory/rust-services-dev/workflow/supply-on-a-for-branch.md",
+    "memory/domains/rust-ui-dev/domain/android-device-credential-prompt.md",
     "memory/domains/rust-ui-dev/domain/android-no-hard-links.md",
     "memory/domains/rust-ui-dev/domain/atspi-e2e-lessons.md",
     "memory/domains/rust-ui-dev/domain/empty-line-takes-no-room.md",
     "memory/domains/rust-ui-dev/domain/forced-crash-no-core.md",
     "memory/domains/rust-ui-dev/domain/slint-android-handle-disable.md",
     "memory/domains/rust-ui-dev/domain/slint-changed-handlers-deferred.md",
+    "memory/domains/rust-ui-dev/domain/slint-flickable-stale-height.md",
     "memory/domains/rust-ui-dev/domain/slint-flicked-input-only.md",
     "memory/domains/rust-ui-dev/domain/slint-rendered-window-lessons.md",
     "memory/domains/rust-ui-dev/domain/slint-swipe-in-flickable.md",
@@ -625,9 +650,11 @@
     ".agent-fabric/memory/rust-ui-dev/threads/ui-slint-stage15-carry.md",
     ".agent-fabric/memory/rust-ui-dev/threads/ui-slint-surface-proposal.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/a40-own-adb-server.md",
+    ".agent-fabric/memory/rust-ui-dev/workflow/android-target-clippy.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/arming-tool.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/brief-facts-checked-first.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/codex-review-engine.md",
+    ".agent-fabric/memory/rust-ui-dev/workflow/commit-and-shell-traps.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/desktop-e2e-stale-binary.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/device-review-run-method.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/gzcoord-inbox-replay.md",
@@ -704,7 +731,7 @@
     ".agent-fabric/memory/ux-designer/workflow/review-fixes-open-new-questions.md",
     ".agent-fabric/memory/ux-designer/workflow/spec-cites-only-recorded-methods.md"
   ],
-  "files_written": 494,
+  "files_written": 499,
   "harvest": {
     "host": "develop-qzapp",
     "in_scope": 25,
@@ -822,8 +849,8 @@
     },
     "rust-ui-dev-01@develop-qzapp": {
       "host": "develop-qzapp",
-      "in_scope": 95,
-      "next_watermark": 1792832857977,
+      "in_scope": 98,
+      "next_watermark": 1792838109123,
       "provisional_agent": 0,
       "reflection": 2,
       "since_watermark": 0,
@@ -905,9 +932,7 @@
       ]
     }
   },
-  "held_back": [
-    "rust-ui-dev/threads:interweave-stage17-close-j111"
-  ],
+  "held_back": [],
   "hygiene_problems": [],
   "memory_helpful": {},
   "memory_marks": {},
@@ -1246,42 +1271,39 @@
     }
   },
   "merge_target_unresolved": [
-    "architect-cto/domain:reflection-a-new-value-in-a-closed-answer-set-is-served-as-a-known-reason-below-its-minor#When a minor adds a value to a closed refusal set, a client below that minor is answered a reason or error its decoder already knows, and the contract states this as a downgrade by version rather than the rule, since an older decoder refuses a name it does not know: merge_target 'unassigned codes and byte-exact details are contract text' names no section of architect-cto/domain; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
-    "architect-cto/domain:reflection-an-overlay-persisted-over-a-config-is-validated-composed#Configuration that validates alone need not validate once an overlay is applied, so the composed result is validated: refused at set time with nothing written, fatal at start naming the overlay, and never normalised away: merge_target 'an invariant is enforced where it goes live' names no section of architect-cto/domain; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
-    "architect-cto/intersection:reflection-store-released-mobile-binaries-are-the-long-lived-reader#For any wire or configuration change, first ask whether a store-released mobile binary reads it: a web sub-app is co-deployed and a stale tab ends at reload, a phone binary lives for months, so anything it binds (a required member, a dictionary baseline, a hostname) needs a versioned change, never an in-place one: merge_target 'mobile hostname lock-in' names no section of architect-cto/intersection; written as its own topic",
+    "architect-cto/domain:reflection-a-new-value-in-a-closed-answer-set-is-served-as-a-known-reason-below-its-minor#When a minor adds a value to a closed refusal set, a client below that minor is answered a reason or error its decoder already knows, and the contract states this as a downgrade by version rather than the rule, since an older decoder refuses a name it does not know: merge_target 'unassigned codes and byte-exact details are contract text' names no section of architect-cto/domain; written as its own topic",
+    "architect-cto/domain:reflection-an-overlay-persisted-over-a-config-is-validated-composed#Configuration that validates alone need not validate once an overlay is applied, so the composed result is validated: refused at set time with nothing written, fatal at start naming the overlay, and never normalised away: merge_target 'an invariant is enforced where it goes live' names no section of architect-cto/domain; written as its own topic",
+    "architect-cto/intersection:reflection-store-released-mobile-binaries-are-the-long-lived-reader#For any wire or configuration change, first ask whether a store-released mobile binary reads it: a web sub-app is co-deployed and a stale tab ends at reload, a phone binary lives for months, so anything it binds (a required member, a dictionary baseline, a hostname) needs a versioned change, never an in-place one: merge_target 'mobile hostname lock-in' names no section of architect-cto/intersection; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "architect-cto/workflow:gateway-boundary-authority-architect-cto#STALE as of 2026-10-20: agent-fabric-gateway and agent-fabric name fabric-coordinator as commits.boundary_authority, not architect-cto; what remains true is how an AUTHORIZES DECISION is shaped and judged (InterWeave is still architect-cto's): merge_target 'gateway-boundary-authority-architect-cto' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated#A fact read from a binary or taken from someone's knowledge rather than measured says so in every restatement, and a check that enforces such a number names the source of its constant and is verified the first time it runs for real: merge_target 'evidence for the owner names its build and source' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-a-landed-amendment-is-never-edited-a-later-body-change-is-a-new-amendment#Once an amendment has landed, its history note, log row and digest bullet stay as they are; a later change to the body gets its own dated amendment heading, row and bullet, and appending a dated paragraph inside the old note is a defect the validator does not see: merge_target 'ADR history notes and amendment log rows are records' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-a-p2-every-round-on-a-new-shape-means-the-adr-has-no-design#When review finds a P2 in each new implementation of one feature and each shape leaves the decision to a caller, stop the rounds and write the design into the ADR first, one seam returning a typed outcome, then conform: merge_target \"the owner's rule for ADR work\" names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-a-refusal-reached-by-another-act-or-audience-gets-its-own-message-key#A message key carries one audience's remedy; a refusal reached by a different act or served to a different audience gets its own key, because shared copy tells someone the wrong fix: merge_target 'an error label names whose state caused it' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-a-ruling-restates-the-current-behaviour-read-at-origin-main#When a DECISION or REPLY describes what the code, a contract or a store does today, it cites the file and line read at origin/main; plans, guard-list comments and my own earlier summaries are not the record, and a ruling whose premise came from memory is reversed by the lane after it has built on it: merge_target 'A VERIFIED bullet in a GZCoord message is a claim I opened the source for' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-a-stage-close-also-dates-the-role-remits#A stage close in InterWeave also makes lines in the role remits under .agent-fabric/roles/ false, which the stage-status guard does not read, so every close sends fabric-coordinator a note naming the remit lines that will be wrong: merge_target 'A stage-status move' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-a-stage-tied-dead-function-exemption-needs-a-real-consumer-in-its-reason#A dead-function exemption tied to a stage names in its reason something the next stage's exit gate actually requires; an entry reasoned 'first read by the X stack' goes red at every stage move until a real consumer reads it: merge_target 'A stage-status move' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-an-owed-or-built-after-clause-is-false-the-moment-its-pr-merges#When ADR or contract text says a gap is owed, at this writing or built after, and an open PR closes it, the text is false the moment that PR merges and returns as a review finding; strike every such clause in one commit after the closing PR lands, across the body, the log row, the digest and the contracts: merge_target \"An ADR's implementation-state sentence names the source\" names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-another-lane-s-pr-that-makes-an-adr-premise-false-carries-the-amendment#When a PR changes a fact an ADR states as current, the ADR is amended in that same PR even if its conclusion holds, and before supplying the amendment the fact is grepped in the body, the security section, the digest and the log row: merge_target 'an owed or built after clause is false the moment its pr merges' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-contract-text-about-a-lane-s-unmerged-code-is-read-from-that-branch-s-head#Before supplying contract prose that describes code a lane has built but not merged, read the code at their branch head, not at main; a supply sent first says the code's reading wins and asks for the line: merge_target 'a ruling restates the current behaviour read at origin main' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-describe-a-flag-by-its-stored-predicate#A derived flag is described by the predicate it stores, the stamp is the fact, never by the state of the world the author assumes it implies: merge_target 'When a contract sentence about behaviour keeps missing a reachable state' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-evidence-for-the-owner-names-its-build-and-source#A measurement taken to the owner names the commit it ran on and the data it read, and that commit is checked as an ancestor of origin/main first; the same numbers from unmerged code support a narrower claim: merge_target 'Never write \"landed\", \"on main since\" or \"armed\" in an ADR from a lane\\'s message' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-find-where-a-sentence-lives-now-before-routing-its-fix#A sentence supplied onto a for/ branch lives in whichever PR folded it, so before ruling which PR carries a fix to it, run git log -S across main and the lanes' branches: merge_target 'search origin s unmerged branches before writing a gap' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-fold-refusals-by-what-is-refused-not-by-who-refuses#A fold of refusals into categories draws its line by what is refused, a policy refusal to denied and a route that cannot be dialled to dial_failed, never by who refuses: merge_target 'an error label names whose state caused it' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-linux-desktops-also-break-filesystem-rules-drafted-under-umask-022#Filesystem rules drafted on a umask-022 host also break on ordinary Linux desktops: user-private-group accounts run umask 002 so a group of one shows a group-write bit, with a POSIX access ACL the group mode bits are the ACL mask, and the owner means the effective uid; run the suites under umask 002 before ruling: merge_target 'read an every binding rule against each mobile platform' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-name-a-pushed-sha-only-after-reading-it-back#A push onto another lane's branch can be refused as non-fast-forward because the branch moved meanwhile; name a SHA in a message only after reading it from the push output or git ls-remote: merge_target \"re-read the caller's branch before pushing a ruling\" names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-owner-relayed-status-is-checked-on-origin#When the owner relays that a lane's work is aligned or done, find the branch on origin and ask the lane what it verified against before confirming; what the owner heard may be a plan: merge_target 'A VERIFIED bullet in a GZCoord message is a claim I opened the source for' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-read-every-threshold-a-consumer-s-decision-uses-before-deriving-a-served-value#Before writing a rule that derives a served value from a consumer's thresholds, read every threshold that consumer's decision uses; a review round finds each missed one separately: merge_target 'Before shipping a rule that derives a value from history' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-read-the-crate-s-visibility-before-an-adr-names-a-mechanism-site#An ADR rule that says where a mechanism runs inside a vendored or third-party crate is written only after the implementer has read what the crate exposes at that point; otherwise the rule follows the implementation through several corrections: merge_target 'Before an ADR names a test seam' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-read-the-data-shape-before-a-premise-goes-to-several-lanes#When the owner reports a symptom, read the data artifact's documented shape and ask for one capture of what is on the wire before a diagnosis premise goes to several lanes; two premises sent to three lanes in one day were both withdrawn: merge_target 'A VERIFIED bullet in a GZCoord message is a claim I opened the source for' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-search-origin-s-unmerged-branches-before-writing-a-gap#A decision I authored can sit implemented on another lane's unmerged branch with no PR, pointed at by nothing on main or in the inbox; before writing a recorded gap or routing a job, list origin's for/ and feat/ branches and search them for the decision's anchor: merge_target 'grep the cited commit before writing remaining gap' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-what-a-supply-reply-says-it-contains-is-read-from-the-pushed-sha#Before a supply REPLY says a commit carries something or a validator passes, run git show --stat on that exact sha and the validator on it, after the last edit: merge_target 'Before committing a multi-file edit script, grep git diff' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-when-an-adr-gives-an-existing-word-a-new-meaning-sweep-by-one-rule#When an ADR gives an existing word a new meaning, older records keep the old sense, so its use is ruled by one meaning across every flow rather than screen by screen, and a contract's proper name keeps the word until a rename with a compatibility story: merge_target 'Owner identity model' names no section of architect-cto/workflow; written as its own topic",
-    "architect-cto/workflow:reflection-when-every-round-finds-a-new-shape-a-heuristic-misses-gate-on-a-human-read-list#When each review round finds another shape a free-text scan misses, stop patching the scan and move that class to an exact gate, a pinned list of input digests a person has read, the scan staying as a tripwire; a digest list made by a loop without the reading is the count under another name: merge_target 'split exact rules from heuristics when asking for a guard' names no section of architect-cto/workflow; written as its own topic",
-    "p2p-network-dev/solution:recheck-adr0019-dedup-key-2026-10-20#InterWeave's ADR-0019 dedup keys on the transport MessageId, not app_message_id; an application re-send under a fresh id escapes it: merge_target \"InterWeave's ADR-0019 dedup keys on the transport MessageId, not app_message_id; an application re-send under a fresh id escapes it\" names no section of p2p-network-dev/solution; written as its own topic",
-    "p2p-network-dev/threads:correction-threads-86-gate-history#Correction to threads/threads-carried-2026-09-17.md: the --automated-only/@codex gate its #86 paragraph records was the procedure of 2026-09-10, superseded by #114; history, not current procedure: merge_target 'Correction to threads.md lines 25 and 27: the --automated-only/@codex gate they record was the procedure of 2026-09-10 and is superseded; history, not current procedure' names no section of p2p-network-dev/threads; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
-    "p2p-network-dev/domain:domain-mobile-resolver-from-the-network-view#On a phone the name resolver comes from the per-network platform view and is rebuilt when it changes; unobserved (no default or no link reported) keeps the resolver, but a reported link's empty DNS facts are observed and install the empty resolver; no search list; strict Private DNS fails closed: merge_target \"On a phone the name resolver's config comes from the per-network platform view (nameservers change with Wi-Fi/cellular/VPN), never from launch or the libc config; no search list; strict Private DNS fails named lookups closed\" names no section of p2p-network-dev/domain; the claim stands in its own topic — if it replaced that section before, drop the merge_target"
+    "architect-cto/workflow:reflection-a-figure-that-was-not-measured-keeps-that-label-everywhere-it-is-restated#A fact read from a binary or taken from someone's knowledge rather than measured says so in every restatement, and a check that enforces such a number names the source of its constant and is verified the first time it runs for real: merge_target 'evidence for the owner names its build and source' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-a-landed-amendment-is-never-edited-a-later-body-change-is-a-new-amendment#Once an amendment has landed, its history note, log row and digest bullet stay as they are; a later change to the body gets its own dated amendment heading, row and bullet, and appending a dated paragraph inside the old note is a defect the validator does not see: merge_target 'ADR history notes and amendment log rows are records' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-a-p2-every-round-on-a-new-shape-means-the-adr-has-no-design#When review finds a P2 in each new implementation of one feature and each shape leaves the decision to a caller, stop the rounds and write the design into the ADR first, one seam returning a typed outcome, then conform: merge_target \"the owner's rule for ADR work\" names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-a-refusal-reached-by-another-act-or-audience-gets-its-own-message-key#A message key carries one audience's remedy; a refusal reached by a different act or served to a different audience gets its own key, because shared copy tells someone the wrong fix: merge_target 'an error label names whose state caused it' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-a-ruling-restates-the-current-behaviour-read-at-origin-main#When a DECISION or REPLY describes what the code, a contract or a store does today, it cites the file and line read at origin/main; plans, guard-list comments and my own earlier summaries are not the record, and a ruling whose premise came from memory is reversed by the lane after it has built on it: merge_target 'A VERIFIED bullet in a GZCoord message is a claim I opened the source for' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-a-stage-close-also-dates-the-role-remits#A stage close in InterWeave also makes lines in the role remits under .agent-fabric/roles/ false, which the stage-status guard does not read, so every close sends fabric-coordinator a note naming the remit lines that will be wrong: merge_target 'A stage-status move' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-a-stage-tied-dead-function-exemption-needs-a-real-consumer-in-its-reason#A dead-function exemption tied to a stage names in its reason something the next stage's exit gate actually requires; an entry reasoned 'first read by the X stack' goes red at every stage move until a real consumer reads it: merge_target 'A stage-status move' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-an-owed-or-built-after-clause-is-false-the-moment-its-pr-merges#When ADR or contract text says a gap is owed, at this writing or built after, and an open PR closes it, the text is false the moment that PR merges and returns as a review finding; strike every such clause in one commit after the closing PR lands, across the body, the log row, the digest and the contracts: merge_target \"An ADR's implementation-state sentence names the source\" names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-another-lane-s-pr-that-makes-an-adr-premise-false-carries-the-amendment#When a PR changes a fact an ADR states as current, the ADR is amended in that same PR even if its conclusion holds, and before supplying the amendment the fact is grepped in the body, the security section, the digest and the log row: merge_target 'an owed or built after clause is false the moment its pr merges' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-contract-text-about-a-lane-s-unmerged-code-is-read-from-that-branch-s-head#Before supplying contract prose that describes code a lane has built but not merged, read the code at their branch head, not at main; a supply sent first says the code's reading wins and asks for the line: merge_target 'a ruling restates the current behaviour read at origin main' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-describe-a-flag-by-its-stored-predicate#A derived flag is described by the predicate it stores, the stamp is the fact, never by the state of the world the author assumes it implies: merge_target 'When a contract sentence about behaviour keeps missing a reachable state' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-evidence-for-the-owner-names-its-build-and-source#A measurement taken to the owner names the commit it ran on and the data it read, and that commit is checked as an ancestor of origin/main first; the same numbers from unmerged code support a narrower claim: merge_target 'Never write \"landed\", \"on main since\" or \"armed\" in an ADR from a lane\\'s message' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-find-where-a-sentence-lives-now-before-routing-its-fix#A sentence supplied onto a for/ branch lives in whichever PR folded it, so before ruling which PR carries a fix to it, run git log -S across main and the lanes' branches: merge_target 'search origin s unmerged branches before writing a gap' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-fold-refusals-by-what-is-refused-not-by-who-refuses#A fold of refusals into categories draws its line by what is refused, a policy refusal to denied and a route that cannot be dialled to dial_failed, never by who refuses: merge_target 'an error label names whose state caused it' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-linux-desktops-also-break-filesystem-rules-drafted-under-umask-022#Filesystem rules drafted on a umask-022 host also break on ordinary Linux desktops: user-private-group accounts run umask 002 so a group of one shows a group-write bit, with a POSIX access ACL the group mode bits are the ACL mask, and the owner means the effective uid; run the suites under umask 002 before ruling: merge_target 'read an every binding rule against each mobile platform' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-name-a-pushed-sha-only-after-reading-it-back#A push onto another lane's branch can be refused as non-fast-forward because the branch moved meanwhile; name a SHA in a message only after reading it from the push output or git ls-remote: merge_target \"re-read the caller's branch before pushing a ruling\" names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-owner-relayed-status-is-checked-on-origin#When the owner relays that a lane's work is aligned or done, find the branch on origin and ask the lane what it verified against before confirming; what the owner heard may be a plan: merge_target 'A VERIFIED bullet in a GZCoord message is a claim I opened the source for' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-read-every-threshold-a-consumer-s-decision-uses-before-deriving-a-served-value#Before writing a rule that derives a served value from a consumer's thresholds, read every threshold that consumer's decision uses; a review round finds each missed one separately: merge_target 'Before shipping a rule that derives a value from history' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-read-the-crate-s-visibility-before-an-adr-names-a-mechanism-site#An ADR rule that says where a mechanism runs inside a vendored or third-party crate is written only after the implementer has read what the crate exposes at that point; otherwise the rule follows the implementation through several corrections: merge_target 'Before an ADR names a test seam' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-read-the-data-shape-before-a-premise-goes-to-several-lanes#When the owner reports a symptom, read the data artifact's documented shape and ask for one capture of what is on the wire before a diagnosis premise goes to several lanes; two premises sent to three lanes in one day were both withdrawn: merge_target 'A VERIFIED bullet in a GZCoord message is a claim I opened the source for' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-search-origin-s-unmerged-branches-before-writing-a-gap#A decision I authored can sit implemented on another lane's unmerged branch with no PR, pointed at by nothing on main or in the inbox; before writing a recorded gap or routing a job, list origin's for/ and feat/ branches and search them for the decision's anchor: merge_target 'grep the cited commit before writing remaining gap' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-what-a-supply-reply-says-it-contains-is-read-from-the-pushed-sha#Before a supply REPLY says a commit carries something or a validator passes, run git show --stat on that exact sha and the validator on it, after the last edit: merge_target 'Before committing a multi-file edit script, grep git diff' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-when-an-adr-gives-an-existing-word-a-new-meaning-sweep-by-one-rule#When an ADR gives an existing word a new meaning, older records keep the old sense, so its use is ruled by one meaning across every flow rather than screen by screen, and a contract's proper name keeps the word until a rename with a compatibility story: merge_target 'Owner identity model' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "architect-cto/workflow:reflection-when-every-round-finds-a-new-shape-a-heuristic-misses-gate-on-a-human-read-list#When each review round finds another shape a free-text scan misses, stop patching the scan and move that class to an exact gate, a pinned list of input digests a person has read, the scan staying as a tripwire; a digest list made by a loop without the reading is the count under another name: merge_target 'split exact rules from heuristics when asking for a guard' names no section of architect-cto/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
+    "p2p-network-dev/threads:correction-threads-86-gate-history#Correction to threads/threads-carried-2026-09-17.md: the --automated-only/@codex gate its #86 paragraph records was the procedure of 2026-09-10, superseded by #114; history, not current procedure: merge_target 'Correction to threads.md lines 25 and 27: the --automated-only/@codex gate they record was the procedure of 2026-09-10 and is superseded; history, not current procedure' names no section of p2p-network-dev/threads; the claim stands in its own topic — if it replaced that section before, drop the merge_target"
   ],
   "migrated": [
     "architect-cto/rationale: rationale.md -> rationale/rationale-carried-2026-10-18.md",
     "architect-cto/threads: threads.md -> threads/threads-carried-2026-10-18.md",
-    "rust-services-dev/workflow: workflow.md -> workflow/workflow-carried-2026-10-24.md",
     "ux-designer/workflow: workflow.md -> workflow/workflow-carried-2026-10-18.md"
   ],
   "oversized_claims": [
@@ -1513,10 +1535,15 @@
       "host": "develop-qzapp",
       "observed": "2026-10-24"
     },
-    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18.md#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)": {
+    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18-2.md#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-21"
+    },
+    ".agent-fabric/memory/architect-cto/threads/threads-carried-2026-10-18.md#Owner's direction 2026-10-19 to close InterWeave Stage 17 (plan §20), with a new gate clause: ux-designer reviews the Android app against Telegram/WhatsApp standard; the per-clause gap read from main and the role sequence (j148)": {
+      "agent": "architect-cto-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-19"
     },
     ".agent-fabric/memory/architect-cto/workflow/architect-cto-arms-gzapp-interweave.md#LIVE since 2026-10-19 12:35Z — architect-cto is below_min_authority and boundary_authority in InterWeave and gzapp (authority_own_prs false): how to give the word (AUTHORIZES line or arm with basis \"architect-cto's word\"), only after reading the head and its posted review; own PRs stay the owner's; an ADR's ACCEPTANCE is still the owner's": {
       "agent": "architect-cto-01",
@@ -3023,6 +3050,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-23"
     },
+    ".agent-fabric/memory/rust-ui-dev/workflow/android-target-clippy.md#how to build-check and clippy the Android crates locally (PATH, JAVA_HOME, check_android_target.sh); CI does not clippy the Android target": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-24"
+    },
     ".agent-fabric/memory/rust-ui-dev/workflow/arming-tool.md#How to arm, gate, post reviews in InterWeave — fabric-pr verbs since the tools/gh forwarders were retired (4a010c6b)": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
@@ -3042,6 +3074,11 @@
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-22"
+    },
+    ".agent-fabric/memory/rust-ui-dev/workflow/commit-and-shell-traps.md#commit trailers must be one block, one line each; pkill -f kills the session's own shell; release templates must not carry the rights-reserved boilerplate": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-24"
     },
     ".agent-fabric/memory/rust-ui-dev/workflow/desktop-e2e-stale-binary.md#desktop-e2e runs whatever human-desktop binary sits in target/ -- rebuild it before a package-only test run or a mutation check": {
       "agent": "rust-ui-dev-01",
@@ -3593,11 +3630,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-22"
     },
-    "memory/domains/p2p-network-dev/domain/domain-mobile-resolver-from-the-network-view.md#On a phone the name resolver's config comes from the per-network platform view (nameservers change with Wi-Fi/cellular/VPN), never from launch or the libc config; no search list; strict Private DNS fails named lookups closed": {
-      "agent": "p2p-network-dev-02",
-      "host": "develop-qzapp",
-      "observed": "2026-10-15"
-    },
     "memory/domains/p2p-network-dev/domain/domain-multistream-select-order-recheck.md#libp2p request-response protocol choice — dialer proposes in configured order, listener takes the first it supports; how a \"minor bump\" of a protocol id interoperates": {
       "agent": "p2p-network-dev-02",
       "host": "develop-qzapp",
@@ -3758,6 +3790,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-22"
     },
+    "memory/domains/rust-ui-dev/domain/android-device-credential-prompt.md#Android BiometricPrompt with DEVICE_CREDENTIAL on API 30 has no Cancel button; leaving for Recents arrives as onError 10; FLAG_SECURE blocks screencap": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-24"
+    },
     "memory/domains/rust-ui-dev/domain/android-no-hard-links.md#Android app processes cannot link(2) in their data dir (SELinux untrusted_app), so any create-via-hard-link persistence fails with EACCES on a phone and passes on the host": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
@@ -3802,6 +3839,11 @@
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-16"
+    },
+    "memory/domains/rust-ui-dev/domain/slint-flickable-stale-height.md#in Slint 1.18.1 a VerticalLayout inside a Flickable reads a stale preferred-height right after a change; re-anchor on changed content-height": {
+      "agent": "rust-ui-dev-01",
+      "host": "develop-qzapp",
+      "observed": "2026-10-24"
     },
     "memory/domains/rust-ui-dev/domain/slint-flicked-input-only.md#Slint 1.18 Flickable's flicked fires only on wheel, drag and fling; focus reveal and programmatic content-y moves don't fire it, so track scroll position with changed content-y": {
       "agent": "rust-ui-dev-01",
@@ -3911,10 +3953,10 @@
       "rejected": 0
     },
     "rust-ui-dev": {
-      "admitted": 115,
-      "candidates": 123,
+      "admitted": 118,
+      "candidates": 126,
       "merged_into_existing": 0,
-      "observations_in": 123,
+      "observations_in": 126,
       "rejected": 8
     },
     "ux-designer": {
@@ -3991,10 +4033,10 @@
     },
     "rust-ui-dev-01@develop-qzapp": {
       "rust-ui-dev": {
-        "admitted": 86,
-        "candidates": 93,
+        "admitted": 89,
+        "candidates": 96,
         "merged_into_existing": 0,
-        "observations_in": 93,
+        "observations_in": 96,
         "rejected": 7
       }
     },
@@ -4036,7 +4078,7 @@
     "p2p-network-dev-02@develop-qzapp": 1792819747021,
     "rust-services-dev-01@develop-qzapp": 1792689197671,
     "rust-services-dev-02@develop-qzapp": 1792780368762,
-    "rust-ui-dev-01@develop-qzapp": 1792522289999,
+    "rust-ui-dev-01@develop-qzapp": 1792838109123,
     "rust-ui-dev-02@develop-qzapp": 1792836796142,
     "user@develop-qzapp": 1792824261379,
     "ux-designer-01@develop-qzapp": 1792836834825
