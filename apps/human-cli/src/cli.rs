@@ -36,7 +36,8 @@ usage:
   interweave-human --profile <name> card share <conversation> [--json]
   interweave-human --profile <name> proposals [--json]
   interweave-human --profile <name> proposals read <conversation>
-                   [--accept <id>]... [--decline <id>]... [--json]
+                   [--accept <id>]... [--accept-key-change <id>]...
+                   [--decline <id>]... [--json]
   interweave-human --profile <name> contacts [--json]
   interweave-human --profile <name> contacts show <contact> [--json]
   interweave-human --profile <name> contacts rename <contact> <name>
@@ -158,8 +159,12 @@ pub(crate) enum Verb {
     ProposalsRead {
         /// The conversation.
         conversation: ConversationKey,
-        /// The proposals to accept, by id.
+        /// The proposals to accept, by id: none of them a key change.
         accept: Vec<String>,
+        /// The key changes to accept, by id: each must be one (ADR-0063
+        /// decision 4: a changed key is accepted only by the person's
+        /// act, named for it).
+        accept_key_change: Vec<String>,
         /// The proposals to decline, by id.
         decline: Vec<String>,
     },
@@ -210,6 +215,7 @@ struct Flags {
     photo: Option<String>,
     no_photo: bool,
     accept: Vec<String>,
+    accept_key_change: Vec<String>,
     decline: Vec<String>,
     confirm: Option<String>,
 }
@@ -303,6 +309,9 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             }
             "--keep" => flags.keep.push(value("--keep")?),
             "--accept" => flags.accept.push(value("--accept")?),
+            "--accept-key-change" => flags
+                .accept_key_change
+                .push(value("--accept-key-change")?),
             "--decline" => flags.decline.push(value("--decline")?),
             "--photo" => {
                 let v = value("--photo")?;
@@ -418,6 +427,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             Verb::ProposalsRead {
                 conversation: conversation(c)?,
                 accept: std::mem::take(&mut flags.accept),
+                accept_key_change: std::mem::take(&mut flags.accept_key_change),
                 decline: std::mem::take(&mut flags.decline),
             },
             true,
@@ -457,8 +467,11 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
     if flags.none {
         return Err("--none applies to identities default and contacts photo only".to_owned());
     }
-    if !flags.accept.is_empty() || !flags.decline.is_empty() {
-        return Err("--accept and --decline apply to proposals read only".to_owned());
+    if !flags.accept.is_empty() || !flags.accept_key_change.is_empty() || !flags.decline.is_empty()
+    {
+        return Err(
+            "--accept, --accept-key-change and --decline apply to proposals read only".to_owned(),
+        );
     }
     if flags.confirm.is_some() {
         return Err("--confirm applies to store discard only".to_owned());
@@ -550,6 +563,8 @@ mod tests {
                 &c,
                 "--accept",
                 "u3",
+                "--accept-key-change",
+                "u5",
                 "--decline",
                 "u4",
             ],
@@ -661,6 +676,8 @@ mod tests {
             ],
             vec!["--profile", "p", "card", "set", "A", "B", "C"],
             vec!["--profile", "p", "read", &c, "--accept", "u1"],
+            vec!["--profile", "p", "read", &c, "--accept-key-change", "u1"],
+            vec!["--profile", "p", "proposals", "read", &c, "--accept-key-change"],
             vec!["--profile", "p", "status", "--photo", "x"],
             vec!["--profile", "p", "messages", &c, "--keep", "u1"],
             vec!["--profile", "p", "status", "--none"],

@@ -82,8 +82,16 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         Verb::ProposalsRead {
             conversation,
             accept,
+            accept_key_change,
             decline,
-        } => crate::cards::proposals_read(s, r, conversation, accept, decline, out).await,
+        } => {
+            let decided = crate::cards::Decided {
+                accept,
+                accept_key_change,
+                decline,
+            };
+            crate::cards::proposals_read(s, r, conversation, &decided, out).await
+        }
         Verb::Contacts => crate::cards::contacts(s, r, out).await,
         Verb::ContactShow(id) => crate::cards::contact_show(s, r, id, out).await,
         Verb::ContactRename(id, name) => {

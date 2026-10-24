@@ -408,6 +408,16 @@ pub(crate) async fn proposals<B: DataSessionBinding, A: AdminBinding>(
     Ok(())
 }
 
+/// The decisions `proposals read` was given, by id.
+pub(crate) struct Decided<'a> {
+    /// `--accept`: none of them a key change.
+    pub(crate) accept: &'a [String],
+    /// `--accept-key-change`: each of them one.
+    pub(crate) accept_key_change: &'a [String],
+    /// `--decline`.
+    pub(crate) decline: &'a [String],
+}
+
 /// `proposals read`: the conversation's proposals shown, and so read, and
 /// the named ones accepted or declined in the same run. Every id is
 /// checked before anything is read; whatever fails after, what was shown
@@ -416,8 +426,7 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
     key: &ConversationKey,
-    accept: &[String],
-    decline: &[String],
+    decided: &Decided<'_>,
     out: &mut String,
 ) -> Result<(), Failure> {
     if !matches!(
@@ -446,8 +455,13 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
                 ))
             })
     };
+    let changes_key = |row: RowId| {
+        shown
+            .iter()
+            .any(|p| p.row == row && matches!(p.key, KeyView::Changed { .. }))
+    };
     let mut decisions: Vec<(RowId, bool)> = Vec::new();
-    for (n, id) in accept.iter().enumerate() {
+    for (n, id) in decided.accept.iter().enumerate() {
         let row = find(id, n, "accept")?;
         if shown
             .iter()
@@ -458,9 +472,30 @@ pub(crate) async fn proposals_read<B: DataSessionBinding, A: AdminBinding>(
                 n + 1
             )));
         }
+        // The client never accepts a changed key on its own (ADR-0063
+        // decision 4): a plain --accept of one is refused before anything
+        // is read (`a_key_change_is_accepted_only_by_the_flag_named_for_it`).
+        if changes_key(row) {
+            return Err(Failure::Refused(format!(
+                "--accept number {}: {id} is a key change; --accept-key-change {id} accepts it",
+                n + 1
+            )));
+        }
         decisions.push((row, true));
     }
-    for (n, id) in decline.iter().enumerate() {
+    // And the flag accepts a key change only: a script that confirmed a
+    // key change never accepts something else under that confirmation.
+    for (n, id) in decided.accept_key_change.iter().enumerate() {
+        let row = find(id, n, "accept-key-change")?;
+        if !changes_key(row) {
+            return Err(Failure::Refused(format!(
+                "--accept-key-change number {}: {id} is not a key change; --accept accepts it",
+                n + 1
+            )));
+        }
+        decisions.push((row, true));
+    }
+    for (n, id) in decided.decline.iter().enumerate() {
         decisions.push((find(id, n, "decline")?, false));
     }
     let mut rows: Vec<RowId> = decisions.iter().map(|(row, _)| *row).collect();

@@ -71,12 +71,16 @@ impl Side {
         }
     }
 
-    fn key(&self) -> IdentityKey {
-        let paths = ProfilePaths::resolve_embedded(
+    fn paths(&self) -> ProfilePaths {
+        ProfilePaths::resolve_embedded(
             "default",
             TrustBoundary::new(self.dir.path()).expect("a boundary"),
         )
-        .expect("paths");
+        .expect("paths")
+    }
+
+    fn key(&self) -> IdentityKey {
+        let paths = self.paths();
         interweave_human_app_core::identity_key(&paths, &[endpoint()], &store(self.dir.path()))
             .expect("opened or made")
             .expect("a key")
@@ -201,6 +205,7 @@ async fn a_shared_card_is_a_proposal_that_accept_makes_a_contact() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id],
+            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -231,6 +236,7 @@ async fn a_proposal_shown_and_left_undecided_is_gone_from_the_next_run() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![],
+            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -256,6 +262,7 @@ async fn decline_writes_nothing() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![],
+            accept_key_change: vec![],
             decline: vec![id],
         },
         true,
@@ -279,6 +286,7 @@ async fn a_decision_naming_no_proposal_refuses_before_anything_is_read() {
             Verb::ProposalsRead {
                 conversation: alice.route(),
                 accept,
+                accept_key_change: vec![],
                 decline,
             },
             false,
@@ -295,6 +303,7 @@ async fn a_decision_naming_no_proposal_refuses_before_anything_is_read() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id.clone()],
+            accept_key_change: vec![],
             decline: vec![id],
         },
         false,
@@ -325,6 +334,7 @@ async fn a_decision_that_fails_after_the_read_still_prints_the_proposals() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id],
+            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -346,6 +356,7 @@ async fn a_contact_is_renamed_its_photo_removed_and_deleted_by_the_person() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![id],
+            accept_key_change: vec![],
             decline: vec![],
         },
         false,
@@ -493,6 +504,7 @@ async fn an_accept_made_before_another_fails_is_printed_accepted() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: ids.clone(),
+            accept_key_change: vec![],
             decline: vec![],
         },
         true,
@@ -517,6 +529,7 @@ async fn proposals_are_read_on_a_route_naming_its_endpoint() {
                 endpoint: None,
             },
             accept: vec![],
+            accept_key_change: vec![],
             decline: vec![],
         },
         false,
@@ -541,6 +554,7 @@ async fn a_card_that_changes_nothing_says_it_matches_and_is_only_declined() {
     let accept = |id: String| Verb::ProposalsRead {
         conversation: alice.route(),
         accept: vec![id],
+        accept_key_change: vec![],
         decline: vec![],
     };
     run(&mut b_run, accept(id), true).await.1.expect("accepted");
@@ -564,6 +578,7 @@ async fn a_card_that_changes_nothing_says_it_matches_and_is_only_declined() {
         Verb::ProposalsRead {
             conversation: alice.route(),
             accept: vec![],
+            accept_key_change: vec![],
             decline: vec![id],
         },
         true,
@@ -571,4 +586,81 @@ async fn a_card_that_changes_nothing_says_it_matches_and_is_only_declined() {
     .await;
     closed.expect("declined");
     assert_eq!(lines(&out)[0]["status"], "declined");
+}
+
+fn read_with(conversation: ConversationKey, accept: &[&str], key_change: &[&str]) -> Verb {
+    let ids = |ids: &[&str]| ids.iter().map(|s| (*s).to_owned()).collect();
+    Verb::ProposalsRead {
+        conversation,
+        accept: ids(accept),
+        accept_key_change: ids(key_change),
+        decline: vec![],
+    }
+}
+
+#[tokio::test]
+async fn a_key_change_is_accepted_only_by_the_flag_named_for_it() {
+    let (alice, bob, mut b_run) = Box::pin(shared()).await;
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    let first = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    assert_eq!(lines(&out)[0]["key"]["state"], "new");
+    // The flag names a key change, and a first card is none.
+    let (out, refused) = run(
+        &mut b_run,
+        read_with(alice.route(), &[], &[&first]),
+        false,
+    )
+    .await;
+    assert!(matches!(refused, Err(Failure::Refused(_))), "{refused:?}");
+    assert!(out.is_empty(), "refused before anything is read: {out}");
+    run(&mut b_run, read_with(alice.route(), &[&first], &[]), false)
+        .await
+        .1
+        .expect("the first card accepted");
+
+    // Alice's identity gets a new key and shares her card again.
+    let old = alice.key().fingerprint().to_string();
+    let new = interweave_human_store::identity_key::replace(
+        &alice.paths(),
+        &endpoint(),
+        &interweave_human_store::identity_key::FilesystemCustody,
+    )
+    .expect("a new key")
+    .fingerprint()
+    .to_string();
+    let mut a_run = alice.session();
+    run(&mut a_run, Verb::CardShare(bob.route()), true)
+        .await
+        .1
+        .expect("shared again");
+    a_run.close().await;
+
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    let change = &lines(&out)[0];
+    assert_eq!(change["key"]["state"], "changed", "{out}");
+    assert_eq!(change["key"]["recorded"], old.as_str());
+    let id = change["id"].as_str().expect("id").to_owned();
+    // A plain --accept of a key change is refused, and reads nothing.
+    let (out, refused) = run(&mut b_run, read_with(alice.route(), &[&id], &[]), false).await;
+    match &refused {
+        Err(Failure::Refused(why)) => {
+            assert!(why.contains("--accept-key-change"), "{why}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(out.is_empty(), "{out}");
+    let (out, _) = run(&mut b_run, Verb::Proposals, true).await;
+    assert_eq!(lines(&out)[0]["status"], "unread", "still unread");
+
+    let (out, accepted) = run(&mut b_run, read_with(alice.route(), &[], &[&id]), true).await;
+    accepted.expect("the key change accepted");
+    assert_eq!(lines(&out)[0]["status"], "accepted", "{out}");
+    let (out, _) = run(&mut b_run, Verb::Contacts, true).await;
+    let contact = lines(&out)[0]["id"].as_str().expect("id").to_owned();
+    let (out, _) = run(&mut b_run, Verb::ContactShow(contact), true).await;
+    assert_eq!(
+        lines(&out)[0]["routes"][0]["fingerprint"],
+        new.as_str(),
+        "the route holds the new key"
+    );
 }
