@@ -418,6 +418,9 @@ struct Shared {
     /// The scan control last pressed: which reader a scan the model opens
     /// needs.
     scan_control: Option<interweave_human_ui_model::ScanControl>,
+    /// Opens the app's system settings: the denied-for-good line's Open
+    /// settings, where the platform has them.
+    open_settings: Option<Rc<dyn Fn()>>,
     /// The control whose reader runs for the scan open now: one per scan.
     scan_reading: Option<interweave_human_ui_model::ScanControl>,
     /// A reader's result with its scan's number, put here by its thread
@@ -1336,6 +1339,86 @@ impl View {
         if let Some(guard) = self.peer_lists.show_guard.as_ref() {
             guard.secured();
         }
+    }
+
+    /// Give the add page the platform's camera (add-a-peer §5.5):
+    /// `camera(true)` when a camera scan opens, `camera(false)` when it
+    /// ends, however it ended. Frames come back through
+    /// [`Self::camera_frame`], codes through [`Self::camera_read`], a
+    /// refused permission through [`Self::camera_denied`]. Scan a code
+    /// is drawn only when [`Self::offer_scans`] offers the camera.
+    pub fn camera_hook(&mut self, camera: impl Fn(bool) + 'static) {
+        self.peer_lists.camera = Some(Rc::new(camera));
+    }
+
+    /// A viewfinder frame, `luma` row by row, 0 black: drawn while a
+    /// camera scan is open, dropped otherwise.
+    pub fn camera_frame(&mut self, width: u32, height: u32, luma: &[u8]) {
+        if !self.window.get_viewfinder_open() {
+            return;
+        }
+        let Some(len) = (width as usize).checked_mul(height as usize) else {
+            return;
+        };
+        if luma.len() < len {
+            return;
+        }
+        let mut buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(width, height);
+        for (pixel, &l) in buffer.make_mut_slice().iter_mut().zip(luma) {
+            *pixel = slint::Rgb8Pixel::new(l, l, l);
+        }
+        self.window
+            .set_viewfinder_frame(slint::Image::from_rgb8(buffer));
+        self.window.set_viewfinder_has_frame(true);
+    }
+
+    /// A code the camera read: an address list is taken as the scan's
+    /// add, closing the viewfinder; any other leaves it open, saying so
+    /// (§5.5).
+    pub fn camera_read(&mut self, text: &str) {
+        if !self.window.get_viewfinder_open() {
+            return;
+        }
+        if interweave_human_ui_model::is_address_list(text) {
+            self.peer_lists.viewfinder_not_address = false;
+            enqueue(
+                &self.shared,
+                Input::Peers(PeersInput::Scanned(text.to_owned())),
+            );
+        } else if !self.peer_lists.viewfinder_not_address {
+            self.peer_lists.viewfinder_not_address = true;
+            self.window
+                .set_viewfinder_note(placeholder_en::text(UiText::ScanNotAddress).into());
+        }
+    }
+
+    /// The camera stopped under the scan -- it failed to open, the system
+    /// took it, or the app left the screen: the viewfinder closes as its ✕
+    /// does.
+    pub fn camera_closed(&self) {
+        if self.window.get_viewfinder_open() {
+            enqueue(&self.shared, Input::Peers(PeersInput::ScannerClosed));
+        }
+    }
+
+    /// The camera permission was refused at Scan a code; `for_good` when
+    /// the platform will not ask again.
+    pub fn camera_denied(&self, for_good: bool) {
+        enqueue(
+            &self.shared,
+            Input::Peers(PeersInput::CameraDenied { for_good }),
+        );
+    }
+
+    /// Open settings on the denied-for-good line runs `open`; the app
+    /// says [`Self::settings_returned`] when the person comes back.
+    pub fn on_open_settings(&self, open: impl Fn() + 'static) {
+        self.shared.borrow_mut().open_settings = Some(Rc::new(open));
+    }
+
+    /// Back from the app's system settings.
+    pub fn settings_returned(&self) {
+        enqueue(&self.shared, Input::Peers(PeersInput::SettingsReturned));
     }
 
     /// The app left the screen -- the background, or the screen locked:
