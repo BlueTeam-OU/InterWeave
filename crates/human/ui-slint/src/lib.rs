@@ -1609,6 +1609,23 @@ impl View {
             let key = self.conversation_handles.key_of(handle(rest)?)?;
             return Some(FocusTarget::Conversation(key.clone()));
         }
+        if let Some(rest) = [
+            "proposal-copy:",
+            "proposal-decline:",
+            "proposal-accept:",
+            "answer:",
+        ]
+        .into_iter()
+        .find_map(|prefix| id.strip_prefix(prefix))
+        {
+            let at = handle(rest)?;
+            return self
+                .cards
+                .drawn_rows
+                .iter()
+                .find(|(_, (h, _))| *h == at)
+                .map(|(row, _)| FocusTarget::Proposal(*row));
+        }
         let rest = ["item:", "action:", "link:", "source:"]
             .into_iter()
             .find_map(|prefix| id.strip_prefix(prefix))?;
@@ -2376,6 +2393,9 @@ impl View {
             let header = self.shared.borrow_mut().hidden_from_header.take();
             let pressed = match &outcome.moves_from {
                 Some(FocusTarget::Item(key)) => self.pressed.remove(key),
+                Some(FocusTarget::Proposal(row)) => {
+                    self.cards.pressed.take_if(|r| r == row).is_some()
+                }
                 _ => false,
             };
             let moves = pressed
@@ -2431,6 +2451,17 @@ impl View {
                 .then(|| format!("c:{}", self.conversation_handles.of(key))),
             FocusTarget::Header(key) => (self.on_screen() == Some(key)).then(|| "h".to_owned()),
             FocusTarget::ConversationsHeading => Some("heading".to_owned()),
+            // A proposal's first control, or the confirmation line an
+            // Accept left in its place.
+            FocusTarget::Proposal(row) => {
+                self.cards.drawn_rows.get(row).map(|(handle, answered)| {
+                    if *answered {
+                        format!("answer:{handle}")
+                    } else {
+                        format!("proposal-copy:{handle}")
+                    }
+                })
+            }
         };
         let Some(target) = target else {
             return false;
@@ -3219,6 +3250,7 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::Send { .. }
         | Intent::OpenLink(_)
         | Intent::Restore(_)
+        | Intent::UndoCard(_)
         | Intent::ReadTrust
         | Intent::SetTrust(_)
         // The addresses come from Peers' own controls, never an item's.

@@ -16,8 +16,8 @@ use i_slint_backend_testing::ElementHandle;
 use interweave_human_chat_protocol::{Card, CardPhoto, CardRoute, Classified, classify};
 use interweave_human_core::RowId;
 use interweave_human_ui_model::{
-    ContactRef, ContactView, ConversationKey, IdentityView, Intent, KeyView, Photo, PhotoEdit,
-    Proposal, ProposalContext, RouteView, RuntimeHost, UiModel, UiText, fill, isolated,
+    CardOutcome, ContactRef, ContactView, ConversationKey, IdentityView, Intent, KeyView, Photo,
+    PhotoEdit, Proposal, ProposalContext, RouteView, RuntimeHost, UiModel, UiText, fill, isolated,
     placeholder_en,
 };
 use interweave_human_ui_slint::{View, ViewEvent};
@@ -229,7 +229,14 @@ fn a_proposal_names_the_claim_beside_the_full_peer_id_and_draws_no_image_before_
     );
     // What the facade hands over after Accept: the proposal gone, the
     // contact with its photo decoded.
-    model.card_resolved(row(1));
+    model.card_resolved(
+        row(1),
+        CardOutcome::Accepted {
+            contact_id: "c1".to_owned(),
+            created: true,
+            photo_dropped: false,
+        },
+    );
     let mut ada = contact("c1", "Ada", P);
     ada.photo = Some(photo());
     ada.photo_from_card = Some(true);
@@ -237,6 +244,13 @@ fn a_proposal_names_the_claim_beside_the_full_peer_id_and_draws_no_image_before_
     model.contacts_listed(vec![ada]);
     view.render(&model);
     assert!(!shows(&view, &heading), "the proposal is gone");
+    assert!(
+        shows(
+            &view,
+            &fill(text(UiText::CardAccepted), &[("name", &isolated("Ada"))])
+        ),
+        "its confirmation row stands in its place (design 5.4.2)"
+    );
     press(&view, text(UiText::AppOptions));
     press(&view, text(UiText::ContactsTitle));
     let _ = intents(&mut view, &mut model);
@@ -475,7 +489,14 @@ fn the_contact_page_says_where_each_value_came_from_and_a_local_edit_stands() {
     // lists the contact with the person's name kept (app-core's
     // `a_changed_key_on_a_known_route_is_a_key_change_and_a_local_edit_stands`).
     model.card_received(proposal(2, P, card("Ada again", false), context()));
-    model.card_resolved(row(2));
+    model.card_resolved(
+        row(2),
+        CardOutcome::Accepted {
+            contact_id: "c1".to_owned(),
+            created: false,
+            photo_dropped: false,
+        },
+    );
     model.contacts_listed(vec![edited]);
     view.render(&model);
     assert_eq!(view.window().get_contact_name_draft(), "Countess");
@@ -876,4 +897,59 @@ fn a_contact_page_names_the_other_contacts_on_its_device_and_no_other() {
         !shows(&view, text(UiText::ContactSharesDeviceNote)),
         "alone on its device: no note"
     );
+}
+
+/// Contact-cards design 5.4.2 and 5.4.3, drawn: Decline takes the row
+/// away with "Card declined" and its Undo; the Undo raises the card's
+/// Undo and the proposal is drawn again, focus on its first control.
+/// Accept leaves its confirmation row, which takes focus, and its own
+/// snackbar replaces the last one.
+#[test]
+fn a_cards_answer_shows_its_snackbar_and_undo_draws_the_proposal_again() {
+    let mut view = view();
+    let mut model = UiModel::new();
+    model.card_received(proposal(1, P, card("Ada", false), context()));
+    let _ = shown(&mut view, &mut model, P);
+    let heading = fill(text(UiText::CardProposal), &[("name", &isolated("Ada"))]);
+    press(&view, text(UiText::CardDecline));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::DeclineCard(row(1))]
+    );
+    model.card_resolved(row(1), CardOutcome::Declined);
+    view.render(&model);
+    assert!(!shows(&view, &heading), "the row is gone");
+    assert!(shows(&view, text(UiText::ConfirmCardDeclined)));
+
+    press(&view, text(UiText::Undo));
+    assert_eq!(
+        intents(&mut view, &mut model),
+        vec![Intent::UndoCard(row(1))]
+    );
+    model.card_restored(proposal(1, P, card("Ada", false), context()));
+    view.render(&model);
+    settle();
+    assert!(shows(&view, &heading), "the proposal is back");
+    assert_eq!(
+        view.window().get_focus_target().as_str(),
+        "proposal-copy:0",
+        "focus on its first control"
+    );
+
+    press(&view, text(UiText::CardAccept));
+    let _ = intents(&mut view, &mut model);
+    model.card_resolved(
+        row(1),
+        CardOutcome::Accepted {
+            contact_id: "c1".to_owned(),
+            created: true,
+            photo_dropped: true,
+        },
+    );
+    model.contacts_listed(vec![contact("c1", "Ada", P)]);
+    view.render(&model);
+    settle();
+    assert!(shows(&view, text(UiText::ConfirmContactSaved)));
+    assert!(shows(&view, text(UiText::CardPhotoNotUsed)));
+    assert_eq!(view.window().get_focus_target().as_str(), "answer:0");
 }
