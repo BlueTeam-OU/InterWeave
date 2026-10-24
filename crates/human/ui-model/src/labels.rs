@@ -857,7 +857,7 @@ ui_texts! {
     KeyNewFailedGone => "The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again.",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §3, desktop only; must be true for a symbolic link, a folder owned by another user account, and a file where the folder should be; must say what to make of it, since the client never changes what it does not own
     KeyDirUnsafe => "This identity's key must be kept in a regular folder that only your user account owns. The location shown is not a folder like that, so InterWeave does not use the key. Make it a regular folder that only your user account owns, then choose Try again.",
-    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 and §4.3, desktop only, the line under 'KeyDirUnsafe' wherever it shows; a label and the path, '{path}' last so no punctuation touches it
+    /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §4.1 and §4.3, desktop only, the line under `KeyDirUnsafe` wherever it shows; a label and the path, '{path}' last so no punctuation touches it
     KeyDirUnsafePath => "Folder location: {path}",
     /// IDENTITY KEY (design/2026-10-24-identity-key.md section 10): §5.1, only when this identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make (review round 3, F11)
     KeyNewPending => "In some conversations, your card has not reached the contact yet. If InterWeave has not sent the card yet, making a new key cancels it. If InterWeave has already sent the card, it cannot be canceled, and the contact may still receive it with the old key.",
