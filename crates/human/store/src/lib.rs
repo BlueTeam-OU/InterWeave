@@ -60,8 +60,8 @@ pub use records::{
 };
 pub use schema::{REQUIRED_TABLES, SCHEMA_VERSION};
 pub use store::contacts::{
-    Accepted, AcceptedCard, CardStanding, Contact, ContactRoute, KeyStanding, OwnCard, ValueSource,
-    direct_conversation_id,
+    AcceptUndo, Accepted, AcceptedCard, CardStanding, Contact, ContactRoute, KeyStanding, OwnCard,
+    ValueSource, direct_conversation_id,
 };
 pub use store::{HumanStore, READ_PAIR_CAP, STORE_FILE, StoreOptions};
 
