@@ -250,8 +250,9 @@ Read off `spikes/spike-001/README.md` §S25 (facts 45–50, runs `s25-a` to
 messages on and `--channels`. An event that reached the bridge 1.6 s
 before the running turn's result did not enter that turn: it started a
 turn of its own once the turn ended, and was answered (a). The same
-held with stdin closed before the event. The process finished the turn,
-answered the event, then exited 0 (b). The after-turn control was
+held in run b, with stdin closed before the event. The process finished
+the turn, answered the event, then exited 0 with no signal sent: run b's
+outcome, one run (b). The after-turn control was
 answered (c). Without managed settings, `--channels` gave no channel,
 and nothing in the debug log, stderr or stdout said so (d). In
 `--permission-mode manual`, which `init` reports as `default`, `reply`
