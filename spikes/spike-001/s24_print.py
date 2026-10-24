@@ -33,12 +33,13 @@ and whether ``channel_enable`` is sent:
   f-dev-flag-only    no managed settings; the development flag, no
                      channel_enable (control: fact 4, on the bridge)
   g-enable-only      org allow entry; no flag; channel_enable
-  h-no-allowed-tools as b, without --allowedTools (INSTALL.md's command)
+  h-no-allowed-tools as b, without --allowedTools (INSTALL.md's command before
+                     this PR's review; it now passes them)
 
 The session's first user turn asks for READY now and, when a channel tag
 arrives later, one call of the bridge's reply tool. Nothing is sent after
 it: whether the event starts a turn of its own while the session idles
-is what a, b, e and f measure, with the peer's message sent after the first
+is what a, b and e to h measure, with the peer's message sent after the first
 turn's result and the session given 120 s to answer. c and d answer the
 control request only. The session is stopped by closing its stdin, then
 as S22 stops one. The token, the raw directory and the evidence are
@@ -77,7 +78,7 @@ RUNS = {
     "e-no-flag": {"settings": ALLOW, "flags": [], "enable": False, "traffic": True, "reply": False},
     "f-dev-flag-only": {"settings": None, "flags": DEV, "enable": False, "traffic": True, "reply": False},
     # Added on review: g isolates channel_enable (a also had --channels);
-    # h is INSTALL.md's documented command, which grants no tool.
+    # h was INSTALL.md's documented command until the review, granting no tool.
     "g-enable-only": {"settings": ALLOW, "flags": [], "enable": True, "traffic": True, "reply": True},
     "h-no-allowed-tools": {"settings": ALLOW, "flags": CHANNELS, "enable": False, "traffic": True,
                            "reply": None, "allowed": False},
@@ -269,7 +270,7 @@ def main() -> int:
         session.thread.join(5)
         (out / "transcript.txt").write_text("".join(json.dumps(v) + "\n" for _, v in session.lines))
         record["control_responses"] = [v for _, v in session.lines if v.get("type") == "control_response"]
-        # The permission mode decides whether reply needs --allowedTools;
+        # The permission mode may decide whether reply needs --allowedTools;
         # extract.py keeps only init's server list, so it is recorded here.
         record["permission_modes"] = sorted({v.get("permissionMode") for _, v in session.lines
                                              if v.get("type") == "system" and v.get("subtype") == "init"} - {None})

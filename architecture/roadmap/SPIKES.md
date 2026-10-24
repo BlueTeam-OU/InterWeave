@@ -233,7 +233,8 @@ exactly as without it (d, c). That fits fact 4's runs having seen
 nothing, but they ran 2.1.285 with a bare `--mcp-config` server and a
 plain `-p`, which S24 did not, so their cause is inferred. Every
 session ran in the `auto` permission mode, from a source not
-established; in it, `reply` reached the peer without `--allowedTools`
+established (h's evidence records it; for the others it rests on raw
+transcripts that are not committed); in it, `reply` reached the peer without `--allowedTools`
 (h). A print session that skips a channel logs nothing about it. Not
 established: Anthropic's allowlist in `-p`, a bare `--mcp-config`
 server in `-p`, another permission mode, an event arriving during a

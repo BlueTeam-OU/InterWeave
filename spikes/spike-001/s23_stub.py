@@ -84,7 +84,8 @@ def main():
         record("in", msg)
         method, id_ = msg.get("method", ""), msg.get("id")
         # A modern stub's results carry what the 2026-07-28 schemas require:
-        # a resultType on every result, the cache fields on a listing. Keyed
+        # a resultType on discover, tools/list and tools/call, the cache fields
+        # on discover and tools/list; initialize and ping get neither. Keyed
         # on SPIKE_ERA, not on the era negotiated, so a legacy client of a
         # modern stub is sent them too (S23's c); a legacy stub sends neither.
         complete = {"resultType": "complete"} if ERA == "modern" else {}
