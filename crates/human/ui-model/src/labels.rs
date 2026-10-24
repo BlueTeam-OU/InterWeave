@@ -796,6 +796,11 @@ ui_texts! {
     /// CARD CONFIRMATION ROW, added when the card's photo did not decode
     /// within its bound and the contact was saved without it.
     CardPhotoNotUsed => "The card's photo could not be used, so the contact was saved without it.",
+    /// CARD CONFIRMATION ROW's accessible description while its Accept's
+    /// snackbar is open, never shown as text (contact-cards design
+    /// 5.4.2, #416): read after `CardAccepted` or `CardUpdated`.
+    // PLACEHOLDER (en)
+    CardUndoHint => "You can undo this change. Undo comes after all the messages in this conversation.",
     /// SNACKBAR, with Undo, after an Accept that created a contact.
     ConfirmContactSaved => "Contact saved",
     /// SNACKBAR, with Undo, after an Accept that updated a contact.

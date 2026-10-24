@@ -94,6 +94,8 @@ pub struct Snackbar {
     /// The conversation it is shown in, or `None` on the conversation
     /// list (a conversation hide).
     pub conversation: Option<ConversationKey>,
+    /// The card whose Accept or Decline it confirms, by its row.
+    pub card: Option<RowId>,
 }
 
 /// Where focus goes after an action took a row away, brought it back or
@@ -701,6 +703,10 @@ impl UiModel {
             confirms: open.confirms,
             undo: self.undo_offered(&open.undo),
             conversation: open.conversation.clone(),
+            card: match open.undo {
+                Undo::Card { row } => Some(row),
+                _ => None,
+            },
         })
     }
 
