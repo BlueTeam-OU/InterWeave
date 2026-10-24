@@ -865,10 +865,10 @@ fn identity_show_names_any_human_endpoint_and_a_list_is_judged_before_any_daemon
         "refused before any daemon: {}",
         said(&out)
     );
-    let seventeen: String = (1..=17).fold(String::new(), |mut s, n| {
-        s.push_str(&format!("/ip4/{ip}/tcp/{n}\n"));
-        s
-    });
+    let seventeen = (1..=17)
+        .map(|n| format!("/ip4/{ip}/tcp/{n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
     let out = human(&home, &["peers", "add", "-"], &seventeen);
     assert_eq!(code(&out), Some(1), "{}", said(&out));
     let out = human(&home, &["peers", "add", "-"], &format!("/ip4/{ip}/tcp/1\n"));
