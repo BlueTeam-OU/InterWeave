@@ -16,7 +16,8 @@ use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminStatus, BootstrapAddress,
     EndpointAdminView, Generation, IngressCounts, LeaseRecord, LineChange, MAX_ADDRESSES_PER_ADD,
     MAX_CLIENT_KIND_CHARS, MAX_OWN_ADDRESSES, OwnAddress, OwnAddressKind, OwnAddresses,
-    PeerGateView, PeerOutcome, PreAuthCounts, TrustAdminView, TrustSource,
+    PeerGateView, PeerOutcome, PreAuthCounts, TrustAdminView, TrustChange, TrustRefusal,
+    TrustSource,
 };
 use interweave_transport_api::{
     ConnectivitySummary, EndpointDirectoryV1, EndpointId, Health, MAX_DIRECTORY_ENTRIES,
@@ -63,6 +64,17 @@ pub const ROUTE_HELD_SINCE_MINOR: u64 = 6;
 /// client knows: its decoder refuses a name outside the set it was built
 /// with, so `own_peer` would turn a refusal into a protocol violation.
 pub const OWN_PEER_SINCE_MINOR: u64 = 9;
+
+/// The minor from which an admin write the runtime refuses as
+/// superseded is answered by name: `trust-set-result`'s `refused:
+/// superseded` for `admin.trust.set`, and `superseded` in the two address
+/// results (`ipc/peers-address-result` 1.2.0, `ipc/peers-addresses-result`
+/// 1.1.0). Below it the write is STILL refused -- the rule binds every
+/// connection, an older client's late write being the case itself -- and
+/// answered the error `Internal`, nothing changed: no older decoder knows
+/// the name, `admin.trust.set` had no refusal shape at all, and `Internal`
+/// is what every older client already reads as not applied.
+pub const SUPERSEDED_SINCE_MINOR: u64 = 10;
 
 /// Rows on one `ipc/peer-list` page: a row is up to 194 bytes, so 1024
 /// would overflow the 128 KiB body and 512 is about 100 KB; a full
@@ -934,9 +946,17 @@ impl From<AddressChange> for AddressResult {
 impl AddressResult {
     /// `change` as the connection's `minor` may carry it: `own_peer`
     /// below [`OWN_PEER_SINCE_MINOR`] is answered `grammar`.
-    #[must_use]
-    pub fn for_minor(change: AddressChange, minor: u64) -> Self {
-        Self::from(match change {
+    ///
+    /// # Errors
+    /// [`TransportError::Internal`] for `superseded` below
+    /// [`SUPERSEDED_SINCE_MINOR`], which no older decoder knows: still
+    /// refused, answered as a write that changed nothing.
+    pub fn for_minor(change: AddressChange, minor: u64) -> Result<Self, TransportError> {
+        Ok(Self::from(match change {
+            AddressChange::Refused {
+                reason: AddressRefusal::Superseded,
+                ..
+            } if minor < SUPERSEDED_SINCE_MINOR => return Err(TransportError::Internal),
             AddressChange::Refused {
                 reason: AddressRefusal::OwnPeer,
                 detail,
@@ -945,7 +965,7 @@ impl AddressResult {
                 detail,
             },
             change => change,
-        })
+        }))
     }
 }
 
@@ -1016,6 +1036,91 @@ impl<'de> Deserialize<'de> for AddressResult {
     }
 }
 
+/// `ipc/trust-set-result`: what an `admin.trust.set` did, from minor
+/// [`SUPERSEDED_SINCE_MINOR`]; below it the set answers
+/// [`EmptyResult`], and a superseded set the error `Internal`. A refusal
+/// is an ANSWER naming its rule, never an error.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TrustSetResult {
+    outcome: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refused: Option<&'static str>,
+    /// What `refused` names, kept typed so the mirror reads it back
+    /// without matching the string again.
+    #[serde(skip)]
+    reason: Option<TrustRefusal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+impl From<TrustChange> for TrustSetResult {
+    fn from(change: TrustChange) -> Self {
+        match change {
+            TrustChange::Set => Self {
+                outcome: "set",
+                refused: None,
+                reason: None,
+                detail: None,
+            },
+            TrustChange::Refused(reason) => Self {
+                outcome: "refused",
+                refused: Some(reason.as_str()),
+                reason: Some(reason),
+                detail: None,
+            },
+        }
+    }
+}
+
+impl From<TrustSetResult> for TrustChange {
+    fn from(result: TrustSetResult) -> Self {
+        result.reason.map_or(Self::Set, Self::Refused)
+    }
+}
+
+impl<'de> Deserialize<'de> for TrustSetResult {
+    /// The schema's closed sets, and `refused` present exactly when the
+    /// outcome is `refused`.
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            outcome: String,
+            #[serde(default, deserialize_with = "present")]
+            refused: Option<String>,
+            #[serde(default, deserialize_with = "present")]
+            detail: Option<String>,
+        }
+        let bad = |what: &str| serde::de::Error::custom(what);
+        let wire = Wire::deserialize(d)?;
+        if wire
+            .detail
+            .as_ref()
+            .is_some_and(|detail| detail.chars().count() > MAX_ADDRESS_DETAIL_CHARS)
+        {
+            return Err(bad("a detail is at most 512 characters"));
+        }
+        let reason = match (wire.outcome.as_str(), wire.refused.as_deref()) {
+            ("set", None) => None,
+            ("refused", Some(name)) => Some(
+                TrustRefusal::ALL
+                    .into_iter()
+                    .find(|known| known.as_str() == name)
+                    .ok_or_else(|| bad("an unknown refusal"))?,
+            ),
+            ("refused", None) => return Err(bad("a refusal names its rule")),
+            ("set", Some(_)) => return Err(bad("only a refusal names a rule")),
+            _ => return Err(bad("an unknown outcome")),
+        };
+        Ok(Self {
+            outcome: if reason.is_some() { "refused" } else { "set" },
+            refused: reason.map(TrustRefusal::as_str),
+            reason,
+            detail: wire.detail,
+        })
+    }
+}
+
 /// `ipc/peers-addresses-result`: what an `admin.peers.add_addresses` did
 /// (ADR-0062 decision 4). Every line in force, one row per line in the
 /// order given; or a refusal naming its rule and -- but for
@@ -1053,17 +1158,28 @@ pub enum LineOutcome {
 }
 
 impl AddressesResult {
-    /// The port's answer to a list of `lines` addresses.
+    /// The port's answer to a list of `lines` addresses, on a connection
+    /// that negotiated `minor`.
     ///
     /// # Errors
+    /// [`TransportError::Internal`] for `superseded` below
+    /// [`SUPERSEDED_SINCE_MINOR`], as [`AddressResult::for_minor`]; and
     /// [`TransportError::Internal`] for an answer the contract cannot
     /// carry -- a row count other than `lines`, so rows a client cannot
     /// match to its lines, more than [`MAX_ADDRESSES_PER_ADD`], a refusal
     /// `authored`, a line named where the rule names none or none where
     /// it names one: a port that answered that broke its own rule, and
     /// the server answers so rather than mending it.
-    pub fn from_view(change: AddressesChange, lines: usize) -> Result<Self, TransportError> {
+    pub fn from_view(
+        change: AddressesChange,
+        lines: usize,
+        minor: u64,
+    ) -> Result<Self, TransportError> {
         Ok(match change {
+            AddressesChange::Refused {
+                reason: AddressRefusal::Superseded,
+                ..
+            } if minor < SUPERSEDED_SINCE_MINOR => return Err(TransportError::Internal),
             AddressesChange::Added(rows) => {
                 if rows.len() != lines || rows.is_empty() || rows.len() > MAX_ADDRESSES_PER_ADD {
                     return Err(TransportError::Internal);

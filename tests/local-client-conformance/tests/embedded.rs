@@ -648,3 +648,11 @@ fn own_addresses_are_what_an_add_takes() {
     ));
     pair.stop();
 }
+
+#[test]
+fn a_later_ports_write_supersedes_an_older_ports() {
+    let pair = EmbeddedPair::start();
+    let (a, _) = pair.bindings();
+    pair.run(suite::a_later_ports_write_supersedes_an_older_ports(&a));
+    pair.stop();
+}

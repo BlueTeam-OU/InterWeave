@@ -18,6 +18,7 @@ mod notices;
 pub mod runtime;
 pub mod session;
 pub mod translate;
+mod write_order;
 
 pub use discovery::{DiscoveryDiagnostics, ProviderDiagnostics};
 pub use gate::{CONNECTIVITY_TARGET, LastOutcome, PeerGateRow};

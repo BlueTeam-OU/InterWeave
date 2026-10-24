@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use interweave_local_client_api::{
     AddressChange, AddressSource, AdminBinding, AdminCapability, AdminPort, DataSessionBinding,
-    DataSessionPort as _, PeerGateView,
+    DataSessionPort as _, PeerGateView, TrustChange,
 };
 use interweave_profile_config::{ProfilePaths, TrustBoundary};
 use interweave_transport_api::{DirectDestination, MessageId, TransportIdentity};
@@ -771,9 +771,15 @@ pub(crate) async fn pair<B: DataSessionBinding + AdminBinding>(
         )
     };
     if args.trust {
-        port.set_trust(peer.clone(), true)
-            .await
-            .map_err(|_| "the trust change was refused".to_owned())?;
+        match port.set_trust(peer.clone(), true).await {
+            Ok(TrustChange::Set) => {}
+            // One admin port here, so nothing supersedes it; said if it
+            // ever does.
+            Ok(TrustChange::Refused(reason)) => {
+                return Err(format!("the trust change was refused {}", reason.as_str()));
+            }
+            Err(_) => return Err("the trust change was refused".to_owned()),
+        }
     } else if matches!(args.expect, PairExpect::Apart(_)) && trusted().await? {
         // Apart before this side's trust step means not trusted yet; a
         // profile that trusts already is not fresh.

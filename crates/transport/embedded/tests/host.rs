@@ -15,7 +15,7 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use interweave_local_client_api::{AdminBinding, AdminCapability, AdminPort};
+use interweave_local_client_api::{AdminBinding, AdminCapability, AdminPort, TrustChange};
 use interweave_profile_config::endpoint_overlay::EndpointOverlay;
 use interweave_profile_config::profile_format::{self, PROFILE_FORMAT};
 use interweave_profile_config::sections::LogLevel;
@@ -151,9 +151,11 @@ fn the_host_serves_under_its_root() {
     let other = ProfileIdentity::generate()
         .transport_identity()
         .expect("peer");
-    host.runtime()
-        .block_on(port.set_trust(other.clone(), true))
-        .expect("set and persisted");
+    assert_eq!(
+        host.runtime().block_on(port.set_trust(other.clone(), true)),
+        Ok(TrustChange::Set),
+        "set and persisted"
+    );
     let overlay = TrustOverlay::path_for(host.paths());
     assert!(overlay.starts_with(&root), "{}", overlay.display());
     let (_, effective) =

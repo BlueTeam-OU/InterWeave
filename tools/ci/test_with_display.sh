@@ -307,6 +307,7 @@ refused "an AT-SPI registry that never answers" "the AT-SPI registry did not ans
 # sends the signal N more times, 0.3s apart (Ctrl-C held down during the
 # stop), and the caller's environment carries `stop_by` and `stopping`,
 # which the wrapper must not take for its own state.
+ms_now() { local t="${EPOCHREALTIME//[.,]/}"; echo $((t / 1000)); }
 sig_case() {
     local sig="$1" want="$2" cmd="$3" name="$4" stop="${5:-5}" wrapper got took start sleeper
     reset
@@ -318,14 +319,20 @@ sig_case() {
     start=$SECONDS
     kill "-$sig" "$wrapper"
     # Repeats: one more signal every 0.3s, polling every 0.1s for when the
-    # command died, in milliseconds after the first signal.
+    # command died, in milliseconds after the first signal. The clock is
+    # bash's EPOCHREALTIME, as the wrapper's is, rather than `date +%s%3N`:
+    # the uutils date of the CI image (Ubuntu 26.04, 0.10.0) cuts %3N from
+    # the unpadded nanoseconds (034705108 gives 347), so in the first
+    # tenth of a second it prints a wrong millisecond. Timed with it, this
+    # case read deaths at the 1s deadline as 368ms to 615ms on CI (five
+    # red runs, 2026-10-24).
     local t0 died_ms="" r
-    t0=$(date +%s%3N)
+    t0=$(ms_now)
     for ((r = 1; r <= ${SIG_REPEAT:-0} * 3; r++)); do
         sleep 0.1
         (( r % 3 == 0 )) && kill "-$sig" "$wrapper" 2>/dev/null
         if [[ -z "$died_ms" ]] && [[ -s "$SANDBOX/sleeper-pid" ]] && ! kill -0 "$(cat "$SANDBOX/sleeper-pid")" 2>/dev/null; then
-            died_ms=$(( $(date +%s%3N) - t0 ))
+            died_ms=$(( $(ms_now) - t0 ))
         fi
     done
     if [[ -n "${SIG_REPEAT:-}" ]]; then

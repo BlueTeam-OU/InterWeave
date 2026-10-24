@@ -12,6 +12,7 @@ use interweave_human_store::identity_key::{
 };
 
 use interweave_human_store::HumanStore;
+use interweave_human_ui_model::KeyProblem;
 use interweave_profile_config::{ProfileConfig, ProfilePaths};
 use interweave_transport_api::EndpointId;
 
@@ -87,6 +88,87 @@ pub fn identity_key_under(
         return Err(IdentityKeyFileError::Missing);
     }
     identity_key::create(paths, endpoint, cipher).map(Some)
+}
+
+/// Where the identity in front's key lives and under whose custody: what
+/// lets the facade open it again and make a new one
+/// (design/2026-10-24-identity-key.md sections 5 and 6).
+pub struct KeySource {
+    paths: ProfilePaths,
+    endpoint: EndpointId,
+    cipher: Box<dyn KeyCipher + Send>,
+}
+
+impl KeySource {
+    /// `endpoint`'s key under `cipher`, in `paths`' state directory.
+    #[must_use]
+    pub fn new(
+        paths: ProfilePaths,
+        endpoint: EndpointId,
+        cipher: Box<dyn KeyCipher + Send>,
+    ) -> Self {
+        Self {
+            paths,
+            endpoint,
+            cipher,
+        }
+    }
+
+    /// The identity.
+    #[must_use]
+    pub const fn endpoint(&self) -> &EndpointId {
+        &self.endpoint
+    }
+
+    /// Open the key, or make the first one, by [`identity_key_under`]'s
+    /// rule.
+    ///
+    /// # Errors
+    /// As [`identity_key_under`]'s.
+    pub fn open(&self, store: &HumanStore) -> Result<IdentityKey, IdentityKeyFileError> {
+        identity_key_under(
+            &self.paths,
+            std::slice::from_ref(&self.endpoint),
+            &*self.cipher,
+            store,
+        )?
+        .ok_or(IdentityKeyFileError::Missing)
+    }
+
+    /// Replace the key, on the person's confirmation
+    /// ([`identity_key::replace`]).
+    ///
+    /// # Errors
+    /// As [`identity_key::replace`]'s.
+    pub fn replace(&self) -> Result<IdentityKey, identity_key::NewKeyFailed> {
+        identity_key::replace(&self.paths, &self.endpoint, &*self.cipher)
+    }
+
+    /// The person's terms for a refusal: its kind, the key folder named
+    /// where the folder is the problem. A refusal no open gives is told as
+    /// one that may pass.
+    #[must_use]
+    pub fn problem(&self, refused: &IdentityKeyFileError) -> KeyProblem {
+        use identity_key::KeyUnusable as K;
+        match refused.unusable() {
+            Some(K::LostOnDevice) => KeyProblem::LostOnDevice,
+            Some(K::BelowDevice) => KeyProblem::BelowDevice,
+            Some(K::OtherDevice) => KeyProblem::OtherDevice,
+            Some(K::NewerVersion) => KeyProblem::NewerVersion,
+            Some(K::Damaged) => KeyProblem::Damaged,
+            Some(K::Exposed) => KeyProblem::Exposed,
+            Some(K::DirUnsafe) => KeyProblem::DirUnsafe {
+                folder: self
+                    .paths
+                    .state_dir()
+                    .join(identity_key::IDENTITY_KEYS_DIR)
+                    .display()
+                    .to_string(),
+            },
+            Some(K::Missing) => KeyProblem::Missing,
+            Some(K::NotNow) | None => KeyProblem::NotNow,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -19,9 +19,9 @@
 #     `v<version>` against <dir>'s root manifest, by default this
 #     repository's, with --manifest: this runs beside the release key,
 #     so no cargo runs, and the tag job has asked cargo already;
-#   - <version> is not the APK's versionName (the version is a commit in
-#     android/app/build.gradle.kts before the tag, never a value this run
-#     invents);
+#   - <version> is not the APK's versionName (Gradle produces it from
+#     the workspace version, ADR-0065 decision 5, so a mismatch is an APK
+#     not built from the commit tagged; never a value this run invents);
 #   - its package is not org.interweave.human, or its versionCode is not
 #     a positive integer;
 #   - it is debuggable, or carries native code for an ABI other than
@@ -169,7 +169,7 @@ vname="$(sed -n "s/.* versionName='\([^']*\)'.*/\1/p" <<<"$package_line")"
 [[ "$name" == org.interweave.human ]] || die "package is '$name', not org.interweave.human"
 [[ "$code" =~ ^[1-9][0-9]*$ ]] || die "versionCode '$code' is not a positive integer"
 [[ "$vname" == "$version" ]] \
-    || die "the APK's versionName is '$vname', not $version: set it in android/app/build.gradle.kts before tagging"
+    || die "the APK's versionName is '$vname', not $version: it is built from the workspace version, so build the APK from the commit tagged"
 ! grep -q '^application-debuggable' <<<"$badging" || die "the APK is debuggable: a debug build is never published"
 abis="$(sed -n "s/^native-code: //p" <<<"$badging")"
 [[ "$abis" == "'arm64-v8a'" ]] || die "native code is for [${abis:-none}], not arm64-v8a alone"

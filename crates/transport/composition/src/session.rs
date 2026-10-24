@@ -32,6 +32,7 @@ use interweave_local_client_api::{
     BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort, EndpointAdminView,
     Generation, IngressCounts, LocalAdminPort, LocalDataSession, OwnAddresses, PeerGateView,
     PreAuthCounts, ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView,
+    TrustChange,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, DirectMessageV2, EndpointDirectoryV1,
@@ -42,6 +43,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::notices::SessionNotices;
 use crate::runtime::{Request, ShutdownRequest, ask_driver};
+use crate::write_order::{Admission, AdmissionOrder};
 
 /// A substrate that has stopped answers nothing.
 #[allow(clippy::needless_pass_by_value)]
@@ -213,6 +215,9 @@ pub struct InProcessBinding {
     /// Whether the runtime keeps an endpoint overlay, so an endpoint
     /// row's state survives a restart (ADR-0028 A 2026-10-11).
     endpoints_persisted: bool,
+    /// Where a port that may write takes its place in admission order,
+    /// which the driver orders admin writes by (`write_order`).
+    order: Arc<AdmissionOrder>,
 }
 
 impl InProcessBinding {
@@ -229,6 +234,7 @@ impl InProcessBinding {
         shutdown: Arc<watch::Sender<Option<ShutdownRequest>>>,
         notices: SessionNotices,
         endpoints_persisted: bool,
+        order: Arc<AdmissionOrder>,
     ) -> Self {
         Self {
             commander,
@@ -239,6 +245,7 @@ impl InProcessBinding {
             shutdown,
             notices,
             endpoints_persisted,
+            order,
         }
     }
 }
@@ -257,8 +264,13 @@ impl AdminBinding for InProcessBinding {
         &self,
         capabilities: BTreeSet<AdminCapability>,
     ) -> Result<InProcessAdmin, TransportError> {
+        // ADMITTED HERE, in the order ports are opened -- over IPC, the
+        // order the server handles each connection's hello; only a port
+        // that can write (`AdmissionOrder::admit_writer`).
+        let writes = self.order.admit_writer(&capabilities);
         Ok(InProcessAdmin {
             port: LocalAdminPort::new(fresh_generation()?, capabilities),
+            writes,
             commander: self.commander.clone(),
             driver: self.driver.clone(),
             peer: self.peer.clone(),
@@ -681,6 +693,10 @@ pub struct InProcessAdmin {
     peer: TransportIdentity,
     shutdown: Arc<watch::Sender<Option<ShutdownRequest>>>,
     endpoints_persisted: bool,
+    /// The port's write admission: present exactly when it holds
+    /// `admin.trust` or `admin.peers`, and cloned into each write request
+    /// so one queued after the port is dropped is still ordered.
+    writes: Option<Admission>,
 }
 
 impl InProcessAdmin {
@@ -697,6 +713,13 @@ impl InProcessAdmin {
         } else {
             Err(TransportError::CapabilityDenied)
         }
+    }
+
+    /// `capability`, a write one, required, and the admission its write
+    /// is ordered by.
+    fn writer(&self, capability: AdminCapability) -> Result<Admission, TransportError> {
+        self.require(capability)?;
+        self.writes.clone().ok_or(TransportError::CapabilityDenied)
     }
 }
 
@@ -823,11 +846,11 @@ impl AdminPort for InProcessAdmin {
         &self,
         address: String,
     ) -> Result<AddressChange, TransportError> {
-        self.require(AdminCapability::Peers)?;
+        let by = self.writer(AdminCapability::Peers)?;
         // Through the driver, which holds the bootstrap overlay: it is
         // written before the provider is told (ADR-0062).
         ask_driver(&self.driver()?, |reply| {
-            Request::AddBootstrap(address, reply)
+            Request::AddBootstrap(by, address, reply)
         })
         .await?
     }
@@ -836,9 +859,9 @@ impl AdminPort for InProcessAdmin {
         &self,
         addresses: Vec<String>,
     ) -> Result<AddressesChange, TransportError> {
-        self.require(AdminCapability::Peers)?;
+        let by = self.writer(AdminCapability::Peers)?;
         ask_driver(&self.driver()?, |reply| {
-            Request::AddBootstraps(addresses, reply)
+            Request::AddBootstraps(by, addresses, reply)
         })
         .await?
     }
@@ -847,9 +870,9 @@ impl AdminPort for InProcessAdmin {
         &self,
         address: String,
     ) -> Result<AddressChange, TransportError> {
-        self.require(AdminCapability::Peers)?;
+        let by = self.writer(AdminCapability::Peers)?;
         ask_driver(&self.driver()?, |reply| {
-            Request::RemoveBootstrap(address, reply)
+            Request::RemoveBootstrap(by, address, reply)
         })
         .await?
     }
@@ -868,10 +891,10 @@ impl AdminPort for InProcessAdmin {
         &self,
         peer: TransportIdentity,
         allowed: bool,
-    ) -> Result<(), TransportError> {
-        self.require(AdminCapability::Trust)?;
+    ) -> Result<TrustChange, TransportError> {
+        let by = self.writer(AdminCapability::Trust)?;
         ask_driver(&self.driver()?, |reply| {
-            Request::SetTrust(peer, allowed, reply)
+            Request::SetTrust(by, peer, allowed, reply)
         })
         .await?
     }

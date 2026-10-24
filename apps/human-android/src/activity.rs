@@ -7,8 +7,9 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide};
 use interweave_human_app_core::{ModelSide, Opener, Problem, Surface};
@@ -102,6 +103,130 @@ pub(crate) fn back() {
     });
 }
 
+/// Whether the phone has a camera (`Native.cameraAvailable`), read before
+/// the window exists.
+static CAMERA_PRESENT: AtomicBool = AtomicBool::new(false);
+
+/// `Native.cameraAvailable`: Scan a code is offered only with a camera.
+pub(crate) fn camera_available(present: bool) {
+    CAMERA_PRESENT.store(present, Ordering::SeqCst);
+    with_view(move |view| view.offer_scans(present, false, false));
+}
+
+/// The time the viewfinder last drew a frame: frames are drawn at most
+/// every [`PREVIEW_EVERY`], and every one is read for a code.
+static PREVIEWED: Mutex<Option<Instant>> = Mutex::new(None);
+const PREVIEW_EVERY: Duration = Duration::from_millis(100);
+
+/// `Native.cameraFrame`, on the camera's own thread: the frame is read for
+/// a code there, off the window's thread, and drawn there at most every
+/// [`PREVIEW_EVERY`].
+pub(crate) fn camera_frame(width: usize, height: usize, stride: usize, plane: &[u8]) {
+    let Some(len) = width.checked_mul(height) else {
+        return;
+    };
+    if width == 0 || height == 0 || stride < width {
+        return;
+    }
+    let Some(needed) = stride
+        .checked_mul(height - 1)
+        .and_then(|n| n.checked_add(width))
+    else {
+        return;
+    };
+    if plane.len() < needed {
+        return;
+    }
+    let mut luma = Vec::with_capacity(len);
+    for row in 0..height {
+        let start = row * stride;
+        luma.extend_from_slice(&plane[start..start + width]);
+    }
+    let text = match interweave_human_ui_slint::code::read_luma(width, height, &luma) {
+        interweave_human_ui_slint::code::CodeRead::Text(text) => Some(text),
+        interweave_human_ui_slint::code::CodeRead::NoCode => None,
+    };
+    let draw = {
+        let mut last = PREVIEWED.lock().unwrap_or_else(PoisonError::into_inner);
+        let now = Instant::now();
+        let due = last.is_none_or(|t| now.duration_since(t) >= PREVIEW_EVERY);
+        if due {
+            *last = Some(now);
+        }
+        due
+    };
+    if !draw && text.is_none() {
+        return;
+    }
+    // Assumed, not read: a back camera whose sensor sits a quarter turn
+    // clockwise from the phone's portrait, as the Pixel 9a's does, so its
+    // landscape frames are turned for the drawing. A sensor mounted the
+    // other way, or a front camera, draws upside down or mirrored until
+    // the sensor's orientation is passed with the frame (#418 F4).
+    // Reading needs no turn.
+    let (luma_drawn, dw, dh) = if draw && width > height {
+        (
+            interweave_human_ui_slint::code::turned_clockwise(&luma, width, height),
+            height,
+            width,
+        )
+    } else {
+        (luma, width, height)
+    };
+    let (w, h) = (
+        u32::try_from(dw).unwrap_or(0),
+        u32::try_from(dh).unwrap_or(0),
+    );
+    with_view(move |view| {
+        if draw {
+            view.camera_frame(w, h, &luma_drawn);
+        }
+        if let Some(text) = &text {
+            view.camera_read(text);
+        }
+    });
+}
+
+/// `Native.cameraDenied`: the CAMERA permission refused at Scan a code.
+pub(crate) fn camera_denied(for_good: bool) {
+    with_view(move |view| view.camera_denied(for_good));
+}
+
+/// `Native.cameraClosed`: the camera stopped under the scan.
+pub(crate) fn camera_closed() {
+    with_view(|view| view.camera_closed());
+}
+
+/// `Native.settingsReturned`: back from the app's system settings.
+pub(crate) fn settings_returned() {
+    with_view(|view| view.settings_returned());
+}
+
+/// Run `task` on the window's view at its next turn, then a turn of the
+/// root; tried again while the view is busy, dropped with no window.
+fn with_view(task: impl Fn(&mut View) + Send + Sync + 'static) {
+    let task: Arc<dyn Fn(&mut View) + Send + Sync> = Arc::new(task);
+    invoke_on_window(move || run_on_view(&task));
+}
+
+fn run_on_view(task: &Arc<dyn Fn(&mut View) + Send + Sync>) {
+    let applied = VIEW.with(|view| {
+        view.borrow().as_ref().map(|view| {
+            view.try_borrow_mut()
+                .map(|mut view| task(&mut view))
+                .is_ok()
+        })
+    });
+    match applied {
+        Some(true) => defer(turn),
+        Some(false) => {
+            let task = Arc::clone(task);
+            defer(move || run_on_view(&task));
+        }
+        None => {}
+    }
+}
+
 /// `Native.showSecured`: the Activity set `FLAG_SECURE` as Show asked, so
 /// the window may draw its addresses.
 pub(crate) fn show_secured() {
@@ -161,8 +286,10 @@ fn stopped() {
             let view = root.view.borrow();
             view.close_snackbar();
             // Never left on screen unasked: the background, or the
-            // screen locked (add-a-peer §5.4).
+            // screen locked (add-a-peer §5.4). The camera stops with the
+            // Activity, so its viewfinder closes too.
             view.leave_show();
+            view.camera_closed();
         }
         true
     });
@@ -343,6 +470,21 @@ fn android_main(app: AndroidApp) {
             ask::SECURE_OFF
         });
     });
+    // Scan a code: the Activity's camera, on while the viewfinder is open
+    // (add-a-peer §5.5), offered only on a phone that has one.
+    view.camera_hook(|on| {
+        use crate::onboard::{ASKS, ask};
+        ASKS.push(if on {
+            ask::CAMERA_START
+        } else {
+            ask::CAMERA_STOP
+        });
+    });
+    view.on_open_settings(|| {
+        use crate::onboard::{ASKS, ask};
+        ASKS.push(ask::OPEN_SETTINGS);
+    });
+    view.offer_scans(CAMERA_PRESENT.load(Ordering::SeqCst), false, false);
     let view = Rc::new(RefCell::new(view));
     VIEW.with(|slot| *slot.borrow_mut() = Some(Rc::clone(&view)));
     // No identity yet, or one the phone lost: the identity screens first,

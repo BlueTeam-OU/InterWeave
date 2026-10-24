@@ -139,6 +139,10 @@ pub enum AddNote {
     ImageUnreadable,
     /// Paste an image found no image on the clipboard.
     ClipboardNoImage,
+    /// The camera permission refused: type or paste instead.
+    CameraDenied,
+    /// The camera permission refused for good: Open settings to allow it.
+    CameraDeniedSettings,
     /// The add stored nothing: the first refused line, and why.
     Refused {
         /// The line, as sent; named only when the refusal is of one line
@@ -184,7 +188,12 @@ impl AddNote {
     pub const fn is_scan_line(&self) -> bool {
         matches!(
             self,
-            Self::ImageNoCode | Self::NotAddress | Self::ImageUnreadable | Self::ClipboardNoImage
+            Self::ImageNoCode
+                | Self::NotAddress
+                | Self::ImageUnreadable
+                | Self::ClipboardNoImage
+                | Self::CameraDenied
+                | Self::CameraDeniedSettings
         )
     }
 }
@@ -274,6 +283,10 @@ pub enum BlockProblem {
     NotMade,
     /// The answer was lost and the trust list could not be read back.
     Unknown,
+    /// Refused because a later change of the peer from another admin
+    /// connection stands (IPC 2.10, `superseded`), and the trust list
+    /// read again does not list the peer.
+    Superseded,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -582,6 +595,15 @@ pub enum PeersInput {
     ImageUnreadable,
     /// Paste an image found no image on the clipboard.
     ClipboardNoImage,
+    /// The camera permission was refused at Scan a code; `for_good` when
+    /// the platform will not ask again, so only Settings can allow it.
+    CameraDenied {
+        /// Refused for good.
+        for_good: bool,
+    },
+    /// Back from the app's system settings, which the denied-for-good
+    /// line's Open settings opened.
+    SettingsReturned,
     /// A code read, or an image decoded: its text. A view that must know
     /// whether the viewfinder stays open calls
     /// [`crate::UiModel::scanned`] instead.
@@ -776,6 +798,15 @@ pub struct Peers {
     show_drew: Option<TransportIdentity>,
 }
 
+/// Whether a code's text is an address list at all -- every line, once
+/// trimmed, a multiaddr -- before any rule judges the lines: a code that
+/// is not leaves the viewfinder open with `ScanNotAddress` (§5.5).
+#[must_use]
+pub fn is_address_list(text: &str) -> bool {
+    let lines = lines_of(text);
+    !lines.is_empty() && lines.iter().all(|l| l.starts_with('/'))
+}
+
 /// The field's lines as the add sends them: each line ending (LF, CR LF
 /// or CR) ends a line, each line trimmed of spaces and tabs, empty lines
 /// dropped.
@@ -804,8 +835,12 @@ fn pending_address(check: &Check) -> Option<&str> {
     }
 }
 
-/// The add page's refusal for the runtime's, or `None` for a removal's
-/// own (`Configured`), which an add never meets.
+/// The add page's refusal for the runtime's, or `None` for one that
+/// names no rule of the address: a removal's own (`Configured`), which
+/// an add never meets, and a write another admin connection's later one
+/// superseded, which wrote nothing and is said as not made -- the list
+/// read back shows what stands
+/// (`each_runtime_refusal_is_named_and_stores_nothing`).
 const fn refusal_of(why: AddressRefused) -> Option<Refusal> {
     Some(match why {
         AddressRefused::Grammar => Refusal::Grammar,
@@ -813,7 +848,7 @@ const fn refusal_of(why: AddressRefused) -> Option<Refusal> {
         AddressRefused::Bound => Refusal::Limit,
         AddressRefused::ListOff => Refusal::ListOff,
         AddressRefused::OwnPeer => Refusal::OwnAddress,
-        AddressRefused::Configured => return None,
+        AddressRefused::Configured | AddressRefused::Superseded => return None,
     })
 }
 
@@ -940,6 +975,18 @@ impl Peers {
             }
             PeersInput::ClipboardNoImage => {
                 self.scan_ended(Some(AddNote::ClipboardNoImage));
+                Vec::new()
+            }
+            PeersInput::CameraDenied { for_good } => {
+                self.camera_denied(for_good);
+                Vec::new()
+            }
+            PeersInput::SettingsReturned => {
+                // Focus back on Scan a code, its line kept until the next
+                // press says what changed (§8).
+                if self.page.is_some() {
+                    self.ask_focus(PeersFocus::Scan(ScanControl::Camera));
+                }
                 Vec::new()
             }
             PeersInput::Scanned(text) => self.scanned(&text, trust).1.into_iter().collect(),
@@ -1152,6 +1199,25 @@ impl Peers {
         }
     }
 
+    /// The camera permission refused: back to the add page, its line under
+    /// the scan controls, focus on the field so typing is the next step
+    /// (§5.5, §8).
+    fn camera_denied(&mut self, for_good: bool) {
+        let Some(page) = self.page.as_mut() else {
+            return;
+        };
+        if !page.scanning {
+            return;
+        }
+        page.scanning = false;
+        let note = if for_good {
+            AddNote::CameraDeniedSettings
+        } else {
+            AddNote::CameraDenied
+        };
+        self.page_note(note, PeersFocus::Field { select: None });
+    }
+
     /// A scan that adds nothing ended: closed, or an image with no code
     /// or none that is an address list. Focus goes back to the control
     /// it started from, the note -- if any -- under the scan controls
@@ -1247,7 +1313,7 @@ impl Peers {
     /// first, then the runtime's.
     pub fn scanned(&mut self, text: &str, trust: &TrustSettings) -> (ScanVerdict, Option<Intent>) {
         let lines = lines_of(text);
-        if lines.is_empty() || lines.iter().any(|l| !l.starts_with('/')) {
+        if !is_address_list(text) {
             // The viewfinder stays open on such a code; an image is
             // read once, so its scan ends with the reason (§5.5).
             let from_image = self.page.as_ref().is_some_and(|p| {
@@ -2391,7 +2457,12 @@ impl Peers {
                         Some(TrustOutcome::Changed(c)) if c.peer == block.peer => {
                             block.known = Some(true);
                         }
-                        Some(TrustOutcome::Unconfirmed(c)) if c.peer == block.peer => {
+                        // Unconfirmed, or refused because another admin
+                        // connection's change stands: the list read again
+                        // decides.
+                        Some(TrustOutcome::Unconfirmed(c) | TrustOutcome::Superseded(c))
+                            if c.peer == block.peer =>
+                        {
                             block.checking = true;
                             block.known = None;
                             checking.get_or_insert_with(|| block.peer.clone());
@@ -2421,6 +2492,9 @@ impl Peers {
                 if !block.allowed(trust) {
                     block.problem = Some(match trust.outcome().0 {
                         Some(TrustOutcome::NotReadAgain(_)) => BlockProblem::Unknown,
+                        Some(TrustOutcome::Superseded(c)) if c.peer == block.peer => {
+                            BlockProblem::Superseded
+                        }
                         _ => BlockProblem::NotMade,
                     });
                 }

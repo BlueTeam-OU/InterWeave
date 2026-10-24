@@ -201,6 +201,9 @@ const fn command_name(command: &Command) -> &'static str {
         Command::AcceptCard { .. } => "accepting a card",
         Command::DeclineCard(_) => "declining a card",
         Command::UndoCard(_) => "undoing a card's answer",
+        Command::AskNewKey => "asking what a new key cancels",
+        Command::MakeNewKey => "making a new key",
+        Command::RetryKey => "opening the key again",
         Command::ShareCard(_) => "sharing the card",
         Command::SetOwnCard { .. } => "editing the own card",
         Command::RenameContact { .. } => "renaming a contact",
@@ -681,6 +684,11 @@ async fn set_trust<B: DataSessionBinding, A: AdminBinding>(
         Some(TrustOutcome::Unconfirmed(_)) => Failure::Refused(
             "the daemon did not confirm the change, which may have been made: \
              read the list again"
+                .to_owned(),
+        ),
+        Some(TrustOutcome::Superseded(_)) => Failure::Refused(
+            "the change was not made: a later change of this peer from another \
+             admin connection stands"
                 .to_owned(),
         ),
         Some(TrustOutcome::Problem(p) | TrustOutcome::NotReadAgain(p)) => trust_failure(*p),

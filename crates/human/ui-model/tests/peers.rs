@@ -353,7 +353,8 @@ fn a_scan_is_taken_whole_or_refused_whole_before_it_is_sent() {
 /// line selects that line -- the device at its bound names the first new
 /// line past it -- and one of the whole add, the list off, selects
 /// nothing, the caret at the end (§5.3); a removal's refusal answering an
-/// add is a failure, never a reason.
+/// add, and an add another admin connection's later write superseded, are
+/// a failure, never a reason: nothing was written.
 #[test]
 fn each_runtime_refusal_is_named_and_stores_nothing() {
     let me = peer();
@@ -363,6 +364,7 @@ fn each_runtime_refusal_is_named_and_stores_nothing() {
         (AddressRefused::Bound, Some(Refusal::Limit)),
         (AddressRefused::ListOff, Some(Refusal::ListOff)),
         (AddressRefused::Configured, None),
+        (AddressRefused::Superseded, None),
     ] {
         let mut m = opened(&me, &[], &[]);
         let _ = input(&mut m, PeersInput::OpenAdd);
@@ -1139,6 +1141,72 @@ fn a_lost_trust_answer_read_back_unlisted_is_not_made() {
         }
     );
     assert_eq!(focus(&m), Some(PeersFocus::BlockProblem(them)));
+}
+
+/// A Trust refused because another admin connection's later change of
+/// the peer stands is checked on the trust list read again: not listed,
+/// the block says why it was not made; listed -- the other change
+/// trusted it -- it is trusted, with no problem. Nothing is retried.
+#[test]
+fn a_superseded_trust_is_checked_and_says_why_it_was_not_made() {
+    for listed in [false, true] {
+        let (me, them) = (peer(), peer());
+        let mut m = opened(&me, &[], &[]);
+        let _ = input(&mut m, PeersInput::OpenAdd);
+        let _ = input(&mut m, PeersInput::FieldChanged(at(&them)));
+        let _ = input(&mut m, PeersInput::Add);
+        m.addresses_added(
+            &[at(&them)],
+            answer(
+                AddressOutcome::Added {
+                    peer: Some(them.clone()),
+                },
+                &[added(&them)],
+            ),
+        );
+        let change = TrustChange {
+            peer: them.clone(),
+            allowed: true,
+        };
+        let _ = input(&mut m, PeersInput::Trust(them.clone()));
+        m.trust_settings_mut()
+            .set(change, Err(TrustSetFailure::Superseded));
+        let _ = m.peers_turn();
+        assert_eq!(
+            m.peers().blocks(m.trust_settings())[0].state,
+            BlockState::Checking
+        );
+        assert_eq!(
+            m.trust_settings_mut().take_reread(),
+            Some(Intent::ReadTrust)
+        );
+        let allowed = if listed {
+            vec![TrustRow::added_here(them.clone())]
+        } else {
+            Vec::new()
+        };
+        m.trust_settings_mut().read(Ok(TrustList {
+            local_peer: Some(me),
+            allowed,
+        }));
+        let _ = m.peers_turn();
+        let blocks = m.peers().blocks(m.trust_settings());
+        if listed {
+            // The other change trusted it: the step is done, no problem.
+            assert!(blocks.iter().all(|b| b.problem.is_none()), "{blocks:?}");
+        } else {
+            assert_eq!(
+                blocks[0],
+                BlockView {
+                    peer: them.clone(),
+                    state: BlockState::Undecided,
+                    problem: Some(BlockProblem::Superseded),
+                }
+            );
+            assert_eq!(focus(&m), Some(PeersFocus::BlockProblem(them)));
+        }
+        assert_eq!(m.trust_settings_mut().take_reread(), None, "read once");
+    }
 }
 
 /// A Trust the runtime answered as made, though its trust list could
@@ -4618,4 +4686,48 @@ fn a_code_with_no_scan_open_adds_nothing() {
     assert!(input(&mut m, PeersInput::Scanned(at(&peer()))).is_empty());
     assert!(!m.peers().busy(), "nothing was sent");
     assert_eq!(m.peers().add_page_note(), None);
+}
+
+/// The camera refused: back to the add page with the line saying why --
+/// type or paste instead, or Open settings when refused for good -- focus
+/// on the field; back from Settings, focus on Scan a code; a refusal
+/// with no scan open changes nothing (§5.5, §8).
+#[test]
+fn a_refused_camera_returns_to_the_field_with_its_line() {
+    let me = peer();
+    let mut m = opened(&me, &[], &[]);
+    let _ = input(&mut m, PeersInput::OpenAdd);
+    for (for_good, note) in [
+        (false, AddNote::CameraDenied),
+        (true, AddNote::CameraDeniedSettings),
+    ] {
+        let _ = input(&mut m, PeersInput::ScanPressed(ScanControl::Camera));
+        assert!(m.peers().scan_open());
+        let _ = input(&mut m, PeersInput::CameraDenied { for_good });
+        assert!(!m.peers().scan_open(), "the viewfinder closed");
+        assert_eq!(m.peers().add_page_note(), Some(&note));
+        assert_eq!(focus(&m), Some(PeersFocus::Field { select: None }));
+    }
+    let _ = input(&mut m, PeersInput::SettingsReturned);
+    assert_eq!(focus(&m), Some(PeersFocus::Scan(ScanControl::Camera)));
+    // No scan open: nothing to end.
+    let _ = input(&mut m, PeersInput::FieldChanged(String::new()));
+    let before = m.peers().add_page_note().cloned();
+    let _ = input(&mut m, PeersInput::CameraDenied { for_good: false });
+    assert_eq!(m.peers().add_page_note().cloned(), before);
+}
+
+/// A code's text is an address list only when every line is a multiaddr:
+/// what keeps the viewfinder open on any other code (§5.5).
+#[test]
+fn an_address_list_is_every_line_a_multiaddr() {
+    use interweave_human_ui_model::is_address_list;
+    assert!(is_address_list(&format!(
+        "{}\n {} \n",
+        at(&peer()),
+        at(&peer())
+    )));
+    assert!(!is_address_list("https://example.org"));
+    assert!(!is_address_list(&format!("{}\nhello", at(&peer()))));
+    assert!(!is_address_list(" \n"));
 }

@@ -24,7 +24,7 @@ use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort};
+use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort, TrustChange};
 use interweave_profile_config::ProfilePaths;
 use interweave_test_support::e2e::{Daemon, Home, stranger};
 use interweave_transport_api::{EndpointId, TransportError, TransportIdentity};
@@ -347,10 +347,11 @@ async fn a_tampered_trust_overlay_stops_the_daemon_and_a_deleted_one_re_allows()
     let overlay = home.paths.state_dir().join("trust-overlay.json");
     let (daemon, admin) = up(&home).await;
     assert_eq!(trusted(&admin).await, vec![peer.clone()]);
-    admin
-        .set_trust(peer.clone(), false)
-        .await
-        .expect("the revoke");
+    assert_eq!(
+        admin.set_trust(peer.clone(), false).await,
+        Ok(TrustChange::Set),
+        "the revoke"
+    );
     down(daemon, admin).await;
     assert_eq!(mode(&overlay), 0o600, "written owner-only");
     let kept = std::fs::read(&overlay).expect("the overlay");
@@ -613,10 +614,11 @@ async fn a_set_whose_overlay_cannot_be_written_is_answered_failed_and_changes_no
         "the endpoint still enabled"
     );
 
-    admin
-        .set_trust(peer, false)
-        .await
-        .expect("the control revoke");
+    assert_eq!(
+        admin.set_trust(peer, false).await,
+        Ok(TrustChange::Set),
+        "the control revoke"
+    );
     admin
         .set_endpoint_enabled(agent(), false)
         .await

@@ -22,7 +22,7 @@ use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminCapability,
     AdminPort, BootstrapAddress, DataCapability, DataSessionBinding, DataSessionPort, LineChange,
     LocalSessionEvent, MAX_ADDRESSES_PER_ADD, MAX_OWN_ADDRESSES, OwnAddressKind, SessionEvent,
-    SessionRequest, TrustAdminView, TrustSource, TrustedPeer,
+    SessionRequest, TrustAdminView, TrustChange, TrustRefusal, TrustSource, TrustedPeer,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MediaType, MessageId, Payload,
@@ -1262,10 +1262,11 @@ pub async fn a_revocation_is_made_before_a_restart<B: AdminBinding>(
         }),
         "listed before the revocation: {view:?}"
     );
-    admin
-        .set_trust(remote.clone(), false)
-        .await
-        .expect("revoked");
+    assert_eq!(
+        admin.set_trust(remote.clone(), false).await,
+        Ok(TrustChange::Set),
+        "revoked"
+    );
 }
 
 /// The second half: after the runtime restarted, `remote` is still
@@ -1332,10 +1333,11 @@ pub async fn trust_administration_revokes_as_policy<B: DataSessionBinding + Admi
         Err(TransportError::InvalidArgument),
         "the local peer is not a remote to trust"
     );
-    admin
-        .set_trust(remote.clone(), true)
-        .await
-        .expect("a listed peer is a no-op");
+    assert_eq!(
+        admin.set_trust(remote.clone(), true).await,
+        Ok(TrustChange::Set),
+        "a listed peer is a no-op"
+    );
     let before = sorted(admin.trust().await.expect("the policy"));
     assert_eq!(before, sorted(view.clone()), "allowing a listed peer");
     let unlisted = TransportIdentity::parse(UNLISTED_PEER).expect("a peer id");
@@ -1343,10 +1345,11 @@ pub async fn trust_administration_revokes_as_policy<B: DataSessionBinding + Admi
         unlisted != *local && unlisted != *remote && !view.peers().any(|p| p == &unlisted),
         "the unlisted peer is listed by nobody: {view:?}"
     );
-    admin
-        .set_trust(unlisted, false)
-        .await
-        .expect("revoking an unlisted peer is a no-op");
+    assert_eq!(
+        admin.set_trust(unlisted, false).await,
+        Ok(TrustChange::Set),
+        "revoking an unlisted peer is a no-op"
+    );
     assert_eq!(
         sorted(admin.trust().await.expect("the policy")),
         before,
@@ -1356,10 +1359,11 @@ pub async fn trust_administration_revokes_as_policy<B: DataSessionBinding + Admi
     // Allowing an unlisted peer lists it as administered, persisted
     // (ADR-0028 A 2026-10-07), and revoking it takes it off again.
     let unlisted = TransportIdentity::parse(UNLISTED_PEER).expect("a peer id");
-    admin
-        .set_trust(unlisted.clone(), true)
-        .await
-        .expect("an unlisted peer is allowed");
+    assert_eq!(
+        admin.set_trust(unlisted.clone(), true).await,
+        Ok(TrustChange::Set),
+        "an unlisted peer is allowed"
+    );
     let view = admin.trust().await.expect("the policy");
     assert!(
         view.allowed.contains(&TrustedPeer {
@@ -1369,7 +1373,11 @@ pub async fn trust_administration_revokes_as_policy<B: DataSessionBinding + Admi
         }),
         "{view:?}"
     );
-    admin.set_trust(unlisted, false).await.expect("and revoked");
+    assert_eq!(
+        admin.set_trust(unlisted, false).await,
+        Ok(TrustChange::Set),
+        "and revoked"
+    );
     assert_eq!(
         sorted(admin.trust().await.expect("the policy")),
         before,
@@ -1382,10 +1390,11 @@ pub async fn trust_administration_revokes_as_policy<B: DataSessionBinding + Admi
         binding.open(full(None)).await.expect("opens"),
         binding.open(full(None)).await.expect("opens"),
     ];
-    admin
-        .set_trust(remote.clone(), false)
-        .await
-        .expect("revoked");
+    assert_eq!(
+        admin.set_trust(remote.clone(), false).await,
+        Ok(TrustChange::Set),
+        "revoked"
+    );
     let told = SessionEvent::Local(LocalSessionEvent::PeerDisconnected {
         peer: remote.clone(),
         reason_class: "policy".into(),
@@ -1413,6 +1422,95 @@ pub async fn trust_administration_revokes_as_policy<B: DataSessionBinding + Admi
 /// unlisted peer changes nothing". The check asserts it is neither side
 /// of the pair before relying on it.
 const UNLISTED_PEER: &str = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+
+/// A second peer no profile here lists, beside [`UNLISTED_PEER`].
+const ANOTHER_UNLISTED_PEER: &str = "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N";
+
+/// Admin writes across ports (LOCAL-IPC.md §Cancellation mapping and
+/// request concurrency; architect-cto's decision of 2026-10-23): ports A
+/// then B opened -- over IPC, two connections -- a write on B, then the
+/// same key's write on A, is refused `superseded` and changes nothing, for
+/// a trust set by peer and for the address writes by address, the
+/// all-or-none add naming the line; the controls are A's write to another
+/// key and B's own later write, both applied. And the stated limit,
+/// pinned so a change is noticed: a READ on B orders nothing, so A's write
+/// to the key B read applies after it.
+///
+/// What no binding here shows: a write still queued after its connection
+/// closed (the composition's `write_order` tests), the audit line (the
+/// composition's `superseded` tests), and a connection below 2.10, which
+/// is answered `Internal` (`ipc-server`'s dispatch test).
+pub async fn a_later_ports_write_supersedes_an_older_ports<B: AdminBinding>(binding: &B) {
+    let a = port(binding, &[AdminCapability::Trust, AdminCapability::Peers]).await;
+    let b = port(binding, &[AdminCapability::Trust, AdminCapability::Peers]).await;
+    let peer = TransportIdentity::parse(UNLISTED_PEER).expect("a peer id");
+    let other = TransportIdentity::parse(ANOTHER_UNLISTED_PEER).expect("a peer id");
+    let lists = |view: TrustAdminView, peer: &TransportIdentity| view.peers().any(|p| p == peer);
+
+    // The limit: B reads, and A's set after the read applies.
+    assert!(!lists(b.trust().await.expect("the policy"), &peer));
+    assert_eq!(a.set_trust(peer.clone(), true).await, Ok(TrustChange::Set));
+    assert!(
+        lists(b.trust().await.expect("the policy"), &peer),
+        "A's set took effect"
+    );
+
+    assert_eq!(b.set_trust(peer.clone(), false).await, Ok(TrustChange::Set));
+    assert_eq!(
+        a.set_trust(peer.clone(), true).await,
+        Ok(TrustChange::Refused(TrustRefusal::Superseded)),
+        "B's revocation stands"
+    );
+    assert!(!lists(b.trust().await.expect("the policy"), &peer));
+    assert_eq!(
+        a.set_trust(other.clone(), false).await,
+        Ok(TrustChange::Set),
+        "another peer"
+    );
+    assert_eq!(
+        b.set_trust(peer.clone(), false).await,
+        Ok(TrustChange::Set),
+        "B again"
+    );
+
+    let at = |n: u8| format!("/ip4/10.255.254.{n}/tcp/4001/p2p/{}", other.as_str());
+    let refused = |change: Result<AddressChange, TransportError>| match change {
+        Ok(AddressChange::Refused { reason, .. }) => reason,
+        other => panic!("a refusal is an answer: {other:?}"),
+    };
+    assert_eq!(
+        b.add_bootstrap_address(at(1)).await,
+        Ok(AddressChange::Added)
+    );
+    assert_eq!(
+        refused(a.remove_bootstrap_address(at(1)).await),
+        AddressRefusal::Superseded
+    );
+    match a.add_bootstrap_addresses(vec![at(2), at(1)]).await {
+        Ok(AddressesChange::Refused { reason, line, .. }) => {
+            assert_eq!((reason, line), (AddressRefusal::Superseded, Some(1)));
+        }
+        other => panic!("a refusal is an answer: {other:?}"),
+    }
+    let held =
+        |rows: Vec<BootstrapAddress>, address: &str| rows.iter().any(|r| r.address == address);
+    let rows = b.bootstrap_addresses().await.expect("the list");
+    assert!(held(rows.clone(), &at(1)), "B's add stands");
+    assert!(!held(rows, &at(2)), "all or none: nothing of A's list");
+    assert_eq!(
+        a.add_bootstrap_address(at(2)).await,
+        Ok(AddressChange::Added),
+        "another address"
+    );
+    assert_eq!(
+        b.remove_bootstrap_address(at(1)).await,
+        Ok(AddressChange::Removed)
+    );
+    assert_eq!(
+        b.remove_bootstrap_address(at(2)).await,
+        Ok(AddressChange::Removed)
+    );
+}
 
 /// The lines outside `peers-address-params`' length bound, which no entry
 /// of the grammar is: the empty one, and one a character past 1024 that

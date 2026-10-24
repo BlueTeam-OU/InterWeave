@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use interweave_local_client_api::{
     AdminBinding, AdminCapability, AdminPort, DataSessionBinding, DataSessionPort, SessionEvent,
+    TrustChange,
 };
 use interweave_local_client_conformance_tests as suite;
 use interweave_transport_api::{
@@ -908,14 +909,16 @@ async fn a_revocation_forgets_the_sessions_routes() {
         .admin([AdminCapability::Trust].into())
         .await
         .expect("an admin port");
-    admin
-        .set_trust(pair.b_peer.clone(), false)
-        .await
-        .expect("revoked");
-    admin
-        .set_trust(pair.b_peer.clone(), true)
-        .await
-        .expect("allowed again");
+    assert_eq!(
+        admin.set_trust(pair.b_peer.clone(), false).await,
+        Ok(TrustChange::Set),
+        "revoked"
+    );
+    assert_eq!(
+        admin.set_trust(pair.b_peer.clone(), true).await,
+        Ok(TrustChange::Set),
+        "allowed again"
+    );
     pair.a
         .inject_path_change(pair.b_peer.clone(), PeerPath::Direct, PeerPath::Relayed)
         .await
@@ -1000,5 +1003,13 @@ async fn own_addresses_are_what_an_add_takes() {
     let pair = Pair::start().await;
     let (a, b) = pair.bindings();
     suite::own_addresses_are_what_an_add_takes(&a, &pair.a_peer, &b).await;
+    pair.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_later_ports_write_supersedes_an_older_ports() {
+    let pair = Pair::start().await;
+    let (a, _) = pair.bindings();
+    suite::a_later_ports_write_supersedes_an_older_ports(&a).await;
     pair.stop().await;
 }

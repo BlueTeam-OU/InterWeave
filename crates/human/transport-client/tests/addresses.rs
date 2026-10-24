@@ -22,7 +22,7 @@ use interweave_human_transport_client::{
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminCapability,
     AdminPort, AdminStatus, BootstrapAddress, EndpointAdminView, Generation, LineChange,
-    LocalAdminPort, OwnAddress, OwnAddressKind, OwnAddresses, TrustAdminView,
+    LocalAdminPort, OwnAddress, OwnAddressKind, OwnAddresses, TrustAdminView, TrustChange,
 };
 use interweave_local_client_fake::{FakeConfig, FakeNetwork, FakeNode};
 use interweave_profile_identity::ProfileIdentity;
@@ -225,7 +225,7 @@ impl AdminPort for BookPort {
         &self,
         _: TransportIdentity,
         _: bool,
-    ) -> impl Future<Output = Result<(), TransportError>> + Send {
+    ) -> impl Future<Output = Result<TrustChange, TransportError>> + Send {
         std::future::ready(Err(TransportError::ProtocolUnsupported))
     }
     fn shutdown(&self, _: Duration) -> impl Future<Output = Result<(), TransportError>> + Send {
@@ -380,7 +380,10 @@ async fn each_refusal_is_answered_by_its_rule() {
         (AddressRefusal::ProviderDisabled, AddressRefused::ListOff),
         (AddressRefusal::Authored, AddressRefused::Configured),
         (AddressRefusal::OwnPeer, AddressRefused::OwnPeer),
+        (AddressRefusal::Superseded, AddressRefused::Superseded),
     ];
+    // Every refusal the contract names, so a new one fails here first.
+    assert_eq!(cases.len(), AddressRefusal::ALL.len());
     for (reason, expected) in cases {
         let book = Book::default();
         book.0.lock().unwrap().change = Some(Ok(AddressChange::Refused {

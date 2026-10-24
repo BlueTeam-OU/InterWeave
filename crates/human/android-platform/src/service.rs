@@ -12,9 +12,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use interweave_human_app_core::{FacadeSide, identity_key_under};
+use interweave_human_app_core::KeyProblem;
+use interweave_human_app_core::{FacadeSide, KeySource};
 use interweave_human_store::at_rest;
-use interweave_human_store::identity_key::{IdentityKey, IdentityKeyFileError};
 use interweave_human_store::key_custody::KeyCipher;
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
@@ -163,7 +163,7 @@ pub struct ServiceHost {
     network: Mutex<NetworkSlot<Arc<EmbeddedHost>>>,
     /// Why the last start's identity key was not opened or made, if it
     /// was not: the app logs its class, as the desktop prints it (#414 F3).
-    key_refused: Mutex<Option<IdentityKeyFileError>>,
+    key_refused: Arc<Mutex<Option<KeyProblem>>>,
 }
 
 impl Default for ServiceHost {
@@ -188,7 +188,7 @@ impl ServiceHost {
             hub: Arc::new(Hub::new()),
             running: Mutex::new(None),
             network: Mutex::new(NetworkSlot::default()),
-            key_refused: Mutex::new(None),
+            key_refused: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -199,38 +199,36 @@ impl ServiceHost {
         HOST.get_or_init(Self::new)
     }
 
-    /// The identity's own key under the Keystore, at the identity's own
-    /// alias (ADR-0063 decision 2, `identity_key::alias`): opened from its
-    /// file, or made the first time the service runs before any share of
-    /// its card, by app-core's rule (`identity_key_under`, whose tests hold
-    /// it). The store's cipher is the same bridge, each secret under its
-    /// own alias namespace. A file this build refuses, or one gone after a
-    /// share, is left as it is and the client runs with no key: Share
-    /// says so, nothing is signed, and the refusal is kept for
+    /// The facade made by `make`, given the identity's key from its file
+    /// under the Keystore at the identity's own alias (ADR-0063 decision 2,
+    /// app-core's `KeySource`): opened, or made the first time before any
+    /// share of its card. The store's cipher is the same bridge, each
+    /// secret under its own alias namespace. A file this build refuses, or
+    /// one gone after a share, is left as it is: the identity's page says
+    /// so and offers what it can, and its kind is kept for
     /// [`Self::identity_key_refused`].
-    fn own_key(
+    fn with_key_source<B, A>(
         &self,
-        paths: &ProfilePaths,
-        endpoint: &interweave_transport_api::EndpointId,
-        cipher: &dyn KeyCipher,
-        store: &HumanStore,
-    ) -> Option<IdentityKey> {
-        let (key, refused) =
-            match identity_key_under(paths, std::slice::from_ref(endpoint), cipher, store) {
-                Ok(key) => (key, None),
-                Err(e) => (None, Some(e)),
-            };
-        *self
-            .key_refused
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = refused;
-        key
+        make: impl FnOnce() -> Result<FacadeSide<B, A>, StoreError> + Send + 'static,
+        source: KeySource,
+    ) -> impl FnOnce() -> Result<FacadeSide<B, A>, StoreError> + Send + 'static
+    where
+        B: DataSessionBinding,
+        A: interweave_local_client_api::AdminBinding,
+    {
+        let refused = Arc::clone(&self.key_refused);
+        move || {
+            let mut facade = make()?;
+            facade.set_key_source(source);
+            *refused.lock().unwrap_or_else(PoisonError::into_inner) = facade.key_problem().cloned();
+            Ok(facade)
+        }
     }
 
     /// Why the last start ran with no identity key, if it did: a class for
     /// the platform log, never the key.
     #[must_use]
-    pub fn identity_key_refused(&self) -> Option<IdentityKeyFileError> {
+    pub fn identity_key_refused(&self) -> Option<KeyProblem> {
         self.key_refused
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -448,14 +446,17 @@ impl ServiceHost {
             Ok(store) => store,
             Err(e) => return refuse(host, classify(&e)),
         };
-        let key = self.own_key(host.paths(), &endpoint, &*launch.store_cipher, &store);
+        let source = KeySource::new(host.paths().clone(), endpoint.clone(), launch.store_cipher);
         let (data, admin) = (data(&host), host.binding());
         let client_config = client_config(&config, endpoint);
-        let make = move || {
-            let client =
-                TransportClient::new(data, admin, store, client_config, Box::new(wall_ms), 0)?;
-            Ok(with_key(FacadeSide::new(client, wall_ms), key))
-        };
+        let make = self.with_key_source(
+            move || {
+                let client =
+                    TransportClient::new(data, admin, store, client_config, Box::new(wall_ms), 0)?;
+                Ok(FacadeSide::new(client, wall_ms))
+            },
+            source,
+        );
         let facade = match FacadeLoop::spawn(host.runtime(), make, &self.hub) {
             Ok(facade) => facade,
             Err(SpawnError::Store(e)) => return refuse(host, classify(&e)),
@@ -493,7 +494,7 @@ impl ServiceHost {
         &self,
         app_data_dir: &std::path::Path,
         profile: &str,
-        store_cipher: &dyn KeyCipher,
+        store_cipher: Arc<dyn KeyCipher + Send + Sync>,
     ) -> Result<(), StartRefused> {
         let mut running = self.lock();
         if running.is_some() {
@@ -505,7 +506,7 @@ impl ServiceHost {
             ProfilePaths::resolve_embedded(profile, boundary).map_err(|e| refused(e.into()))?;
         let config = ProfileConfig::load(&paths).map_err(|e| refused(e.into()))?;
         let endpoint = human_endpoint(&config).ok_or(StartRefused::NoHumanEndpoint)?;
-        let store = HumanStore::open_profile(&paths, store_cipher, StoreOptions::default())
+        let store = HumanStore::open_profile(&paths, &*store_cipher, StoreOptions::default())
             .map_err(|e| {
                 let why = classify(&e);
                 self.hub.set_store_refused(store_screen(&why));
@@ -517,19 +518,22 @@ impl ServiceHost {
             .enable_time()
             .build()
             .map_err(|e| StartRefused::Thread(e.to_string()))?;
-        let key = self.own_key(&paths, &endpoint, store_cipher, &store);
+        let source = KeySource::new(paths.clone(), endpoint.clone(), Box::new(store_cipher));
         let client_config = client_config(&config, endpoint);
-        let make = move || {
-            let client = TransportClient::new(
-                offline_embedded(),
-                offline_embedded(),
-                store,
-                client_config,
-                Box::new(wall_ms),
-                0,
-            )?;
-            Ok(with_key(FacadeSide::new(client, wall_ms), key))
-        };
+        let make = self.with_key_source(
+            move || {
+                let client = TransportClient::new(
+                    offline_embedded(),
+                    offline_embedded(),
+                    store,
+                    client_config,
+                    Box::new(wall_ms),
+                    0,
+                )?;
+                Ok(FacadeSide::new(client, wall_ms))
+            },
+            source,
+        );
         // Said before the facade runs, so a view never shows this posture
         // as a service that can send.
         self.hub.set_store_refused(None);
@@ -727,16 +731,6 @@ fn human_endpoint(config: &ProfileConfig) -> Option<interweave_transport_api::En
                     .any(|k| k.as_str() == CLIENT_KIND)
         })
     })
-}
-
-fn with_key<B: DataSessionBinding, A: interweave_local_client_api::AdminBinding>(
-    mut facade: FacadeSide<B, A>,
-    key: Option<IdentityKey>,
-) -> FacadeSide<B, A> {
-    if let Some(key) = key {
-        facade.set_identity_key(key);
-    }
-    facade
 }
 
 fn client_config(

@@ -70,6 +70,31 @@ pub trait KeyCipher {
     fn retire(&self, alias: &str) -> Result<(), CipherFailure>;
 }
 
+/// One platform cipher shared by the store's key and an identity's key:
+/// the same bridge, each secret under its own alias namespace.
+impl<T: KeyCipher + ?Sized> KeyCipher for std::sync::Arc<T> {
+    fn custody(&self) -> Custody {
+        (**self).custody()
+    }
+
+    fn seal(&self, alias: &str, aad: &[u8], secret: &[u8; 32]) -> Result<Vec<u8>, CipherFailure> {
+        (**self).seal(alias, aad, secret)
+    }
+
+    fn open(
+        &self,
+        alias: &str,
+        aad: &[u8],
+        sealed: &[u8],
+    ) -> Result<Zeroizing<[u8; 32]>, CipherFailure> {
+        (**self).open(alias, aad, sealed)
+    }
+
+    fn retire(&self, alias: &str) -> Result<(), CipherFailure> {
+        (**self).retire(alias)
+    }
+}
+
 /// A platform cipher's refusal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CipherFailure {

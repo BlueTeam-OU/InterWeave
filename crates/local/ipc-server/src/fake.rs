@@ -61,6 +61,8 @@ pub(crate) struct Script {
     pub(crate) unpersisted: bool,
     /// When set, `add_address` refuses with it rather than adding.
     pub(crate) add_refused: Option<interweave_local_client_api::AddressRefusal>,
+    /// When set, `set_trust` refuses with it rather than setting.
+    pub(crate) trust_refused: Option<interweave_local_client_api::TrustRefusal>,
     /// When set, `shutdown` stops the server with it before answering,
     /// as the daemon's port does through its owner.
     pub(crate) stop_on_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
@@ -349,10 +351,14 @@ impl AdminPort for FakeAdmin {
         &self,
         peer: TransportIdentity,
         allowed: bool,
-    ) -> Result<(), TransportError> {
+    ) -> Result<interweave_local_client_api::TrustChange, TransportError> {
         self.fake
             .call(format!("set_trust {} {allowed}", peer.as_str()));
-        Ok(())
+        let refused = self.fake.script().trust_refused;
+        Ok(refused.map_or(
+            interweave_local_client_api::TrustChange::Set,
+            interweave_local_client_api::TrustChange::Refused,
+        ))
     }
 
     async fn add_bootstrap_address(

@@ -7,7 +7,7 @@
 # >>> help
 # Build the Linux release archive (plan section 22, packaging/linux):
 #
-#   tools/ci/release_linux_archive.sh [--bin-dir DIR] <version> <out-dir>
+#   tools/ci/release_linux_archive.sh [--bin-dir DIR] [--root DIR] <version> <out-dir>
 #
 # writes into <out-dir>
 #   interweave-<version>-x86_64-unknown-linux-gnu.tar.gz
@@ -33,17 +33,22 @@
 # THIRD-PARTY-NOTICES.md is release_notices.py over `cargo tree --locked
 # -e normal` of the five packages for that target (which crates) and
 # `cargo metadata --locked` (what each is), or over the files
-# RELEASE_COMPILED_LIST and RELEASE_METADATA_JSON name.
+# RELEASE_COMPILED_LIST and RELEASE_METADATA_JSON name. --root names the
+# repository whose manifest, units, scripts and plugin are packaged
+# (default: this one).
 #
 # The archive is byte-for-byte reproducible from the same inputs: names
 # sorted, owner and group 0, modes fixed whatever the umask, every mtime
 # SOURCE_DATE_EPOCH (default: the commit time of HEAD), gzip without a
 # name or time.
 #
-# REFUSED when <version> is not MAJOR.MINOR.PATCH, or a program, a unit
-# or a script is missing, or build.sh refuses the plugin (<version> not
-# the workspace's among its reasons). On any failure once <version> is checked, a
-# refusal or a step after the checks, none of the three outputs is left
+# REFUSED when <version> is not a Semantic Versioning 2.0.0 version
+# without build metadata (MAJOR.MINOR.PATCH[-pre-release], ADR-0065), or
+# is not the workspace version -- both release_tag.sh's rule, asked of
+# `v<version>` with --manifest, the tag job having asked cargo already --
+# or a program, a unit or a script is missing, or build.sh refuses the
+# plugin. On any failure once the arguments are read, the version's
+# refusal or a step after it, none of the three outputs is left
 # in <out-dir>: all three are written in scratch and moved together at
 # the end, and a failure removes every one of their names from <out-dir>,
 # what this run moved and what an earlier run left.
@@ -51,7 +56,7 @@
 # Exit codes:
 #   0  written; the archive's SHA-256 is printed
 #   1  a refusal above, or a build step failed
-#   2  usage
+#   2  usage, or release_tag.sh could not read the root manifest
 # <<< help
 
 set -euo pipefail
@@ -69,7 +74,7 @@ bridge=claude-channel
 units=(interweave-daemon@.service interweave-client@.service)
 
 usage() {
-    echo "usage: release_linux_archive.sh [--bin-dir DIR] <version> <out-dir>" >&2
+    echo "usage: release_linux_archive.sh [--bin-dir DIR] [--root DIR] <version> <out-dir>" >&2
     exit 2
 }
 die() { echo "release_linux_archive: $*" >&2; exit 1; }
@@ -80,19 +85,28 @@ case "${1-}" in
     sed -n '/^# >>> help$/,/^# <<< help$/p' "$0" | sed '1d;$d;s/^# \{0,1\}//'
     exit 0
     ;;
---bin-dir) [[ $# -ge 2 ]] || usage; bin_dir="$2"; shift 2 ;;
 esac
+# Options while the first argument is one, each with its value: an option
+# left without one is usage, never read as the version.
+while [[ "${1-}" == --* ]]; do
+    (( $# >= 2 )) || usage
+    case "$1" in
+    --bin-dir) bin_dir="$2" ;;
+    --root) root="$(cd "$2" && pwd)" || usage ;;
+    *) usage ;;
+    esac
+    shift 2
+done
 [[ $# -eq 2 ]] || usage
 version="$1" out_dir="$2"
-[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
-    || die "version '$version' is not MAJOR.MINOR.PATCH"
 
 name="interweave-$version-$target"
 archive="$name.tar.gz"
 outputs=("$archive" "$archive.sha256" linux-values.json)
-# The trap is set before anything after the version check can fail, the
-# scratch directory's mktemp included, so every failure from here on
-# removes the outputs' names, an earlier run's of them too.
+# The trap is set before the version check and before anything after it
+# can fail, the scratch directory's mktemp included, so every failure from
+# here on -- a refused version too -- removes the outputs' names, an
+# earlier run's of them too.
 scratch=""
 finish() {
     local status=$? f
@@ -102,6 +116,18 @@ finish() {
     fi
 }
 trap finish EXIT
+
+# One rule for the version, the release run's own (ADR-0065 decisions 5
+# and 6): its exit 1 is a refusal, its 2 a manifest it could not read.
+rc=0
+checked="$(bash "$here/release_tag.sh" "v$version" --root "$root" --manifest 2>&1)" || rc=$?
+if (( rc == 1 )); then
+    die "${checked#::error::}"
+elif (( rc != 0 )); then
+    echo "release_linux_archive: ${checked#::error::}" >&2
+    exit 2
+fi
+
 scratch="$(mktemp -d)"
 mkdir -p "$out_dir"
 
