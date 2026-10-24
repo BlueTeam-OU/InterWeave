@@ -1491,3 +1491,87 @@ async fn a_make_the_facade_refuses_ends_the_step_not_made() {
         "refused: not made, Make a new key offered again"
     );
 }
+
+// One route of a contact goes, with its key; the contact keeps the other,
+// and its last route is refused, nothing written. No flow makes a second
+// route yet (moving one between contacts is Stage 22's), so it is seeded
+// into a plain store. Mutation: the store deleting a last route, or the
+// facade not reading the contacts back.
+#[tokio::test]
+async fn a_route_is_deleted_and_its_contact_keeps_the_other() {
+    let (a, b) = FakeNetwork::pair(node(), node());
+    let pa = profile();
+    let dir = common::private_tempdir();
+    let path = dir.path().join("human.sqlite3");
+    let mut alice = Root::new(facade(&a, &pa, Some(key_of(&pa))));
+    let client = TransportClient::new(
+        b.clone(),
+        b.clone(),
+        HumanStore::open(&path, StoreOptions::default()).expect("store"),
+        ClientConfig {
+            client_kind: "human-client".to_owned(),
+            endpoints: vec![human()],
+            channels: vec![],
+            max_payload_bytes: 49_152,
+        },
+        Box::new(|| WALL),
+        0,
+    )
+    .expect("facade");
+    let mut bob = Root::new(FacadeSide::new(client, || WALL));
+    alice.pump(0).await;
+    bob.pump(0).await;
+    shared(&mut alice, &mut bob, &b).await;
+    let first = bob.model().proposals(&direct(a.peer()))[0].row;
+    bob.will(Intent::AcceptCard(first));
+    bob.pump(5).await;
+    let contact_id = bob.model().contacts()[0].contact_id.clone();
+    let other = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("peer id");
+    let conn = rusqlite::Connection::open(&path).expect("open");
+    conn.execute(
+        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
+         VALUES (?1, ?2, 'human', ?3)",
+        rusqlite::params![contact_id, other.as_str(), [7_u8; 32].as_slice()],
+    )
+    .expect("seeded");
+    drop(conn);
+
+    let delete = |peer: &TransportIdentity| Command::DeleteRoute {
+        contact_id: contact_id.clone(),
+        peer: peer.clone(),
+        endpoint: human(),
+    };
+    let updates = bob.facade.execute(delete(&other), 6).await;
+    let listed = updates.iter().find_map(|u| match u {
+        Update::ContactsListed(contacts) => Some(contacts.clone()),
+        _ => None,
+    });
+    let listed = listed.expect("the contacts read back");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].routes.len(), 1, "the other route stays");
+    assert_eq!(&listed[0].routes[0].peer, a.peer());
+    assert!(
+        updates.contains(&Update::Done(delete(&other))),
+        "{updates:?}"
+    );
+
+    let last = bob.facade.execute(delete(a.peer()), 7).await;
+    assert_eq!(
+        last,
+        [Update::Failed {
+            command: delete(a.peer()),
+            why: Failure::Refused
+        }],
+        "the last route goes only with its contact"
+    );
+    let gone = bob.facade.execute(delete(&other), 8).await;
+    assert_eq!(
+        gone,
+        [Update::Failed {
+            command: delete(&other),
+            why: Failure::NoSuchRow
+        }]
+    );
+}
