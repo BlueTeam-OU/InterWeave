@@ -78,10 +78,16 @@ mapped here, and nothing else refuses at open:
 | protected less than this device requires | `CustodyDowngrade` | Android (any platform with a wrapping key) | `KeyBelowDevice` | Make a new key |
 | sealed by another device | `SealedUnreadableHere` | desktop | `KeyOtherDevice` | Make a new key |
 | possibly a newer version's | `UnsupportedVersion(v)` with `v` above this build's version; `UnknownCustody` | both | `KeyNewerVersion` | Make a new key (its confirmation differs, §5.1) |
-| damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge` | both | `KeyDamaged` | Make a new key |
-| not protected | the read's `NotPrivate`: readable or writable by another user, a link, another user's file, or a directory that is not private | both (in practice the desktop) | `KeyExposed` | Make a new key |
-| temporarily unusable | `Cipher(Platform)`; the read's `Read` (an I/O error) | both | `KeyNotNow` | Try again, then Make a new key |
+| damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal (a file its owner cannot read) | both | `KeyDamaged` | Make a new key |
+| not protected | the read's `NotPrivate`: readable or writable by another user, a link, another user's file, or an `identity-keys/` directory that is not private | both (in practice the desktop) | `KeyExposed` | Make a new key (which first makes the directory private, §5.2) |
+| temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but the two below | both | `KeyNotNow` | Try again, then Make a new key |
 | missing | no file, for an identity that has shared its card (§7) | both | `KeyMissing` | Make a new key |
+
+The client must tell these read refusals apart: today `open` turns
+every read error into one string (`IdentityKeyFileError::Persist`),
+which cannot carry this mapping; the error's shape is rust-ui-dev's.
+A refusal that persists on every attempt is never "temporarily
+unusable", since Try again would repeat it for ever.
 
 `Random` is not an open refusal: it can only fail the making of a key
 (§5.3). `UnknownCustody` carries no byte, so the client cannot tell a
@@ -186,24 +192,34 @@ half-made key is the one outcome the step must never leave. The rest of
 the page stays usable.
 
 The step, in architect-cto's order (Q-order, §12), on both platforms:
-the person confirms; the old file is removed (on Android the new seal
+the person confirms; when the read refused the `identity-keys/`
+directory as not private, the directory is made private first (owner
+only, a real directory and not a link; Q-dir, §12), since nothing can
+be removed or created in it otherwise; the old file is removed (on Android the new seal
 would destroy the old wrapping key anyway, one alias per identity); the
 new key is created. **Every point the step can stop at resolves to a
 state the person already knows**: stopped before the removal, the
 identity is in this state as before; after the removal and before the
-new key is stored, the next open finds no file, and since the share
-record is still there it is the "missing" state, never a silent new
-key (§7), where the person confirms again; after, it has its new key.
+new key is stored, the next open finds no file: for an identity that
+has shared its card, the share record is still there and it is the
+"missing" state, never a silent new key (§7), where the person confirms
+again; for one that never shared, §7's silent first key applies at the
+next open, since no contact holds the old key; after, it has its new
+key.
 The client never shows "made" without a key it can open, and never
 shows a key it holds but cannot open. It never reports success before
 the new key is stored where the next start will open it.
 
 Its own pending cards go with the old key: every own-card row of this
-identity that has not reached Accepted by remote transport (cards §5.3:
-Sending, or Not sent) was signed with the old key, so making the new
-key cancels them, as the person's Cancel would but with no Undo, since
-the card they hold could only deliver a key the person no longer has.
-The confirmation says so first (`KeyNewPending`).
+identity that has not reached Accepted by remote transport was signed
+with the old key. The step withdraws every such row the client still
+holds, Not sent ones and Sending ones not yet handed to the transport,
+as cards §5.3's Cancel does for a Not sent row but with no Undo, since
+the card could only deliver a key the person no longer has. A Sending
+row already handed to the transport cannot be withdrawn and may still
+arrive; its conversation is in the share-again list either way, so
+the next share shows the counterparty the new key. The confirmation
+says so first (`KeyNewPending`), shown when any such row exists.
 
 ### 5.3 The result
 
@@ -226,7 +242,10 @@ actions in `error` and **Make a new key** again:
 
 - the old file was already removed: the kind is "missing", and the
   line is `KeyNewFailedGone` — the saved key is gone and a new one was
-  not made — so the person is not told less than happened;
+  not made — so the person is not told less than happened. This holds
+  for this session for an identity that never shared too, since the
+  person asked for a key and must learn it was not made; at its next
+  start §7's silent first key applies;
 - the old file is still there (the step stopped before removing it):
   the kind as before, and the line is `KeyNewFailed`.
 
@@ -350,13 +369,17 @@ On both clients unless said; Android's screen-reader checks blocked as
 8. Killed during `KeyMaking`, at each point the step can be cut:
    before the removal, the next start shows this state as before;
    after the removal and before the new key is stored, the "missing"
-   state (the identity had shared its card), with no key made by
-   itself; after, the new key's fingerprint. Never a fingerprint that
+   state for an identity that had shared its card, with no key made
+   by itself, and a new key with no state for one that never shared;
+   after, the new key's fingerprint. Never a fingerprint that
    a share then contradicts, and never this state while a key opens.
 9. Making the key fails after the removal (a test seam that fails the
    new key's write): "missing" with `KeyNewFailedGone` and Make a new
    key; failing before the removal (a seam that fails it):
-   the previous kind with `KeyNewFailed`.
+   the previous kind with `KeyNewFailed`; for an identity that never
+   shared, failing after the removal shows "missing" with
+   `KeyNewFailedGone` until the app restarts, then a key with no
+   state.
 10. A key that cannot be opened transiently (a test seam returning a
     platform cipher error once): `KeyNotNow` and Try again; Try again
     opens it and shows the fingerprint.
@@ -366,11 +389,17 @@ On both clients unless said; Android's screen-reader checks blocked as
     an identity that never shared gets a key with no state shown.
 12. Focus follows §8's table, row by row, by keyboard; on the desktop,
     the screen reader reads §8's order and each announcement once.
-13. The identity has a card row Not sent in conversation C when the
-    key becomes unusable: the confirmation shows `KeyNewPending`; after
-    Make a new key, C's row is cancelled with no Undo, it is never sent
-    afterwards (a restart included), and C is in the share-again
-    list.
+13. The identity has a card row Not sent in conversation C, and one
+    Sending in D that the transport has not taken (a test seam holding
+    it), when the key becomes unusable: the confirmation shows
+    `KeyNewPending`; after Make a new key, both rows are withdrawn with
+    no Undo, neither is sent afterwards (a restart included), and C
+    and D are in the share-again list.
+14. A key file of non-text bytes, and one of mode 0000, each show
+    `KeyDamaged`, not `KeyNotNow`.
+15. Desktop: `identity-keys/` at mode 0755 shows `KeyExposed`; Make a
+    new key makes the directory owner-only and the key, and the next
+    start opens it.
 
 ## 10. Strings
 
@@ -459,3 +488,13 @@ architect-cto (REPLY 01a16d93) the same day:
 - **Q-route**: the share record alone, `card_shared_at` on any
   conversation that speaks as the identity; the accepted-card clause is
   gone from the ADR amendment (§7).
+
+Asked after review round 2, the note built on the reading given:
+
+- **Q-dir**: a non-private `identity-keys/` directory makes every
+  removal and creation in it refuse, so Make a new key could never
+  succeed from "not protected". Read here: the step first makes the
+  directory private (owner only, a real directory; a link replaced by a
+  new private directory), then proceeds; if that is refused,
+  `KeyNewFailed`. Whether the client may change the directory, or the
+  state must instead tell a desktop person to, is architect-cto's.
