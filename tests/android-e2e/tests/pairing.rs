@@ -23,8 +23,9 @@
 //!   `connected` as its last outcome (the stand-ins, 2026-10-24): what
 //!   the step asserts is that no message is accepted, never that no
 //!   connection was made. Step 3: B trusts A,
-//!   and a message crosses each way: the positive control, over the
-//!   addresses step 1 added and nothing else.
+//!   and a message crosses each way: the positive control. The step had
+//!   the addresses step 1 added. This row's profile keeps the shipped
+//!   peer cache and Kademlia, so another source is not excluded.
 //!
 //! Two runs of each: on two host stand-ins over this host's private
 //! address (ADR-0052 refuses a loopback add), and on two devices

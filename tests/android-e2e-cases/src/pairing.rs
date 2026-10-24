@@ -15,8 +15,9 @@
 //!
 //! What either case does NOT show alone is which side dialled, or that
 //! nothing but the overlay produced the address: those are the host's to
-//! arrange (the far end holds no address for this side; the profile
-//! enables no peer cache) and to say in the run's file.
+//! arrange (the far end holds no address for this side; for the overlay
+//! alone, the profile enables no peer cache, as `added_address`'s row
+//! does and `pair`'s does not) and to say in the run's file.
 
 use std::collections::BTreeSet;
 use std::time::Duration;

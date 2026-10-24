@@ -81,10 +81,16 @@ Each passing run showed the following, all asserted by the cases:
   there, and B read A's close. A's close reported `accepted` in runs
   4–6. Both rows ended `connected`.
 
-So the pair connects only after each has the other's address AND trusts
-the other's PeerId. With addresses and no mutual trust, nothing crosses.
-Step 3 is the positive control: it uses the addresses step 1 added and
-nothing else.
+So no message crosses until each side has the other's address AND
+trusts the other's PeerId. With one-sided trust, A's dial can finish its
+handshake (A's row `connected`, run 4) before B closes it. B classes a
+peer only after Noise authenticates it, and A is not authorized there
+(`architecture/transport/libp2p/SECURITY.md`, Connectivity
+infrastructure admission). The gate's "connect" is read here as a
+connection that carries a message. Step 3 is the positive control. It
+had the addresses step 1 added. The peer cache and Kademlia are on in
+these profiles, as shipped, so the run does not exclude a cached address
+as a second source of step 3's dial.
 
 ## What this run does not prove
 
@@ -94,8 +100,9 @@ nothing else.
   Show screen, #409, is on main).
 - **The one-sided step in the other direction.** B trusting first, with
   A not trusting, is not run.
-- **Which side dialled in step 3.** Both hold the other's address, so
-  either may have.
+- **Which side dialled in step 3, or from which source.** Both hold the
+  other's address, so either may have. The peer cache is on, so a cached
+  address may also have been used.
 - **What step 2's refusal was, below the outcome class.** A's row reports
   `denied` or `connected`. The finer class is in the connectivity log,
   which this file does not quote for the passing runs.
