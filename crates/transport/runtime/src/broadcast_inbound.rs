@@ -636,6 +636,82 @@ mod tests {
         }
     }
 
+    /// `queue_overflow` is a lower bound on broadcasts LOST, not delayed
+    /// (ADR-0026 A 2026-10-24): the overflowed broadcast was admitted and
+    /// its dedup entry recorded, so within the dedup window a republish of
+    /// its id is a duplicate, queued for nobody, and the count does not
+    /// rise again.
+    #[test]
+    fn a_republished_overflowed_broadcast_is_a_duplicate_and_counts_once() {
+        let mut w = World::new(&["slow"]);
+        w.queues.open("slow", 1);
+        for (id, at) in [(7, 0), (8, 1)] {
+            assert!(matches!(
+                w.admit(&frame(id, b"body"), P1, at),
+                BroadcastAdmission::Delivered { .. }
+            ));
+        }
+        assert_eq!(
+            w.queues.losses().read("slow").queue_overflow,
+            1,
+            "7 was dropped to take 8"
+        );
+
+        assert_eq!(
+            w.admit(&frame(7, b"body"), P1, 2),
+            BroadcastAdmission::Duplicate,
+            "the overflowed id's dedup entry outlives the drop"
+        );
+        assert_eq!(w.queues.losses().read("slow").queue_overflow, 1);
+
+        // The control: a fresh id is delivered, and drops 8 for itself.
+        assert!(matches!(
+            w.admit(&frame(9, b"body"), P1, 3),
+            BroadcastAdmission::Delivered { .. }
+        ));
+        assert_eq!(w.queues.losses().read("slow").queue_overflow, 2);
+    }
+
+    /// `ingress_refused` is a signal, not a count of distinct losses
+    /// (ADR-0026 A 2026-10-24): a refused broadcast has no dedup entry, so
+    /// each refused copy of one id counts, and a republish once the
+    /// publisher's bucket has refilled is delivered -- and the count, a
+    /// record of refusals, does not fall.
+    #[test]
+    fn a_republished_refused_broadcast_counts_each_copy_and_is_delivered_after_the_refill() {
+        let mut w = World::new(&["human"]);
+        w.queues.open("human", 1_000);
+        let refused = (1..=u8::MAX)
+            .find(|id| match w.admit(&frame(*id, b"body"), P1, 0) {
+                BroadcastAdmission::Delivered { .. } => false,
+                BroadcastAdmission::Refused(Refusal::RateLimited) => true,
+                other => panic!("a distinct id is delivered or rate-limited: {other:?}"),
+            })
+            .expect("the publisher's burst is spent within 255 ids");
+        assert!(refused > 1, "the control: the burst admitted some first");
+        assert_eq!(w.queues.losses().read("human").ingress_refused, 1);
+
+        assert_eq!(
+            w.admit(&frame(refused, b"body"), P1, 0),
+            BroadcastAdmission::Refused(Refusal::RateLimited)
+        );
+        assert_eq!(
+            w.queues.losses().read("human").ingress_refused,
+            2,
+            "each refused copy counts"
+        );
+
+        assert!(
+            matches!(
+                w.admit(&frame(refused, b"body"), P1, 60_000),
+                BroadcastAdmission::Delivered { .. }
+            ),
+            "no dedup entry was kept for the refused id"
+        );
+        assert_eq!(w.queues.losses().read("human").ingress_refused, 2);
+        assert_eq!(w.queues.losses().read("human").queue_overflow, 0);
+    }
+
     #[test]
     fn sent_at_ms_changes_nothing_about_admission() {
         // PUBSUB.md: diagnostic only, and never an input to
