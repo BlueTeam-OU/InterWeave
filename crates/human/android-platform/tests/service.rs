@@ -559,7 +559,7 @@ fn without_network_the_store_opens_and_no_runtime_runs() {
         .start_without_network(
             &app.dir,
             PROFILE,
-            &interweave_human_store::key_custody::FilesystemCustody,
+            std::sync::Arc::new(interweave_human_store::key_custody::FilesystemCustody),
         )
         .expect("the posture starts");
     assert!(service.is_running());
@@ -574,7 +574,7 @@ fn without_network_the_store_opens_and_no_runtime_runs() {
         service.start_without_network(
             &app.dir,
             PROFILE,
-            &interweave_human_store::key_custody::FilesystemCustody
+            std::sync::Arc::new(interweave_human_store::key_custody::FilesystemCustody)
         ),
         Ok(()),
         "a second start changes nothing"
@@ -626,7 +626,7 @@ fn without_network_a_missing_profile_is_refused_and_nothing_runs() {
     let refused = service.start_without_network(
         &app.dir,
         PROFILE,
-        &interweave_human_store::key_custody::FilesystemCustody,
+        std::sync::Arc::new(interweave_human_store::key_custody::FilesystemCustody),
     );
     assert!(
         matches!(
@@ -663,7 +663,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
         .start_without_network(
             &app.dir,
             PROFILE,
-            &interweave_human_store::key_custody::FilesystemCustody,
+            std::sync::Arc::new(interweave_human_store::key_custody::FilesystemCustody),
         )
         .expect("the posture starts");
     service.stop(GRACE).expect("it ran");
@@ -714,7 +714,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
         .start_without_network(
             &app.dir,
             PROFILE,
-            &interweave_human_store::key_custody::FilesystemCustody,
+            std::sync::Arc::new(interweave_human_store::key_custody::FilesystemCustody),
         )
         .expect("the posture starts again");
     let mut link = attach(&service);
@@ -921,12 +921,12 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
     use interweave_human_store::at_rest::DiscardScope;
     let app = app();
     stand_in::provision(&app.dir, PROFILE).expect("provisioned");
-    let keystore = StoreKeystore {
+    let keystore = std::sync::Arc::new(StoreKeystore {
         invalidated: std::sync::atomic::AtomicBool::new(false),
-    };
+    });
     let service = ServiceHost::new();
     service
-        .start_without_network(&app.dir, PROFILE, &keystore)
+        .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("the first start makes the store and its key");
     assert!(matches!(
         service.plan_store_discard(&app.dir, PROFILE, &keystore),
@@ -938,7 +938,7 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
         .invalidated
         .store(true, std::sync::atomic::Ordering::SeqCst);
     assert_eq!(
-        service.start_without_network(&app.dir, PROFILE, &keystore),
+        service.start_without_network(&app.dir, PROFILE, keystore.clone()),
         Err(StartRefused::StoreKeyInvalidated)
     );
     assert!(!service.is_running());
@@ -970,7 +970,7 @@ fn an_invalidated_store_key_refuses_the_start_and_discard_recreates_the_store() 
         .discard_store(&app.dir, PROFILE, &keystore, plan.confirm())
         .expect("discarded");
     service
-        .start_without_network(&app.dir, PROFILE, &keystore)
+        .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("the store is recreated under a new key");
     assert!(
         link.take()
@@ -1010,21 +1010,22 @@ fn the_service_makes_the_identitys_key_under_the_keystore_and_opens_it_after() {
     };
     let app = app();
     stand_in::provision(&app.dir, PROFILE).expect("provisioned");
-    let keystore = StoreKeystore {
+    let keystore = std::sync::Arc::new(StoreKeystore {
         invalidated: std::sync::atomic::AtomicBool::new(false),
-    };
+    });
     let service = ServiceHost::new();
     service
-        .start_without_network(&app.dir, PROFILE, &keystore)
+        .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("started");
     let first = listed_identity(&service).expect("the identity has its key");
     let _ = service.stop(GRACE);
 
     service
-        .start_without_network(&app.dir, PROFILE, &keystore)
+        .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("started again");
     let again = listed_identity(&service).expect("the key opened");
-    assert_eq!(again.fingerprint, first.fingerprint, "the same key");
+    assert!(first.key.fingerprint().is_some(), "a key that opens");
+    assert_eq!(again.key, first.key, "the same key");
     let _ = service.stop(GRACE);
 
     let paths =
@@ -1042,17 +1043,18 @@ fn the_service_makes_the_identitys_key_under_the_keystore_and_opens_it_after() {
 /// left as it is, and a start that opens a key clears the refusal.
 #[test]
 fn a_refused_key_file_is_kept_for_the_log_and_left_as_it_is() {
-    use interweave_human_store::identity_key::{self, IdentityKeyError, IdentityKeyFileError};
+    use interweave_human_store::identity_key;
     let app = app();
     stand_in::provision(&app.dir, PROFILE).expect("provisioned");
-    let keystore = StoreKeystore {
+    let keystore = std::sync::Arc::new(StoreKeystore {
         invalidated: std::sync::atomic::AtomicBool::new(false),
-    };
+    });
     let service = ServiceHost::new();
     service
-        .start_without_network(&app.dir, PROFILE, &keystore)
+        .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("started");
-    let first = listed_identity(&service).expect("a key");
+    let first = listed_identity(&service).expect("the identity");
+    assert!(first.key.fingerprint().is_some(), "a key");
     assert_eq!(service.identity_key_refused(), None);
     let _ = service.stop(GRACE);
 
@@ -1063,15 +1065,16 @@ fn a_refused_key_file_is_kept_for_the_log_and_left_as_it_is() {
     let good = std::fs::read(&file).expect("read");
     std::fs::write(&file, "not a record\n").expect("overwrite");
     service
-        .start_without_network(&app.dir, PROFILE, &keystore)
+        .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("started with no key");
-    assert!(
-        listed_identity(&service).is_none(),
-        "no key, nothing signed"
+    assert_eq!(
+        listed_identity(&service).expect("the identity").key,
+        interweave_human_ui_model::OwnKey::Unusable(interweave_human_app_core::KeyProblem::Damaged),
+        "no key, nothing signed, and its page says why"
     );
     assert_eq!(
         service.identity_key_refused(),
-        Some(IdentityKeyFileError::Key(IdentityKeyError::NotARecord))
+        Some(interweave_human_app_core::KeyProblem::Damaged)
     );
     let _ = service.stop(GRACE);
     assert_eq!(
@@ -1082,7 +1085,7 @@ fn a_refused_key_file_is_kept_for_the_log_and_left_as_it_is() {
 
     std::fs::write(&file, &good).expect("restore");
     service
-        .start_without_network(&app.dir, PROFILE, &keystore)
+        .start_without_network(&app.dir, PROFILE, keystore.clone())
         .expect("started");
     assert_eq!(service.identity_key_refused(), None, "cleared");
     let _ = service.stop(GRACE);
