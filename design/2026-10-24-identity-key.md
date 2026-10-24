@@ -119,9 +119,14 @@ Where the page shows the identity's fingerprint (`human-client-ui.md`
 - for "temporarily unusable": **Try again** (`TryAgain`, filled
   tonal), and **Make a new key** (`KeyMakeNew`) as a text button after
   it;
-- for "key folder not safe": **Try again** (`TryAgain`, filled tonal)
-  alone; a new key cannot be made there until the folder is fixed, and
-  Try again opens the key once more, as in §6;
+- for "key folder not safe": the folder's path on a line of its own
+  under the reason line, selectable and copyable as `human-client-ui.md`
+  §11 asks of an exact identifier, then **Try again** (`TryAgain`,
+  filled tonal) alone; a new key cannot be made there until the folder
+  is fixed. Try again opens the key once more, as in §6, and whatever
+  the folder then holds decides the state: the old file opens, or is
+  refused by its own kind, or is missing (and §7 applies); the person
+  is not told to keep or move the files;
 - for every other kind: **Make a new key** (`KeyMakeNew`), filled
   tonal (not filled: Save stays the page's one filled button).
 
