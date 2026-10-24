@@ -149,6 +149,11 @@ repository = "https://github.com/BlueTeam-OU/InterWeave"
 #     `#[expect(clippy::<lint>, reason = "…")]` on the item — `expect`, so the
 #     exemption fails the build once the code stops needing it. Priority -1,
 #     like `all`, so a named lint below still sets its own level.
+#   assert_is_empty — the one pedantic lint allowed whole, on the owner's word
+#     at the 1.99.1 bump (2026-10-24). New in clippy 1.99, it fired at 163
+#     sites across ~30 packages, nearly all `assert!(x.is_empty())` in tests,
+#     and its rewrite, `assert_eq!(x, [] as [T; 0])`, needs PartialEq and
+#     Debug on T and reads worse: no site where it fires would be improved.
 #
 # The bounded-resource invariant (CLAUDE.md §6) is enforced at runtime by
 # `overflow-checks` in [profile.release] below rather than by a lint:
@@ -169,6 +174,7 @@ panic = "warn"
 todo = "warn"
 unimplemented = "warn"
 dbg_macro = "warn"
+assert_is_empty = "allow"
 
 # Shared dependency versions. A crate writes `serde = { workspace = true }` and
 # gets the reviewed version; two crates cannot end up on two versions of the
