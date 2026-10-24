@@ -78,10 +78,10 @@ mapped here, and nothing else refuses at open:
 | protected less than this device requires | `CustodyDowngrade` | Android (any platform with a wrapping key) | `KeyBelowDevice` | Make a new key |
 | sealed by another device | `SealedUnreadableHere` | desktop | `KeyOtherDevice` | Make a new key |
 | possibly a newer version's | `UnsupportedVersion(v)` with `v` above this build's version; `UnknownCustody` | both | `KeyNewerVersion` | Make a new key (its confirmation differs, §5.1) |
-| damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal (a file its owner cannot read) | both | `KeyDamaged` | Make a new key |
+| damaged | `NotARecord`, `Truncated`, `UnsupportedVersion(v)` with `v` below this build's version, `EndpointMismatch`, `KeyMismatch`, `Cipher(Unauthentic)`; the read's `TooLarge`, and its `Read` with `InvalidData` (bytes that are not text) or a permission refusal while `identity-keys/` is a directory this user owns (a file its owner cannot read) | both | `KeyDamaged` | Make a new key |
 | not protected | the read's `NotPrivate` for the file (readable or writable by another user, a link, another user's file), or for an `identity-keys/` directory this user owns with a loose mode | both (in practice the desktop) | `KeyExposed` | Make a new key (which first makes such a directory owner-only, §5.2) |
-| key folder not safe | the read's `NotPrivate` for an `identity-keys/` that is a link, or a directory another user owns | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder; no new key |
-| temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but the two below | both | `KeyNotNow` | Try again, then Make a new key |
+| key folder not safe | the read's `NotPrivate` for an `identity-keys/` that is a link; and any read refusal while `identity-keys/` is a directory another user owns, which the client checks itself, since the read judges the directory's mode and not its owner (a root-owned 0700 directory reads as a permission refusal) | desktop (Android's is the app's own) | `KeyDirUnsafe` | Try again, after the person fixes the folder; no new key |
+| temporarily unusable | `Cipher(Platform)`; the read's `Read` for any I/O error but the two in the "damaged" row and an other-owner directory | both | `KeyNotNow` | Try again, then Make a new key |
 | missing | no file, for an identity that has shared its card (§7) | both | `KeyMissing` | Make a new key |
 
 The client must tell these read refusals apart: today `open` turns
@@ -181,8 +181,8 @@ conversation (cards §5.3) stays: it opens this sheet.
   version may be able to use the old key, and once it is deleted,
   updating will not bring it back (architect-cto, Q-file);
 - `KeyNewPending`, only when this identity has own-card rows not yet
-  Accepted by remote transport: those cards are cancelled, since they
-  carry the old key (§5.2);
+  Accepted by remote transport: those still held are cancelled, and one
+  already on its way may still arrive with the old key (§5.2);
 - actions **Cancel** (`Cancel`) and **Make a new key** (`KeyNewConfirm`),
   filled, not in `error`: what is deleted could not be used here, and
   the cost (contacts told of a change) is said above. For "possibly a
@@ -203,7 +203,10 @@ the page stays usable.
 The step, in architect-cto's order (Q-order, §12), on both platforms:
 the person confirms; when `identity-keys/` is a real directory this
 user owns with a loose mode, the client makes it owner-only first
-(Q-dir, §12), since nothing can be removed or created in it otherwise;
+(Q-dir, §12), since nothing can be removed or created in it otherwise
+(the folder is shared: another identity whose own file is private then
+opens at its next open, with no state, since only the folder was
+loose);
 the old file is removed (on Android the new seal
 would destroy the old wrapping key anyway, one alias per identity); the
 new key is created. **Every point the step can stop at resolves to a
@@ -222,7 +225,9 @@ the new key is stored where the next start will open it.
 Its own pending cards go with the old key: every own-card row of this
 identity that has not reached Accepted by remote transport was signed
 with the old key. The step withdraws every such row the client still
-holds, Not sent ones and Sending ones not yet handed to the transport,
+holds, Not sent ones and Sending ones not yet handed to the transport
+(where the client cannot tell a Sending row it holds from one the
+transport took, it treats every Sending row as taken),
 as cards §5.3's Cancel does for a Not sent row but with no Undo, since
 the card could only deliver a key the person no longer has. A Sending
 row already handed to the transport cannot be withdrawn and may still
@@ -236,7 +241,8 @@ says so first (`KeyNewPending`), shown when any such row exists.
 fingerprint, and under it `KeyMade`: "This identity has a new key.
 Your contacts have the new key only after you share your card with them again."
 Then, when any conversation of this identity holds or may hold the old
-key — `card_shared_at` set, or an own-card row cancelled by this step:
+key — `card_shared_at` set, or an own-card row not yet Accepted by
+remote transport when the step ran (withdrawn or on its way):
 `KeyShareAgainTitle`
 ("Share your card again in these conversations") and one row per such conversation, by
 the conversation's title, most recently shared first, each opening that
@@ -414,6 +420,8 @@ On both clients unless said; Android's screen-reader checks blocked as
     key; the link is not followed, changed or replaced; after the
     person puts a private directory there, Try again shows the state
     the open then finds.
+17. Desktop: `identity-keys/` owned by root with mode 0700 shows
+    `KeyDirUnsafe`, not `KeyDamaged`, and no Make a new key.
 
 ## 10. Strings
 
@@ -449,7 +457,7 @@ as the platform shows it, isolated as a path, never translated.
 | `KeyExposed` | Other users of this device may be able to read or change this identity's key file. To be safe, InterWeave does not use this key. | §3 "not protected"; must say why it is refused, and not suggest fixing the file |
 | `KeyNewFailedGone` | The old key was deleted, but InterWeave could not make a new key. Choose Make a new key to try again. | §5.3, failed after the old file was removed; must say the saved key is gone and the new one was not made (architect-cto, Q-order) |
 | `KeyDirUnsafe` | The folder that holds this identity's key is a symbolic link, or it is owned by another user account, so InterWeave does not use the key. Make it a regular folder that only your user account owns, then choose Try again. Folder: {path} | §3, desktop only; must name the folder by its path and what to make of it, since the client never changes what it does not own; `{path}` last, so no punctuation touches it |
-| `KeyNewPending` | In some conversations, your card has not been sent yet. Making a new key cancels it there, because that card is signed with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport |
+| `KeyNewPending` | placeholder: In some conversations, your card has not arrived yet. Making a new key cancels it where it has not been sent; where it is already on its way, it may still arrive with the old key. | §5.1, only when this identity has own-card rows not yet Accepted by remote transport; must not promise a cancellation the client cannot make (review round 3, F11); awaiting language-culture-en |
 | `KeyNotNowAgain` | InterWeave still could not use the key. | §6 |
 
 `TryAgain` and `Cancel` are the existing keys.
