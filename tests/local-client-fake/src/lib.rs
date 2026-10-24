@@ -50,8 +50,8 @@ use interweave_local_client_api::{
     EndpointAdminView, EndpointLease, Generation, LeaseRecord, LineChange, LocalAdminPort,
     LocalDataSession, LocalSessionEvent, MAX_ADDRESSES_PER_ADD, MAX_EVENT_QUEUE, OwnAddress,
     OwnAddressKind, OwnAddresses, PeerGateView, PeerOutcome, RECONNECTED, ROUTE_ESTABLISHED,
-    ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionRequest, TrustAdminView, TrustSource,
-    TrustedPeer,
+    ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionLosses, SessionRequest, TrustAdminView,
+    TrustSource, TrustedPeer,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, ConnectivitySummary, DirectDestination, DirectInboundState,
@@ -332,6 +332,9 @@ struct Queues {
     direct: VecDeque<ReceivedDirect>,
     broadcast: VecDeque<ReceivedBroadcast>,
     joins: BTreeSet<ChannelId>,
+    /// Its broadcast losses since it opened: a dropped oldest, and a
+    /// broadcast the ingress bucket refused on a channel it held then.
+    losses: SessionLosses,
     /// The peers this session has a route to: a direct message it took or
     /// sent and had accepted, a broadcast it took -- taken, not merely
     /// queued, as the runtime records them. Unbounded and
@@ -464,6 +467,44 @@ struct State {
     /// The bootstrap-peers overlay: added entries in the order added,
     /// kept across a restart as every production binding keeps it.
     added: Vec<String>,
+    /// The ingress gate's bucket for the pair's other node, the only
+    /// publisher a fake node has: the runtime's per-peer default, a burst
+    /// of 32 refilled at 120 a minute.
+    ingress: Bucket,
+}
+
+/// A token bucket at the runtime's per-peer broadcast defaults.
+struct Bucket {
+    tokens: u32,
+    refilled: std::time::Instant,
+}
+
+impl Bucket {
+    const BURST: u32 = 32;
+    const REFILL: Duration = Duration::from_millis(500);
+
+    fn new() -> Self {
+        Self {
+            tokens: Self::BURST,
+            refilled: std::time::Instant::now(),
+        }
+    }
+
+    /// Whether one more broadcast is admitted now.
+    fn take(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        let earned = now.duration_since(self.refilled).as_millis() / Self::REFILL.as_millis();
+        if earned > 0 {
+            let earned = u32::try_from(earned).unwrap_or(u32::MAX);
+            self.tokens = self.tokens.saturating_add(earned).min(Self::BURST);
+            self.refilled = now;
+        }
+        if self.tokens == 0 {
+            return false;
+        }
+        self.tokens -= 1;
+        true
+    }
 }
 
 impl Node {
@@ -491,6 +532,7 @@ impl Node {
                 ended: BTreeSet::new(),
                 authored: Vec::new(),
                 added: Vec::new(),
+                ingress: Bucket::new(),
             }),
             injected: Mutex::new(VecDeque::new()),
             tag,
@@ -611,6 +653,9 @@ impl Node {
     /// Deliver a broadcast to every session on this node that joined its
     /// channel. A full queue gives up its oldest broadcast, as the real
     /// session queue does: a publisher is never refused for a slow reader.
+    /// Past the ingress bucket it reaches nobody, and each session holding
+    /// the channel counts it refused; a dropped oldest is counted for the
+    /// session that dropped it (`session.losses`).
     fn deliver_broadcast(
         &self,
         source_peer: &TransportIdentity,
@@ -624,6 +669,14 @@ impl Node {
         if !state.trusted.contains(source_peer) {
             return;
         }
+        if !state.ingress.take() {
+            for queues in state.sessions.values_mut() {
+                if queues.joins.contains(channel) {
+                    queues.losses.ingress_refused += 1;
+                }
+            }
+            return;
+        }
         let bound = state.queue_bound;
         for queues in state.sessions.values_mut() {
             if !queues.joins.contains(channel) {
@@ -631,6 +684,7 @@ impl Node {
             }
             if queues.broadcast.len() >= bound {
                 queues.broadcast.pop_front();
+                queues.losses.queue_overflow += 1;
             }
             queues.broadcast.push_back(ReceivedBroadcast {
                 source_peer: source_peer.clone(),
@@ -796,6 +850,16 @@ impl DataSessionPort for FakeSession {
             queues.joins.remove(&channel);
         }
         Ok(())
+    }
+
+    async fn losses(&self) -> Result<SessionLosses, TransportError> {
+        self.require(DataCapability::Commands)?;
+        let state = self.running()?;
+        state
+            .sessions
+            .get(self.session.session_id())
+            .map(|queues| queues.losses)
+            .ok_or(TransportError::BackendUnavailable)
     }
 
     async fn broadcast(
