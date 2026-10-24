@@ -310,15 +310,9 @@ fn version_request(args: &[String]) -> Option<Result<Command, String>> {
         })
 }
 
-/// Parse the arguments after the program name.
-///
-/// # Errors
-/// A message naming what is wrong: exit code 2.
-pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String> {
-    let args: Vec<String> = args.into_iter().collect();
-    if let Some(version) = version_request(&args) {
-        return version;
-    }
+/// The flags and the words of `args`, or `None` when `--help` is among
+/// the flags.
+fn flags_and_words(args: Vec<String>) -> Result<Option<(Flags, Vec<String>)>, String> {
     let mut flags = Flags::default();
     let mut words = Vec::new();
     let mut args = args.into_iter();
@@ -331,7 +325,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
         match arg.as_str() {
             "--" => flags_ended = true,
-            "--help" | "-h" => return Ok(Command::Help),
+            "--help" | "-h" => return Ok(None),
             "--profile" => {
                 let v = value("--profile")?;
                 if flags.profile.replace(v).is_some() {
@@ -375,6 +369,21 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             _ => words.push(arg),
         }
     }
+    Ok(Some((flags, words)))
+}
+
+/// Parse the arguments after the program name.
+///
+/// # Errors
+/// A message naming what is wrong: exit code 2.
+pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String> {
+    let args: Vec<String> = args.into_iter().collect();
+    if let Some(version) = version_request(&args) {
+        return version;
+    }
+    let Some((mut flags, words)) = flags_and_words(args)? else {
+        return Ok(Command::Help);
+    };
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
     if words.is_empty() {
         return Err("a command is required".to_owned());
@@ -488,13 +497,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         ["peers", "remove", address] => (Verb::PeerRemove((*address).to_owned()), false),
         ["contacts", "delete", id] => (Verb::ContactDelete((*id).to_owned()), false),
         ["contacts", "route", "delete", id, route] => {
-            let ConversationKey::Direct {
-                peer,
-                endpoint: Some(endpoint),
-            } = conversation(route)?
-            else {
-                return Err("a route is <peer>/<endpoint>, as contacts show prints it".to_owned());
-            };
+            let (peer, endpoint) = route_of(route)?;
             (
                 Verb::RouteDelete {
                     contact: (*id).to_owned(),
@@ -525,6 +528,17 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         json,
         wait,
     })
+}
+
+/// A contact's route: `<peer>/<endpoint>`, as `contacts show` prints it.
+fn route_of(text: &str) -> Result<(TransportIdentity, EndpointId), String> {
+    match conversation(text)? {
+        ConversationKey::Direct {
+            peer,
+            endpoint: Some(endpoint),
+        } => Ok((peer, endpoint)),
+        _ => Err("a route is <peer>/<endpoint>, as contacts show prints it".to_owned()),
+    }
 }
 
 /// `--wait`'s milliseconds, or the default.
