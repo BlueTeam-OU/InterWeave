@@ -932,8 +932,8 @@ fn a_cards_answer_shows_its_snackbar_and_undo_draws_the_proposal_again() {
     assert!(shows(&view, &heading), "the proposal is back");
     assert_eq!(
         view.window().get_focus_target().as_str(),
-        "proposal-copy:0",
-        "focus on its first control"
+        "proposal-accept:0",
+        "focus on its Accept (design section 9's focus table)"
     );
 
     press(&view, text(UiText::CardAccept));

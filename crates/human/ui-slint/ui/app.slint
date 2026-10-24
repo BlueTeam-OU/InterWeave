@@ -2174,6 +2174,8 @@ component ProposalCard inherits Rectangle {
                 filled: true;
                 target: 48px;
                 focus-key: "proposal-accept:" + root.card.handle;
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "proposal-accept:" + root.card.handle;
                 pressed => { root.accept(); }
                 focused(k) => { root.focused(k); }
             }

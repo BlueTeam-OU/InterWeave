@@ -2462,6 +2462,13 @@ impl View {
                     }
                 })
             }
+            // Its Accept, drawn in every case (Close in case S).
+            FocusTarget::ProposalAccept(row) => self
+                .cards
+                .drawn_rows
+                .get(row)
+                .filter(|(_, answered)| !answered)
+                .map(|(handle, _)| format!("proposal-accept:{handle}")),
         };
         let Some(target) = target else {
             return false;
