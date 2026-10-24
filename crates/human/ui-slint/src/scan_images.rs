@@ -6,10 +6,11 @@
 //! blocks until the person answers and a large image takes a moment to
 //! read; the result goes back as the [`PeersInput`] the model takes.
 //!
-//! What is read is held to [`crate::code`]'s bounds: the file's bytes
-//! before it is decoded, its sides and the decoder's allocation. A
-//! clipboard image is decoded by the clipboard crate, under the image
-//! crate's default allocation bound, and then read as its pixels.
+//! A file is held to [`crate::code`]'s bounds before it is decoded: its
+//! bytes, its sides and the decoder's allocation. A clipboard image is
+//! read whole and decoded by the clipboard crate, under the image
+//! crate's default allocation bound, before its sides are refused past
+//! the same bound -- a known limit ([`crate::code::read_pasted`]).
 
 use std::io::Read as _;
 use std::sync::{Arc, Mutex};
@@ -76,11 +77,16 @@ fn from_file(filter: &str) -> PeersInput {
 fn from_clipboard() -> PeersInput {
     let image = arboard::Clipboard::new().and_then(|mut c| c.get_image());
     match image {
-        Ok(image) => found(code::read_rgba(image.width, image.height, &image.bytes)),
-        // An image there that could not be converted, else none at all
-        // (text, nothing, or a clipboard that cannot be reached).
-        Err(arboard::Error::ConversionFailure) => PeersInput::ImageUnreadable,
-        Err(_) => PeersInput::ClipboardNoImage,
+        Ok(image) => code::read_pasted(image.width, image.height, &image.bytes)
+            .map_or(PeersInput::ImageUnreadable, found),
+        // No image there: text only, or nothing.
+        Err(arboard::Error::ContentNotAvailable) => PeersInput::ClipboardNoImage,
+        // An image that could not be converted, or a clipboard that could
+        // not be read at all -- busy, unsupported, failed: never "no
+        // image", which was not seen (#409 F6). The design names no line
+        // of its own for an unreadable clipboard; the image's is the
+        // nearest true one.
+        Err(_) => PeersInput::ImageUnreadable,
     }
 }
 
