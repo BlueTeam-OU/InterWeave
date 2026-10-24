@@ -444,6 +444,11 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
                 self.set_contact_photo(contact_id, photo, &mut updates)
             }
             Command::DeleteContact(contact_id) => self.delete_contact(contact_id, &mut updates),
+            Command::DeleteRoute {
+                contact_id,
+                peer,
+                endpoint,
+            } => self.delete_route(contact_id, peer, endpoint, &mut updates),
         };
         updates.push(match outcome {
             Ok(()) => Update::Done(command),
@@ -860,6 +865,35 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             .map_err(|e| store_failure(&e))?
         {
             return Err(Failure::NoSuchRow);
+        }
+        updates.push(Update::ContactsListed(
+            cards::contact_views(store).map_err(|e| store_failure(&e))?,
+        ));
+        self.proposals_again(updates);
+        Ok(())
+    }
+
+    /// Delete one route of a contact: the contacts read back, and the
+    /// proposals judged again, since a card from that route now makes a
+    /// contact rather than updating this one. The store refuses the
+    /// contact's last route, which the model never offers
+    /// (`a_route_is_deleted_and_its_contact_keeps_the_other`).
+    fn delete_route(
+        &mut self,
+        contact_id: &str,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+        updates: &mut Vec<Update>,
+    ) -> Result<(), Failure> {
+        use interweave_human_store::RouteDeleted;
+        let store = self.client.store_mut();
+        match store
+            .delete_route(contact_id, peer, endpoint)
+            .map_err(|e| store_failure(&e))?
+        {
+            RouteDeleted::Deleted => {}
+            RouteDeleted::LastRoute => return Err(Failure::Refused),
+            RouteDeleted::NoSuchRoute => return Err(Failure::NoSuchRow),
         }
         updates.push(Update::ContactsListed(
             cards::contact_views(store).map_err(|e| store_failure(&e))?,

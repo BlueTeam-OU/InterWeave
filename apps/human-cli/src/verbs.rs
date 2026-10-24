@@ -72,6 +72,10 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         Verb::TrustList => trust_list(s, r, out).await,
         Verb::SetTrust(peer, allowed) => set_trust(s, r, peer, *allowed, out).await,
         Verb::CardShow => crate::cards::card_show(s, r, out).await,
+        // Main reads another endpoint's key file; the identity in front,
+        // named or not, is the model's.
+        Verb::IdentityShow(_) => crate::identity::show(s, r, out).await,
+        Verb::IdentityNewKey { confirm } => crate::identity::new_key(s, r, *confirm, out).await,
         Verb::CardSet {
             name,
             surname,
@@ -82,14 +86,27 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         Verb::ProposalsRead {
             conversation,
             accept,
+            accept_key_change,
             decline,
-        } => crate::cards::proposals_read(s, r, conversation, accept, decline, out).await,
+        } => {
+            let decided = crate::cards::Decided {
+                accept,
+                accept_key_change,
+                decline,
+            };
+            crate::cards::proposals_read(s, r, conversation, &decided, out).await
+        }
         Verb::Contacts => crate::cards::contacts(s, r, out).await,
         Verb::ContactShow(id) => crate::cards::contact_show(s, r, id, out).await,
         Verb::ContactRename(id, name) => {
             crate::cards::contact_edit(s, id, Some(name), None, out).await
         }
         Verb::ContactDelete(id) => crate::cards::contact_delete(s, id, out).await,
+        Verb::RouteDelete {
+            contact,
+            peer,
+            endpoint,
+        } => crate::cards::route_delete(s, contact, peer, endpoint, out).await,
         Verb::ContactPhoto(id, photo) => {
             crate::cards::contact_edit(s, id, None, Some(photo), out).await
         }
@@ -97,6 +114,7 @@ pub(crate) async fn run<B: DataSessionBinding, A: AdminBinding>(
         | Verb::Listen
         | Verb::PeersList
         | Verb::PeerAdd(_)
+        | Verb::PeerAddList(_)
         | Verb::PeerRemove(_)
         | Verb::IdentitiesList
         | Verb::SetEnabled(..)
@@ -208,6 +226,7 @@ const fn command_name(command: &Command) -> &'static str {
         Command::SetOwnCard { .. } => "editing the own card",
         Command::RenameContact { .. } => "renaming a contact",
         Command::DeleteContact(_) => "deleting a contact",
+        Command::DeleteRoute { .. } => "deleting a route",
         Command::SetContactPhoto { .. } => "setting a contact's photo",
     }
 }

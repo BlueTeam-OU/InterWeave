@@ -247,6 +247,7 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::SetOwnCard { .. } => "set own card",
         Command::RenameContact { .. } => "rename contact",
         Command::DeleteContact(_) => "delete contact",
+        Command::DeleteRoute { .. } => "delete route",
         Command::SetContactPhoto { .. } => "set contact photo",
     }
 }

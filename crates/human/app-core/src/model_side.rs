@@ -609,6 +609,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 Command::SetContactPhoto { contact_id, photo }
             }
             Intent::DeleteContact { contact_id } => Command::DeleteContact(contact_id),
+            Intent::DeleteRoute {
+                contact_id,
+                peer,
+                endpoint,
+            } => Command::DeleteRoute {
+                contact_id,
+                peer,
+                endpoint,
+            },
         };
         if !self.in_flight.insert(InFlight::of(&command)) {
             return None;

@@ -9,7 +9,7 @@
 mod common;
 
 use interweave_human_store::{
-    AcceptedCard, HumanStore, KeyStanding, OwnCard, StoreOptions, ValueSource,
+    AcceptedCard, HumanStore, KeyStanding, OwnCard, RouteDeleted, StoreOptions, ValueSource,
 };
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
@@ -593,4 +593,84 @@ fn the_conversations_a_card_was_shared_in_come_most_recent_first() {
         store.cards_shared().expect("read"),
         vec![(peer(Q), human.clone(), 20), (peer(P), human, 10)]
     );
+}
+
+/// A second route under `contact_id`, as no flow writes one yet (moving a
+/// route between contacts is Stage 22's): inserted as the store's own
+/// writer inserts a route.
+fn seed_route(path: &std::path::Path, contact_id: &str, peer: &TransportIdentity, key: &[u8]) {
+    let conn = rusqlite::Connection::open(path).expect("open");
+    conn.execute(
+        "INSERT INTO contact_routes (contact_id, peer_id, endpoint_id, identity_key)
+         VALUES (?1, ?2, 'human', ?3)",
+        rusqlite::params![contact_id, peer.as_str(), key],
+    )
+    .expect("seeded");
+}
+
+#[test]
+fn a_deleted_route_leaves_both_files_and_the_last_is_refused() {
+    // The second route's key, findable in the files.
+    const KEY: [u8; 32] = *b"route-key-deleted-marker-0123456";
+    let dir = common::private_tempdir();
+    let path = dir.path().join("state").join("human.sqlite3");
+    let wal = path.with_extension("sqlite3-wal");
+    let holds = |p: &std::path::Path| {
+        std::fs::read(p).is_ok_and(|bytes| bytes.windows(KEY.len()).any(|w| w == KEY))
+    };
+    let (p, q, human) = (peer(P), peer(Q), endpoint("human"));
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("opens");
+    let ada = store
+        .accept_card(&card(&p, &human, "Ada", 1), 10)
+        .expect("accepted");
+    drop(store);
+    seed_route(&path, &ada.contact_id, &q, &KEY);
+    assert!(
+        holds(&path) || holds(&wal),
+        "the setup: the key reached the files"
+    );
+
+    let mut store = HumanStore::open(&path, StoreOptions::default()).expect("reopens");
+    assert_eq!(
+        store
+            .delete_route(&ada.contact_id, &q, &endpoint("other"))
+            .expect("asked"),
+        RouteDeleted::NoSuchRoute
+    );
+    assert_eq!(
+        store
+            .delete_route("no-such-contact", &q, &human)
+            .expect("asked"),
+        RouteDeleted::NoSuchRoute
+    );
+    assert_eq!(
+        store
+            .delete_route(&ada.contact_id, &q, &human)
+            .expect("deleted"),
+        RouteDeleted::Deleted
+    );
+    assert!(
+        !holds(&path) && !holds(&wal),
+        "the route's key left both files"
+    );
+    let contact = store
+        .contact(&ada.contact_id)
+        .expect("read")
+        .expect("stays");
+    assert_eq!(contact.routes.len(), 1, "the other route stays");
+    assert_eq!(contact.routes[0].peer, p);
+
+    // The last route is the contact's: refused, nothing written.
+    assert_eq!(
+        store
+            .delete_route(&ada.contact_id, &p, &human)
+            .expect("asked"),
+        RouteDeleted::LastRoute
+    );
+    let contact = store
+        .contact(&ada.contact_id)
+        .expect("read")
+        .expect("stays");
+    assert_eq!(contact.routes.len(), 1);
+    assert_eq!(contact.routes[0].identity_key, Some([1; 32]));
 }

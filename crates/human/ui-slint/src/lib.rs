@@ -3563,7 +3563,8 @@ fn action_text(intent: &Intent) -> Option<&'static str> {
         | Intent::SetOwnCard { .. }
         | Intent::RenameContact { .. }
         | Intent::SetContactPhoto { .. }
-        | Intent::DeleteContact { .. } => return None,
+        | Intent::DeleteContact { .. }
+        | Intent::DeleteRoute { .. } => return None,
     };
     Some(placeholder_en::text(text))
 }

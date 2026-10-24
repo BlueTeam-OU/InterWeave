@@ -98,7 +98,9 @@ fn reaches_trust_admin_or_recovery(intent: &Intent) -> bool {
         | Intent::SetContactPhoto { .. }
         // Deleting a contact removes what the person accepted about
         // someone; the trust allowlist is not the contacts, and stays.
-        | Intent::DeleteContact { .. } => false,
+        | Intent::DeleteContact { .. }
+        // So does deleting one of its routes.
+        | Intent::DeleteRoute { .. } => false,
         // The addresses are administration (`admin.peers`, ADR-0062):
         // what the device dials, never a message's to ask.
         Intent::ReadTrust

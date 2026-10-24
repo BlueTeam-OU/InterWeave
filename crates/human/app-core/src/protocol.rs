@@ -16,7 +16,7 @@ use interweave_human_ui_model::{
     CardOutcome, ContactView, ConversationKey, IdentityView, ItemKey, ListedInbound,
     ListedOutbound, PhotoEdit, Proposal, ProposalContext, Table, TrustChange,
 };
-use interweave_transport_api::TransportIdentity;
+use interweave_transport_api::{EndpointId, TransportIdentity};
 
 /// A person's intent, resolved by the model, for the facade side to carry
 /// out against the facade and the store.
@@ -117,6 +117,16 @@ pub enum Command {
     },
     /// Delete a contact, its routes and their recorded keys.
     DeleteContact(String),
+    /// Delete one route of a contact and its recorded key; the store
+    /// refuses the contact's last.
+    DeleteRoute {
+        /// The contact.
+        contact_id: String,
+        /// The route's `PeerId`.
+        peer: TransportIdentity,
+        /// The route's `EndpointId`.
+        endpoint: EndpointId,
+    },
     /// Say whether a new key would cancel own cards on their way.
     AskNewKey,
     /// Make a new key for the identity in front, as the person confirmed.

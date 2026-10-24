@@ -28,6 +28,8 @@ usage:
   interweave-human --profile <name> identities list [--json]
   interweave-human --profile <name> identities enable|disable <endpoint>
   interweave-human --profile <name> identities default <endpoint>|--none
+  interweave-human --profile <name> identity show [<endpoint>] [--json]
+  interweave-human --profile <name> identity new-key [--confirm key-change] [--json]
   interweave-human --profile <name> store health [--json]
   interweave-human --profile <name> store discard
                    [--confirm everything|unfinished-plaintext] [--json]
@@ -36,14 +38,17 @@ usage:
   interweave-human --profile <name> card share <conversation> [--json]
   interweave-human --profile <name> proposals [--json]
   interweave-human --profile <name> proposals read <conversation>
-                   [--accept <id>]... [--decline <id>]... [--json]
+                   [--accept <id>]... [--accept-key-change <id>]...
+                   [--decline <id>]... [--json]
   interweave-human --profile <name> contacts [--json]
   interweave-human --profile <name> contacts show <contact> [--json]
   interweave-human --profile <name> contacts rename <contact> <name>
   interweave-human --profile <name> contacts photo <contact> <file>|--none
   interweave-human --profile <name> contacts delete <contact>
+  interweave-human --profile <name> contacts route delete <contact> <peer>/<endpoint>
   interweave-human --profile <name> peers [--json]
   interweave-human --profile <name> peers add|remove <address>
+  interweave-human --profile <name> peers add -|--file <file>
   interweave-human --profile <name> peers show [--json]
 
   --wait <ms>   how long to wait for the session and for an answer
@@ -55,6 +60,8 @@ pending, u<row> unread, k<row> kept; a proposal's is its card's u<row>,
 as proposals prints it. A <contact> is its id, as contacts prints it. `send ... -` reads the text from
 stdin. `--` ends the flags. `store discard` without --confirm lists what
 it would remove and removes nothing; --confirm names what it listed.
+`identity new-key` without --confirm key-change says what a new key would
+do and changes nothing.
 
 Exit codes:
   0  done
@@ -131,6 +138,16 @@ pub(crate) enum Verb {
     SetEnabled(EndpointId, bool),
     /// Set the default one, or clear it.
     SetDefault(Option<EndpointId>),
+    /// An identity's fingerprint: the one in front, or the named human
+    /// endpoint's.
+    IdentityShow(Option<EndpointId>),
+    /// A new key for the identity in front, whose key cannot be used:
+    /// made only when `confirm` (the person's `--confirm key-change`),
+    /// else what it would do is said and nothing changes.
+    IdentityNewKey {
+        /// The key change confirmed.
+        confirm: bool,
+    },
     /// The store's health, and its key and files at rest.
     StoreHealth,
     /// Discard and recreate a store that needs recovery (ADR-0060
@@ -158,8 +175,12 @@ pub(crate) enum Verb {
     ProposalsRead {
         /// The conversation.
         conversation: ConversationKey,
-        /// The proposals to accept, by id.
+        /// The proposals to accept, by id: none of them a key change.
         accept: Vec<String>,
+        /// The key changes to accept, by id: each must be one (ADR-0063
+        /// decision 4: a changed key is accepted only by the person's
+        /// act, named for it).
+        accept_key_change: Vec<String>,
         /// The proposals to decline, by id.
         decline: Vec<String>,
     },
@@ -173,6 +194,15 @@ pub(crate) enum Verb {
     ContactPhoto(String, PhotoArg),
     /// Delete a contact, its routes and their keys.
     ContactDelete(String),
+    /// Delete one route of a contact and its key; never the last.
+    RouteDelete {
+        /// The contact.
+        contact: String,
+        /// The route's `PeerId`.
+        peer: TransportIdentity,
+        /// The route's `EndpointId`.
+        endpoint: EndpointId,
+    },
     /// The bootstrap addresses: authored and added (ADR-0062).
     PeersList,
     /// This node's own addresses, as another node's `peers add` takes
@@ -180,8 +210,19 @@ pub(crate) enum Verb {
     PeersShow,
     /// Add a peer by address, as the person typed it.
     PeerAdd(String),
+    /// Add several addresses, all or none, one per line.
+    PeerAddList(ListSource),
     /// Remove an added address.
     PeerRemove(String),
+}
+
+/// Where a list of addresses is read from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ListSource {
+    /// Standard input.
+    Stdin,
+    /// This file.
+    File(std::path::PathBuf),
 }
 
 /// What a photo argument asks.
@@ -210,8 +251,10 @@ struct Flags {
     photo: Option<String>,
     no_photo: bool,
     accept: Vec<String>,
+    accept_key_change: Vec<String>,
     decline: Vec<String>,
     confirm: Option<String>,
+    file: Option<String>,
 }
 
 /// Parse a conversation's text: `<peer>`, `<peer>/<endpoint>` or
@@ -267,15 +310,9 @@ fn version_request(args: &[String]) -> Option<Result<Command, String>> {
         })
 }
 
-/// Parse the arguments after the program name.
-///
-/// # Errors
-/// A message naming what is wrong: exit code 2.
-pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String> {
-    let args: Vec<String> = args.into_iter().collect();
-    if let Some(version) = version_request(&args) {
-        return version;
-    }
+/// The flags and the words of `args`, or `None` when `--help` is among
+/// the flags.
+fn flags_and_words(args: Vec<String>) -> Result<Option<(Flags, Vec<String>)>, String> {
     let mut flags = Flags::default();
     let mut words = Vec::new();
     let mut args = args.into_iter();
@@ -288,7 +325,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
         match arg.as_str() {
             "--" => flags_ended = true,
-            "--help" | "-h" => return Ok(Command::Help),
+            "--help" | "-h" => return Ok(None),
             "--profile" => {
                 let v = value("--profile")?;
                 if flags.profile.replace(v).is_some() {
@@ -303,6 +340,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             }
             "--keep" => flags.keep.push(value("--keep")?),
             "--accept" => flags.accept.push(value("--accept")?),
+            "--accept-key-change" => flags.accept_key_change.push(value("--accept-key-change")?),
             "--decline" => flags.decline.push(value("--decline")?),
             "--photo" => {
                 let v = value("--photo")?;
@@ -317,6 +355,12 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
                     return Err("--confirm given twice".to_owned());
                 }
             }
+            "--file" => {
+                let v = value("--file")?;
+                if flags.file.replace(v).is_some() {
+                    return Err("--file given twice".to_owned());
+                }
+            }
             "--json" => flags.json = true,
             "--none" => flags.none = true,
             // A lone "-" is send's stdin marker, a word.
@@ -325,21 +369,27 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             _ => words.push(arg),
         }
     }
+    Ok(Some((flags, words)))
+}
+
+/// Parse the arguments after the program name.
+///
+/// # Errors
+/// A message naming what is wrong: exit code 2.
+pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String> {
+    let args: Vec<String> = args.into_iter().collect();
+    if let Some(version) = version_request(&args) {
+        return version;
+    }
+    let Some((mut flags, words)) = flags_and_words(args)? else {
+        return Ok(Command::Help);
+    };
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
     if words.is_empty() {
         return Err("a command is required".to_owned());
     }
     let profile = flags.profile.take().ok_or("--profile <name> is required")?;
-    let wait = flags
-        .wait
-        .take()
-        .map(|ms| {
-            ms.parse::<u64>()
-                .map(Duration::from_millis)
-                .map_err(|_| "--wait: not a number of milliseconds".to_owned())
-        })
-        .transpose()?
-        .unwrap_or(DEFAULT_WAIT);
+    let wait = wait_of(flags.wait.take().as_deref())?;
     let endpoint = |id: &str| EndpointId::parse(id).map_err(|e| format!("the endpoint: {e}"));
     let peer = |id: &str| TransportIdentity::parse(id).map_err(|e| format!("the peer: {e}"));
     let (verb, json_allowed) = match words.as_slice() {
@@ -381,18 +431,19 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             (Verb::SetDefault(None), false)
         }
         ["identities", "default", id] => (Verb::SetDefault(Some(endpoint(id)?)), false),
+        ["identity", "show"] => (Verb::IdentityShow(None), true),
+        ["identity", "show", id] => (Verb::IdentityShow(Some(endpoint(id)?)), true),
+        ["identity", "new-key"] => (
+            Verb::IdentityNewKey {
+                confirm: key_change_confirmed(flags.confirm.take().as_deref())?,
+            },
+            true,
+        ),
         ["store", "health"] => (Verb::StoreHealth, true),
-        ["store", "discard"] => {
-            let scope = match flags.confirm.take().as_deref() {
-                None => None,
-                Some("everything") => Some(DiscardScope::Everything),
-                Some("unfinished-plaintext") => Some(DiscardScope::UnfinishedPlaintext),
-                Some(_) => {
-                    return Err("--confirm takes everything or unfinished-plaintext".to_owned());
-                }
-            };
-            (Verb::StoreDiscard(scope), true)
-        }
+        ["store", "discard"] => (
+            Verb::StoreDiscard(discard_scope(flags.confirm.take().as_deref())?),
+            true,
+        ),
         ["card", "show"] => (Verb::CardShow, true),
         ["card", "set", name, rest @ ..] if rest.len() <= 1 => {
             let photo = match (flags.photo.take(), std::mem::take(&mut flags.no_photo)) {
@@ -418,6 +469,7 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
             Verb::ProposalsRead {
                 conversation: conversation(c)?,
                 accept: std::mem::take(&mut flags.accept),
+                accept_key_change: std::mem::take(&mut flags.accept_key_change),
                 decline: std::mem::take(&mut flags.decline),
             },
             true,
@@ -434,9 +486,27 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
         ),
         ["peers"] => (Verb::PeersList, true),
         ["peers", "show"] => (Verb::PeersShow, true),
+        ["peers", "add"] if flags.file.is_some() => (
+            Verb::PeerAddList(ListSource::File(
+                flags.file.take().unwrap_or_default().into(),
+            )),
+            false,
+        ),
+        ["peers", "add", "-"] => (Verb::PeerAddList(ListSource::Stdin), false),
         ["peers", "add", address] => (Verb::PeerAdd((*address).to_owned()), false),
         ["peers", "remove", address] => (Verb::PeerRemove((*address).to_owned()), false),
         ["contacts", "delete", id] => (Verb::ContactDelete((*id).to_owned()), false),
+        ["contacts", "route", "delete", id, route] => {
+            let (peer, endpoint) = route_of(route)?;
+            (
+                Verb::RouteDelete {
+                    contact: (*id).to_owned(),
+                    peer,
+                    endpoint,
+                },
+                false,
+            )
+        }
         ["contacts", "photo", id, file] => (
             Verb::ContactPhoto((*id).to_owned(), PhotoArg::File((*file).into())),
             false,
@@ -447,31 +517,83 @@ pub(crate) fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, 
     let json = std::mem::take(&mut flags.json);
     if json && !json_allowed {
         return Err(
-            "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share and store discard"
+            "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share, store discard and identity new-key"
                 .to_owned(),
         );
     }
-    if !flags.keep.is_empty() {
-        return Err("--keep applies to read only".to_owned());
-    }
-    if flags.none {
-        return Err("--none applies to identities default and contacts photo only".to_owned());
-    }
-    if !flags.accept.is_empty() || !flags.decline.is_empty() {
-        return Err("--accept and --decline apply to proposals read only".to_owned());
-    }
-    if flags.confirm.is_some() {
-        return Err("--confirm applies to store discard only".to_owned());
-    }
-    if flags.photo.is_some() || flags.no_photo {
-        return Err("--photo and --no-photo apply to card set only".to_owned());
-    }
+    unused(&flags)?;
     Ok(Command::Run {
         profile,
         verb,
         json,
         wait,
     })
+}
+
+/// A contact's route: `<peer>/<endpoint>`, as `contacts show` prints it.
+fn route_of(text: &str) -> Result<(TransportIdentity, EndpointId), String> {
+    match conversation(text)? {
+        ConversationKey::Direct {
+            peer,
+            endpoint: Some(endpoint),
+        } => Ok((peer, endpoint)),
+        _ => Err("a route is <peer>/<endpoint>, as contacts show prints it".to_owned()),
+    }
+}
+
+/// `--wait`'s milliseconds, or the default.
+fn wait_of(ms: Option<&str>) -> Result<Duration, String> {
+    ms.map_or(Ok(DEFAULT_WAIT), |ms| {
+        ms.parse::<u64>()
+            .map(Duration::from_millis)
+            .map_err(|_| "--wait: not a number of milliseconds".to_owned())
+    })
+}
+
+/// `store discard`'s `--confirm`: the scope it names, if any.
+fn discard_scope(confirm: Option<&str>) -> Result<Option<DiscardScope>, String> {
+    match confirm {
+        None => Ok(None),
+        Some("everything") => Ok(Some(DiscardScope::Everything)),
+        Some("unfinished-plaintext") => Ok(Some(DiscardScope::UnfinishedPlaintext)),
+        Some(_) => Err("--confirm takes everything or unfinished-plaintext".to_owned()),
+    }
+}
+
+/// `identity new-key`'s `--confirm`: whether it names the key change.
+fn key_change_confirmed(confirm: Option<&str>) -> Result<bool, String> {
+    match confirm {
+        None => Ok(false),
+        Some("key-change") => Ok(true),
+        Some(_) => Err("identity new-key's --confirm takes key-change".to_owned()),
+    }
+}
+
+/// A flag given to a verb that does not take it: a usage error naming
+/// the verbs it applies to.
+fn unused(flags: &Flags) -> Result<(), String> {
+    if !flags.keep.is_empty() {
+        return Err("--keep applies to read only".to_owned());
+    }
+    if flags.none {
+        return Err("--none applies to identities default and contacts photo only".to_owned());
+    }
+    if !flags.accept.is_empty() || !flags.accept_key_change.is_empty() || !flags.decline.is_empty()
+    {
+        return Err(
+            "--accept, --accept-key-change and --decline apply to proposals read only".to_owned(),
+        );
+    }
+    if flags.confirm.is_some() {
+        return Err("--confirm applies to store discard and identity new-key only".to_owned());
+    }
+    if flags.photo.is_some() || flags.no_photo {
+        return Err("--photo and --no-photo apply to card set only".to_owned());
+    }
+    if flags.file.is_some() {
+        return Err("--file applies to peers add, in place of its address".to_owned());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -518,6 +640,17 @@ mod tests {
             &["--profile", "p", "identities", "default", "human"],
             &["--profile", "p", "identities", "default", "--none"],
             &["--profile", "p", "store", "health", "--json"],
+            &["--profile", "p", "identity", "show"],
+            &["--profile", "p", "identity", "show", "second", "--json"],
+            &["--profile", "p", "identity", "new-key", "--json"],
+            &[
+                "--profile",
+                "p",
+                "identity",
+                "new-key",
+                "--confirm",
+                "key-change",
+            ],
             &["--profile", "p", "store", "discard", "--json"],
             &["--profile", "p", "peers", "show", "--json"],
             &[
@@ -550,6 +683,8 @@ mod tests {
                 &c,
                 "--accept",
                 "u3",
+                "--accept-key-change",
+                "u5",
                 "--decline",
                 "u4",
             ],
@@ -559,6 +694,7 @@ mod tests {
             &["--profile", "p", "contacts", "photo", "c1", "a.jpg"],
             &["--profile", "p", "contacts", "photo", "c1", "--none"],
             &["--profile", "p", "contacts", "delete", "c1"],
+            &["--profile", "p", "contacts", "route", "delete", "c1", &c],
             &["--profile", "p", "peers", "--json"],
             &[
                 "--profile",
@@ -574,6 +710,8 @@ mod tests {
                 "remove",
                 "/ip4/192.0.2.1/tcp/4001/p2p/x",
             ],
+            &["--profile", "p", "peers", "add", "-"],
+            &["--profile", "p", "peers", "add", "--file", "list.txt"],
         ];
         for args in cases {
             assert!(matches!(run(args), Ok(Command::Run { .. })), "{args:?}");
@@ -597,6 +735,8 @@ mod tests {
             "identities enable|disable",
             "identities default",
             "store health",
+            "identity show",
+            "identity new-key",
             "card show",
             "card set",
             "card share",
@@ -605,7 +745,9 @@ mod tests {
             "contacts rename",
             "contacts photo",
             "contacts delete",
+            "contacts route delete",
             "peers add|remove",
+            "peers add -|--file",
         ] {
             assert!(USAGE.contains(word), "{word} in the usage");
         }
@@ -661,9 +803,50 @@ mod tests {
             ],
             vec!["--profile", "p", "card", "set", "A", "B", "C"],
             vec!["--profile", "p", "read", &c, "--accept", "u1"],
+            vec!["--profile", "p", "read", &c, "--accept-key-change", "u1"],
+            vec![
+                "--profile",
+                "p",
+                "proposals",
+                "read",
+                &c,
+                "--accept-key-change",
+            ],
             vec!["--profile", "p", "status", "--photo", "x"],
             vec!["--profile", "p", "messages", &c, "--keep", "u1"],
             vec!["--profile", "p", "status", "--none"],
+            vec!["--profile", "p", "contacts", "route", "delete", "c1", PEER],
+            vec![
+                "--profile",
+                "p",
+                "contacts",
+                "route",
+                "delete",
+                "c1",
+                "#general",
+            ],
+            vec![
+                "--profile",
+                "p",
+                "contacts",
+                "route",
+                "delete",
+                "c1",
+                &c,
+                "--json",
+            ],
+            vec![
+                "--profile",
+                "p",
+                "peers",
+                "add",
+                "/ip4/1.2.3.4",
+                "--file",
+                "f",
+            ],
+            vec!["--profile", "p", "peers", "add", "-", "--file", "f"],
+            vec!["--profile", "p", "peers", "remove", "--file", "f"],
+            vec!["--profile", "p", "peers", "add", "--file", "f", "--json"],
             vec!["--profile", "p", "status", "--wait", "soon"],
             vec!["status"],
             vec!["--profile", "p"],
@@ -679,7 +862,7 @@ mod tests {
         assert_eq!(
             run(&["--profile", "p", "trust", "allow", PEER, "--json"]),
             Err(
-                "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share and store discard"
+                "--json applies to the verbs that read, and to send, cancel, retry, unkeep, card share, store discard and identity new-key"
                     .to_owned()
             )
         );
@@ -714,6 +897,28 @@ mod tests {
             })
         ));
         assert!(discard(&["--confirm", "yes"]).is_err());
+        assert!(discard(&["--confirm", "key-change"]).is_err());
+        let new_key = |extra: &[&str]| {
+            let mut args = vec!["--profile", "p", "identity", "new-key"];
+            args.extend_from_slice(extra);
+            run(&args)
+        };
+        assert!(matches!(
+            new_key(&[]),
+            Ok(Command::Run {
+                verb: Verb::IdentityNewKey { confirm: false },
+                ..
+            })
+        ));
+        assert!(matches!(
+            new_key(&["--confirm", "key-change"]),
+            Ok(Command::Run {
+                verb: Verb::IdentityNewKey { confirm: true },
+                ..
+            })
+        ));
+        assert!(new_key(&["--confirm", "everything"]).is_err());
+        assert!(new_key(&["--confirm", "yes"]).is_err());
         assert!(discard(&["--confirm"]).is_err());
         assert!(discard(&["--confirm", "everything", "--confirm", "everything"]).is_err());
         assert!(
