@@ -32,6 +32,8 @@ and whether ``channel_enable`` is sent:
   e-no-flag          org allow entry; no flag, no channel_enable (control)
   f-dev-flag-only    no managed settings; the development flag, no
                      channel_enable (control: fact 4, on the bridge)
+  g-enable-only      org allow entry; no flag; channel_enable
+  h-no-allowed-tools as b, without --allowedTools (INSTALL.md's command)
 
 The session's first user turn asks for READY now and, when a channel tag
 arrives later, one call of the bridge's reply tool. Nothing is sent after
@@ -74,6 +76,11 @@ RUNS = {
     "d-enable-dev-flag": {"settings": None, "flags": DEV, "enable": True, "traffic": False},
     "e-no-flag": {"settings": ALLOW, "flags": [], "enable": False, "traffic": True, "reply": False},
     "f-dev-flag-only": {"settings": None, "flags": DEV, "enable": False, "traffic": True, "reply": False},
+    # Added on review: g isolates channel_enable (a also had --channels);
+    # h is INSTALL.md's documented command, which grants no tool.
+    "g-enable-only": {"settings": ALLOW, "flags": [], "enable": True, "traffic": True, "reply": True},
+    "h-no-allowed-tools": {"settings": ALLOW, "flags": CHANNELS, "enable": False, "traffic": True,
+                           "reply": None, "allowed": False},
 }
 ANSWER_S = 120
 FIRST_TURN = ("This is a test of the InterWeave channel. Reply now with the single word READY. Later, when a "
@@ -184,7 +191,7 @@ def main() -> int:
 
         debug = out / "debug.txt"
         io = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]
-        allowed = ["--allowedTools", TOOL + "reply", TOOL + "status"]
+        allowed = ["--allowedTools", TOOL + "reply", TOOL + "status"] if spec.get("allowed", True) else []
         cmd = [CLAUDE, *io, *allowed, "--debug-file", str(debug), *spec["flags"]]
         record["command"] = ["claude", *io, *allowed, "--debug-file", "$RAW/debug.txt", *spec["flags"]]
         record["sandbox"] = "bwrap: the host's /etc entries read-only, /etc/claude-code a scratch directory read-only"
@@ -244,7 +251,8 @@ def main() -> int:
             turn = session.wait_for(lambda v: v.get("type") in ("assistant", "user"), 1, since=mark)
             steps.append({"turn_after_event_at_s": turn[1] if turn else None,
                           "peer_received_reply_at_s": replied})
-            passed = bool(sent) and (replied is not None) == spec["reply"]
+            # reply None: the outcome is what the run measures, either way.
+            passed = bool(sent) and (spec["reply"] is None or (replied is not None) == spec["reply"])
         else:
             passed = bool(first) and (not spec["enable"] or bool(steps[0]["channel_enable"]))
         record["steps"] = steps
