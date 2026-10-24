@@ -11,16 +11,20 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
+use interweave_human_chat_protocol::Card;
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_client_api::{
     AddressChangeFailure, AddressProblem, ClientEvent, Destination, Diagnostics, Inbound,
     OutboundUpdate, RowError, SendError, SessionState,
 };
 use interweave_human_store::identity_key::IdentityKey;
-use interweave_human_store::{AcceptUndo, ReadEphemeral, RowId, StoreError};
+use interweave_human_store::{AcceptUndo, HumanStore, ReadEphemeral, RowId, StoreError};
 use interweave_human_transport_client::{CancelledSend, TransportClient};
-use interweave_human_ui_model::{ConversationKey, PhotoEdit, Proposal, ProposalContext, Table};
+use interweave_human_ui_model::{
+    ContactView, ConversationKey, PhotoEdit, Proposal, ProposalContext, Table,
+};
 use interweave_local_client_api::{AdminBinding, DataSessionBinding};
+use interweave_transport_api::{EndpointId, TransportIdentity};
 
 use crate::protocol::{Command, Failure, Listing, Update};
 use crate::{cards, listing};
@@ -453,9 +457,9 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
             held,
             accept: Some(accepted.undo),
         }));
-        updates.push(Update::ContactsListed(
-            cards::contact_views(self.client.store_mut()).map_err(|e| store_failure(&e))?,
-        ));
+        // The Accept is written: a contacts list that cannot be read now is
+        // a problem of its own, never a refusal of what was done (#414 F8).
+        updates.push(contacts_update(self.client.store_mut()));
         self.proposals_again(updates);
         Ok(())
     }
@@ -477,58 +481,45 @@ impl<B: DataSessionBinding, A: AdminBinding> FacadeSide<B, A> {
         Ok(())
     }
 
-    /// Undo the last Accept or Decline, of `row`: the store writes back
-    /// what the Accept changed, and the proposal returns, read, judged as
-    /// the store stands now -- a contact deleted since leaves a first card
-    /// again, never a contact made again. A refusal comes only before the
-    /// store wrote anything, and keeps what the Undo needs, so the Accept
-    /// stands as the snackbar said and nothing the person decided is lost.
-    /// Once the store wrote it, the Undo is done whatever follows: a card
-    /// that cannot be judged again does not return, and says so
-    /// ([`not_restored`]).
+    /// Undo the last Accept or Decline, of `row`, by [`undo_answer`]'s
+    /// rule: refused only while the store wrote nothing, which keeps what
+    /// the Undo needs; done once the store wrote it, whatever reading
+    /// afterwards does.
     fn undo_card(&mut self, row: RowId, updates: &mut Vec<Update>) -> Result<(), Failure> {
         let Some(undo) = self.card_undo.take_if(|u| u.row == row) else {
             return Err(Failure::NoSuchRow);
         };
         let Some((peer, endpoint, card)) = cards::card_of(&undo.held) else {
+            self.card_undo = Some(undo);
             return Err(Failure::NotACard);
         };
-        if let Some(accept) = &undo.accept
-            && let Err(e) = self.client.store_mut().undo_accept(accept)
-        {
-            let why = store_failure(&e);
-            self.card_undo = Some(undo);
-            return Err(why);
-        }
-        let context = match cards::context(self.client.store_mut(), &peer, &endpoint, &card) {
-            Ok(context) => context,
-            Err(e) => {
-                let contacts = undo
-                    .accept
-                    .is_some()
-                    .then(|| cards::contact_views(self.client.store_mut()).ok())
-                    .flatten();
-                updates.extend(not_restored(row, store_failure(&e), contacts));
-                return Ok(());
-            }
-        };
-        let received_at = undo.held.received_at();
-        self.copies.insert((Table::Unread, row), undo.held);
-        updates.push(Update::ProposalRestored(Box::new(Proposal {
+        let answer = UndoneAnswer {
             row,
             peer,
             endpoint,
             card,
-            received_at,
-            context,
-        })));
-        if undo.accept.is_some() {
-            updates.push(Update::ContactsListed(
-                cards::contact_views(self.client.store_mut()).map_err(|e| store_failure(&e))?,
-            ));
-            self.proposals_again(updates);
+            received_at: undo.held.received_at(),
+        };
+        match undo_answer(
+            self.client.store_mut(),
+            answer,
+            undo.accept.as_ref(),
+            updates,
+        ) {
+            Err(why) => {
+                self.card_undo = Some(undo);
+                Err(why)
+            }
+            Ok(restored) => {
+                if restored {
+                    self.copies.insert((Table::Unread, row), undo.held);
+                }
+                if undo.accept.is_some() {
+                    self.proposals_again(updates);
+                }
+                Ok(())
+            }
         }
-        Ok(())
     }
 
     /// The content of a card's row, its durable copy gone, and whether
@@ -904,21 +895,107 @@ impl<V> ReadCopies<V> {
     }
 }
 
-/// An Undo of a card's answer the store carried out, whose card could not
-/// be judged again afterwards (#414 F2): the read's failure is reported,
-/// the contacts are sent as the store now holds them when they can be
-/// read, and the proposal does not return -- the model drops the
-/// confirmation row and announces the Undo, never a refusal, since the
-/// store changed.
-fn not_restored(
+/// What an Undo of a card's answer reads and writes in the store: the
+/// human store, or a test's that fails at the step it is told to.
+pub(crate) trait CardStore {
+    /// What an Accept handed back for its Undo.
+    type Undo;
+    /// Write back what the Accept changed.
+    fn undo_accept(&mut self, undo: &Self::Undo) -> Result<bool, StoreError>;
+    /// Judge the card again, as the store stands.
+    fn judge(
+        &mut self,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+        card: &Card,
+    ) -> Result<ProposalContext, StoreError>;
+    /// The contacts, for the model.
+    fn contacts(&mut self) -> Result<Vec<ContactView>, StoreError>;
+}
+
+impl CardStore for HumanStore {
+    type Undo = AcceptUndo;
+
+    fn undo_accept(&mut self, undo: &AcceptUndo) -> Result<bool, StoreError> {
+        Self::undo_accept(self, undo)
+    }
+
+    fn judge(
+        &mut self,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+        card: &Card,
+    ) -> Result<ProposalContext, StoreError> {
+        cards::context(self, peer, endpoint, card)
+    }
+
+    fn contacts(&mut self) -> Result<Vec<ContactView>, StoreError> {
+        cards::contact_views(self)
+    }
+}
+
+/// The answered card an Undo brings back.
+struct UndoneAnswer {
     row: RowId,
-    read: Failure,
-    contacts: Option<Vec<interweave_human_ui_model::ContactView>>,
-) -> Vec<Update> {
-    let mut updates = vec![Update::UnreadNotListed(read)];
-    updates.extend(contacts.map(Update::ContactsListed));
-    updates.push(Update::ProposalNotRestored(row));
-    updates
+    peer: TransportIdentity,
+    endpoint: EndpointId,
+    card: Card,
+    received_at: u64,
+}
+
+/// Undo an answer (#414 F2, F7, F8): `accept` is what an Accept handed
+/// back, `None` for a Decline.
+///
+/// - Refused, `Err`, only while the store wrote nothing: an Accept's
+///   write-back the store refused, or a Decline's card that cannot be
+///   judged again -- the answer stands as the snackbar said.
+/// - Done, `Ok`, once an Accept's write-back is in the store: the
+///   proposal returns judged as the store stands (`Ok(true)`), or, when it
+///   cannot be judged, [`Update::CardsNotRead`] and
+///   [`Update::ProposalNotRestored`] say so (`Ok(false)`); a contacts list
+///   that cannot be read is [`Update::CardsNotRead`] too, never a refusal.
+fn undo_answer<S: CardStore>(
+    store: &mut S,
+    answer: UndoneAnswer,
+    accept: Option<&S::Undo>,
+    updates: &mut Vec<Update>,
+) -> Result<bool, Failure> {
+    if let Some(accept) = accept {
+        store.undo_accept(accept).map_err(|e| store_failure(&e))?;
+    }
+    let restored = match store.judge(&answer.peer, &answer.endpoint, &answer.card) {
+        Ok(context) => {
+            updates.push(Update::ProposalRestored(Box::new(Proposal {
+                row: answer.row,
+                peer: answer.peer,
+                endpoint: answer.endpoint,
+                card: answer.card,
+                received_at: answer.received_at,
+                context,
+            })));
+            true
+        }
+        Err(e) if accept.is_none() => return Err(store_failure(&e)),
+        Err(e) => {
+            updates.push(Update::CardsNotRead(store_failure(&e)));
+            updates.push(Update::ProposalNotRestored(answer.row));
+            false
+        }
+    };
+    if accept.is_some() {
+        updates.push(contacts_update(store));
+    }
+    Ok(restored)
+}
+
+/// The contacts after a write to them that is done: listed, or, when they
+/// cannot be read, [`Update::CardsNotRead`] -- never a refusal of the
+/// write (#414 F8).
+fn contacts_update(store: &mut impl CardStore) -> Update {
+    match store.contacts() {
+        Ok(contacts) => Update::ContactsListed(contacts),
+        Err(e) => Update::CardsNotRead(store_failure(&e)),
+    }
 }
 
 #[cfg(test)]
@@ -1123,32 +1200,134 @@ mod tests {
         );
     }
 
-    /// #414 F2: an Undo written but not judged again is reported as done,
-    /// never as a refusal -- the read failure said, the contacts as they
-    /// stand, and the proposal named as not returning.
+    /// The store step a test store fails at.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Step {
+        Write,
+        Judge,
+        Contacts,
+    }
+
+    /// A store that fails at the step it is told to, recording a write.
+    #[derive(Default)]
+    struct Failing {
+        at: Option<Step>,
+        written: bool,
+    }
+
+    impl Failing {
+        fn at(step: Step) -> Self {
+            Self {
+                at: Some(step),
+                written: false,
+            }
+        }
+
+        fn fails(&self, step: Step) -> Result<(), StoreError> {
+            if self.at == Some(step) {
+                return Err(StoreError::Corrupt("told to".to_owned()));
+            }
+            Ok(())
+        }
+    }
+
+    impl super::CardStore for Failing {
+        type Undo = ();
+
+        fn undo_accept(&mut self, (): &()) -> Result<bool, StoreError> {
+            self.fails(Step::Write)?;
+            self.written = true;
+            Ok(true)
+        }
+
+        fn judge(
+            &mut self,
+            _: &TransportIdentity,
+            _: &EndpointId,
+            _: &Card,
+        ) -> Result<ProposalContext, StoreError> {
+            self.fails(Step::Judge)?;
+            Ok(ProposalContext {
+                updates: None,
+                shares_node: Vec::new(),
+                same_name: Vec::new(),
+                key_matches: Vec::new(),
+                key: interweave_human_ui_model::KeyView::New,
+                fingerprint: "0123456789abcdef".to_owned(),
+                changes_nothing: false,
+            })
+        }
+
+        fn contacts(&mut self) -> Result<Vec<ContactView>, StoreError> {
+            self.fails(Step::Contacts)?;
+            Ok(Vec::new())
+        }
+    }
+
+    fn answer() -> super::UndoneAnswer {
+        super::UndoneAnswer {
+            row: RowId::from_stored(7),
+            peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
+                .expect("a PeerId"),
+            endpoint: EndpointId::parse("human").expect("an endpoint"),
+            card: Card {
+                app_message_id: "0".repeat(32),
+                name: "Ada".to_owned(),
+                surname: None,
+                photo: None,
+                identity_key: [1; 32],
+                sent_at_ms: None,
+                from_endpoint: None,
+            },
+            received_at: 1,
+        }
+    }
+
+    fn kinds(updates: &[Update]) -> Vec<&'static str> {
+        updates
+            .iter()
+            .map(|u| match u {
+                Update::ProposalRestored(_) => "restored",
+                Update::ProposalNotRestored(_) => "not restored",
+                Update::ContactsListed(_) => "contacts",
+                Update::CardsNotRead(_) => "not read",
+                _ => "other",
+            })
+            .collect()
+    }
+
+    /// #414 F2, F7, F8: an Undo is refused only while the store wrote
+    /// nothing; once an Accept's write-back is in, it is done, and what
+    /// could not be read afterwards is said as a problem of its own.
     #[test]
-    fn an_undo_written_but_not_judged_again_is_done_and_says_the_card_is_not_back() {
-        let row = RowId::from_stored(7);
-        let updates = super::not_restored(row, Failure::Corrupt, Some(Vec::new()));
+    fn an_undo_is_refused_only_while_the_store_wrote_nothing() {
+        let run = |store: &mut Failing, accept: bool| {
+            let mut updates = Vec::new();
+            let end = super::undo_answer(store, answer(), accept.then_some(&()), &mut updates);
+            (end, kinds(&updates))
+        };
+        // An Accept's write-back refused: nothing written, refused.
+        let mut s = Failing::at(Step::Write);
+        assert_eq!(run(&mut s, true), (Err(Failure::Corrupt), vec![]));
+        // A Decline whose card cannot be judged: it wrote nothing, refused.
+        let mut s = Failing::at(Step::Judge);
+        assert_eq!(run(&mut s, false), (Err(Failure::Corrupt), vec![]));
+        // An Accept written, its card not judged: done, not back, said.
+        let mut s = Failing::at(Step::Judge);
         assert_eq!(
-            updates,
-            vec![
-                Update::UnreadNotListed(Failure::Corrupt),
-                Update::ContactsListed(Vec::new()),
-                Update::ProposalNotRestored(row),
-            ]
+            run(&mut s, true),
+            (Ok(false), vec!["not read", "not restored", "contacts"])
         );
-        assert!(
-            !updates.iter().any(|u| matches!(u, Update::Failed { .. })),
-            "the store changed: no refusal"
-        );
+        assert!(s.written);
+        // An Accept written and judged, its contacts unread: done, back.
+        let mut s = Failing::at(Step::Contacts);
+        assert_eq!(run(&mut s, true), (Ok(true), vec!["restored", "not read"]));
+        // Everything read: back, with the contacts.
+        let mut s = Failing::default();
+        assert_eq!(run(&mut s, true), (Ok(true), vec!["restored", "contacts"]));
         assert_eq!(
-            super::not_restored(row, Failure::Corrupt, None),
-            vec![
-                Update::UnreadNotListed(Failure::Corrupt),
-                Update::ProposalNotRestored(row),
-            ],
-            "contacts that cannot be read are not sent"
+            run(&mut Failing::default(), false),
+            (Ok(true), vec!["restored"])
         );
     }
 }
