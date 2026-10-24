@@ -186,7 +186,9 @@ pub mod cases {
     /// The far end of [`ADDED_ADDRESS`]: hold no bootstrap address for the
     /// peer, wait until its row reads connected -- the peer's dial -- and
     /// then until the peer has left, so this side's runtime outlives the
-    /// dialler's reading of its own row.
+    /// dialler's reading of its own row. With `apart`, stay up and
+    /// listening for the window with the peer unconnected instead: the
+    /// far end of [`ADDED_ADDRESS`]'s control.
     /// Arguments: [`super::AwaitPeerArgs`]; answers
     /// [`super::keys::REMOVED_FIRST`] and [`super::keys::CONNECTED_AFTER`].
     pub const AWAIT_PEER: &str = "await_peer";

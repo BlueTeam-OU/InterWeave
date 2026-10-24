@@ -450,15 +450,24 @@ pub struct AwaitPeerArgs {
     /// How long the dial may take, and then how long the peer may stay
     /// before it leaves.
     pub deadline: Duration,
+    /// In place of a dial, a window this side stays up and listening
+    /// with the peer unconnected: the far end of `added_address`'s
+    /// control. On a device the case's process is the runtime, so without
+    /// a case running nothing would be listening to dial.
+    pub apart: Option<Duration>,
 }
 
 impl AwaitPeerArgs {
-    /// The JSON a host passes: `peer` and `deadline_ms` (optional).
+    /// The JSON a host passes: `peer`, `deadline_ms` (optional) and
+    /// `apart_ms` (optional).
     #[must_use]
     pub fn to_json(&self) -> Value {
         let mut out = Map::new();
         out.insert("peer".to_owned(), self.peer.as_str().into());
         out.insert("deadline_ms".to_owned(), ms(self.deadline).into());
+        if let Some(apart) = self.apart {
+            out.insert("apart_ms".to_owned(), ms(apart).into());
+        }
         Value::Object(out)
     }
 
@@ -470,6 +479,10 @@ impl AwaitPeerArgs {
         Ok(Self {
             peer: peer_arg(args, "peer")?,
             deadline: duration_arg(args, "deadline_ms", Some(DEFAULT_DEADLINE))?,
+            apart: match args.get("apart_ms") {
+                None => None,
+                Some(_) => Some(duration_arg(args, "apart_ms", None)?),
+            },
         })
     }
 }
@@ -477,7 +490,8 @@ impl AwaitPeerArgs {
 /// [`crate::cases::AWAIT_PEER`]'s body: this side holds no bootstrap
 /// address for the peer -- an added one from an earlier run is removed
 /// first, an authored one fails the case -- so a connection that comes up
-/// is the peer's dial. It ends once the peer has left again.
+/// is the peer's dial. It ends once the peer has left again; with
+/// `apart`, it instead fails if the peer connects within the window.
 pub(crate) async fn await_peer(
     binding: &impl AdminBinding,
     args: &AwaitPeerArgs,
@@ -516,7 +530,27 @@ pub(crate) async fn await_peer(
         }
         removed_first = true;
     }
+    let mut out = Map::new();
+    out.insert(
+        keys::REMOVED_FIRST.to_owned(),
+        removed_first.to_string().into(),
+    );
     let started = tokio::time::Instant::now();
+    if let Some(apart) = args.apart {
+        while started.elapsed() < apart {
+            let row = row_of(&port, peer)
+                .await?
+                .ok_or_else(|| format!("no peer row for {}: is it trusted?", peer.as_str()))?;
+            if row.connected {
+                return Err(format!(
+                    "{} connected within the {apart:?} it was to stay apart: {row:?}",
+                    peer.as_str()
+                ));
+            }
+            tokio::time::sleep(POLL).await;
+        }
+        return Ok(out);
+    }
     let until = started + args.deadline;
     loop {
         let row = row_of(&port, peer)
@@ -555,11 +589,6 @@ pub(crate) async fn await_peer(
         }
         tokio::time::sleep(POLL).await;
     }
-    let mut out = Map::new();
-    out.insert(
-        keys::REMOVED_FIRST.to_owned(),
-        removed_first.to_string().into(),
-    );
     out.insert(
         keys::CONNECTED_AFTER.to_owned(),
         ms(connected_after).to_string().into(),
@@ -914,8 +943,17 @@ mod tests {
         let waited = AwaitPeerArgs {
             peer: p.clone(),
             deadline: Duration::from_secs(9),
+            apart: None,
         };
-        assert_eq!(AwaitPeerArgs::from_json(&waited.to_json()), Ok(waited));
+        assert_eq!(
+            AwaitPeerArgs::from_json(&waited.to_json()),
+            Ok(waited.clone())
+        );
+        let apart = AwaitPeerArgs {
+            apart: Some(Duration::from_secs(20)),
+            ..waited
+        };
+        assert_eq!(AwaitPeerArgs::from_json(&apart.to_json()), Ok(apart));
         for expect in [
             PairExpect::Apart(Duration::from_secs(5)),
             PairExpect::Crosses {

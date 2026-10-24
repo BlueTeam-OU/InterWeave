@@ -239,20 +239,22 @@ async fn added_address_across<D: Device>(
 
     for (step, add) in [("before the restart", true), ("after the restart", false)] {
         let apart = (!add && sources == Sources::Neither).then_some(Duration::from_secs(15));
-        // The far end waits for a dial only where one is due.
-        let far = apart.is_none().then(|| {
-            b.device.run_case(
-                cases::AWAIT_PEER,
-                &AwaitPeerArgs {
-                    peer: a_peer.clone(),
-                    deadline: PATIENCE * 2,
-                }
-                .to_json(),
-            )
-        });
-        if let Some(far) = &far {
-            until_listening(b.at, far, || log(a, b)).await;
-        }
+        // The far end is up and listening in every step, the control's
+        // included: on a device B's runtime lives only while a B case
+        // runs, and a control measured against nothing listening would
+        // pass whatever A still held. B's window is meant to outlast A's
+        // (A's starts only once B listens); the assertion below fails the
+        // control if it did not.
+        let far = b.device.run_case(
+            cases::AWAIT_PEER,
+            &AwaitPeerArgs {
+                peer: a_peer.clone(),
+                deadline: PATIENCE * 2,
+                apart: apart.map(|apart| apart + Duration::from_secs(15)),
+            }
+            .to_json(),
+        );
+        until_listening(b.at, &far, || log(a, b)).await;
         let near = a
             .device
             .run_case(
@@ -272,14 +274,23 @@ async fn added_address_across<D: Device>(
             )
             .result();
         passed(&near, &format!("A {step}"), &log(a, b));
-        let Some(far) = far else {
+        if apart.is_some() {
+            assert!(
+                !far.is_finished(),
+                "B's case ended before A's window did: part of the control ran \
+                 with nothing listening\n{}",
+                log(a, b)
+            );
+            let far = far.result();
+            passed(&far, &format!("B {step}"), &log(a, b));
             println!(
-                "{step}: A {} stayed unconnected to {} for {apart:?} with neither source left",
+                "{step}: A {} stayed unconnected to {} for {apart:?} with neither source left, \
+                 B up and listening throughout",
                 a_peer.as_str(),
                 b.address()
             );
             break;
-        };
+        }
         // A has read its row; ending it is what ends B's case, which
         // waits for A to leave so its runtime outlives that read.
         match between.take() {
